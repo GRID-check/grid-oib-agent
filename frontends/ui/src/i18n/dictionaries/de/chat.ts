@@ -195,6 +195,18 @@ export const chat: typeof en.chat = {
       composing: 'Antwort wird formuliert …',
       runningNamed: '{name} …',
     },
+    // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
+    // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
+    executedSteps: 'Ausgeführt:',
+    stepName: {
+      understanding: 'Einordnung',
+      routing: 'Rechercheweg',
+      webSearch: 'Websuche',
+      ris: 'RIS',
+      corpus: 'OIB-Korpus',
+      assistant: 'Assistent',
+      reading: 'Lesen',
+    },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
     // Wiederverbindung kann eine laufende Antwort verwerfen (Protokoll-

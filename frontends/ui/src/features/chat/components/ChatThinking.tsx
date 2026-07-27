@@ -19,6 +19,7 @@ import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
 import { deriveTraceSourceCards } from '../lib/trace-lanes'
 import { deriveLiveActivity } from '../lib/live-activity'
+import { deriveExecutedSteps } from '../lib/executed-steps'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
 import { type ChoicePrompt } from './reasoning'
@@ -123,6 +124,10 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   const liveActivity = deriveLiveActivity(steps, t)
   const activityLabel = liveActivity ?? t('thinking.working')
   const elapsedSeconds = useElapsedSeconds(isThinking)
+
+  // "What actually ran" — one compact chip per executed agent/tool, so the
+  // Herleitung names its steps without the technical-steps opt-in.
+  const executedSteps = useMemo(() => deriveExecutedSteps(steps, t), [steps, t])
 
   const hasSignal =
     steps.length > 0 ||
@@ -264,8 +269,35 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   routingDecision={routingDecision}
                   routingReason={routingReason}
                   escalationReason={escalationReason}
+                  live={isThinking}
                 />
               </div>
+
+              {/* Executed steps — what actually ran, as compact chips. Only
+                  shown when the Herleitung is expanded. */}
+              {executedSteps.length > 0 && (
+                <div className="flex flex-col gap-2 px-4 pb-4 pt-3">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                    {t('thinking.executedSteps')}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {executedSteps.map((s) => (
+                      <span
+                        key={s.key}
+                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                      >
+                        {s.running && (
+                          <span
+                            aria-hidden="true"
+                            className="size-1.5 animate-pulse rounded-full bg-brand"
+                          />
+                        )}
+                        {s.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Basis footer — the data sources + files this query ran against,
                   as clean pills. Only shown when the Herleitung is expanded. */}

@@ -55,16 +55,19 @@ const classify = (functionName: string): LiveActivityKey | null => {
 
 /**
  * The step that best represents the current moment: the newest step still in
- * progress if there is one, otherwise simply the newest step (its output is the
- * last thing that happened). Deep-research steps are excluded upstream by the
- * caller, matching the rest of ChatThinking.
+ * progress, or `null` when every step is complete. A COMPLETED step must never
+ * drive the "right now" phrase — after `Function Complete: web_search_tool`
+ * the backend goes quiet while the LLM composes, and falling back to that
+ * finished step left the header shimmering "Searching the web …" for the whole
+ * compose phase. When nothing is running the caller shows the generic working
+ * copy instead. Deep-research steps are excluded upstream by the caller,
+ * matching the rest of ChatThinking.
  */
 const currentStep = (steps: ThinkingStep[]): ThinkingStep | null => {
-  if (steps.length === 0) return null
   for (let i = steps.length - 1; i >= 0; i -= 1) {
     if (!steps[i].isComplete) return steps[i]
   }
-  return steps[steps.length - 1]
+  return null
 }
 
 /**

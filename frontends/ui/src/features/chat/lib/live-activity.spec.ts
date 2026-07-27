@@ -50,6 +50,17 @@ describe('deriveLiveActivity', () => {
     expect(deriveLiveActivity(steps, t)).toBe('thinking.activity.searchingWeb')
   })
 
+  test('returns null when every step is complete — a finished step never drives the live phrase', () => {
+    // The stale-label bug: after `Function Complete: web_search_tool` the
+    // backend goes quiet while the LLM composes; the header must NOT keep
+    // shimmering "Searching the web …" for that finished step.
+    const steps = [
+      step({ id: '1', functionName: 'intent_classifier', isComplete: true }),
+      step({ id: '2', functionName: 'web_search_tool', isComplete: true }),
+    ]
+    expect(deriveLiveActivity(steps, t)).toBeNull()
+  })
+
   test('falls back to the step display name for an unclassifiable step', () => {
     const result = deriveLiveActivity([step({ functionName: 'xyz', displayName: 'Custom Step' })], t)
     // runningNamed template is "{name} …"; the echo translator returns the key,

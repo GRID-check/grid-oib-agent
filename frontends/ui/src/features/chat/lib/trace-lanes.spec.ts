@@ -91,6 +91,28 @@ describe('laneForHitClient', () => {
     })
     expect(laneForHitClient({ sourceUrl: 'https://oib.or.at/anything' }).key).toBe('baurecht_oib')
   })
+
+  test('classifies wien.gv.at as behördliche Information (Baurecht family), not web', () => {
+    // The MA-37 (Baupolizei Wien) registry pointer must never read as a web
+    // search hit; the behoerde lane maps to the law/baurecht signal.
+    expect(laneForHitClient({ sourceUrl: 'https://www.wien.gv.at/wohnen/baupolizei' })).toEqual({
+      key: 'behoerde',
+      label: 'Behördliche Information',
+    })
+    expect(laneKeyToSignal(laneForHitClient({ sourceUrl: 'https://wien.gv.at/x' }).key)).toBe('law')
+  })
+
+  test('matches official domains on the host boundary, not as a substring', () => {
+    // Lookalike hosts and URLs that merely mention a domain in the path/query
+    // must not inherit an authoritative lane.
+    expect(laneForHitClient({ sourceUrl: 'https://evil.example/wien.gv.at' }).key).toBe('web')
+    expect(laneForHitClient({ sourceUrl: 'https://evil.example/?q=ris.bka.gv.at' }).key).toBe('web')
+    expect(laneForHitClient({ sourceUrl: 'https://wien.gv.at.evil.example/x' }).key).toBe('web')
+    expect(laneForHitClient({ sourceUrl: 'https://notoib.or.at/x' }).key).toBe('web')
+    // Real hosts still match, case-insensitively and with subdomains.
+    expect(laneForHitClient({ sourceUrl: 'https://WWW.WIEN.GV.AT/x' }).key).toBe('behoerde')
+    expect(laneForHitClient({ sourceUrl: 'wien.gv.at/wohnen' }).key).toBe('behoerde')
+  })
 })
 
 describe('parseTraceLanesBlock', () => {

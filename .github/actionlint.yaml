@@ -1,0 +1,6 @@
+# actionlint configuration.
+# Declare the Blacksmith runner labels used by this repo's workflows so
+# actionlint does not report them as unknown `runs-on` values.
+self-hosted-runner:
+  labels:
+    - blacksmith-4vcpu-ubuntu-2404

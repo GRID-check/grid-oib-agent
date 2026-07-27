@@ -50,6 +50,37 @@ in light and dark, the same bar as desktop.
 2. **Add the target** to `frontends/ui/visual/registry.mjs` with an `id`, `path`, `description`, and a `waitFor` selector that only appears once the surface has rendered (e.g. a `data-testid`).
    - **Capturing a `:focus-visible` state?** Add `tabStops: <n>` — the harness presses Tab that many times before the shot so keyboard focus (and only keyboard focus) engages `:focus-visible`. The `focus-ring` target uses this to guard the rounded focus outline (Tab 1 is the layout's "Skip to content" link, Tab 2 the first control). Programmatic `.focus()` is deliberately not used because it doesn't reliably trigger `:focus-visible`.
 3. **Run** `npm run screenshots -- <id>` and commit the resulting PNGs alongside the change.
+4. **PR preview (automatic):** when the PR diff adds a new target id to the
+   registry, the `screenshot-preview` workflow (`.github/workflows/screenshot-preview.yml`)
+   captures just those new ids (desktop + mobile, light + dark), uploads them as
+   the `screenshot-previews` artifact and links it from a **sticky PR comment**,
+   so reviewers get the rendered surface without checking out the branch.
+   The comment *links* the PNGs instead of embedding them because this
+   repository is **private**: GitHub renders comment images through an anonymous
+   proxy that 404s on every URL into a private repo, so inline previews are not
+   possible here (an earlier revision pushed the PNGs to a `screenshot-previews`
+   branch and referenced `raw.githubusercontent.com`; it could only ever have
+   rendered broken images). Committing the PNGs in step 3 remains the way
+   reviewers see them rendered, in the diff. The workflow is informational only
+   and never blocks the PR, and it runs for same-repo PRs only (fork tokens are
+   read-only and cannot receive comments).
+
+## Visual coverage gate (CI)
+
+A new **user-visible component** (`frontends/ui/src/features/**/components/**`,
+`frontends/ui/src/components/**` — excluding `components/ui` primitives and
+spec files) is expected to ship with visual evidence in the same PR: a
+`/dev/<name>` preview route + a registry target + committed PNGs. The
+`visual-coverage` workflow (`.github/workflows/visual-coverage.yml`) checks
+this on every PR that adds components:
+
+- **Phase 1 (current): comment-only.** If the PR adds a component but no new
+  registry target and no new `/dev/*` route, it posts a sticky nudge comment
+  listing the uncovered files. It never blocks the PR — flip it to a required
+  check once the noise is tuned (same phased rollout as Semgrep/OSV).
+- **Escape hatch:** a component that genuinely is not a user-visible surface
+  (internal wrapper, logic-only helper) opts out with a
+  `// no-visual: <reason>` marker comment in the file.
 
 ## Gotchas learned the hard way (keep these here, not in your head)
 
@@ -77,11 +108,20 @@ in light and dark, the same bar as desktop.
   `DocumentKindThumbnail` sketch renders instead — backend-free and stable
   across runs (no presigned-URL churn), which is exactly what you want for a
   reproducible screenshot.
-- **Chromium is pre-installed; do not download it.** `PLAYWRIGHT_BROWSERS_PATH`
-  points at `/opt/pw-browsers` (`chromium-<rev>/chrome-linux/chrome`), and
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is set. The harness uses `playwright-core`
-  and resolves that binary via `executablePath`; override with `CHROMIUM_PATH`
-  if resolution fails. `--no-sandbox` is required in the container.
+- **Chromium is pre-installed; do not download it** — *in the dev container*.
+  There `PLAYWRIGHT_BROWSERS_PATH` points at `/opt/pw-browsers`
+  (`chromium-<rev>/chrome-linux/chrome`) and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
+  is set. The harness uses `playwright-core` and resolves that binary via
+  `executablePath`; override with `CHROMIUM_PATH` if resolution fails.
+  `--no-sandbox` is required in the container. **CI runners ship no such
+  browser**, so `.github/workflows/screenshot-preview.yml` runs
+  `npx playwright-core install chromium` once per lockfile (cached in
+  `~/.cache/ms-playwright`) and the harness falls back to Playwright's own path.
+- **Never stage CI output in a dot-directory.** `actions/upload-artifact@v4`
+  skips hidden paths unless `include-hidden-files: true`, and with
+  `if-no-files-found: ignore` it does so *silently*: the preview job copied four
+  PNGs into `.preview-out`, logged them, uploaded an empty artifact and every
+  preview comment then reported "produced no files". Stage into `preview-out`.
 - **Wait for `networkidle` *and* the `waitFor` selector.** `next dev` compiles
   routes lazily, so the first navigation to a route is slow (generous 120s goto
   timeout). Waiting only for load fires before the resolution fetch settles;

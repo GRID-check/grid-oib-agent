@@ -28,6 +28,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-live',
+    mobile: true,
+    path: '/dev/herleitung?variant=live',
+    description:
+      'Herleitung mid-stream — live activity phrase (in-progress step only), animated edges, executed-step chips with the running pulse, elapsed pill; narrow width shows the grouped Quellen node with two straight centred edges.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'chat-turn',
     mobile: true,
     path: '/dev/chat-turn',

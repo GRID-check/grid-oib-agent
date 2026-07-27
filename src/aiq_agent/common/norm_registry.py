@@ -31,6 +31,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 import yaml
 from pydantic import BaseModel
@@ -878,6 +879,26 @@ def guess_display_title(file_name: str) -> str | None:
     return f"{title}, {tail}" if tail else title
 
 
+def _host_matches(source_url: str | None, domain: str) -> bool:
+    """True when *source_url*'s host is ``domain`` or a subdomain of it.
+
+    Lanes are provenance labels, so they must key off the real host: a substring
+    test would also accept lookalike hosts (``wien.gv.at.evil.example``) and mere
+    path/query text (``evil.example/?q=wien.gv.at``). Mirrors ``isHost`` in the
+    frontend ``trace-lanes`` client.
+    """
+    raw = (source_url or "").strip()
+    if not raw:
+        return False
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    try:
+        host = (urlparse(raw).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == domain or host.endswith(f".{domain}")
+
+
 def lane_for_hit(
     *,
     doc_class: str | None = None,
@@ -913,12 +934,17 @@ def lane_for_hit(
         doc_class = oib_doc_class(Path(file_name).name)
         if doc_class:
             return _OIB_CLASS_LANES[doc_class]
-    if source_url and "ris.bka.gv.at" in source_url:
+    if _host_matches(source_url, "ris.bka.gv.at"):
         if registry:
             for entry in registry.entries:
                 if entry.document_number and entry.document_number in source_url:
                     return _RANK_LANES[entry.rank]
         return ("baurecht_ris", "Rechtsquelle (RIS)")
+    # wien.gv.at is the curated MA-37 (Baupolizei Wien) registry pointer —
+    # official municipal building information, Baurecht family, never Web.
+    # Mirrors the frontend laneForHitClient so both render paths agree.
+    if _host_matches(source_url, "wien.gv.at"):
+        return ("behoerde", "Behördliche Information")
     if collection:  # a named KB collection that is not project/archiv: the base corpus
         return ("baurecht_oib", "OIB-Richtlinie")
     return ("web", "Web")

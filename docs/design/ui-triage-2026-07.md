@@ -38,9 +38,15 @@ product/visual sign-off on a running app, or is larger follow-up work.
    inner card). Verified in light + dark via `/dev` previews (`chat-turn`,
    `herleitung`, `confirm-dialog`).
 7. **Herleitung** — the collapsed reasoning trace is now a real streamed React
-   Flow node graph (framing → parallel source fan-out → assessment → branches),
-   responsive to a single-column chain on narrow widths; no overlapping
-   connectors.
+   Flow node graph (framing → parallel source fan-out → assessment → branches).
+   The live status phrase derives only from an *in-progress* step (a finished
+   web search no longer keeps shimmering "Searching the web …" while the LLM
+   composes); an "Ausgeführt:" chip row shows what actually ran (Einordnung ·
+   Websuche · OIB-Korpus · RIS …) with a pulse on the active step; edges animate
+   while the turn streams; and on narrow widths the source cards stack inside
+   one grouped Quellen node so connectors stay straight and centred (no slanted
+   or card-piercing edges). wien.gv.at (MA 37 / Baupolizei Wien) lanes as
+   "Behördliche Information" (Baurecht family), never as a web hit.
 
 Everything below marked **[backlog]** is the prioritized remainder.
 

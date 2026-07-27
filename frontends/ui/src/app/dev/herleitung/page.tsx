@@ -12,6 +12,9 @@
  *     the branches node directly (per-source handles, no single-point collapse);
  *     a long question + many branch options exercise the measured, content-driven
  *     layout (tall nodes must not overlap).
+ *   - live     → a turn mid-stream: completed steps + an in-progress web search,
+ *     so the live activity phrase, animated edges, executed-step chips (with the
+ *     running pulse) and the elapsed pill all render.
  */
 
 import { useEffect, useState } from 'react'
@@ -125,6 +128,42 @@ const branchesCommon = {
   },
 }
 
+// Live scenario: a turn mid-stream — a completed classification, the KB hit,
+// and an in-progress web search. Exercises the live activity phrase (shown only
+// while the step actually runs), the animated edges, the executed-step chips
+// with the running pulse, and the elapsed-time pill.
+const liveCommon = {
+  steps: [
+    {
+      id: 'intent',
+      userMessageId: 'msg-1',
+      category: 'agents' as const,
+      functionName: 'intent_classifier',
+      displayName: 'Intent Classifier',
+      content: '',
+      isComplete: true,
+      timestamp: new Date('2024-01-15T14:30:00'),
+    },
+    { ...step, id: 'kb' },
+    {
+      id: 'web',
+      userMessageId: 'msg-1',
+      category: 'tools' as const,
+      functionName: 'web_search_tool',
+      displayName: 'Web Search Tool',
+      content: '',
+      isComplete: false,
+      timestamp: new Date('2024-01-15T14:30:05'),
+    },
+  ],
+  isThinking: true as const,
+  defaultOpen: true,
+  userQuestion: defaultCommon.userQuestion,
+  enabledDataSources: defaultCommon.enabledDataSources,
+  routingDecision: 'shallow' as const,
+  routingReason: defaultCommon.routingReason,
+}
+
 export default function HerleitungPreviewPage() {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
@@ -137,11 +176,14 @@ export default function HerleitungPreviewPage() {
     setVariant(new URLSearchParams(window.location.search).get('variant'))
   }, [])
 
-  const common = variant === 'branches' ? branchesCommon : defaultCommon
+  const common =
+    variant === 'branches' ? branchesCommon : variant === 'live' ? liveCommon : defaultCommon
   const label =
     variant === 'branches'
       ? '/dev/herleitung?variant=branches — sources → branches (no findings)'
-      : '/dev/herleitung — reasoning graph (desktop + mobile)'
+      : variant === 'live'
+        ? '/dev/herleitung?variant=live — mid-stream turn (live status + chips)'
+        : '/dev/herleitung — reasoning graph (desktop + mobile)'
 
   return (
     <main className="min-h-dvh bg-background px-4 py-10">

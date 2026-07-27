@@ -1,0 +1,242 @@
+# Screenshot preview comments — when a PR adds a new visual target to
+# frontends/ui/visual/registry.mjs, run the screenshot harness for ONLY the new
+# ids (desktop + mobile, light + dark) and point reviewers at the PNGs from a
+# sticky PR comment. Informational only: a harness failure must never block the
+# PR.
+#
+# The comment LINKS the artifact instead of embedding the images. This
+# repository is private and GitHub renders comment images through its anonymous
+# camo proxy, which gets a 404 for every URL into a private repo, so inline
+# previews are impossible here. An earlier revision pushed the PNGs to a
+# `screenshot-previews` branch and referenced raw.githubusercontent.com; that
+# could only ever have rendered as four broken images, so the branch, the push
+# and the write scope it needed are gone.
+#
+# Capture and comment are DELIBERATELY separate jobs: capture executes
+# PR-controlled code (registry import, `npm ci`, the app itself) with a read-only
+# token and no persisted credential; the commenting job checks out nothing, runs
+# no PR code and is the only job holding write scope.
+
+name: Screenshot preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - frontends/ui/visual/registry.mjs
+      # Re-run when the workflow itself changes, so a fix to this plumbing is
+      # exercised on the PR that makes it instead of on some later PR.
+      - .github/workflows/screenshot-preview.yml
+
+# One run per PR at a time; a fresh push cancels the stale comment build.
+concurrency:
+  group: screenshot-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Least privilege per job: the jobs that execute PR-controlled code (registry
+# import, `npm ci`, the harness) run read-only, and no job keeps a checkout
+# credential in the workspace — the write token is injected only into the publish
+# step, after all PR-controlled steps have finished.
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect new screenshot targets
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Fork PRs get a read-only token and cannot receive comments — skip them.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    outputs:
+      has_new: ${{ steps.diff.outputs.has_new }}
+      ids: ${{ steps.diff.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Diff registry against the PR base
+        id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # No `git fetch` here: `fetch-depth: 0` above already fetched every
+          # branch, so `origin/$BASE_REF` is present — and with
+          # `persist-credentials: false` a fetch would fail for lack of a
+          # credential.
+          BASE_FILE=$(mktemp --suffix=.mjs)
+          if git cat-file -e "origin/$BASE_REF:frontends/ui/visual/registry.mjs" 2>/dev/null; then
+            git show "origin/$BASE_REF:frontends/ui/visual/registry.mjs" > "$BASE_FILE"
+          else
+            # Registry did not exist on the base — every target is new.
+            echo 'export const SCREENSHOT_TARGETS = []' > "$BASE_FILE"
+          fi
+
+          # Ids flow into a shell command, a filename glob and a comment body, so
+          # only accept the registry's own safe id shape and drop anything else.
+          IDS=$(node --input-type=module -e "
+            import { pathToFileURL } from 'node:url'
+            const base = (await import(pathToFileURL('$BASE_FILE'))).SCREENSHOT_TARGETS ?? []
+            const head = (await import(pathToFileURL('frontends/ui/visual/registry.mjs'))).SCREENSHOT_TARGETS ?? []
+            const baseIds = new Set(base.map((t) => t.id))
+            const ids = head
+              .filter((t) => !baseIds.has(t.id))
+              .map((t) => t.id)
+              .filter((id) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))
+            process.stdout.write(ids.join(' '))
+          ")
+
+          echo "ids=$IDS" >> "$GITHUB_OUTPUT"
+          if [ -n "$IDS" ]; then
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+            echo "New screenshot targets: $IDS"
+          else
+            echo "has_new=false" >> "$GITHUB_OUTPUT"
+            echo "No new screenshot targets in this PR."
+          fi
+
+  # Untrusted half: runs PR code, holds no write scope and no credential.
+  capture:
+    name: Capture previews
+    needs: detect
+    if: needs.detect.outputs.has_new == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    outputs:
+      count: ${{ steps.stage.outputs.count }}
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # The steps below run PR-controlled dependency scripts and app code —
+          # they must never find a repository credential in the workspace.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontends/ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontends/ui
+        run: npm ci
+
+      - name: Cache the Playwright Chromium download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}
+
+      - name: Install Chromium for playwright-core
+        # The `/opt/pw-browsers` pre-install in docs/ux/visual-screenshots.md is the
+        # DEV-CONTAINER contract; CI runners ship no such browser, so playwright-core
+        # fetches its own here — the cache above keeps that to once per lockfile.
+        working-directory: frontends/ui
+        run: npx playwright-core install chromium
+
+      - name: Capture screenshots for the new targets
+        working-directory: frontends/ui
+        env:
+          IDS: ${{ needs.detect.outputs.ids }}
+        # Unquoted on purpose: the ids are a validated, space-separated list.
+        run: npm run screenshots -- $IDS
+
+      - name: Stage generated PNGs
+        id: stage
+        working-directory: frontends/ui
+        env:
+          IDS: ${{ needs.detect.outputs.ids }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # NOT a dot-directory: actions/upload-artifact skips hidden paths
+          # unless `include-hidden-files` is set, so the previous `.preview-out`
+          # staged four PNGs and then uploaded an empty artifact, which is why
+          # every preview comment reported "produced no files".
+          OUT="$GITHUB_WORKSPACE/preview-out"
+          mkdir -p "$OUT"
+          for id in $IDS; do
+            for f in "visual/screenshots/$id".*.png; do
+              cp "$f" "$OUT/"
+            done
+          done
+          echo "count=$(find "$OUT" -maxdepth 1 -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: screenshot-previews
+          path: preview-out
+          if-no-files-found: ignore
+
+  # Privileged half: no checkout of PR code, no dependency install, no app code —
+  # it only reports what capture produced, so the write-scoped token is never
+  # reachable from anything the PR controls.
+  comment:
+    name: Comment with the previews
+    needs: [detect, capture]
+    # Runs even when capture failed, so a broken harness is reported in the
+    # comment rather than as silence.
+    if: ${{ !cancelled() && needs.detect.outputs.has_new == 'true' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      pull-requests: write # upsert the sticky comment
+    steps:
+      - name: Upsert the sticky PR comment
+        uses: actions/github-script@v7
+        env:
+          IDS: ${{ needs.detect.outputs.ids }}
+          COUNT: ${{ needs.capture.outputs.count }}
+          ARTIFACT_URL: ${{ needs.capture.outputs.artifact_url }}
+        with:
+          script: |
+            const pr = context.payload.pull_request.number
+            const ids = (process.env.IDS || '').split(' ').filter(Boolean)
+            const count = Number(process.env.COUNT || 0)
+            const artifactUrl = process.env.ARTIFACT_URL || ''
+            const marker = '<!-- screenshot-preview -->'
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const list = ids.map((id) => `\`${id}\``).join(', ')
+
+            const ok = count > 0 && artifactUrl
+            const body = (ok
+              ? [
+                  marker,
+                  '## Screenshot previews',
+                  `Captured ${count} PNG(s) for ${list} (desktop + mobile, light + dark).`,
+                  '',
+                  `**[Download the \`screenshot-previews\` artifact](${artifactUrl})**`,
+                  '',
+                  'Linked rather than inlined because this repository is private: GitHub fetches',
+                  'comment images through an anonymous proxy, which 404s on every URL into a',
+                  'private repo. Commit the PNGs under `frontends/ui/visual/screenshots/` to make',
+                  'them reviewable in the diff.',
+                ]
+              : [
+                  marker,
+                  '## Screenshot previews',
+                  `Screenshot capture produced no files for ${list}. See the [workflow log](${runUrl}).`,
+                ]
+            ).concat([
+              '',
+              '<sub>Generated by the screenshot-preview workflow. Informational only.</sub>',
+            ]).join('\n')
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: pr,
+              per_page: 100,
+            })
+            const existing = comments.find((c) => c.body?.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body })
+            }
