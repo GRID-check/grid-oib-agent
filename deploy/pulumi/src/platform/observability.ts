@@ -1,0 +1,152 @@
+import * as k8s from "@pulumi/kubernetes";
+import * as pulumi from "@pulumi/pulumi";
+import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.networking.k8s.io/v1/IHTTPRouteSpec";
+import { GridConfig } from "../config";
+import { commonLabels } from "./namespaces";
+import { GATEWAY_NAME } from "./gateway";
+
+const COMPONENT = "aspire-dashboard";
+const DASHBOARD_PORT = 18888;
+const OTLP_GRPC_PORT = 4317;
+const OTLP_HTTP_PORT = 4318;
+
+export interface Observability {
+  deployment: k8s.apps.v1.Deployment;
+  service: k8s.core.v1.Service;
+  route: k8s.apiextensions.CustomResource;
+}
+
+/**
+ * Deploys the .NET Aspire standalone dashboard as a single-replica Deployment
+ * behind the shared Gateway on its own `https-otel` listener.
+ *
+ * The dashboard is a plain container — no .NET workload or AppHost. It stores
+ * telemetry in an in-memory ring buffer (lost on restart). Only the UI
+ * (:18888) is exposed via an HTTPRoute; OTLP ingestion (:4317/:4318) is
+ * cluster-internal and API-key protected.
+ *
+ * Auth: WorkOS AuthKit OIDC via the existing WorkOS client (reusing the API key
+ * as the OIDC client secret). RequiredClaim gates on org_id = platform org.
+ */
+export function installObservabilityDashboard(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+  namespace: pulumi.Input<string>,
+  otlpApiKey: pulumi.Output<string>,
+  workosApiKey: pulumi.Output<string>,
+  dependsOn: pulumi.Resource[],
+): Observability {
+  const labels = commonLabels(COMPONENT);
+  const name = COMPONENT;
+  const { observability: obs } = cfg;
+
+  // The OIDC client secret for the built-in Aspire OIDC RP is the WorkOS API
+  // key (AuthKit uses the API key as the OIDC client secret).
+  const deployment = new k8s.apps.v1.Deployment(
+    "aspire-dashboard",
+    {
+      metadata: { name, namespace, labels },
+      spec: {
+        replicas: 1,
+        selector: { matchLabels: labels },
+        template: {
+          metadata: { labels },
+          spec: {
+            enableServiceLinks: false,
+            securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 },
+            containers: [
+              {
+                name: "dashboard",
+                image: obs.dashboardImage,
+                imagePullPolicy: "IfNotPresent",
+                ports: [
+                  { containerPort: DASHBOARD_PORT, name: "dashboard" },
+                  { containerPort: OTLP_GRPC_PORT, name: "otlp-grpc" },
+                  { containerPort: OTLP_HTTP_PORT, name: "otlp-http" },
+                ],
+                env: [
+                  // UI access — OIDC via WorkOS AuthKit.
+                  { name: "Dashboard:Frontend:AuthMode", value: "OpenIdConnect" },
+                  { name: "Dashboard:Frontend:OpenIdConnect:Authority", value: "https://api.workos.com" },
+                  { name: "Dashboard:Frontend:OpenIdConnect:ClientId", value: cfg.auth.workosClientId },
+                  { name: "Dashboard:Frontend:OpenIdConnect:ClientSecret", value: workosApiKey },
+                  // Claim gate: only GRID Platform organization members pass.
+                  { name: "Dashboard:Frontend:OpenIdConnect:RequiredClaimType", value: "org_id" },
+                  { name: "Dashboard:Frontend:OpenIdConnect:RequiredClaimValue", value: obs.platformOrgId },
+                  // Public URL for OIDC redirects.
+                  { name: "Dashboard:Frontend:PublicUrl", value: `https://${obs.otelDomain}` },
+                  // App identity in the UI.
+                  { name: "Dashboard:ApplicationName", value: "Grid" },
+                  // OTLP ingestion auth (cluster-internal callers present the key).
+                  { name: "Dashboard:Otlp:AuthMode", value: "ApiKey" },
+                  { name: "Dashboard:Otlp:PrimaryApiKey", value: otlpApiKey },
+                  // Raised ring-buffer limits for a useful live-view window.
+                  { name: "Dashboard:TelemetryLimits:MaxLogCount", value: String(obs.telemetryLimits.maxLogCount) },
+                  { name: "Dashboard:TelemetryLimits:MaxTraceCount", value: String(obs.telemetryLimits.maxTraceCount) },
+                ],
+                resources: {
+                  requests: { cpu: "100m", memory: "256Mi" },
+                  limits: { cpu: "500m", memory: "1Gi" },
+                },
+                startupProbe: {
+                  httpGet: { path: "/", port: DASHBOARD_PORT },
+                  periodSeconds: 10,
+                  failureThreshold: 30,
+                },
+                readinessProbe: {
+                  httpGet: { path: "/", port: DASHBOARD_PORT },
+                  periodSeconds: 15,
+                  timeoutSeconds: 5,
+                },
+                livenessProbe: {
+                  httpGet: { path: "/", port: DASHBOARD_PORT },
+                  periodSeconds: 20,
+                  timeoutSeconds: 5,
+                  failureThreshold: 6,
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+    { provider, dependsOn },
+  );
+
+  // Cluster-internal Service: the UI port for the HTTPRoute target, and the
+  // two OTLP ports for backend/worker pods to send traces.
+  const service = new k8s.core.v1.Service(
+    "aspire-dashboard",
+    {
+      metadata: { name, namespace, labels },
+      spec: {
+        selector: labels,
+        ports: [
+          { port: DASHBOARD_PORT, targetPort: DASHBOARD_PORT, name: "dashboard" },
+          { port: OTLP_GRPC_PORT, targetPort: OTLP_GRPC_PORT, name: "otlp-grpc" },
+          { port: OTLP_HTTP_PORT, targetPort: OTLP_HTTP_PORT, name: "otlp-http" },
+        ],
+      },
+    },
+    { provider, dependsOn: deployment },
+  );
+
+  // HTTPRoute for the UI only — OTLP endpoints remain cluster-internal.
+  const routeSpec: IHTTPRouteSpec = {
+    parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-otel" }],
+    hostnames: [obs.otelDomain],
+    rules: [{ backendRefs: [{ name, port: DASHBOARD_PORT }] }],
+  };
+  const route = new k8s.apiextensions.CustomResource(
+    "grid-otel-route",
+    {
+      apiVersion: "gateway.networking.k8s.io/v1",
+      kind: "HTTPRoute",
+      metadata: { name: "grid-otel", namespace, labels: commonLabels(COMPONENT) },
+      spec: routeSpec,
+    },
+    { provider, dependsOn: service },
+  );
+
+  return { deployment, service, route };
+}
