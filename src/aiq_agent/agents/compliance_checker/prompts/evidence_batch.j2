@@ -27,4 +27,4 @@ Beurteile fuer JEDE Anforderung im Batch (requirement_id muss exakt einer der ob
 
 Zitiere kurze, woertliche Belegstellen (evidence_quotes) mit den zugehoerigen Dateinamen (source_files), sofern vorhanden. Stelle bei Unklarheiten eine konkrete offene Frage (open_question), sonst null. Antworte ausschliesslich als JSON-Objekt gemaess dem vorgegebenen Schema (EvidenceBatchResult).
 
-Falls eine projektbestimmende Information fehlt (z.B. Fluchtniveau für die Gebäudeklasse nicht im Projektkontext), setze den Nachweisstatus auf "kein_nachweis" und vermerke die fehlende Information als open_question.
+Falls eine für die konkrete Anforderung erforderliche projektbestimmende Information fehlt und deshalb der Nachweis nicht bewertet werden kann, setze den Nachweisstatus auf "kein_nachweis" und vermerke die fehlende Information als open_question.

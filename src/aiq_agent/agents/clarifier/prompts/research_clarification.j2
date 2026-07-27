@@ -78,7 +78,7 @@ Examples that MAY need clarification:
 When the user is asking about Austrian building regulations (OIB, Baurecht, Bauordnung) and the project context is available:
 - The project context carries `country=&lt;cc&gt;` and `bundesland=&lt;token&gt;` lines. If these conflict with the user's plain-language request (e.g., user says "in Tirol" but context has `bundesland=wien`), ask, because jurisdiction determines the answer.
 - If a hard-required fact for building-regulation answers is missing from the project context (such as fluchtniveau_m for building class, or bundesland is `unknown:`) and the question needs it, ask one clarifying question rather than sending an underspecified research request. But only when the missing fact truly changes the answer.
-- Non-AT country projects: the OIB corpus and RIS are Austrian-only. Clarify whether the user wants an Austrian-law answer for comparison, or guidance for another jurisdiction.
+- Non-AT country projects: the OIB corpus and RIS are Austrian-only. Ask whether Austrian-law comparison is wanted only when the request leaves the target jurisdiction or comparison intent unclear; otherwise proceed with the stated jurisdiction and disclose this limitation.
 
 When the user's intent is clear (e.g., "what does OIB-RL 2 say about building class 4" with bundesland known), do NOT ask clarification — proceed with research.
 
