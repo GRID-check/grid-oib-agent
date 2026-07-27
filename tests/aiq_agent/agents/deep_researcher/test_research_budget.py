@@ -21,9 +21,10 @@ from langchain_core.tools import tool
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolResultPruningMiddleware
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.models import ResearchQuery
+from aiq_agent.agents.deep_researcher.tools.research import _UNRESEARCHABLE_NARRATIVE
+from aiq_agent.agents.deep_researcher.tools.research import _UNRESEARCHABLE_SUMMARY
 from aiq_agent.agents.deep_researcher.tools.research import MAX_QUERY_SUBMISSIONS
 from aiq_agent.agents.deep_researcher.tools.research import RESEARCH_NOTE_MAX_CHARS
-from aiq_agent.agents.deep_researcher.tools.research import RESEARCHER_RECURSION_LIMIT
 from aiq_agent.agents.deep_researcher.tools.research import _research_note_files
 from aiq_agent.agents.deep_researcher.tools.research import _terminal_unresearchable_note
 from aiq_agent.agents.deep_researcher.tools.research import build_research_batch_tool
@@ -86,11 +87,11 @@ def _structured_response() -> dict:
 
 
 class TestGraphRecursionErrorIsTerminal:
-    """F1: GraphRecursionError surfaces as ResearcherExhaustedError, not a resubmittable RuntimeError."""
+    """F1: an exhausted worker becomes a terminal unresearchable note, not a resubmittable error."""
 
     @pytest.mark.asyncio
-    async def test_graph_recursion_error_raises_researcher_exhausted(self):
-        """GraphRecursionError from researcher.ainvoke ÔåÆ ResearcherExhaustedError (terminal)."""
+    async def test_graph_recursion_error_yields_terminal_note(self):
+        """GraphRecursionError ÔåÆ terminal unresearchable note (no resubmittable RuntimeError)."""
         from langgraph.errors import GraphRecursionError
 
         runnable = MagicMock()
@@ -103,12 +104,14 @@ class TestGraphRecursionErrorIsTerminal:
             researcher_tool_names={"web_search_tool"},
         )
 
-        with pytest.raises(RuntimeError, match="exceeded the step budget"):
-            await batch_tool.ainvoke({"queries": [_make_query()]})
+        result = await batch_tool.ainvoke({"queries": [_make_query()]})
+        payload = json.loads(result)
+        assert len(payload) == 1
+        assert payload[0]["summary"] == _UNRESEARCHABLE_SUMMARY
 
     @pytest.mark.asyncio
-    async def test_graph_recursion_error_message_includes_limit(self):
-        """The error message surfaces the step budget limit count."""
+    async def test_exhausted_worker_note_records_query_gap(self):
+        """The terminal note carries the query as an open gap for the orchestrator/writer."""
         from langgraph.errors import GraphRecursionError
 
         runnable = MagicMock()
@@ -121,8 +124,10 @@ class TestGraphRecursionErrorIsTerminal:
             researcher_tool_names={"web_search_tool"},
         )
 
-        with pytest.raises(RuntimeError, match=str(RESEARCHER_RECURSION_LIMIT)):
-            await batch_tool.ainvoke({"queries": [_make_query()]})
+        result = await batch_tool.ainvoke({"queries": [_make_query("stuck query")]})
+        payload = json.loads(result)
+        assert payload[0]["narrative_notes"] == _UNRESEARCHABLE_NARRATIVE
+        assert payload[0]["gaps"][0]["description"] == "Query: stuck query"
 
     @pytest.mark.asyncio
     async def test_run_budget_exceeded_passthrough(self):
@@ -303,6 +308,15 @@ class TestResearchNoteTruncation:
         payload = content.decode("utf-8")
         assert len(payload) <= RESEARCH_NOTE_MAX_CHARS + 200
         assert "[... truncated:" in payload
+
+    def test_truncated_note_stays_valid_json(self):
+        """A truncated note remains a round-trip-valid ResearchNotes, not sliced JSON."""
+        q = _make_query("big test")
+        note = self._big_note()
+        _path, content = _research_note_files([q], [note])[0]
+        # Parses as JSON and round-trips through the ResearchNotes contract.
+        reparsed = ResearchNotes.model_validate(json.loads(content.decode("utf-8")))
+        assert "[... truncated:" in reparsed.summary
 
     def test_small_note_passes_through(self):
         """A note under the size limit is persisted unchanged."""

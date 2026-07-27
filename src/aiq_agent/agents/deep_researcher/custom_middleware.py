@@ -534,7 +534,10 @@ class ToolResultPruningMiddleware(AgentMiddleware):
                 if len(oversized_indices) > self.keep_last_n
                 else list(oversized_indices)
             )
-            total_chars = sum(len(str(request.messages[i].content)) for i in kept_oversized_indices)
+            total_chars = sum(
+                len(self._truncated_by_id.get(request.messages[i].id, str(request.messages[i].content)))
+                for i in kept_oversized_indices
+            )
             for i in kept_oversized_indices:
                 if total_chars <= self.total_char_budget:
                     break
