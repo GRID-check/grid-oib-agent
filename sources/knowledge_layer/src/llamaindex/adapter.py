@@ -2507,11 +2507,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # operation (pypdfium2 page-1 render → fire-and-forget PUT to
                     # as soon as the backend has the file.
                     # NOTE: thumbnail is now generated pre-ingest in the
-                    # /v1/ingest route handler — this fallback remains for
-                    # any caller that submits jobs without going through that
-                    # endpoint (e.g. tests or future alternative front doors).
+                    # /v1/ingest route handler. That route sets
+                    # config["thumbnail_pregenerated"] once it has successfully
+                    # uploaded one, so this fallback only fires when pre-ingest
+                    # generation was absent or failed — for any caller that
+                    # submits jobs without going through that endpoint (tests or
+                    # future alternative front doors) or whose pre-render failed.
+                    # This avoids rendering + PUTting the thumbnail twice per file.
                     thumbnail_upload_url = config.get("thumbnail_upload_url")
-                    if thumbnail_upload_url and (is_pdf or is_image):
+                    if thumbnail_upload_url and (is_pdf or is_image) and not config.get("thumbnail_pregenerated"):
                         self._generate_and_upload_thumbnail(file_path, thumbnail_upload_url)
 
                     # Summary + tag classification are started AFTER visual

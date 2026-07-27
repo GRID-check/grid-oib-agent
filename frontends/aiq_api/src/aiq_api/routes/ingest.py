@@ -94,11 +94,16 @@ def add_ingest_routes(router: APIRouter):
             # a thumbnail is decorative and never blocks ingestion.
             if request.thumbnail_upload_url:
                 try:
-                    await asyncio.to_thread(
+                    pregenerated = await asyncio.to_thread(
                         _generate_and_upload_thumbnail,
                         temp_path,
                         request.thumbnail_upload_url,
                     )
+                    # Tell the ingest job the thumbnail already exists so it
+                    # skips its own (redundant) fallback render + PUT. On
+                    # failure the flag stays unset and the fallback still runs.
+                    if pregenerated:
+                        config["thumbnail_pregenerated"] = True
                 except Exception:
                     logger.warning("Pre-ingest thumbnail failed (swallowed)", exc_info=True)
 
@@ -175,13 +180,14 @@ def _extract_filename(url: str) -> str:
     return filename
 
 
-def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str) -> None:
+def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str) -> bool:
     """Render the first page of a PDF/image as a 200px JPEG and PUT it to the
     presigned SeaweedFS URL. Fail-open on any error (thumbnails are decorative).
 
     Called in the ingest request handler (before ``submit_job``) so the
-    thumbnail is available near-instantly — before the file even enters the
-    worker pool.
+    thumbnail is available near-instantly - before the file even enters the
+    worker pool. Returns ``True`` when a thumbnail was uploaded so the caller
+    can signal the ingest job to skip its redundant fallback render.
     """
     try:
         ext = os.path.splitext(file_path)[1].lower()
@@ -218,5 +224,7 @@ def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str) -> None:
             resp = httpx.put(thumbnail_url, content=thumbnail_bytes)
             resp.raise_for_status()
             logger.info("Pre-ingest thumbnail uploaded (%d bytes)", len(thumbnail_bytes))
+            return True
     except Exception:
         logger.warning("Pre-ingest thumbnail generation failed (swallowed)", exc_info=True)
+    return False

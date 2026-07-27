@@ -67,9 +67,11 @@ _VLM_CACHE_TTL_SECONDS = 30 * 86400
 def vlm_cache_key(image_bytes: bytes, prompt_type: str) -> str:
     """Content-hash cache key for a VLM analysis result.
 
-    ``prompt_type`` distinguishes ``"image"`` (the English chart/caption prompt)
-    from ``"drawing"`` (the German drawing-aware prompt) so a caption produced
-    by one prompt is never served for the other.
+    ``prompt_type`` distinguishes the prompt/mode that produced the result so a
+    caption from one prompt is never served for another: ``"drawing"`` (the
+    German drawing-aware prompt) versus ``"image:charts=<bool>"`` (the English
+    image prompt, keyed by ``extract_charts`` since the chart-aware and
+    descriptive variants yield different content_type/caption for the same bytes).
     """
     h = hashlib.sha256(image_bytes).hexdigest()
     return f"vlm:caption:{prompt_type}:{h}"
@@ -234,7 +236,11 @@ def enrich_vlm_batch(
     def _enrich_one_image(record: dict) -> tuple:
         content_type, caption = _cached_vlm_call(
             record["image_bytes"],
-            "image",
+            # The chart-aware and purely-descriptive prompts produce different
+            # content_type/caption for identical bytes, so ``extract_charts``
+            # is part of the cache identity — otherwise a re-ingest under a
+            # different setting would serve the stale other-mode result.
+            f"image:charts={extract_charts}",
             _adapter._analyze_image_with_vlm,
             record["image_bytes"],
             vlm_model=vlm_model,

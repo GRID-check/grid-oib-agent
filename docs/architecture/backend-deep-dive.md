@@ -569,15 +569,20 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. During ingestion (`_run_ingestion` in `adapter.py`), the thumbnail is
-   generated **early** — right after text extraction, before any VLM,
-   indexing, or summary work — so the BFF polling job status sees a
-   thumbnail as soon as the backend has the file in hand:
+3. The `/v1/ingest` route handler (`ingest.py`) generates the thumbnail
+   **pre-ingest**, before `submit_job`, so the BFF polling job status sees a
+   thumbnail almost immediately — before the file even enters the worker pool:
    - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
    - **Images**: PIL open → RGB → 200px JPEG quality 80.
+   On a successful upload the route sets `config["thumbnail_pregenerated"] = True`.
 4. The JPEG bytes are PUT to SeaweedFS via the presigned URL (pypdfium2
-   render is quick — ~50 ms per page — so it does not delay the pipeline
+   render is quick — ~50 ms per page — so it does not delay the request
    noticeably).
+5. `_run_ingestion` in `adapter.py` keeps a **fallback** thumbnail render
+   (400px) for callers that submit jobs without going through the route, or
+   whose pre-ingest render failed. It is skipped when
+   `config["thumbnail_pregenerated"]` is set, so the file is never rendered
+   and PUT twice.
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
