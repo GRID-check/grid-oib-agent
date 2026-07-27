@@ -356,7 +356,12 @@ def _purge_deep_checkpoint(job_id: str) -> None:
         engine = EventStore._get_or_create_sync_engine(dsn)
         with engine.connect() as conn:
             for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-                conn.execute(text(f"DELETE FROM {table} WHERE thread_id = :tid"), {"tid": job_id})  # noqa: S608
+                # Fixed table names (LangGraph schema); the thread id is bound.
+                conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(f"DELETE FROM {table} WHERE thread_id = :tid"),  # noqa: S608
+                    {"tid": job_id},
+                )
             conn.commit()
     except Exception:
         logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
