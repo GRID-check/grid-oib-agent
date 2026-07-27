@@ -27,7 +27,7 @@ import { installPostgres } from "./src/data/postgres";
 import { installDragonfly } from "./src/data/dragonfly";
 import { installSeaweedFS } from "./src/data/seaweedfs";
 import { installChroma } from "./src/data/chroma";
-import { AppWiring, buildSecrets } from "./src/app/config";
+import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { installBackend } from "./src/app/backend";
 import { installFrontend } from "./src/app/frontend";
@@ -73,6 +73,8 @@ const dragonfly = installDragonfly(cfg, provider, namespace);
 const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
+// Pull Secret for private app images (no-op when none are configured).
+const pullSecret = buildRegistryPullSecret(cfg, provider, namespace);
 const wiring: AppWiring = {
   cfg,
   namespace,
@@ -82,6 +84,7 @@ const wiring: AppWiring = {
   seaweedPublicEndpoint: seaweed.publicEndpoint,
   chromaUrl: chroma?.url,
   dsn: postgres.dsn,
+  imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
 };
 
 const secret = buildSecrets(wiring);
@@ -134,7 +137,9 @@ export const postgresRwHost = postgres.rwHost;
 export const backendService = backend.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
-export const schedulerDeployment = workers.scheduler.metadata.name;
+export const schedulerDeployment = workers.scheduler
+  ? workers.scheduler.metadata.name
+  : pulumi.output("(none: workflows disabled)");
 export const appRoute = routes.app.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
 export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");

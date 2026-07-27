@@ -26,6 +26,17 @@ export interface GridConfig {
     /** Full override for the frontend image ref. */
     frontend?: string;
     pullPolicy: string;
+    /**
+     * Registry credentials for pulling the app images when they are PRIVATE
+     * (e.g. a private GHCR package — the kubelet pulls anonymously, so a
+     * private image is an instant ImagePullBackOff without this). When set,
+     * the program creates a dockerconfigjson Secret ("grid-registry-pull") in
+     * the app namespace and wires it as imagePullSecrets on every app
+     * workload. Omit both values when the images are publicly pullable.
+     * Any long-lived token with read access works as the password (a GitHub
+     * PAT/OAuth token with read:packages for GHCR).
+     */
+    pullCredentials?: { username: string; password: pulumi.Output<string> };
   };
 
   storage: {
@@ -301,6 +312,14 @@ export function loadConfig(): GridConfig {
   const conversationBus = bool(cfg, "conversationBus", true);
   const imageTag = cfg.get("imageTag") ?? "latest";
 
+  const registryUsername = cfg.get("registryUsername");
+  const registryPassword = cfg.getSecret("registryPassword");
+  if ((registryUsername === undefined) !== (registryPassword === undefined)) {
+    throw new Error(
+      "grid-oib:registryUsername and grid-oib:registryPassword must be set together (or neither).",
+    );
+  }
+
   // Fail closed: db-claimed job payloads carry the user's auth token and persist
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
   // without a KEK to encrypt them at rest, unless plaintext is explicitly opted
@@ -345,6 +364,10 @@ export function loadConfig(): GridConfig {
       // IfNotPresent. Explicit `imagePullPolicy` always wins.
       pullPolicy:
         cfg.get("imagePullPolicy") ?? (imageTag === "latest" ? "Always" : "IfNotPresent"),
+      pullCredentials:
+        registryUsername && registryPassword
+          ? { username: registryUsername, password: registryPassword }
+          : undefined,
     },
 
     storage: {

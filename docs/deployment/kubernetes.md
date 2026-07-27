@@ -21,7 +21,7 @@ their own namespaces.
 | `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4 |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
-| `workflow-scheduler` | Deployment | 1 | — | n/a (DB-claimed ticks) |
+| `workflow-scheduler` | Deployment (only when `workflowsEnabled`) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
 | `seaweedfs` (S3) | StatefulSet | 1 | RWO PVC `/data` | See §4 |
@@ -60,6 +60,10 @@ Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──
 - Container images in a registry. The [`publish-images`](../../.github/workflows/publish-images.yml)
   workflow builds and pushes `grid-oib-backend` and `grid-oib-frontend` to GHCR
   on merge to `develop`. Pin `imageTag` to a commit SHA for reproducible deploys.
+  The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
+  `registryUsername` + `registryPassword` (a token with `read:packages`) so the
+  program creates the `grid-registry-pull` imagePullSecret — otherwise every app
+  pod lands in ImagePullBackOff.
 - Pulumi CLI + Node 20+.
 
 ### Storage — what it is and isn't

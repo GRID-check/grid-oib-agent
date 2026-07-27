@@ -12,7 +12,7 @@ name: Deploy (staging)
 # values live in deploy/pulumi/Pulumi.dev.yaml in THIS REPO, not in Pulumi
 # Cloud (which stores only state + the secrets-decryption key). CI reads the
 # checked-out file, so the configured stack file MUST BE COMMITTED:
-#   1. cd deploy/pulumi && pulumi stack init grid-check/dev
+#   1. cd deploy/pulumi && pulumi stack init matthiasbigl/dev
 #   2. Edit Pulumi.dev.yaml: real appDomain/s3Domain/letsEncryptEmail/
 #      workosClientId/storageClass (placeholders make the program fail closed).
 #   3. Set every secret with `pulumi config set --secret ...` (full list in the
@@ -154,7 +154,7 @@ jobs:
           curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
           sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
           export PATH="$HOME/.pulumi/bin:$PATH"
-          pulumi stack select grid-check/grid-oib/dev
+          pulumi stack select matthiasbigl/grid-oib/dev
           pulumi config set grid-oib:imageTag "sha-${DEPLOY_SHA}"
           pulumi preview --json > .plan.json
           node scripts/validate-crs.mjs .plan.json
@@ -165,7 +165,7 @@ jobs:
         uses: pulumi/actions@v6
         with:
           command: up
-          stack-name: grid-check/grid-oib/dev
+          stack-name: matthiasbigl/grid-oib/dev
           work-dir: deploy/pulumi
           refresh: true
           # Pin this run to the commit's immutable image tag (publish-images tags

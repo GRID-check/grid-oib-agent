@@ -15,9 +15,53 @@ export interface AppWiring {
   /** Shared Chroma server URL (set when cfg.chroma.enabled). */
   chromaUrl?: pulumi.Output<string>;
   dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
+  /**
+   * imagePullSecrets for every app pod spec — references the registry pull
+   * Secret when the app images are private, empty when they are public.
+   */
+  imagePullSecrets: { name: string }[];
 }
 
 const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+export const PULL_SECRET_NAME = "grid-registry-pull"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+
+/**
+ * dockerconfigjson pull Secret for the app namespace, created only when
+ * registry credentials are configured (private app images). Every app pod
+ * spec references it via imagePullSecrets; the data tier pulls public
+ * upstream images and needs nothing.
+ */
+export function buildRegistryPullSecret(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+  namespace: pulumi.Input<string>,
+): k8s.core.v1.Secret | undefined {
+  const creds = cfg.images.pullCredentials;
+  if (!creds) return undefined;
+  // Registry server = first path segment of the image registry
+  // ("ghcr.io/grid-check" → "ghcr.io").
+  const server = cfg.images.registry.split("/")[0];
+  const dockerConfigJson = creds.password.apply((pw) =>
+    JSON.stringify({
+      auths: {
+        [server]: {
+          username: creds.username,
+          password: pw,
+          auth: Buffer.from(`${creds.username}:${pw}`).toString("base64"),
+        },
+      },
+    }),
+  );
+  return new k8s.core.v1.Secret(
+    "grid-registry-pull",
+    {
+      metadata: { name: PULL_SECRET_NAME, namespace },
+      type: "kubernetes.io/dockerconfigjson",
+      stringData: { ".dockerconfigjson": dockerConfigJson },
+    },
+    { provider },
+  );
+}
 
 /**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
