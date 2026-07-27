@@ -25,7 +25,7 @@ IMPORTANT RULES:
   -#}
 
 ### Building-Regulation Planning
-When the project context contains a country=<cc> or bundesland=<token> line, the research plan will produce jurisdiction-specific results. For Austrian projects (country=at), the deep research pipeline will use OIB/RIS tools; for non-AT countries, the plan should note that the OIB corpus is Austrian-only and recommend the writer to state jurisdiction limitations. The project hard limits (fluchtniveau, storeys, area) should be reflected in the section headings when relevant (e.g., "Anforderungen an Gebäudeklasse 4 in Wien").
+When the project context contains a country=<cc> or bundesland=<token> line, the research plan will produce jurisdiction-specific results. For Austrian projects with confirmed `country=at` and no outside-Austria sentinel, the deep research pipeline will use OIB/RIS tools. For `country != at` OR `bundesland=ausserhalb_oesterreichs` (outside Austria even when no country line is present), note that the OIB corpus is Austrian-only and require jurisdiction limitations and local verification in the final answer. The project hard limits (fluchtniveau, storeys, area) should be reflected in the section headings when relevant (e.g., "Anforderungen an Gebäudeklasse 4 in Wien").
 
 OUTPUT FORMAT:
 ```json

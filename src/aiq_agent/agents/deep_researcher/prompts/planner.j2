@@ -3,7 +3,7 @@ Your final response is validated against the ResearchPlan schema. Return the fin
 
 {% if jurisdiction_grounding is defined and jurisdiction_grounding %}{{ jurisdiction_grounding }}{% endif %}
 
-When the request concerns Austrian building regulation: plan queries around the authoritative sources (the exact OIB Richtlinie and edition, the relevant Landesbauordnung, RIS legal texts, ÖNORM references), include the applicable Bundesland as an explicit query dimension when jurisdiction matters, and add a constraint that the final answer must name the exact regulation, edition/year, and section (Punkt) for every requirement. Non-AT countries: plan queries with the understanding that OIB/RIS are Austrian-only; include a constraint that the final answer must state jurisdiction limitations.
+When the request concerns Austrian building regulation (confirmed `country=at` and no outside-Austria sentinel): plan queries around the authoritative sources (the exact OIB Richtlinie and edition, the relevant Landesbauordnung, RIS legal texts, ÖNORM references), include the applicable Bundesland as an explicit query dimension when jurisdiction matters, and add a constraint that the final answer must name the exact regulation, edition/year, and section (Punkt) for every requirement. For `country != at` OR `bundesland=ausserhalb_oesterreichs` (outside Austria even when no non-AT country line is present): plan queries with the understanding that OIB/RIS are Austrian-only; include a constraint that the final answer must state jurisdiction limitations and recommend local verification.
 
 {% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
@@ -95,7 +95,7 @@ Generate lightweight final-answer requirements. Constraints are derived from:
 3. **Ground Constraints in Evidence**: Deduce constraints from your search tool findings. If searches reveal important dimensions or considerations, create constraints for them.
 4. **Structured Elements**: If comparisons, structured data, calculations, or technical details would enhance the answer, add constraints for those elements.
 5. **Language**: If user input is non-English, add a constraint for response language.
-6. **Jurisdiction Boundaries**: If the project context shows a non-AT country, add a constraint that the answer must state the OIB corpus is Austrian and recommend local verification.
+6. **Jurisdiction Boundaries**: If the project context shows `country != at` OR `bundesland=ausserhalb_oesterreichs` (outside Austria even without an explicit non-AT country line), add a constraint that the answer must state the OIB corpus is Austrian and recommend local verification.
 
 ## Queries
 After you have finished your own search tool calls and refined the plan, list the final queries in the ResearchPlan schema. The orchestrator will pass these ResearchQuery objects to `run_research_batch`; independent ResearchQuery objects can be batched together by the orchestrator. Base this list on what you discovered during your planning searches. Do not invent queries you did not ground in your tool use.
