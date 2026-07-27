@@ -81,4 +81,16 @@ describe('deriveExecutedSteps', () => {
     expect(chips).toHaveLength(1)
     expect(chips[0].running).toBe(true)
   })
+
+  test('a completed re-run clears the running flag of the earlier entry', () => {
+    const chips = deriveExecutedSteps(
+      [
+        step({ id: '1', functionName: 'web_search_tool', isComplete: false }),
+        step({ id: '2', functionName: 'web_search_tool', isComplete: true }),
+      ],
+      t
+    )
+    expect(chips).toHaveLength(1)
+    expect(chips[0].running).toBe(false)
+  })
 })

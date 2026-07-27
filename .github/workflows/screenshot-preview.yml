@@ -6,6 +6,12 @@
 # be embedded — so the PNGs are pushed to a `screenshot-previews` branch under
 # `pr-<number>/` and referenced via raw.githubusercontent.com. Informational
 # only: a harness failure must never block the PR.
+#
+# Capture and publish are DELIBERATELY separate jobs: capture executes
+# PR-controlled code (registry import, `npm ci`, the app itself) with a read-only
+# token and no persisted credential, then hands over a PNG artifact; publish
+# checks out nothing, validates that artifact and is the only job holding write
+# scope. So PR code never runs next to a credential that can write the repo.
 
 name: Screenshot preview
 
@@ -20,9 +26,12 @@ concurrency:
   group: screenshot-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Least privilege per job: the jobs that execute PR-controlled code (registry
+# import, `npm ci`, the harness) run read-only, and no job keeps a checkout
+# credential in the workspace — the write token is injected only into the publish
+# step, after all PR-controlled steps have finished.
 permissions:
-  contents: write # push the screenshot-previews branch
-  pull-requests: write # upsert the sticky comment
+  contents: read
 
 jobs:
   detect:
@@ -30,6 +39,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Fork PRs get a read-only token and cannot receive comments — skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
     outputs:
       has_new: ${{ steps.diff.outputs.has_new }}
       ids: ${{ steps.diff.outputs.ids }}
@@ -37,6 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Diff registry against the PR base
         id: diff
@@ -54,12 +66,18 @@ jobs:
             echo 'export const SCREENSHOT_TARGETS = []' > "$BASE_FILE"
           fi
 
+          # Ids flow into a shell command, a filename glob and a comment body, so
+          # only accept the registry's own safe id shape and drop anything else.
           IDS=$(node --input-type=module -e "
             import { pathToFileURL } from 'node:url'
             const base = (await import(pathToFileURL('$BASE_FILE'))).SCREENSHOT_TARGETS ?? []
             const head = (await import(pathToFileURL('frontends/ui/visual/registry.mjs'))).SCREENSHOT_TARGETS ?? []
             const baseIds = new Set(base.map((t) => t.id))
-            process.stdout.write(head.filter((t) => !baseIds.has(t.id)).map((t) => t.id).join(' '))
+            const ids = head
+              .filter((t) => !baseIds.has(t.id))
+              .map((t) => t.id)
+              .filter((id) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))
+            process.stdout.write(ids.join(' '))
           ")
 
           echo "ids=$IDS" >> "$GITHUB_OUTPUT"
@@ -71,15 +89,21 @@ jobs:
             echo "No new screenshot targets in this PR."
           fi
 
+  # Untrusted half: runs PR code, holds no write scope and no credential.
   capture:
-    name: Capture + publish previews
+    name: Capture previews
     needs: detect
     if: needs.detect.outputs.has_new == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          # The steps below run PR-controlled dependency scripts and app code —
+          # they must never find a repository credential in the workspace.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -91,50 +115,117 @@ jobs:
         working-directory: frontends/ui
         run: npm ci
 
+      - name: Cache the Playwright Chromium download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}
+
       - name: Install Chromium for playwright-core
+        # The `/opt/pw-browsers` pre-install in docs/ux/visual-screenshots.md is the
+        # DEV-CONTAINER contract; CI runners ship no such browser, so playwright-core
+        # fetches its own here — the cache above keeps that to once per lockfile.
         working-directory: frontends/ui
         run: npx playwright-core install chromium
 
       - name: Capture screenshots for the new targets
         working-directory: frontends/ui
-        run: npm run screenshots -- ${{ needs.detect.outputs.ids }}
+        env:
+          IDS: ${{ needs.detect.outputs.ids }}
+        # Unquoted on purpose: the ids are a validated, space-separated list.
+        run: npm run screenshots -- $IDS
 
       - name: Stage generated PNGs
         working-directory: frontends/ui
+        env:
+          IDS: ${{ needs.detect.outputs.ids }}
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/.preview-out"
-          for id in ${{ needs.detect.outputs.ids }}; do
+          for id in $IDS; do
             for f in "visual/screenshots/$id".*.png; do
               [ -e "$f" ] && cp "$f" "$GITHUB_WORKSPACE/.preview-out/"
             done
           done
           ls -la "$GITHUB_WORKSPACE/.preview-out"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-previews
+          path: .preview-out
+          if-no-files-found: ignore
+
+  # Privileged half: no checkout of PR code, no dependency install, no app code —
+  # it only consumes the validated PNG artifact, so the write-scoped token is never
+  # reachable from anything the PR controls.
+  publish:
+    name: Publish previews
+    needs: [detect, capture]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write # push the screenshot-previews branch
+      pull-requests: write # upsert the sticky comment
+    steps:
+      # A harness that produced nothing uploads no artifact; that is reported in the
+      # comment below, not as a red job.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshot-previews
+          path: .preview-out
+
+      - name: Validate the artifact contents
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p .preview-out
+          cd .preview-out
+          # Only real PNGs with registry-shaped names get published.
+          for f in *; do
+            [ -f "$f" ] || { echo "::error::unexpected non-file entry: $f"; exit 1; }
+            case "$f" in
+              *[!A-Za-z0-9._-]* | .* | *..*) echo "::error::rejected file name: $f"; exit 1 ;;
+              *.png) ;;
+              *) echo "::error::rejected non-PNG file: $f"; exit 1 ;;
+            esac
+            [ "$(file --brief --mime-type "$f")" = "image/png" ] || { echo "::error::not a PNG: $f"; exit 1; }
+          done
+          ls -la
+
       - name: Push PNGs to the screenshot-previews branch
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          IDS: ${{ needs.detect.outputs.ids }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          shopt -s nullglob
+          PNGS=("$GITHUB_WORKSPACE/.preview-out/"*.png)
+          if [ ${#PNGS[@]} -eq 0 ]; then
+            echo "No PNGs to publish — the comment step will report it."
+            exit 0
+          fi
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
           PREVIEWS=$(mktemp -d)
-          if git ls-remote --exit-code --heads origin screenshot-previews > /dev/null 2>&1; then
-            git clone --depth=1 --branch screenshot-previews "$(git remote get-url origin)" "$PREVIEWS"
+          if git ls-remote --exit-code --heads "$REMOTE" screenshot-previews > /dev/null 2>&1; then
+            git clone --depth=1 --branch screenshot-previews "$REMOTE" "$PREVIEWS"
           else
             git init -b screenshot-previews "$PREVIEWS"
-            git -C "$PREVIEWS" remote add origin "$(git remote get-url origin)"
+            git -C "$PREVIEWS" remote add origin "$REMOTE"
           fi
+          # Identity must be set on the previews clone — that is where we commit.
+          git -C "$PREVIEWS" config user.name "github-actions[bot]"
+          git -C "$PREVIEWS" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           mkdir -p "$PREVIEWS/pr-$PR_NUMBER"
-          cp "$GITHUB_WORKSPACE/.preview-out/"*.png "$PREVIEWS/pr-$PR_NUMBER/"
+          cp "${PNGS[@]}" "$PREVIEWS/pr-$PR_NUMBER/"
           git -C "$PREVIEWS" add "pr-$PR_NUMBER"
           if git -C "$PREVIEWS" diff --cached --quiet; then
             echo "Previews unchanged — nothing to push."
             exit 0
           fi
-          git -C "$PREVIEWS" commit -m "Screenshot previews for PR #$PR_NUMBER (${{ needs.detect.outputs.ids }})"
+          git -C "$PREVIEWS" commit -m "Screenshot previews for PR #$PR_NUMBER ($IDS)"
           # Rebase over any concurrent push from another PR's run.
           git -C "$PREVIEWS" fetch origin screenshot-previews || true
           git -C "$PREVIEWS" rebase origin/screenshot-previews || true
@@ -142,16 +233,19 @@ jobs:
 
       - name: Upsert the sticky PR comment
         uses: actions/github-script@v7
+        env:
+          IDS: ${{ needs.detect.outputs.ids }}
         with:
           script: |
             const fs = require('fs')
             const path = require('path')
             const pr = context.payload.pull_request.number
-            const ids = '${{ needs.detect.outputs.ids }}'.split(' ').filter(Boolean)
+            const ids = (process.env.IDS || '').split(' ').filter(Boolean)
             const marker = '<!-- screenshot-preview -->'
             const rawBase = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/screenshot-previews/pr-${pr}`
 
-            const files = fs.readdirSync(path.join(process.env.GITHUB_WORKSPACE, '.preview-out'))
+            const outDir = path.join(process.env.GITHUB_WORKSPACE, '.preview-out')
+            const files = fs.existsSync(outDir) ? fs.readdirSync(outDir) : []
             const sections = []
             for (const id of ids) {
               const variants = files.filter((f) => f.startsWith(`${id}.`) || f.startsWith(`${id}.mobile.`))

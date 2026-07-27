@@ -48,9 +48,11 @@ export const deriveExecutedSteps = (
     if (!name || step.isDeepResearch) continue
     if (SKIP_RE.test(name) || isLLMModel(name)) continue
     if (seen.has(name)) {
-      // A later re-run of the same tool refreshes the running flag.
+      // A later re-run of the same tool REPLACES the running flag — steps are
+      // newest last, so a completed re-run must clear a chip an earlier
+      // in-progress entry marked as running (restored turns carry both rows).
       const existing = out.find((e) => e.key === name)
-      if (existing) existing.running = existing.running || !step.isComplete
+      if (existing) existing.running = !step.isComplete
       continue
     }
     seen.add(name)

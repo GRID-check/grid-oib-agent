@@ -102,11 +102,15 @@ this on every PR that adds components:
   `DocumentKindThumbnail` sketch renders instead — backend-free and stable
   across runs (no presigned-URL churn), which is exactly what you want for a
   reproducible screenshot.
-- **Chromium is pre-installed; do not download it.** `PLAYWRIGHT_BROWSERS_PATH`
-  points at `/opt/pw-browsers` (`chromium-<rev>/chrome-linux/chrome`), and
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is set. The harness uses `playwright-core`
-  and resolves that binary via `executablePath`; override with `CHROMIUM_PATH`
-  if resolution fails. `--no-sandbox` is required in the container.
+- **Chromium is pre-installed; do not download it** — *in the dev container*.
+  There `PLAYWRIGHT_BROWSERS_PATH` points at `/opt/pw-browsers`
+  (`chromium-<rev>/chrome-linux/chrome`) and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
+  is set. The harness uses `playwright-core` and resolves that binary via
+  `executablePath`; override with `CHROMIUM_PATH` if resolution fails.
+  `--no-sandbox` is required in the container. **CI runners ship no such
+  browser**, so `.github/workflows/screenshot-preview.yml` runs
+  `npx playwright-core install chromium` once per lockfile (cached in
+  `~/.cache/ms-playwright`) and the harness falls back to Playwright's own path.
 - **Wait for `networkidle` *and* the `waitFor` selector.** `next dev` compiles
   routes lazily, so the first navigation to a route is slow (generous 120s goto
   timeout). Waiting only for load fires before the resolution fetch settles;
