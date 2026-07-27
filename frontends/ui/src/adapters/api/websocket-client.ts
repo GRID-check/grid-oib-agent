@@ -43,6 +43,8 @@ export interface ResponseTransparency {
    * match any source passage.
    */
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /** The model's own one-clause justification for its self-assessment, shown verbatim. */
+  answerConfidenceReason?: string
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
@@ -509,6 +511,7 @@ export class NATWebSocketClient {
             routingReason: message.routing_reason,
             escalationReason: message.escalation_reason,
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
+            answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,

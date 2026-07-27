@@ -594,6 +594,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           conversationId={conversationId}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
+          answerConfidenceReason={message.answerConfidenceReason}
           citationsRemoved={message.citationsRemoved}
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}

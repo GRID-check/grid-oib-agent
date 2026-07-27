@@ -358,6 +358,9 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.answerConfidenceCappedReason
       ? { answerConfidenceCappedReason: opts.transparency.answerConfidenceCappedReason }
       : {}),
+    ...(opts.transparency?.answerConfidenceReason
+      ? { answerConfidenceReason: opts.transparency.answerConfidenceReason }
+      : {}),
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
@@ -1169,6 +1172,9 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(transparency?.escalationReason ? { escalationReason: transparency.escalationReason } : {}),
         ...(transparency?.answerConfidenceCappedReason
           ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }
+          : {}),
+        ...(transparency?.answerConfidenceReason
+          ? { answerConfidenceReason: transparency.answerConfidenceReason }
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
         isStreaming: false,

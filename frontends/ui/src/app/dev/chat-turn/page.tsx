@@ -152,6 +152,7 @@ function CompletedTurn() {
         timestamp={new Date('2024-01-15T14:30:12')}
         citations={citations}
         answerConfidence="high"
+        answerConfidenceReason="OIB-RL 2 direkt als Quelle belegt"
         routingDecision="shallow"
         messageId="msg-a1"
       />

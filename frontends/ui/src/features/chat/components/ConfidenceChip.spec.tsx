@@ -55,4 +55,34 @@ describe('ConfidenceChip', () => {
     expect((await screen.findAllByText(/It can be wrong\./)).length).toBeGreaterThan(0)
     expect(screen.queryByText(/Low confidence:/)).not.toBeInTheDocument()
   })
+
+  test('shows the level meaning in the tooltip', async () => {
+    const user = userEvent.setup()
+    render(<ConfidenceChip confidence="high" />)
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/directly grounded in the retrieved sources/)).length)
+      .toBeGreaterThan(0)
+  })
+
+  test("shows the model's own reason verbatim in the tooltip when present", async () => {
+    const user = userEvent.setup()
+    render(<ConfidenceChip confidence="medium" reason="Keine Quelle zur Sonderregel" />)
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/Assistant's reason/)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/Keine Quelle zur Sonderregel/)).length).toBeGreaterThan(0)
+  })
+
+  test('shows no reason block when reason is absent', async () => {
+    const user = userEvent.setup()
+    render(<ConfidenceChip confidence="medium" />)
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/It can be wrong\./)).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Assistant's reason/)).not.toBeInTheDocument()
+  })
 })

@@ -579,6 +579,7 @@ class ShallowResearcherAgent:
         # detection". A bool means extraction ran and the value is authoritative.
         escalation_requested: bool | None = None
         answer_confidence_marker: str | None = None
+        answer_confidence_marker_reason: str | None = None
         # Transparency summary of any citations dropped by verify_citations this
         # turn. Populated in the verification block below; stays None when the
         # registry was empty or nothing was removed, so the field stays absent.
@@ -613,7 +614,9 @@ class ShallowResearcherAgent:
                 # operate on clean prose.
                 content = strip_and_salvage_dsml_tool_calls(content)
                 content, escalation_requested = detect_and_strip_escalation_marker(content)
-                content, answer_confidence_marker = detect_and_strip_confidence_marker(content)
+                content, answer_confidence_marker, answer_confidence_marker_reason = detect_and_strip_confidence_marker(
+                    content
+                )
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
@@ -749,6 +752,7 @@ class ShallowResearcherAgent:
         # real answer message and are authoritative (else it re-parses text).
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
+        validated_result["answer_confidence_marker_reason"] = answer_confidence_marker_reason
         # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
         # Emit ONLY the sources the model cited in THIS turn's answer
         # (``relevant_sources``), never the cumulative session registry — a
