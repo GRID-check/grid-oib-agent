@@ -390,6 +390,20 @@ class TestLaneForHit:
             "Rechtsquelle (RIS)",
         )
 
+    def test_wien_gv_at_is_behoerde_lane(self):
+        behoerde = ("behoerde", "Behördliche Information")
+        assert nr.lane_for_hit(source_url="https://www.wien.gv.at/wohnen/baupolizei") == behoerde
+        assert nr.lane_for_hit(source_url="https://wien.gv.at/x") == behoerde
+        assert nr.lane_for_hit(source_url="https://WWW.WIEN.GV.AT/x") == behoerde
+
+    def test_lookalike_hosts_stay_web(self):
+        # Host-boundary matching: a lookalike host or a domain mentioned in the
+        # path/query must not inherit an authoritative lane.
+        assert nr.lane_for_hit(source_url="https://evil.example/wien.gv.at") == ("web", "Web")
+        assert nr.lane_for_hit(source_url="https://evil.example/?q=ris.bka.gv.at") == ("web", "Web")
+        assert nr.lane_for_hit(source_url="https://wien.gv.at.evil.example/x") == ("web", "Web")
+        assert nr.lane_for_hit(source_url="https://ris.bka.gv.at.evil.example/") == ("web", "Web")
+
     def test_archiv_collection(self):
         assert nr.lane_for_hit(collection="archiv_buero") == ("buero", "Büroarchiv")
 

@@ -139,6 +139,33 @@ const oibDocClass = (fileName: string): string | null => {
   return 'richtlinie'
 }
 
+/**
+ * Host of a source URL, lowercased, or `null` when it has none.
+ *
+ * Scheme-less values (`wien.gv.at/x`) are still real host references, so they
+ * get an assumed `https://` prefix before parsing.
+ */
+const hostOfSource = (url?: string | null): string | null => {
+  const raw = (url || '').trim()
+  if (!raw) return null
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * True when `host` is `domain` or a subdomain of it.
+ *
+ * Lanes are provenance labels, so they must key off the real host: a substring
+ * test would also accept lookalike hosts (`wien.gv.at.evil.example`) and mere
+ * path/query text (`evil.example/?q=wien.gv.at`). Mirrors `_host_matches` in
+ * the backend `norm_registry`.
+ */
+const isHost = (host: string | null, domain: string): boolean =>
+  !!host && (host === domain || host.endsWith(`.${domain}`))
+
 /** Mirror of backend `lane_for_hit` for fallback parsing (no norm registry). */
 export const laneForHitClient = (opts: {
   fileName?: string | null
@@ -158,21 +185,21 @@ export const laneForHitClient = (opts: {
     const docClass = oibDocClass(base)
     if (docClass) return OIB_CLASS_LANES[docClass]
   }
-  const url = opts.sourceUrl || ''
-  if (url.includes('ris.bka.gv.at')) {
+  const host = hostOfSource(opts.sourceUrl)
+  if (isHost(host, 'ris.bka.gv.at')) {
     return { key: 'baurecht_ris', label: 'Rechtsquelle (RIS)' }
   }
   // The official OIB site is the base OIB corpus, not a generic web hit.
   // Without this, any oib.or.at URL (e.g. the example link the shallow-agent
   // prompt hands the model) would default to the "Web" lane and read as a web
   // search — the OIB domain belongs in the Baurecht/OIB family.
-  if (url.includes('oib.or.at')) {
+  if (isHost(host, 'oib.or.at')) {
     return { key: 'baurecht_oib', label: 'OIB-Richtlinie' }
   }
   // wien.gv.at in norm-registry output is the curated MA-37 (Baupolizei Wien)
   // entry — official municipal building information, so it belongs to the
   // Baurecht family (behördliche Information), never the generic Web lane.
-  if (url.includes('wien.gv.at')) {
+  if (isHost(host, 'wien.gv.at')) {
     return { key: 'behoerde', label: 'Behördliche Information' }
   }
   if (collection) {
