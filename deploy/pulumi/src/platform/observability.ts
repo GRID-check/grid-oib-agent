@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.networking.k8s.io/v1/IHTTPRouteSpec";
+import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.networking.k8s.io/v1/HTTPRouteSpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { GATEWAY_NAME } from "./gateway";
@@ -65,24 +65,40 @@ export function installObservabilityDashboard(
                   { containerPort: OTLP_HTTP_PORT, name: "otlp-http" },
                 ],
                 env: [
-                  // UI access — OIDC via WorkOS AuthKit.
-                  { name: "Dashboard:Frontend:AuthMode", value: "OpenIdConnect" },
-                  { name: "Dashboard:Frontend:OpenIdConnect:Authority", value: "https://api.workos.com" },
-                  { name: "Dashboard:Frontend:OpenIdConnect:ClientId", value: cfg.auth.workosClientId },
-                  { name: "Dashboard:Frontend:OpenIdConnect:ClientSecret", value: workosApiKey },
+                  // Endpoints: the container's OTLP listeners default to
+                  // 18889 (gRPC) / 18890 (HTTP) — the 4317/4318 in the docs'
+                  // docker example are HOST ports in `-p 4317:18889`. Rebind
+                  // to the conventional ports so the Service matches.
+                  { name: "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL", value: "http://0.0.0.0:4317" },
+                  { name: "ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL", value: "http://0.0.0.0:4318" },
+                  // UI access — OIDC via WorkOS AuthKit. RP settings live under
+                  // Authentication:Schemes:OpenIdConnect (the
+                  // Dashboard:Frontend:OpenIdConnect section only carries the
+                  // claim gate). WorkOS's OIDC issuer is per-client — there is
+                  // NO discovery doc at the api.workos.com root.
+                  { name: "Dashboard__Frontend__AuthMode", value: "OpenIdConnect" },
+                  {
+                    name: "Authentication__Schemes__OpenIdConnect__Authority",
+                    value: `https://api.workos.com/user_management/${cfg.auth.workosClientId}`,
+                  },
+                  { name: "Authentication__Schemes__OpenIdConnect__ClientId", value: cfg.auth.workosClientId },
+                  { name: "Authentication__Schemes__OpenIdConnect__ClientSecret", value: workosApiKey },
                   // Claim gate: only GRID Platform organization members pass.
-                  { name: "Dashboard:Frontend:OpenIdConnect:RequiredClaimType", value: "org_id" },
-                  { name: "Dashboard:Frontend:OpenIdConnect:RequiredClaimValue", value: obs.platformOrgId },
+                  { name: "Dashboard__Frontend__OpenIdConnect__RequiredClaimType", value: "org_id" },
+                  { name: "Dashboard__Frontend__OpenIdConnect__RequiredClaimValue", value: obs.platformOrgId },
                   // Public URL for OIDC redirects.
-                  { name: "Dashboard:Frontend:PublicUrl", value: `https://${obs.otelDomain}` },
+                  { name: "Dashboard__Frontend__PublicUrl", value: `https://${obs.otelDomain}` },
+                  // TLS terminates at the Gateway — without this the OIDC
+                  // redirect_uri is built as http:// and the callback fails.
+                  { name: "ASPNETCORE_FORWARDEDHEADERS_ENABLED", value: "true" },
                   // App identity in the UI.
-                  { name: "Dashboard:ApplicationName", value: "Grid" },
+                  { name: "Dashboard__ApplicationName", value: "Grid" },
                   // OTLP ingestion auth (cluster-internal callers present the key).
-                  { name: "Dashboard:Otlp:AuthMode", value: "ApiKey" },
-                  { name: "Dashboard:Otlp:PrimaryApiKey", value: otlpApiKey },
+                  { name: "Dashboard__Otlp__AuthMode", value: "ApiKey" },
+                  { name: "Dashboard__Otlp__PrimaryApiKey", value: otlpApiKey },
                   // Raised ring-buffer limits for a useful live-view window.
-                  { name: "Dashboard:TelemetryLimits:MaxLogCount", value: String(obs.telemetryLimits.maxLogCount) },
-                  { name: "Dashboard:TelemetryLimits:MaxTraceCount", value: String(obs.telemetryLimits.maxTraceCount) },
+                  { name: "Dashboard__TelemetryLimits__MaxLogCount", value: String(obs.telemetryLimits.maxLogCount) },
+                  { name: "Dashboard__TelemetryLimits__MaxTraceCount", value: String(obs.telemetryLimits.maxTraceCount) },
                 ],
                 resources: {
                   requests: { cpu: "100m", memory: "256Mi" },

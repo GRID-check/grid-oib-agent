@@ -131,7 +131,7 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
 ]);
 
 // ── Observability (Aspire dashboard) ───────────────────────────────────────────
-const dashboard = installObservabilityDashboard(
+installObservabilityDashboard(
   cfg, provider, namespace,
   cfg.observability.otelPrimaryApiKey,
   cfg.auth.workosApiKey,

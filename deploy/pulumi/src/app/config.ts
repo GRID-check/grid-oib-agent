@@ -119,7 +119,7 @@ function srefAs(name: string, key: string): EnvVar {
  * worker/thread knobs and admission caps are the agent's VERTICAL scaling
  * levers (see docs/architecture/scaling-review-2026-07.md §4, §6).
  */
-export function backendEnv(w: AppWiring): EnvVar[] {
+export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): EnvVar[] {
   const { cfg } = w;
   const env: EnvVar[] = [
     { name: "APP_ENV", value: "production" },
@@ -153,8 +153,14 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
-    // Aspire dashboard OTLP tracing.
-    { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: `http://aspire-dashboard:4317` },
+    // Aspire dashboard OTLP tracing. HTTP/protobuf to :4318 — the full
+    // /v1/traces path is required: the NAT exporter posts to the endpoint
+    // as-is (path appending only happens for SDK env-var defaults, not for
+    // an endpoint the config passes explicitly). OTEL_SERVICE_NAME becomes
+    // service.name on the spans so chat tier and worker tier are distinct
+    // resources in the dashboard.
+    { name: "OTEL_SERVICE_NAME", value: otelServiceName },
+    { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: `http://aspire-dashboard:4318/v1/traces` },
     sref("OTEL_EXPORTER_OTLP_HEADERS"),
     // Dask (in-process research execution) — vertical scaling knobs.
     { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
@@ -195,7 +201,7 @@ export function backendEnv(w: AppWiring): EnvVar[] {
  */
 export function workerEnv(w: AppWiring): EnvVar[] {
   return [
-    ...backendEnv(w),
+    ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
   ];
