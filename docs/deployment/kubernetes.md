@@ -465,11 +465,64 @@ Chroma):
   syntax error in the multi-bucket init Job) — the reason this kind of live
   validation exists.
 
-## 9. Out of scope (deliberate follow-ups)
+## 9. Observability — Aspire Dashboard (ADR-0029)
+
+The stack deploys a .NET Aspire standalone dashboard
+(`deploy/pulumi/src/platform/observability.ts`) as a live trace/span viewer
+for platform owners.
+
+**URL:** `https://<otelDomain>` (stack output `otelUrl`).
+
+**Access:** WorkOS AuthKit OIDC (same WorkOS client as the app), claim-gated
+on `org_id = <platformOrgId>` — the same population that has platform admin
+access (ADR-0016). One-time setup: register
+`https://<otelDomain>/signin-oidc` as a redirect URI in the WorkOS dashboard.
+
+**Scope:** backend traces only. The two Python tiers — `aiq-agent`
+(chat/web) and `agent-worker` (deep-research jobs, `jobExecution: db`) —
+share the NAT config and appear as separate resources via `OTEL_SERVICE_NAME`
+(`grid-aiq-agent` / `grid-agent-worker`). Frontend, workflow-scheduler and
+purger emit no telemetry (Node, no OTEL instrumentation — follow-up).
+
+**Wiring:**
+
+- `configs/config_oib_openrouter.yml` enables the `otelcollector_redaction`
+  tracing exporter (spans only, OTLP/HTTP).
+- Pulumi injects `OTEL_EXPORTER_OTLP_ENDPOINT`
+  (`http://aspire-dashboard:4318/v1/traces`), `OTEL_SERVICE_NAME`, and the
+  secret-backed `OTEL_EXPORTER_OTLP_HEADERS` (`x-otlp-api-key=<key>`) into
+  both tiers; the dashboard gets the same key as
+  `Dashboard:Otlp:PrimaryApiKey` from the Pulumi config secret
+  `observability.otelPrimaryApiKey`.
+- Only the UI port (18888) is exposed through the Gateway (`https-otel`
+  listener + HTTPRoute). OTLP ingestion (4317 gRPC / 4318 HTTP) is
+  cluster-internal; intra-namespace traffic is covered by the
+  `allow-same-namespace` NetworkPolicy.
+
+**Caveats:**
+
+- **In-memory ring buffer** (configured to 50k log/trace entries) — data is
+  lost on pod restart. This is a live-view tool, not a log archive.
+- Single replica; a dashboard outage loses no application data.
+- No alerting — operators must watch the dashboard.
+
+**Non-obvious deployment facts** (verified against the dashboard docs and the
+installed NAT/OTel SDK — see ADR-0029 §"Verified deployment facts" for the
+full list): the container's OTLP listeners default to 18889/18890 and are
+rebound to 4317/4318 via `ASPIRE_DASHBOARD_OTLP_*_ENDPOINT_URL`; OIDC RP
+settings live under `Authentication:Schemes:OpenIdConnect:*` (NOT
+`Dashboard:Frontend:OpenIdConnect:*`); WorkOS's OIDC issuer is per-client
+(`https://api.workos.com/user_management/<client_id>`);
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` is required because TLS terminates
+at the Gateway; the NAT exporter posts OTLP/HTTP to the endpoint as-is, so
+the full `/v1/traces` path is required.
+
+## 10. Out of scope (deliberate follow-ups)
 
 - SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
   loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
-- An observability stack (Prometheus/Grafana/Loki). Envoy Gateway, cert-manager,
-  CNPG, and SeaweedFS all expose Prometheus metrics, so this is a natural next
-  layer — and the provider's paid Metrics (Grafana) add-on is the quick option.
+- A metrics/alerting stack (Prometheus/Grafana/Loki) — the Aspire dashboard
+  (§9) covers live traces only. Envoy Gateway, cert-manager, CNPG, and
+  SeaweedFS all expose Prometheus metrics, so this is a natural next layer —
+  and the provider's paid Metrics (Grafana) add-on is the quick option.
