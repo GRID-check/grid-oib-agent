@@ -50,6 +50,31 @@ in light and dark, the same bar as desktop.
 2. **Add the target** to `frontends/ui/visual/registry.mjs` with an `id`, `path`, `description`, and a `waitFor` selector that only appears once the surface has rendered (e.g. a `data-testid`).
    - **Capturing a `:focus-visible` state?** Add `tabStops: <n>` — the harness presses Tab that many times before the shot so keyboard focus (and only keyboard focus) engages `:focus-visible`. The `focus-ring` target uses this to guard the rounded focus outline (Tab 1 is the layout's "Skip to content" link, Tab 2 the first control). Programmatic `.focus()` is deliberately not used because it doesn't reliably trigger `:focus-visible`.
 3. **Run** `npm run screenshots -- <id>` and commit the resulting PNGs alongside the change.
+4. **PR preview (automatic):** when the PR diff adds a new target id to the
+   registry, the `screenshot-preview` workflow (`.github/workflows/screenshot-preview.yml`)
+   captures just those new ids and posts the PNGs (desktop + mobile, light +
+   dark) as a **sticky PR comment** — so reviewers see the rendered surface
+   without checking out the branch. The comment images are served from the
+   `screenshot-previews` branch (`pr-<number>/`); the workflow is informational
+   only and never blocks the PR. It runs for same-repo PRs only (fork tokens
+   are read-only and cannot receive comments).
+
+## Visual coverage gate (CI)
+
+A new **user-visible component** (`frontends/ui/src/features/**/components/**`,
+`frontends/ui/src/components/**` — excluding `components/ui` primitives and
+spec files) is expected to ship with visual evidence in the same PR: a
+`/dev/<name>` preview route + a registry target + committed PNGs. The
+`visual-coverage` workflow (`.github/workflows/visual-coverage.yml`) checks
+this on every PR that adds components:
+
+- **Phase 1 (current): comment-only.** If the PR adds a component but no new
+  registry target and no new `/dev/*` route, it posts a sticky nudge comment
+  listing the uncovered files. It never blocks the PR — flip it to a required
+  check once the noise is tuned (same phased rollout as Semgrep/OSV).
+- **Escape hatch:** a component that genuinely is not a user-visible surface
+  (internal wrapper, logic-only helper) opts out with a
+  `// no-visual: <reason>` marker comment in the file.
 
 ## Gotchas learned the hard way (keep these here, not in your head)
 

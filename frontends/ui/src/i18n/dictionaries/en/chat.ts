@@ -216,6 +216,18 @@ export const chat = {
       composing: 'Composing the answer …',
       runningNamed: '{name} …',
     },
+    // Compact "what actually ran" chips in the Herleitung basis — one chip per
+    // executed agent/tool, without the technical-steps opt-in.
+    executedSteps: 'Ran:',
+    stepName: {
+      understanding: 'Classification',
+      routing: 'Routing',
+      webSearch: 'Web search',
+      ris: 'RIS',
+      corpus: 'OIB corpus',
+      assistant: 'Assistant',
+      reading: 'Reading',
+    },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',

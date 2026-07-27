@@ -871,6 +871,11 @@ def lane_for_hit(
                 if entry.document_number and entry.document_number in source_url:
                     return _RANK_LANES[entry.rank]
         return ("baurecht_ris", "Rechtsquelle (RIS)")
+    # wien.gv.at is the curated MA-37 (Baupolizei Wien) registry pointer —
+    # official municipal building information, Baurecht family, never Web.
+    # Mirrors the frontend laneForHitClient so both render paths agree.
+    if source_url and "wien.gv.at" in source_url:
+        return ("behoerde", "Behördliche Information")
     if collection:  # a named KB collection that is not project/archiv: the base corpus
         return ("baurecht_oib", "OIB-Richtlinie")
     return ("web", "Web")

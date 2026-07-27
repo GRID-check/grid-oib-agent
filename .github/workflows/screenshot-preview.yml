@@ -1,0 +1,179 @@
+# Screenshot preview comments — when a PR adds a new visual target to
+# frontends/ui/visual/registry.mjs, run the screenshot harness for ONLY the new
+# ids and post the PNGs (desktop + mobile, light + dark) as a sticky PR comment.
+#
+# Inline images in a PR comment need a fetchable URL — workflow artifacts cannot
+# be embedded — so the PNGs are pushed to a `screenshot-previews` branch under
+# `pr-<number>/` and referenced via raw.githubusercontent.com. Informational
+# only: a harness failure must never block the PR.
+
+name: Screenshot preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - frontends/ui/visual/registry.mjs
+
+# One run per PR at a time; a fresh push cancels the stale comment build.
+concurrency:
+  group: screenshot-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # push the screenshot-previews branch
+  pull-requests: write # upsert the sticky comment
+
+jobs:
+  detect:
+    name: Detect new screenshot targets
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Fork PRs get a read-only token and cannot receive comments — skip them.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      has_new: ${{ steps.diff.outputs.has_new }}
+      ids: ${{ steps.diff.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diff registry against the PR base
+        id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --depth=1
+
+          BASE_FILE=$(mktemp --suffix=.mjs)
+          if git cat-file -e "origin/$BASE_REF:frontends/ui/visual/registry.mjs" 2>/dev/null; then
+            git show "origin/$BASE_REF:frontends/ui/visual/registry.mjs" > "$BASE_FILE"
+          else
+            # Registry did not exist on the base — every target is new.
+            echo 'export const SCREENSHOT_TARGETS = []' > "$BASE_FILE"
+          fi
+
+          IDS=$(node --input-type=module -e "
+            import { pathToFileURL } from 'node:url'
+            const base = (await import(pathToFileURL('$BASE_FILE'))).SCREENSHOT_TARGETS ?? []
+            const head = (await import(pathToFileURL('frontends/ui/visual/registry.mjs'))).SCREENSHOT_TARGETS ?? []
+            const baseIds = new Set(base.map((t) => t.id))
+            process.stdout.write(head.filter((t) => !baseIds.has(t.id)).map((t) => t.id).join(' '))
+          ")
+
+          echo "ids=$IDS" >> "$GITHUB_OUTPUT"
+          if [ -n "$IDS" ]; then
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+            echo "New screenshot targets: $IDS"
+          else
+            echo "has_new=false" >> "$GITHUB_OUTPUT"
+            echo "No new screenshot targets in this PR."
+          fi
+
+  capture:
+    name: Capture + publish previews
+    needs: detect
+    if: needs.detect.outputs.has_new == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontends/ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontends/ui
+        run: npm ci
+
+      - name: Install Chromium for playwright-core
+        working-directory: frontends/ui
+        run: npx playwright-core install chromium
+
+      - name: Capture screenshots for the new targets
+        working-directory: frontends/ui
+        run: npm run screenshots -- ${{ needs.detect.outputs.ids }}
+
+      - name: Stage generated PNGs
+        working-directory: frontends/ui
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/.preview-out"
+          for id in ${{ needs.detect.outputs.ids }}; do
+            for f in "visual/screenshots/$id".*.png; do
+              [ -e "$f" ] && cp "$f" "$GITHUB_WORKSPACE/.preview-out/"
+            done
+          done
+          ls -la "$GITHUB_WORKSPACE/.preview-out"
+
+      - name: Push PNGs to the screenshot-previews branch
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          PREVIEWS=$(mktemp -d)
+          if git ls-remote --exit-code --heads origin screenshot-previews > /dev/null 2>&1; then
+            git clone --depth=1 --branch screenshot-previews "$(git remote get-url origin)" "$PREVIEWS"
+          else
+            git init -b screenshot-previews "$PREVIEWS"
+            git -C "$PREVIEWS" remote add origin "$(git remote get-url origin)"
+          fi
+
+          mkdir -p "$PREVIEWS/pr-$PR_NUMBER"
+          cp "$GITHUB_WORKSPACE/.preview-out/"*.png "$PREVIEWS/pr-$PR_NUMBER/"
+          git -C "$PREVIEWS" add "pr-$PR_NUMBER"
+          if git -C "$PREVIEWS" diff --cached --quiet; then
+            echo "Previews unchanged — nothing to push."
+            exit 0
+          fi
+          git -C "$PREVIEWS" commit -m "Screenshot previews for PR #$PR_NUMBER (${{ needs.detect.outputs.ids }})"
+          # Rebase over any concurrent push from another PR's run.
+          git -C "$PREVIEWS" fetch origin screenshot-previews || true
+          git -C "$PREVIEWS" rebase origin/screenshot-previews || true
+          git -C "$PREVIEWS" push origin screenshot-previews
+
+      - name: Upsert the sticky PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs')
+            const path = require('path')
+            const pr = context.payload.pull_request.number
+            const ids = '${{ needs.detect.outputs.ids }}'.split(' ').filter(Boolean)
+            const marker = '<!-- screenshot-preview -->'
+            const rawBase = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/screenshot-previews/pr-${pr}`
+
+            const files = fs.readdirSync(path.join(process.env.GITHUB_WORKSPACE, '.preview-out'))
+            const sections = []
+            for (const id of ids) {
+              const variants = files.filter((f) => f.startsWith(`${id}.`) || f.startsWith(`${id}.mobile.`))
+              if (variants.length === 0) continue
+              const images = variants
+                .sort()
+                .map((f) => `<img src="${rawBase}/${f}" alt="${f}" width="420">`)
+                .join('\n')
+              sections.push(`### \`${id}\`\n${images}`)
+            }
+            const body = sections.length
+              ? `${marker}\n## Screenshot previews\nNew visual targets in this PR (desktop + mobile, light + dark):\n\n${sections.join('\n\n')}\n\n<sub>Generated by the screenshot-preview workflow — informational only.</sub>`
+              : `${marker}\n## Screenshot previews\nScreenshot capture produced no files for: ${ids.map((i) => `\`${i}\``).join(', ')}. Check the workflow log.`
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: pr,
+              per_page: 100,
+            })
+            const existing = comments.find((c) => c.body?.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body })
+            }

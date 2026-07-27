@@ -1,0 +1,141 @@
+# Visual coverage gate — when a PR adds a new React component to the frontend,
+# it should come with visual evidence: a `/dev/*` preview route + a registry
+# target (docs/ux/visual-screenshots.md). Phase 1 is COMMENT-ONLY (like
+# Semgrep/OSV in security.yml): the workflow posts a sticky nudge listing
+# uncovered components and never fails the PR. Flip to a required check once
+# the noise is tuned.
+#
+# Escape hatch: a component that genuinely is not a user-visible surface opts
+# out with a `// no-visual: <reason>` marker comment in the file.
+#
+# Scope: src/features/**​/components and src/components — excluding shadcn
+# primitives (src/components/ui, covered by the cards/focus-ring targets), test
+# files, and /dev routes themselves.
+
+name: Visual coverage
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'frontends/ui/src/**/*.tsx'
+      - 'frontends/ui/visual/registry.mjs'
+
+concurrency:
+  group: visual-coverage-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # sticky nudge comment
+
+jobs:
+  check:
+    name: New components have visual evidence
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Fork PRs get a read-only token and cannot receive comments — skip them.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find added components and visual coverage
+        id: scan
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --depth=1
+          BASE="origin/$BASE_REF"
+
+          # 1. Components added by this PR (specs, primitives, and dev routes excluded).
+          git diff --name-only --diff-filter=A "$BASE"...HEAD -- \
+            'frontends/ui/src/features/**/components/**/*.tsx' \
+            'frontends/ui/src/components/**/*.tsx' \
+            ':(exclude)*.spec.tsx' \
+            ':(exclude)*.test.tsx' \
+            ':(exclude)frontends/ui/src/components/ui/**' \
+            > /tmp/added.txt || true
+
+          # 2. Drop files that carry the `// no-visual` opt-out marker.
+          : > /tmp/uncovered.txt
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            if ! grep -q '// no-visual' "$f"; then
+              echo "$f" >> /tmp/uncovered.txt
+            fi
+          done < /tmp/added.txt
+
+          # 3. Visual evidence added by the same PR: a new registry target id
+          #    or a new /dev preview route.
+          COVERED=false
+          if git diff --name-only --diff-filter=A "$BASE"...HEAD -- 'frontends/ui/src/app/dev/**' | grep -q .; then
+            COVERED=true
+          elif git diff --name-only "$BASE"...HEAD -- 'frontends/ui/visual/registry.mjs' | grep -q .; then
+            BASE_FILE=$(mktemp --suffix=.mjs)
+            if git cat-file -e "$BASE:frontends/ui/visual/registry.mjs" 2>/dev/null; then
+              git show "$BASE:frontends/ui/visual/registry.mjs" > "$BASE_FILE"
+            else
+              echo 'export const SCREENSHOT_TARGETS = []' > "$BASE_FILE"
+            fi
+            NEW_IDS=$(node --input-type=module -e "
+              import { pathToFileURL } from 'node:url'
+              const base = (await import(pathToFileURL('$BASE_FILE'))).SCREENSHOT_TARGETS ?? []
+              const head = (await import(pathToFileURL('frontends/ui/visual/registry.mjs'))).SCREENSHOT_TARGETS ?? []
+              const baseIds = new Set(base.map((t) => t.id))
+              process.stdout.write(head.filter((t) => !baseIds.has(t.id)).map((t) => t.id).join(' '))
+            ")
+            [ -n "$NEW_IDS" ] && COVERED=true
+          fi
+
+          echo "covered=$COVERED" >> "$GITHUB_OUTPUT"
+          echo "uncovered=$(paste -sd, /tmp/uncovered.txt)" >> "$GITHUB_OUTPUT"
+          echo "--- added components ---"; cat /tmp/added.txt
+          echo "--- uncovered (no marker) ---"; cat /tmp/uncovered.txt
+          echo "--- visual evidence in PR: $COVERED ---"
+
+      - name: Upsert the sticky nudge comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- visual-coverage -->'
+            const pr = context.payload.pull_request.number
+            const covered = '${{ steps.scan.outputs.covered }}' === 'true'
+            const uncovered = '${{ steps.scan.outputs.uncovered }}'.split(',').filter(Boolean)
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: pr,
+              per_page: 100,
+            })
+            const existing = comments.find((c) => c.body?.includes(marker))
+
+            if (covered || uncovered.length === 0) {
+              // Nothing to nudge about — clear a stale comment from an earlier push.
+              if (existing) {
+                await github.rest.issues.deleteComment({ ...context.repo, comment_id: existing.id })
+              }
+              return
+            }
+
+            const list = uncovered.map((f) => `- \`${f}\``).join('\n')
+            const body = `${marker}
+            ## Visual coverage (phase 1 — informational)
+
+            This PR adds new component(s) without visual evidence:
+
+            ${list}
+
+            Per the screenshot playbook (docs/ux/visual-screenshots.md), a user-visible surface is
+            "done" with a committed screenshot: add a \`/dev/<name>\` preview route + a registry
+            target and commit the PNGs. If a component is genuinely not a user-visible surface,
+            opt it out with a \`// no-visual: <reason>\` marker in the file.
+
+            <sub>Comment-only for now — this never blocks the PR.</sub>`
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body })
+            }

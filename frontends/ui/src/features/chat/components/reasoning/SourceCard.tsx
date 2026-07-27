@@ -48,9 +48,18 @@ export const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel:
         <span className="truncate">{card.tabLabel}</span>
       </span>
 
-      {/* Card body — neutral hairline card. */}
-      <div className="min-w-0 flex-1 rounded-[10px] border bg-card px-3 py-2.5 shadow-xs">
-        <div className="truncate text-[12px] font-semibold text-foreground" title={card.name}>
+      {/* Card body — neutral hairline card. Gap cards sit back visually
+          (dashed hairline, muted ink) so a miss never reads as a hit. */}
+      <div
+        className={cn(
+          'min-w-0 flex-1 rounded-[10px] border bg-card px-3 py-2.5 shadow-xs',
+          card.kind === 'gap' && 'border-dashed opacity-75'
+        )}
+      >
+        {/* Two-line clamp instead of a hard truncate — OIB filenames are long
+            and the second line usually carries the distinguishing part; the
+            full name stays on the title tooltip. */}
+        <div className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground" title={card.name}>
           {card.name}
         </div>
         {card.detail && (
@@ -58,13 +67,17 @@ export const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel:
             {card.detail}
           </div>
         )}
-        <div
-          className={cn(
-            'mt-1.5 text-[10.5px] text-muted-foreground',
-            card.kind !== 'gap' && 'tabular-nums'
-          )}
-        >
-          {hitsText}
+        <div className="mt-1.5">
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-medium',
+              card.kind === 'gap'
+                ? 'bg-muted text-muted-foreground'
+                : 'bg-secondary tabular-nums text-muted-foreground'
+            )}
+          >
+            {hitsText}
+          </span>
         </div>
       </div>
     </div>

@@ -44,15 +44,25 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     expect(sourceToSourceEdges(g)).toHaveLength(0)
   })
 
-  test('vertical (mobile): sources stay parallel — fan from framing centre, no source→source chain', () => {
+  test('vertical (mobile): sources collapse into ONE grouped node — two straight centred edges, nothing pierces a card', () => {
     const g = buildGraph({ ...base, answerConfidence: 'high' }, t, true, [card('a'), card('b')])
 
-    // On mobile the framing node fans out from a single centre handle to BOTH
-    // sources (parallel), and every source is its own row (a readable column).
+    // On mobile the cards stack INSIDE a single 'sources' group node; the graph
+    // is framing → sources → findings with one straight centred edge each —
+    // the old per-card parallel wiring slanted across and pierced sibling cards.
+    expect(g.nodes.map((n) => n.id)).toEqual(['framing', 'sources', 'findings'])
+    expect(g.nodes.find((n) => n.id === 'sources')!.type).toBe('sourcesGroup')
     expect(framingHandles(g)).toEqual(['c-bottom'])
-    expect(g.edges.filter((e) => e.source === 'framing' && e.sourceHandle === 'c-bottom')).toHaveLength(2)
+    expect(g.edges).toContainEqual(
+      expect.objectContaining({ source: 'framing', sourceHandle: 'c-bottom', target: 'sources', targetHandle: 'c-top' })
+    )
+    expect(g.edges).toContainEqual(
+      expect.objectContaining({ source: 'sources', sourceHandle: 'c-bottom', target: 'findings', targetHandle: 'c-top' })
+    )
+    // No per-card nodes, hence no source→source or card-crossing edges at all.
+    expect(g.edges).toHaveLength(2)
     expect(sourceToSourceEdges(g)).toHaveLength(0)
-    expect(g.rows).toEqual([['framing'], ['src-a'], ['src-b'], ['findings']])
+    expect(g.rows).toEqual([['framing'], ['sources'], ['findings']])
   })
 })
 

@@ -91,6 +91,16 @@ describe('laneForHitClient', () => {
     })
     expect(laneForHitClient({ sourceUrl: 'https://oib.or.at/anything' }).key).toBe('baurecht_oib')
   })
+
+  test('classifies wien.gv.at as behördliche Information (Baurecht family), not web', () => {
+    // The MA-37 (Baupolizei Wien) registry pointer must never read as a web
+    // search hit; the behoerde lane maps to the law/baurecht signal.
+    expect(laneForHitClient({ sourceUrl: 'https://www.wien.gv.at/wohnen/baupolizei' })).toEqual({
+      key: 'behoerde',
+      label: 'Behördliche Information',
+    })
+    expect(laneKeyToSignal(laneForHitClient({ sourceUrl: 'https://wien.gv.at/x' }).key)).toBe('law')
+  })
 })
 
 describe('parseTraceLanesBlock', () => {

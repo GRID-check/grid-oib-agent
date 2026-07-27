@@ -169,6 +169,12 @@ export const laneForHitClient = (opts: {
   if (url.includes('oib.or.at')) {
     return { key: 'baurecht_oib', label: 'OIB-Richtlinie' }
   }
+  // wien.gv.at in norm-registry output is the curated MA-37 (Baupolizei Wien)
+  // entry — official municipal building information, so it belongs to the
+  // Baurecht family (behördliche Information), never the generic Web lane.
+  if (url.includes('wien.gv.at')) {
+    return { key: 'behoerde', label: 'Behördliche Information' }
+  }
   if (collection) {
     // Named KB collection that is not project/archiv → base corpus
     return { key: 'baurecht_oib', label: 'OIB-Richtlinie' }

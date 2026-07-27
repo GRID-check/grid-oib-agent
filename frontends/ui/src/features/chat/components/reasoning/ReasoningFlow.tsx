@@ -11,8 +11,12 @@
  * hardcoded height guesses), so it sits inline in the chat like any other block.
  *
  * Responsive: a wide-enough container gets the horizontal fan-out; a narrow one
- * (phone) re-lays-out as a single vertical column — SAME nodes, SAME parallel
- * wiring (framing → all sources → converge, never a chain), orientation only.
+ * (phone) collapses the sources into ONE grouped "Quellen" container node —
+ * because a single column with parallel wiring forces edges to slant across
+ * sibling cards (fan-in `spread` handles) or pass straight THROUGH stacked
+ * cards. The grouped node keeps exactly two straight, centred edges
+ * (framing → Quellen → assessment) and lets the stacked cards inside carry the
+ * parallel semantics visually. While the turn is live the edges animate.
  */
 
 'use client'
@@ -55,8 +59,6 @@ import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
-/** Spread `n` handles evenly across the banner width (vertical fan-in). */
-const spread = (i: number, n: number) => `${((i + 0.5) / n) * 100}%`
 const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
 
 /** One anchor point on a banner edge: a handle id + its x offset within the node. */
@@ -76,7 +78,9 @@ type FramingData = {
   /** Bottom (source) handles — one per fanned source, or a single centre. */
   sources: HandleSpec[]
 }
-type SourceData = { card: TraceSourceCard; hitLabel: string; gapLabel: string }
+type SourceData = { card: TraceSourceCard; hitLabel: string; gapLabel: string; index: number }
+/** Grouped sources container (narrow layout) — the cards stack INSIDE one node. */
+type SourcesGroupData = { label: string; cards: TraceSourceCard[] }
 type FindingsData = {
   label: string
   /**
@@ -115,12 +119,47 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
 )
 
 const SourceFlowNode: FC<NodeProps<Node<SourceData>>> = ({ data }) => (
-  <div className="w-[var(--source-w)] max-w-full">
+  <div
+    className="animate-in fade-in-0 slide-in-from-bottom-2 w-[var(--source-w)] max-w-full duration-300"
+    style={{ animationDelay: `${data.index * 70}ms`, animationFillMode: 'backwards' }}
+  >
     <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
     <SourceCard card={data.card} hitLabel={data.hitLabel} gapLabel={data.gapLabel} />
     <Handle id="out" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
   </div>
 )
+
+/**
+ * Grouped Quellen node (narrow layout): every source card stacked inside one
+ * bordered container. Exactly two centred edges touch it — framing → group and
+ * group → assessment — so a phone-width Herleitung has no slanted or
+ * card-crossing connectors at all.
+ */
+const SourcesGroupFlowNode: FC<NodeProps<Node<SourcesGroupData>>> = ({ data }) => {
+  const t = useTranslations('chat')
+  return (
+    <div className="animate-in fade-in-0 slide-in-from-bottom-2 w-[var(--banner-w)] max-w-full rounded-xl border bg-muted/40 px-3 py-3 duration-300">
+      <Handle id="c-top" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
+      <Eyebrow>{data.label}</Eyebrow>
+      <div className="mt-2 flex flex-col gap-2.5">
+        {data.cards.map((card, i) => (
+          <div
+            key={card.id}
+            className="animate-in fade-in-0 slide-in-from-bottom-1 duration-300"
+            style={{ animationDelay: `${i * 60}ms`, animationFillMode: 'backwards' }}
+          >
+            <SourceCard
+              card={card}
+              hitLabel={t('thinking.hitCount', { count: card.hitCount })}
+              gapLabel={t('thinking.gapHit')}
+            />
+          </div>
+        ))}
+      </div>
+      <Handle id="c-bottom" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
+    </div>
+  )
+}
 
 const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
   <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
@@ -157,6 +196,7 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
 const nodeTypes = {
   framing: FramingFlowNode,
   source: SourceFlowNode,
+  sourcesGroup: SourcesGroupFlowNode,
   findings: FindingsFlowNode,
   branches: BranchesFlowNode,
 }
@@ -171,6 +211,8 @@ export interface ReasoningFlowProps {
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   routingReason?: string
   escalationReason?: string
+  /** Turn is still streaming — edges animate and the graph keeps growing. */
+  live?: boolean
 }
 
 // Horizontal layout constants (node widths + inter-row gaps).
@@ -191,6 +233,7 @@ function edge(source: string, sourceHandle: string, target: string, targetHandle
     target,
     targetHandle,
     type: 'smoothstep',
+    pathOptions: { borderRadius: 12 },
     style: { stroke: EDGE_STROKE, strokeWidth: 1.5 },
   }
 }
@@ -206,8 +249,6 @@ export interface BuiltGraph {
   edges: Edge[]
   /** Row groups, top→bottom, for the measured y-stacking pass. */
   rows: string[][]
-  /** Content width in the node coordinate space (for centring in wide canvases). */
-  contentW: number
 }
 
 /**
@@ -251,11 +292,13 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
       ? [{ id: 'c-bottom', left: '50%' }]
       : []
 
-  // Converge target's top handles: one per incoming source (so the fan-in never
-  // collapses onto a single point) or a single centre when there are no sources.
-  const convergeTargets: HandleSpec[] = hasSources
-    ? sourceIds.map((sid, i) => ({ id: `from-${sid}`, left: vertical ? spread(i, sourceIds.length) : handlePx(i) }))
-    : [{ id: 'c-top', left: '50%' }]
+  // Converge target's top handles: one per incoming source in the horizontal
+  // fan (so the fan-in never collapses onto a single point); a single centre
+  // handle when there are no sources or the sources sit in the grouped node.
+  const convergeTargets: HandleSpec[] =
+    hasSources && !vertical
+      ? sourceIds.map((sid, i) => ({ id: `from-${sid}`, left: handlePx(i) }))
+      : [{ id: 'c-top', left: '50%' }]
 
   const framingData: FramingData = {
     label: t('thinking.node.framingTab'),
@@ -300,14 +343,25 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
   const bx = vertical ? 0 : bannerX
 
   nodes.push({ id: 'framing', type: 'framing', position: { x: bx, y: 0 }, data: framingData as Record<string, unknown> })
-  cards.forEach((card, i) => {
+  if (hasSources && vertical) {
+    // Narrow layout: the cards stack INSIDE one grouped node — no per-card
+    // nodes, hence no connectors that slant across or pierce sibling cards.
     nodes.push({
-      id: sourceIds[i],
-      type: 'source',
-      position: { x: vertical ? 0 : rowX + i * (SOURCE_W + SOURCE_GAP), y: 0 },
-      data: { card, hitLabel: t('thinking.hitCount', { count: card.hitCount }), gapLabel: t('thinking.gapHit') } as Record<string, unknown>,
+      id: 'sources',
+      type: 'sourcesGroup',
+      position: { x: bx, y: 0 },
+      data: { label: t('thinking.sourcesFanOut'), cards } as Record<string, unknown>,
     })
-  })
+  } else {
+    cards.forEach((card, i) => {
+      nodes.push({
+        id: sourceIds[i],
+        type: 'source',
+        position: { x: rowX + i * (SOURCE_W + SOURCE_GAP), y: 0 },
+        data: { card, index: i, hitLabel: t('thinking.hitCount', { count: card.hitCount }), gapLabel: t('thinking.gapHit') } as Record<string, unknown>,
+      })
+    })
+  }
   if (findingsData) {
     nodes.push({ id: 'findings', type: 'findings', position: { x: bx, y: 0 }, data: findingsData as Record<string, unknown> })
   }
@@ -315,10 +369,14 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
     nodes.push({ id: 'branches', type: 'branches', position: { x: bx, y: 0 }, data: branchesData as Record<string, unknown> })
   }
 
-  // Wiring — identical parallel semantics in both orientations: framing fans out
-  // to every source, every source converges on the assessment/branches node.
-  if (hasSources) {
-    sourceIds.forEach((sid) => edges.push(edge('framing', vertical ? 'c-bottom' : `to-${sid}`, sid, 'in')))
+  // Wiring. Horizontal: framing fans out to every source card, every card
+  // converges on the assessment/branches node (parallel, never a chain).
+  // Vertical: two straight centred edges — framing → Quellen group → converge.
+  if (hasSources && vertical) {
+    edges.push(edge('framing', 'c-bottom', 'sources', 'c-top'))
+    if (convergeId) edges.push(edge('sources', 'c-bottom', convergeId, 'c-top'))
+  } else if (hasSources) {
+    sourceIds.forEach((sid) => edges.push(edge('framing', `to-${sid}`, sid, 'in')))
     if (convergeId) sourceIds.forEach((sid) => edges.push(edge(sid, 'out', convergeId, `from-${sid}`)))
   } else if (convergeId) {
     edges.push(edge('framing', 'c-bottom', convergeId, 'c-top'))
@@ -326,23 +384,23 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
   if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
 
   // Row groups for the measured stacking pass. Horizontal: the sources share one
-  // row; vertical: every node is its own row (a single readable column).
+  // row; vertical: framing → grouped sources → converge, one node per row.
   const rows: string[][] = [['framing']]
   if (hasSources) {
-    if (vertical) sourceIds.forEach((sid) => rows.push([sid]))
+    if (vertical) rows.push(['sources'])
     else rows.push(sourceIds)
   }
   if (findingsData) rows.push(['findings'])
   if (branchesData) rows.push(['branches'])
 
-  return { nodes, edges, rows, contentW: vertical ? 0 : contentW }
+  return { nodes, edges, rows }
 }
 
-const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = ({ built, vertical, width }) => {
+const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live: boolean }> = ({ built, vertical, width, live }) => {
   const t = useTranslations('chat')
-  const { nodes, edges, rows, contentW } = built
+  const { nodes, edges, rows } = built
   const initialized = useNodesInitialized()
-  const { getNodes } = useReactFlow()
+  const { getNodes, getNodesBounds, setViewport } = useReactFlow()
   const [rfNodes, setRfNodes] = useState<Node[]>(nodes)
   const [height, setHeight] = useState(vertical ? 480 : 360)
   // Track WHICH orientation the current layout was measured for (not just "have
@@ -361,14 +419,20 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
     setRfNodes(nodes)
   }, [nodes])
 
+  // While the turn streams, the connectors march (React Flow's built-in
+  // animated dashes); a finished turn freezes them solid.
+  const renderedEdges = useMemo(
+    () => (live ? edges.map((e) => ({ ...e, animated: true })) : edges),
+    [edges, live]
+  )
+
   // Measure → place: once every node reports a measured size, stack the rows by
-  // their REAL heights and size the container to the exact bounds. No fitView,
-  // no hardcoded height guesses — the graph renders at 1:1 and never overlaps.
+  // their REAL heights, then let React Flow's own utilities do the rest —
+  // `getNodesBounds` sizes the container to the exact content and `setViewport`
+  // centres it horizontally at 1:1 (no fitView, no manual origin math).
   useEffect(() => {
     if (!initialized) return
     const measured = new Map(getNodes().map((n) => [n.id, n.measured?.height ?? 0]))
-    const baseX = new Map(nodes.map((n) => [n.id, n.position.x]))
-    const originX = vertical ? 0 : Math.max(0, (width - contentW) / 2)
     const gap = vertical ? V_GAP : H_GAP_Y
     const yById = new Map<string, number>()
     let y = 0
@@ -380,17 +444,19 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
       }
       y += rowH + gap
     }
-    setRfNodes((nds) =>
-      nds.map((n) => ({
-        ...n,
-        position: { x: (baseX.get(n.id) ?? n.position.x) + originX, y: yById.get(n.id) ?? n.position.y },
-      }))
-    )
-    setHeight(Math.max(120, Math.ceil(y - gap) + PAD))
+    const positioned = nodes.map((n) => ({
+      ...n,
+      position: { x: n.position.x, y: yById.get(n.id) ?? n.position.y },
+    }))
+    setRfNodes(positioned)
+    const bounds = getNodesBounds(positioned)
+    setHeight(Math.max(120, Math.ceil(bounds.height) + PAD))
+    setViewport({ x: Math.max(0, (width - bounds.width) / 2), y: 0, zoom: 1 })
     setLaidOutFor(vertical ? 'v' : 'h')
-    // getNodes is stable; rfNodes intentionally excluded to avoid a re-layout loop.
+    // getNodes/getNodesBounds/setViewport are stable; rfNodes intentionally
+    // excluded to avoid a re-layout loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, nodes, rows, contentW, vertical, width])
+  }, [initialized, nodes, rows, vertical, width])
 
   // In vertical mode every node spans the container; horizontal uses fixed widths.
   const bannerW = vertical ? `${Math.max(200, width - 4)}px` : `${BANNER_W}px`
@@ -412,7 +478,7 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
     >
       <ReactFlow
         nodes={rfNodes}
-        edges={edges}
+        edges={renderedEdges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -467,7 +533,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   return (
     <div ref={containerRef} className="flex w-full flex-col gap-3">
       <ReactFlowProvider>
-        <FlowInner built={built} vertical={vertical} width={width || 720} />
+        <FlowInner built={built} vertical={vertical} width={width || 720} live={props.live ?? false} />
       </ReactFlowProvider>
 
       {showTechnicalReasoning && props.steps.length > 0 && (
