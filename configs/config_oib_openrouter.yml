@@ -248,8 +248,11 @@ functions:
     # filters: with include_domains set, any result NOT on the list is dropped;
     # exclude_domains removes matching domains. Shallow chat uses THIS instance,
     # so a real allow-list must be set here AND on advanced_web_search_tool below.
+    # RIS domain is excluded because the structured RIS adapter handles Austrian
+    # building law exclusively (accurate, up-to-date, traceable).
     # include_domains: []
-    # exclude_domains: []
+    exclude_domains:
+      - ris.bka.gv.at
 
   advanced_web_search_tool:
     _type: tavily_web_search
@@ -259,8 +262,11 @@ functions:
     # filters: with include_domains set, any result NOT on the list is dropped;
     # exclude_domains removes matching domains. Deep research uses THIS instance,
     # so a real allow-list must be set here AND on web_search_tool above.
+    # RIS domain is excluded because the structured RIS adapter handles Austrian
+    # building law exclusively (accurate, up-to-date, traceable).
     # include_domains: []
-    # exclude_domains: []
+    exclude_domains:
+      - ris.bka.gv.at
 
   # Austrian RIS (OGD-RIS API, no API key needed): live search over federal/
   # state law and case law, plus on-demand fetching of ENTIRE documents
@@ -323,7 +329,10 @@ functions:
     generate_summary: true
     summary_model: summary_llm
     summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
-    top_k: 5
+    # top_k=8 with a 2-per-document diversity cap spans >=4 distinct Richtlinien
+    # on cross-cutting questions instead of 5 chunks from the 1-2 top-scoring PDFs.
+    top_k: 8
+    max_chunks_per_document: 2
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
 
   # Project Memory: silent, observable capture of durable project findings.

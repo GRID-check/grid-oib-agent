@@ -22,6 +22,15 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
+# Chunk content truncation. OIB tables routinely exceed 1500 chars and were cut
+# mid-table, losing rows the LLM needs to quote. Set to 2500 to keep most table
+# rows intact within one chunk. Value chosen as a named constant (#no-magic).
+_CHUNK_TRUNCATE_CHARS = 2500
+
+# Diversity-aware merge caps how many chunks per document are taken in the
+# first pass before spreading to other documents. With max_per_document=2 and
+# top_k=8 the second pass fills remaining slots, covering >=4 documents.
+_MAX_CHUNKS_PER_DOC = 2
 
 # Type-safe backend selection - Pydantic validates at config load time
 BackendType = Literal["llamaindex", "foundational_rag"]
@@ -59,6 +68,16 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         ),
     )
     top_k: int = Field(default=5, description="Number of results to return")
+    max_chunks_per_document: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Diversity cap: at most this many chunks from a single document are included before "
+            "other documents get a slot; any remaining slots up to top_k are then filled with the "
+            "highest-scoring chunks regardless of source. Prevents one high-scoring PDF from "
+            "crowding out other documents on cross-cutting questions. 0 disables the cap."
+        ),
+    )
     exclude_file_names: list[str] = Field(
         default_factory=list,
         description=(
@@ -358,13 +377,17 @@ def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: d
     return {"$and": clauses}
 
 
-def _merge_results(results, query: str, top_k: int, backend_name: str):
+def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_document: int = _MAX_CHUNKS_PER_DOC):
     """
     Merge per-collection retrieval results into a single scored result.
 
     Scores are comparable across collections (same embedding model, cosine [0,1]),
-    so chunks from all successful layers are concatenated, sorted by score
-    descending, and truncated to ``top_k``.
+    so chunks from all successful layers are concatenated and sorted by score
+    descending. Selection is diversity-aware: a first pass takes at most
+    ``max_per_document`` chunks per distinct document (keyed by collection +
+    file_name), then any remaining slots up to ``top_k`` are filled with the
+    highest-scoring leftovers regardless of source. With a single document (or
+    ``max_per_document=0``) this is identical to a plain top-k truncation.
 
     Failed layers (``success=False``, e.g. a brand-new session whose collection
     does not exist yet) and raised exceptions are treated as empty contributions
@@ -375,6 +398,7 @@ def _merge_results(results, query: str, top_k: int, backend_name: str):
         query: The original query string.
         top_k: Maximum number of merged chunks to return.
         backend_name: Fallback backend label if no successful result is available.
+        max_per_document: Diversity cap per distinct document on the first pass.
 
     Returns:
         A synthetic RetrievalResult with success=True and the merged top-k chunks.
@@ -398,7 +422,21 @@ def _merge_results(results, query: str, top_k: int, backend_name: str):
         merged_chunks.extend(result.chunks)
 
     merged_chunks.sort(key=lambda chunk: chunk.score, reverse=True)
-    merged_top_k = merged_chunks[:top_k]
+
+    if max_per_document > 0:
+        selected = []
+        leftovers = []
+        per_doc: dict[tuple, int] = {}
+        for chunk in merged_chunks:
+            doc_key = ((chunk.metadata or {}).get("collection"), chunk.file_name)
+            if per_doc.get(doc_key, 0) < max_per_document:
+                per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
+                selected.append(chunk)
+            else:
+                leftovers.append(chunk)
+        merged_top_k = (selected + leftovers)[:top_k]
+    else:
+        merged_top_k = merged_chunks[:top_k]
 
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
 
@@ -639,10 +677,9 @@ def _format_results(retrieval_result, query: str) -> str:
         lines.append(f"Relevance Score: {chunk.score:.2f}")
         lines.append("")
 
-        # Content (truncate if very long)
         content = chunk.content
-        if len(content) > 1500:
-            content = content[:1500] + "... [truncated]"
+        if len(content) > _CHUNK_TRUNCATE_CHARS:
+            content = content[:_CHUNK_TRUNCATE_CHARS] + "... [truncated]"
         lines.append(content)
         lines.append("")
 
@@ -696,6 +733,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
     collection = config.collection_name
     top_k = config.top_k
+    max_per_document = config.max_chunks_per_document
 
     logger.info(
         "Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", config.backend, collection, top_k
@@ -748,8 +786,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 return_exceptions=True,
             )
 
-            # Merge by score (comparable across collections) and truncate to top_k.
-            merged = _merge_results(results, query, top_k, retriever.backend_name)
+            # Merge by score (comparable across collections) with a per-document
+            # diversity cap so cross-cutting questions span multiple documents.
+            merged = _merge_results(results, query, top_k, retriever.backend_name, max_per_document)
 
             # Format for LLM. _format_results does the (now batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
@@ -766,11 +805,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             return f"Error searching knowledge base: {str(e)}"
 
     # Yield the function info for NAT registration
+    if max_per_document > 0:
+        diversity_clause = (
+            f"spread across multiple distinct documents (at most {max_per_document} per document "
+            "where possible), so cross-cutting questions see every relevant Richtlinie."
+        )
+    else:
+        diversity_clause = "ranked purely by relevance, with no per-document diversity cap."
     yield FunctionInfo.from_fn(
         search,
         description=(
             "Search the knowledge base for relevant documents. "
             "Use this to find information from ingested PDFs, documents, and other files. "
-            f"Returns up to {top_k} relevant excerpts with citations."
+            f"Returns up to {top_k} relevant excerpts with citations, {diversity_clause}"
         ),
     )
