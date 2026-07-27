@@ -461,24 +461,30 @@ git commit -m "feat(pulumi): wire Aspire dashboard into stack (index, secrets, g
 In `config_oib_openrouter.yml`, after the `telemetry.logging.console` block (line ~9) and on the same indentation level, add:
 
 ```yaml
+    tracing:
+      # Ships spans to the OTLP endpoint over HTTP/protobuf. The endpoint and
+      # the x-otlp-api-key header are injected by the deployment via
+      # OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_EXPORTER_OTLP_HEADERS (the exporter
+      # reads the header from the env var when the config passes none).
+      # The endpoint must include the full /v1/traces path — explicit config
+      # endpoints are used as-is.
       otelcollector_redaction:
         _type: otelcollector_redaction
-        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}
-        # The header is injected by the Pulumi-deployed environment variable
-        # OTEL_EXPORTER_OTLP_HEADERS (set from the shared k8s Secret).
-        # Redaction: scrubs configured HTTP headers from span attributes.
-        redact_content: false
-        redacted_keys:
-          - authorization
-          - cookie
-          - set-cookie
-          - x-otlp-api-key
-        # Optional resource attributes — the dashboard uses these for filtering.
+        project: ${OTEL_SERVICE_NAME:-grid-aiq-agent}
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318/v1/traces}
         resource_attributes:
-          service.name: grid-aiq-agent
-          service.version: ${APP_VERSION:-unknown}
           deployment.environment: ${APP_ENV:-production}
 ```
+
+Field notes (verified against the installed NAT plugin — deviating from these
+breaks config loading):
+- `project` is a **required** field on `OtelCollectorTelemetryExporter` and
+  becomes `service.name` on the spans; `OTEL_SERVICE_NAME` is set per
+  deployment tier (`grid-aiq-agent` / `grid-agent-worker`).
+- The exporter uses OTLP/**HTTP** (the plugin does not expose the `protocol`
+  knob, which defaults to `http`) — target port **4318**, not gRPC 4317.
+- The config model has NO `redact_content` / `redacted_keys` fields; redaction
+  stays off (`redaction_enabled` defaults to `false`).
 
 - [ ] **Step 2: Commit**
 

@@ -7,6 +7,19 @@ general:
       console:
         _type: console
         level: INFO
+    tracing:
+      # Ships spans to the OTLP endpoint over HTTP/protobuf. The endpoint and
+      # the x-otlp-api-key header are injected by the deployment via
+      # OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_EXPORTER_OTLP_HEADERS (the exporter
+      # reads the header from the env var when the config passes none).
+      # The endpoint must include the full /v1/traces path — explicit config
+      # endpoints are used as-is.
+      otelcollector_redaction:
+        _type: otelcollector_redaction
+        project: ${OTEL_SERVICE_NAME:-grid-aiq-agent}
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318/v1/traces}
+        resource_attributes:
+          deployment.environment: ${APP_ENV:-production}
 
   front_end:
     _type: aiq_api
