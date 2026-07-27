@@ -187,6 +187,8 @@ export const chat: typeof en.chat = {
       understanding: 'Frage wird erfasst …',
       planning: 'Vorgehen wird geplant …',
       searchingWeb: 'Web wird durchsucht …',
+      searchingKnowledge: 'OIB-Wissen wird durchsucht …',
+      searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
       searchingSources: 'Quellen werden durchsucht …',
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
