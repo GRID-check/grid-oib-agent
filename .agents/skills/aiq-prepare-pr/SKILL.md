@@ -30,7 +30,7 @@ flow followed correctly.
 ## Authoritative References
 
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md): the canonical PR workflow, Local
-  Validation, DCO text, and the copy-pr-bot / `/ok to test` / `/merge` flow.
+  Validation, DCO text, and the CI merge gate.
 - [.github/pull_request_template.md](../../../.github/pull_request_template.md):
   the exact sections and checklist your PR description must fill.
 - [AGENTS.md](../../../AGENTS.md): "Git and PR hygiene" and the validation
@@ -51,8 +51,8 @@ For the step-by-step checklist and the bot command reference:
 5. Fill the PR template: Overview, Validation (paste the commands and output),
    reviewer starting point, related issues, and tick every checklist box you
    can honestly tick.
-6. Drive CI: a maintainer or vetter comments `/ok to test`, copy-pr-bot mirrors
-   the PR to `pull-request/<number>`, and CI runs there.
+6. CI runs directly on the PR (`pull_request` events) — this private repo has
+   no copy-pr-bot mirror and no `/ok to test`; pushing updates the checks.
 7. Address review feedback until required checks and code-owner review pass.
 
 ## Validation
@@ -79,8 +79,7 @@ contains only files relevant to this change, and the working tree is clean.
   committed generated artifacts.
 - Committing secrets or `deploy/.env` values. Resolve secrets at runtime; never
   paste them into the PR.
-- Expecting CI to run on push alone — it runs on the copy-pr-bot mirror after
-  `/ok to test`.
+- Expecting a bot to start CI — it runs automatically on the PR itself.
 - Skipping the docs update for user-facing or contributor-facing changes.
 
 ## Related Skills

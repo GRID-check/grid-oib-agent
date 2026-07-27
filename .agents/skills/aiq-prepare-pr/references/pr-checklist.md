@@ -49,18 +49,13 @@ Paste them into the PR's Validation section — do not summarize as "ran tests".
 - Tick each checklist item you can honestly tick (local checks, tests added,
   docs updated, no secrets, DCO sign-off).
 
-## 5. CI and merge flow (copy-pr-bot)
+## 5. CI and merge flow
 
-AI-Q uses push-triggered GitHub Actions on mirrored branches, not on the PR
-branch directly:
-
-- A maintainer or configured vetter comments `/ok to test`.
-- copy-pr-bot mirrors the PR to `pull-request/<PR number>` and CI runs there.
-- Owners, org members, and collaborators can request NVSkills validation with
-  `/nvskills-ci`.
-- Maintainers can request bot-driven merge with `/merge`, which requires the
-  RAPIDS ops-bot app plus satisfied repository rules: required checks,
-  code-owner review, resolved review threads, and branch policy.
+This repo is private: CI runs **directly on the PR** (`pull_request` events on
+`.github/workflows/ci.yml`) — there is no copy-pr-bot mirror, no `/ok to test`,
+no `/merge` bot (those are upstream NVIDIA AI-Q conventions that were removed
+here; see `ci.yml`'s header comment). Pushing the branch updates the PR checks
+automatically; the `ci-ok` gate is the required status check.
 
 ## 6. Review loop
 

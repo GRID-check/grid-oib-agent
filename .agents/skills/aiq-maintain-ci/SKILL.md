@@ -1,6 +1,6 @@
 ---
 name: aiq-maintain-ci
-description: Use when changing AI-Q continuous integration, pre-commit, or contributor governance — editing .github/workflows/ (ci, ui, skills-eval, request-nvskills-ci), .pre-commit-config.yaml hooks, .github/CODEOWNERS, .coderabbit.yaml, copy-pr-bot, or the .github/skill-eval harness — and validating those changes without breaking the gate.
+description: Use when changing AI-Q continuous integration, pre-commit, or contributor governance — editing .github/workflows/ (ci, ui, skills-eval, request-nvskills-ci), .pre-commit-config.yaml hooks, .github/CODEOWNERS, .coderabbit.yaml, or the .github/skill-eval harness — and validating those changes without breaking the gate.
 license: Apache-2.0
 compatibility: Claude Code, Codex, Cursor, OpenCode, and Agent Skills-compatible tools.
 metadata:
@@ -14,7 +14,7 @@ allowed-tools: Read Bash Edit
 
 Use this skill when a developer changes AI-Q's CI, pre-commit hooks, or
 contributor governance — the GitHub Actions workflows, the pre-commit config,
-CODEOWNERS, the CodeRabbit review config, the copy-pr-bot mirror, or the
+CODEOWNERS, the CodeRabbit review config, or the
 product-level skill-eval harness. These surfaces gate every PR, so a change must
 keep the gate working and must not weaken security or review rules.
 
@@ -22,18 +22,19 @@ keep the gate working and must not weaken security or review rules.
 
 - Identify the surface: a workflow (`.github/workflows/`), a pre-commit hook
   (`.pre-commit-config.yaml`), governance (`.github/CODEOWNERS`,
-  `.coderabbit.yaml`, `.github/copy-pr-bot.yaml`), or the skill-eval harness
+  `.coderabbit.yaml`), or the skill-eval harness
   (`.github/skill-eval/`).
 - Read the authoritative files below and `CONTRIBUTING.md` "CI and Bot Workflow"
   before editing — the bot/mirror flow is easy to break.
 - Make the smallest change; do not weaken secret detection, auth gating, or
   code-owner review without a prior design discussion (see `AGENTS.md`).
-- Remember CI runs on the copy-pr-bot mirror after `/ok to test`, not on push.
+- Remember CI runs directly on the PR (`pull_request` events) — this private
+  repo has no copy-pr-bot mirror and no `/ok to test`.
 
 ## Authoritative References
 
-- [CONTRIBUTING.md](../../../CONTRIBUTING.md): "CI and Bot Workflow" — copy-pr-bot
-  mirroring to `pull-request/<N>`, `/ok to test`, `/nvskills-ci`, `/merge`.
+- [CONTRIBUTING.md](../../../CONTRIBUTING.md): the CI merge gate — workflows
+  run directly on PRs (`pull_request` events); there is no bot mirror.
 - [AGENTS.md](../../../AGENTS.md): "Git and PR hygiene" and the validation
   commands CI mirrors.
 - `.github/workflows/ci.yml`: jobs `pre-commit`, `test` (pytest + coverage),
@@ -48,13 +49,13 @@ keep the gate working and must not weaken security or review rules.
 - `.github/workflows/request-nvskills-ci.yml`: comment-triggered NVSkills CI.
 - `.pre-commit-config.yaml`: the hook set. Note `pytest` and `helm-lint` are
   `stages: [push]` (see the reference for what that means locally).
-- `.github/CODEOWNERS`, `.coderabbit.yaml`, `.github/copy-pr-bot.yaml`: review
-  routing, path-scoped automated review, and the PR mirror.
+- `.github/CODEOWNERS`, `.coderabbit.yaml`: review
+  routing and path-scoped automated review.
 
 Longer procedures live in this bundle:
 
 - [references/workflows-and-hooks.md](references/workflows-and-hooks.md): the
-  workflows, their jobs/triggers, the copy-pr-bot mirror flow, and the pre-commit
+  workflows, their jobs/triggers, and the pre-commit
   hook inventory (incl. the push-stage hooks).
 - [references/skill-eval-harness.md](references/skill-eval-harness.md): how the
   `.github/skill-eval/` regression gate finds specs, runs adapters, and verifies.
@@ -69,8 +70,8 @@ Longer procedures live in this bundle:
    installed.
 4. Reproduce the affected gate locally where possible — run the pre-commit hooks
    or the job's underlying command (see the references).
-5. Note that the real CI run happens on the copy-pr-bot mirror after a maintainer
-   comments `/ok to test`.
+5. Note that CI runs automatically on the PR itself (`pull_request` events) —
+   no bot mirror, no maintainer comment needed to trigger it.
 6. Summarize changed files and the local validation evidence.
 
 ## Validation
@@ -94,8 +95,7 @@ so validate spec/adapter shape locally and rely on the mirrored CI run.
   `detect-changes` job — the comment in that workflow explains why path-filtering
   the trigger is wrong here.
 - Weakening `detect-secrets`, auth gating, or code-owner review to make CI pass.
-- Expecting CI to run on push; it runs on the copy-pr-bot mirror after
-  `/ok to test`.
+- Expecting a bot to start CI; it runs automatically on the PR itself.
 - Assuming `pre-commit run --all-files` reproduces the whole gate — `pytest` and
   `helm-lint` are `stages: [push]`, so they do not run at the default stage. Use
   `--hook-stage push` (or run them directly), and remember CI runs them as
