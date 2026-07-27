@@ -26,38 +26,10 @@ import signal
 import socket
 
 from . import queue
+from .runner import _purge_deep_checkpoint
 from .runner import run_agent_job
 
 logger = logging.getLogger(__name__)
-
-
-def _purge_deep_checkpoint(job_id: str) -> None:
-    """Best-effort deletion of a finished deep run's durable checkpoint rows.
-
-    The deep-research checkpointer keys ``thread_id == job_id`` in
-    ``AIQ_DEEP_CHECKPOINT_DB`` and writes the full growing state every step, but
-    nothing prunes ``checkpoints``/``checkpoint_blobs``/``checkpoint_writes`` — so
-    they grow (superlinearly per run) forever. Once a run is terminal the
-    checkpoint is dead weight (resume is manual-resubmit, never auto-read), so
-    drop it. Never raises.
-    """
-    dsn = os.environ.get("AIQ_DEEP_CHECKPOINT_DB")
-    if not dsn:
-        return
-    try:
-        from sqlalchemy import text
-
-        from .event_store import EventStore
-
-        engine = EventStore._get_or_create_sync_engine(dsn)
-        with engine.connect() as conn:
-            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-                # Fixed table names (LangGraph schema); job_id is bound.
-                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                conn.execute(text(f"DELETE FROM {table} WHERE thread_id = :tid"), {"tid": job_id})  # noqa: S608
-            conn.commit()
-    except Exception:
-        logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
 
 
 def _int_env(name: str, default: int) -> int:

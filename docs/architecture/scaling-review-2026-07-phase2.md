@@ -19,9 +19,10 @@ the TTL-cleanup lock — is a cliff).
 
 1. **LangGraph checkpoint tables never cleaned** (`checkpoints`/`checkpoint_blobs`/
    `checkpoint_writes`). Per-run byte growth is superlinear (full-state blob per
-   changed channel per step). **[LANDED — deep]** `worker.py` now purges a deep
-   run's `AIQ_DEEP_CHECKPOINT_DB` rows (`thread_id = job_id`) on non-cancelled
-   completion (`_purge_deep_checkpoint`, tested). **[LANDED — chat]** the
+   changed channel per step). **[LANDED — deep]** `runner.py` now purges a deep
+   run's `AIQ_DEEP_CHECKPOINT_DB` rows (`thread_id = job_id`) on terminal
+   completion in both the Dask and DB-queue execution paths
+   (`_purge_deep_checkpoint`, tested). **[LANDED — chat]** the
    `AIQ_CHECKPOINT_DB` conversation checkpoints have no terminal event, so a
    leader-locked **age reaper** (`jobs/checkpoint_retention.py`,
    `reap_idle_threads`) now drops whole threads idle beyond
@@ -94,7 +95,8 @@ the TTL-cleanup lock — is a cliff).
   schema-ensure (access.py / event_store.py) — see ADR-0027 for why they live there
   and not in the infra bootstraps.
 - `ingest_jobs` retention (dead `delete()` wired).
-- Deep-run checkpoint purge on completion (`worker._purge_deep_checkpoint`).
+- Deep-run checkpoint purge on completion (`runner._purge_deep_checkpoint`, now
+  on both the Dask and DB-queue execution paths).
 - Chat checkpoint age reaper (`jobs/checkpoint_retention.py`) — leader-locked,
   hourly, drops idle threads past the retention window.
 - db-mode `job_info`/`job_access` expiry (`access.expire_terminal_jobs`) folded

@@ -5,7 +5,7 @@ checkpointing is not configured."""
 from sqlalchemy import text
 
 from aiq_api.jobs.event_store import EventStore
-from aiq_api.jobs.worker import _purge_deep_checkpoint
+from aiq_api.jobs.runner import _purge_deep_checkpoint
 
 _TABLES = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
 
