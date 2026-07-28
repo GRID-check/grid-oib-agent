@@ -368,6 +368,9 @@ class TestGoldenPathToWire:
         # The sentence that cited the invented source keeps its text, loses its marker.
         assert "OENORM B 1300" in body
         assert "[3]" not in body
+        # …and loses the space the marker sat in, rather than leaving the reader a
+        # "Begehung ." that reads as a typo the writer never made.
+        assert "eine jaehrliche Begehung. Der Einreichplan" in body
 
     def test_each_chip_carries_the_number_the_prose_now_uses(self):
         _, _, _, wire = run_golden_path()

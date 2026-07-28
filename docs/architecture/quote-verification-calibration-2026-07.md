@@ -11,7 +11,7 @@ against the real function with 0 disagreements).
 
 ## Result: keep all three
 
-```
+```text
 at 0.90 / 20 / 6 :  0.0% false positives (0/461)   9.2% false negatives (18/195)
 ```
 
@@ -25,7 +25,7 @@ at 0.90 / 20 / 6 :  0.0% false positives (0/461)   9.2% false negatives (18/195)
 
 Elision detection is a step function on the budget: splices dropping **≤6
 characters are caught 0% of the time**, ≥8 characters 100%. German legal prose
-inverts on short words, and the worst case family scored 13/22 wrong:
+inverts on short words, and the worst-case family scored 13/22 wrong:
 
 > A quote that silently drops **`nicht`** (5 chars) passes as verbatim, turning
 > an OIB prohibition into a permission while the answer presents it as a

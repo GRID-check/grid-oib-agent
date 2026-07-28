@@ -243,7 +243,13 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
                     content, which was blank for a knowledge-base source — a
                     latent hole that only became reachable once KB sources could
                     be marked cited at all. */}
-                <ol className="list-outside list-decimal space-y-2 pl-5">
+                {/* No list marker: the card already prints the source's `[N]`
+                    from the answer's prose, and a positional marker is a
+                    DIFFERENT number. Cited sources 2 and 5 sit at positions 1
+                    and 2, so the row would show two numbers that disagree. The
+                    `[N]` is what an inline marker points at, so the card keeps
+                    it and the list drops its own. */}
+                <ol className="list-none space-y-2 pl-0">
                   {citedFallbackSources.map((item) => (
                     <li key={item.key} className="text-sm text-foreground">
                       <SourcePreviewChip source={item.ref} signal={item.ref.signal} item={item} variant="card" />

@@ -248,7 +248,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/source-list',
     description:
-      'The research panel\u2019s citation list — every source kind in one place (OIB corpus, RIS, B\u00fcroarchiv, project upload, web page, bare tool result), each with its provenance tint, authority badge and cited marker. Evidence that a source renders and behaves identically here and in the answer\u2019s provenance chips.',
+      'The research panel\u2019s citation list — every document source kind in one place (OIB corpus, RIS, B\u00fcroarchiv, project upload, web page), each with its provenance tint, authority badge and cited marker. Evidence that a source renders and behaves identically here and in the answer\u2019s provenance chips.',
     waitFor: '[data-testid="source-list-preview"]',
   },
   {

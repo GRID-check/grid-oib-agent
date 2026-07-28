@@ -2107,6 +2107,13 @@ _BARE_URL_RE = re.compile(r"https?://[^\s<>\"'\]]+")
 # Body URL patterns (used by sanitize_report)
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(\s*\w+://[^\s)]+\)")
 _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
+# Whatever gets removed from mid-sentence (a stripped URL, an empty pair of
+# parentheses, or an inline [N] that verification dropped) leaves the space that
+# preceded it stranded in front of the punctuation that followed, so
+# "eine jaehrliche Begehung [3]." reaches the reader as "Begehung .". Spaces and
+# tabs only, never a newline, so punctuation is never pulled up onto the
+# previous line.
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"[ \t]+(?=[.,;:!?])")
 
 
 @dataclass
@@ -2193,6 +2200,7 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
     # Clean up leftover empty parentheses and extra spaces
     cleaned_body = re.sub(r"\(\s*\)", "", cleaned_body)
     cleaned_body = re.sub(r"  +", " ", cleaned_body)
+    cleaned_body = _SPACE_BEFORE_PUNCTUATION_RE.sub("", cleaned_body)
 
     if body_urls_replaced:
         logger.debug("[ReportSanitize] Replaced %d body URL(s) with citation numbers", body_urls_replaced)

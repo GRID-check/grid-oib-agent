@@ -12,7 +12,7 @@ ADR-0024 (org Archiv), ADR-0012 (cards).
 
 ## Pipeline
 
-```
+```text
 INGEST           oib_sync.py (base corpus) · project/archiv uploads → Chroma
                  document_metadata_store: display_title + doc_class (admin-editable)
 
@@ -32,7 +32,7 @@ REGISTRY         SourceRegistry — dedup on normalized URL | (filename, page)
 
 VERIFY           verify_citations       identity only; removes, never repairs
                  verify_quoted_spans    fuzzy; annotates inline, never strips
-                 sanitize_report        URL hygiene + renumber (returns its renumber_map)
+                 sanitize_report        URL + whitespace hygiene, renumber (returns renumber_map)
 
 CLASSIFY         lane_for_hit (doc_class ▸ collection ▸ filename ▸ url)
                  → kind_for_lane → baurecht | buero | projekt | web
