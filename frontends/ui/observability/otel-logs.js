@@ -53,7 +53,10 @@ function initOtelLogs() {
   )
   const provider = new LoggerProvider({
     resource,
-    processors: [new BatchLogRecordProcessor(new OTLPLogExporter({ url: logsUrl(endpoint) }))],
+    // SDK 2.x: the exporter goes in an options object — positional
+    // construction leaves _exporter undefined and every flush throws inside
+    // the processor (swallowed by diag), silently dropping all records.
+    processors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: logsUrl(endpoint) }) })],
   })
   logs.setGlobalLoggerProvider(provider)
 
