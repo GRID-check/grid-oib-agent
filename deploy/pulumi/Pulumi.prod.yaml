@@ -148,3 +148,20 @@ config:
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
   #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
   grid-oib:otelDomain: otel.example.com
+
+  # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
+  # OFF in prod for now — deliberately, not by oversight. Two things must be
+  # true before flipping it:
+  #   1. `err2issueImage` is digest-pinned. It currently defaults to a moving
+  #      `:latest` because upstream publishes no tags; a moving tag on a pod
+  #      holding a repo-write token is not a prod posture, and the trivy job in
+  #      .github/workflows/security.yml only scans pinned refs.
+  #   2. Steady-state error volume is known from dev, so
+  #      err2issueMaxNewFingerprintsPerDay is a considered number rather than
+  #      the conservative 20 that ships by default.
+  # Then:
+  #   pulumi config set        grid-oib:err2issueEnabled     true
+  #   pulumi config set        grid-oib:err2issueGithubRepo  GRID-check/grid-oib-agent
+  #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
+  #   pulumi config set        grid-oib:err2issueImage       ghcr.io/matthiasbigl/err2issue@sha256:...
+  grid-oib:err2issueEnabled: "false"

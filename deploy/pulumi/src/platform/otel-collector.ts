@@ -4,6 +4,7 @@ import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
 import { OTLP_API_KEY_SECRET_KEY } from "./observability";
+import { ERR2ISSUE_OTLP_HTTP } from "./err2issue";
 
 const COMPONENT = "otel-collector";
 const OTLP_GRPC_PORT = 4317;
@@ -43,6 +44,46 @@ export function installOtelCollector(
   const labels = commonLabels(COMPONENT);
   const name = COMPONENT;
 
+  // err2issue (ADR-0031) is a SECOND consumer of the logs signal, not a
+  // replacement: the dashboard keeps the full live view, err2issue gets only
+  // what is worth waking someone for. Both fragments below are empty when the
+  // sink is off, so the collector config is byte-identical to before —
+  // enabling the sink is the only thing that changes it.
+  //
+  // The filter drops everything below ERROR *before* the exporter rather than
+  // letting err2issue discard it on arrival: the sink only ever acts on ERROR,
+  // so forwarding INFO/DEBUG would be pure waste of collector egress, sink CPU
+  // and pod memory at exactly the moment a service is noisiest.
+  const err2issueExporter = cfg.err2issue.enabled
+    ? `
+  otlp_http/err2issue:
+    endpoint: ${ERR2ISSUE_OTLP_HTTP}
+    compression: none`
+    : "";
+  const err2issueProcessor = cfg.err2issue.enabled
+    ? `
+  filter/errors_only:
+    # A malformed record must not take the pipeline down — the dashboard's
+    # copy of this signal is on the other side of the same receiver.
+    error_mode: ignore
+    # \`log_conditions\` (with the \`log.\` prefix), NOT the older
+    # \`logs: log_record:\` nesting: the latter is deprecated as of
+    # collector-contrib 0.146 and slated for removal, and this stack pins
+    # 0.157. Conditions DROP what they match, so this keeps ERROR and above.
+    log_conditions:
+      - 'log.severity_number < SEVERITY_NUMBER_ERROR'`
+    : "";
+  // A separate pipeline, NOT an extra exporter on the existing `logs` one: the
+  // severity filter is per-pipeline, so sharing would silently strip
+  // sub-ERROR logs from the dashboard too and gut the live view.
+  const err2issuePipeline = cfg.err2issue.enabled
+    ? `
+    logs/err2issue:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/errors_only, batch]
+      exporters: [otlp_http/err2issue]`
+    : "";
+
   // ${env:OTLP_API_KEY} is interpolated by the collector at startup from the
   // container env (secretKeyRef below) — the key never sits in the ConfigMap.
   const collectorConfig = `
@@ -61,9 +102,9 @@ processors:
     spike_limit_percentage: 25
   batch:
     timeout: 5s
-    send_batch_size: 1024
+    send_batch_size: 1024${err2issueProcessor}
 
-exporters:
+exporters:${err2issueExporter}
   otlp_http/aspire:
     endpoint: ${ASPIRE_OTLP_HTTP}
     # The dashboard's OTLP/HTTP endpoint does not decompress gzip request
@@ -88,7 +129,7 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp_http/aspire]
+      exporters: [otlp_http/aspire]${err2issuePipeline}
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]

@@ -1,0 +1,46 @@
+name: Claude Code Review
+
+# Automatic PR review — no `@claude` mention needed. Runs the `code-review`
+# skill from Anthropic's plugin marketplace against the PR diff and posts the
+# findings as a review.
+#
+# Requires the `CLAUDE_CODE_OAUTH_TOKEN` repository secret (Pro/Max
+# subscription token from `claude setup-token`).
+#
+# Cost note: this only fires when a PR is opened or moved out of draft, not on
+# every push. Add `synchronize` to the trigger types below if you want a fresh
+# review on each new commit (that bills one Claude run per push).
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review PR
+    # Draft PRs are reviewed once they are marked ready, not while in progress.
+    if: github.event.pull_request.draft == false
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: |
+            --max-turns 20

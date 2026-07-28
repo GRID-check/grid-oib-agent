@@ -1,0 +1,62 @@
+name: Claude Code
+
+# Interactive Claude Code agent. Mention `@claude` in an issue, a PR comment, a
+# PR review, or a review comment and it picks up the thread, reads the repo
+# (CLAUDE.md -> AGENTS.md) and answers or pushes commits to the PR branch.
+#
+# Requires the Claude GitHub App (https://github.com/apps/claude) installed on
+# this repo, plus a `CLAUDE_CODE_OAUTH_TOKEN` repository secret. Pro/Max
+# subscribers generate that token by running `claude setup-token` locally — no
+# Claude API key or console billing needed. (API-key users would instead set
+# `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` below.)
+#
+# Trigger gating happens twice: the job-level `if` avoids spinning a runner for
+# every comment on the repo, and the action itself re-checks the trigger phrase.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+# `contents: write` + `pull-requests: write` let Claude push to a PR branch and
+# reply; `id-token: write` is used by the action for OIDC-backed token exchange.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read # read CI results on the PR it is asked about
+
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    name: Respond to @claude
+    # Only run when the triggering text actually mentions @claude. Without this
+    # every comment in the repo would start a (billable) runner.
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so Claude can inspect the branch it is working on.
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # No `prompt`: the action runs in interactive mode and takes its
+          # instructions from the comment that mentioned it.
+          claude_args: |
+            --max-turns 25

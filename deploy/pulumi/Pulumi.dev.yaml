@@ -138,3 +138,27 @@ config:
   grid-oib:loadBalancerIp: 45.144.209.191
   grid-oib:otelOidcClientSecret:
     secure: AAABANxz0yOpeiXuthqRpt6ISXW2og+EzwOSgcA8tPkdPj8Kejvv6HgyH7qBRceT8+/JE44EgZLXStWSxfylFO7aYHYN2RSsONmyWdMXRPJ0URx3yK95xwKAYhW/RDz6
+  # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
+  # A second consumer on the collector's logs signal. Requires the
+  # observability tier above (it has no receiver of its own).
+  #
+  # `err2issueGithubToken` is deliberately absent below — same reason as
+  # otelOidcClientSecret: only an operator holding both the PAT and the stack's
+  # encryption key can write it. Until it is set the capability gate skips the
+  # sink and `pulumi preview` says so. That is the designed fail-closed
+  # behaviour, not a missing config bug. To finish enabling:
+  #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
+  # The PAT needs Issues read/write on the destination repo (a fine-grained
+  # token scoped to that one repo is enough — it never reads code).
+  #
+  # Optional, off by default:
+  #   pulumi config set --secret grid-oib:err2issueAnthropicApiKey sk-ant-...
+  # buys AI-written issue titles instead of rule-based ones. This is a console
+  # API key and bills per token; a Claude subscription does not cover it, and
+  # the sink works fine without it.
+  #
+  # Caps are deliberately conservative for a first deployment (20 new issues
+  # per day, 600s coalescing window — see src/config.ts). Raise
+  # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
+  grid-oib:err2issueEnabled: "true"
+  grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent

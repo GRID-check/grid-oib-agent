@@ -11,6 +11,13 @@ import { PORT } from "../constants";
 const OBSERVABILITY_DASHBOARD = "aspire-dashboard";
 
 /**
+ * `app.kubernetes.io/name` of the err2issue sink (ADR-0031). Held to the same
+ * arrangement as the dashboard: withheld from rule 2, granted one caller in
+ * rule 9.
+ */
+const ERR2ISSUE = "err2issue";
+
+/**
  * Namespace-scoped NetworkPolicies for `grid`: a **default-deny for ingress**
  * plus the minimum set of allows the stack actually needs. This contains lateral
  * movement — a compromised pod in another namespace can't reach the app/data
@@ -73,10 +80,23 @@ export function installNetworkPolicies(
   //    `NotIn` also matches pods that lack the label entirely (Kubernetes label
   //    semantics), so CNPG-managed Postgres pods and anything else without
   //    `app.kubernetes.io/name` keep the intra-namespace allow.
+  //
+  //    err2issue (ADR-0031) is withheld on the same grounds when deployed. Its
+  //    OTLP receiver authenticates nobody either, and the pod holds a GitHub
+  //    token with Issues write — so a blanket allow would let any pod in the
+  //    namespace, including the agent worker executing model-chosen tool calls,
+  //    forge issues into the repo. Rule 9 grants its one real caller.
   const intra = mk("allow-same-namespace", {
     podSelector: {
       matchExpressions: [
-        { key: "app.kubernetes.io/name", operator: "NotIn", values: [OBSERVABILITY_DASHBOARD] },
+        {
+          key: "app.kubernetes.io/name",
+          operator: "NotIn",
+          values: [
+            OBSERVABILITY_DASHBOARD,
+            ...(cfg.err2issue.enabled ? [ERR2ISSUE] : []),
+          ],
+        },
       ],
     },
     policyTypes: ["Ingress"],
@@ -155,6 +175,23 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 9. otel-collector → err2issue OTLP/HTTP (ADR-0031). Mirrors rule 8: rule 2
+  //    leaves err2issue out of the wholesale allow, and the collector's
+  //    `otlp_http/err2issue` exporter is its only legitimate client. Port 4318
+  //    alone — the sink speaks no gRPC.
+  const collectorToErr2Issue = cfg.err2issue.enabled
+    ? mk("allow-collector-to-err2issue", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": ERR2ISSUE } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "otel-collector" } } }],
+            ports: [{ protocol: "TCP", port: 4318 }],
+          },
+        ],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
@@ -164,5 +201,6 @@ export function installNetworkPolicies(
     acmeSolver,
     ...(edgeOtel ? [edgeOtel] : []),
     ...(collectorToDashboard ? [collectorToDashboard] : []),
+    ...(collectorToErr2Issue ? [collectorToErr2Issue] : []),
   ];
 }
