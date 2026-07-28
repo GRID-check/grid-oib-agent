@@ -1289,7 +1289,8 @@ class TestVerifyCitationsOriginTokens:
         assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in sanitized
         assert "[2] [Web] Article: https://example.com/article" in sanitized
         assert "[3]" not in sanitized
-        assert "A [1]. B . C [2]." in sanitized
+        # The dropped "[2]" leaves no orphaned space before its sentence period.
+        assert "A [1]. B. C [2]." in sanitized
 
     def test_sanitize_report_leaves_existing_tokens_alone(self):
         """``_normalize_citation_syntax`` must not rewrite ``[KB]``/``[RIS]``/``[Web]``."""
