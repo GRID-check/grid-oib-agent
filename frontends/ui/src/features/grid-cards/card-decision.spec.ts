@@ -116,10 +116,23 @@ describe('sanitizeCardInteractions', () => {
     })
   })
 
-  it('substitutes a missing or non-string timestamp rather than dropping the decision', () => {
-    const clean = sanitizeCardInteractions({ 'x-0': { decision: 'accepted' } })
-    expect(clean?.['x-0'].decision).toBe('accepted')
-    expect(typeof clean?.['x-0'].decidedAt).toBe('string')
+  it('substitutes an unusable timestamp rather than dropping the decision', () => {
+    // What it emits must be exactly what the PATCH route accepts: the client
+    // re-sends the WHOLE map, so one unparseable entry rehydrated from a
+    // foreign row would 400 every later decision on that message — silently,
+    // because the mirror only warns.
+    for (const bad of [undefined, 42, 'yesterday', '2026-13-45', '2026-07-28T09:00:00+02:00']) {
+      const clean = sanitizeCardInteractions({ 'x-0': { decision: 'accepted', decidedAt: bad } })
+      expect(clean?.['x-0'].decision).toBe('accepted')
+      expect(clean?.['x-0'].decidedAt).toBe(new Date(0).toISOString())
+    }
+  })
+
+  it('keeps a valid UTC ISO timestamp as-is', () => {
+    const clean = sanitizeCardInteractions({
+      'x-0': { decision: 'accepted', decidedAt: '2026-07-28T09:00:00.000Z' },
+    })
+    expect(clean?.['x-0'].decidedAt).toBe('2026-07-28T09:00:00.000Z')
   })
 
   it('returns undefined for non-objects and for input with nothing usable', () => {

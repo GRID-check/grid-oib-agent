@@ -94,7 +94,7 @@ HITL prompt.
 | The closed set of outcomes | `CARD_DECISIONS` in `features/grid-cards/card-decision.ts` |
 | Card identity within a message | `` cardKey(card, index) `` → `` `${type}-${index}` `` (also the React key) |
 | Keeping keys honest mid-stream | `reconcileCardInteractions` — a streaming turn replaces `cards` wholesale, so a decision is kept only while the card at its index is byte-identical to the one it was made about |
-| Read/write from a renderer | `useCardDecision(messageId, cardKey)` — **never** `useState` |
+| Read/write from a renderer | `useCardDecision(messageId, cardKey)` — not a hand-rolled `useState` (the hook keeps one mount-scoped fallback for when the store write cannot land) |
 | → localStorage | the chat store's `persist` middleware (rides the message) |
 | → Postgres | `_persistCardInteractions` → `PATCH /api/conversations/{id}/messages/{messageId}` → `messages.metadata.cardInteractions` |
 | ← rehydrate | `server-message-mapper.ts` via `sanitizeCardInteractions` |

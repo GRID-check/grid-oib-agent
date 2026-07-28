@@ -68,9 +68,12 @@ Concretely:
    While a turn is still **streaming**, that array is replaced wholesale on each
    frame that carries cards — and cards render, and are clickable, during
    streaming. So every replacement runs `reconcileCardInteractions`, which keeps
-   a decision only if a card of the same type still sits at the same index and
-   drops it otherwise. Losing a record and re-asking is recoverable; attaching
-   one card's decision to another is not.
+   a decision only if the card at its index is **byte-identical** to the one the
+   decision was made about. Same-type-same-index is not enough: two frames can
+   both carry a `project_profile_patch` at index 0 proposing different patches,
+   and "accepted" must not carry over to a proposal the user never saw. Losing a
+   record and re-asking is recoverable; attaching one card's decision to another
+   is not.
 
 3. **It rides both existing persistence layers**, because it lives on the
    message: the store's `persist` middleware writes it to localStorage, and
@@ -80,10 +83,19 @@ Concretely:
    device) would otherwise resurrect a settled card as pending, which is exactly
    the double-write case.
 
-4. **Interactive cards render from that state, never from local state.** They
-   take `messageId` + `cardKey` and read/write through `useCardDecision`.
-   Transient state — submit spinner, request error, an open preview dialog —
-   stays component-local: it describes an *attempt*, not a *decision*.
+4. **Interactive cards render from that state, not from local state.** They take
+   `messageId` + `cardKey` and read/write through `useCardDecision`. Transient
+   state — submit spinner, request error, an open preview dialog — stays
+   component-local: it describes an *attempt*, not a *decision*.
+
+   `useCardDecision` keeps one mount-scoped fallback, used **only** when the
+   store could not record the decision: no owning message (the `/dev` gallery),
+   or `setCardDecision` no-opping because the message is gone (its session was
+   deleted while the card was on screen). The API write has already happened by
+   then, so the card must still settle. It is deliberately not set when the
+   store write succeeds — otherwise a decision later dropped by
+   `reconcileCardInteractions` would survive in local state and mark the
+   *replacement* card as decided, defeating the reconciler entirely.
 
 5. **Interactivity is a declared property of a card type, checked at build
    time.** `CARD_INTERACTIVITY` in `card-decision.ts` is exhaustive over
@@ -190,6 +202,17 @@ prefer making its endpoint idempotent as well — persistence stops the UI from
   passes `validatedCards` into `addAgentResponseWithMeta`), so any future
   wiring of the report surface must not key on the same message as the chat
   bubble — the positional keys would collide.
+- **The per-key merge can add and overwrite, never delete.** When
+  `reconcileCardInteractions` drops a decision locally, a server copy of it
+  would survive. This is not reachable today — the message row is only inserted
+  when the turn finalizes, so a mid-stream PATCH 404s and there is nothing to
+  orphan — but it goes live the moment any flow appends the row before the final
+  card set lands. Fix then by PUT-ing the whole map, or by sending an explicit
+  tombstone.
+- The mirror can lose a race: a decision made in the window before
+  `_appendMessage` completes both 404s its PATCH and misses the insert snapshot,
+  so it stays local-only. Accepted — the mirror is best-effort by design and
+  localStorage remains authoritative for rendering.
 - The agent is not told which of its proposals the user accepted. Feeding
   `cardInteractions` back into turn context would let it stop re-proposing a
   rejected patch.

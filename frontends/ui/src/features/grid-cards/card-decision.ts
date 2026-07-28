@@ -140,6 +140,15 @@ export const isCardDecision = (value: unknown): value is CardDecision =>
   typeof value === 'string' && DECISIONS.has(value)
 
 /**
+ * A UTC ISO-8601 instant — the one form the PATCH route's `.datetime()` takes.
+ * The parse check comes first: `toISOString()` THROWS on an unparseable date.
+ */
+const isTimestamp = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  !Number.isNaN(Date.parse(value)) &&
+  value === new Date(value).toISOString()
+
+/**
  * Drop decisions that no longer refer to the card they were made about.
  *
  * `cardKey` is positional, which is safe once a turn has finalized — but a
@@ -197,7 +206,11 @@ export const sanitizeCardInteractions = (raw: unknown): CardInteractions | undef
     if (!isCardDecision(decision)) continue
     clean[key] = {
       decision,
-      decidedAt: typeof decidedAt === 'string' ? decidedAt : new Date(0).toISOString(),
+      // Must emit exactly what the PATCH route accepts. `setCardDecision`
+      // re-sends the WHOLE map, so one unparseable timestamp rehydrated from a
+      // foreign row would 400 every later decision on that message — and the
+      // mirror only warns, so it would fail silently and permanently.
+      decidedAt: isTimestamp(decidedAt) ? decidedAt : new Date(0).toISOString(),
     }
   }
 
