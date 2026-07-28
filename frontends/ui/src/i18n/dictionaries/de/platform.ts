@@ -8,7 +8,6 @@ export const platform: typeof en.platform = {
   loadError: 'Die Plattform-Übersicht konnte nicht geladen werden.',
   loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
   retry: 'Erneut versuchen',
-  // >>> ui-knowledge: add this section's copy directly below this line <<<
   /**
    * Plattform → Basiswissen, neu aufgebaut auf den gemeinsamen Admin-Primitiven
    * (SectionCard + DataToolbar + Table + Sheet + Pagination). Hier steht nur die
@@ -71,7 +70,6 @@ export const platform: typeof en.platform = {
     emptyDescription:
       'Fügen Sie eine PDF hinzu oder ein ZIP mit vielen auf einmal — alle Projekte stützen ihre Antworten auf diesen Korpus.',
   },
-  // >>> ui-norms: add this section's copy directly below this line <<<
   norms: {
     title: 'Normenkatalog',
     description:
@@ -223,7 +221,6 @@ export const platform: typeof en.platform = {
       notInRis: 'Nicht im RIS — Quelle als Link pflegen.',
     },
   },
-  // >>> ui-workflows: add this section's copy directly below this line <<<
   /**
    * Plattform → Workflows, neu aufgebaut auf den gemeinsamen Admin-Primitiven
    * (SectionCard + DataToolbar + Table + Sheet). Als `platform.workflowsSection`
@@ -357,7 +354,6 @@ export const platform: typeof en.platform = {
       saving: 'Wird gespeichert…',
     },
   },
-  // >>> ui-overview: add this section's copy directly below this line <<<
   overview: {
     search: 'Organisationen suchen…',
     searchLabel: 'Organisationen suchen',
@@ -374,7 +370,6 @@ export const platform: typeof en.platform = {
     cappedNote:
       'Es konnten nur die ersten {count} Organisationen aus dem Verzeichnis geladen werden. Suche, Sortierung und die Kennzahlen oben umfassen genau diese.',
   },
-  // >>> ui-maintenance: add this section's copy directly below this line <<<
   // Der Wartungsbereich (Bereinigung verwaister Vektoren). Eigener Namensraum,
   // damit Erklärung, Bestätigung und Ergebniszusammenfassung als eine Stimme
   // gelesen – und übersetzt – werden können.
@@ -584,117 +579,6 @@ export const platform: typeof en.platform = {
     turnFailed: 'fehlgeschlagen',
     spanCount: '{count} Spans',
     noSpans: 'Keine Spans für diesen Turn erfasst.',
-  },
-  maintenance: {
-    title: 'Vektor-Wartung',
-    description:
-      'Verwaiste Vektoren entfernen – indexierte Textabschnitte, die bei früheren Löschungen zurückblieben und deren Dokument nicht mehr existiert. In der App sind sie unsichtbar, können aber weiterhin in der Suche auftauchen. Jederzeit gefahrlos ausführbar; es werden nur Abschnitte ohne vorhandenes Dokument entfernt.',
-    reconcile: 'Verwaiste Vektoren bereinigen',
-    reconciling: 'Wird bereinigt…',
-    confirmTitle: 'Verwaiste Vektoren bereinigen?',
-    confirmDescription:
-      'Dies durchsucht jede Sammlung und löscht indexierte Abschnitte, deren Dokument nicht mehr existiert. Weiterhin sichtbare Dokumente bleiben unberührt. Der Vorgang kann nicht rückgängig gemacht werden, ein entferntes Dokument lässt sich aber erneut hochladen.',
-    confirm: 'Bereinigung starten',
-    cancel: 'Abbrechen',
-    resultRemoved: '{chunks} verwaiste Abschnitt(e) in {collections} Sammlung(en) entfernt',
-    resultClean: 'Keine verwaisten Vektoren gefunden',
-    resultCleanDetail: 'Keine verwaisten Vektoren in {collections} Sammlung(en) gefunden',
-    resultFailures: '{count} Sammlung(en) konnten nicht bereinigt werden',
-    failed: 'Bereinigung fehlgeschlagen',
-  },
-  workflowTemplates: {
-    title: 'Workflow-Vorlagen',
-    explainer:
-      'Kuratierte Rechercheaufträge, die in der Workflow-Galerie jeder Organisation veröffentlicht werden. Eine veröffentlichte Vorlage erscheint bei allen Organisationen; das Auswählen füllt dort nur den Workflow-Builder vor – es startet nie automatisch.',
-    new: 'Neue Vorlage',
-    // JSON-Import-Ablagefläche.
-    dropTitle: 'Vorlage importieren (JSON)',
-    dropActive: 'Zum Importieren loslassen',
-    dropHint: 'JSON-Datei ablegen oder klicken – der Editor öffnet sich vorausgefüllt als Entwurf.',
-    importLoaded: 'Vorlagendatei geladen – prüfen und speichern.',
-    importInvalid: 'Diese Datei ist kein gültiger Vorlagen-Export.',
-    // Listenzustände.
-    empty: 'Noch keine Vorlagen. Erstellen Sie eine oder importieren Sie eine JSON-Datei.',
-    loadError: 'Die Vorlagen konnten nicht geladen werden.',
-    retry: 'Erneut versuchen',
-    manualCadence: 'Auf Abruf',
-    // Zeilen-Badges + Aktionen.
-    published: 'Veröffentlicht',
-    draft: 'Entwurf',
-    publishAria: '„{name}“ für alle Organisationen veröffentlichen',
-    unpublishAria: 'Veröffentlichung von „{name}“ zurückziehen',
-    export: 'Als JSON exportieren',
-    edit: 'Bearbeiten',
-    delete: 'Löschen',
-    // Provenienz-Bezeichnungen (Formular + Liste).
-    provenance: {
-      law: 'Vorschrift',
-      project: 'Projekt',
-      office: 'Büro',
-      auto: 'Allgemein',
-    },
-    // Meldungen.
-    createSuccess: 'Vorlage erstellt.',
-    updateSuccess: 'Vorlage aktualisiert.',
-    publishSuccess: 'Vorlage für alle Organisationen veröffentlicht.',
-    unpublishSuccess: 'Veröffentlichung zurückgezogen.',
-    publishFailed: 'Der Veröffentlichungsstatus konnte nicht geändert werden.',
-    saveFailed: 'Die Vorlage konnte nicht gespeichert werden.',
-    deleteSuccess: 'Vorlage gelöscht.',
-    deleteFailed: 'Die Vorlage konnte nicht gelöscht werden.',
-    // Löschbestätigung.
-    deleteTitle: '„{name}“ löschen?',
-    deleteDescription:
-      'Dies entfernt die Vorlage aus der Galerie jeder Organisation. Bereits daraus erstellte Workflows bleiben unberührt. Dies kann nicht rückgängig gemacht werden.',
-    deleteConfirm: 'Vorlage löschen',
-    deleteCancel: 'Abbrechen',
-    form: {
-      createTitle: 'Neue Workflow-Vorlage',
-      editTitle: 'Workflow-Vorlage bearbeiten',
-      subtitle: 'Verfassen Sie den Auftrag auf Deutsch und Englisch – die Galerie zeigt die Sprache des Betrachters.',
-      provenanceLabel: 'Kategorie-Färbung',
-      sortOrderLabel: 'Sortierreihenfolge',
-      sortOrderHint: 'Kleinere Zahlen erscheinen in der Galerie zuerst.',
-      dataSourcesLabel: 'Zusätzliche Datenquellen',
-      dataSourcesHint:
-        'Die Basiswissensebene ist immer enthalten. Wählen Sie weitere Quellen, die ein Lauf nutzen soll.',
-      sourcesLoading: 'Quellen werden geladen…',
-      sourcesAll: 'Keine zusätzlichen Quellen verfügbar.',
-      scheduleLabel: 'Vorgeschlagener Zeitplan',
-      scheduleHint: 'Ein Standardrhythmus, den die übernehmende Person beibehalten oder ändern kann.',
-      presetLabel: 'Rhythmus',
-      timezoneLabel: 'Zeitzone',
-      cronLabel: 'Eigener Cron (5 Felder)',
-      cronHint: 'Minute Stunde Tag-des-Monats Monat Wochentag.',
-      presets: {
-        hourly: 'Jede Stunde',
-        daily: 'Täglich um 06:00',
-        weekly: 'Wöchentlich, Montag 06:00',
-        monthly: 'Monatlich, am 1. um 06:00',
-        custom: 'Eigener Zeitplan',
-      },
-      locale: {
-        de: 'Deutsch',
-        en: 'Englisch',
-      },
-      nameLabel: 'Name',
-      descriptionLabel: 'Kurzbeschreibung',
-      categoryLabel: 'Kategorie-Bezeichnung',
-      categoryHint: 'Kurzes Label auf der Karte, z. B. „Compliance“.',
-      objectiveLabel: 'Ziel',
-      contextLabel: 'Hintergrund & Kontext',
-      questionsLabel: 'Forschungsfragen',
-      questionsHint: 'Eine Frage pro Zeile.',
-      outputFormatLabel: 'Ausgabeanforderungen',
-      previewLabel: 'Kompilierter Auftrag (was der Agent erhält)',
-      previewEmpty: 'Geben Sie das Ziel ein, um den kompilierten Auftrag zu sehen.',
-      publishLabel: 'Veröffentlicht',
-      publishHint: 'Wenn aktiv, ist diese Vorlage in der Galerie jeder Organisation sichtbar.',
-      requiredError: 'Beide Sprachen benötigen mindestens Name, Beschreibung, Kategorie und Ziel.',
-      cancel: 'Abbrechen',
-      save: 'Vorlage speichern',
-      saving: 'Wird gespeichert…',
-    },
   },
   /**
    * Zitations-Qualität (citation_events-Ledger): wie oft die Quellenprüfung in

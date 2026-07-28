@@ -6,7 +6,6 @@ export const platform = {
   loadError: 'Could not load the platform overview.',
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
-  // >>> ui-knowledge: add this section's copy directly below this line <<<
   /**
    * Platform → base knowledge, rebuilt on the shared admin primitives
    * (SectionCard + DataToolbar + Table + Sheet + Pagination). Only the copy the
@@ -69,7 +68,6 @@ export const platform = {
     emptyDescription:
       'Add a PDF, or a ZIP holding many at once — every project grounds its answers on this corpus.',
   },
-  // >>> ui-norms: add this section's copy directly below this line <<<
   norms: {
     title: 'Norm catalog',
     description:
@@ -221,7 +219,6 @@ export const platform = {
       notInRis: 'Not in RIS — maintain the source as a plain link.',
     },
   },
-  // >>> ui-workflows: add this section's copy directly below this line <<<
   /**
    * Platform → workflows, rebuilt on the shared admin primitives (SectionCard +
    * DataToolbar + Table + Sheet). Scoped as `platform.workflowsSection` so the
@@ -354,7 +351,6 @@ export const platform = {
       saving: 'Saving…',
     },
   },
-  // >>> ui-overview: add this section's copy directly below this line <<<
   overview: {
     search: 'Search organizations…',
     searchLabel: 'Search organizations',
@@ -371,7 +367,6 @@ export const platform = {
     cappedNote:
       'Only the first {count} organizations could be loaded from the directory. Search, sorting and the totals above cover those.',
   },
-  // >>> ui-maintenance: add this section's copy directly below this line <<<
   // The maintenance surface (the orphaned-vector sweep). Its own namespace, so
   // the explainer, the confirm and the last-run summary can be read — and
   // translated — as one continuous voice.
@@ -586,117 +581,6 @@ export const platform = {
     turnFailed: 'failed',
     spanCount: '{count} spans',
     noSpans: 'No spans recorded for this turn.',
-  },
-  maintenance: {
-    title: 'Vector maintenance',
-    description:
-      'Remove orphaned vectors — indexed chunks left behind by past deletes, whose document no longer exists. They are invisible in the app but can still surface in retrieval. Safe to run any time; it only removes chunks with no live document.',
-    reconcile: 'Reconcile orphaned vectors',
-    reconciling: 'Reconciling…',
-    confirmTitle: 'Reconcile orphaned vectors?',
-    confirmDescription:
-      'This scans every collection and deletes indexed chunks whose document no longer exists. Documents you can still see are never touched. This cannot be undone, but a removed document can be re-uploaded.',
-    confirm: 'Run reconcile',
-    cancel: 'Cancel',
-    resultRemoved: 'Removed {chunks} orphaned chunk(s) across {collections} collection(s)',
-    resultClean: 'No orphaned vectors found',
-    resultCleanDetail: 'No orphaned vectors found across {collections} collection(s)',
-    resultFailures: '{count} collection(s) could not be reconciled',
-    failed: 'Reconcile failed',
-  },
-  workflowTemplates: {
-    title: 'Workflow templates',
-    explainer:
-      'Curated research briefs published into every organization’s Workflows gallery. A published template appears for every org; selecting it there only pre-fills the workflow builder — it never runs automatically.',
-    new: 'New template',
-    // JSON import dropzone.
-    dropTitle: 'Import a template (JSON)',
-    dropActive: 'Release to import',
-    dropHint: 'Drop or click to load a template JSON file — it opens the editor pre-filled as a draft.',
-    importLoaded: 'Template file loaded — review and save.',
-    importInvalid: 'That file is not a valid template export.',
-    // List states.
-    empty: 'No templates yet. Create one or import a JSON file.',
-    loadError: 'The templates could not be loaded.',
-    retry: 'Try again',
-    manualCadence: 'On demand',
-    // Row badges + actions.
-    published: 'Published',
-    draft: 'Draft',
-    publishAria: 'Publish “{name}” to every organization',
-    unpublishAria: 'Unpublish “{name}”',
-    export: 'Export as JSON',
-    edit: 'Edit',
-    delete: 'Delete',
-    // Provenance tint labels (shared by the form + the list).
-    provenance: {
-      law: 'Regulation',
-      project: 'Project',
-      office: 'Office',
-      auto: 'General',
-    },
-    // Toasts.
-    createSuccess: 'Template created.',
-    updateSuccess: 'Template updated.',
-    publishSuccess: 'Template published to every organization.',
-    unpublishSuccess: 'Template unpublished.',
-    publishFailed: 'The publish state could not be changed.',
-    saveFailed: 'The template could not be saved.',
-    deleteSuccess: 'Template deleted.',
-    deleteFailed: 'The template could not be deleted.',
-    // Delete confirmation.
-    deleteTitle: 'Delete “{name}”?',
-    deleteDescription:
-      'This removes the template from every organization’s gallery. Workflows already created from it are unaffected. This cannot be undone.',
-    deleteConfirm: 'Delete template',
-    deleteCancel: 'Cancel',
-    form: {
-      createTitle: 'New workflow template',
-      editTitle: 'Edit workflow template',
-      subtitle: 'Author the brief in German and English — the gallery shows the viewer’s language.',
-      provenanceLabel: 'Category tint',
-      sortOrderLabel: 'Sort order',
-      sortOrderHint: 'Lower numbers appear first in the gallery.',
-      dataSourcesLabel: 'Additional data sources',
-      dataSourcesHint:
-        'The base knowledge layer is always included. Pick any extra sources a run should draw on.',
-      sourcesLoading: 'Loading sources…',
-      sourcesAll: 'No additional sources available.',
-      scheduleLabel: 'Suggested schedule',
-      scheduleHint: 'A default cadence the adopting user can keep or change.',
-      presetLabel: 'Cadence',
-      timezoneLabel: 'Timezone',
-      cronLabel: 'Custom cron (5 fields)',
-      cronHint: 'Minute Hour Day-of-month Month Day-of-week.',
-      presets: {
-        hourly: 'Every hour',
-        daily: 'Daily at 06:00',
-        weekly: 'Weekly, Monday 06:00',
-        monthly: 'Monthly, 1st at 06:00',
-        custom: 'Custom schedule',
-      },
-      locale: {
-        de: 'German',
-        en: 'English',
-      },
-      nameLabel: 'Name',
-      descriptionLabel: 'Short description',
-      categoryLabel: 'Category label',
-      categoryHint: 'Short uppercase pill shown on the card, e.g. “Compliance”.',
-      objectiveLabel: 'Objective',
-      contextLabel: 'Background & context',
-      questionsLabel: 'Research questions',
-      questionsHint: 'One question per line.',
-      outputFormatLabel: 'Output requirements',
-      previewLabel: 'Compiled brief (what the agent receives)',
-      previewEmpty: 'Fill in the objective to see the compiled brief.',
-      publishLabel: 'Published',
-      publishHint: 'When on, this template is visible in every organization’s gallery.',
-      requiredError: 'Both languages need at least a name, description, category and objective.',
-      cancel: 'Cancel',
-      save: 'Save template',
-      saving: 'Saving…',
-    },
   },
   /**
    * Citation health (citation_events ledger): how often citation verification
