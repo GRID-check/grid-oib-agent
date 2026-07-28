@@ -279,9 +279,6 @@ export interface StoredDocumentRef {
   contentType?: string | null
 }
 
-/** @deprecated Use {@link StoredDocumentRef} — the list is no longer project-only. */
-export type ProjectDocumentRef = StoredDocumentRef
-
 /**
  * Where a clicked citation chip can take the user:
  *  - `url`      — a real outbound link (Web / RIS): keep linking out.

@@ -52,8 +52,10 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
 
   if (!ref) return null
 
-  // The list numbers its rows by position; only override with the answer's [N]
-  // when the backend actually bound one to this source.
+  // This list is ordered by recency and numbers its rows by POSITION, which is
+  // what the panel has always shown. That is deliberately not the answer's [N]
+  // (the two disagree, and the panel has no prose for an [N] to point at), so
+  // the list position wins whenever the caller supplies one.
   const source = { ...ref, number: index ?? ref.number }
 
   return (

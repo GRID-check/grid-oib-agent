@@ -232,7 +232,8 @@ const refFromEntry = (parsed: ParsedEntry): AnswerSourceRef => {
  */
 export const mergeAnswerSources = (
   entries: ReportSourceEntry[],
-  refs: AnswerSourceRef[]
+  refs: AnswerSourceRef[],
+  limit: number = MAX_ANSWER_SOURCES
 ): AnswerSourceItem[] => {
   const unmatched = [...refs]
 
@@ -279,22 +280,29 @@ export const mergeAnswerSources = (
   // [N] marker in the prose pointing at a row that does not exist.
   const numbered = items.filter((item) => item.number != null)
   const rest = items.filter((item) => item.number == null)
-  return [...numbered, ...rest.slice(0, Math.max(0, MAX_ANSWER_SOURCES - numbered.length))]
+  return [...numbered, ...rest.slice(0, Math.max(0, limit - numbered.length))]
 }
 
 /**
  * The consolidated provenance list for one answer: written entries (if the
  * answer carried a sources section) merged with the structured chips.
+ *
+ * `limit` caps the UNNUMBERED tail. It defaults to {@link MAX_ANSWER_SOURCES},
+ * which is right for the chat answer's chip row — a summary, not a dump. Pass
+ * `Infinity` for a surface that is a BIBLIOGRAPHY rather than a summary (the
+ * report's sources section), where silently showing 8 of 12 sources would
+ * undercut the completeness the list exists to demonstrate.
  */
 export const answerSourceItems = (
   entries: ReportSourceEntry[] | undefined,
   citations: CitationSource[] | undefined,
-  cards: GridCard[] | undefined
+  cards: GridCard[] | undefined,
+  limit: number = MAX_ANSWER_SOURCES
 ): AnswerSourceItem[] => {
   const hasEntries = !!entries && entries.length > 0
   // Uncapped when merging: the cap is applied after, so a numbered entry can
   // never lose its structured half to a truncated ref list.
-  const refs = deriveAnswerSources(citations, cards, hasEntries ? Infinity : MAX_ANSWER_SOURCES)
+  const refs = deriveAnswerSources(citations, cards, hasEntries ? Infinity : limit)
   if (!hasEntries) {
     return refs.map((ref) => ({
       key: ref.key,
@@ -304,5 +312,5 @@ export const answerSourceItems = (
       host: ref.url ? (hostnameOf(ref.url) ?? undefined) : undefined,
     }))
   }
-  return mergeAnswerSources(entries, refs)
+  return mergeAnswerSources(entries, refs, limit)
 }

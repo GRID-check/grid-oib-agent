@@ -5,7 +5,7 @@ import {
   oibDocumentKey,
   parseKbLocator,
   resolveCitationTarget,
-  type ProjectDocumentRef,
+  type StoredDocumentRef,
 } from './answer-sources'
 import type { CitationSource } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
@@ -306,7 +306,7 @@ describe('citationSnippet', () => {
 })
 
 describe('resolveCitationTarget', () => {
-  const projectDocuments: ProjectDocumentRef[] = [
+  const storedDocuments: StoredDocumentRef[] = [
     { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
     { id: 'doc-2', filename: 'Vermessung.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
     { id: 'doc-3', filename: 'Lageplan.png', contentType: 'image/png' },
@@ -314,7 +314,7 @@ describe('resolveCitationTarget', () => {
   const baseCorpusFiles = ['oib-rl_2_ausgabe_mai_2023.pdf']
 
   /** An org Archiv document — a different scope, the SAME preview route. */
-  const archivDocument: ProjectDocumentRef = {
+  const archivDocument: StoredDocumentRef = {
     id: 'archiv-1',
     filename: 'Bueroe_Detail_Attika.pdf',
     contentType: 'application/pdf',
@@ -332,7 +332,7 @@ describe('resolveCitationTarget', () => {
   test('KB locator matching a previewable project document opens it', () => {
     const target = resolveCitationTarget(
       { url: '', content: '[KB] Brandschutzkonzept.pdf, p.3' },
-      projectDocuments,
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -358,7 +358,7 @@ describe('resolveCitationTarget', () => {
     // scope-aware preview route would have served it.
     const target = resolveCitationTarget(
       { url: '', content: '[KB] Bueroe_Detail_Attika.pdf, p.2' },
-      [...projectDocuments, archivDocument],
+      [...storedDocuments, archivDocument],
       baseCorpusFiles
     )
 
@@ -370,14 +370,14 @@ describe('resolveCitationTarget', () => {
   })
 
   test('a project upload wins over an Archiv document of the same name', () => {
-    const shadowed: ProjectDocumentRef = {
+    const shadowed: StoredDocumentRef = {
       id: 'archiv-2',
       filename: 'Brandschutzkonzept.pdf',
       contentType: 'application/pdf',
     }
     const target = resolveCitationTarget(
       { url: '', content: '[KB] Brandschutzkonzept.pdf' },
-      [...projectDocuments, shadowed],
+      [...storedDocuments, shadowed],
       baseCorpusFiles
     )
 
@@ -387,14 +387,14 @@ describe('resolveCitationTarget', () => {
   test('project filename matching is case-insensitive', () => {
     const target = resolveCitationTarget(
       { url: '', content: '[KB] brandschutzkonzept.PDF' },
-      projectDocuments
+      storedDocuments
     )
 
     expect(target.kind).toBe('document')
   })
 
   test('image project documents are previewable', () => {
-    const target = resolveCitationTarget({ url: '', content: '[KB] Lageplan.png' }, projectDocuments)
+    const target = resolveCitationTarget({ url: '', content: '[KB] Lageplan.png' }, storedDocuments)
 
     expect(target).toMatchObject({
       kind: 'document',
@@ -405,7 +405,7 @@ describe('resolveCitationTarget', () => {
   test('non-previewable project documents degrade to info — never a broken viewer', () => {
     const target = resolveCitationTarget(
       { url: '', content: '[KB] Vermessung.docx' },
-      projectDocuments,
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -420,7 +420,7 @@ describe('resolveCitationTarget', () => {
   test('KB locator matching a base-corpus PDF opens the corpus viewer', () => {
     const target = resolveCitationTarget(
       { url: '', content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12' },
-      projectDocuments,
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -437,7 +437,7 @@ describe('resolveCitationTarget', () => {
   test('a pseudo-URL basename resolves when the content carries no locator', () => {
     const target = resolveCitationTarget(
       { url: 'kb://Brandschutzkonzept.pdf', content: '' },
-      projectDocuments
+      storedDocuments
     )
 
     expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
@@ -446,7 +446,7 @@ describe('resolveCitationTarget', () => {
   test('unresolvable citations become info with title and snippet', () => {
     const target = resolveCitationTarget(
       { url: '', content: '[KB] unbekannt.pdf, p.4\nZitierter Absatz.' },
-      projectDocuments,
+      storedDocuments,
       baseCorpusFiles
     )
 

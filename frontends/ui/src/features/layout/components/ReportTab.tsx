@@ -170,7 +170,11 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
   const citedFallbackSources = useMemo(() => {
     if (isResearchNotes || sourceEntries.length > 0 || isGeneratingReport) return []
     const cited = (deepResearchCitations ?? []).filter((citation) => citation.isCited)
-    return cited.length > 0 ? answerSourceItems(undefined, cited, undefined) : []
+    // Uncapped: this is the report's BIBLIOGRAPHY, not the answer's summary
+    // chip row. Applying the chip row's 8-source cap here would silently show
+    // 8 of 12 sources on the one surface whose whole job is to account for all
+    // of them.
+    return cited.length > 0 ? answerSourceItems(undefined, cited, undefined, Infinity) : []
   }, [isResearchNotes, sourceEntries.length, isGeneratingReport, deepResearchCitations])
 
   return (

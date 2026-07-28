@@ -601,8 +601,15 @@ about both. Recorded here rather than quietly edited above:
   `[1] Titel - datei.pdf, p.12` had its title swallowed into the "filename" by a
   greedy pattern, and `[1] Titel (datei.pdf, p.12)` had its whole locator eaten
   by the trailing-parenthetical trim meant for "(Internal)". Both produced
-  "Quellenangabe entfernt" on citations to genuinely retrieved documents — very
-  likely the single largest contributor to the citation-health defect rate.
+  "Quellenangabe entfernt" on citations to genuinely retrieved documents.
+
+  **How large an effect this has is UNVERIFIED.** The mechanism is proven; the
+  frequency is not, because it depends on how often the models actually write
+  those two formats, and this changeset ships no before/after telemetry. The
+  number that settles it is the `citation_key_not_in_registry` share of
+  `citations_removed` on the platform's citation-health dashboard: if it does
+  not fall noticeably after rollout, the severity claimed here was wrong and
+  this section should be corrected rather than left standing.
 
 ### Found only while fixing
 
@@ -658,3 +665,44 @@ Deliberately **not** done, and why:
   startup coverage assertion, not a behaviour change.
 - **`_session_registries` LRU vs. persist race** and the **`top_k` ceiling** —
   unchanged, as ADR-0026 already accepted.
+
+---
+
+## 7. Independent review — and what it caught
+
+The changeset was then reviewed by an engineer who had not seen the work, was
+told the commit messages and this document were written by the code's author,
+and was asked to verify claims by running old-vs-new code rather than reading
+the narrative. Two findings were real and are fixed in the follow-up commit.
+
+**A regression this changeset introduced.** Routing the report tab's fallback
+source list through `answerSourceItems` inherited the chat chip row's
+`MAX_ANSWER_SOURCES = 8` cap, so a deep-research report citing 12 sources
+silently rendered 8 — with no overflow affordance and no test. On the one
+surface whose job is to account for every source, that was a worse defect than
+the blank-anchor bug it was fixing. `answerSourceItems` now takes an explicit
+`limit`; the bibliography passes `Infinity`, the chip row keeps its cap, and
+both are tested.
+
+**A risk this changeset added.** `cited_document_entries` matched a registry
+filename anywhere in the text, and its caller runs on every intermediate agent
+output — so "Ich konnte oib-rl_2.pdf nicht abrufen" marked that document as
+CITED. The URL path has the same shape but gets away with it because URLs
+rarely appear in prose while filenames routinely do. The scan is now restricted
+to the answer's source section: citing is a claim the answer makes in its source
+list, and a filename in body text is not that claim.
+
+Also from the review: the deprecated `ProjectDocumentRef` alias had no
+production consumer and was removed (the rename is now complete), and a comment
+in `CitationCard` stated the opposite of its code.
+
+Two review observations were checked and deliberately left as they are:
+
+- **`deep_researcher` still reports `registry.all_sources()`** rather than a
+  per-turn capture log. Correct: that registry is built fresh per run
+  (ADR-0018), so it already *is* the run's retrieval. Only the shallow agent's
+  registry is cumulative across a conversation. Now commented at the call site.
+- **Two citations to different pages of the same non-OIB document now produce
+  two rows** instead of one. That follows from the page-accurate resolution and
+  is the desirable outcome: the prose numbered them separately, so collapsing
+  them would leave one inline `[N]` marker with no anchor to scroll to.

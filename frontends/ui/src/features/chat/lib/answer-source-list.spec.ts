@@ -188,4 +188,25 @@ describe('answerSourceItems', () => {
   test('returns nothing when the answer carries no provenance at all', () => {
     expect(answerSourceItems(undefined, undefined, undefined)).toEqual([])
   })
+
+  describe('the tail cap', () => {
+    const many = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `c${i}`,
+        url: `https://host-${i}.example.com/a`,
+        content: '',
+        timestamp: new Date(0),
+        isCited: true,
+      }))
+
+    test('defaults to the chip row cap — a summary, not a dump', () => {
+      expect(answerSourceItems(undefined, many(12), undefined)).toHaveLength(8)
+    })
+
+    test('an explicit Infinity keeps every source, for a bibliography', () => {
+      // The report's sources section exists to account for ALL sources.
+      // Silently showing 8 of 12 there undercuts the completeness it asserts.
+      expect(answerSourceItems(undefined, many(12), undefined, Infinity)).toHaveLength(12)
+    })
+  })
 })

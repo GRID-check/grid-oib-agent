@@ -2073,6 +2073,31 @@ class TestCitedSourceEmission:
         cited = self._cited_artifacts("Ein Bericht ohne Quellenangaben.")
         assert [item.get("citation_key") for item in cited] == []
 
+    def test_a_document_only_MENTIONED_in_prose_is_not_flagged(self):
+        """Naming a document is not citing it — it may be the opposite.
+
+        This runs on intermediate agent output too, where documents are
+        discussed far more often than cited. The URL path gets away with a
+        looser rule only because URLs rarely appear in prose; filenames
+        routinely do.
+        """
+        prose = (
+            "Ich konnte oib-rl_2_ausgabe_mai_2023.pdf nicht vollständig abrufen "
+            "und habe daher keine belastbare Aussage."
+        )
+        assert [item.get("citation_key") for item in self._cited_artifacts(prose)] == []
+
+    def test_only_the_document_in_the_source_section_is_flagged(self):
+        report = (
+            "Zu einem zweiten Dokument, oib-rl_2_ausgabe_mai_2023.pdf, liegen mir "
+            "keine Angaben vor. Belegt ist hingegen [1].\n\n"
+            "## Quellen\n"
+            "- [1] [Web] Beispiel: https://example.com/a\n"
+        )
+        cited = self._cited_artifacts(report)
+        assert [item.get("citation_key") for item in cited if item.get("citation_key")] == []
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
     def test_emission_is_idempotent_across_repeated_outputs(self):
         from aiq_agent.common.citation_verification import reset_session_registry
         from aiq_agent.common.citation_verification import set_session_registry

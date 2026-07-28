@@ -1106,7 +1106,7 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
 
 
 def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
-    """Registry documents that ``text`` actually references, in registry order.
+    """Registry documents the answer's SOURCE SECTION lists, in registry order.
 
     The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
     "which of the documents we retrieved does this answer cite?" without needing
@@ -1116,12 +1116,24 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
 
     Deep research had no such path — its "cited" signal was URL-only, so a
     knowledge-base source could never be marked cited and was dropped from the
-    provenance row the moment any web source WAS cited. Fail-open: returns an
-    empty list rather than raising.
+    provenance row the moment any web source WAS cited.
+
+    Only the source section is scanned, NEVER the prose. Citing is a claim the
+    answer makes in its source list; a filename appearing in body text is not
+    that claim, and may well be the opposite of it ("Ich konnte oib-rl_2.pdf
+    nicht abrufen"). This matters because the caller runs on intermediate agent
+    output too, where documents are discussed far more often than cited — the
+    URL path gets away with the looser rule only because URLs rarely appear in
+    prose, while filenames routinely do. No source section means no citation
+    claim yet, so nothing is marked. Fail-open: returns an empty list rather
+    than raising.
     """
     if not text:
         return []
-    lowered = text.lower()
+    section_match = _REFERENCE_SECTION_RE.search(_normalize_citation_syntax(text))
+    if section_match is None:
+        return []
+    lowered = _normalize_citation_syntax(text)[section_match.start() :].lower()
     seen: set[str] = set()
     cited: list[SourceEntry] = []
     for entry in registry._citation_keys:
