@@ -139,9 +139,7 @@ if (cfg.observability.enabled) {
   const obs = installObservabilityDashboard(
     cfg, provider, namespace,
     cfg.observability.otelPrimaryApiKey,
-    // The dedicated dashboard client's secret when provisioned, else the
-    // shared WorkOS API key (ADR-0029 residual risk).
-    cfg.observability.oidcClientSecret ?? cfg.auth.workosApiKey,
+    cfg.observability.oidcClientSecret,
     [gatewayResources.gateway],
   );
   installOtelCollector(

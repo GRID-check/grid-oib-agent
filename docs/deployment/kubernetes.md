@@ -502,70 +502,61 @@ grid-ui / grid-aiq-agent / grid-agent-worker
 
 **URL:** `https://<otelDomain>` (stack output `otelUrl`).
 
-**Access:** WorkOS AuthKit OIDC, restricted to **platform owners** — the same
-population, and the same test, as the application's own `isPlatformOwner`
-(ADR-0016): the platform org **and** either the `org-platform-owner` role or
-the `platform:organizations:view` permission. Enforced at the edge by the
+**Access:** WorkOS OIDC, restricted to holders of the
+`platform:organizations:view` permission — the same test the application's own
+`isPlatformOwner` accepts (ADR-0016). Enforced at the edge by the
 `grid-otel-auth` **SecurityPolicy** on the Envoy Gateway, not inside the
 dashboard (ADR-0029 Amendment 2): `oidc` authenticates, `jwt` verifies the
-forwarded WorkOS access token against the per-client JWKS, and `authorization`
-default-denies, with two Allow rules (claims AND within a rule, rules OR
-across) mirroring that `role || permission` test.
+forwarded access token against the issuer's JWKS, and `authorization`
+default-denies everything without that scope.
 
-> **Bare membership of the platform org is not enough.** If nobody currently
-> holds the `org-platform-owner` role in WorkOS, nobody can open the dashboard —
-> including you. The `GRID_PLATFORM_OWNER_EMAILS` break-glass path is an
-> application-level bootstrap and does **not** apply at the Gateway. Assign the
-> role in WorkOS before relying on dashboard access.
+Auth runs against a **dedicated WorkOS Connect application**, not the app's
+AuthKit client. That is a hard requirement, not a preference: WorkOS's
+`/user_management/*` endpoints read client credentials only from the request
+body, while Envoy Gateway hardcodes HTTP Basic for the token exchange, so that
+pairing fails at the callback with `OAuth flow failed.` A Connect
+application's issuer is a spec-complete OIDC provider that accepts
+`client_secret_basic`.
 
-**Optional but recommended — a dedicated WorkOS client.** By default the
-dashboard reuses the app's AuthKit client, which means an ordinary app sign-in
-mints a token that is also a valid dashboard credential, and the OIDC client
-secret is the WorkOS **management API key**. Provisioning a second AuthKit
-application separates both:
+> **Bare membership of the platform org is not enough**, and neither is the
+> `org-platform-owner` role on its own if the permission is not attached to it.
+> If nobody holds `platform:organizations:view`, nobody can open the dashboard.
+> `GRID_PLATFORM_OWNER_EMAILS` is an application-level bootstrap and does **not**
+> apply at the Gateway.
+
+One-time setup, in the WorkOS dashboard under **Connect**:
+
+1. Create an OAuth application, **confidential** client (a public PKCE-only
+   client has no secret, and the SecurityPolicy requires one).
+2. Generate a client secret.
+3. Sign-in callback: `https://<otelDomain>/oauth2/callback`.
+4. Under **Scopes**, assign the `platform:organizations:view` permission — the
+   SecurityPolicy requests it and gates on it, so without this nobody is let in.
+
+Then point the stack at it (all three are part of the tier's capability gate,
+so a stack missing any of them deploys no dashboard rather than one nobody can
+log into):
 
 ```bash
-# 1. Create a second AuthKit application in WorkOS, register
-#    https://<otelDomain>/oauth2/callback as one of its redirect URIs, and
-#    take its client id + secret key.
-pulumi config set        grid-oib:otelOidcClientId     client_...
-pulumi config set --secret grid-oib:otelOidcClientSecret sk_...
+pulumi config set          grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
+pulumi config set          grid-oib:otelOidcClientId     client_...
+pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
 ```
 
-Set both or neither — `loadConfig` rejects a half-configured pair, because the
-half-configured state silently keeps using the shared client while looking
-provisioned. The issuer and JWKS are both derived from whichever client id is
-in effect.
-
-The dashboard pod itself runs `AuthMode=Unsecured`, which makes its network
-isolation part of the security control rather than a nicety: anything that
-reaches `:18888` without going through the Gateway meets no credential check.
-Three things enforce that together — `allow-same-namespace` deliberately does
-**not** select the dashboard (NetworkPolicy has no deny rule, so excluding the
-pod is the only way to withhold the blanket intra-namespace allow),
-`allow-edge-to-aspire-dashboard` admits the Gateway on 18888,
-`allow-collector-to-aspire-dashboard` admits otel-collector on 4318 — and
-`loadConfig` refuses to deploy the tier with `networkPolicies=false`.
-
-One-time setup: register **`https://<otelDomain>/oauth2/callback`** as a
-redirect URI in the WorkOS dashboard (Envoy's callback path — note this is
-*not* `/signin-oidc`, which is the ASP.NET default and no longer used).
-
-**Verifying access after a deploy** — the check that the original
-implementation lacked, and the first thing to run if login breaks:
+**Verifying access after a deploy** — the check the original implementation
+lacked, and the first thing to run if login breaks:
 
 ```bash
-CID=$(pulumi config get grid-oib:workosClientId)
+ISSUER=$(pulumi config get grid-oib:otelOidcIssuer)
+CID=$(pulumi config get grid-oib:otelOidcClientId)
 curl -s -o /dev/null -w '%{redirect_url}\n' \
-  "https://api.workos.com/user_management/authorize?provider=authkit\
-&client_id=$CID&redirect_uri=https%3A%2F%2F$OTEL_DOMAIN%2Foauth2%2Fcallback\
+  "$ISSUER/oauth2/authorize?client_id=$CID\
+&redirect_uri=https%3A%2F%2F$OTEL_DOMAIN%2Foauth2%2Fcallback\
 &response_type=code&scope=openid+profile+email&state=x"
 ```
 
-It must redirect to the AuthKit hosted login UI. If it lands on
-`error.workos.com/sso/invalid-connection-selector`, the `provider=authkit`
-selector has been lost from `oidc.provider.authorizationEndpoint` — see
-`otelSecurityPolicySpec` in `deploy/pulumi/src/platform/observability.ts`.
+It must redirect to the AuthKit login UI. `application_not_found` means the
+client id is wrong; `invalid_redirect_uri` means step 3 was missed.
 
 **Scope:** traces from all three app tiers. The Python tiers (`aiq-agent`
 chat/web, `agent-worker` deep-research jobs) share the NAT config; the

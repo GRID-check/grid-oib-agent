@@ -38,10 +38,10 @@ Deployment via the existing Pulumi stack
 
 Key decisions within the approach:
 
-- **Auth:** WorkOS AuthKit OIDC claim-gated on `org_id = <platform org>` —
-  reuses the existing WorkOS client. No new credentials, no BFF proxy, no
-  static token. (Enforced at the Gateway, not inside the dashboard — see
-  Amendment 2.)
+- **Auth:** WorkOS OIDC, no BFF proxy and no static token. *(Superseded by
+  Amendment 2: enforced on the Gateway rather than inside the dashboard,
+  against a dedicated Connect application rather than the app's client, and
+  gated on the `platform:organizations:view` permission rather than the org.)*
 - **Gateway:** dedicated `https-otel` listener on the shared Envoy Gateway
   with an HTTPRoute for the UI only. OTLP ingestion stays cluster-internal.
 - **Ingestion:** an **OpenTelemetry Collector** (`otel-collector` Service) is
@@ -89,7 +89,8 @@ metrics** are all wired now.
   feature follows the house rule **availability = flag AND capability**: the
   `observabilityEnabled` flag is the product decision, and the capability is
   derived from `otelDomain` + `platformOrgId` + `otelPrimaryApiKey` + the
-  WorkOS OIDC client. Missing any of them skips the collector, the dashboard,
+  dashboard's Connect application (`otelOidcIssuer`/`ClientId`/`ClientSecret`,
+  Amendment 2). Missing any of them skips the collector, the dashboard,
   the `https-otel` listener, and the producers' OTLP env (with a `preview`
   warning naming what is missing) rather than shipping a dashboard nobody can
   log into. Result when enabled: end-to-end traces `grid-ui` →
@@ -100,119 +101,93 @@ metrics** are all wired now.
   the Python NAT exporter posts to explicit endpoints as-is, so the backend
   keeps the full path.
 
-## Amendment 2 (2026-07-28): OIDC moves to the Gateway
+## Amendment 2 (2026-07-28): auth moves to the Gateway, on its own WorkOS app
 
-Added after the first deploy: **nobody could sign in to the dashboard.**
+Added after the first deploy: **nobody could sign in.** Two independent
+defects, both in WorkOS's `/user_management/*` endpoints, which the dashboard's
+stock ASP.NET OIDC relying party and then Envoy Gateway were pointed at:
 
-**What was wrong.** The dashboard's relying party is ASP.NET Core's stock
-`OpenIdConnectHandler`, which sends only spec-standard authorization
-parameters. WorkOS's `/user_management/authorize` is *not* a spec-complete
-OIDC authorization endpoint — it requires a non-standard connection selector
-(`provider=authkit`, or `connection_id`/`organization_id`/`domain_hint`).
-Without one it 302s to `error.workos.com/sso/invalid-connection-selector`, so
-the user never reaches a login screen. Reproduce in one line:
+1. `/user_management/authorize` is not a spec-complete OIDC authorization
+   endpoint. It requires a non-standard connection selector (`provider`,
+   `connection_id`, `organization_id` or `domain_hint`) and 302s to
+   `error.workos.com/sso/invalid-connection-selector` without one, so the user
+   never reached a login screen.
+2. `/user_management/authenticate` reads client credentials **only from the
+   request body**. Given an HTTP Basic header it answers
+   `invalid_request: Missing required parameter: client_id`.
 
-```bash
-curl -s -o /dev/null -w '%{redirect_url}\n' \
-  "https://api.workos.com/user_management/authorize?client_id=$CID\
-&redirect_uri=https%3A%2F%2F$OTEL_DOMAIN%2Foauth2%2Fcallback\
-&response_type=code&scope=openid+profile&state=x&nonce=y"
-# -> https://error.workos.com/sso/invalid-connection-selector
-# add &provider=authkit -> 302 to the AuthKit hosted login UI
-```
+Defect 2 is what rules out the obvious fixes. Envoy Gateway hardcodes Basic
+auth for the token exchange (`internal/xds/translator/oidc.go`, commented
+"every OIDC provider supports basic auth") with no SecurityPolicy field to
+override it, so a Gateway-run flow against those endpoints always died at the
+callback with `OAuth flow failed.` — after a *successful* authorization,
+which makes it look like a callback-URL problem and is why it cost a round trip
+to find.
 
-Scope variations (`openid`, `+email`, `+offline_access`) make no difference,
-and `organization_id` fails separately because the platform org has no SSO
-connection (SSO connections are a paid WorkOS add-on; AuthKit itself is free).
+**Decision.** Authentication and the authorization gate run on the Envoy
+Gateway as a `SecurityPolicy` targeting the `grid-otel` HTTPRoute
+(`otelSecurityPolicySpec` in `deploy/pulumi/src/platform/observability.ts`),
+against a **dedicated WorkOS Connect application** rather than the app's AuthKit
+client. That application's issuer — the environment's AuthKit domain — publishes
+a complete discovery document and accepts `client_secret_basic`, so a stock
+OIDC client works against it unmodified: no connection selector, no
+workarounds. It must be a **confidential** client, because a public PKCE-only
+client has no secret and `clientSecret` is required by the SecurityPolicy API.
 
-**Why fact #3 below did not catch it.** It verified that a discovery document
-*exists* at the per-client path. It does — but it is minimal (`issuer`,
-`authorization_endpoint`, `token_endpoint`, `jwks_uri`,
-`response_types_supported`; no `scopes_supported`, no `claims_supported`, no
-`end_session_endpoint`). Publishing a discovery document is not the same as
-being usable by a stock RP, and no actual authorization request was ever made.
+Three stages, in Envoy's fixed filter order (OAuth2=8 → JWTAuthn=9 → RBAC=301):
 
-**Change.** Authentication and the `org_id` gate move out of the dashboard and
-onto the Envoy Gateway, as a `SecurityPolicy` targeting the `grid-otel`
-HTTPRoute (`deploy/pulumi/src/platform/observability.ts`,
-`otelSecurityPolicySpec`). The dashboard runs `AuthMode=Unsecured` and is
-reachable only from the Gateway (`allow-edge-to-aspire-dashboard`
-NetworkPolicy). Three stages, in Envoy's fixed filter order
-(OAuth2=8 → JWTAuthn=9 → RBAC=301):
+1. `oidc` — the redirect flow; `forwardAccessToken` replays the access token
+   upstream as `Authorization: Bearer`.
+2. `jwt` — verifies it against the issuer's JWKS.
+3. `authorization` — `defaultAction: Deny`, with one Allow rule requiring the
+   `platform:organizations:view` scope.
 
-1. `oidc` — browser redirect flow against WorkOS; `forwardAccessToken: true`
-   replays the WorkOS access token upstream as `Authorization: Bearer`.
-2. `jwt` — verifies it against the per-client JWKS
-   (`https://api.workos.com/sso/jwks/<client_id>`).
-3. `authorization` — `defaultAction: Deny`, allowing only **platform owners**:
-   the platform org AND (`org-platform-owner` role OR
-   `platform:organizations:view`), as two Allow rules. This is a deliberate
-   tightening over the gate it replaced. The old `RequiredClaimType=org_id`
-   accepted bare membership of the platform org, which does not match
-   `isPlatformOwner` in the app — so a user added to the platform org with
-   WorkOS's default `member` role got nothing in the app but would have had
-   cross-tenant read of telemetry. Operational consequence: the role must
-   actually be assigned in WorkOS, and `GRID_PLATFORM_OWNER_EMAILS` (an
-   app-level bootstrap) does not apply at the Gateway.
+The dashboard itself runs `AuthMode=Unsecured`.
 
-**Why this works where the dashboard could not.** Envoy's OAuth2 filter builds
-its authorization redirect by parsing the query string already present on
-`authorization_endpoint` and then overwriting only the standard parameters
-(`source/extensions/filters/http/oauth2/filter.cc`,
-`buildAutorizationQueryParams`). So pinning
-`authorizationEndpoint: .../authorize?provider=authkit` carries the selector
-into every authorization request. Nothing bindable under
-`Authentication:Schemes:OpenIdConnect:*` can do the same — the ASP.NET
-property that could (`AdditionalAuthorizationParameters`) is .NET 9+, and the
-pinned dashboard image ships ASP.NET 8.0.29.
+**The gate is the permission, not the organization.** The dashboard's original
+`RequiredClaimType=org_id` accepted bare membership of the platform org, which
+does not match `isPlatformOwner` in the app (role **or**
+`platform:organizations:view`). Anyone added to the platform org with WorkOS's
+default `member` role would have gained cross-tenant read of telemetry while
+having no access at all in the product. The permission is doubly scoped —
+assigned to this Connect application, and issued only to a user whose role
+holds it — so it stands alone as the rule. Operationally: the permission must
+be assigned to the application under Scopes *and* held by the user's role, and
+`GRID_PLATFORM_OWNER_EMAILS` is an app-level bootstrap that does not apply here.
 
-**Why the Gateway rather than an auth proxy.** Envoy Gateway is already the
-edge, so this adds no pod, no image to digest-pin or trivy-scan, and no new
-secret: an `oauth2-proxy` deployment would have added all three to solve the
-same problem. It also stays entirely inside free tiers (Envoy Gateway is OSS;
-AuthKit is free to 1M MAU; no SSO connection needed), and the gate now runs
-*before* any byte reaches the dashboard rather than inside a third-party
-container.
-
-**Second trap, found while wiring this up.** WorkOS's token endpoint returns
-`{user, organization_id, access_token, refresh_token, …}` with **no
-`expires_in`**. Envoy falls back to `defaultTokenTTL` and hard-fails the login
-when that resolves to `<= 0` ("No default or explicit access token expiration
-found in the token exchange response", `oauth2/oauth_client.cc`) — which is the
-default. `defaultTokenTTL: 5m` is therefore required, not tuning: without it
-every sign-in dies immediately *after* a successful code exchange. It must stay
-at or below the WorkOS session access-token lifetime. The absent `id_token` is
-harmless (Envoy treats it as optional), so `forwardIDToken` is not used.
-
-**Trade-off, and a bug it caused.** The dashboard pod no longer authenticates
-for itself, so its network isolation becomes the only thing between an
-in-namespace pod and the telemetry UI. The first cut of this amendment claimed
-the pod was "reachable only from the Gateway" and cited
-`allow-edge-to-aspire-dashboard`. **That was wrong**, and a security review
-caught it: `allow-same-namespace` selects every pod on every port, and
-NetworkPolicy allows are additive, so the narrower edge rule subtracted
-nothing. For the window between the two commits, any pod in `grid` — including
-the internet-facing BFF and the LLM agent workers — could read every tenant's
-traces over `:18888` with no credential, where previously the dashboard's own
-OIDC gate would have refused them.
-
-Fixed by making the isolation real rather than assumed:
+**Isolation is part of the control, and the first cut got this wrong.** With
+`AuthMode=Unsecured`, anything reaching `:18888` without traversing the Gateway
+meets no credential check. The first version of this amendment claimed the pod
+was "reachable only from the Gateway" and cited
+`allow-edge-to-aspire-dashboard`. That was false, and a security review caught
+it: `allow-same-namespace` selects every pod on every port, and NetworkPolicy
+allows are additive, so the narrower edge rule subtracted nothing. For the
+window between two commits, any pod in `grid` could read every tenant's traces
+unauthenticated. Fixed by making the isolation real:
 
 - `allow-same-namespace` now excludes the dashboard (`NotIn` on
-  `app.kubernetes.io/name`), because NetworkPolicy has no deny rule — not
-  selecting the pod is the only way to withhold a blanket allow.
+  `app.kubernetes.io/name`) — NetworkPolicy has no deny rule, so not selecting
+  the pod is the only way to withhold a blanket allow;
 - `allow-collector-to-aspire-dashboard` grants the one legitimate in-namespace
-  client (otel-collector → 4318).
-- `loadConfig` refuses `observabilityEnabled` together with
-  `networkPolicies=false`, so the isolation cannot be turned off underneath the
-  tier.
+  client (otel-collector → 4318);
+- `loadConfig` refuses `observabilityEnabled` with `networkPolicies=false`.
 
-The residual accepted risk is narrower than the collector's: a rogue
-in-namespace pod can still *inject* spans into the collector's unauthenticated
-receivers, but it can no longer *read* the store.
+The collector's unauthenticated OTLP receivers remain accepted for span
+*injection*; bulk *read* of the store is not, which is what the above protects.
 
-**One-time WorkOS setup** changes from `https://<otelDomain>/signin-oidc` to
-**`https://<otelDomain>/oauth2/callback`** (Envoy's callback path).
+**Other traps worth keeping.** `defaultTokenTTL` is set because Envoy hard-fails
+a login when the token response omits `expires_in` and the default resolves to
+0 (`oauth2/oauth_client.cc`); the `/user_management` endpoint does omit it.
+Keep it at or below the AuthKit application's `accessTokenExpiry` (300s here).
+A missing `id_token` is harmless — Envoy treats it as optional — so
+`forwardIDToken` is unused.
+
+**One-time WorkOS setup:** a confidential Connect OAuth application with
+callback `https://<otelDomain>/oauth2/callback` and the
+`platform:organizations:view` permission assigned under Scopes; then
+`grid-oib:otelOidcIssuer` / `otelOidcClientId` / `otelOidcClientSecret`. All
+three are part of the tier's capability gate, so a stack missing any of them
+deploys no dashboard at all rather than one nobody can log into.
 
 ## Verified deployment facts
 
