@@ -4,7 +4,8 @@ name: Claude Code Review
 # skill from Anthropic's plugin marketplace against the PR diff and posts the
 # findings as a review.
 #
-# Requires the `ANTHROPIC_API_KEY` repository secret.
+# Requires the `CLAUDE_CODE_OAUTH_TOKEN` repository secret (Pro/Max
+# subscription token from `claude setup-token`).
 #
 # Cost note: this only fires when a PR is opened or moved out of draft, not on
 # every push. Add `synchronize` to the trigger types below if you want a fresh
@@ -37,7 +38,7 @@ jobs:
 
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"

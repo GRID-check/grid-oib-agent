@@ -4,8 +4,11 @@ name: Claude Code
 # PR review, or a review comment and it picks up the thread, reads the repo
 # (CLAUDE.md -> AGENTS.md) and answers or pushes commits to the PR branch.
 #
-# Requires the `ANTHROPIC_API_KEY` repository secret and the Claude GitHub App
-# (https://github.com/apps/claude) installed on this repo.
+# Requires the Claude GitHub App (https://github.com/apps/claude) installed on
+# this repo, plus a `CLAUDE_CODE_OAUTH_TOKEN` repository secret. Pro/Max
+# subscribers generate that token by running `claude setup-token` locally — no
+# Claude API key or console billing needed. (API-key users would instead set
+# `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` below.)
 #
 # Trigger gating happens twice: the job-level `if` avoids spinning a runner for
 # every comment on the repo, and the action itself re-checks the trigger phrase.
@@ -52,7 +55,7 @@ jobs:
 
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # No `prompt`: the action runs in interactive mode and takes its
           # instructions from the comment that mentioned it.
           claude_args: |
