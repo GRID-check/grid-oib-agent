@@ -50,6 +50,15 @@ describe('PlatformNav', () => {
     for (const link of current) expect(link.textContent).toContain('Norm catalog')
   })
 
+  test('does not mark a sibling route active on a shared prefix', () => {
+    // `/app/platform/norms-draft` is not under `/app/platform/norms`; matching
+    // must stop at a path boundary, not at any shared prefix.
+    pathname.value = '/app/platform/norms-draft'
+    render(<PlatformNav />)
+
+    expect(screen.queryAllByRole('link', { current: 'page' })).toHaveLength(0)
+  })
+
   test('marks nothing active when the pathname is unavailable', () => {
     pathname.value = null as unknown as string
     render(<PlatformNav />)

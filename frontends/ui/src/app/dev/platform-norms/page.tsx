@@ -12,7 +12,6 @@
  */
 
 import { useEffect } from 'react'
-import { notFound } from 'next/navigation'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 
 /** The remaining state building acts — enough rows that the pager appears. */
@@ -196,9 +195,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 export default function PlatformNormsDevPage(): JSX.Element {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
   return <Preview />
 }
 

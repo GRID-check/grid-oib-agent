@@ -12,7 +12,6 @@
  */
 
 import { useMemo, useState } from 'react'
-import { notFound } from 'next/navigation'
 import { BookOpenCheck, MoreHorizontal, Trash2, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,9 +41,6 @@ const ROWS = Array.from({ length: 14 }, (_, index) => ({
 const PAGE_SIZE = 8
 
 export default function PlatformPrimitivesDevPage(): JSX.Element {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
   return <Preview />
 }
 

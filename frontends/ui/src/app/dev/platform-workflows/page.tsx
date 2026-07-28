@@ -13,7 +13,6 @@
  * Not linked from anywhere and 404s outside development.
  */
 
-import { notFound } from 'next/navigation'
 import { WorkflowTemplates } from '@/features/platform/components/workflow-templates'
 
 const CONTENT = (name: string, category: string, objective: string) => ({
@@ -106,10 +105,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 export default function PlatformWorkflowsDevPage(): JSX.Element {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
-
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-6 p-8" data-testid="platform-workflows-preview">
       <div>

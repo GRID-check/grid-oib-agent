@@ -9,7 +9,6 @@
  * linked from anywhere and 404s outside development.
  */
 
-import { notFound } from 'next/navigation'
 import { BaseKnowledge } from '@/app/app/platform/base-knowledge'
 
 const DOC_CLASSES = [
@@ -89,10 +88,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 export default function PlatformKnowledgeDevPage(): JSX.Element {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
-
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-6 p-8" data-testid="platform-knowledge-preview">
       <div>

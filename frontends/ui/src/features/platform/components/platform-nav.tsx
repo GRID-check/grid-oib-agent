@@ -41,11 +41,15 @@ export type PlatformSectionKey = (typeof PLATFORM_SECTIONS)[number]['key']
 
 /**
  * The overview lives at the bare `/app/platform`, so it must match exactly —
- * a prefix test would light it up on every subsection.
+ * a prefix test would light it up on every subsection. Subsections match their
+ * own route and anything nested under it, but on a path boundary: a bare
+ * `startsWith` would also mark `/app/platform/norms` active on a sibling route
+ * such as `/app/platform/norms-draft`.
  */
 function isActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false
-  return href === '/app/platform' ? pathname === href : pathname.startsWith(href)
+  if (href === '/app/platform') return pathname === href
+  return pathname === href || pathname.startsWith(`${href}/`)
 }
 
 export function PlatformNav(): JSX.Element {

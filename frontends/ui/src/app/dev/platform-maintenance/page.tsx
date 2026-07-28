@@ -11,7 +11,6 @@
  * confirm here is safe. Not linked from anywhere and 404s outside development.
  */
 
-import { notFound } from 'next/navigation'
 import { VectorMaintenance } from '@/app/app/platform/vector-maintenance'
 
 const RESULT = {
@@ -40,10 +39,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 export default function PlatformMaintenanceDevPage(): JSX.Element {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
-
   return (
     <main
       data-testid="platform-maintenance-preview"

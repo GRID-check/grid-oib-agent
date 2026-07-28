@@ -10,7 +10,6 @@
  * anywhere and 404s outside development.
  */
 
-import { notFound } from 'next/navigation'
 import { PlatformOverview } from '@/app/app/platform/platform-overview'
 
 const NAMES = [
@@ -138,10 +137,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 export default function PlatformOverviewDevPage(): JSX.Element {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
-
   return (
     <main data-testid="platform-overview-preview" className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
       <div>
