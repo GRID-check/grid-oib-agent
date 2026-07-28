@@ -230,6 +230,7 @@ export const chat: typeof en.chat = {
     stepsHeading: 'Zwischenschritte',
     sourcesFanOut: 'Quellen',
     hitCount: '{count} Treffer',
+    hitCountOne: '1 Treffer',
     gapHit: 'Nicht im Bestand',
     moreSources: '+{count} weitere',
     selectedDataSources: 'Ausgewählte Datenquellen:',
@@ -264,6 +265,15 @@ export const chat: typeof en.chat = {
       // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
       // steht einmal auf der Antwortkarte.
       findingsHits: 'Treffer in: {lanes}',
+      // Die Beleg-Bilanz, dort genannt, wo der Fächer zusammenläuft: was
+      // tatsächlich gelesen wurde, bevor die Quellenarten aufgezählt werden.
+      findingsTally: '{hits} Treffer in {docs} Dokumenten',
+      findingsTallyOne: '{hits} Treffer in 1 Dokument',
+      // Während der Zug streamt gibt es noch keine Einschätzung, der Graph
+      // braucht seinen Zusammenführungspunkt aber trotzdem — sonst hängen die
+      // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
+      findingsPendingTab: 'Einschätzung',
+      findingsPending: 'Quellen werden abgewogen …',
       branchesTab: 'Folgewege',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
     },

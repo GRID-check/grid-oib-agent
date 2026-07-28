@@ -17,9 +17,9 @@
  */
 
 import type { GridCard } from '@/shared/cards/schemas'
-import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 import type { CitationSource } from '../types'
-import { KIND_TO_SIGNAL, authorityTag } from './source-kinds'
+import { KIND_TO_SIGNAL, accentForLane, authorityTag } from './source-kinds'
 
 /** Origin of an answer source — mirrors ReportSourceKind (kb/ris/web). */
 export type AnswerSourceKind = 'kb' | 'ris' | 'web'
@@ -42,8 +42,12 @@ export interface AnswerSourceRef {
   label: string
   /** Parsed origin (kb/ris/web) — drives preview-target resolution. */
   kind: AnswerSourceKind
-  /** The `--source-*` tint family the chip renders in (from the wire `kind`). */
-  signal: SourceSignal
+  /**
+   * The `--source-*` tint family the chip renders in. Derived from the wire
+   * `kind`, then refined by the fine lane (`accentForLane`) so an OIB chip and
+   * an OIB card in the Herleitung are the same colour.
+   */
+  signal: SourceTint
   /** Compact authority badge (OIB / RIS / ÖNORM) shown on the chip, if any. */
   authority?: string
   /** Outbound link, only when the citation has a real http(s) URL */
@@ -183,7 +187,8 @@ export const deriveAnswerSources = (
       const kind = classifyCitation(citation)
       // Color by the canonical wire kind (OIB corpus + RIS → law family);
       // fall back to the legacy origin mapping only for pre-kind messages.
-      const signal = citation.kind ? KIND_TO_SIGNAL[citation.kind] : LEGACY_KIND_TO_SIGNAL[kind]
+      const baseSignal = citation.kind ? KIND_TO_SIGNAL[citation.kind] : LEGACY_KIND_TO_SIGNAL[kind]
+      const signal = accentForLane(citation.lane, baseSignal)
       const authority = citation.lane
         ? (authorityTag(citation.lane) ?? undefined)
         : kind === 'ris'
@@ -227,7 +232,10 @@ export const deriveAnswerSources = (
       // Richtlinie as an already-listed KB citation does not add a second chip;
       // non-OIB legal bases keep their own `legal-<label>` identity.
       const dedupe = oibDocumentKey(card.law) ?? `legal-${label}`
-      push({ key: `legal-${label}`, label, kind: 'ris', signal: 'law', authority, snippet }, dedupe)
+      push(
+        { key: `legal-${label}`, label, kind: 'ris', signal: authority === 'OIB' ? 'oib' : 'law', authority, snippet },
+        dedupe
+      )
     }
   }
 

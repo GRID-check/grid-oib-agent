@@ -83,10 +83,11 @@ import { Sparkles } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { Translator } from '@/i18n'
 import { useTranslations } from '@/i18n'
+import { cn } from '@/lib/utils'
 import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
-import { deriveTraceSourceCards } from '../../lib/trace-lanes'
+import { deriveTraceSourceCards, totalSourceCardHits } from '../../lib/trace-lanes'
 import type { TraceSourceCard } from '../../lib/trace-lanes'
 import { SourceCard } from './SourceCard'
 import { BranchOptions } from './BranchOptions'
@@ -137,6 +138,10 @@ type FindingsData = {
    * confidence chip and provenance chips live once, on the answer card.
    */
   hitSummary?: string
+  /** "9 hits across 5 documents" — the tally, stated before the strata. */
+  tally?: string
+  /** Streaming: the verdict has not landed, so the node reads as in-flight. */
+  pending?: boolean
   /** Top (target) handles — one per incoming column, or a single centre. */
   targets: HandleSpec[]
   /** Bottom (source) handle — present only when a branches node follows. */
@@ -213,16 +218,35 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
 }
 
 const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
-  <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
+  <div
+    className={cn(
+      'w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs',
+      // Pending reads as in-flight rather than as an empty result: dashed
+      // hairline, no fill — the same visual grammar the gap source cards use.
+      data.pending && 'border-dashed bg-transparent shadow-none'
+    )}
+  >
     {data.targets.map((h) => (
       <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
-    <Eyebrow>{data.label}</Eyebrow>
-    {/* Reasoning-specific detail only — which lanes produced hits. The trust
-        verdict (confidence + provenance chips) is NOT restated here; it lives
-        once on the answer card, where users act on it. */}
+    <Eyebrow>
+      <span className="inline-flex items-center gap-1.5">
+        {data.pending && (
+          <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-brand" />
+        )}
+        {data.label}
+      </span>
+    </Eyebrow>
+    {/* The tally leads: what was read is the checkable claim. The strata line
+        follows as "from where". The trust verdict (confidence + provenance
+        chips) is NOT restated here — it lives once on the answer card. */}
+    {data.tally && (
+      <p className="mt-1 text-[13px] font-semibold leading-snug tabular-nums text-foreground">
+        {data.tally}
+      </p>
+    )}
     {data.hitSummary && (
-      <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">{data.hitSummary}</p>
+      <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{data.hitSummary}</p>
     )}
     {data.source && <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />}
   </div>
@@ -280,8 +304,16 @@ const GROUPED_MAX_W = 420
 const COL_GAP = 14
 /** Vertical gap between graph rows (framing / sources / assessment / branches). */
 const ROW_GAP = 40
-/** Container bottom padding below the last row. */
-const PAD = 8
+/**
+ * Container bottom padding below the last row.
+ *
+ * Must clear what renders OUTSIDE a node's border box, because React Flow's
+ * pane clips: the card enter animation starts 8px lower (`slide-in-from-bottom-2`)
+ * and `shadow-xs` bleeds a few px further. Sized to the content alone, the
+ * bottom row visibly clipped for the whole animation — most obvious while a
+ * turn streams, when cards enter continuously.
+ */
+const PAD = 24
 /** Floor for the content width, so a not-yet-measured container still builds. */
 const MIN_CONTENT_W = 220
 /**
@@ -451,8 +483,17 @@ export function buildGraph(
 ): BuiltGraph {
   const { columns, colW, gap, fanX, grouped } = layout
   const hasSources = cards.length > 0 && columns.length > 0
-  const hasFindings = Boolean(props.answerConfidence) || (props.citations?.length ?? 0) > 0
   const hasBranches = Boolean(props.choicePrompt && props.choicePrompt.options.length > 0)
+  const hasVerdict = Boolean(props.answerConfidence) || (props.citations?.length ?? 0) > 0
+  /**
+   * While the turn streams there is no verdict yet, but the graph still gets
+   * its converge node — in a pending state. Without it the source columns end
+   * in mid-air (no merge trunk, no common point) and the whole shape jumps the
+   * instant the answer lands. A proof of work should look like work in
+   * progress, not like a broken diagram.
+   */
+  const pendingFindings = !hasVerdict && !hasBranches && Boolean(props.live) && hasSources
+  const hasFindings = hasVerdict || pendingFindings
 
   const columnIds = columns.map((_, i) => `col-${i}`)
   const columnX = (i: number) => fanX + i * (colW + gap)
@@ -492,11 +533,27 @@ export function buildGraph(
   // Which lanes actually produced hits (deduped) — reasoning detail, not the
   // verdict. citationChips already collapses the flat citation list per lane.
   const hitLanes = props.citations ? citationChips(props.citations).map((c) => c.label) : []
+  // The proof-of-work tally: what was actually read. Stated where the fan
+  // converges, ahead of the lane list, because "9 hits across 5 documents" is
+  // the claim a reader checks first — the strata answer "from where", not
+  // "how much". Gap cards contribute documents but no hits, so they are counted
+  // as sources and excluded from the hit total (totalSourceCardHits).
+  const hitTotal = totalSourceCardHits(cards)
+  const tally =
+    hasSources && hitTotal > 0
+      ? t(cards.length === 1 ? 'thinking.node.findingsTallyOne' : 'thinking.node.findingsTally', {
+          hits: hitTotal,
+          docs: cards.length,
+        })
+      : undefined
   const findingsData: FindingsData | null = hasFindings
     ? {
-        label: t('thinking.node.findingsTab'),
-        hitSummary:
-          hitLanes.length > 0
+        label: pendingFindings ? t('thinking.node.findingsPendingTab') : t('thinking.node.findingsTab'),
+        pending: pendingFindings,
+        tally,
+        hitSummary: pendingFindings
+          ? t('thinking.node.findingsPending')
+          : hitLanes.length > 0
             ? t('thinking.node.findingsHits', { lanes: hitLanes.join(', ') })
             : undefined,
         targets: convergeTargets,
@@ -522,7 +579,10 @@ export function buildGraph(
   columns.forEach((indices, i) => {
     const columnData: SourceColumnData = {
       cards: indices.map((idx) => cards[idx]!),
-      hitLabel: (count: number) => t('thinking.hitCount', { count }),
+      // "1 hits" on a card that is meant to prove rigour undercuts it; the
+      // translator has no plural support, so the singular is its own key.
+      hitLabel: (count: number) =>
+        count === 1 ? t('thinking.hitCountOne') : t('thinking.hitCount', { count }),
       gapLabel: t('thinking.gapHit'),
       index: indices[0] ?? i,
       grouped,
@@ -746,6 +806,9 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
           routingDecision,
           routingReason,
           escalationReason,
+          // Drives the pending converge node: while the turn streams the graph
+          // still needs its merge point, or the source columns end in mid-air.
+          live,
         },
         t,
         layout,
@@ -761,6 +824,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       routingDecision,
       routingReason,
       escalationReason,
+      live,
       t,
       layout,
       cards,

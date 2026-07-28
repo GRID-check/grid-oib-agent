@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { sourceSignalStyle } from '@/features/layout/components/SourceSignalChip'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import { AuthorityTag } from '../AuthorityTag'
+import { accentForLane } from '../../lib/source-kinds'
 import type { TraceSourceCard } from '../../lib/trace-lanes'
 
 /** Provenance icon per signal — mirrors SourceSignalChip so they never drift. */
@@ -29,8 +30,17 @@ export const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel:
   gapLabel,
 }) => {
   const hitsText = card.kind === 'gap' ? gapLabel : hitLabel
+  // Icon keys off the coarse SIGNAL (all Baurecht shares the scales glyph);
+  // the tint keys off the fine ACCENT so OIB and RIS are distinguishable at a
+  // glance instead of relying on the badge text alone.
   const Icon = SIGNAL_ICON[card.signal]
-  const tint = sourceSignalStyle(card.signal)
+  const accent = accentForLane(card.laneKey, card.signal)
+  const tint = sourceSignalStyle(accent)
+  // The badge earns its space only when it names a tier the label does not
+  // already say: "OIB · OIB-Richtlinie" repeated itself and pushed the label
+  // into an ellipsis, while "RIS · Bundesrecht" names the register behind it.
+  const showAuthority =
+    !!card.authority && !card.tabLabel.toLowerCase().startsWith(card.authority.toLowerCase())
 
   return (
     <div role="listitem" data-source-card className="flex min-w-0 flex-col">
@@ -39,12 +49,19 @@ export const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel:
         className="ml-2.5 inline-flex max-w-[calc(100%-0.625rem)] items-center gap-1 self-start rounded-t-[7px] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em]"
         style={{ backgroundColor: tint.backgroundColor, color: tint.color }}
       >
-        <Icon
-          className="size-2.5 shrink-0"
-          style={{ color: `var(--source-${card.signal})` }}
-          aria-hidden="true"
-        />
-        {card.authority && <AuthorityTag>{card.authority}</AuthorityTag>}
+        {/* The glyph is dropped when a badge is shown: at column width the tab
+            fits roughly one of icon / badge / full label, and "RIS" carries the
+            provenance in TEXT — which satisfies the same a11y rule the icon
+            exists for (colour is never the only carrier) while leaving the lane
+            label room to render as "BUNDESRECHT" instead of "BUNDESREC…". */}
+        {!showAuthority && (
+          <Icon
+            className="size-2.5 shrink-0"
+            style={{ color: `var(--source-${accent})` }}
+            aria-hidden="true"
+          />
+        )}
+        {showAuthority && <AuthorityTag>{card.authority}</AuthorityTag>}
         <span className="truncate">{card.tabLabel}</span>
       </span>
 
