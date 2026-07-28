@@ -99,6 +99,16 @@ const isAnotherJobStreaming = (jobId: string): boolean => {
   )
 }
 
+/** True when THIS job is the one already streaming live into the panel. */
+const isJobStreamingLive = (jobId: string): boolean => {
+  const state = useChatStore.getState()
+  return Boolean(state.isDeepResearchStreaming && state.deepResearchJobId === jobId)
+}
+
+/** Job statuses that mean the run is over, one way or another. */
+const isTerminalJobStatus = (status: DeepResearchJobStatus): boolean =>
+  status === 'success' || status === 'failure' || status === 'interrupted'
+
 const isJobLoadScopeCurrent = (scope: JobLoadScope): boolean => {
   const state = useChatStore.getState()
 
@@ -206,6 +216,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const setStreaming = useChatStore((s) => s.setStreaming)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
+  const attachToDeepResearchJob = useChatStore((s) => s.attachToDeepResearchJob)
 
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
@@ -213,6 +224,24 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const clearError = useCallback(() => {
     setError(null)
   }, [])
+
+  /**
+   * Follow a run that is still in progress: bind it to the panel so
+   * `useDeepResearch` connects its SSE stream (replay first, then live) and
+   * show the Tasks tab, where the progress actually appears.
+   *
+   * This is what makes a job that was started somewhere else — a workflow run
+   * (manual or scheduled), or a run opened from the run history / another
+   * device — watchable instead of a dead "the run is still in progress" error.
+   */
+  const followRunningJob = useCallback(
+    (jobId: string): void => {
+      attachToDeepResearchJob(jobId)
+      setResearchPanelTab('tasks')
+      openRightPanel('research')
+    },
+    [attachToDeepResearchJob, setResearchPanelTab, openRightPanel]
+  )
 
   const syncMissingJobToFailureState = useCallback(
     (jobId: string): void => {
@@ -717,6 +746,13 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // Already following this job live — re-binding would restart its stream
+      // and drop the progress collected so far.
+      if (isJobStreamingLive(jobId)) {
+        openRightPanel('research')
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -726,10 +762,11 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
 
         if (!isJobLoadScopeCurrent(scope)) return
 
-        if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
-          // This message is user-facing: it becomes err.message below, which
-          // flows into the error state (rendered as a tooltip) and error card.
-          throw new Error(tChat('deepResearchErrors.jobStillRunning'))
+        if (!isTerminalJobStatus(jobStatus)) {
+          // The run is still going: follow it live rather than reporting a
+          // dead end. There is no report yet — the Tasks tab shows progress.
+          followRunningJob(jobId)
+          return
         }
 
         // Re-check after the await: a live run for another job may have
@@ -794,6 +831,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
       idToken,
       tChat,
       clearDeepResearch,
+      followRunningJob,
       loadJobDataFast,
       streamFullJob,
       setLoadedJobId,
@@ -833,7 +871,8 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
    * Import stream data only - does NOT change panel tab
    * Use when loading stream data for an already-open tab (e.g., Tasks/Thinking/Citations)
    * Checks ephemeral cache first to avoid duplicate API calls
-   * Silently returns if job is still in progress (active SSE will populate data)
+   * A job still in progress is followed live instead of replayed — that path
+   * switches the panel to Tasks, where a run's live progress renders.
    */
   const importStreamOnly = useCallback(
     async (jobId: string): Promise<void> => {
@@ -851,6 +890,11 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // This job's live SSE is already connected and populating the panel.
+      if (isJobStreamingLive(jobId)) {
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -860,10 +904,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
 
         if (!isJobLoadScopeCurrent(scope)) return
 
-        if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
-          // Job is still in progress - silently return (live SSE will populate data)
-          // This is expected when opening tabs for active jobs
-          setIsLoading(false)
+        if (!isTerminalJobStatus(jobStatus)) {
+          // Still in progress: attach the live stream so the tab fills up as
+          // the run works, instead of staying empty until it finishes.
+          followRunningJob(jobId)
           return
         }
 
@@ -916,6 +960,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
       idToken,
       tChat,
       clearDeepResearch,
+      followRunningJob,
       streamFullJob,
       stopAllDeepResearchSpinners,
       setStreamLoaded,

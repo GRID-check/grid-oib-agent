@@ -49,7 +49,7 @@ let mockStoreState = {
   deepResearchLLMSteps: [] as unknown[],
   deepResearchToolCalls: [] as unknown[],
   deepResearchCitations: [] as unknown[],
-  deepResearchOwnerConversationId: 'test-conv-123',
+  deepResearchOwnerConversationId: 'test-conv-123' as string | null,
   currentConversation: { id: 'test-conv-123' } as { id: string } | null,
   activeDeepResearchMessageId: null as string | null,
   currentUserMessageId: 'user-msg-1' as string | null,
@@ -1154,6 +1154,72 @@ describe('useDeepResearch', () => {
 
       expect(mockCompleteDeepResearchToolCall).toHaveBeenCalledTimes(2)
       expect(mockCompleteDeepResearchToolCall).toHaveBeenLastCalledWith('tool-call-A', 'result for first')
+    })
+  })
+
+  describe('attached runs (no owning conversation)', () => {
+    /**
+     * A run followed from a workflow's run history is bound to the panel with
+     * no owning conversation. Its events must still be accepted, and its
+     * thread artifacts (banner, error card) must NOT land in whatever
+     * conversation happens to be open.
+     */
+    const setupAttachedHook = async () =>
+      setupConnectedHook({
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        deepResearchStatus: 'running',
+      })
+
+    test('accepts stream events although no conversation owns the run', async () => {
+      await setupAttachedHook()
+
+      act(() => {
+        mockClient?.callbacks.onStreamMode?.('live')
+        mockClient?.callbacks.onStreamStart?.('job-456')
+        mockClient?.callbacks.onToolStart?.('web_search', { query: 'OIB' }, undefined, 'e1', 'a1')
+      })
+
+      expect(mockSetCurrentStatus).toHaveBeenCalledWith('researching')
+      expect(mockAddDeepResearchToolCall).toHaveBeenCalled()
+    })
+
+    test('a finished attached run posts no banner into the open thread', async () => {
+      await setupAttachedHook()
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        addErrorCard: mockAddErrorCard,
+      })) as unknown as typeof useChatStore.getState
+
+      act(() => {
+        mockClient?.callbacks.onJobStatus?.('success', undefined)
+      })
+
+      expect(mockCompleteDeepResearch).toHaveBeenCalled()
+      expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+      expect(mockPatchConversationMessage).not.toHaveBeenCalled()
+    })
+
+    test('a failed attached run posts no banner or error card into the open thread', async () => {
+      await setupAttachedHook()
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        addErrorCard: mockAddErrorCard,
+      })) as unknown as typeof useChatStore.getState
+
+      act(() => {
+        mockClient?.callbacks.onJobStatus?.('failure', 'Something went wrong')
+      })
+
+      expect(mockSetCurrentStatus).toHaveBeenCalledWith('error')
+      expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+      expect(mockAddErrorCard).not.toHaveBeenCalled()
     })
   })
 

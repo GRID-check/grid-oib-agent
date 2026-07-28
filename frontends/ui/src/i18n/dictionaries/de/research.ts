@@ -366,6 +366,11 @@ export const research: typeof en.research = {
     connectionLostBody:
       'Die Live-Verbindung wurde unterbrochen, aber der Job läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie ihn über die Leiste oben.',
     reconnect: 'Erneut verbinden',
+    // Ergebnis einer Ausführung, die hier ohne eigenen Chat-Verlauf verfolgt
+    // wird (Workflow-Ausführung) — sie hat kein Banner im Verlauf.
+    attachedRunFinished: 'Diese Ausführung ist abgeschlossen. Der Bericht steht im Reiter „Bericht“.',
+    attachedRunFailed: 'Diese Ausführung ist vor dem Abschluss fehlgeschlagen.',
+    attachedRunStopped: 'Diese Ausführung wurde vor dem Abschluss gestoppt.',
   },
 
   thinkingTab: {
