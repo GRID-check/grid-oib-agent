@@ -7,10 +7,419 @@ export const platform = {
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
   // >>> ui-knowledge: add this section's copy directly below this line <<<
+  /**
+   * Platform → base knowledge, rebuilt on the shared admin primitives
+   * (SectionCard + DataToolbar + Table + Sheet + Pagination). Only the copy the
+   * new shape introduced lives here; the wording that survived the rebuild —
+   * upload, sync, delete, doc-class, rename — stays in `platform.knowledge`, so
+   * a single sentence is never worded two ways.
+   */
+  knowledgeAdmin: {
+    // Upload is an action now, not a permanently open dropzone.
+    addDocuments: 'Add documents',
+    hideUpload: 'Hide upload',
+    // Corpus summary strip.
+    summaryDocuments: 'Documents',
+    summaryIndexed: 'Indexed',
+    summaryPending: 'Indexing',
+    summaryChunks: 'Indexed sections',
+    // Toolbar.
+    searchLabel: 'Filter documents',
+    searchClear: 'Clear filter',
+    scopeLabel: 'Scope',
+    scopeAll: 'All documents',
+    // Table.
+    colDocument: 'Document',
+    colType: 'Document type',
+    colState: 'Status',
+    colChunks: 'Sections',
+    sortBy: 'Sort by {column}',
+    binding: 'Binding',
+    selectAll: 'Select all documents on this page',
+    selectRow: 'Select {name}',
+    openDetail: 'Open details for {name}',
+    range: '{from}–{to} of {total}',
+    previous: 'Previous',
+    next: 'Next',
+    // Selection / bulk actions.
+    selectedCount: '{count} selected',
+    clearSelection: 'Clear',
+    bulkReclassify: 'Change document type',
+    bulkReclassifyDone: 'Document type of {count} document(s) set to “{label}”',
+    bulkDelete: 'Remove',
+    bulkDeleteTitle: 'Remove {count} documents?',
+    bulkDeleteDescription:
+      'Uploaded documents are deleted together with all of their indexed content; documents shipped with the corpus are excluded from it and will not be re-ingested on the next sync. Answers can no longer ground on any of them.',
+    bulkDeleteConfirm: 'Remove {count} documents',
+    bulkDeleteDone: '{count} documents removed',
+    bulkDeleteFailed: '{count} documents could not be removed',
+    // Detail sheet.
+    detailClose: 'Close',
+    detailOrigin: 'Origin',
+    detailChunks: 'Indexed sections',
+    detailSize: 'Size',
+    detailIngestedAt: 'Indexed on',
+    origin: {
+      corpus: 'Shipped with the corpus',
+      uploaded: 'Uploaded',
+      index_only: 'Index only — no source file',
+    },
+    // Empty state.
+    emptyTitle: 'No base documents yet',
+    emptyDescription:
+      'Add a PDF, or a ZIP holding many at once — every project grounds its answers on this corpus.',
+  },
   // >>> ui-norms: add this section's copy directly below this line <<<
+  norms: {
+    title: 'Norm catalog',
+    description:
+      'Curated pointers to Austrian building law that the agent cites — unlike base knowledge, which holds the full texts they are checked against.',
+    entryCount: '{count} entries.',
+    entryCountOne: '1 entry.',
+    loadError: 'Could not load the norm catalog.',
+    add: 'New entry',
+    save: 'Save registry',
+    saved: 'Registry saved.',
+    saveError: 'Could not save the registry.',
+    invalid: 'Registry validation failed.',
+    unsaved: 'Unsaved',
+    federal: 'Federal',
+    empty: {
+      title: 'No entries in the catalog yet',
+      description: 'Add the first legal pointer the agent is allowed to cite.',
+    },
+    noMatches: {
+      title: 'No entry matches these filters',
+      description: 'Clear the search, or pick a different rank or scope.',
+    },
+    conflict: {
+      title: 'The catalog changed elsewhere',
+      description:
+        'Someone saved a newer version while you were editing, so your changes were not written. Reload to continue from the current catalog — this discards them.',
+      reload: 'Discard and reload',
+      toast: 'The catalog changed elsewhere — reload before saving.',
+    },
+    search: {
+      placeholder: 'Search title, short name, ID…',
+      label: 'Search norm entries',
+      clear: 'Clear search',
+    },
+    filters: {
+      rank: 'Rank',
+      allRanks: 'All ranks',
+      scope: 'Scope',
+      allScopes: 'All scopes',
+      reviews: 'Open reviews ({count})',
+    },
+    ranks: {
+      bundesgesetz: 'Federal act',
+      landesgesetz: 'State act',
+      verordnung: 'Ordinance',
+      behoerdliche_info: 'Authority information (e.g. MA 37)',
+      norm_extern: 'External norm (ÖNORM/TRVB — no full text)',
+    },
+    rankShort: {
+      bundesgesetz: 'Federal act',
+      landesgesetz: 'State act',
+      verordnung: 'Ordinance',
+      behoerdliche_info: 'Authority info',
+      norm_extern: 'External norm',
+    },
+    columns: {
+      norm: 'Norm',
+      rank: 'Rank',
+      scope: 'Scope',
+      document: 'Document',
+      verified: 'Verified',
+    },
+    row: {
+      open: 'Edit {title}',
+      noFullText: 'no full text',
+      unverified: 'unverified',
+      staleHint: 'Verification missing or older than 12 months',
+      verifiedHint: 'Last verified',
+      review: 'Open review',
+    },
+    pagination: {
+      range: '{from}–{to} of {total}',
+      previous: 'Previous',
+      next: 'Next',
+    },
+    sheet: {
+      newTitle: 'New entry',
+      editTitle: 'Edit entry',
+      description: 'Changes reach the catalog only once you save it.',
+      close: 'Close editor',
+      apply: 'Apply',
+      cancel: 'Cancel',
+      delete: 'Delete',
+    },
+    delete: {
+      title: 'Delete entry?',
+      description: 'The entry leaves the catalog. It takes effect only once you save.',
+      confirm: 'Delete',
+      cancel: 'Cancel',
+    },
+    fields: {
+      id: 'ID',
+      idPlaceholder: 'e.g. oib-rl2-2023',
+      short: 'Short name',
+      shortPlaceholder: 'e.g. OIB-RL 2',
+      title: 'Title',
+      titlePlaceholder: 'Full title of the norm',
+      rank: 'Rank',
+      bundesland: 'Federal state',
+      bundeslandHint: 'Canonical name (e.g. Wien) — leave empty for federal law',
+      bundeslandPlaceholder: 'Wien',
+      application: 'RIS application',
+      applicationPlaceholder: 'e.g. LrKons / BrKons',
+      relevance: 'Relevance',
+      relevancePlaceholder: 'e.g. high',
+      topics: 'Topics',
+      topicsHint: 'Comma-separated (e.g. fire safety, escape routes)',
+      topicsPlaceholder: 'Fire safety, escape routes',
+      aliases: 'Aliases',
+      aliasesHint: 'Comma-separated — alternative names',
+      aliasesPlaceholder: 'OIB 2, Richtlinie 2',
+      documentNumber: 'Document number',
+      documentNumberPlaceholder: 'NOR40251234',
+      verifiedAt: 'Verified on',
+      verifiedAtPlaceholder: 'YYYY-MM-DD',
+      citationUrl: 'Citation URL',
+      fullLawUrl: 'Full-text URL',
+      sourceUrl: 'Source (URL)',
+      sourceUrlHint: 'Web link for non-RIS sources (e.g. an MA-37 leaflet)',
+      urlPlaceholder: 'https://…',
+      bindingNote: 'Legal note',
+      bindingNoteHint: 'Shown to the agent as a legal note',
+      reviewNote: 'Review note',
+      reviewNoteHint: 'Internal review task — never appears in the prompt',
+      titleQuery: 'Title query',
+      titleQueryPlaceholder: 'RIS title search',
+      gesetzesnummer: 'Law number',
+      expect: 'Expected (expect)',
+      exclude: 'Excluded (exclude)',
+      excludePlaceholder: 'comma-separated',
+      optional: 'optional',
+    },
+    errors: {
+      required: 'Required',
+      duplicateId: 'The ID “{id}” is already taken',
+      lawNeedsRis: 'A law rank needs a RIS application and a document number',
+    },
+    verify: {
+      title: 'Verify against RIS',
+      hint: 'Uses the entry’s title query (or its title) and its RIS application.',
+      action: 'Verify',
+      candidate: 'Apply {title}',
+      missingInput: 'Title query and RIS application are required to verify',
+      noHits: 'No RIS matches found',
+      noCandidates: 'No candidates',
+      failed: 'RIS verification failed',
+      applied: 'Candidate applied',
+      appliedTitle: 'Applied:',
+      notInRis: 'Not in RIS — maintain the source as a plain link.',
+    },
+  },
   // >>> ui-workflows: add this section's copy directly below this line <<<
+  /**
+   * Platform → workflows, rebuilt on the shared admin primitives (SectionCard +
+   * DataToolbar + Table + Sheet). Scoped as `platform.workflowsSection` so the
+   * component can bind the namespace once and call short keys.
+   */
+  workflowsSection: {
+    title: 'Workflow templates',
+    explainer:
+      'Curated research briefs published into every organization’s Workflows gallery. A published template appears for every org; selecting it there only pre-fills the workflow builder — it never runs automatically.',
+    new: 'New template',
+    import: 'Import JSON',
+    // Import is a deliberate action now: the dropzone lives behind this dialog
+    // instead of sitting above the list on every visit.
+    importTitle: 'Import a template',
+    importDescription:
+      'Load a template JSON export. It opens the editor pre-filled as an unpublished draft — nothing is saved until you save it.',
+    dropTitle: 'Drop a JSON file here',
+    dropActive: 'Release to import',
+    dropHint: 'Or click to choose a file.',
+    importCancel: 'Cancel',
+    importLoaded: 'Template file loaded — review and save.',
+    importInvalid: 'That file is not a valid template export.',
+    // Toolbar.
+    search: 'Filter templates…',
+    searchLabel: 'Filter templates',
+    searchClear: 'Clear filter',
+    filterLabel: 'Publish state',
+    filterAll: 'All states',
+    filterPublished: 'Published only',
+    filterDraft: 'Drafts only',
+    // Table.
+    columns: {
+      name: 'Template',
+      category: 'Category',
+      provenance: 'Tint',
+      dataSources: 'Data sources',
+      cadence: 'Cadence',
+      published: 'Published',
+      actions: 'Actions',
+    },
+    rowActions: 'Actions for “{name}”',
+    editAria: 'Edit “{name}”',
+    manualCadence: 'On demand',
+    noCategory: '—',
+    baseKnowledgeOnly: 'Base knowledge only',
+    moreSources: '+{count}',
+    // Section states.
+    loadError: 'The templates could not be loaded.',
+    emptyTitle: 'No templates yet',
+    emptyDescription:
+      'Author a research brief here and publish it to put it in front of every organization.',
+    noMatchTitle: 'No template matches',
+    noMatchDescription: 'Nothing matches this search and publish-state filter.',
+    clearFilters: 'Clear filters',
+    range: '{from}–{to} of {total}',
+    previous: 'Previous',
+    next: 'Next',
+    // Publish toggle.
+    published: 'Published',
+    draft: 'Draft',
+    publishAria: 'Publish “{name}” to every organization',
+    unpublishAria: 'Unpublish “{name}”',
+    publishSuccess: 'Template published to every organization.',
+    unpublishSuccess: 'Template unpublished.',
+    publishFailed: 'The publish state could not be changed.',
+    // Row menu.
+    edit: 'Edit',
+    export: 'Export as JSON',
+    delete: 'Delete',
+    // Toasts.
+    createSuccess: 'Template created.',
+    updateSuccess: 'Template updated.',
+    saveFailed: 'The template could not be saved.',
+    deleteSuccess: 'Template deleted.',
+    deleteFailed: 'The template could not be deleted.',
+    // Delete confirmation.
+    deleteTitle: 'Delete “{name}”?',
+    deleteDescription:
+      'This removes the template from every organization’s gallery. Workflows already created from it are unaffected. This cannot be undone.',
+    deleteConfirm: 'Delete template',
+    deleteCancel: 'Cancel',
+    // Provenance tint labels (shared by the table and the editor).
+    provenance: {
+      law: 'Regulation',
+      project: 'Project',
+      office: 'Office',
+      auto: 'General',
+    },
+    form: {
+      createTitle: 'New workflow template',
+      editTitle: 'Edit workflow template',
+      subtitle: 'Author the brief in German and English — the gallery shows the viewer’s language.',
+      close: 'Close editor',
+      provenanceLabel: 'Category tint',
+      sortOrderLabel: 'Sort order',
+      sortOrderHint: 'Lower numbers appear first in the gallery.',
+      dataSourcesLabel: 'Additional data sources',
+      dataSourcesHint:
+        'The base knowledge layer is always included. Pick any extra sources a run should draw on.',
+      sourcesLoading: 'Loading sources…',
+      sourcesAll: 'No additional sources available.',
+      scheduleLabel: 'Suggested schedule',
+      scheduleHint: 'A default cadence the adopting user can keep or change.',
+      presetLabel: 'Cadence',
+      timezoneLabel: 'Timezone',
+      cronLabel: 'Custom cron (5 fields)',
+      cronHint: 'Minute Hour Day-of-month Month Day-of-week.',
+      locale: {
+        de: 'German',
+        en: 'English',
+      },
+      nameLabel: 'Name',
+      descriptionLabel: 'Short description',
+      categoryLabel: 'Category label',
+      categoryHint: 'Short pill shown on the gallery card, e.g. “Compliance”.',
+      objectiveLabel: 'Objective',
+      contextLabel: 'Background & context',
+      questionsLabel: 'Research questions',
+      questionsHint: 'One question per line.',
+      outputFormatLabel: 'Output requirements',
+      previewLabel: 'Compiled brief (what the agent receives)',
+      previewEmpty: 'Fill in the objective to see the compiled brief.',
+      publishLabel: 'Published',
+      publishHint: 'When on, this template is visible in every organization’s gallery.',
+      // Names the language that is incomplete — the form also switches to that
+      // tab, so the message and the view agree.
+      requiredError: '{locale}: name, short description, category label and objective are all required.',
+      cancel: 'Cancel',
+      save: 'Save template',
+      saving: 'Saving…',
+    },
+  },
   // >>> ui-overview: add this section's copy directly below this line <<<
+  overview: {
+    search: 'Search organizations…',
+    searchLabel: 'Search organizations',
+    searchClear: 'Clear search',
+    sortBy: 'Sort by {column}',
+    range: '{from}–{to} of {total}',
+    previous: 'Previous',
+    next: 'Next',
+    noMatches: 'No organization matches this search.',
+    noMatchesHint: 'Try a different name, or clear the search to see every organization.',
+    emptyHint: 'Organizations appear here as soon as the first one is created.',
+    // The directory reads one page from WorkOS. Saying so beats a bare "100+".
+    cappedTile: 'First {count} — more exist',
+    cappedNote:
+      'Only the first {count} organizations could be loaded from the directory. Search, sorting and the totals above cover those.',
+  },
   // >>> ui-maintenance: add this section's copy directly below this line <<<
+  // The maintenance surface (the orphaned-vector sweep). Its own namespace, so
+  // the explainer, the confirm and the last-run summary can be read — and
+  // translated — as one continuous voice.
+  vectorMaintenance: {
+    title: 'Vector maintenance',
+    description:
+      'Reconcile the shared vector store against the document catalog, and delete indexed chunks whose document no longer exists.',
+    // The operator who needs this page is, by definition, confused about why
+    // retrieval disagrees with the catalog — so the answer lives here.
+    howTitle: 'What reconciling does',
+    howBody:
+      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more.',
+    whenTitle: 'When you need it',
+    whenBody:
+      'Run it when an answer cites a document nobody can find, when a deleted file keeps reappearing as a source, or after a bulk delete that reported errors. Repeating it is harmless: on a healthy store it finds nothing and deletes nothing.',
+    scopeTitle: 'What it never touches',
+    scopeBody:
+      'Any file with a catalog row counts as live — including one still indexing, or one whose indexing failed — and is left alone. Collections with no rows at all, such as the separately managed OIB base corpus, are skipped entirely.',
+    run: 'Reconcile orphaned vectors',
+    running: 'Reconciling…',
+    confirmTitle: 'Reconcile orphaned vectors?',
+    confirmDescription:
+      'Every collection on the platform is scanned, and every chunk without an owning document is deleted from the shared vector store.',
+    confirmWarning:
+      'This runs across all organizations at once and cannot be undone. An orphaned chunk’s document row is already gone, so re-uploading restores nothing.',
+    confirmCta: 'Run reconcile',
+    cancel: 'Cancel',
+    lastRunTitle: 'Last run',
+    lastRunHint: 'Runs are not recorded — this covers what you start from this page.',
+    neverRunTitle: 'No sweep run yet',
+    neverRunBody: 'Start a reconcile to see how many collections were scanned and exactly what was removed.',
+    colMeasure: 'Measure',
+    colCount: 'Count',
+    measureCollections: 'Collections scanned',
+    measureCollectionsHint: 'Collections holding at least one catalogued document.',
+    measureFound: 'Orphans found',
+    measureFoundHint: 'Indexed files with no owning document row.',
+    measureDeleted: 'Chunks removed',
+    measureDeletedHint: 'Chunks the vector store confirmed it deleted.',
+    outcomeRemoved: 'Removed {chunks} orphaned chunk(s) across {collections} collection(s).',
+    outcomeClean: 'Nothing to clean up — every indexed chunk still has its document.',
+    failuresTitle: '{count} collection(s) could not be reconciled',
+    failuresHint: 'The sweep continued past these. They stay unreconciled until a later run succeeds.',
+    colCollection: 'Collection',
+    colError: 'Reason',
+    failed: 'Reconcile failed',
+    failedHint: 'The request did not complete, so nothing was deleted. Please try again.',
+  },
   nav: {
     label: 'Platform sections',
     overview: 'Overview',

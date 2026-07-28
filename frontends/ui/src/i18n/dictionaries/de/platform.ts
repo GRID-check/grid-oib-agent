@@ -9,10 +9,421 @@ export const platform: typeof en.platform = {
   loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
   retry: 'Erneut versuchen',
   // >>> ui-knowledge: add this section's copy directly below this line <<<
+  /**
+   * Plattform → Basiswissen, neu aufgebaut auf den gemeinsamen Admin-Primitiven
+   * (SectionCard + DataToolbar + Table + Sheet + Pagination). Hier steht nur die
+   * Copy, die durch die neue Form dazugekommen ist; die Formulierungen, die den
+   * Umbau überlebt haben — Upload, Synchronisierung, Löschen, Dokumentart,
+   * Umbenennen — bleiben in `platform.knowledge`.
+   */
+  knowledgeAdmin: {
+    // Der Upload ist jetzt eine Aktion, keine dauerhaft offene Ablagefläche.
+    addDocuments: 'Dokumente hinzufügen',
+    hideUpload: 'Upload ausblenden',
+    // Korpus-Kennzahlen.
+    summaryDocuments: 'Dokumente',
+    summaryIndexed: 'Indexiert',
+    summaryPending: 'Wird indexiert',
+    summaryChunks: 'Indexierte Abschnitte',
+    // Werkzeugleiste.
+    searchLabel: 'Dokumente filtern',
+    searchClear: 'Filter zurücksetzen',
+    scopeLabel: 'Bereich',
+    scopeAll: 'Alle Dokumente',
+    // Tabelle.
+    colDocument: 'Dokument',
+    colType: 'Dokumentart',
+    colState: 'Status',
+    colChunks: 'Abschnitte',
+    sortBy: 'Nach {column} sortieren',
+    binding: 'Verbindlich',
+    selectAll: 'Alle Dokumente auf dieser Seite auswählen',
+    selectRow: '{name} auswählen',
+    openDetail: 'Details zu {name} öffnen',
+    range: '{from}–{to} von {total}',
+    previous: 'Zurück',
+    next: 'Weiter',
+    // Auswahl / Sammelaktionen.
+    selectedCount: '{count} ausgewählt',
+    clearSelection: 'Aufheben',
+    bulkReclassify: 'Dokumentart ändern',
+    bulkReclassifyDone: 'Dokumentart von {count} Dokument(en) auf „{label}“ gesetzt',
+    bulkDelete: 'Entfernen',
+    bulkDeleteTitle: '{count} Dokumente entfernen?',
+    bulkDeleteDescription:
+      'Hochgeladene Dokumente werden samt allen indexierten Inhalten gelöscht; mitgelieferte Basisdokumente werden aus dem Korpus ausgeschlossen und bei der nächsten Synchronisierung nicht erneut ingestiert. Antworten können sich auf keines davon mehr stützen.',
+    bulkDeleteConfirm: '{count} Dokumente entfernen',
+    bulkDeleteDone: '{count} Dokumente entfernt',
+    bulkDeleteFailed: '{count} Dokumente konnten nicht entfernt werden',
+    // Detailbereich.
+    detailClose: 'Schließen',
+    detailOrigin: 'Herkunft',
+    detailChunks: 'Indexierte Abschnitte',
+    detailSize: 'Größe',
+    detailIngestedAt: 'Indexiert am',
+    origin: {
+      corpus: 'Mit dem Korpus ausgeliefert',
+      uploaded: 'Hochgeladen',
+      index_only: 'Nur im Index — keine Quelldatei',
+    },
+    // Leerzustand.
+    emptyTitle: 'Noch keine Basisdokumente',
+    emptyDescription:
+      'Fügen Sie eine PDF hinzu oder ein ZIP mit vielen auf einmal — alle Projekte stützen ihre Antworten auf diesen Korpus.',
+  },
   // >>> ui-norms: add this section's copy directly below this line <<<
+  norms: {
+    title: 'Normenkatalog',
+    description:
+      'Kuratierte Zitierstellen des österreichischen Baurechts, die der Agent zitiert — im Unterschied zum Basiswissen, das die Volltexte enthält, gegen die geprüft wird.',
+    entryCount: '{count} Einträge.',
+    entryCountOne: '1 Eintrag.',
+    loadError: 'Der Normenkatalog konnte nicht geladen werden.',
+    add: 'Neuer Eintrag',
+    save: 'Register speichern',
+    saved: 'Register gespeichert.',
+    saveError: 'Das Register konnte nicht gespeichert werden.',
+    invalid: 'Registry-Validierung fehlgeschlagen.',
+    unsaved: 'Ungespeichert',
+    federal: 'Bund',
+    empty: {
+      title: 'Noch keine Einträge im Katalog',
+      description: 'Legen Sie die erste Zitierstelle an, die der Agent zitieren darf.',
+    },
+    noMatches: {
+      title: 'Kein Eintrag passt zu diesen Filtern',
+      description: 'Setzen Sie die Suche zurück oder wählen Sie einen anderen Rang bzw. Geltungsbereich.',
+    },
+    conflict: {
+      title: 'Der Katalog wurde parallel geändert',
+      description:
+        'Während Ihrer Bearbeitung wurde eine neuere Fassung gespeichert, Ihre Änderungen wurden daher nicht übernommen. Laden Sie neu, um auf dem aktuellen Katalog weiterzuarbeiten — dabei gehen sie verloren.',
+      reload: 'Verwerfen und neu laden',
+      toast: 'Der Katalog wurde parallel geändert — bitte vor dem Speichern neu laden.',
+    },
+    search: {
+      placeholder: 'Titel, Kürzel, ID durchsuchen…',
+      label: 'Normeneinträge durchsuchen',
+      clear: 'Suche zurücksetzen',
+    },
+    filters: {
+      rank: 'Rang',
+      allRanks: 'Alle Ränge',
+      scope: 'Geltungsbereich',
+      allScopes: 'Alle Geltungsbereiche',
+      reviews: 'Offene Prüfungen ({count})',
+    },
+    ranks: {
+      bundesgesetz: 'Bundesgesetz',
+      landesgesetz: 'Landesgesetz',
+      verordnung: 'Verordnung',
+      behoerdliche_info: 'Behördliche Information (z. B. MA 37)',
+      norm_extern: 'Externe Norm (ÖNORM/TRVB — kein Volltext)',
+    },
+    rankShort: {
+      bundesgesetz: 'Bundesgesetz',
+      landesgesetz: 'Landesgesetz',
+      verordnung: 'Verordnung',
+      behoerdliche_info: 'Behördliche Info',
+      norm_extern: 'Externe Norm',
+    },
+    columns: {
+      norm: 'Norm',
+      rank: 'Rang',
+      scope: 'Geltung',
+      document: 'Dokument',
+      verified: 'Verifiziert',
+    },
+    row: {
+      open: '{title} bearbeiten',
+      noFullText: 'kein Volltext',
+      unverified: 'ungeprüft',
+      staleHint: 'Verifizierung fehlt oder ist älter als 12 Monate',
+      verifiedHint: 'Zuletzt verifiziert',
+      review: 'Offene Prüfung',
+    },
+    pagination: {
+      range: '{from}–{to} von {total}',
+      previous: 'Zurück',
+      next: 'Weiter',
+    },
+    sheet: {
+      newTitle: 'Neuer Eintrag',
+      editTitle: 'Eintrag bearbeiten',
+      description: 'Änderungen gelangen erst mit dem Speichern in den Katalog.',
+      close: 'Editor schließen',
+      apply: 'Übernehmen',
+      cancel: 'Abbrechen',
+      delete: 'Löschen',
+    },
+    delete: {
+      title: 'Eintrag löschen?',
+      description: 'Der Eintrag verlässt den Katalog. Wirksam erst nach dem Speichern.',
+      confirm: 'Löschen',
+      cancel: 'Abbrechen',
+    },
+    fields: {
+      id: 'ID',
+      idPlaceholder: 'z. B. oib-rl2-2023',
+      short: 'Kürzel',
+      shortPlaceholder: 'z. B. OIB-RL 2',
+      title: 'Titel',
+      titlePlaceholder: 'Voller Titel der Norm',
+      rank: 'Rang',
+      bundesland: 'Bundesland',
+      bundeslandHint: 'Kanonischer Name (z. B. Wien) — für Bundesrecht leer lassen',
+      bundeslandPlaceholder: 'Wien',
+      application: 'RIS-Application',
+      applicationPlaceholder: 'z. B. LrKons / BrKons',
+      relevance: 'Relevanz',
+      relevancePlaceholder: 'z. B. hoch',
+      topics: 'Themen',
+      topicsHint: 'Kommagetrennt (z. B. Brandschutz, Fluchtwege)',
+      topicsPlaceholder: 'Brandschutz, Fluchtwege',
+      aliases: 'Aliase',
+      aliasesHint: 'Kommagetrennt — alternative Bezeichnungen',
+      aliasesPlaceholder: 'OIB 2, Richtlinie 2',
+      documentNumber: 'Dokumentnummer',
+      documentNumberPlaceholder: 'NOR40251234',
+      verifiedAt: 'Verifiziert am',
+      verifiedAtPlaceholder: 'JJJJ-MM-TT',
+      citationUrl: 'Zitier-URL',
+      fullLawUrl: 'Volltext-URL',
+      sourceUrl: 'Quelle (URL)',
+      sourceUrlHint: 'Web-Link für Nicht-RIS-Quellen (z. B. ein MA-37-Merkblatt)',
+      urlPlaceholder: 'https://…',
+      bindingNote: 'Rechtlicher Hinweis',
+      bindingNoteHint: 'Wird dem Agenten als rechtlicher Hinweis angezeigt',
+      reviewNote: 'Prüfnotiz',
+      reviewNoteHint: 'Interne Prüfaufgabe — erscheint nie im Prompt',
+      titleQuery: 'Titel-Query',
+      titleQueryPlaceholder: 'RIS-Titelsuche',
+      gesetzesnummer: 'Gesetzesnummer',
+      expect: 'Erwartet (expect)',
+      exclude: 'Ausschluss (exclude)',
+      excludePlaceholder: 'kommagetrennt',
+      optional: 'optional',
+    },
+    errors: {
+      required: 'Pflichtfeld',
+      duplicateId: 'Die ID „{id}“ ist bereits vergeben',
+      lawNeedsRis: 'Gesetzes-Rang benötigt RIS-Application und Dokumentnummer',
+    },
+    verify: {
+      title: 'Gegen RIS verifizieren',
+      hint: 'Nutzt die Titel-Query (oder den Titel) und die RIS-Application des Eintrags.',
+      action: 'Verifizieren',
+      candidate: '{title} übernehmen',
+      missingInput: 'Titel-Query und RIS-Application werden zum Verifizieren benötigt',
+      noHits: 'Keine RIS-Treffer gefunden',
+      noCandidates: 'Keine Kandidaten',
+      failed: 'RIS-Verifizierung fehlgeschlagen',
+      applied: 'Kandidat übernommen',
+      appliedTitle: 'Übernommen:',
+      notInRis: 'Nicht im RIS — Quelle als Link pflegen.',
+    },
+  },
   // >>> ui-workflows: add this section's copy directly below this line <<<
+  /**
+   * Plattform → Workflows, neu aufgebaut auf den gemeinsamen Admin-Primitiven
+   * (SectionCard + DataToolbar + Table + Sheet). Als `platform.workflowsSection`
+   * gebündelt, damit die Komponente den Namensraum einmal bindet.
+   */
+  workflowsSection: {
+    title: 'Workflow-Vorlagen',
+    explainer:
+      'Kuratierte Rechercheaufträge, die in der Workflow-Galerie jeder Organisation veröffentlicht werden. Eine veröffentlichte Vorlage erscheint bei allen Organisationen; das Auswählen füllt dort nur den Workflow-Builder vor – es startet nie automatisch.',
+    new: 'Neue Vorlage',
+    import: 'JSON importieren',
+    // Der Import ist jetzt eine bewusste Aktion: die Ablagefläche liegt hinter
+    // diesem Dialog, statt bei jedem Besuch über der Liste zu stehen.
+    importTitle: 'Vorlage importieren',
+    importDescription:
+      'Laden Sie einen JSON-Export einer Vorlage. Der Editor öffnet sich vorausgefüllt als unveröffentlichter Entwurf – gespeichert wird erst beim Speichern.',
+    dropTitle: 'JSON-Datei hier ablegen',
+    dropActive: 'Zum Importieren loslassen',
+    dropHint: 'Oder klicken, um eine Datei zu wählen.',
+    importCancel: 'Abbrechen',
+    importLoaded: 'Vorlagendatei geladen – prüfen und speichern.',
+    importInvalid: 'Diese Datei ist kein gültiger Vorlagen-Export.',
+    // Werkzeugleiste.
+    search: 'Vorlagen filtern…',
+    searchLabel: 'Vorlagen filtern',
+    searchClear: 'Filter zurücksetzen',
+    filterLabel: 'Veröffentlichungsstatus',
+    filterAll: 'Alle Status',
+    filterPublished: 'Nur veröffentlichte',
+    filterDraft: 'Nur Entwürfe',
+    // Tabelle.
+    columns: {
+      name: 'Vorlage',
+      category: 'Kategorie',
+      provenance: 'Färbung',
+      dataSources: 'Datenquellen',
+      cadence: 'Rhythmus',
+      published: 'Veröffentlicht',
+      actions: 'Aktionen',
+    },
+    rowActions: 'Aktionen für „{name}“',
+    editAria: '„{name}“ bearbeiten',
+    manualCadence: 'Auf Abruf',
+    noCategory: '—',
+    baseKnowledgeOnly: 'Nur Basiswissen',
+    moreSources: '+{count}',
+    // Zustände des Bereichs.
+    loadError: 'Die Vorlagen konnten nicht geladen werden.',
+    emptyTitle: 'Noch keine Vorlagen',
+    emptyDescription:
+      'Verfassen Sie hier einen Rechercheauftrag und veröffentlichen Sie ihn, um ihn allen Organisationen bereitzustellen.',
+    noMatchTitle: 'Keine Vorlage gefunden',
+    noMatchDescription: 'Zu dieser Suche und diesem Veröffentlichungsstatus passt nichts.',
+    clearFilters: 'Filter zurücksetzen',
+    range: '{from}–{to} von {total}',
+    previous: 'Zurück',
+    next: 'Weiter',
+    // Veröffentlichungsschalter.
+    published: 'Veröffentlicht',
+    draft: 'Entwurf',
+    publishAria: '„{name}“ für alle Organisationen veröffentlichen',
+    unpublishAria: 'Veröffentlichung von „{name}“ zurückziehen',
+    publishSuccess: 'Vorlage für alle Organisationen veröffentlicht.',
+    unpublishSuccess: 'Veröffentlichung zurückgezogen.',
+    publishFailed: 'Der Veröffentlichungsstatus konnte nicht geändert werden.',
+    // Zeilenmenü.
+    edit: 'Bearbeiten',
+    export: 'Als JSON exportieren',
+    delete: 'Löschen',
+    // Meldungen.
+    createSuccess: 'Vorlage erstellt.',
+    updateSuccess: 'Vorlage aktualisiert.',
+    saveFailed: 'Die Vorlage konnte nicht gespeichert werden.',
+    deleteSuccess: 'Vorlage gelöscht.',
+    deleteFailed: 'Die Vorlage konnte nicht gelöscht werden.',
+    // Löschbestätigung.
+    deleteTitle: '„{name}“ löschen?',
+    deleteDescription:
+      'Dies entfernt die Vorlage aus der Galerie jeder Organisation. Bereits daraus erstellte Workflows bleiben unberührt. Dies kann nicht rückgängig gemacht werden.',
+    deleteConfirm: 'Vorlage löschen',
+    deleteCancel: 'Abbrechen',
+    // Provenienz-Bezeichnungen (Tabelle + Editor).
+    provenance: {
+      law: 'Vorschrift',
+      project: 'Projekt',
+      office: 'Büro',
+      auto: 'Allgemein',
+    },
+    form: {
+      createTitle: 'Neue Workflow-Vorlage',
+      editTitle: 'Workflow-Vorlage bearbeiten',
+      subtitle:
+        'Verfassen Sie den Auftrag auf Deutsch und Englisch – die Galerie zeigt die Sprache des Betrachters.',
+      close: 'Editor schließen',
+      provenanceLabel: 'Kategorie-Färbung',
+      sortOrderLabel: 'Sortierreihenfolge',
+      sortOrderHint: 'Kleinere Zahlen erscheinen in der Galerie zuerst.',
+      dataSourcesLabel: 'Zusätzliche Datenquellen',
+      dataSourcesHint:
+        'Die Basiswissensebene ist immer enthalten. Wählen Sie weitere Quellen, die ein Lauf nutzen soll.',
+      sourcesLoading: 'Quellen werden geladen…',
+      sourcesAll: 'Keine zusätzlichen Quellen verfügbar.',
+      scheduleLabel: 'Vorgeschlagener Zeitplan',
+      scheduleHint: 'Ein Standardrhythmus, den die übernehmende Person beibehalten oder ändern kann.',
+      presetLabel: 'Rhythmus',
+      timezoneLabel: 'Zeitzone',
+      cronLabel: 'Eigener Cron (5 Felder)',
+      cronHint: 'Minute Stunde Tag-des-Monats Monat Wochentag.',
+      locale: {
+        de: 'Deutsch',
+        en: 'Englisch',
+      },
+      nameLabel: 'Name',
+      descriptionLabel: 'Kurzbeschreibung',
+      categoryLabel: 'Kategorie-Bezeichnung',
+      categoryHint: 'Kurzes Label auf der Galerie-Karte, z. B. „Compliance“.',
+      objectiveLabel: 'Ziel',
+      contextLabel: 'Hintergrund & Kontext',
+      questionsLabel: 'Forschungsfragen',
+      questionsHint: 'Eine Frage pro Zeile.',
+      outputFormatLabel: 'Ausgabeanforderungen',
+      previewLabel: 'Kompilierter Auftrag (was der Agent erhält)',
+      previewEmpty: 'Geben Sie das Ziel ein, um den kompilierten Auftrag zu sehen.',
+      publishLabel: 'Veröffentlicht',
+      publishHint: 'Wenn aktiv, ist diese Vorlage in der Galerie jeder Organisation sichtbar.',
+      // Benennt die unvollständige Sprache – das Formular wechselt zusätzlich auf
+      // diesen Reiter, damit Meldung und Ansicht übereinstimmen.
+      requiredError: '{locale}: Name, Kurzbeschreibung, Kategorie-Bezeichnung und Ziel sind erforderlich.',
+      cancel: 'Abbrechen',
+      save: 'Vorlage speichern',
+      saving: 'Wird gespeichert…',
+    },
+  },
   // >>> ui-overview: add this section's copy directly below this line <<<
+  overview: {
+    search: 'Organisationen suchen…',
+    searchLabel: 'Organisationen suchen',
+    searchClear: 'Suche zurücksetzen',
+    sortBy: 'Nach {column} sortieren',
+    range: '{from}–{to} von {total}',
+    previous: 'Zurück',
+    next: 'Weiter',
+    noMatches: 'Keine Organisation passt zu dieser Suche.',
+    noMatchesHint: 'Versuchen Sie einen anderen Namen oder setzen Sie die Suche zurück, um alle Organisationen zu sehen.',
+    emptyHint: 'Organisationen erscheinen hier, sobald die erste angelegt wurde.',
+    // Das Verzeichnis liest eine Seite aus WorkOS. Das offen zu sagen ist ehrlicher als ein blankes „100+“.
+    cappedTile: 'Erste {count} — es gibt mehr',
+    cappedNote:
+      'Es konnten nur die ersten {count} Organisationen aus dem Verzeichnis geladen werden. Suche, Sortierung und die Kennzahlen oben umfassen genau diese.',
+  },
   // >>> ui-maintenance: add this section's copy directly below this line <<<
+  // Der Wartungsbereich (Bereinigung verwaister Vektoren). Eigener Namensraum,
+  // damit Erklärung, Bestätigung und Ergebniszusammenfassung als eine Stimme
+  // gelesen – und übersetzt – werden können.
+  vectorMaintenance: {
+    title: 'Vektor-Wartung',
+    description:
+      'Den gemeinsamen Vektorspeicher mit dem Dokumentenkatalog abgleichen und indexierte Textabschnitte löschen, deren Dokument nicht mehr existiert.',
+    // Wer diese Seite braucht, versteht per Definition nicht, warum Suche und
+    // Katalog auseinanderlaufen — die Antwort steht deshalb hier.
+    howTitle: 'Was der Abgleich macht',
+    howBody:
+      'Ein Dokument zu löschen sind zwei Schritte: zuerst seine indexierten Textabschnitte aus dem Vektorspeicher entfernen, dann seinen Eintrag aus dem Katalog. Wird der erste Schritt übersprungen oder schlägt er fehl, verschwindet der Eintrag, die Abschnitte bleiben aber zurück – in der App nirgends sichtbar, in der Suche jedoch weiterhin auffindbar und zitierbar. Der Abgleich durchläuft jede Sammlung, vergleicht sie mit dem Katalog und löscht die Abschnitte, zu denen es kein Dokument mehr gibt.',
+    whenTitle: 'Wann Sie ihn brauchen',
+    whenBody:
+      'Führen Sie ihn aus, wenn eine Antwort ein Dokument zitiert, das niemand findet, wenn eine gelöschte Datei immer wieder als Quelle auftaucht oder nach einer Sammellöschung mit Fehlern. Wiederholen ist unbedenklich: In einem sauberen Speicher findet und löscht er nichts.',
+    scopeTitle: 'Was unberührt bleibt',
+    scopeBody:
+      'Jede Datei mit Katalogeintrag gilt als vorhanden – auch eine, die noch indexiert wird, oder eine, deren Indexierung fehlgeschlagen ist – und bleibt unangetastet. Sammlungen ganz ohne Einträge, etwa der separat gepflegte OIB-Basiskorpus, werden gar nicht erst angefasst.',
+    run: 'Verwaiste Vektoren bereinigen',
+    running: 'Wird bereinigt…',
+    confirmTitle: 'Verwaiste Vektoren bereinigen?',
+    confirmDescription:
+      'Jede Sammlung der Plattform wird durchsucht, und jeder Abschnitt ohne zugehöriges Dokument wird aus dem gemeinsamen Vektorspeicher gelöscht.',
+    confirmWarning:
+      'Der Vorgang läuft über alle Organisationen zugleich und kann nicht rückgängig gemacht werden. Der Katalogeintrag eines verwaisten Abschnitts fehlt bereits – erneutes Hochladen stellt daher nichts wieder her.',
+    confirmCta: 'Bereinigung starten',
+    cancel: 'Abbrechen',
+    lastRunTitle: 'Letzter Lauf',
+    lastRunHint: 'Läufe werden nicht protokolliert – hier steht, was Sie auf dieser Seite starten.',
+    neverRunTitle: 'Noch kein Lauf',
+    neverRunBody:
+      'Starten Sie eine Bereinigung, um zu sehen, wie viele Sammlungen geprüft wurden und was genau entfernt wurde.',
+    colMeasure: 'Kennzahl',
+    colCount: 'Anzahl',
+    measureCollections: 'Geprüfte Sammlungen',
+    measureCollectionsHint: 'Sammlungen mit mindestens einem katalogisierten Dokument.',
+    measureFound: 'Verwaiste gefunden',
+    measureFoundHint: 'Indexierte Dateien ohne zugehörigen Katalogeintrag.',
+    measureDeleted: 'Abschnitte entfernt',
+    measureDeletedHint: 'Abschnitte, deren Löschung der Vektorspeicher bestätigt hat.',
+    outcomeRemoved: '{chunks} verwaiste(r) Abschnitt(e) in {collections} Sammlung(en) entfernt.',
+    outcomeClean: 'Nichts zu bereinigen – jeder indexierte Abschnitt hat noch sein Dokument.',
+    failuresTitle: '{count} Sammlung(en) konnten nicht bereinigt werden',
+    failuresHint: 'Der Lauf ist darüber hinweggegangen. Sie bleiben unbereinigt, bis ein späterer Lauf erfolgreich ist.',
+    colCollection: 'Sammlung',
+    colError: 'Grund',
+    failed: 'Bereinigung fehlgeschlagen',
+    failedHint: 'Die Anfrage wurde nicht abgeschlossen, es wurde daher nichts gelöscht. Bitte erneut versuchen.',
+  },
   nav: {
     label: 'Plattform-Bereiche',
     overview: 'Übersicht',

@@ -1,15 +1,19 @@
 'use client'
 
 /**
- * Platform norm-registry manager (ADR-0016 companion) — the curated catalog of
- * Austrian building-law pointers the agent cites.
+ * Platform norm catalog (ADR-0016 companion) — the curated pointers to Austrian
+ * building law the agent cites.
  *
- * Loads the whole registry into local state, edits happen in-memory (a single
- * Save PUTs the entire file under the held optimistic-concurrency version), and
- * a 409 offers a reload. Entries are grouped into legal lanes (Bundesrecht +
- * one lane per Bundesland); a "Offene Prüfungen" queue surfaces every entry
- * carrying an internal review note. The editor can verify a pointer against RIS
- * and fill the verified document number / URLs from a picked candidate.
+ * Built on the shared admin primitives: SectionCard chrome, a DataToolbar
+ * (search + rank / scope / open-review filters), a Table of entries, and a
+ * Sheet holding the editor for the one entry in hand.
+ *
+ * Why this is not a per-row CRUD list: the backend persists the catalog as ONE
+ * file guarded by an optimistic-concurrency version. So edits accumulate in
+ * local state and a single Save PUTs the whole registry under the version we
+ * loaded. A 409 means somebody else wrote in the meantime — we then stop
+ * offering Save entirely until the user reloads, because re-sending our copy
+ * would overwrite a registry they have never seen.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -31,30 +35,24 @@ import { useAppForm } from '@/components/form'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
-  Command,
-  CommandEmpty,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { DataToolbar } from '@/components/ui/data-toolbar'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Pagination } from '@/components/ui/pagination'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { SectionCard } from '@/features/platform/components/section-card'
+import { useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 import {
   isLawRank,
   NORM_RANKS,
@@ -71,20 +69,11 @@ import {
  * ------------------------------------------------------------------------- */
 
 const STALE_AFTER_MS = 365 * 24 * 60 * 60 * 1000
+const PAGE_SIZE = 10
 
-const RANK_LABELS: Record<NormRank, string> = {
-  bundesgesetz: 'Bundesgesetz',
-  landesgesetz: 'Landesgesetz',
-  verordnung: 'Verordnung',
-  behoerdliche_info: 'Behördliche Information (z. B. MA 37)',
-  norm_extern: 'Externe Norm (ÖNORM/TRVB — kein Volltext)',
-}
-
-const RANK_OPTIONS = NORM_RANKS.map((value) => ({ value, label: RANK_LABELS[value] }))
-
-const BUNDESRECHT_LANE = 'Bundesrecht'
-const BEHOERDLICHE_INFO_LANE = 'Behördliche Informationen'
-const NORM_EXTERN_LANE = 'Externe Normen'
+/** Sentinel filter values — '' is a real scope (federal law), so it cannot mean "all". */
+const ALL = '__all__'
+const FEDERAL = '__federal__'
 
 /** Host of a plain source URL, e.g. 'www.wien.gv.at', or '' when unparseable. */
 function sourceHost(url: string): string {
@@ -111,6 +100,45 @@ function isStale(verifiedAt: string): boolean {
   const time = Date.parse(verifiedAt)
   if (Number.isNaN(time)) return true
   return Date.now() - time > STALE_AFTER_MS
+}
+
+const hasReview = (entry: NormEntry): boolean => (entry.review_note ?? '').trim().length > 0
+
+/**
+ * Legal lane of an entry, as a sort key. The old surface rendered one section
+ * per lane; the table keeps that reading order (federal law, then the states
+ * alphabetically, then authority information, then external norms) while the
+ * rank and scope columns carry the label that the section heading used to.
+ */
+function laneOrder(entry: NormEntry): number {
+  if (entry.rank === 'behoerdliche_info') return 2
+  if (entry.rank === 'norm_extern') return 3
+  return entry.bundesland.trim() ? 1 : 0
+}
+
+function compareEntries(a: NormEntry, b: NormEntry): number {
+  const lane = laneOrder(a) - laneOrder(b)
+  if (lane !== 0) return lane
+  const land = a.bundesland.trim().localeCompare(b.bundesland.trim(), 'de')
+  if (land !== 0) return land
+  return a.short.localeCompare(b.short, 'de')
+}
+
+function matchesQuery(entry: NormEntry, query: string): boolean {
+  if (!query) return true
+  const haystack = [
+    entry.id,
+    entry.short,
+    entry.title,
+    entry.document_number,
+    entry.bundesland,
+    entry.application,
+    ...entry.topics,
+    ...entry.aliases,
+  ]
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(query)
 }
 
 /* ---------------------------------------------------------------------------
@@ -140,28 +168,32 @@ interface EntryFormValues {
   verified_at: string
 }
 
-const entryFormSchema = z.object({
-  id: z.string().min(1, 'Pflichtfeld'),
-  title: z.string().min(1, 'Pflichtfeld'),
-  short: z.string().min(1, 'Pflichtfeld'),
-  rank: z.enum(NORM_RANKS),
-  bundesland: z.string(),
-  topics: z.string(),
-  relevance: z.string(),
-  application: z.string(),
-  document_number: z.string(),
-  source_url: z.string(),
-  citation_url: z.string(),
-  full_law_url: z.string(),
-  aliases: z.string(),
-  binding_note: z.string(),
-  review_note: z.string(),
-  verify_title_query: z.string(),
-  verify_expect: z.string(),
-  verify_exclude: z.string(),
-  verify_gesetzesnummer: z.string(),
-  verified_at: z.string(),
-})
+/** Built per render so the "required" message speaks the reader's language. */
+function createEntryFormSchema(t: Translator) {
+  const required = t('norms.errors.required')
+  return z.object({
+    id: z.string().min(1, required),
+    title: z.string().min(1, required),
+    short: z.string().min(1, required),
+    rank: z.enum(NORM_RANKS),
+    bundesland: z.string(),
+    topics: z.string(),
+    relevance: z.string(),
+    application: z.string(),
+    document_number: z.string(),
+    source_url: z.string(),
+    citation_url: z.string(),
+    full_law_url: z.string(),
+    aliases: z.string(),
+    binding_note: z.string(),
+    review_note: z.string(),
+    verify_title_query: z.string(),
+    verify_expect: z.string(),
+    verify_exclude: z.string(),
+    verify_gesetzesnummer: z.string(),
+    verified_at: z.string(),
+  })
+}
 
 function entryToForm(entry: NormEntry): EntryFormValues {
   return {
@@ -253,6 +285,8 @@ interface EditorTarget {
 }
 
 export function NormRegistry(): JSX.Element {
+  const t = useTranslations('platform')
+
   const [entries, setEntries] = useState<NormEntry[]>([])
   const [version, setVersion] = useState<number>(0)
   // Preserved verbatim across the PUT round-trip; not editable in the UI.
@@ -275,13 +309,19 @@ export function NormRegistry(): JSX.Element {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
 
+  const [query, setQuery] = useState('')
+  const [rankFilter, setRankFilter] = useState<string>(ALL)
+  const [scopeFilter, setScopeFilter] = useState<string>(ALL)
+  const [onlyReviews, setOnlyReviews] = useState(false)
+  const [offset, setOffset] = useState(0)
+
   const load = useCallback(() => {
     setIsLoading(true)
     setHasError(false)
     setConflict(false)
     return fetch('/api/platform/norms')
       .then((r) => {
-        if (!r.ok) throw new Error(`Fehler beim Laden (${r.status})`)
+        if (!r.ok) throw new Error(`Load failed (${r.status})`)
         return r.json() as Promise<NormRegistryEnvelope>
       })
       .then((data) => {
@@ -308,9 +348,8 @@ export function NormRegistry(): JSX.Element {
     void load()
   }, [load])
 
-  const otherIds = useMemo(
-    () => (originalId: string | null) =>
-      new Set(entries.filter((e) => e.id !== originalId).map((e) => e.id)),
+  const otherIds = useCallback(
+    (originalId: string | null) => new Set(entries.filter((e) => e.id !== originalId).map((e) => e.id)),
     [entries],
   )
 
@@ -333,8 +372,9 @@ export function NormRegistry(): JSX.Element {
   }, [])
 
   const handleSave = useCallback(() => {
+    // A held version we know to be stale must never be written back.
+    if (conflict) return
     setIsSaving(true)
-    setConflict(false)
     fetch('/api/platform/norms', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -347,265 +387,325 @@ export function NormRegistry(): JSX.Element {
         const body = await r.json().catch(() => ({}))
         if (r.status === 409) {
           setConflict(true)
-          toast.error('Registry wurde parallel geändert — neu laden')
+          toast.error(t('norms.conflict.toast'))
           return
         }
         if (r.status === 422 || r.status === 400) {
-          toast.error(body?.error ?? 'Registry-Validierung fehlgeschlagen')
+          toast.error(body?.error ?? t('norms.invalid'))
           return
         }
-        if (!r.ok) throw new Error(`Speichern fehlgeschlagen (${r.status})`)
+        if (!r.ok) throw new Error(`Save failed (${r.status})`)
         if (typeof body?.version === 'number') setVersion(body.version)
         setDirty(false)
-        toast.success('Registry gespeichert')
+        toast.success(t('norms.saved'))
       })
-      .catch(() => toast.error('Speichern fehlgeschlagen'))
+      .catch(() => toast.error(t('norms.saveError')))
       .finally(() => setIsSaving(false))
-  }, [entries, version, corpusCollection, overrides])
+  }, [entries, version, corpusCollection, overrides, conflict, t])
 
-  const lanes = useMemo(() => groupIntoLanes(entries), [entries])
-  const openReviews = useMemo(
-    () => entries.filter((e) => (e.review_note ?? '').trim().length > 0),
-    [entries],
-  )
+  const openReviewCount = useMemo(() => entries.filter(hasReview).length, [entries])
+
+  const scopes = useMemo(() => {
+    const lands = new Set<string>()
+    for (const entry of entries) {
+      const land = entry.bundesland.trim()
+      if (land) lands.add(land)
+    }
+    return [...lands].sort((a, b) => a.localeCompare(b, 'de'))
+  }, [entries])
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return [...entries]
+      .filter((entry) => {
+        if (rankFilter !== ALL && entry.rank !== rankFilter) return false
+        if (scopeFilter === FEDERAL && entry.bundesland.trim() !== '') return false
+        if (scopeFilter !== ALL && scopeFilter !== FEDERAL && entry.bundesland.trim() !== scopeFilter) {
+          return false
+        }
+        if (onlyReviews && !hasReview(entry)) return false
+        return matchesQuery(entry, needle)
+      })
+      .sort(compareEntries)
+  }, [entries, query, rankFilter, scopeFilter, onlyReviews])
+
+  // Deleting or filtering can strand the offset past the end of the list.
+  const safeOffset = offset >= filtered.length ? 0 : offset
+  const page = filtered.slice(safeOffset, safeOffset + PAGE_SIZE)
+
+  const resetPaging = useCallback(() => setOffset(0), [])
+
+  const registryEmpty = !isLoading && !hasError && entries.length === 0 && !conflict
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BookMarked className="size-4 text-muted-foreground" aria-hidden />
-          Normen-Register
-        </CardTitle>
-        <CardDescription>
-          Kuratierter Katalog österreichischer Bau-Rechtsverweise (Zitierstellen), die der Agent
-          zitiert — im Unterschied zum „Basiswissen“ oben, das die eigentlichen Volltext-Dokumente
-          enthält, gegen die geprüft wird.
-          {' '}
-          {entries.length} {entries.length === 1 ? 'Eintrag' : 'Einträge'}.
-        </CardDescription>
-        <CardAction className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setEditor({ entry: emptyEntry(), originalId: null })}
-            disabled={isLoading || hasError}
-          >
-            <Plus className="size-3.5" aria-hidden />
-            Neuer Eintrag
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={!dirty || isSaving || isLoading}>
-            {isSaving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" aria-hidden />}
-            Speichern
-          </Button>
-        </CardAction>
-      </CardHeader>
-
-      <CardContent className="flex flex-col gap-4">
-        {isLoading && <Skeleton className="h-48 w-full rounded-xl" data-testid="norm-registry-loading" />}
-
-        {!isLoading && hasError && (
-          <Alert variant="destructive">
-            <AlertCircle className="size-4" aria-hidden />
-            <AlertTitle>Register konnte nicht geladen werden</AlertTitle>
-            <AlertDescription>
-              <Button variant="outline" size="sm" onClick={() => void load()}>
-                <RotateCcw className="size-3.5" aria-hidden />
-                Erneut versuchen
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {!isLoading && conflict && (
-          <Alert variant="destructive">
-            <AlertCircle className="size-4" aria-hidden />
-            <AlertTitle>Registry wurde parallel geändert</AlertTitle>
-            <AlertDescription className="flex flex-col gap-2">
-              <span>Ihre lokalen Änderungen wurden nicht gespeichert. Bitte neu laden.</span>
-              <Button variant="outline" size="sm" className="w-fit" onClick={() => void load()}>
-                <RotateCcw className="size-3.5" aria-hidden />
-                Neu laden
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {!isLoading && !hasError && (
-          <>
-            {openReviews.length > 0 && (
-              <Card className="border-warning/40 bg-warning-subtle/40">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-sm">
-                    <ClipboardList className="size-4 text-warning" aria-hidden />
-                    Offene Prüfungen ({openReviews.length})
-                  </CardTitle>
-                  <CardDescription>Interne Prüfaufgaben — nur hier sichtbar, nie im Prompt.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="divide-y divide-border overflow-hidden rounded-lg border bg-card">
-                    {openReviews.map((entry) => (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        onClick={() => setEditor({ entry, originalId: entry.id })}
-                        className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
-                      >
-                        <Badge variant="warning" className="mt-0.5 shrink-0">
-                          {entry.short}
-                        </Badge>
-                        <span className="min-w-0 text-sm text-muted-foreground">{entry.review_note}</span>
-                      </button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {entries.length === 0 ? (
-              <EmptyState variant="bare" icon={BookMarked} title="Noch keine Einträge im Register" />
-            ) : (
-              lanes.map((lane) => (
-                <section key={lane.name} className="flex flex-col gap-2">
-                  <h3 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                    {lane.name}
-                  </h3>
-                  <div className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
-                    {lane.entries.map((entry) => (
-                      <NormRow
-                        key={entry.id}
-                        entry={entry}
-                        onOpen={() => setEditor({ entry, originalId: entry.id })}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))
-            )}
-          </>
-        )}
-      </CardContent>
-
-      {editor && (
-        <NormEditorDialog
-          key={editor.originalId ?? '__new__'}
-          target={editor}
-          existingIds={otherIds(editor.originalId)}
-          onSave={handleSaveEntry}
-          onCancel={() => setEditor(null)}
-          onRequestDelete={() => editor.originalId && setPendingDelete(editor.originalId)}
-          isNew={editor.originalId === null}
-        />
-      )}
-
-      <Dialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => !open && setPendingDelete(null)}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Eintrag löschen?</DialogTitle>
-            <DialogDescription>
-              Der Eintrag wird aus dem Register entfernt. Wirksam erst nach dem Speichern.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setPendingDelete(null)}>
-              Abbrechen
-            </Button>
+    <>
+      <SectionCard
+        testId="norm-registry"
+        title={t('norms.title')}
+        description={`${t('norms.description')} ${
+          entries.length === 1 ? t('norms.entryCountOne') : t('norms.entryCount', { count: entries.length })
+        }`}
+        loading={isLoading}
+        error={!isLoading && hasError}
+        errorMessage={t('norms.loadError')}
+        onRetry={() => void load()}
+        empty={registryEmpty}
+        emptyIcon={BookMarked}
+        emptyTitle={t('norms.empty.title')}
+        emptyDescription={t('norms.empty.description')}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {dirty && <Badge variant="warning">{t('norms.unsaved')}</Badge>}
             <Button
-              variant="destructive"
-              onClick={() => pendingDelete && handleDelete(pendingDelete)}
+              variant="outline"
+              size="sm"
+              onClick={() => setEditor({ entry: emptyEntry(), originalId: null })}
             >
-              <Trash2 className="size-3.5" aria-hidden />
-              Löschen
+              <Plus className="size-3.5" aria-hidden />
+              {t('norms.add')}
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={!dirty || isSaving || conflict}>
+              {isSaving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" aria-hidden />}
+              {t('norms.save')}
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
-    </Card>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {conflict && (
+            <Alert variant="destructive" data-testid="norm-registry-conflict">
+              <AlertCircle className="size-4" aria-hidden />
+              <AlertTitle>{t('norms.conflict.title')}</AlertTitle>
+              <AlertDescription className="flex flex-col gap-2">
+                <span>{t('norms.conflict.description')}</span>
+                <Button variant="outline" size="sm" className="w-fit" onClick={() => void load()}>
+                  <RotateCcw className="size-3.5" aria-hidden />
+                  {t('norms.conflict.reload')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <DataToolbar
+            searchValue={query}
+            onSearchChange={(value) => {
+              setQuery(value)
+              resetPaging()
+            }}
+            searchPlaceholder={t('norms.search.placeholder')}
+            searchLabel={t('norms.search.label')}
+            clearLabel={t('norms.search.clear')}
+            filters={
+              <>
+                <Select
+                  value={rankFilter}
+                  onValueChange={(value) => {
+                    setRankFilter(value)
+                    resetPaging()
+                  }}
+                >
+                  <SelectTrigger size="sm" className="w-44" aria-label={t('norms.filters.rank')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>{t('norms.filters.allRanks')}</SelectItem>
+                    {NORM_RANKS.map((rank) => (
+                      <SelectItem key={rank} value={rank}>
+                        {t(`norms.rankShort.${rank}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={scopeFilter}
+                  onValueChange={(value) => {
+                    setScopeFilter(value)
+                    resetPaging()
+                  }}
+                >
+                  <SelectTrigger size="sm" className="w-40" aria-label={t('norms.filters.scope')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>{t('norms.filters.allScopes')}</SelectItem>
+                    <SelectItem value={FEDERAL}>{t('norms.federal')}</SelectItem>
+                    {scopes.map((land) => (
+                      <SelectItem key={land} value={land}>
+                        {land}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {openReviewCount > 0 && (
+                  // The old surface kept a separate "open reviews" queue card.
+                  // As a filter it stays one click away without duplicating the
+                  // list — and the count is still visible without opening it.
+                  <Button
+                    variant={onlyReviews ? 'secondary' : 'outline'}
+                    size="sm"
+                    aria-pressed={onlyReviews}
+                    onClick={() => {
+                      setOnlyReviews((prev) => !prev)
+                      resetPaging()
+                    }}
+                  >
+                    <ClipboardList className="size-3.5" aria-hidden />
+                    {t('norms.filters.reviews', { count: openReviewCount })}
+                  </Button>
+                )}
+              </>
+            }
+          />
+
+          {filtered.length === 0 ? (
+            <EmptyState
+              variant="bare"
+              icon={BookMarked}
+              title={t('norms.noMatches.title')}
+              description={t('norms.noMatches.description')}
+            />
+          ) : (
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('norms.columns.norm')}</TableHead>
+                    <TableHead>{t('norms.columns.rank')}</TableHead>
+                    <TableHead>{t('norms.columns.scope')}</TableHead>
+                    <TableHead>{t('norms.columns.document')}</TableHead>
+                    <TableHead>{t('norms.columns.verified')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {page.map((entry) => (
+                    <NormRow
+                      key={entry.id}
+                      entry={entry}
+                      t={t}
+                      onOpen={() => setEditor({ entry, originalId: entry.id })}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <Pagination
+            offset={safeOffset}
+            pageSize={PAGE_SIZE}
+            total={filtered.length}
+            onOffsetChange={setOffset}
+            rangeLabel={(from, to, total) => t('norms.pagination.range', { from, to, total })}
+            previousLabel={t('norms.pagination.previous')}
+            nextLabel={t('norms.pagination.next')}
+          />
+        </div>
+      </SectionCard>
+
+      <Sheet open={editor !== null} onOpenChange={(open) => !open && setEditor(null)}>
+        <SheetContent className="sm:max-w-xl" closeLabel={t('norms.sheet.close')}>
+          {editor && (
+            <NormEditor
+              key={editor.originalId ?? '__new__'}
+              target={editor}
+              existingIds={otherIds(editor.originalId)}
+              onSave={handleSaveEntry}
+              onCancel={() => setEditor(null)}
+              onRequestDelete={() => editor.originalId && setPendingDelete(editor.originalId)}
+              isNew={editor.originalId === null}
+              t={t}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title={t('norms.delete.title')}
+        description={t('norms.delete.description')}
+        confirmLabel={t('norms.delete.confirm')}
+        cancelLabel={t('norms.delete.cancel')}
+        confirmTestId="norm-delete-confirm"
+        onConfirm={() => {
+          if (pendingDelete) handleDelete(pendingDelete)
+        }}
+      />
+    </>
   )
 }
 
 /* ---------------------------------------------------------------------------
- * Lane grouping + row
+ * Table row
  * ------------------------------------------------------------------------- */
 
-interface Lane {
-  name: string
-  entries: NormEntry[]
-}
-
-function groupIntoLanes(entries: NormEntry[]): Lane[] {
-  const behoerdlich = entries.filter((e) => e.rank === 'behoerdliche_info')
-  const externe = entries.filter((e) => e.rank === 'norm_extern')
-  const lawEntries = entries.filter((e) => isLawRank(e.rank))
-
-  const federal = lawEntries.filter((e) => e.bundesland.trim() === '')
-  const byLand = new Map<string, NormEntry[]>()
-  for (const entry of lawEntries) {
-    const land = entry.bundesland.trim()
-    if (!land) continue
-    const bucket = byLand.get(land) ?? []
-    bucket.push(entry)
-    byLand.set(land, bucket)
-  }
-  const lanes: Lane[] = []
-  if (federal.length > 0) lanes.push({ name: BUNDESRECHT_LANE, entries: federal })
-  for (const land of [...byLand.keys()].sort((a, b) => a.localeCompare(b, 'de'))) {
-    lanes.push({ name: land, entries: byLand.get(land) ?? [] })
-  }
-  if (behoerdlich.length > 0) lanes.push({ name: BEHOERDLICHE_INFO_LANE, entries: behoerdlich })
-  if (externe.length > 0) lanes.push({ name: NORM_EXTERN_LANE, entries: externe })
-  return lanes
-}
-
-function NormRow({ entry, onOpen }: { entry: NormEntry; onOpen: () => void }): JSX.Element {
+function NormRow({
+  entry,
+  onOpen,
+  t,
+}: {
+  entry: NormEntry
+  onOpen: () => void
+  t: Translator
+}): JSX.Element {
   const stale = isStale(entry.verified_at)
-  const hasReview = (entry.review_note ?? '').trim().length > 0
+  const review = (entry.review_note ?? '').trim()
+  const document = entry.document_number
+    ? [entry.application, entry.document_number].filter(Boolean).join(' · ')
+    : sourceHost(entry.source_url) || t('norms.row.noFullText')
+
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-accent/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-    >
-      <div className="flex min-w-0 items-start gap-3">
-        <Badge variant="secondary" className="mt-0.5 shrink-0">
-          {entry.short}
-        </Badge>
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 truncate text-sm font-medium">
-            {entry.title}
-            {hasReview && (
+    <TableRow>
+      <TableCell>
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={t('norms.row.open', { title: entry.title })}
+          className="flex w-full flex-col items-start gap-0.5 text-left hover:underline focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+        >
+          <span className="flex items-center gap-2">
+            <Badge variant="secondary" className="shrink-0">
+              {entry.short}
+            </Badge>
+            {review && (
               <span
                 className="inline-block size-2 shrink-0 rounded-full bg-warning"
-                aria-label="Offene Prüfung"
-                title="Offene Prüfung"
+                aria-label={t('norms.row.review')}
+                title={t('norms.row.review')}
               />
             )}
-          </p>
-          <p className="truncate font-mono text-xs text-muted-foreground">
-            {entry.document_number
-              ? [entry.application, entry.document_number].filter(Boolean).join(' · ')
-              : sourceHost(entry.source_url) || 'kein Volltext'}
-          </p>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2 sm:pt-0">
+          </span>
+          <span className="block max-w-[22rem] truncate text-sm font-medium">{entry.title}</span>
+          {review && (
+            <span className="block max-w-[22rem] truncate text-xs text-warning">{review}</span>
+          )}
+        </button>
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline">{t(`norms.rankShort.${entry.rank}`)}</Badge>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {entry.bundesland.trim() || t('norms.federal')}
+      </TableCell>
+      <TableCell className="max-w-[16rem] truncate font-mono text-xs text-muted-foreground">
+        {document}
+      </TableCell>
+      <TableCell>
         <Badge
           variant={stale ? 'warning' : 'outline'}
           className="gap-1"
-          title={stale ? 'Verifizierung älter als 12 Monate oder fehlend' : 'Zuletzt verifiziert'}
+          title={stale ? t('norms.row.staleHint') : t('norms.row.verifiedHint')}
         >
           {stale ? <CircleAlert className="size-3" aria-hidden /> : <BadgeCheck className="size-3" aria-hidden />}
-          {entry.verified_at.trim() || 'ungeprüft'}
+          {entry.verified_at.trim() || t('norms.row.unverified')}
         </Badge>
-      </div>
-    </button>
+      </TableCell>
+    </TableRow>
   )
 }
 
 /* ---------------------------------------------------------------------------
- * Editor dialog
+ * Sheet editor
  * ------------------------------------------------------------------------- */
 
 interface DiffHint {
@@ -614,13 +714,14 @@ interface DiffHint {
   to: string
 }
 
-function NormEditorDialog({
+function NormEditor({
   target,
   existingIds,
   onSave,
   onCancel,
   onRequestDelete,
   isNew,
+  t,
 }: {
   target: EditorTarget
   existingIds: Set<string>
@@ -628,6 +729,7 @@ function NormEditorDialog({
   onCancel: () => void
   onRequestDelete: () => void
   isNew: boolean
+  t: Translator
 }): JSX.Element {
   const [candidates, setCandidates] = useState<VerifyCandidate[] | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
@@ -636,15 +738,15 @@ function NormEditorDialog({
 
   const form = useAppForm({
     defaultValues: entryToForm(target.entry),
-    validators: { onChange: entryFormSchema },
+    validators: { onChange: createEntryFormSchema(t) },
     onSubmit: ({ value }) => {
       const entry = formToEntry(value)
       if (existingIds.has(entry.id)) {
-        toast.error(`ID „${entry.id}“ ist bereits vergeben`)
+        toast.error(t('norms.errors.duplicateId', { id: entry.id }))
         return
       }
       if (isLawRank(entry.rank) && (!entry.application || !entry.document_number)) {
-        toast.error('Gesetzes-Rang benötigt RIS-Application und Dokumentnummer')
+        toast.error(t('norms.errors.lawNeedsRis'))
         return
       }
       onSave(target.originalId, entry)
@@ -656,7 +758,7 @@ function NormEditorDialog({
     const titleQuery = values.verify_title_query.trim() || values.title.trim()
     const application = values.application.trim()
     if (!titleQuery || !application) {
-      toast.error('Titel-Query und RIS-Application werden zum Verifizieren benötigt')
+      toast.error(t('norms.verify.missingInput'))
       return
     }
     setIsVerifying(true)
@@ -677,17 +779,17 @@ function NormEditorDialog({
       }),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error(`Verifizierung fehlgeschlagen (${r.status})`)
+        if (!r.ok) throw new Error(`Verification failed (${r.status})`)
         return r.json() as Promise<VerifyNormResponse>
       })
       .then((data) => {
         setCandidates(data.candidates)
         setVerifiedAt(data.verified_at)
-        if (data.candidates.length === 0) toast.info('Keine RIS-Treffer gefunden')
+        if (data.candidates.length === 0) toast.info(t('norms.verify.noHits'))
       })
-      .catch(() => toast.error('RIS-Verifizierung fehlgeschlagen'))
+      .catch(() => toast.error(t('norms.verify.failed')))
       .finally(() => setIsVerifying(false))
-  }, [form])
+  }, [form, t])
 
   const applyCandidate = useCallback(
     (candidate: VerifyCandidate) => {
@@ -705,249 +807,312 @@ function NormEditorDialog({
       form.setFieldValue('verified_at', nextVerifiedAt)
       setDiff(nextDiff)
       setCandidates(null)
-      toast.success('Kandidat übernommen')
+      toast.success(t('norms.verify.applied'))
     },
-    [form, verifiedAt],
+    [form, verifiedAt, t],
   )
 
+  const rankOptions = NORM_RANKS.map((value) => ({ value, label: t(`norms.ranks.${value}`) }))
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{isNew ? 'Neuer Eintrag' : 'Eintrag bearbeiten'}</DialogTitle>
-          <DialogDescription>
-            Alle Änderungen werden erst mit „Speichern“ im Register übernommen.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <SheetHeader>
+        <SheetTitle>{isNew ? t('norms.sheet.newTitle') : t('norms.sheet.editTitle')}</SheetTitle>
+        <SheetDescription>{t('norms.sheet.description')}</SheetDescription>
+      </SheetHeader>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            form.handleSubmit()
-          }}
-          className="flex flex-col gap-4"
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <form.AppField name="id">
-              {(field) => (
-                <field.TextField label="ID" required placeholder="z. B. oib-rl2-2023" disabled={!isNew} />
-              )}
-            </form.AppField>
-            <form.AppField name="short">
-              {(field) => <field.TextField label="Kürzel" required placeholder="z. B. OIB-RL 2" />}
-            </form.AppField>
-          </div>
-
-          <form.AppField name="title">
-            {(field) => (
-              <field.TextField label="Titel" required placeholder="Voller Titel der Norm" />
-            )}
-          </form.AppField>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <form.AppField name="rank">
-              {(field) => <field.SelectField label="Rang" options={RANK_OPTIONS} />}
-            </form.AppField>
-            <form.AppField name="bundesland">
-              {(field) => (
-                <field.TextField
-                  label="Bundesland"
-                  description="Kanonischer Name (z. B. Wien) — leer lassen für Bundesrecht"
-                  placeholder="Wien"
-                />
-              )}
-            </form.AppField>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <form.AppField name="application">
-              {(field) => (
-                <field.TextField label="RIS-Application" placeholder="z. B. LrKons / BrKons" />
-              )}
-            </form.AppField>
-            <form.AppField name="relevance">
-              {(field) => <field.TextField label="Relevanz" placeholder="z. B. hoch" />}
-            </form.AppField>
-          </div>
-
-          <form.AppField name="topics">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          form.handleSubmit()
+        }}
+        className="flex flex-col gap-4"
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <form.AppField name="id">
             {(field) => (
               <field.TextField
-                label="Themen"
-                description="Kommagetrennt (z. B. Brandschutz, Fluchtwege)"
-                placeholder="Brandschutz, Fluchtwege"
+                label={t('norms.fields.id')}
+                required
+                placeholder={t('norms.fields.idPlaceholder')}
+                disabled={!isNew}
               />
             )}
           </form.AppField>
-
-          <form.AppField name="aliases">
+          <form.AppField name="short">
             {(field) => (
               <field.TextField
-                label="Aliase"
-                description="Kommagetrennt — alternative Bezeichnungen"
-                placeholder="OIB 2, Richtlinie 2"
+                label={t('norms.fields.short')}
+                required
+                placeholder={t('norms.fields.shortPlaceholder')}
               />
             )}
           </form.AppField>
+        </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <form.AppField name="document_number">
-              {(field) => <field.TextField label="Dokumentnummer" placeholder="NOR40251234" />}
-            </form.AppField>
-            <form.AppField name="verified_at">
-              {(field) => <field.TextField label="Verifiziert am" placeholder="YYYY-MM-DD" />}
-            </form.AppField>
-          </div>
+        <form.AppField name="title">
+          {(field) => (
+            <field.TextField
+              label={t('norms.fields.title')}
+              required
+              placeholder={t('norms.fields.titlePlaceholder')}
+            />
+          )}
+        </form.AppField>
 
-          <form.AppField name="citation_url">
-            {(field) => <field.TextField label="Zitier-URL" placeholder="https://…" />}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <form.AppField name="rank">
+            {(field) => <field.SelectField label={t('norms.fields.rank')} options={rankOptions} />}
           </form.AppField>
-
-          <form.AppField name="full_law_url">
-            {(field) => <field.TextField label="Volltext-URL" placeholder="https://…" />}
-          </form.AppField>
-
-          <form.AppField name="source_url">
+          <form.AppField name="bundesland">
             {(field) => (
               <field.TextField
-                label="Quelle (URL)"
-                description="Web-Link für Nicht-RIS-Quellen (z. B. MA-37 Merkblatt)"
-                placeholder="https://…"
+                label={t('norms.fields.bundesland')}
+                description={t('norms.fields.bundeslandHint')}
+                placeholder={t('norms.fields.bundeslandPlaceholder')}
               />
             )}
           </form.AppField>
+        </div>
 
-          <form.AppField name="binding_note">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <form.AppField name="application">
             {(field) => (
-              <field.TextAreaField
-                label="Rechtlicher Hinweis"
-                description="Wird dem Agenten als rechtlicher Hinweis angezeigt"
-                rows={2}
+              <field.TextField
+                label={t('norms.fields.application')}
+                placeholder={t('norms.fields.applicationPlaceholder')}
               />
             )}
           </form.AppField>
-
-          <form.AppField name="review_note">
+          <form.AppField name="relevance">
             {(field) => (
-              <field.TextAreaField
-                label="Prüfnotiz"
-                description="Interne Prüfaufgabe — erscheint nie im Prompt"
-                rows={2}
+              <field.TextField
+                label={t('norms.fields.relevance')}
+                placeholder={t('norms.fields.relevancePlaceholder')}
               />
             )}
           </form.AppField>
+        </div>
 
-          {/* RIS verification — only for RIS-backed law ranks */}
-          <form.Subscribe selector={(state) => state.values.rank}>
-            {(rank) =>
-              isLawRank(rank) ? (
-                <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-col gap-2">
-                      <span className="text-sm font-medium">Gegen RIS verifizieren</span>
-                      <span className="text-xs text-muted-foreground">
-                        Nutzt Titel-Query (oder Titel) + RIS-Application des Eintrags.
-                      </span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleVerify}
-                      disabled={isVerifying}
-                    >
-                      {isVerifying ? (
-                        <Spinner className="size-3.5" />
-                      ) : (
-                        <Search className="size-3.5" aria-hidden />
-                      )}
-                      Verifizieren
-                    </Button>
+        <form.AppField name="topics">
+          {(field) => (
+            <field.TextField
+              label={t('norms.fields.topics')}
+              description={t('norms.fields.topicsHint')}
+              placeholder={t('norms.fields.topicsPlaceholder')}
+            />
+          )}
+        </form.AppField>
+
+        <form.AppField name="aliases">
+          {(field) => (
+            <field.TextField
+              label={t('norms.fields.aliases')}
+              description={t('norms.fields.aliasesHint')}
+              placeholder={t('norms.fields.aliasesPlaceholder')}
+            />
+          )}
+        </form.AppField>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <form.AppField name="document_number">
+            {(field) => (
+              <field.TextField
+                label={t('norms.fields.documentNumber')}
+                placeholder={t('norms.fields.documentNumberPlaceholder')}
+              />
+            )}
+          </form.AppField>
+          <form.AppField name="verified_at">
+            {(field) => (
+              <field.TextField
+                label={t('norms.fields.verifiedAt')}
+                placeholder={t('norms.fields.verifiedAtPlaceholder')}
+              />
+            )}
+          </form.AppField>
+        </div>
+
+        <form.AppField name="citation_url">
+          {(field) => (
+            <field.TextField
+              label={t('norms.fields.citationUrl')}
+              placeholder={t('norms.fields.urlPlaceholder')}
+            />
+          )}
+        </form.AppField>
+
+        <form.AppField name="full_law_url">
+          {(field) => (
+            <field.TextField
+              label={t('norms.fields.fullLawUrl')}
+              placeholder={t('norms.fields.urlPlaceholder')}
+            />
+          )}
+        </form.AppField>
+
+        <form.AppField name="source_url">
+          {(field) => (
+            <field.TextField
+              label={t('norms.fields.sourceUrl')}
+              description={t('norms.fields.sourceUrlHint')}
+              placeholder={t('norms.fields.urlPlaceholder')}
+            />
+          )}
+        </form.AppField>
+
+        <form.AppField name="binding_note">
+          {(field) => (
+            <field.TextAreaField
+              label={t('norms.fields.bindingNote')}
+              description={t('norms.fields.bindingNoteHint')}
+              rows={2}
+            />
+          )}
+        </form.AppField>
+
+        <form.AppField name="review_note">
+          {(field) => (
+            <field.TextAreaField
+              label={t('norms.fields.reviewNote')}
+              description={t('norms.fields.reviewNoteHint')}
+              rows={2}
+            />
+          )}
+        </form.AppField>
+
+        {/* RIS verification — only the three RIS-backed law ranks have a pointer
+            to verify; the other two are plain links. */}
+        <form.Subscribe selector={(state) => state.values.rank}>
+          {(rank) =>
+            isLawRank(rank) ? (
+              <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">{t('norms.verify.title')}</span>
+                    <span className="text-xs text-muted-foreground">{t('norms.verify.hint')}</span>
                   </div>
-
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <form.AppField name="verify_title_query">
-                      {(field) => <field.TextField label="Titel-Query" placeholder="RIS-Titelsuche" />}
-                    </form.AppField>
-                    <form.AppField name="verify_gesetzesnummer">
-                      {(field) => <field.TextField label="Gesetzesnummer" placeholder="optional" />}
-                    </form.AppField>
-                    <form.AppField name="verify_expect">
-                      {(field) => <field.TextField label="Erwartet (expect)" placeholder="optional" />}
-                    </form.AppField>
-                    <form.AppField name="verify_exclude">
-                      {(field) => (
-                        <field.TextField label="Ausschluss (exclude)" placeholder="kommagetrennt" />
-                      )}
-                    </form.AppField>
-                  </div>
-
-                  {candidates !== null && (
-                    <div className="overflow-hidden rounded-lg border bg-popover">
-                      <Command shouldFilter={false}>
-                        <CommandList>
-                          <CommandEmpty>Keine Kandidaten</CommandEmpty>
-                          {candidates.map((candidate) => (
-                            <CommandItem
-                              key={`${candidate.document_number}:${candidate.citation_url}`}
-                              value={`${candidate.title} ${candidate.document_number}`}
-                              onSelect={() => applyCandidate(candidate)}
-                              className="flex flex-col items-start gap-0.5"
-                            >
-                              <span className="text-sm">{candidate.title}</span>
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {candidate.document_number}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandList>
-                      </Command>
-                    </div>
-                  )}
-
-                  {diff.length > 0 && (
-                    <div className="flex flex-col gap-1 rounded-lg border border-info/40 bg-info-subtle/40 p-2 text-xs">
-                      <span className="font-medium text-info">Übernommen:</span>
-                      {diff.map((d) => (
-                        <span key={d.field} className="font-mono text-muted-foreground">
-                          {d.field}: {d.from || '—'} → {d.to || '—'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleVerify}
+                    disabled={isVerifying}
+                  >
+                    {isVerifying ? (
+                      <Spinner className="size-3.5" />
+                    ) : (
+                      <Search className="size-3.5" aria-hidden />
+                    )}
+                    {t('norms.verify.action')}
+                  </Button>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Nicht im RIS — Quelle als Link pflegen.</p>
-              )
-            }
-          </form.Subscribe>
 
-          <div className="flex items-center justify-between gap-2 pt-2">
-            {!isNew ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={onRequestDelete}
-              >
-                <Trash2 className="size-3.5" aria-hidden />
-                Löschen
-              </Button>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <form.AppField name="verify_title_query">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.titleQuery')}
+                        placeholder={t('norms.fields.titleQueryPlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+                  <form.AppField name="verify_gesetzesnummer">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.gesetzesnummer')}
+                        placeholder={t('norms.fields.optional')}
+                      />
+                    )}
+                  </form.AppField>
+                  <form.AppField name="verify_expect">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.expect')}
+                        placeholder={t('norms.fields.optional')}
+                      />
+                    )}
+                  </form.AppField>
+                  <form.AppField name="verify_exclude">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.exclude')}
+                        placeholder={t('norms.fields.excludePlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+                </div>
+
+                {candidates !== null && (
+                  <div
+                    className="divide-y divide-border overflow-hidden rounded-lg border bg-popover"
+                    data-testid="norm-verify-candidates"
+                  >
+                    {candidates.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-muted-foreground">
+                        {t('norms.verify.noCandidates')}
+                      </p>
+                    ) : (
+                      candidates.map((candidate) => (
+                        <button
+                          key={`${candidate.document_number}:${candidate.citation_url}`}
+                          type="button"
+                          onClick={() => applyCandidate(candidate)}
+                          aria-label={t('norms.verify.candidate', { title: candidate.title })}
+                          className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                        >
+                          <span className="text-sm">{candidate.title}</span>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {candidate.document_number}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {diff.length > 0 && (
+                  <div className="flex flex-col gap-1 rounded-lg border border-info/40 bg-info-subtle/40 p-2 text-xs">
+                    <span className="font-medium text-info">{t('norms.verify.appliedTitle')}</span>
+                    {diff.map((d) => (
+                      <span key={d.field} className="font-mono text-muted-foreground">
+                        {d.field}: {d.from || '—'} → {d.to || '—'}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
-              <span />
-            )}
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={onCancel}>
-                Abbrechen
-              </Button>
-              <form.AppForm>
-                <form.SubmitButton>Übernehmen</form.SubmitButton>
-              </form.AppForm>
-            </div>
+              <p className="text-xs text-muted-foreground">{t('norms.verify.notInRis')}</p>
+            )
+          }
+        </form.Subscribe>
+
+        <SheetFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+          {!isNew ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onRequestDelete}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              {t('norms.sheet.delete')}
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onCancel}>
+              {t('norms.sheet.cancel')}
+            </Button>
+            <form.AppForm>
+              <form.SubmitButton>{t('norms.sheet.apply')}</form.SubmitButton>
+            </form.AppForm>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </form>
+    </>
   )
 }
