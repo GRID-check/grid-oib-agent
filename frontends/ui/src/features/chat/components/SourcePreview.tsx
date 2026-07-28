@@ -21,7 +21,7 @@
 
 'use client'
 
-import { useEffect, useState, type CSSProperties, type FC } from 'react'
+import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
 import { ExternalLink, FileSearch } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -39,12 +39,14 @@ import type { AnswerSourceItem } from '../lib/answer-source-list'
 import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
 import {
+  citationSnippet,
   parseKbLocator,
   resolveCitationTarget,
   type AnswerSourceRef,
   type CitationTarget,
   type StoredDocumentRef,
 } from '../lib/answer-sources'
+import type { CitationSource } from '../types'
 import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
@@ -170,6 +172,41 @@ const chipButtonClasses =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
   'disabled:cursor-progress disabled:opacity-70'
 
+// ---------------------------------------------------------------------------
+// Layout variants — ONE behaviour, two shapes
+// ---------------------------------------------------------------------------
+
+/**
+ * How a citation is laid out. The variant changes only the SHAPE; the
+ * provenance tint, the authority badge, the resolved target and the click
+ * behaviour are identical, which is the whole point: the same source must not
+ * be a tinted, openable pill under the answer and an inert line of text one tab
+ * over.
+ */
+export type CitationVariant = 'chip' | 'card'
+
+/**
+ * The card is the source list's existing row, unchanged in shape: one bordered
+ * card holding everything, hover-highlighted, full-width. Only its CONTENT
+ * gained provenance (a tinted icon and an authority badge) and its behaviour
+ * became real.
+ */
+const cardButtonClasses =
+  'flex w-full cursor-pointer gap-3 rounded-lg border bg-card p-3 text-left ' +
+  'transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 ' +
+  'focus-visible:ring-ring/60 disabled:cursor-progress disabled:opacity-70'
+
+const faceClasses = (variant: CitationVariant): string =>
+  variant === 'card' ? cardButtonClasses : cn(chipButtonClasses, 'max-w-56')
+
+/**
+ * The card keeps the calm neutral card surface a long list needs and carries
+ * its provenance in the icon + badge instead — tinting whole rows would make
+ * the list unreadable.
+ */
+const faceStyle = (variant: CitationVariant, signal: SourceTint): CSSProperties | undefined =>
+  variant === 'card' ? undefined : sourceSignalStyle(signal)
+
 /**
  * The `[N]` a source carries in the answer prose, rendered inside its chip.
  *
@@ -182,6 +219,112 @@ const CitationIndex: FC<{ index?: number }> = ({ index }) =>
   index == null ? null : (
     <span className="shrink-0 text-[10px] font-semibold tabular-nums opacity-60">{index}</span>
   )
+
+/** Everything a citation shows before it is clicked, in either layout. */
+interface CitationFaceProps {
+  variant?: CitationVariant
+  signal: SourceTint
+  label: string
+  authority?: string
+  /** The `[N]` this source carries in the answer prose, when known. */
+  index?: number
+  /** Backing citation — supplies the card layout's excerpt and locator. */
+  citation?: CitationSource
+  /**
+   * Card layout only: quiet metadata pinned to the right of the title row
+   * (the source list's cited marker + timestamp). Keeps that metadata INSIDE
+   * the card, where it reads as part of the row, rather than stranded under it.
+   */
+  trailing?: ReactNode
+}
+
+/**
+ * The visual body of a citation, shared by every branch (document / link /
+ * info / plain) and by both variants — so a source cannot look like a
+ * first-class citation in one place and a bare label in another.
+ */
+const CitationFace: FC<CitationFaceProps> = ({
+  variant = 'chip',
+  signal,
+  label,
+  authority,
+  index,
+  citation,
+  trailing,
+}) => {
+  const Icon = iconForTint(signal)
+
+  if (variant !== 'card') {
+    return (
+      <>
+        <CitationIndex index={index} />
+        <Icon aria-hidden="true" />
+        {authority && <AuthorityTag>{authority}</AuthorityTag>}
+        <span className="truncate">{label}</span>
+      </>
+    )
+  }
+
+  // The card has room the chip does not, so it leads with the document's real
+  // NAME. The chip's label is a hostname for links — right when space is one
+  // pill, wrong as the headline of a row that can spell out "Bauordnung für
+  // Wien § 108".
+  const headline = citation?.title?.trim() || label
+  // The passage the source contributed; a bare locator line ("file.pdf, p.3")
+  // is a reference, not a passage.
+  const excerpt = citation ? citationSnippet(citation) : undefined
+  const locator = citation?.citationKey || citation?.fileName || citation?.url
+
+  // Never say the same thing twice. The wire's `content` is built as
+  // "<origin token> <citation key | title | url>", so for most sources it
+  // restates the headline or the locator rather than carrying a passage — a
+  // tool result would otherwise print its own name three times over.
+  // Containment (not equality), because "[RIS] Bauordnung für Wien § 108" is
+  // still a restatement of the title "Bauordnung für Wien § 108 — Fluchtwege".
+  // Only ever suppress the SHORTER restatement, so a genuine long passage that
+  // happens to quote the title still shows.
+  const norm = (value: string | undefined): string =>
+    (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const restates = (candidate: string, of: string | undefined): boolean =>
+    !!candidate && norm(of).includes(norm(candidate))
+  const showExcerpt = !!excerpt && !restates(excerpt, headline) && !restates(excerpt, locator)
+  const showLocator = !!locator && !restates(locator, headline)
+
+  return (
+    <>
+      {index != null && (
+        <span
+          className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border bg-muted font-mono text-xs tabular-nums text-muted-foreground"
+          aria-hidden="true"
+        >
+          {index}
+        </span>
+      )}
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex items-center gap-2">
+          <span className="shrink-0" style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}>
+            <Icon className="size-4" aria-hidden="true" />
+          </span>
+          {authority && <AuthorityTag>{authority}</AuthorityTag>}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+            {headline}
+          </span>
+          {trailing}
+        </span>
+        {showExcerpt && (
+          <span className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+            {excerpt}
+          </span>
+        )}
+        {showLocator && (
+          <span className="truncate break-all font-mono text-xs text-muted-foreground/80">
+            {locator}
+          </span>
+        )}
+      </span>
+    </>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Document preview dialog (reuses the existing PdfViewerDialog machinery)
@@ -300,16 +443,18 @@ const DocumentPreviewChip: FC<{
   index?: number
   /** The full source row — powers the dialog's "copy citation" action. */
   item?: AnswerSourceItem
-}> = ({ target, signal, label, authority, className, index, item }) => {
+  variant?: CitationVariant
+  citation?: CitationSource
+  trailing?: ReactNode
+}> = ({ target, signal, label, authority, className, index, item, variant = 'chip', citation, trailing }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target, item)
-  const Icon = iconForTint(signal)
   return (
     <>
       <button
         type="button"
-        className={cn(chipButtonClasses, 'max-w-56', className)}
-        style={sourceSignalStyle(signal)}
+        className={cn(faceClasses(variant), className)}
+        style={faceStyle(variant, signal)}
         onClick={() => void openPreview()}
         disabled={isResolving}
         aria-busy={isResolving}
@@ -317,10 +462,15 @@ const DocumentPreviewChip: FC<{
         aria-label={t('sourcePreview.chipAria', { label })}
         title={t('sourcePreview.chipAria', { label })}
       >
-        <CitationIndex index={index} />
-        <Icon aria-hidden="true" />
-        {authority && <AuthorityTag>{authority}</AuthorityTag>}
-        <span className="truncate">{label}</span>
+        <CitationFace
+          variant={variant}
+          signal={signal}
+          label={label}
+          authority={authority}
+          index={index}
+          citation={citation}
+          trailing={trailing}
+        />
       </button>
       {dialog}
     </>
@@ -351,23 +501,45 @@ const InfoPreviewChip: FC<{
   meta?: string
   /** The whole source row, for the popover's "copy citation" action. */
   item?: AnswerSourceItem
-}> = ({ target, signal, label, authority, tier, bindingNote, url, className, index, meta, item }) => {
+  variant?: CitationVariant
+  citation?: CitationSource
+  trailing?: ReactNode
+}> = ({
+  target,
+  signal,
+  label,
+  authority,
+  tier,
+  bindingNote,
+  url,
+  className,
+  index,
+  meta,
+  item,
+  variant = 'chip',
+  citation,
+  trailing,
+}) => {
   const t = useTranslations('chat')
-  const Icon = iconForTint(signal)
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(chipButtonClasses, 'max-w-56', className)}
-          style={sourceSignalStyle(signal)}
+          className={cn(faceClasses(variant), className)}
+          style={faceStyle(variant, signal)}
           aria-label={t('sourcePreview.chipAria', { label })}
           title={t('sourcePreview.chipAria', { label })}
         >
-          <CitationIndex index={index} />
-          <Icon aria-hidden="true" />
-          {authority && <AuthorityTag>{authority}</AuthorityTag>}
-          <span className="truncate">{label}</span>
+          <CitationFace
+            variant={variant}
+            signal={signal}
+            label={label}
+            authority={authority}
+            index={index}
+            citation={citation}
+            trailing={trailing}
+          />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
@@ -451,6 +623,17 @@ export interface SourcePreviewChipProps {
   meta?: string
   /** Layout override (width, truncation) for the caller's context. */
   className?: string
+  /**
+   * Layout shape. `chip` is the compact "Belegt durch" pill; `card` is the
+   * full-width list row used by the research panel's source list. Behaviour —
+   * tint, authority badge, target resolution, click — is identical in both.
+   */
+  variant?: CitationVariant
+  /**
+   * Card layout only: quiet metadata pinned right of the title (the source
+   * list's cited marker + timestamp), rendered inside the card.
+   */
+  trailing?: ReactNode
 }
 
 /**
@@ -465,6 +648,8 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   className,
   item,
   meta,
+  variant = 'chip',
+  trailing,
 }) => {
   const projectId = useChatStore((s) => s.projectId)
   // Only citation-backed refs without an outbound link can resolve to a
@@ -485,6 +670,9 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     className,
     index: source.number,
     item,
+    variant,
+    citation: source.citation,
+    trailing,
   }
 
   if (target.kind === 'url') {
@@ -502,6 +690,20 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
           url={target.url}
           meta={meta}
         />
+      )
+    }
+    if (variant === 'card') {
+      return (
+        <a
+          href={target.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(faceClasses(variant), className)}
+          style={faceStyle(variant, signal)}
+          title={target.url}
+        >
+          <CitationFace {...shared} citation={source.citation} />
+        </a>
       )
     }
     return (
@@ -524,6 +726,14 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     !!target.snippet || target.title !== source.label || !!tier || !!bindingNote || !!item
   if (hasPopoverContent) {
     return <InfoPreviewChip {...shared} target={target} tier={tier} bindingNote={bindingNote} meta={meta} />
+  }
+
+  if (variant === 'card') {
+    return (
+      <div className={cn(faceClasses(variant), 'cursor-default')} style={faceStyle(variant, signal)}>
+        <CitationFace {...shared} citation={source.citation} />
+      </div>
+    )
   }
 
   return (

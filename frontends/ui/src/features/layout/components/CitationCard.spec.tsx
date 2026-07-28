@@ -101,6 +101,59 @@ describe('CitationCard', () => {
     })
   })
 
+  describe('parity with the answer provenance chips', () => {
+    // The card used to be an independent renderer: no provenance tint, no
+    // authority badge, and — because its only interaction was an <a href> —
+    // literally inert for a knowledge-base citation, which has no URL. The
+    // identical source in the answer's "Belegt durch" row opened a PDF at the
+    // cited page. These lock the two surfaces together.
+
+    const kbCitation = (overrides: Partial<CitationSource> = {}): CitationSource =>
+      createCitation({
+        url: undefined,
+        content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12',
+        citationKey: 'oib-rl_2_ausgabe_mai_2023.pdf, p.12',
+        fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+        page: 12,
+        title: 'OIB-Richtlinie 2',
+        kind: 'baurecht',
+        lane: 'baurecht_oib',
+        ...overrides,
+      })
+
+    test('a knowledge-base citation is interactive, not dead text', () => {
+      render(<CitationCard citation={kbCitation()} />)
+
+      expect(
+        screen.getByRole('button', { name: /OIB-Richtlinie 2/i })
+      ).toBeInTheDocument()
+    })
+
+    test('it carries the authority badge the chips carry', () => {
+      render(<CitationCard citation={kbCitation()} />)
+
+      expect(screen.getByText('OIB')).toBeInTheDocument()
+    })
+
+    test('a web citation still links out', () => {
+      render(<CitationCard citation={createCitation({ kind: 'web' })} />)
+
+      expect(screen.getByRole('link')).toHaveAttribute('href', 'https://example.com/article')
+    })
+
+    test('a cited source is marked as cited', () => {
+      render(<CitationCard citation={kbCitation({ isCited: true })} />)
+
+      expect(screen.getByText('Cited')).toBeInTheDocument()
+    })
+
+    test('a merely-discovered source is not marked cited', () => {
+      render(<CitationCard citation={kbCitation({ isCited: false })} />)
+
+      expect(screen.queryByText('Cited')).not.toBeInTheDocument()
+    })
+  })
+
   describe('timestamp handling', () => {
     test('handles Date object timestamp', () => {
       render(

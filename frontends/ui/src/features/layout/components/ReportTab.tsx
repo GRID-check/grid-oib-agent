@@ -24,7 +24,8 @@ import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
-import { ReportSourcePreviewChip } from '@/features/chat/components/SourcePreview'
+import { ReportSourcePreviewChip, SourcePreviewChip } from '@/features/chat/components/SourcePreview'
+import { answerSourceItems } from '@/features/chat/lib/answer-source-list'
 import { GridCards } from '@/features/grid-cards'
 import { useTranslations } from '@/i18n'
 import {
@@ -163,9 +164,13 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
 
   // Fallback sources list from run citations, only when the markdown itself
   // has no sources section and the run is complete enough to trust the list.
+  // Built with the SAME derivation the answer's provenance row uses, so these
+  // rows carry a real label, tint, authority badge and preview target instead
+  // of a bare URL (which a document source does not even have).
   const citedFallbackSources = useMemo(() => {
     if (isResearchNotes || sourceEntries.length > 0 || isGeneratingReport) return []
-    return (deepResearchCitations ?? []).filter((citation) => citation.isCited)
+    const cited = (deepResearchCitations ?? []).filter((citation) => citation.isCited)
+    return cited.length > 0 ? answerSourceItems(undefined, cited, undefined) : []
   }, [isResearchNotes, sourceEntries.length, isGeneratingReport, deepResearchCitations])
 
   return (
@@ -229,17 +234,15 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
                 <h2 className="mb-2 mt-5 text-xl font-semibold tracking-tight text-foreground">
                   {t('reportTab.sourcesTitle')}
                 </h2>
-                <ol className="list-outside list-decimal space-y-1 pl-5">
-                  {citedFallbackSources.map((citation) => (
-                    <li key={citation.id} className="text-sm text-foreground">
-                      <a
-                        href={citation.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-brand underline underline-offset-2 hover:opacity-80 [overflow-wrap:anywhere]"
-                      >
-                        {citation.url}
-                      </a>
+                {/* Rendered through the same citation component as every other
+                    surface. This list used to print `citation.url` as its only
+                    content, which was blank for a knowledge-base source — a
+                    latent hole that only became reachable once KB sources could
+                    be marked cited at all. */}
+                <ol className="list-outside list-decimal space-y-2 pl-5">
+                  {citedFallbackSources.map((item) => (
+                    <li key={item.key} className="text-sm text-foreground">
+                      <SourcePreviewChip source={item.ref} signal={item.ref.signal} item={item} variant="card" />
                     </li>
                   ))}
                 </ol>
