@@ -1105,6 +1105,38 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
     return f"{best_name}, p.{page_match.group(1)}" if page_match else best_name
 
 
+def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
+    """Registry documents that ``text`` actually references, in registry order.
+
+    The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
+    "which of the documents we retrieved does this answer cite?" without needing
+    a URL. Matching is the same standalone-token test the citation verifier uses,
+    so a registered ``plan.pdf`` is not claimed by a mention of
+    ``bestandsplan.pdf``.
+
+    Deep research had no such path — its "cited" signal was URL-only, so a
+    knowledge-base source could never be marked cited and was dropped from the
+    provenance row the moment any web source WAS cited. Fail-open: returns an
+    empty list rather than raising.
+    """
+    if not text:
+        return []
+    lowered = text.lower()
+    seen: set[str] = set()
+    cited: list[SourceEntry] = []
+    for entry in registry._citation_keys:
+        entry_file, _ = _parse_citation_key(entry.citation_key or "")
+        if not entry_file:
+            continue
+        key = entry_file.lower()
+        if key in seen:
+            continue
+        if _filename_occurs_as_token(lowered, key) is not None:
+            seen.add(key)
+            cited.append(entry)
+    return cited
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 

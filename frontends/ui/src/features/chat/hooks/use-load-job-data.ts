@@ -37,7 +37,8 @@ import { useLayoutStore } from '@/features/layout/store'
 import { useTranslations } from '@/i18n'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
-import { normalizeOrigin } from '../lib/wire-citation'
+import { dedupeBufferedCitations } from '../lib/wire-citation'
+import type { WireCitationSource } from '../types'
 
 const STREAM_BACKED_RESEARCH_TABS = new Set<ResearchPanelTab>(['tasks', 'thinking'])
 
@@ -423,19 +424,9 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             }
           >(),
           todos: null as TodoItem[] | null,
-          citations: [] as Array<{
-            url: string
-            content: string
-            isCited: boolean
-            title?: string
-            citationKey?: string
-            collection?: string
-            sourceType?: string
-            tool?: string
-            origin?: string
-            fileName?: string
-            page?: number
-          }>,
+          // Buffered as the raw wire so the commit below normalizes exactly
+          // once, through the same `citationFromWire` the live path uses.
+          citations: [] as Array<{ wire: WireCitationSource; isCited: boolean }>,
           files: new Map<string, string>(), // filename -> latest content (deduped)
           reportContent: null as string | null,
           reportCards: null as unknown[] | null,
@@ -484,21 +475,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             timestamp: now,
           }))
 
-          const citations = buffer.citations.map((c, idx) => ({
-            id: `citation-${idx}`,
-            url: c.url || undefined,
-            content: c.content,
-            isCited: c.isCited,
-            timestamp: now,
-            title: c.title,
-            citationKey: c.citationKey,
-            collection: c.collection,
-            sourceType: c.sourceType,
-            tool: c.tool,
-            origin: normalizeOrigin(c.origin),
-            fileName: c.fileName,
-            page: c.page,
-          }))
+          const citations = dedupeBufferedCitations(buffer.citations, now)
 
           const files = Array.from(buffer.files.entries()).map(([filename, content], idx) => ({
             id: `file-${idx}`,
@@ -658,20 +635,8 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               buffer.todos = todos
             },
 
-            onCitationUpdate: (url, content, isCited, extras) => {
-              buffer.citations.push({
-                url,
-                content,
-                isCited: isCited ?? false,
-                title: extras?.title,
-                citationKey: extras?.citationKey,
-                collection: extras?.collection,
-                sourceType: extras?.sourceType,
-                tool: extras?.tool,
-                origin: extras?.origin,
-                fileName: extras?.fileName,
-                page: extras?.page,
-              })
+            onCitationUpdate: (wire, isCited) => {
+              buffer.citations.push({ wire, isCited })
             },
 
             onFileUpdate: (filename, content) => {

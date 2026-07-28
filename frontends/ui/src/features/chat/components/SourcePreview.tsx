@@ -43,7 +43,7 @@ import {
   resolveCitationTarget,
   type AnswerSourceRef,
   type CitationTarget,
-  type ProjectDocumentRef,
+  type StoredDocumentRef,
 } from '../lib/answer-sources'
 import { AuthorityTag } from './AuthorityTag'
 
@@ -52,7 +52,12 @@ import { AuthorityTag } from './AuthorityTag'
 // ---------------------------------------------------------------------------
 
 export interface SourcePreviewIndex {
-  projectDocuments: ProjectDocumentRef[]
+  /**
+   * Every DB-backed document the user can open: this project's uploads FIRST,
+   * then the organization's Archiv. Order matters — a filename held in both
+   * resolves to the project's copy, which is the one in view.
+   */
+  storedDocuments: StoredDocumentRef[]
   baseCorpusFiles: string[]
 }
 
@@ -70,25 +75,37 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
   if (existing) return existing
 
   const promise = (async (): Promise<SourcePreviewIndex> => {
-    const [docsResult, corpusResult] = await Promise.allSettled([
+    const [docsResult, archivResult, corpusResult] = await Promise.allSettled([
       projectId
         ? fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).then((r) =>
             r.ok ? r.json() : null
           )
         : Promise.resolve(null),
+      // The org Archiv (ADR-0024). Feature-gated, so a 403 here is normal and
+      // simply yields no Archiv entries — never a failed index. Without this
+      // fetch, every `buero`-kind citation resolved to a dead info popover even
+      // though its document was sitting in the Archiv and the preview route
+      // would have served it.
+      fetch('/api/archiv/documents').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/knowledge-base').then((r) => (r.ok ? r.json() : null)),
     ])
     const docs = docsResult.status === 'fulfilled' ? docsResult.value?.documents : null
+    const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
 
-    const projectDocuments: ProjectDocumentRef[] = Array.isArray(docs)
-      ? docs
-          .filter(
-            (doc): doc is { id: string; filename: string; contentType?: string | null } =>
-              !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
-          )
-          .map((doc) => ({ id: doc.id, filename: doc.filename, contentType: doc.contentType ?? null }))
-      : []
+    const toRefs = (rows: unknown): StoredDocumentRef[] =>
+      Array.isArray(rows)
+        ? rows
+            .filter(
+              (doc): doc is { id: string; filename: string; contentType?: string | null } =>
+                !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
+            )
+            .map((doc) => ({ id: doc.id, filename: doc.filename, contentType: doc.contentType ?? null }))
+        : []
+
+    // Project uploads first: a filename present in both resolves to the copy
+    // belonging to the project the user is looking at.
+    const storedDocuments: StoredDocumentRef[] = [...toRefs(docs), ...toRefs(archivDocs)]
 
     // Only corpus files whose PDF actually exists on this deployment are
     // openable (index-only entries and removed files would 404 the viewer).
@@ -102,7 +119,7 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
           .map((file) => file.fileName)
       : []
 
-    return { projectDocuments, baseCorpusFiles }
+    return { storedDocuments, baseCorpusFiles }
   })()
 
   indexCache.set(key, promise)
@@ -128,7 +145,7 @@ export const useSourcePreviewIndex = (
         if (!cancelled) setIndex(loaded)
       })
       .catch(() => {
-        if (!cancelled) setIndex({ projectDocuments: [], baseCorpusFiles: [] })
+        if (!cancelled) setIndex({ storedDocuments: [], baseCorpusFiles: [] })
       })
     return () => {
       cancelled = true
@@ -230,9 +247,14 @@ const useDocumentPreview = (target: DocumentTarget, item?: AnswerSourceItem) => 
   }
 
   const isImage =
-    target.document.type === 'project' &&
+    target.document.type === 'stored' &&
     (target.document.contentType ?? '').toLowerCase().startsWith('image/')
-  const headerSignal: SourceSignal = target.document.type === 'base' ? 'law' : 'project'
+  // The provenance tint comes from the SOURCE, not from where the file happens
+  // to be stored: a chip and the dialog it opens must never disagree about what
+  // kind of source this is. The storage-shape guess is only the fallback for
+  // callers that have no source row (the report tab's locator-only chip).
+  const headerSignal: SourceTint =
+    item?.ref.signal ?? (target.document.type === 'base' ? 'law' : 'project')
 
   const dialog = (
     <PdfViewerDialog
@@ -451,7 +473,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   const previewIndex = useSourcePreviewIndex(projectId, needsIndex)
 
   const target: CitationTarget = source.citation
-    ? resolveCitationTarget(source.citation, previewIndex?.projectDocuments, previewIndex?.baseCorpusFiles)
+    ? resolveCitationTarget(source.citation, previewIndex?.storedDocuments, previewIndex?.baseCorpusFiles)
     : { kind: 'info', origin: source.kind, title: source.label, snippet: source.snippet }
 
   const tier = source.citation?.laneLabel
@@ -544,7 +566,7 @@ export const ReportSourcePreviewChip: FC<ReportSourcePreviewChipProps> = ({ loca
   if (!locator || !index) return null
   const target = resolveCitationTarget(
     { url: '', content: plainText },
-    index.projectDocuments,
+    index.storedDocuments,
     index.baseCorpusFiles
   )
   if (target.kind !== 'document') return null

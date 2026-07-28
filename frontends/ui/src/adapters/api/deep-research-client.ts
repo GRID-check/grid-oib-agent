@@ -10,6 +10,7 @@
 
 import { apiConfig } from './config'
 import { ApiRequestError } from './api-error'
+import type { WireCitationSource } from '@/features/chat/types'
 
 // ============================================================
 // Types
@@ -169,7 +170,9 @@ export interface ArtifactUpdateEvent extends DeepResearchSSEEvent {
       url?: string // For citation_source and citation_use types
       output_category?: string // For output type (e.g. "final_report")
       cards?: unknown[] // Grid response cards attached to the final report output
-      // Structured citation fields (SourceEntry wire — KB file/page/collection)
+      // Structured citation fields: the backend spreads the whole citation wire
+      // (`source_entry_to_wire`) onto citation_source / citation_use artifacts,
+      // so the payload IS a WireCitationSource and is handed over as one.
       title?: string
       citation_key?: string
       collection?: string
@@ -178,6 +181,11 @@ export interface ArtifactUpdateEvent extends DeepResearchSSEEvent {
       origin?: string
       file_name?: string
       page?: number
+      kind?: string
+      lane?: string
+      lane_label?: string
+      binding_note?: string
+      number?: number
     }
     metadata?: {
       workflow?: string
@@ -226,21 +234,15 @@ export interface DeepResearchCallbacks {
   onToolEnd?: (name: string, output?: string, eventId?: string, agentId?: string) => void
   /** Called on artifact updates */
   onTodoUpdate?: (todos: TodoItem[], workflow?: string) => void
-  onCitationUpdate?: (
-    url: string,
-    content: string,
-    isCited?: boolean,
-    extras?: {
-      title?: string
-      citationKey?: string
-      collection?: string
-      sourceType?: string
-      tool?: string
-      origin?: string
-      fileName?: string
-      page?: number
-    }
-  ) => void
+  /**
+   * A citation source arrived. `wire` is the backend's citation payload
+   * (`source_entry_to_wire`) verbatim — pass it to `citationFromWire` rather
+   * than re-mapping field by field. Hand-mapping here is how the deep-research
+   * path silently lost `kind`/`lane`/`lane_label`/`binding_note`/`number` and
+   * fell back to the pre-ADR-0026 origin heuristic that tints the OIB corpus as
+   * project material.
+   */
+  onCitationUpdate?: (wire: WireCitationSource, isCited: boolean) => void
   onFileUpdate?: (filename: string, content: string) => void
   onOutputUpdate?: (
     content: string,
@@ -568,23 +570,11 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
           case 'citation_source':
           case 'citation_use': {
             // citation_source = discovered; citation_use = cited in the report.
-            const raw = artifactData as Record<string, unknown>
+            // The artifact IS the citation wire (the backend spreads
+            // `source_entry_to_wire` onto it), so hand it over whole and let the
+            // one normalizer own the mapping.
             const isCited = artifactData.type === 'citation_use'
-            callbacks.onCitationUpdate?.(
-              (artifactData.url as string) || '',
-              (artifactData.content as string) || '',
-              isCited,
-              {
-                title: typeof raw.title === 'string' ? raw.title : undefined,
-                citationKey: typeof raw.citation_key === 'string' ? raw.citation_key : undefined,
-                collection: typeof raw.collection === 'string' ? raw.collection : undefined,
-                sourceType: typeof raw.source_type === 'string' ? raw.source_type : undefined,
-                tool: typeof raw.tool === 'string' ? raw.tool : undefined,
-                origin: typeof raw.origin === 'string' ? raw.origin : undefined,
-                fileName: typeof raw.file_name === 'string' ? raw.file_name : undefined,
-                page: typeof raw.page === 'number' ? raw.page : undefined,
-              }
-            )
+            callbacks.onCitationUpdate?.(artifactData as WireCitationSource, isCited)
             break
           }
           case 'file': {

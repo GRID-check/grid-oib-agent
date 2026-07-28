@@ -27,6 +27,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import cited_document_entries
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import source_entry_to_wire
@@ -451,13 +452,30 @@ class AgentEventCallback(BaseCallbackHandler):
             return "draft"
         return "intermediate"
 
-    def _emit_cited_urls(self, content: str) -> None:
-        """Extract URLs from output content and emit citation_use events.
+    def _emit_cited_sources(self, content: str) -> None:
+        """Emit citation_use events for the sources this output actually cites.
 
-        When a SourceRegistry is attached, validates against it (consistent
-        with verify_citations). Otherwise falls back to the callback's own
-        _discovered_urls set.
+        Covers BOTH source shapes:
+
+        - URLs, validated against the registry when one is attached (consistent
+          with verify_citations), else against the callback's own
+          ``_discovered_urls`` set.
+        - Knowledge-base documents, validated by document key against the
+          registry (:func:`cited_document_entries`).
+
+        The document half used to be missing entirely, and "cited" is what the
+        provenance row filters on: a run that cited four OIB Richtlinien and one
+        web page marked only the web page, so the row showed the web page ALONE
+        and the four authoritative sources vanished. The failure only appeared
+        when web and knowledge-base sources co-occurred, because with no web
+        citation at all the frontend fell back to showing every discovered
+        source.
         """
+        self._emit_cited_urls(content)
+        self._emit_cited_documents(content)
+
+    def _emit_cited_urls(self, content: str) -> None:
+        """Emit citation_use events for URL sources referenced in ``content``."""
         urls = self._extract_urls(content)
         for url in urls:
             normalized = self._normalize_url(url)
@@ -482,6 +500,44 @@ class AgentEventCallback(BaseCallbackHandler):
                     name=url,
                     url=url,
                 )
+
+    def _emit_cited_documents(self, content: str) -> None:
+        """Emit citation_use events for knowledge-base documents cited in ``content``.
+
+        Requires a session registry — the document key is only verifiable
+        against what retrieval actually returned, and unlike a URL there is no
+        weaker fallback worth guessing from. Carries the full structured wire
+        so the frontend's cited entry keeps its file/page/kind rather than
+        degrading to a bare marker.
+        """
+        registry = self._get_source_registry()
+        if registry is None:
+            return
+        try:
+            entries = cited_document_entries(content, registry)
+        except Exception:
+            logger.warning("Failed to resolve cited documents", exc_info=True)
+            return
+
+        for entry in entries:
+            wire = source_entry_to_wire(entry)
+            identity = self._source_identity(wire)
+            # Same atomic test-and-set as the URL path: concurrent handler
+            # threads must not emit duplicate citation_use artifacts. Shares the
+            # `_cited_urls` set — it is a set of identity strings, and document
+            # identities ("key:…") cannot collide with normalized URLs.
+            with AgentEventCallback._cache_lock:
+                if identity in self._cited_urls:
+                    continue
+                self._cited_urls.add(identity)
+            content_line = str(wire.get("content") or entry.citation_key or "")
+            extra = {key: value for key, value in wire.items() if key != "content"}
+            self._emit_artifact(
+                ArtifactType.CITATION_USE,
+                content_line,
+                name=str(wire.get("title") or entry.citation_key or content_line),
+                **extra,
+            )
 
     def _emit_tool_artifact(self, tool_name: str, tool_input: Any, run_id: str = "") -> None:
         """
@@ -809,7 +865,7 @@ class AgentEventCallback(BaseCallbackHandler):
                 workflow_source=agent_info[0] if agent_info else None,
                 agent_id=agent_info[1] if agent_info else None,
             )
-            self._emit_cited_urls(content)
+            self._emit_cited_sources(content)
 
         self._run_id_to_parent.pop(run_id, None)
 

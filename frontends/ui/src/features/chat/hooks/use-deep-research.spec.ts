@@ -590,7 +590,7 @@ describe('useDeepResearch', () => {
 
       act(() => {
         mockClient?.callbacks.onOutputUpdate?.('Old job report', 'final_report')
-        mockClient?.callbacks.onCitationUpdate?.('https://old.example', 'Old citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://old.example', content: 'Old citation' }, true)
       })
 
       mockStoreState.deepResearchJobId = 'job-new'
@@ -935,14 +935,12 @@ describe('useDeepResearch', () => {
       await setupConnectedHook()
 
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Citation content', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://example.com', content: 'Citation content' }, true)
       })
 
       expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(
-        'https://example.com',
-        'Citation content',
-        true,
-        undefined
+        { url: 'https://example.com', content: 'Citation content' },
+        true
       )
     })
 
@@ -1240,7 +1238,7 @@ describe('useDeepResearch', () => {
 
       // Events buffered on the FIRST connection (never flushed).
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://stale.example', 'Stale citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://stale.example', content: 'Stale citation' }, true)
       })
 
       // Reconnect tears the first connection down and starts a new buffer.
@@ -1262,7 +1260,7 @@ describe('useDeepResearch', () => {
       const { result } = await setupBufferedHook()
 
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://stale.example', 'Stale citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://stale.example', content: 'Stale citation' }, true)
       })
 
       act(() => {
@@ -1292,13 +1290,11 @@ describe('useDeepResearch', () => {
 
       // Resumed events append live — no replay buffer swallowing them.
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://example.com', content: 'Citation' }, true)
       })
       expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(
-        'https://example.com',
-        'Citation',
-        true,
-        undefined
+        { url: 'https://example.com', content: 'Citation' },
+        true
       )
     })
 
@@ -1334,7 +1330,7 @@ describe('useDeepResearch', () => {
       await act(async () => { await advanceAndFlush(60) })
 
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Replayed citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://example.com', content: 'Replayed citation' }, true)
       })
 
       // Buffered: replayed events must NOT be appended to the store directly.

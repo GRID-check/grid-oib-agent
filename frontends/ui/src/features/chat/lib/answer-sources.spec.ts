@@ -313,6 +313,13 @@ describe('resolveCitationTarget', () => {
   ]
   const baseCorpusFiles = ['oib-rl_2_ausgabe_mai_2023.pdf']
 
+  /** An org Archiv document — a different scope, the SAME preview route. */
+  const archivDocument: ProjectDocumentRef = {
+    id: 'archiv-1',
+    filename: 'Bueroe_Detail_Attika.pdf',
+    contentType: 'application/pdf',
+  }
+
   test('http(s) URLs always link out, with origin from the host', () => {
     expect(
       resolveCitationTarget({ url: 'https://example.com/article', content: '' })
@@ -336,12 +343,45 @@ describe('resolveCitationTarget', () => {
       page: 3,
       snippet: undefined,
       document: {
-        type: 'project',
+        type: 'stored',
         id: 'doc-1',
         filename: 'Brandschutzkonzept.pdf',
         contentType: 'application/pdf',
       },
     })
+  })
+
+  test('an org Archiv document opens like any other stored document', () => {
+    // The Buero (Archiv) kind used to be structurally unopenable: the preview
+    // index only ever listed project uploads and the base corpus, so every
+    // Archiv citation degraded to a dead info popover even though the
+    // scope-aware preview route would have served it.
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] Bueroe_Detail_Attika.pdf, p.2' },
+      [...projectDocuments, archivDocument],
+      baseCorpusFiles
+    )
+
+    expect(target).toMatchObject({
+      kind: 'document',
+      page: 2,
+      document: { type: 'stored', id: 'archiv-1', filename: 'Bueroe_Detail_Attika.pdf' },
+    })
+  })
+
+  test('a project upload wins over an Archiv document of the same name', () => {
+    const shadowed: ProjectDocumentRef = {
+      id: 'archiv-2',
+      filename: 'Brandschutzkonzept.pdf',
+      contentType: 'application/pdf',
+    }
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] Brandschutzkonzept.pdf' },
+      [...projectDocuments, shadowed],
+      baseCorpusFiles
+    )
+
+    expect(target).toMatchObject({ document: { id: 'doc-1' } })
   })
 
   test('project filename matching is case-insensitive', () => {
@@ -358,7 +398,7 @@ describe('resolveCitationTarget', () => {
 
     expect(target).toMatchObject({
       kind: 'document',
-      document: { type: 'project', id: 'doc-3', contentType: 'image/png' },
+      document: { type: 'stored', id: 'doc-3', contentType: 'image/png' },
     })
   })
 

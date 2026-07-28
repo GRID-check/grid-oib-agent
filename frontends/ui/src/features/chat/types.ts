@@ -903,22 +903,13 @@ export interface ChatActions {
    * the session previously had a completed report.
    */
   refreshDeepResearchSessionStatuses: () => Promise<void>
-  /** Add a citation from deep research (isCited=true for citation_use, false for citation_source) */
-  addDeepResearchCitation: (
-    url: string,
-    content: string,
-    isCited?: boolean,
-    extras?: {
-      title?: string
-      citationKey?: string
-      collection?: string
-      sourceType?: string
-      tool?: string
-      origin?: string
-      fileName?: string
-      page?: number
-    }
-  ) => void
+  /**
+   * Add a citation from deep research (isCited=true for citation_use, false for
+   * citation_source). Takes the backend citation wire whole and normalizes it
+   * with `citationFromWire` — the same single normalizer the shallow-chat path
+   * uses, so both transports produce identical CitationSource objects.
+   */
+  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => void
   /** Set the full todo list from deep research (replaces existing) */
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   /** Mark all in-progress and pending todos as stopped (on error) */
