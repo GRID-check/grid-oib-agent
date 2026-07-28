@@ -158,6 +158,47 @@ describe('useSessionUrl', () => {
     })
   })
 
+  describe('resuming the last session when the URL carries none', () => {
+    const conv = (over: Record<string, unknown>) => ({
+      id: 'c-1',
+      title: 'Rettungswege',
+      updatedAt: new Date(Date.now() - 60_000),
+      messages: [{}],
+      ...over,
+    })
+
+    test('opens the most recent session and puts it back in the URL', () => {
+      mockChatStore.currentUserId = 'u-1'
+      mockChatStore.getUserConversations.mockReturnValue([conv({ id: 'recent' })] as never)
+
+      renderHook(() => useSessionUrl({ isAuthenticated: true }))
+
+      expect(mockChatStore.selectConversation).toHaveBeenCalledWith('recent')
+      expect(mockRouter.replace).toHaveBeenCalledWith('/?session=recent')
+    })
+
+    test('leaves a stale session alone — a new day starts fresh', () => {
+      mockChatStore.currentUserId = 'u-1'
+      mockChatStore.getUserConversations.mockReturnValue([
+        conv({ id: 'stale', updatedAt: new Date(Date.now() - 36 * 60 * 60 * 1000) }),
+      ] as never)
+
+      renderHook(() => useSessionUrl({ isAuthenticated: true }))
+
+      expect(mockChatStore.selectConversation).not.toHaveBeenCalled()
+      expect(mockRouter.replace).not.toHaveBeenCalled()
+    })
+
+    test('does not resume for a signed-out visitor', () => {
+      mockChatStore.currentUserId = null
+      mockChatStore.getUserConversations.mockReturnValue([conv({ id: 'recent' })] as never)
+
+      renderHook(() => useSessionUrl({ isAuthenticated: false }))
+
+      expect(mockChatStore.selectConversation).not.toHaveBeenCalled()
+    })
+  })
+
   describe('URL sync on conversation change', () => {
     test('updates URL when current conversation changes', async () => {
       mockChatStore.currentUserId = 'user-1'

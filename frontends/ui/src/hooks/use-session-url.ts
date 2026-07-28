@@ -13,6 +13,7 @@ import { useEffect, useCallback, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useChatStore } from '@/features/chat'
+import { resumableSessionId } from '@/features/chat/lib/resume-session'
 
 interface UseSessionUrlOptions {
   /** Whether the user is authenticated (sessions only work when authenticated) */
@@ -53,6 +54,18 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
 
     const sessionId = searchParams.get('session')
     if (!sessionId) {
+      // No session in the URL: resume the last one if continuing it is clearly
+      // what the user meant (see `resumableSessionId` for why the rule is
+      // narrow). Reloading a tab should not cost three clicks to get back.
+      const resumeId = resumableSessionId(getUserConversations())
+      if (resumeId) {
+        selectConversation(resumeId)
+        // Put it back in the URL so a further reload is a plain URL restore
+        // rather than a second round of inference.
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('session', resumeId)
+        router.replace(`${pathname}?${params.toString()}`)
+      }
       initialSyncDone.current = true
       return
     }

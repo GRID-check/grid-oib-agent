@@ -44,6 +44,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'sessions',
+    mobile: true,
+    path: '/dev/sessions',
+    description:
+      'Session history panel — day-grouped list with sticky day headers, the selected row, and the hover-only rename/delete overlay. Fixture spans today/yesterday/older and overflows the panel so the grouping and scroll behaviour are visible.',
+    waitFor: '[data-testid="sessions-preview"]',
+  },
+  {
     id: 'chat-turn',
     mobile: true,
     path: '/dev/chat-turn',

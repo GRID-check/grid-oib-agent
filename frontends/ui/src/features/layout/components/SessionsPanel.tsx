@@ -38,7 +38,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
-import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
+import { motion } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
 import { useLayoutStore } from '../store'
@@ -409,32 +409,43 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         </div>
       )}
 
-      {/* Session List — items stagger in when the panel opens (forceMount keeps the
-          panel in the DOM, so this is driven by the open state, not by mounting) */}
+      {/* Session List — the list fades in as ONE surface, driven by the open
+          state rather than by mounting (forceMount keeps the panel in the DOM).
+          It used to stagger every row through `fadeRise` (`opacity: 0, y: 8`)
+          with an uncapped `staggerChildren: 0.05`, so row N only began animating
+          after 0.05 + N×0.05s — with a couple of dozen sessions the lower rows
+          sat invisible AND pushed 8px down for over a second, which reads as a
+          stray top margin on a half-broken list. A history panel is also the
+          wrong place for a cascade: the user opened it to reach a specific row,
+          and staggering delays precisely the row they are reaching for. */}
       <motion.div
         className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
-        variants={staggerParent}
         initial={false}
-        animate={isSessionsPanelOpen ? 'visible' : 'hidden'}
+        animate={{ opacity: isSessionsPanelOpen ? 1 : 0 }}
+        transition={{ duration: 0.15, ease: 'easeOut' }}
       >
         {groupedSessions.map(([dateLabel, dateSessions]) => (
-          <div key={dateLabel} className="mb-4 flex flex-col gap-2">
-            <span className="text-muted-foreground text-xs font-semibold uppercase">
+          // `last:mb-0` — the trailing group used to add 16px of dead scroll
+          // below the final row.
+          <div key={dateLabel} className="mb-4 flex flex-col gap-2 last:mb-0">
+            {/* Sticky so the day you are scrolling through stays named. The
+                panel body is the scroll container, hence `top-0` + a solid
+                background to cover rows passing underneath. */}
+            <span className="bg-background text-muted-foreground sticky top-0 z-10 py-1 text-xs font-semibold uppercase tracking-[0.04em]">
               {dateLabel}
             </span>
             {dateSessions.map((session) => (
-              <motion.div key={session.id} variants={fadeRise} transition={springGentle}>
-                <SessionItem
-                  session={session}
-                  isSelected={selectedSessionId === session.id}
-                  isBusy={isNavigationBlocked}
-                  isSessionActive={isSessionBusy(session.id)}
-                  showResearchLabel={showDeepResearchSection}
-                  onSelect={handleSessionClick}
-                  onDelete={handleDeleteClick}
-                  onRename={onRenameSession}
-                />
-              </motion.div>
+              <SessionItem
+                key={session.id}
+                session={session}
+                isSelected={selectedSessionId === session.id}
+                isBusy={isNavigationBlocked}
+                isSessionActive={isSessionBusy(session.id)}
+                showResearchLabel={showDeepResearchSection}
+                onSelect={handleSessionClick}
+                onDelete={handleDeleteClick}
+                onRename={onRenameSession}
+              />
             ))}
           </div>
         ))}
@@ -623,13 +634,13 @@ const SessionItem: FC<SessionItemProps> = ({
         }
       }}
       className={cn(
-        'focus-visible:ring-ring/50 group flex min-h-[3.25rem] w-full items-center gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
+        'focus-visible:ring-ring/50 group relative flex min-h-[3.25rem] w-full items-center gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
         isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
         // Selected reads as a raised card (border + fill + subtle shadow) rather
         // than the near-identical bg-accent/60 hover tint used for the rest.
         isSelected
           ? 'border-border bg-accent text-foreground shadow-sm'
-          : 'border-transparent hover:bg-accent/60'
+          : 'hover:bg-accent/60 border-transparent'
       )}
       aria-label={
         isBusy
@@ -679,52 +690,60 @@ const SessionItem: FC<SessionItemProps> = ({
             )}
           </div>
 
-          {/* Fixed-width trailing slot — reserved so revealing the rename/delete
-              actions on hover/focus never reflows the row. */}
-          <div className="flex w-16 shrink-0 items-center justify-end gap-1">
-            {(isHovered || isFocused) && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  onClick={handleEditClick}
-                  disabled={isBusy || isSessionActive}
-                  aria-label={
-                    isBusy || isSessionActive
-                      ? t('sessionsPanel.renameDisabled')
-                      : t('sessionsPanel.rename')
-                  }
-                  title={
-                    isBusy || isSessionActive
-                      ? t('sessionsPanel.cannotRenameBusy')
-                      : t('sessionsPanel.rename')
-                  }
-                >
-                  <Pencil className="h-4 w-4" aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-destructive hover:text-destructive size-7"
-                  onClick={handleDeleteClick}
-                  disabled={isBusy || isSessionActive}
-                  aria-label={
-                    isBusy || isSessionActive
-                      ? t('sessionsPanel.deleteDisabled')
-                      : t('sessionsPanel.deleteSession')
-                  }
-                  title={
-                    isBusy || isSessionActive
-                      ? t('sessionsPanel.cannotDeleteBusy')
-                      : t('sessionsPanel.deleteSession')
-                  }
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </>
-            )}
-          </div>
+          {/* The actions OVERLAY the row on hover/focus instead of holding a
+              permanent 64px column. Reserving that column did buy a reflow-free
+              hover, but it charged every row a quarter of its width for controls
+              that are almost never on screen — and the title, the only thing a
+              user scans this list by, paid for it by truncating. Overlaying is
+              still reflow-free (the row never resizes) and the resting row now
+              spends its full width on the title. */}
+          {(isHovered || isFocused) && (
+            <div
+              // Fade the row out beneath the buttons so a long title slides
+              // under them instead of colliding with them. Both the hovered and
+              // the selected row sit on --accent, so one ramp covers both.
+              className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)]"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={handleEditClick}
+                disabled={isBusy || isSessionActive}
+                aria-label={
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.renameDisabled')
+                    : t('sessionsPanel.rename')
+                }
+                title={
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.cannotRenameBusy')
+                    : t('sessionsPanel.rename')
+                }
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive hover:text-destructive size-7"
+                onClick={handleDeleteClick}
+                disabled={isBusy || isSessionActive}
+                aria-label={
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.deleteDisabled')
+                    : t('sessionsPanel.deleteSession')
+                }
+                title={
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.cannotDeleteBusy')
+                    : t('sessionsPanel.deleteSession')
+                }
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>
