@@ -88,8 +88,8 @@ metrics** are all wired now.
   injects that endpoint only when the tier itself is enabled, so the whole
   feature follows the house rule **availability = flag AND capability**: the
   `observabilityEnabled` flag is the product decision, and the capability is
-  derived from `otelDomain` + `otelPrimaryApiKey` + the
-  dashboard's Connect application (`otelOidcIssuer`/`ClientId`/`ClientSecret`,
+  derived from `otelDomain` + `otelPrimaryApiKey` + the dashboard's Connect
+  application (`otelOidcIssuer`/`otelOidcClientId`/`otelOidcClientSecret`,
   Amendment 2). Missing any of them skips the collector, the dashboard,
   the `https-otel` listener, and the producers' OTLP env (with a `preview`
   warning naming what is missing) rather than shipping a dashboard nobody can
