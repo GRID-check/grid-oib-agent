@@ -1,29 +1,53 @@
 # Stack configuration for the `dev` (staging) stack.
+
 #
+
 # Deployed automatically from the `develop` branch by .github/workflows/deploy.yml
+
 # once CI + Security are green. Secret values are ciphertext, encrypted by the
+
 # stack's Pulumi-Cloud-managed key (safe to commit; only holders of stack access
+
 # can decrypt). To re-create a stack from scratch:
+
 #
+
 #   cd deploy/pulumi
+
 #   pulumi stack init matthiasbigl/dev          # Pulumi Cloud backend
+
 #   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
+
 #   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+
 #   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
+
 #   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
+
 #   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
+
 #   pulumi config set --secret grid-oib:openrouterApiKey      "sk-or-..."
+
 #   pulumi config set --secret grid-oib:tavilyApiKey          "tvly-..."
+
 #   pulumi config set --secret grid-oib:workosApiKey          "sk_test_..."
+
 #   pulumi config set --secret grid-oib:workosCookiePassword  "$(openssl rand -hex 32)"
+
 #   pulumi config set --secret grid-oib:jobPayloadKek         "$(openssl rand -base64 32)"
+
 #   pulumi config set grid-oib:registryUsername               "<ghcr user>"   # private images only
+
 #   pulumi config set --secret grid-oib:registryPassword      "<token w/ read:packages>"
+
 #
+
 # Staging is intentionally lighter than prod (single replicas, smaller volumes).
+
 config:
   grid-oib:namespace: grid
   # ── Images (GHCR) ──
+
   grid-oib:imageRegistry: ghcr.io/grid-check
   grid-oib:imageTag: latest
   # ── Storage (provider CSI, NVMe/TCP) ──
@@ -35,6 +59,7 @@ config:
   # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
   grid-oib:storageClass: single-replica
   # ── Ingress / TLS ── (staging subdomains; staging ACME CA)
+
   grid-oib:appDomain: app.dev.bigls.net
   grid-oib:s3Domain: s3.dev.bigls.net
   grid-oib:letsEncryptEmail: matthias@bigls.net
@@ -43,16 +68,20 @@ config:
 
   grid-oib:installMetricsServer: "false"
   # ── Postgres ──
+
   grid-oib:pgInstances: "1"
   grid-oib:pgStorageSize: 10Gi
   # ── SeaweedFS ──
+
   grid-oib:seaweedfsStorageSize: 10Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid
   # ── Shared Chroma ──
+
   grid-oib:chromaEnabled: "true"
   grid-oib:chromaStorageSize: 10Gi
   # ── Agent (smaller on staging) ──
+
   grid-oib:backendRequestsCpu: "500m"
   grid-oib:backendRequestsMemory: 1Gi
   grid-oib:backendLimitsCpu: "2"
@@ -64,24 +93,30 @@ config:
   grid-oib:backendIngestMaxWorkers: "2"
   grid-oib:backendDataStorageSize: 10Gi
   # ── Research execution ──
+
   grid-oib:jobExecution: db
   grid-oib:agentWorkerMinReplicas: "1"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
   # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).
+
   # Shorter on staging: faster deploys matter more than saving a staging job.
   grid-oib:agentWorkerDrainSeconds: "180"
   # Staging is meant to be re-creatable, so the data resources are NOT protected
+
   # here — `pulumi destroy` must work without a manual unprotect. Prod keeps the
+
   # default (true).
   grid-oib:protectDataResources: "false"
   grid-oib:backendReplicas: "1"
   # ── Frontend ──
+
   grid-oib:frontendMinReplicas: "1"
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
+
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K  # pragma: allowlist secret (public OAuth client id)
+  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "true"
   grid-oib:kubeconfig:
@@ -108,57 +143,59 @@ config:
   grid-oib:registryPassword:
     secure: AAABAD5rm3t73BC3YkLE7UV36PiM4TlgLOXTTVcE/QiykfIkccjjZTIuAvASwLCufN4HvWPdu+dOmbqBKvLBryxiYLZKzXkc
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
+
   # Deployed only when the flag is on AND every dependency below is set;
+
   # otherwise `pulumi preview` logs a warning naming what is missing and the
+
   # tier (dashboard, collector, `https-otel` listener, producer OTLP env) is
+
   # skipped. Rotating the ingestion key:
+
   #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
+
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
+
   # only override here when deliberately upgrading.
+
   # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
+
   # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
+
   # serve this flow). One-time setup in the WorkOS dashboard:
+
   #   1. Connect -> create an OAuth application, CONFIDENTIAL client.
+
   #   2. Generate a client secret.
+
   #   3. Sign-in callback: https://<otelDomain>/oauth2/callback
+
   #   4. Scopes -> assign the platform:organizations:view permission.
+
   # Then:
+
   #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
+
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
+
   #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
+
   # NOTE: otelOidcClientSecret is deliberately absent below — it can only be
+
   # written by an operator holding the WorkOS secret and the stack's encryption
+
   # key. Until it is set, the capability gate skips the whole tier (that is the
+
   # designed fail-closed behaviour, not a missing config bug).
   grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
-  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV  # pragma: allowlist secret (public OAuth client id)
+  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV # pragma: allowlist secret (public OAuth client id)
   grid-oib:otelDomain: otel.dev.bigls.net
   grid-oib:otelPrimaryApiKey:
     secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
   grid-oib:loadBalancerIp: 45.144.209.191
   grid-oib:otelOidcClientSecret:
     secure: AAABANxz0yOpeiXuthqRpt6ISXW2og+EzwOSgcA8tPkdPj8Kejvv6HgyH7qBRceT8+/JE44EgZLXStWSxfylFO7aYHYN2RSsONmyWdMXRPJ0URx3yK95xwKAYhW/RDz6
-  # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
-  # A second consumer on the collector's logs signal. Requires the
-  # observability tier above (it has no receiver of its own).
-  #
-  # `err2issueGithubToken` is deliberately absent below — same reason as
-  # otelOidcClientSecret: only an operator holding both the PAT and the stack's
-  # encryption key can write it. Until it is set the capability gate skips the
-  # sink and `pulumi preview` says so. That is the designed fail-closed
-  # behaviour, not a missing config bug. To finish enabling:
-  #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
-  # The PAT needs Issues read/write on the destination repo (a fine-grained
-  # token scoped to that one repo is enough — it never reads code).
-  #
-  # Optional, off by default:
-  #   pulumi config set --secret grid-oib:err2issueAnthropicApiKey sk-ant-...
-  # buys AI-written issue titles instead of rule-based ones. This is a console
-  # API key and bills per token; a Claude subscription does not cover it, and
-  # the sink works fine without it.
-  #
-  # Caps are deliberately conservative for a first deployment (20 new issues
-  # per day, 600s coalescing window — see src/config.ts). Raise
-  # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent
+  grid-oib:err2issueGithubToken:
+    secure: AAABAPwDzOzuG0KIFfRWejuPFA4mU9gN6xlYBKB+zDJM08Fe38wgj7Gqco0SvSDZxZnCaJNJ+dM8urnvcEIJFDEtHd8uBnZS
