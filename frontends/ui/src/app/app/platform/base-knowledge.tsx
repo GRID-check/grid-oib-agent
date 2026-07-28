@@ -2,45 +2,44 @@
 
 /**
  * Platform base-knowledge manager (ADR-0016, Phase C) — the base-corpus manager
- * built for a NON-TECHNICAL owner. Plain-language framing, a drag-and-drop
- * PDF/ZIP upload that reports background progress instead of a silent spinner,
- * a clear split between the binding OIB foundations and other base documents,
- * and — the core capability — an inline Dokumentart (document-type) dropdown on
- * every row so a human can confirm or correct "what this document is".
+ * for a NON-TECHNICAL owner, rebuilt on the shared admin primitives
+ * (SectionCard + DataToolbar + Table + Sheet + Pagination).
  *
- * The backend ingests uploads in the background, so an upload returns promptly
- * (`pending`); we then poll the corpus status until the new file(s) reach a
- * terminal lifecycle, so they appear and progress from pending → indexed with
- * no page reload.
+ * The previous shape put four controls — a 13.5rem Dokumentart dropdown, a
+ * pencil, an eye and a trash icon — on every single row, and rendered every row
+ * it had under an always-open dropzone. That is unreadable at a few hundred
+ * documents and unusable at a thousand. So: the corpus is a table you can
+ * search, filter, sort, select and page through; a row's four controls moved
+ * into a detail Sheet; the same edits apply to a whole selection at once; and
+ * upload is a primary action that reveals the dropzone rather than occupying
+ * the top of the page permanently.
+ *
+ * What did NOT change is the ingest contract: the backend ingests uploads in
+ * the background, so an upload returns promptly (`pending`); we then poll the
+ * corpus status until the new file(s) reach a terminal lifecycle, so they
+ * appear and progress from pending → indexed with no page reload.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { toast } from 'sonner'
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   BookOpenCheck,
-  Check,
+  ChevronsUpDown,
   Eye,
   FileText,
   Loader2,
-  Pencil,
   RefreshCw,
-  RotateCcw,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { DataToolbar } from '@/components/ui/data-toolbar'
 import {
   Dialog,
   DialogContent,
@@ -51,6 +50,7 @@ import {
 } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
+import { Pagination } from '@/components/ui/pagination'
 import { Progress } from '@/components/ui/progress'
 import {
   Select,
@@ -59,8 +59,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { SectionCard } from '@/features/platform/components/section-card'
 import { cn } from '@/lib/utils'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
@@ -87,10 +89,21 @@ const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' |
   inconsistent: 'destructive',
 }
 
+/** Sorting a status column alphabetically is useless; sort it by urgency. */
+const STATE_ORDER: KnowledgeFileState[] = ['inconsistent', 'stale', 'pending', 'ingested', 'snapshot', 'removed']
+
 // Poll cadence + ceiling while a freshly-uploaded document ingests in the
 // background. 3.5s × 60 ≈ 3.5 minutes, then we stop and let the owner refresh.
 const POLL_INTERVAL_MS = 3_500
 const MAX_POLLS = 60
+
+const PAGE_SIZE = 10
+
+type SortKey = 'document' | 'class' | 'state' | 'chunks'
+type SortDir = 'asc' | 'desc'
+type Scope = 'all' | 'binding' | 'other'
+
+const ALL = 'all'
 
 /** A watched file is still working while it is missing or explicitly pending. */
 function isWorking(status: KnowledgeBaseStatus | null, names: ReadonlySet<string>): boolean {
@@ -111,8 +124,18 @@ export function BaseKnowledge() {
   const [status, setStatus] = useState<KnowledgeBaseStatus | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
+
   const [query, setQuery] = useState('')
-  const [classFilter, setClassFilter] = useState<DocClass | null>(null)
+  const [classFilter, setClassFilter] = useState<DocClass | typeof ALL>(ALL)
+  const [scope, setScope] = useState<Scope>(ALL)
+  const [sortKey, setSortKey] = useState<SortKey>('class')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [offset, setOffset] = useState(0)
+  const [selected, setSelected] = useState<string[]>([])
+
+  // The dropzone is opt-in now: an always-open 8-row target is the loudest
+  // thing on a page whose actual job is reviewing what is already in the corpus.
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   // Names of the just-uploaded document(s) we are tracking to terminal state.
   // Reactive (unlike watchRef) so the progress bar + per-file list re-render as
@@ -125,14 +148,19 @@ export function BaseKnowledge() {
   const [lastUpload, setLastUpload] = useState<KnowledgeUploadResult | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
+
   // Optimistic doc_class edits, applied over the fetched status until a refetch
   // confirms them (keyed by filename).
   const [docClassOverrides, setDocClassOverrides] = useState<Record<string, DocClass>>({})
-  // Optimistic display-title (rename) edits, plus the row currently being renamed.
+  // Optimistic display-title (rename) edits.
   const [displayTitleOverrides, setDisplayTitleOverrides] = useState<Record<string, string>>({})
-  const [editingTitle, setEditingTitle] = useState<string | null>(null)
+
+  // Detail sheet: we hold the NAME, not the row, so an optimistic edit or a
+  // refetch is reflected in the open sheet instead of freezing a stale copy.
+  const [detailName, setDetailName] = useState<string | null>(null)
   const [titleDraft, setTitleDraft] = useState('')
-  const [pendingDelete, setPendingDelete] = useState<KnowledgeFile | null>(null)
+
+  const [pendingDelete, setPendingDelete] = useState<string[]>([])
   const [isDeleting, setIsDeleting] = useState(false)
   const [viewerFile, setViewerFile] = useState<string | null>(null)
 
@@ -259,14 +287,14 @@ export function BaseKnowledge() {
             toast.success(t('knowledge.uploadPending', { name: body.fileName ?? file.name }))
           }
           // Watch the accepted member(s) and poll until they finish indexing.
-          const watched =
+          const names =
             body.kind === 'zip'
               ? (body.members ?? []).filter((m) => m.status === 'pending').map((m) => m.fileName)
               : body.fileName
                 ? [body.fileName]
                 : []
           await load()
-          startPolling(watched)
+          startPolling(names)
         })
         .catch(() => toast.error(t('knowledge.uploadFailed', { name: file.name })))
         .finally(() => setIsUploading(false))
@@ -289,41 +317,75 @@ export function BaseKnowledge() {
       })
   }, [load, t])
 
-  const handleReclassify = useCallback(
-    (file: KnowledgeFile, nextClass: DocClass) => {
-      const current = resolveDocClass(file.docClass)
-      if (nextClass === current) return
-      // Optimistic: reflect the new class immediately, revert on failure.
-      setDocClassOverrides((prev) => ({ ...prev, [file.fileName]: nextClass }))
-      fetch(`/api/platform/knowledge/documents/${encodeURIComponent(file.fileName)}/doc-class`, {
+  /**
+   * PATCH one document's Dokumentart, optimistically. Shared by the detail
+   * sheet and the bulk action so both get identical revert-on-failure
+   * behaviour; the caller decides what to toast.
+   */
+  const patchDocClass = useCallback(async (fileName: string, nextClass: DocClass): Promise<boolean> => {
+    setDocClassOverrides((prev) => ({ ...prev, [fileName]: nextClass }))
+    try {
+      const res = await fetch(`/api/platform/knowledge/documents/${encodeURIComponent(fileName)}/doc-class`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ doc_class: nextClass }),
       })
-        .then(async (r) => {
-          if (!r.ok) throw new Error(`Reclassify failed (${r.status})`)
-          toast.success(
-            t('knowledge.docClassUpdated', { name: file.fileName, label: DOC_CLASS_LABELS[nextClass] }),
-          )
-          await load()
-        })
-        .catch(() => {
-          setDocClassOverrides((prev) => {
-            const next = { ...prev }
-            delete next[file.fileName]
-            return next
-          })
+      if (!res.ok) throw new Error(`Reclassify failed (${res.status})`)
+      return true
+    } catch {
+      setDocClassOverrides((prev) => {
+        const next = { ...prev }
+        delete next[fileName]
+        return next
+      })
+      return false
+    }
+  }, [])
+
+  const handleReclassify = useCallback(
+    (file: KnowledgeFile, nextClass: DocClass) => {
+      if (nextClass === resolveDocClass(file.docClass)) return
+      void patchDocClass(file.fileName, nextClass).then(async (ok) => {
+        if (!ok) {
           toast.error(t('knowledge.docClassUpdateFailed', { name: file.fileName }))
-        })
+          return
+        }
+        toast.success(
+          t('knowledge.docClassUpdated', { name: file.fileName, label: DOC_CLASS_LABELS[nextClass] }),
+        )
+        await load()
+      })
     },
-    [load, t],
+    [patchDocClass, load, t],
+  )
+
+  const handleBulkReclassify = useCallback(
+    (nextClass: DocClass) => {
+      const names = [...selected]
+      if (names.length === 0) return
+      void Promise.all(names.map((name) => patchDocClass(name, nextClass))).then(async (results) => {
+        const failed = results.filter((ok) => !ok).length
+        const succeeded = results.length - failed
+        if (succeeded > 0) {
+          toast.success(
+            t('knowledgeAdmin.bulkReclassifyDone', {
+              count: succeeded,
+              label: DOC_CLASS_LABELS[nextClass],
+            }),
+          )
+        }
+        if (failed > 0) toast.error(t('knowledgeAdmin.bulkReclassifyFailed', { count: failed }))
+        setSelected([])
+        await load()
+      })
+    },
+    [selected, patchDocClass, load, t],
   )
 
   const handleRename = useCallback(
     (file: KnowledgeFile) => {
       const nextTitle = titleDraft.trim()
       const current = (file.displayTitle ?? '').trim()
-      setEditingTitle(null)
       if (nextTitle === current) return
       // Optimistic: show the new name immediately; revert on failure. An empty
       // draft clears the override, so the derived default takes over again.
@@ -355,27 +417,6 @@ export function BaseKnowledge() {
     [titleDraft, load, t],
   )
 
-  const handleDelete = useCallback(() => {
-    if (!pendingDelete) return
-    const name = pendingDelete.fileName
-    const isUploaded = pendingDelete.origin === 'uploaded'
-    setIsDeleting(true)
-    // Optimistic: drop the row immediately; the refetch in finally() reconciles
-    // (and brings it back if the request failed).
-    setStatus((prev) => (prev ? { ...prev, files: prev.files.filter((f) => f.fileName !== name) } : prev))
-    fetch(`/api/platform/knowledge/documents/${encodeURIComponent(name)}`, { method: 'DELETE' })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Delete failed (${r.status})`)
-        toast.success(t(isUploaded ? 'knowledge.deleteSuccess' : 'knowledge.corpusDeleteSuccess', { name }))
-      })
-      .catch(() => toast.error(t('knowledge.deleteFailed', { name })))
-      .finally(() => {
-        setIsDeleting(false)
-        setPendingDelete(null)
-        void load()
-      })
-  }, [pendingDelete, load, t])
-
   // Files with any optimistic doc_class / display-title edit applied.
   const files = useMemo<KnowledgeFile[]>(() => {
     const all = status?.files ?? []
@@ -394,8 +435,60 @@ export function BaseKnowledge() {
     })
   }, [status, docClassOverrides, displayTitleOverrides])
 
-  // Dokumentart filter chips — the classes actually present, in canonical order
-  // (OIB foundations first), each with a live count. Nothing invented.
+  const byName = useMemo(() => new Map(files.map((f) => [f.fileName, f])), [files])
+  const detailFile = detailName ? (byName.get(detailName) ?? null) : null
+  const deleteTargets = useMemo(
+    () => pendingDelete.map((name) => byName.get(name)).filter((f): f is KnowledgeFile => !!f),
+    [pendingDelete, byName],
+  )
+
+  const handleDelete = useCallback(() => {
+    const names = [...pendingDelete]
+    if (names.length === 0) return
+    const targets = names.map((name) => byName.get(name))
+    setIsDeleting(true)
+    // Optimistic: drop the rows immediately; the refetch in finally() reconciles
+    // (and brings them back if a request failed).
+    setStatus((prev) => (prev ? { ...prev, files: prev.files.filter((f) => !names.includes(f.fileName)) } : prev))
+    // `allSettled`, not `all`: `all` rejects on the first failure, so nine of ten
+    // documents deleting successfully would still be reported as ten failures.
+    // This mirrors the per-item accounting in `handleBulkReclassify`, so both
+    // bulk paths report the same way.
+    Promise.allSettled(
+      names.map((name) =>
+        fetch(`/api/platform/knowledge/documents/${encodeURIComponent(name)}`, { method: 'DELETE' }).then((r) => {
+          if (!r.ok) throw new Error(`Delete failed (${r.status})`)
+          return name
+        }),
+      ),
+    )
+      .then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length
+        const removed = results.length - failed
+        if (names.length === 1) {
+          if (failed > 0) {
+            toast.error(t('knowledge.deleteFailed', { name: names[0] }))
+          } else {
+            const isUploaded = targets[0]?.origin === 'uploaded'
+            toast.success(
+              t(isUploaded ? 'knowledge.deleteSuccess' : 'knowledge.corpusDeleteSuccess', { name: names[0] }),
+            )
+          }
+          return
+        }
+        if (removed > 0) toast.success(t('knowledgeAdmin.bulkDeleteDone', { count: removed }))
+        if (failed > 0) toast.error(t('knowledgeAdmin.bulkDeleteFailed', { count: failed }))
+      })
+      .finally(() => {
+        setIsDeleting(false)
+        setPendingDelete([])
+        setSelected((prev) => prev.filter((name) => !names.includes(name)))
+        void load()
+      })
+  }, [pendingDelete, byName, load, t])
+
+  // Dokumentart filter options — the classes actually present, in canonical
+  // order (OIB foundations first), each with a live count. Nothing invented.
   const presentClasses = useMemo(() => {
     const counts = new Map<DocClass, number>()
     for (const f of files) {
@@ -405,166 +498,67 @@ export function BaseKnowledge() {
     return DOC_CLASSES.filter((cls) => counts.has(cls)).map((cls) => ({ cls, count: counts.get(cls)! }))
   }, [files])
 
-  const visibleFiles = useMemo(() => {
+  const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return files.filter((f) => {
-      if (classFilter && resolveDocClass(f.docClass) !== classFilter) return false
-      if (needle && !f.fileName.toLowerCase().includes(needle)) return false
+    const matched = files.filter((f) => {
+      if (classFilter !== ALL && resolveDocClass(f.docClass) !== classFilter) return false
+      if (scope !== ALL && isOibBinding(f.docClass) !== (scope === 'binding')) return false
+      if (needle) {
+        const haystack = `${f.fileName} ${f.displayTitle ?? ''}`.toLowerCase()
+        if (!haystack.includes(needle)) return false
+      }
       return true
     })
-  }, [files, query, classFilter])
 
-  const bindingFiles = useMemo(() => visibleFiles.filter((f) => isOibBinding(f.docClass)), [visibleFiles])
-  const otherFiles = useMemo(() => visibleFiles.filter((f) => !isOibBinding(f.docClass)), [visibleFiles])
+    const direction = sortDir === 'asc' ? 1 : -1
+    const rank = (f: KnowledgeFile): number | string => {
+      switch (sortKey) {
+        case 'document':
+          return (f.displayTitle ?? f.fileName).toLowerCase()
+        // Canonical DOC_CLASSES order already puts the binding OIB classes
+        // first, so the default sort reproduces the old "binding, then the
+        // rest" grouping without hard-splitting the list into two tables.
+        case 'class':
+          return DOC_CLASSES.indexOf(resolveDocClass(f.docClass))
+        case 'state':
+          return STATE_ORDER.indexOf(f.state)
+        case 'chunks':
+          return f.chunkCount
+      }
+    }
+    return [...matched].sort((a, b) => {
+      const left = rank(a)
+      const right = rank(b)
+      if (left < right) return -1 * direction
+      if (left > right) return 1 * direction
+      return a.fileName.localeCompare(b.fileName)
+    })
+  }, [files, query, classFilter, scope, sortKey, sortDir])
 
-  const renderRow = (file: KnowledgeFile) => {
-    const cls = resolveDocClass(file.docClass)
-    const authority = docClassAuthority(cls)
-    return (
-      <div key={file.fileName} className="flex flex-col gap-2.5 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="flex min-w-0 flex-col gap-1.5">
-            {editingTitle === file.fileName ? (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  autoFocus
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRename(file)
-                    else if (e.key === 'Escape') setEditingTitle(null)
-                  }}
-                  className="h-7 w-[22rem] max-w-full text-sm"
-                  aria-label={t('knowledge.displayTitleFor', { name: file.fileName })}
-                  placeholder={t('knowledge.displayTitlePlaceholder')}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label={t('knowledge.displayTitleSave')}
-                  onClick={() => handleRename(file)}
-                >
-                  <Check className="size-4" aria-hidden />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label={t('knowledge.displayTitleCancel')}
-                  onClick={() => setEditingTitle(null)}
-                >
-                  <X className="size-4" aria-hidden />
-                </Button>
-              </div>
-            ) : (
-              <div className="flex min-w-0 items-center gap-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {file.displayTitle ?? file.fileName}
-                </p>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 shrink-0 text-muted-foreground"
-                  aria-label={t('knowledge.displayTitleEdit', { name: file.fileName })}
-                  onClick={() => {
-                    setTitleDraft(file.displayTitle ?? '')
-                    setEditingTitle(file.fileName)
-                  }}
-                >
-                  <Pencil className="size-3.5" aria-hidden />
-                </Button>
-              </div>
-            )}
-            {file.displayTitle && file.displayTitle !== file.fileName && (
-              <p className="truncate text-xs text-muted-foreground">{file.fileName}</p>
-            )}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <SourceSignalChip
-                signal={docClassSignal(cls)}
-                title={authority ? `${DOC_CLASS_LABELS[cls]} · ${authority}` : DOC_CLASS_LABELS[cls]}
-              >
-                {DOC_CLASS_LABELS[cls]}
-                {authority ? ` · ${authority}` : ''}
-              </SourceSignalChip>
-              {file.origin === 'uploaded' && <Badge variant="outline">{tk('origin.uploaded')}</Badge>}
-              <Badge variant={STATE_VARIANT[file.state]} title={tk(`stateHints.${file.state}`)}>
-                {tk(`states.${file.state}`)}
-              </Badge>
-            </div>
-            <p className="truncate text-xs text-muted-foreground">
-              {file.chunkCount > 0 ? tk('corpus.chunkCount', { count: file.chunkCount }) : '—'}
-              {file.sizeBytes !== null ? ` · ${formatFileSize(file.sizeBytes, locale)}` : ''}
-            </p>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
-          <Select value={cls} onValueChange={(value) => handleReclassify(file, value as DocClass)}>
-            <SelectTrigger
-              size="sm"
-              className="w-[13.5rem]"
-              aria-label={t('knowledge.docClassFor', { name: file.fileName })}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DOC_CLASSES.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {DOC_CLASS_LABELS[option]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {file.origin !== 'index_only' && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label={`${t('knowledge.viewPdf')}: ${file.fileName}`}
-              onClick={() => setViewerFile(file.fileName)}
-            >
-              <Eye className="size-4" aria-hidden />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={`${file.origin === 'uploaded' ? t('knowledge.delete') : t('knowledge.corpusDelete')}: ${file.fileName}`}
-            onClick={() => setPendingDelete(file)}
-          >
-            <Trash2 className="size-4 text-destructive" aria-hidden />
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  // A filter change can strand the viewport past the end of the new result set.
+  const safeOffset = offset >= filtered.length ? 0 : offset
+  const page = filtered.slice(safeOffset, safeOffset + PAGE_SIZE)
+  const allOnPageSelected = page.length > 0 && page.every((f) => selected.includes(f.fileName))
 
-  const renderSection = (
-    titleKey: 'bindingTitle' | 'otherTitle',
-    hintKey: 'bindingHint' | 'otherHint',
-    sectionFiles: KnowledgeFile[],
-  ) => (
-    <section className="flex flex-col gap-2">
-      <div className="flex flex-col gap-0.5">
-        <h3 className="text-sm font-semibold text-foreground">
-          {t(`knowledge.${titleKey}`)}
-          <span className="ml-1.5 font-normal text-muted-foreground">({sectionFiles.length})</span>
-        </h3>
-        <p className="text-xs text-muted-foreground">{t(`knowledge.${hintKey}`)}</p>
-      </div>
-      {sectionFiles.length > 0 ? (
-        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-          {sectionFiles.map(renderRow)}
-        </div>
-      ) : (
-        <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
-          {t('knowledge.empty')}
-        </p>
-      )}
-    </section>
+  const resetPaging = useCallback(() => setOffset(0), [])
+
+  const toggleSort = useCallback(
+    (key: SortKey) => {
+      if (sortKey === key) {
+        setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+      } else {
+        setSortKey(key)
+        setSortDir('asc')
+      }
+      setOffset(0)
+    },
+    [sortKey],
   )
+
+  const openDetail = useCallback((file: KnowledgeFile) => {
+    setDetailName(file.fileName)
+    setTitleDraft(file.displayTitle ?? '')
+  }, [])
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -574,278 +568,631 @@ export function BaseKnowledge() {
     if (file) handleUpload(file)
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BookOpenCheck className="size-4 text-muted-foreground" aria-hidden />
-          {t('knowledge.title')}
-        </CardTitle>
-        <CardDescription>{t('knowledge.explainer')}</CardDescription>
-        <CardAction>
-          <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing || isUploading}>
-            {isSyncing ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" aria-hidden />}
-            {isSyncing ? t('knowledge.syncing') : t('knowledge.sync')}
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {/* Drag-and-drop upload zone (PDF + ZIP). */}
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label={t('knowledge.dropTitle')}
-          aria-disabled={isUploading || isSyncing}
-          onClick={() => !isUploading && !isSyncing && fileInputRef.current?.click()}
-          onKeyDown={(event) => {
-            if ((event.key === 'Enter' || event.key === ' ') && !isUploading && !isSyncing) {
-              event.preventDefault()
-              fileInputRef.current?.click()
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault()
-            if (!isUploading && !isSyncing) setIsDragActive(true)
-          }}
-          onDragLeave={() => setIsDragActive(false)}
-          onDrop={onDrop}
-          className={cn(
-            'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-            isDragActive ? 'border-primary bg-accent' : 'border-border hover:border-primary/60 hover:bg-accent/40',
-            (isUploading || isSyncing) && 'pointer-events-none opacity-60',
-          )}
-          data-testid="knowledge-dropzone"
+  const hasDocuments = files.length > 0
+  // The empty state must not swallow the upload panel or in-flight progress —
+  // otherwise the first upload into an empty corpus has nowhere to happen.
+  const showEmpty = !hasDocuments && !uploadOpen && !uploadProgress && !pollTimedOut
+
+  const sortIcon = (key: SortKey) =>
+    sortKey !== key ? ChevronsUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown
+
+  const sortableHead = (key: SortKey, label: string, className?: string) => {
+    const Icon = sortIcon(key)
+    return (
+      <TableHead
+        className={className}
+        aria-sort={sortKey !== key ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending'}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSort(key)}
+          aria-label={t('knowledgeAdmin.sortBy', { column: label })}
+          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
-          {isUploading ? (
-            <Spinner className="size-5 text-muted-foreground" />
-          ) : (
-            <Upload className="size-5 text-muted-foreground" aria-hidden />
+          {label}
+          <Icon className="size-3" aria-hidden />
+        </button>
+      </TableHead>
+    )
+  }
+
+  return (
+    <>
+      <SectionCard
+        title={t('knowledge.title')}
+        description={t('knowledge.explainer')}
+        testId="platform-base-knowledge"
+        loading={isLoading && !status}
+        error={hasError}
+        errorMessage={t('knowledge.loadError')}
+        onRetry={() => void load()}
+        empty={showEmpty}
+        emptyIcon={BookOpenCheck}
+        emptyTitle={t('knowledgeAdmin.emptyTitle')}
+        emptyDescription={t('knowledgeAdmin.emptyDescription')}
+        action={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" onClick={() => setUploadOpen((open) => !open)} aria-expanded={uploadOpen}>
+              <Upload className="size-3.5" aria-hidden />
+              {uploadOpen ? t('knowledgeAdmin.hideUpload') : t('knowledgeAdmin.addDocuments')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing || isUploading}>
+              {isSyncing ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" aria-hidden />}
+              {isSyncing ? t('knowledge.syncing') : t('knowledge.sync')}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {/* Corpus summary — the four numbers that answer "is the base corpus
+              healthy?", which the old surface never showed at all. */}
+          {status && (
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="knowledge-summary">
+              <SummaryStat label={t('knowledgeAdmin.summaryDocuments')} value={status.summary.totalFiles} />
+              <SummaryStat label={t('knowledgeAdmin.summaryIndexed')} value={status.summary.ingested} />
+              <SummaryStat label={t('knowledgeAdmin.summaryPending')} value={status.summary.pending} />
+              <SummaryStat label={t('knowledgeAdmin.summaryChunks')} value={status.summary.totalChunks} />
+            </dl>
           )}
-          <p className="text-sm font-medium text-foreground">
-            {isUploading ? t('knowledge.uploading') : isDragActive ? t('knowledge.dropActive') : t('knowledge.dropTitle')}
-          </p>
-          <p className="text-xs text-muted-foreground">{t('knowledge.dropHint')}</p>
+
+          {/* Drag-and-drop / click upload (PDF + ZIP), revealed on demand. */}
+          {uploadOpen && (
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label={t('knowledge.dropTitle')}
+              aria-disabled={isUploading || isSyncing}
+              onClick={() => !isUploading && !isSyncing && fileInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if ((event.key === 'Enter' || event.key === ' ') && !isUploading && !isSyncing) {
+                  event.preventDefault()
+                  fileInputRef.current?.click()
+                }
+              }}
+              onDragOver={(event) => {
+                event.preventDefault()
+                if (!isUploading && !isSyncing) setIsDragActive(true)
+              }}
+              onDragLeave={() => setIsDragActive(false)}
+              onDrop={onDrop}
+              className={cn(
+                'flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                isDragActive ? 'border-primary bg-accent' : 'border-border hover:border-primary/60 hover:bg-accent/40',
+                (isUploading || isSyncing) && 'pointer-events-none opacity-60',
+              )}
+              data-testid="knowledge-dropzone"
+            >
+              {isUploading ? (
+                <Spinner className="size-5 text-muted-foreground" />
+              ) : (
+                <Upload className="size-5 text-muted-foreground" aria-hidden />
+              )}
+              <p className="text-sm font-medium text-foreground">
+                {isUploading
+                  ? t('knowledge.uploading')
+                  : isDragActive
+                    ? t('knowledge.dropActive')
+                    : t('knowledge.dropTitle')}
+              </p>
+              <p className="text-xs text-muted-foreground">{t('knowledge.dropHint')}</p>
+            </div>
+          )}
+          {/* Outside the dropzone: the panel collapses, and a file input that
+              unmounts mid-upload would cancel the change event. */}
           <input
             ref={fileInputRef}
             type="file"
             accept=".pdf,.zip,application/zip,application/pdf"
             className="hidden"
             data-testid="knowledge-upload-input"
-            // The input lives inside the click-to-upload zone; without this its
-            // own (programmatic) click would bubble to the zone and re-open it
-            // in an infinite loop.
-            onClick={(event) => event.stopPropagation()}
             onChange={(event) => {
               const file = event.target.files?.[0]
               event.target.value = ''
               if (file) handleUpload(file)
             }}
           />
-        </div>
 
-        {/* Live indexing progress — an aggregate 'N of M' bar plus, for a bulk
-            ZIP, a per-file list that flips pending → indexed as each finishes. */}
-        {uploadProgress && !pollTimedOut && (
-          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card/50 p-3" data-testid="knowledge-upload-progress">
-            <div className="flex items-center gap-2">
-              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
-              <p className="text-sm font-medium text-foreground">
-                {t('knowledge.indexingProgress', { done: uploadProgress.done, total: uploadProgress.total })}
-              </p>
-            </div>
-            <Progress value={uploadProgress.pct} aria-label={t('knowledge.processing')} />
-            <p className="text-xs text-muted-foreground">{t('knowledge.processingHint')}</p>
-            {uploadProgress.total > 1 && (
-              <ul className="mt-0.5 flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
-                {uploadProgress.items.map((item) => (
-                  <li key={item.name} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate text-foreground">{item.name}</span>
-                    {item.finished ? (
-                      <Badge variant="success">{t('knowledge.indexingDone')}</Badge>
-                    ) : (
-                      <Badge variant="info" className="gap-1">
-                        <Loader2 className="size-3 animate-spin" aria-hidden />
-                        {t('knowledge.indexingPending')}
-                      </Badge>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Polling ceiling reached while still indexing — a persistent, actionable
-            notice so the progress affordance never just vanishes. */}
-        {pollTimedOut && (
-          <Alert variant="info" data-testid="knowledge-poll-timeout">
-            <AlertCircle className="size-4" aria-hidden />
-            <AlertTitle>{t('knowledge.pollTimeoutTitle')}</AlertTitle>
-            <AlertDescription className="flex flex-col items-start gap-2">
-              <span>{t('knowledge.pollTimeoutDescription')}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  // Re-arm polling for the still-working documents and refresh now.
-                  startPolling(watched)
-                  void load()
-                }}
-              >
-                <RefreshCw className="size-3.5" aria-hidden />
-                {t('knowledge.pollTimeoutRefresh')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* ZIP member summary (accepted / rejected). */}
-        {lastUpload?.kind === 'zip' && (lastUpload.rejected ?? 0) > 0 && lastUpload.members && (
-          <Alert variant="warning">
-            <AlertCircle className="size-4" aria-hidden />
-            <AlertTitle>{t('knowledge.zipRejectedTitle')}</AlertTitle>
-            <AlertDescription>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                {lastUpload.members
-                  .filter((m) => m.status === 'rejected')
-                  .map((m) => (
-                    <li key={m.fileName}>
-                      <span className="font-medium">{m.fileName}</span>
-                      {m.reason ? ` — ${m.reason}` : ''}
+          {/* Live indexing progress — an aggregate 'N of M' bar plus, for a bulk
+              ZIP, a per-file list that flips pending → indexed as each finishes. */}
+          {uploadProgress && !pollTimedOut && (
+            <div
+              className="flex flex-col gap-2.5 rounded-lg border border-border bg-card/50 p-3"
+              data-testid="knowledge-upload-progress"
+            >
+              <div className="flex items-center gap-2">
+                <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                <p className="text-sm font-medium text-foreground">
+                  {t('knowledge.indexingProgress', { done: uploadProgress.done, total: uploadProgress.total })}
+                </p>
+              </div>
+              <Progress value={uploadProgress.pct} aria-label={t('knowledge.processing')} />
+              <p className="text-xs text-muted-foreground">{t('knowledge.processingHint')}</p>
+              {uploadProgress.total > 1 && (
+                <ul className="mt-0.5 flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+                  {uploadProgress.items.map((item) => (
+                    <li key={item.name} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate text-foreground">{item.name}</span>
+                      {item.finished ? (
+                        <Badge variant="success">{t('knowledge.indexingDone')}</Badge>
+                      ) : (
+                        <Badge variant="info" className="gap-1">
+                          <Loader2 className="size-3 animate-spin" aria-hidden />
+                          {t('knowledge.indexingPending')}
+                        </Badge>
+                      )}
                     </li>
                   ))}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        )}
+                </ul>
+              )}
+            </div>
+          )}
 
-        {isLoading && <Skeleton className="h-48 w-full rounded-xl" data-testid="knowledge-admin-loading" />}
+          {/* Polling ceiling reached while still indexing — a persistent, actionable
+              notice so the progress affordance never just vanishes. */}
+          {pollTimedOut && (
+            <Alert variant="info" data-testid="knowledge-poll-timeout">
+              <AlertCircle className="size-4" aria-hidden />
+              <AlertTitle>{t('knowledge.pollTimeoutTitle')}</AlertTitle>
+              <AlertDescription className="flex flex-col items-start gap-2">
+                <span>{t('knowledge.pollTimeoutDescription')}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // Re-arm polling for the still-working documents and refresh now.
+                    startPolling(watched)
+                    void load()
+                  }}
+                >
+                  <RefreshCw className="size-3.5" aria-hidden />
+                  {t('knowledge.pollTimeoutRefresh')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-        {!isLoading && hasError && (
-          <Alert variant="destructive">
-            <AlertCircle className="size-4" aria-hidden />
-            <AlertTitle>{t('knowledge.loadError')}</AlertTitle>
-            <AlertDescription>
-              <Button variant="outline" size="sm" onClick={() => void load()}>
-                <RotateCcw className="size-3.5" aria-hidden />
-                {t('knowledge.retry')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
+          {/* ZIP member summary (accepted / rejected). */}
+          {lastUpload?.kind === 'zip' && (lastUpload.rejected ?? 0) > 0 && lastUpload.members && (
+            <Alert variant="warning">
+              <AlertCircle className="size-4" aria-hidden />
+              <AlertTitle>{t('knowledge.zipRejectedTitle')}</AlertTitle>
+              <AlertDescription>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  {lastUpload.members
+                    .filter((m) => m.status === 'rejected')
+                    .map((m) => (
+                      <li key={m.fileName}>
+                        <span className="font-medium">{m.fileName}</span>
+                        {m.reason ? ` — ${m.reason}` : ''}
+                      </li>
+                    ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
 
-        {!isLoading && !hasError && status && (
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('knowledge.search')}
-              aria-label={t('knowledge.search')}
-            />
+          {hasDocuments && (
+            <>
+              <DataToolbar
+                searchValue={query}
+                onSearchChange={(value) => {
+                  setQuery(value)
+                  resetPaging()
+                }}
+                searchPlaceholder={t('knowledge.search')}
+                searchLabel={t('knowledgeAdmin.searchLabel')}
+                clearLabel={t('knowledgeAdmin.searchClear')}
+                selectedCount={selected.length}
+                selectionLabel={(count) => t('knowledgeAdmin.selectedCount', { count })}
+                onClearSelection={() => setSelected([])}
+                clearSelectionLabel={t('knowledgeAdmin.clearSelection')}
+                selectionActions={
+                  <>
+                    <Select value="" onValueChange={(value) => handleBulkReclassify(value as DocClass)}>
+                      <SelectTrigger size="sm" className="w-56" aria-label={t('knowledgeAdmin.bulkReclassify')}>
+                        <SelectValue placeholder={t('knowledgeAdmin.bulkReclassify')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DOC_CLASSES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {DOC_CLASS_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => setPendingDelete([...selected])}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      {t('knowledgeAdmin.bulkDelete')}
+                    </Button>
+                  </>
+                }
+                filters={
+                  <>
+                    <Select
+                      value={scope}
+                      onValueChange={(value) => {
+                        setScope(value as Scope)
+                        resetPaging()
+                      }}
+                    >
+                      <SelectTrigger size="sm" className="w-52" aria-label={t('knowledgeAdmin.scopeLabel')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL}>{t('knowledgeAdmin.scopeAll')}</SelectItem>
+                        {/* The binding-vs-other split survives as a filter (and as
+                            the default sort) instead of two hard-coded tables. */}
+                        <SelectItem value="binding">{t('knowledge.bindingTitle')}</SelectItem>
+                        <SelectItem value="other">{t('knowledge.otherTitle')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={classFilter}
+                      onValueChange={(value) => {
+                        setClassFilter(value as DocClass | typeof ALL)
+                        resetPaging()
+                      }}
+                    >
+                      <SelectTrigger size="sm" className="w-56" aria-label={t('knowledge.docClassLabel')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL}>{t('knowledge.docClassFilterAll')}</SelectItem>
+                        {presentClasses.map(({ cls, count }) => (
+                          <SelectItem key={cls} value={cls}>
+                            {DOC_CLASS_LABELS[cls]} ({count})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                }
+              />
 
-            {/* Dokumentart filter chips. */}
-            {presentClasses.length > 0 && (
-              <div
-                className="flex flex-wrap items-center gap-1.5"
-                role="group"
-                aria-label={t('knowledge.docClassLabel')}
-              >
-                <FilterChip
-                  label={t('knowledge.docClassFilterAll')}
-                  active={classFilter === null}
-                  onClick={() => setClassFilter(null)}
+              {filtered.length === 0 ? (
+                <EmptyState
+                  variant="bare"
+                  icon={FileText}
+                  title={t('knowledge.noMatch')}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setQuery('')
+                        setClassFilter(ALL)
+                        setScope(ALL)
+                        resetPaging()
+                      }}
+                    >
+                      {t('knowledge.clearFilters')}
+                    </Button>
+                  }
                 />
-                {presentClasses.map(({ cls, count }) => (
-                  <FilterChip
-                    key={cls}
-                    label={`${DOC_CLASS_LABELS[cls]} (${count})`}
-                    active={classFilter === cls}
-                    onClick={() => setClassFilter((current) => (current === cls ? null : cls))}
-                  />
-                ))}
-              </div>
-            )}
+              ) : (
+                <>
+                  <div className="rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>
+                            <Checkbox
+                              // A partial page selection would otherwise read as
+                              // "nothing selected", leaving the toolbar count as
+                              // the only signal.
+                              checked={
+                                allOnPageSelected
+                                  ? true
+                                  : page.some((f) => selected.includes(f.fileName))
+                                    ? 'indeterminate'
+                                    : false
+                              }
+                              aria-label={t('knowledgeAdmin.selectAll')}
+                              onCheckedChange={(checked) =>
+                                setSelected((prev) => {
+                                  const names = page.map((f) => f.fileName)
+                                  return checked
+                                    ? [...new Set([...prev, ...names])]
+                                    : prev.filter((name) => !names.includes(name))
+                                })
+                              }
+                            />
+                          </TableHead>
+                          {sortableHead('document', t('knowledgeAdmin.colDocument'))}
+                          {sortableHead('class', t('knowledgeAdmin.colType'))}
+                          {sortableHead('state', t('knowledgeAdmin.colState'))}
+                          {sortableHead('chunks', t('knowledgeAdmin.colChunks'), 'text-right')}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {page.map((file) => {
+                          const cls = resolveDocClass(file.docClass)
+                          const authority = docClassAuthority(cls)
+                          const isSelected = selected.includes(file.fileName)
+                          return (
+                            <TableRow
+                              key={file.fileName}
+                              data-state={isSelected ? 'selected' : undefined}
+                              className="cursor-pointer"
+                              onClick={() => openDetail(file)}
+                            >
+                              <TableCell onClick={(event) => event.stopPropagation()}>
+                                <Checkbox
+                                  checked={isSelected}
+                                  aria-label={t('knowledgeAdmin.selectRow', { name: file.fileName })}
+                                  onCheckedChange={(checked) =>
+                                    setSelected((prev) =>
+                                      checked
+                                        ? [...prev, file.fileName]
+                                        : prev.filter((name) => name !== file.fileName),
+                                    )
+                                  }
+                                />
+                              </TableCell>
+                              <TableCell className="max-w-[22rem]">
+                                <button
+                                  type="button"
+                                  className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                                  aria-label={t('knowledgeAdmin.openDetail', { name: file.fileName })}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    openDetail(file)
+                                  }}
+                                >
+                                  <span className="block truncate text-sm font-medium text-foreground">
+                                    {file.displayTitle ?? file.fileName}
+                                  </span>
+                                  {file.displayTitle && file.displayTitle !== file.fileName && (
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {file.fileName}
+                                    </span>
+                                  )}
+                                </button>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <SourceSignalChip
+                                    signal={docClassSignal(cls)}
+                                    title={authority ? `${DOC_CLASS_LABELS[cls]} · ${authority}` : DOC_CLASS_LABELS[cls]}
+                                  >
+                                    {DOC_CLASS_LABELS[cls]}
+                                    {authority ? ` · ${authority}` : ''}
+                                  </SourceSignalChip>
+                                  {isOibBinding(cls) && (
+                                    <Badge variant="outline">{t('knowledgeAdmin.binding')}</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <Badge variant={STATE_VARIANT[file.state]} title={tk(`stateHints.${file.state}`)}>
+                                    {tk(`states.${file.state}`)}
+                                  </Badge>
+                                  {file.origin === 'uploaded' && (
+                                    <Badge variant="outline">{tk('origin.uploaded')}</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                                {file.chunkCount > 0 ? file.chunkCount : '—'}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
 
-            {status.files.length === 0 ? (
-              <EmptyState variant="bare" icon={FileText} title={t('knowledge.empty')} />
-            ) : visibleFiles.length === 0 ? (
-              <EmptyState
-                variant="bare"
-                icon={FileText}
-                title={t('knowledge.noMatch')}
-                action={
+                  <Pagination
+                    offset={safeOffset}
+                    pageSize={PAGE_SIZE}
+                    total={filtered.length}
+                    onOffsetChange={setOffset}
+                    rangeLabel={(from, to, total) => t('knowledgeAdmin.range', { from, to, total })}
+                    previousLabel={t('knowledgeAdmin.previous')}
+                    nextLabel={t('knowledgeAdmin.next')}
+                  />
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Row detail: rename, reclassify, open the PDF, remove — the four
+          controls that used to be crammed into every row of the list. */}
+      <Sheet open={detailFile !== null} onOpenChange={(open) => !open && setDetailName(null)}>
+        <SheetContent closeLabel={t('knowledgeAdmin.detailClose')} data-testid="knowledge-detail">
+          {detailFile && (
+            <>
+              <SheetHeader>
+                <SheetTitle>{detailFile.displayTitle ?? detailFile.fileName}</SheetTitle>
+                <SheetDescription>{detailFile.fileName}</SheetDescription>
+              </SheetHeader>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <SourceSignalChip signal={docClassSignal(detailFile.docClass)}>
+                  {DOC_CLASS_LABELS[resolveDocClass(detailFile.docClass)]}
+                </SourceSignalChip>
+                {isOibBinding(detailFile.docClass) && (
+                  <Badge variant="outline">{t('knowledgeAdmin.binding')}</Badge>
+                )}
+                <Badge variant={STATE_VARIANT[detailFile.state]} title={tk(`stateHints.${detailFile.state}`)}>
+                  {tk(`states.${detailFile.state}`)}
+                </Badge>
+              </div>
+
+              {/* Rename */}
+              <div className="flex flex-col gap-1.5">
+                <label
+                  className="text-xs font-medium text-muted-foreground"
+                  htmlFor="knowledge-display-title"
+                >
+                  {t('knowledge.displayTitleEdit', { name: detailFile.fileName })}
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    id="knowledge-display-title"
+                    value={titleDraft}
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') handleRename(detailFile)
+                    }}
+                    className="h-8 text-sm"
+                    aria-label={t('knowledge.displayTitleFor', { name: detailFile.fileName })}
+                    placeholder={t('knowledge.displayTitlePlaceholder')}
+                  />
+                  <Button size="sm" variant="outline" onClick={() => handleRename(detailFile)}>
+                    {t('knowledge.displayTitleSave')}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Reclassify */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('knowledge.docClassLabel')}</span>
+                <Select
+                  value={resolveDocClass(detailFile.docClass)}
+                  onValueChange={(value) => handleReclassify(detailFile, value as DocClass)}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full"
+                    aria-label={t('knowledge.docClassFor', { name: detailFile.fileName })}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DOC_CLASSES.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {DOC_CLASS_LABELS[option]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <dl className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm">
+                <DetailRow label={t('knowledgeAdmin.detailOrigin')} value={t(`knowledgeAdmin.origin.${detailFile.origin}`)} />
+                <DetailRow
+                  label={t('knowledgeAdmin.detailChunks')}
+                  value={detailFile.chunkCount > 0 ? tk('corpus.chunkCount', { count: detailFile.chunkCount }) : '—'}
+                />
+                <DetailRow
+                  label={t('knowledgeAdmin.detailSize')}
+                  value={detailFile.sizeBytes !== null ? formatFileSize(detailFile.sizeBytes, locale) : '—'}
+                />
+                {detailFile.ingestedAt && (
+                  <DetailRow
+                    label={t('knowledgeAdmin.detailIngestedAt')}
+                    value={new Date(detailFile.ingestedAt).toLocaleDateString(locale)}
+                  />
+                )}
+              </dl>
+
+              {detailFile.summary && (
+                <p className="text-sm text-muted-foreground">{detailFile.summary}</p>
+              )}
+
+              <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2">
+                {detailFile.origin !== 'index_only' && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setQuery('')
-                      setClassFilter(null)
+                      // Close the sheet first: the viewer is a modal dialog, and
+                      // stacking two focus traps is how keyboard users get stuck.
+                      setDetailName(null)
+                      setViewerFile(detailFile.fileName)
                     }}
                   >
-                    {t('knowledge.clearFilters')}
+                    <Eye className="size-3.5" aria-hidden />
+                    {t('knowledge.viewPdf')}
                   </Button>
-                }
-              />
-            ) : (
-              <div className="flex flex-col gap-5">
-                {renderSection('bindingTitle', 'bindingHint', bindingFiles)}
-                {renderSection('otherTitle', 'otherHint', otherFiles)}
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => {
+                    setDetailName(null)
+                    setPendingDelete([detailFile.fileName])
+                  }}
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                  {detailFile.origin === 'uploaded' ? t('knowledge.delete') : t('knowledge.corpusDelete')}
+                </Button>
               </div>
-            )}
-          </>
-        )}
-      </CardContent>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {viewerFile && (
         <PdfViewerDialog open onOpenChange={(open) => !open && setViewerFile(null)} fileName={viewerFile} />
       )}
 
-      <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && !isDeleting && setPendingDelete(null)}>
+      <Dialog
+        open={pendingDelete.length > 0}
+        onOpenChange={(open) => !open && !isDeleting && setPendingDelete([])}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {pendingDelete?.origin === 'uploaded'
-                ? t('knowledge.deleteTitle', { name: pendingDelete?.fileName ?? '' })
-                : t('knowledge.corpusDeleteTitle', { name: pendingDelete?.fileName ?? '' })}
+              {deleteTargets.length > 1
+                ? t('knowledgeAdmin.bulkDeleteTitle', { count: deleteTargets.length })
+                : deleteTargets[0]?.origin === 'uploaded'
+                  ? t('knowledge.deleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
+                  : t('knowledge.corpusDeleteTitle', { name: deleteTargets[0]?.fileName ?? '' })}
             </DialogTitle>
             <DialogDescription>
-              {pendingDelete?.origin === 'uploaded'
-                ? t('knowledge.deleteDescription')
-                : t('knowledge.corpusDeleteDescription')}
+              {deleteTargets.length > 1
+                ? t('knowledgeAdmin.bulkDeleteDescription')
+                : deleteTargets[0]?.origin === 'uploaded'
+                  ? t('knowledge.deleteDescription')
+                  : t('knowledge.corpusDeleteDescription')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingDelete(null)} disabled={isDeleting}>
+            <Button variant="outline" onClick={() => setPendingDelete([])} disabled={isDeleting}>
               {t('knowledge.deleteCancel')}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
               {isDeleting ? <Spinner className="size-3.5" /> : <Trash2 className="size-3.5" aria-hidden />}
-              {pendingDelete?.origin === 'uploaded'
-                ? t('knowledge.deleteConfirm')
-                : t('knowledge.corpusDeleteConfirm')}
+              {deleteTargets.length > 1
+                ? t('knowledgeAdmin.bulkDeleteConfirm', { count: deleteTargets.length })
+                : deleteTargets[0]?.origin === 'uploaded'
+                  ? t('knowledge.deleteConfirm')
+                  : t('knowledge.corpusDeleteConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </>
   )
 }
 
-/** A quiet, toggleable Dokumentart filter chip (mirrors the Archiv pattern). */
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+/** One number in the corpus summary strip. */
+function SummaryStat({ label, value }: { label: string; value: number }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md border px-3 text-[0.78125rem] transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-        active
-          ? 'border-border bg-card font-medium text-foreground shadow-xs'
-          : 'border-border/50 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
-      )}
-    >
-      {label}
-    </button>
+    <div className="rounded-lg border border-border px-3 py-2">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-lg font-semibold tabular-nums text-foreground">{value}</dd>
+    </div>
+  )
+}
+
+/** One label/value pair in the detail sheet's metadata block. */
+function DetailRow({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="truncate text-sm text-foreground">{value}</dd>
+    </div>
   )
 }

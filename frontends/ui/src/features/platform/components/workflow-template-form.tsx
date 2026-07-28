@@ -1,28 +1,25 @@
 'use client'
 
 /**
- * Platform workflow template editor (ADR-0027) — the create/edit form the
+ * Platform workflow template editor (ADR-0027) — the create/edit surface the
  * platform owner uses to author a template published into every org's gallery.
  *
+ * It lives in a Sheet rather than a modal: authoring a brief is a long, scrolled
+ * editing session next to the list you came from, not a question that
+ * interrupts. The list stays visible behind it, which is the whole reason the
+ * Sheet primitive exists.
+ *
  * A template carries author-written text in BOTH locales (de + en), so the form
- * is organized as one shared block (provenance, additional data sources,
- * suggested schedule, ordering, publish state) plus a per-locale tab set for
- * the human-readable brief. A live compiled-prompt preview per locale mirrors
- * what the adopting user will see in the builder. The same shape is produced by
- * the JSON-import path, so an imported draft opens straight into this form.
+ * is one shared block (provenance, additional data sources, suggested schedule,
+ * ordering, publish state) plus a per-locale tab set for the human-readable
+ * brief, each tab carrying its own live compiled-brief preview — the same text
+ * the adopting user sees in the builder. The JSON-import path produces this
+ * exact shape, so an imported draft opens straight into this form.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -32,6 +29,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -140,7 +145,8 @@ export function WorkflowTemplateForm({
   seed,
   onSubmit,
 }: WorkflowTemplateFormProps): JSX.Element {
-  const t = useTranslations('platform')
+  const t = useTranslations('platform.workflowsSection')
+  const tw = useTranslations('workflows')
   const isEdit = template !== null
 
   const initial = template ?? seed
@@ -159,7 +165,7 @@ export function WorkflowTemplateForm({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  // (Re)seed the form whenever the dialog opens for a new subject.
+  // (Re)seed the form whenever the sheet opens for a new subject.
   useEffect(() => {
     if (!open) return
     setProvenance(initial?.provenance ?? 'auto')
@@ -175,7 +181,7 @@ export function WorkflowTemplateForm({
     setEn(initial ? contentToForm(initial.content.en) : emptyLocale())
     setActiveLocale('de')
     setError(null)
-    // Only re-run when the dialog opens or the subject identity changes.
+    // Only re-run when the sheet opens or the subject identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, template?.id, seed])
 
@@ -212,28 +218,18 @@ export function WorkflowTemplateForm({
     if (next !== 'custom') setCron(PRESET_CRON[next])
   }
 
-  const activeForm = activeLocale === 'de' ? de : en
-  const setActiveForm = activeLocale === 'de' ? setDe : setEn
-  const previewText = useMemo(
-    () => compilePreview(formToContent(activeForm).definition),
-    [activeForm],
-  )
-
   const handleSubmit = async () => {
-    // Both locales must carry a name and an objective — the gallery renders in
-    // either locale and the compiled brief needs an objective.
+    // Both locales must carry a name, description, category and objective — the
+    // gallery renders in either locale and the compiled brief needs an
+    // objective. Naming the offending language (and switching to its tab) beats
+    // a generic "something is missing".
     for (const [loc, form] of [
       ['de', de],
       ['en', en],
     ] as const) {
-      if (!form.name.trim() || !form.objective.trim()) {
+      if (!form.name.trim() || !form.description.trim() || !form.category.trim() || !form.objective.trim()) {
         setActiveLocale(loc)
-        setError(t('workflowTemplates.form.requiredError'))
-        return
-      }
-      if (!form.description.trim() || !form.category.trim()) {
-        setActiveLocale(loc)
-        setError(t('workflowTemplates.form.requiredError'))
+        setError(t('form.requiredError', { locale: t(`form.locale.${loc}`) }))
         return
       }
     }
@@ -254,60 +250,101 @@ export function WorkflowTemplateForm({
       await onSubmit(input, template?.id ?? null)
       onOpenChange(false)
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : t('workflowTemplates.saveFailed'))
+      setError(submitError instanceof Error ? submitError.message : t('saveFailed'))
     } finally {
       setSaving(false)
     }
   }
 
+  /** One localized field, bound to the locale panel that renders it. */
   const localeField = (
+    loc: TemplateLocale,
+    form: LocaleForm,
+    setForm: (next: LocaleForm) => void,
     key: keyof LocaleForm,
     labelKey: string,
     opts: { textarea?: boolean; rows?: number; hintKey?: string } = {},
-  ) => (
-    <div className="flex flex-col gap-1.5">
-      <Label className="text-sm font-medium">{t(`workflowTemplates.form.${labelKey}`)}</Label>
-      {opts.textarea ? (
-        <Textarea
-          value={activeForm[key]}
-          rows={opts.rows ?? 3}
-          onChange={(event) => setActiveForm({ ...activeForm, [key]: event.target.value })}
-        />
-      ) : (
-        <Input
-          value={activeForm[key]}
-          onChange={(event) => setActiveForm({ ...activeForm, [key]: event.target.value })}
-        />
-      )}
-      {opts.hintKey && (
-        <p className="text-xs text-muted-foreground">{t(`workflowTemplates.form.${opts.hintKey}`)}</p>
-      )}
-    </div>
-  )
+  ): JSX.Element => {
+    const id = `tpl-${loc}-${key}`
+    return (
+      <div className="flex flex-col gap-1.5" key={key}>
+        <Label htmlFor={id} className="text-sm font-medium">
+          {t(`form.${labelKey}`)}
+        </Label>
+        {opts.textarea ? (
+          <Textarea
+            id={id}
+            value={form[key]}
+            rows={opts.rows ?? 3}
+            onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+          />
+        ) : (
+          <Input id={id} value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />
+        )}
+        {opts.hintKey ? <p className="text-xs text-muted-foreground">{t(`form.${opts.hintKey}`)}</p> : null}
+      </div>
+    )
+  }
+
+  const localePanel = (loc: TemplateLocale): JSX.Element => {
+    const form = loc === 'de' ? de : en
+    const setForm = loc === 'de' ? setDe : setEn
+    const preview = compilePreview(formToContent(form).definition)
+    const field = (
+      key: keyof LocaleForm,
+      labelKey: string,
+      opts?: { textarea?: boolean; rows?: number; hintKey?: string },
+    ) => localeField(loc, form, setForm, key, labelKey, opts)
+
+    return (
+      <TabsContent key={loc} value={loc} className="flex flex-col gap-4 pt-3">
+        {field('name', 'nameLabel')}
+        {field('description', 'descriptionLabel', { textarea: true, rows: 2 })}
+        {field('category', 'categoryLabel', { hintKey: 'categoryHint' })}
+        {field('objective', 'objectiveLabel', { textarea: true, rows: 3 })}
+        {field('context', 'contextLabel', { textarea: true, rows: 3 })}
+        {field('questionsText', 'questionsLabel', { textarea: true, rows: 4, hintKey: 'questionsHint' })}
+        {field('outputFormat', 'outputFormatLabel', { textarea: true, rows: 2 })}
+
+        {/* Live compiled-brief preview for this locale. */}
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-sm font-medium">{t('form.previewLabel')}</Label>
+          <pre
+            data-testid={`template-preview-${loc}`}
+            className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground"
+          >
+            {preview || t('form.previewEmpty')}
+          </pre>
+        </div>
+      </TabsContent>
+    )
+  }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
-      <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {isEdit ? t('workflowTemplates.form.editTitle') : t('workflowTemplates.form.createTitle')}
-          </DialogTitle>
-          <DialogDescription>{t('workflowTemplates.form.subtitle')}</DialogDescription>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <SheetContent
+        className="sm:max-w-2xl"
+        closeLabel={t('form.close')}
+        data-testid="workflow-template-form"
+      >
+        <SheetHeader>
+          <SheetTitle>{isEdit ? t('form.editTitle') : t('form.createTitle')}</SheetTitle>
+          <SheetDescription>{t('form.subtitle')}</SheetDescription>
+        </SheetHeader>
 
         <div className="flex flex-col gap-5">
           {/* Shared (non-localized) settings. */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-sm font-medium">{t('workflowTemplates.form.provenanceLabel')}</Label>
+              <Label className="text-sm font-medium">{t('form.provenanceLabel')}</Label>
               <Select value={provenance} onValueChange={(value) => setProvenance(value as TemplateProvenance)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label={t('form.provenanceLabel')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {PROVENANCES.map((option) => (
                     <SelectItem key={option} value={option}>
-                      {t(`workflowTemplates.provenance.${option}`)}
+                      {t(`provenance.${option}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -315,7 +352,7 @@ export function WorkflowTemplateForm({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="tpl-sort" className="text-sm font-medium">
-                {t('workflowTemplates.form.sortOrderLabel')}
+                {t('form.sortOrderLabel')}
               </Label>
               <Input
                 id="tpl-sort"
@@ -324,18 +361,18 @@ export function WorkflowTemplateForm({
                 value={sortOrder}
                 onChange={(event) => setSortOrder(Math.max(0, Number(event.target.value) || 0))}
               />
-              <p className="text-xs text-muted-foreground">{t('workflowTemplates.form.sortOrderHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('form.sortOrderHint')}</p>
             </div>
           </div>
 
           {/* Additional data sources. */}
           <div className="flex flex-col gap-2">
-            <Label className="text-sm font-medium">{t('workflowTemplates.form.dataSourcesLabel')}</Label>
-            <p className="text-xs text-muted-foreground">{t('workflowTemplates.form.dataSourcesHint')}</p>
+            <Label className="text-sm font-medium">{t('form.dataSourcesLabel')}</Label>
+            <p className="text-xs text-muted-foreground">{t('form.dataSourcesHint')}</p>
             {additionalSources === null ? (
-              <p className="text-sm text-muted-foreground">{t('workflowTemplates.form.sourcesLoading')}</p>
+              <p className="text-sm text-muted-foreground">{t('form.sourcesLoading')}</p>
             ) : additionalSources.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('workflowTemplates.form.sourcesAll')}</p>
+              <p className="text-sm text-muted-foreground">{t('form.sourcesAll')}</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {additionalSources.map((source) => (
@@ -346,9 +383,9 @@ export function WorkflowTemplateForm({
                     />
                     <span className="flex flex-col">
                       <span className="text-sm font-medium text-foreground">{source.name}</span>
-                      {source.description && (
+                      {source.description ? (
                         <span className="text-xs text-muted-foreground">{source.description}</span>
-                      )}
+                      ) : null}
                     </span>
                   </label>
                 ))}
@@ -361,33 +398,33 @@ export function WorkflowTemplateForm({
             <div className="flex items-center justify-between gap-4">
               <div className="flex flex-col gap-0.5">
                 <Label htmlFor="tpl-schedule" className="text-sm font-medium">
-                  {t('workflowTemplates.form.scheduleLabel')}
+                  {t('form.scheduleLabel')}
                 </Label>
-                <p className="text-xs text-muted-foreground">{t('workflowTemplates.form.scheduleHint')}</p>
+                <p className="text-xs text-muted-foreground">{t('form.scheduleHint')}</p>
               </div>
               <Switch id="tpl-schedule" checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} />
             </div>
-            {scheduleEnabled && (
+            {scheduleEnabled ? (
               <div className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
-                  <Label className="text-sm font-medium">{t('workflowTemplates.form.presetLabel')}</Label>
+                  <Label className="text-sm font-medium">{t('form.presetLabel')}</Label>
                   <Select value={preset} onValueChange={(value) => changePreset(value as SchedulePreset)}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={t('form.presetLabel')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {SCHEDULE_PRESETS.map((option) => (
                         <SelectItem key={option} value={option}>
-                          {t(`workflowTemplates.form.presets.${option}`)}
+                          {tw(`schedule.presets.${option}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label className="text-sm font-medium">{t('workflowTemplates.form.timezoneLabel')}</Label>
+                  <Label className="text-sm font-medium">{t('form.timezoneLabel')}</Label>
                   <Select value={timezone} onValueChange={setTimezone}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={t('form.timezoneLabel')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
@@ -399,10 +436,10 @@ export function WorkflowTemplateForm({
                     </SelectContent>
                   </Select>
                 </div>
-                {preset === 'custom' && (
+                {preset === 'custom' ? (
                   <div className="flex flex-col gap-1.5 sm:col-span-2">
                     <Label htmlFor="tpl-cron" className="text-sm font-medium">
-                      {t('workflowTemplates.form.cronLabel')}
+                      {t('form.cronLabel')}
                     </Label>
                     <Input
                       id="tpl-cron"
@@ -413,11 +450,11 @@ export function WorkflowTemplateForm({
                       placeholder="0 6 * * 1"
                       onChange={(event) => setCron(event.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">{t('workflowTemplates.form.cronHint')}</p>
+                    <p className="text-xs text-muted-foreground">{t('form.cronHint')}</p>
                   </div>
-                )}
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Per-locale content. */}
@@ -425,63 +462,41 @@ export function WorkflowTemplateForm({
             <TabsList>
               {LOCALES.map((loc) => (
                 <TabsTrigger key={loc} value={loc}>
-                  {t(`workflowTemplates.form.locale.${loc}`)}
+                  {t(`form.locale.${loc}`)}
                 </TabsTrigger>
               ))}
             </TabsList>
-            {LOCALES.map((loc) => (
-              <TabsContent key={loc} value={loc} className="flex flex-col gap-4 pt-2">
-                {localeField('name', 'nameLabel')}
-                {localeField('description', 'descriptionLabel', { textarea: true, rows: 2 })}
-                {localeField('category', 'categoryLabel', { hintKey: 'categoryHint' })}
-                {localeField('objective', 'objectiveLabel', { textarea: true, rows: 3 })}
-                {localeField('context', 'contextLabel', { textarea: true, rows: 3 })}
-                {localeField('questionsText', 'questionsLabel', {
-                  textarea: true,
-                  rows: 4,
-                  hintKey: 'questionsHint',
-                })}
-                {localeField('outputFormat', 'outputFormatLabel', { textarea: true, rows: 2 })}
-
-                {/* Live compiled-prompt preview for this locale. */}
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-sm font-medium">{t('workflowTemplates.form.previewLabel')}</Label>
-                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-                    {previewText || t('workflowTemplates.form.previewEmpty')}
-                  </pre>
-                </div>
-              </TabsContent>
-            ))}
+            {LOCALES.map(localePanel)}
           </Tabs>
 
-          {/* Publish state. */}
+          {/* Publish state — the one control with a cross-organization consequence. */}
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
             <div className="flex flex-col gap-0.5">
               <Label htmlFor="tpl-publish" className="text-sm font-medium">
-                {t('workflowTemplates.form.publishLabel')}
+                {t('form.publishLabel')}
               </Label>
-              <p className="text-xs text-muted-foreground">{t('workflowTemplates.form.publishHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('form.publishHint')}</p>
             </div>
             <Switch id="tpl-publish" checked={published} onCheckedChange={setPublished} />
           </div>
 
-          {error && (
+          {error ? (
             <p role="alert" className="text-sm font-medium text-destructive">
               {error}
             </p>
-          )}
+          ) : null}
         </div>
 
-        <DialogFooter>
+        <SheetFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            {t('workflowTemplates.form.cancel')}
+            {t('form.cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
-            {saving && <Spinner className="size-3.5" />}
-            {saving ? t('workflowTemplates.form.saving') : t('workflowTemplates.form.save')}
+            {saving ? <Spinner className="size-3.5" /> : null}
+            {saving ? t('form.saving') : t('form.save')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }

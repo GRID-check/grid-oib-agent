@@ -143,13 +143,13 @@ interface MissingSourceDto {
 }
 
 /**
- * Where each remedy lives on this page. The managers own their own add flows
- * (upload validation, RIS verification, audit trail); jumping to them with the
+ * Where each remedy lives. The managers own their own add flows (upload
+ * validation, RIS verification, audit trail); linking to them with the
  * candidate copied beats duplicating — or worse, bypassing — those checks.
  */
 const ACTION_ANCHOR: Partial<Record<MissingSourceAction, string>> = {
-  upload_to_base_knowledge: '#platform-base-knowledge',
-  add_to_norm_catalog: '#platform-norm-registry',
+  upload_to_base_knowledge: '/app/platform/knowledge',
+  add_to_norm_catalog: '/app/platform/norms',
 }
 
 interface SnapshotDto {

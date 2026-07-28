@@ -188,6 +188,62 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="run-history-preview"] a',
   },
   {
+    id: 'platform-knowledge',
+    mobile: true,
+    path: '/dev/platform-knowledge',
+    description:
+      'Platform knowledge section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
+    waitFor: '[data-testid="platform-knowledge-preview"]',
+  },
+  {
+    id: 'platform-norms',
+    mobile: true,
+    path: '/dev/platform-norms',
+    description:
+      'Platform norms section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
+    waitFor: '[data-testid="platform-norms-preview"]',
+  },
+  {
+    id: 'platform-workflows',
+    mobile: true,
+    path: '/dev/platform-workflows',
+    description:
+      'Platform workflows section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
+    waitFor: '[data-testid="platform-workflows-preview"]',
+  },
+  {
+    id: 'platform-overview',
+    mobile: true,
+    path: '/dev/platform-overview',
+    description:
+      'Platform overview section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
+    waitFor: '[data-testid="platform-overview-preview"]',
+  },
+  {
+    id: 'platform-maintenance',
+    mobile: true,
+    path: '/dev/platform-maintenance',
+    description:
+      'Platform maintenance section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
+    waitFor: '[data-testid="platform-maintenance-preview"]',
+  },
+  {
+    id: 'platform-primitives',
+    mobile: true,
+    path: '/dev/platform-primitives',
+    description:
+      'The platform admin primitives as one worked example — SectionCard chrome around a DataToolbar + Table + Pagination, plus the loading / error / empty states every section now shares. The shape each platform page is being converted to.',
+    waitFor: '[data-testid="primitives-demo"]',
+  },
+  {
+    id: 'platform-nav',
+    mobile: true,
+    path: '/dev/platform-nav',
+    description:
+      'Platform section nav — the sticky rail on desktop and the scrolling strip on mobile, with the active section marked. Replaces the single page that stacked seven admin domains in one column.',
+    waitFor: '[data-testid="platform-nav"]',
+  },
+  {
     id: 'citation-health',
     mobile: true,
     path: '/dev/citation-health',
