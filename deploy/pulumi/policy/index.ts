@@ -166,6 +166,31 @@ export default new PolicyPack("grid-oib-guardrails", {
     },
 
     {
+      name: "statefulset-no-immutable-field-writes",
+      description:
+        "A StatefulSet must not declare `podManagementPolicy`. Kubernetes allows only " +
+        "replicas / ordinals / template / updateStrategy / " +
+        "persistentVolumeClaimRetentionPolicy / minReadySeconds to be updated in place, so " +
+        "writing this field onto an existing StatefulSet makes Pulumi plan a REPLACE — for " +
+        "seaweedfs that is a storage outage, and for chroma the vector index. `OrderedReady` " +
+        "is already the default when the field is unset.",
+      enforcementLevel: "mandatory",
+      validateResource: validateResourceOfType(
+        k8s.apps.v1.StatefulSet,
+        (statefulSet, _args, report: ReportViolation) => {
+          const policy = statefulSet.spec?.podManagementPolicy;
+          if (policy === undefined) return;
+          report(
+            `StatefulSet "${statefulSet.metadata?.name ?? "<unnamed>"}" sets ` +
+              `podManagementPolicy="${policy}", an immutable field: on an existing ` +
+              `StatefulSet this plans a replace (delete + recreate), not an update. Drop it — ` +
+              `unset already means OrderedReady.`,
+          );
+        },
+      ),
+    },
+
+    {
       name: "workload-graceful-termination",
       description:
         "Every workload must state its shutdown budget. The Kubernetes default of 30s " +

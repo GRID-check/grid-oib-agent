@@ -220,6 +220,19 @@ export function surgeRollout(p: RolloutProfile) {
  * Deployment `spec` fragment for a single-replica worker that must never run
  * twice concurrently (`Recreate`). Still gated: `minReadySeconds` keeps a
  * crash-looping replacement from being reported as a successful deploy.
+ *
+ * ONLY for workloads that are ALREADY `Recreate`, or that do not exist yet.
+ * Switching a LIVE Deployment from RollingUpdate to Recreate fails the apply:
+ * the API server defaults `spec.strategy.rollingUpdate` on every RollingUpdate
+ * Deployment, server-side apply will not remove a field this program never
+ * owned, and the merged object then trips
+ *   spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy
+ *   `type` is 'Recreate'
+ * Prefer `surgeRollout` for an existing workload — that was the resolution for
+ * dragonfly and aspire-dashboard. If Recreate is genuinely required, clear the
+ * defaulted field first:
+ *   kubectl -n grid patch deploy <name> --type=json \
+ *     -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'
  */
 export function recreateRollout(p: RolloutProfile) {
   return {
@@ -231,16 +244,24 @@ export function recreateRollout(p: RolloutProfile) {
 }
 
 /**
- * StatefulSet `spec` fragment. `OrderedReady` + `RollingUpdate` is pinned
- * explicitly rather than left to the defaults: it rolls the highest ordinal
- * first and waits for each pod to be Ready (and now: ready for
- * `minReadySeconds`) before touching the next — exactly the one-at-a-time
- * behaviour the conversation-affinity routing in ADR-0028 depends on.
+ * StatefulSet `spec` fragment. `RollingUpdate` rolls the highest ordinal first
+ * and waits for each pod to be Ready — and now, to STAY ready for
+ * `minReadySeconds` — before touching the next. That one-at-a-time behaviour is
+ * what the conversation-affinity routing in ADR-0028 depends on.
+ *
+ * NOTE — `podManagementPolicy` is deliberately NOT set here, even though
+ * `OrderedReady` is exactly what we want. Kubernetes allows only `replicas`,
+ * `ordinals`, `template`, `updateStrategy`, `persistentVolumeClaimRetentionPolicy`
+ * and `minReadySeconds` to be updated on a live StatefulSet; every other field is
+ * immutable, so writing `podManagementPolicy` onto an EXISTING StatefulSet makes
+ * Pulumi plan a REPLACE — for seaweedfs that is a storage outage and for chroma
+ * the vector index, bought for nothing, since `OrderedReady` is already the
+ * default when the field is unset. The policy pack rule
+ * `statefulset-no-immutable-field-writes` enforces this.
  */
 export function orderedRollout(p: RolloutProfile) {
   return {
     updateStrategy: { type: "RollingUpdate" },
-    podManagementPolicy: "OrderedReady",
     minReadySeconds: p.minReadySeconds,
     revisionHistoryLimit: REVISION_HISTORY_LIMIT,
   };

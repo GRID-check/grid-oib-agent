@@ -457,6 +457,24 @@ to 30s by the deployment; 2s locally). On SIGTERM it starts failing
 `/api/healthz`, refuses new WebSocket upgrades, and lets in-flight streaming
 answers finish. The pod's grace period (60s) covers preStop + that drain.
 
+**Two traps when changing these on a LIVE cluster.** Both cost a real deploy to
+find, because a from-scratch plan cannot show them:
+
+- **Never write an immutable StatefulSet field.** Kubernetes permits only
+  `replicas`, `ordinals`, `template`, `updateStrategy`,
+  `persistentVolumeClaimRetentionPolicy` and `minReadySeconds` to change in
+  place. Setting `podManagementPolicy` — even to the value it already has —
+  makes Pulumi plan a **replace** of seaweedfs and chroma. It is left unset
+  (`OrderedReady` is the default anyway) and the policy pack now blocks it.
+- **Do not flip a live Deployment to `Recreate`.** The API server defaults
+  `spec.strategy.rollingUpdate` on every RollingUpdate Deployment, and
+  server-side apply will not remove a field this program never owned, so the
+  merged object is rejected with `spec.strategy.rollingUpdate: Forbidden: may
+  not be specified when strategy type is 'Recreate'`. Use `surgeRollout`
+  instead, or clear the defaulted field first with
+  `kubectl -n grid patch deploy <name> --type=json -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'`.
+  Only purger and workflow-scheduler use `Recreate`, and both were already on it.
+
 **Verifying a rollout**
 
 ```bash
@@ -487,6 +505,7 @@ incident.
 | `deployment-rollout-gated` | mandatory | a Deployment with no `minReadySeconds` / `progressDeadlineSeconds` |
 | `deployment-no-capacity-dip` | mandatory | `maxUnavailable != 0`, or `Recreate` on a multi-replica tier |
 | `statefulset-rollout-gated` | mandatory | `updateStrategy: OnDelete` (updates the template and rolls nothing), or no soak |
+| `statefulset-no-immutable-field-writes` | mandatory | writing `podManagementPolicy` — immutable, so on a live StatefulSet it plans a **replace**, not an update |
 | `workload-graceful-termination` | mandatory | an unstated (or <5s) `terminationGracePeriodSeconds` |
 | `container-resources-bounded` | mandatory | a container missing CPU/memory requests or limits (autoscaler prerequisite, §1) |
 | `moving-tag-must-repull` | mandatory | a `latest`/untagged image without `imagePullPolicy: Always` |

@@ -2,7 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "../platform/namespaces";
-import { ROLLOUT, gracefulShutdown, recreateRollout } from "../platform/rollout";
+import { ROLLOUT, gracefulShutdown, surgeRollout } from "../platform/rollout";
 import { DATA_RESOURCES, PORT } from "../constants";
 
 const DRAGONFLY_IMAGE = "docker.dragonflydb.io/dragonflydb/dragonfly:latest";
@@ -37,10 +37,12 @@ export function installDragonfly(
       metadata: { name: "dragonfly", namespace, labels },
       spec: {
         replicas: 1,
-        // Single replica on a single port: two Dragonfly pods would briefly
-        // serve two divergent caches, so Recreate (not a surge) is correct.
-        // Both tiers fail open to in-process caches during the gap.
-        ...recreateRollout(ROLLOUT.dataPlane),
+        // Surge, not Recreate. Recreate would leave a window with NO cache at
+        // all; surging leaves a few seconds where two instances sit behind the
+        // Service and split the keyspace. Everything here is cache-only and
+        // fails open (that is the whole design of ADR-0020), so the surge is
+        // strictly the milder of the two — and it avoids a hard-down window.
+        ...surgeRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
