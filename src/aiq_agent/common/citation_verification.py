@@ -1490,10 +1490,12 @@ def _normalize_source_section_layout(ref_section: str) -> str:
     lines = ref_section.split("\n")
     if lines and _REFERENCE_HEADING_LINE_RE.match(lines[0]):
         # Keep German reports German: a "Quellen"-style heading is normalized
-        # to "## Quellen" instead of being anglicized to "## Sources". The
-        # canonical label is chosen from the label the writer used, which is
-        # correct as long as the writer's label follows the answer's language —
-        # the prompt requires exactly that (see researcher.j2 <output_contract>).
+        # to "## Quellen" instead of being anglicized to "## Sources". This
+        # German-or-else binary mirrors the writer's contract, which allows the
+        # label exactly two forms: "**Quellen:**" for a German answer and
+        # "**References:**" for an answer in any other language, never a label
+        # translated into a third language (see researcher.j2 <language> and
+        # <output_contract>). A translated label would land on "## Sources".
         lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)
     return "\n".join(_split_collapsed_source_line(line) for line in ref_section.split("\n"))
