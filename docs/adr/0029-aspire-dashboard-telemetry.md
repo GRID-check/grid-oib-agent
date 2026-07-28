@@ -176,10 +176,32 @@ every sign-in dies immediately *after* a successful code exchange. It must stay
 at or below the WorkOS session access-token lifetime. The absent `id_token` is
 harmless (Envoy treats it as optional), so `forwardIDToken` is not used.
 
-**Trade-off accepted.** The dashboard pod no longer authenticates for itself,
-so the NetworkPolicy is the only thing between an in-namespace pod and the
-telemetry UI. That matches the trust boundary this ADR already accepts for the
-collector's unauthenticated OTLP receivers.
+**Trade-off, and a bug it caused.** The dashboard pod no longer authenticates
+for itself, so its network isolation becomes the only thing between an
+in-namespace pod and the telemetry UI. The first cut of this amendment claimed
+the pod was "reachable only from the Gateway" and cited
+`allow-edge-to-aspire-dashboard`. **That was wrong**, and a security review
+caught it: `allow-same-namespace` selects every pod on every port, and
+NetworkPolicy allows are additive, so the narrower edge rule subtracted
+nothing. For the window between the two commits, any pod in `grid` — including
+the internet-facing BFF and the LLM agent workers — could read every tenant's
+traces over `:18888` with no credential, where previously the dashboard's own
+OIDC gate would have refused them.
+
+Fixed by making the isolation real rather than assumed:
+
+- `allow-same-namespace` now excludes the dashboard (`NotIn` on
+  `app.kubernetes.io/name`), because NetworkPolicy has no deny rule — not
+  selecting the pod is the only way to withhold a blanket allow.
+- `allow-collector-to-aspire-dashboard` grants the one legitimate in-namespace
+  client (otel-collector → 4318).
+- `loadConfig` refuses `observabilityEnabled` together with
+  `networkPolicies=false`, so the isolation cannot be turned off underneath the
+  tier.
+
+The residual accepted risk is narrower than the collector's: a rogue
+in-namespace pod can still *inject* spans into the collector's unauthenticated
+receivers, but it can no longer *read* the store.
 
 **One-time WorkOS setup** changes from `https://<otelDomain>/signin-oidc` to
 **`https://<otelDomain>/oauth2/callback`** (Envoy's callback path).
@@ -285,8 +307,11 @@ Applied after an adversarial review pass:
 - The dashboard container also listens on `:18891` (MCP) and serves the
   Telemetry HTTP API (`/api/telemetry/*`, API-key auth, key auto-generated
   when unset). Neither is published: the Service exposes only 18888 plus the
-  two OTLP ports, the HTTPRoute targets 18888, and the NetworkPolicy admits
-  the edge to 18888 only.
+  two OTLP ports, the HTTPRoute targets 18888, and the NetworkPolicies admit
+  only the edge (18888) and the collector (4318). Note `:18891` is absent from
+  the Service but still dialable by pod IP — its own API key is what protects
+  it, which is why the dashboard being excluded from `allow-same-namespace`
+  matters for that surface too.
 
 ### Residual risks (accepted, documented)
 
@@ -305,7 +330,9 @@ Applied after an adversarial review pass:
 - **Collector receivers are unauthenticated** (plain OTLP). Reachability is
   bounded to same-namespace pods by the NetworkPolicy posture; a rogue
   in-namespace pod could inject spans. Accepted: namespace workload identity
-  is already the trust boundary.
+  is already the trust boundary. This acceptance covers span *injection*
+  (integrity) only — bulk *read* of the store is not accepted, which is why the
+  dashboard is excluded from the intra-namespace allow (Amendment 2).
 - **Safe SPOFs**: dashboard and collector are single-replica with no durable
   storage. A restart loses the ring buffer. Both hops only have the
   `exporterhelper` defaults behind them (`sending_queue`, in-memory, 1000

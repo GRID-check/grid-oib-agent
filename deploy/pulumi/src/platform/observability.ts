@@ -59,9 +59,16 @@ const OIDC_CLIENT_SECRET_KEY = "client-secret";
  *
  * Auth is NOT done by the dashboard: the container runs `AuthMode=Unsecured`
  * and every request is authenticated + authorized at the edge by the
- * SecurityPolicy below (see `otelSecurityPolicySpec`). The pod is reachable
- * only from the Gateway (`allow-edge-to-aspire-dashboard` NetworkPolicy), so
- * "unsecured" means "the edge already vouched for you", not "open".
+ * SecurityPolicy below (see `otelSecurityPolicySpec`).
+ *
+ * That makes the pod's network isolation load-bearing, not incidental: a
+ * request that reaches :18888 without traversing the Gateway meets NO
+ * credential check at all. `network-policies.ts` therefore excludes this pod
+ * from the wholesale `allow-same-namespace` allow (rule 2) and grants exactly
+ * two callers — the Gateway on 18888 (rule 7) and otel-collector on 4318
+ * (rule 8) — and `config.ts` refuses to deploy this tier with NetworkPolicies
+ * disabled. Weakening any of those three re-opens an unauthenticated,
+ * cross-tenant telemetry store; they are one control, not three conveniences.
  */
 export function installObservabilityDashboard(
   cfg: GridConfig,

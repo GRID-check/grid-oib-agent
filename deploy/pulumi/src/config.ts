@@ -419,6 +419,21 @@ export function loadConfig(): GridConfig {
     workosApiKey === undefined ? "workosApiKey" : undefined,
   ].filter((k): k is string => k !== undefined);
   const observabilityEnabled = observabilityFlag && missingObservabilityDeps.length === 0;
+
+  // Fail closed: the Aspire dashboard authenticates nobody itself (ADR-0029
+  // Amendment 2 moved auth to the Gateway SecurityPolicy), and the ONLY thing
+  // keeping the rest of the namespace off its unauthenticated :18888 is the
+  // NetworkPolicy set. Turning policies off while the tier is deployed would
+  // publish every tenant's prompts, retrieved snippets, LLM output and
+  // presigned S3 URLs to any pod that gets a foothold. Refuse the combination
+  // rather than silently shipping it.
+  if (observabilityEnabled && !bool(cfg, "networkPolicies", true)) {
+    throw new Error(
+      "grid-oib:observabilityEnabled requires grid-oib:networkPolicies. The Aspire dashboard " +
+        "runs AuthMode=Unsecured and relies on NetworkPolicies to keep the namespace off its " +
+        "unauthenticated UI port. Set networkPolicies=true, or observabilityEnabled=false.",
+    );
+  }
   if (observabilityFlag && !observabilityEnabled) {
     pulumi.log.warn(
       "Observability (ADR-0029) not deployed: missing " +

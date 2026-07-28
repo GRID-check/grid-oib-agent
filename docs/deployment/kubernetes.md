@@ -508,9 +508,17 @@ access (ADR-0016). Enforced at the edge by the `grid-otel-auth`
 **SecurityPolicy** on the Envoy Gateway, not inside the dashboard
 (ADR-0029 Amendment 2): `oidc` authenticates, `jwt` verifies the forwarded
 WorkOS access token against the per-client JWKS, and `authorization`
-default-denies everything whose `org_id` claim is not the platform org. The
-dashboard pod itself runs `AuthMode=Unsecured` and is reachable only from the
-Gateway.
+default-denies everything whose `org_id` claim is not the platform org.
+
+The dashboard pod itself runs `AuthMode=Unsecured`, which makes its network
+isolation part of the security control rather than a nicety: anything that
+reaches `:18888` without going through the Gateway meets no credential check.
+Three things enforce that together — `allow-same-namespace` deliberately does
+**not** select the dashboard (NetworkPolicy has no deny rule, so excluding the
+pod is the only way to withhold the blanket intra-namespace allow),
+`allow-edge-to-aspire-dashboard` admits the Gateway on 18888,
+`allow-collector-to-aspire-dashboard` admits otel-collector on 4318 — and
+`loadConfig` refuses to deploy the tier with `networkPolicies=false`.
 
 One-time setup: register **`https://<otelDomain>/oauth2/callback`** as a
 redirect URI in the WorkOS dashboard (Envoy's callback path — note this is
@@ -556,9 +564,12 @@ no telemetry, and the `server.js` WS proxy is not auto-instrumented
   collector exporter header, and by the Gateway SecurityPolicy for the OIDC
   client secret — never a plain env value. Producers hold no key.
 - Only the dashboard UI port (18888) is exposed through the Gateway
-  (`https-otel` listener + HTTPRoute). Collector and dashboard OTLP ports
-  are cluster-internal; intra-namespace traffic is covered by the
-  `allow-same-namespace` NetworkPolicy.
+  (`https-otel` listener + HTTPRoute). Collector and dashboard OTLP ports are
+  cluster-internal. The collector's receivers sit under the wholesale
+  `allow-same-namespace` allow (any in-namespace pod can post spans to it —
+  accepted, see ADR-0029 residual risks); the **dashboard** is deliberately
+  excluded from that allow and reachable only by the Gateway (18888) and the
+  collector (4318).
 
 **Caveats:**
 
