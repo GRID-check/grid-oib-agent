@@ -274,7 +274,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     return (
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Optional Grid cards rendered before the markdown body */}
-        {hasCards && <GridCards cards={cards} projectId={projectId} />}
+        {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
 
         {/* Response Content rendered as markdown (with streaming caret). While
             streaming, the markdown block + its last child are forced inline so
@@ -397,7 +397,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             one considered object with sections — not a card floating in a tray. */}
         <div className="flex flex-col gap-2 break-words border-b border-border/55 bg-card px-[22px] pb-[17px] pt-[18px]">
           {/* Optional Grid cards rendered before the markdown body */}
-          {hasCards && <GridCards cards={cards} projectId={projectId} />}
+          {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
 
           {/* Response Content rendered as markdown (with streaming caret) */}
           <div

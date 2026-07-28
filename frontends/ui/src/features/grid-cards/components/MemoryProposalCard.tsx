@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { useTranslations } from '@/i18n'
 import { useChatStore } from '@/features/chat/store'
+import { useCardDecision } from '../hooks/use-card-decision'
 import { ProposalShell } from './ProposalShell'
 
 type MemoryKind = 'decision' | 'constraint' | 'open_question' | 'derived_fact' | 'preference'
@@ -15,6 +16,10 @@ interface MemoryProposalCardProps {
   content: string
   kind: MemoryKind
   confidence?: MemoryConfidence
+  /** Message this card belongs to — keys its persisted decision. */
+  messageId?: string
+  /** Stable identity of this card within that message (`cardKey`). */
+  cardKey: string
 }
 
 /**
@@ -24,21 +29,28 @@ interface MemoryProposalCardProps {
  * write through their OWN authenticated session — org-wide (allowed for any org
  * member) or scoped to just this project. Mirrors ProjectProfilePatchCard:
  * propose, never auto-apply.
+ *
+ * The answer is recorded on the owning message (`useCardDecision`), not in
+ * local state: `/api/organization/memory` has no idempotency key, so a card
+ * that forgot it had been saved would write the same memory again on the next
+ * click after a reload.
  */
 export function MemoryProposalCard({
   title,
   content,
   kind,
   confidence = 'medium',
+  messageId,
+  cardKey,
 }: MemoryProposalCardProps) {
   const t = useTranslations('chat')
   // Same source as ProjectProfilePatchCard's projectId: the active chat store.
   const projectId = useChatStore((s) => s.projectId)
-  const [status, setStatus] = useState<'pending' | 'savedOrg' | 'savedProject' | 'dismissed'>('pending')
+  const { decision, decide } = useCardDecision(messageId, cardKey)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const save = async (url: string, savedStatus: 'savedOrg' | 'savedProject') => {
+  const save = async (url: string, savedDecision: 'savedOrg' | 'savedProject') => {
     setError(null)
     setIsSubmitting(true)
     try {
@@ -52,7 +64,7 @@ export function MemoryProposalCard({
         throw new Error(body.error || `${t('memoryProposal.error')} (${res.status})`)
       }
       setIsSubmitting(false)
-      setStatus(savedStatus)
+      decide(savedDecision)
     } catch (e) {
       setIsSubmitting(false)
       setError(e instanceof Error ? e.message : t('memoryProposal.error'))
@@ -65,21 +77,21 @@ export function MemoryProposalCard({
     void save(`/api/projects/${projectId}/memory`, 'savedProject')
   }
   const handleDismiss = () => {
-    setStatus('dismissed')
+    decide('dismissed')
     setError(null)
   }
 
-  if (status === 'savedOrg' || status === 'savedProject') {
+  if (decision === 'savedOrg' || decision === 'savedProject') {
     return (
       <ProposalShell tone="accepted">
         <p className="text-sm text-foreground">
-          {status === 'savedOrg' ? t('memoryProposal.savedOrg') : t('memoryProposal.savedProject')}
+          {decision === 'savedOrg' ? t('memoryProposal.savedOrg') : t('memoryProposal.savedProject')}
         </p>
       </ProposalShell>
     )
   }
 
-  if (status === 'dismissed') {
+  if (decision === 'dismissed') {
     return (
       <ProposalShell tone="dismissed">
         <p className="text-sm text-muted-foreground">{t('memoryProposal.dismissed')}</p>

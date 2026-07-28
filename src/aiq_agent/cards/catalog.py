@@ -26,6 +26,26 @@ from pydantic_core import PydanticUndefined
 # description in the model-facing catalog is suppressed.
 SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid"})
 
+# Card types that ASK THE USER TO DECIDE something and act on the answer. They
+# are a different kind of object from the rest of the catalog: a presentational
+# card can be re-rendered from its payload forever, but an interactive card's
+# ANSWER is state that exists nowhere else, so the frontend must persist it on
+# the message (see
+# docs/adr/0030-interactive-card-decisions-persist-on-the-message.md).
+#
+# Adding a card type here is a contract with the frontend, not a label:
+#   - `frontends/ui/src/features/grid-cards/card-decision.ts` must classify it
+#     `'interactive'` in CARD_INTERACTIVITY (that map is exhaustive, so `tsc`
+#     fails until you do);
+#   - its renderer must drive its lifecycle from `useCardDecision`, never from
+#     component-local `useState`;
+#   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`.
+#
+# Emit an interactive card ONLY for an action that is not safely repeatable
+# (a memory write, a profile patch). If the action is idempotent and cheap,
+# prefer a presentational card — there is then nothing to remember.
+INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
@@ -330,8 +350,26 @@ def render_card_catalog() -> str:
         for type_value, payload in CARD_EXAMPLES.items()
     )
 
+    # Interactive cards ASK THE USER TO AUTHORIZE A REAL WRITE, so they cost the
+    # user a decision rather than just screen space. Say so explicitly: without
+    # it the model treats them like any other presentational card and emits them
+    # speculatively, which turns the answer into a pile of consent prompts.
+    # System cards are excluded here for the same reason they are excluded above
+    # — the model must not learn they exist.
+    interactive = sorted(INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES)
+    interactive_note = (
+        "\n\nCards that ask the user to CONFIRM something (" + ", ".join(f'"{t}"' for t in interactive) + "):\n"
+        "  These are not presentation — they ask the user to authorize a real, persisted change, and\n"
+        "  their answer is remembered. Emit one only when you have a SPECIFIC change worth interrupting\n"
+        "  for, grounded in something the user actually said in this conversation. At most one per turn.\n"
+        "  Never emit one speculatively, to ask a question you could ask in prose, or to restate a\n"
+        "  change the user already confirmed."
+        if interactive
+        else ""
+    )
+
     return (
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n" + "\n".join(card_lines) + "\n\n"
+        "Card types:\n" + "\n".join(card_lines) + interactive_note + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples
     )

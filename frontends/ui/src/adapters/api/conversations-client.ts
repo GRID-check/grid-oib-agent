@@ -125,6 +125,29 @@ export const conversationsClient = {
     if (!res.ok) throw new Error('Failed to create messages')
     return res.json()
   },
+
+  /**
+   * Record the user's answers to an answer's interactive cards on the stored
+   * message row (merged into `metadata.cardInteractions`), so an applied
+   * profile patch or a saved memory stays settled when the history is
+   * rehydrated from the server instead of localStorage.
+   */
+  async updateMessageCardInteractions(
+    conversationId: string,
+    messageId: string,
+    cardInteractions: Record<string, { decision: string; decidedAt: string }>,
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardInteractions }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message card interactions')
+    return res.json()
+  },
 }
 
 export type ConversationsClient = typeof conversationsClient

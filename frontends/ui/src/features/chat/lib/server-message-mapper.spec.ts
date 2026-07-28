@@ -75,6 +75,38 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageFiles).toEqual([{ id: 'f1', fileName: 'a.pdf' }])
   })
 
+  it('restores interactive-card decisions so a settled card cannot be re-answered', () => {
+    // Regression: when a history rehydrates from the server (localStorage wiped,
+    // other device) an already-applied project_profile_patch used to come back
+    // pending, re-offering an Accept that writes the same patch again.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          cards: [{ type: 'project_profile_patch' }],
+          cardInteractions: {
+            'project_profile_patch-0': { decision: 'accepted', decidedAt: '2026-07-28T09:00:00.000Z' },
+          },
+        },
+      })
+    )
+
+    expect(mapped!.cardInteractions).toEqual({
+      'project_profile_patch-0': { decision: 'accepted', decidedAt: '2026-07-28T09:00:00.000Z' },
+    })
+  })
+
+  it('drops card decisions that are not in the closed union', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { cardInteractions: { 'memory_proposal-0': { decision: 'whatever' } } },
+      })
+    )
+
+    expect(mapped!.cardInteractions).toBeUndefined()
+  })
+
   it('tolerates a null metadata column', () => {
     const mapped = mapServerMessageToChatMessage(serverMessage({ metadata: null }))
 

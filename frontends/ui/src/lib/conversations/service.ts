@@ -23,6 +23,7 @@ import {
   insertMessages,
   listConversationsInOrg,
   listMessagesForConversation,
+  mergeMessageMetadata,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
 } from './repository'
@@ -225,6 +226,36 @@ export async function listConversationMessages(
   const conversation = await findConversationInOrg(conversationId, session.organizationId)
   if (!conversation) throw new NotFoundError()
   return listMessagesForConversation(conversationId)
+}
+
+/**
+ * Record the user's answers to an assistant answer's interactive cards
+ * (`accepted`, `dismissed`, …) on the stored message row.
+ *
+ * Merged into `metadata.cardInteractions` so it rides along with the `cards`
+ * payload already stored there: when a history is rehydrated from the server
+ * (localStorage wiped, other device) an applied `project_profile_patch` or a
+ * saved `memory_proposal` comes back settled instead of re-offering buttons
+ * that would apply it a second time. Tenancy is enforced by resolving the
+ * conversation org-scoped FIRST; both a cross-org conversation and a message
+ * that is not part of it surface as 404.
+ */
+export async function updateMessageCardInteractions(
+  session: AuthorizedSession,
+  conversationId: string,
+  messageId: string,
+  cardInteractions: Record<string, unknown>,
+): Promise<Message> {
+  const conversation = await findConversationInOrg(conversationId, session.organizationId)
+  if (!conversation) throw new NotFoundError()
+
+  // Deep-merged per card key: a second client PATCHing the map it knows about
+  // must not erase a decision it never saw (see `mergeMessageMetadata`).
+  const row = await mergeMessageMetadata(conversationId, messageId, { cardInteractions }, [
+    'cardInteractions',
+  ])
+  if (!row) throw new NotFoundError()
+  return row
 }
 
 /**

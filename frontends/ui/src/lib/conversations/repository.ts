@@ -156,3 +156,63 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
   const db = getDb()
   return db.insert(messages).values(values).onConflictDoNothing().returning()
 }
+
+/**
+ * Merge keys into one message's `metadata` jsonb, scoped to its conversation
+ * (callers must have resolved that conversation org-scoped first — without the
+ * conversation predicate any signed-in user could patch another tenant's
+ * message by guessing its id).
+ *
+ * The merge happens in JS on the row we just read rather than in SQL, so the
+ * jsonb stays a plain object the mapper can read — but read-merge-write is a
+ * lost-update race, so the whole thing runs in ONE transaction and the read
+ * takes a row lock (`SELECT … FOR UPDATE`). Without the lock two concurrent
+ * PATCHes both read the same snapshot and the later UPDATE discards the
+ * earlier one's entry, which is the very failure the deep merge below exists
+ * to prevent.
+ *
+ * `deepMergeKeys` names top-level keys whose OBJECT value should be merged
+ * entry-by-entry instead of replaced. `cardInteractions` needs this: two
+ * clients holding different views of the same conversation each PATCH the whole
+ * map they know about, so a plain top-level merge would let the second erase
+ * the first's decision — resurrecting a settled card and re-inviting the
+ * duplicate write this whole mechanism exists to prevent (ADR-0030).
+ * Last-writer-wins still applies PER ENTRY, which is correct: the same card can
+ * only be decided once.
+ *
+ * Returns null when the message does not exist in that conversation (404).
+ */
+export async function mergeMessageMetadata(
+  conversationId: string,
+  messageId: string,
+  patch: Record<string, unknown>,
+  deepMergeKeys: readonly string[] = [],
+): Promise<Message | null> {
+  const db = getDb()
+  const scope = and(eq(messages.id, messageId), eq(messages.conversationId, conversationId))
+
+  return db.transaction(async (tx) => {
+    // `for('update')` is what makes the read-merge-write below safe: it holds
+    // the row until this transaction commits, so a second PATCH to the same
+    // message blocks here instead of racing us with a stale snapshot.
+    const [existing] = await tx.select().from(messages).where(scope).limit(1).for('update')
+    if (!existing) return null
+
+    const current = (existing.metadata ?? {}) as Record<string, unknown>
+    const merged: Record<string, unknown> = { ...current, ...patch }
+
+    for (const key of deepMergeKeys) {
+      const before = current[key]
+      const after = patch[key]
+      if (isPlainObject(before) && isPlainObject(after)) {
+        merged[key] = { ...before, ...after }
+      }
+    }
+
+    const [row] = await tx.update(messages).set({ metadata: merged }).where(scope).returning()
+    return row ?? null
+  })
+}
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)

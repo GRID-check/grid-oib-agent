@@ -28,6 +28,7 @@ import {
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
 import { conversationMatchesProject } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
+import type { CardInteractions } from '@/features/grid-cards/card-decision'
 
 export type SessionsSlice = {
   currentUserId: string | null
@@ -66,6 +67,11 @@ export type SessionsSlice = {
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
   _appendMessage: (message: ChatMessage) => Promise<void>
+  _persistCardInteractions: (
+    conversationId: string,
+    messageId: string,
+    cardInteractions: CardInteractions
+  ) => Promise<void>
 }
 
 // Persistence helpers
@@ -1326,6 +1332,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.errorData && { errorData: message.errorData }),
           ...(message.fileData && { fileData: message.fileData }),
           ...(message.cards && { cards: message.cards }),
+          ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
         },
@@ -1335,6 +1342,26 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       })
     } catch (err) {
       console.warn('[appendMessage] Failed:', err)
+    }
+  },
+
+  _persistCardInteractions: async (
+    conversationId: string,
+    messageId: string,
+    cardInteractions: CardInteractions
+  ) => {
+    try {
+      const conversationsClient = await getConversationsClient()
+      await conversationsClient.updateMessageCardInteractions(
+        conversationId,
+        messageId,
+        cardInteractions
+      )
+    } catch (err) {
+      // Never surfaced: the decision is already recorded locally (and rendered
+      // from there). Losing the mirror only costs the cross-device replay —
+      // e.g. the row was never appended because the client was offline.
+      console.warn('[persistCardInteractions] Failed:', err)
     }
   },
 })

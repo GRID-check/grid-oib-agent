@@ -106,8 +106,23 @@ export const messages = pgTable('messages', {
 | `conversation_id` | `text` | NOT NULL, FK → `conversations.id` ON DELETE CASCADE | |
 | `role` | `text` | NOT NULL | `user`, `assistant`, `system`, or agent name |
 | `content` | `text` | NOT NULL | Message body |
-| `metadata` | `jsonb` | | Flexible: sources, tool_calls, agent info |
+| `metadata` | `jsonb` | | Flexible: see the key list below |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+**`metadata` keys** written by the chat store (`_appendMessage`) and read back by
+`server-message-mapper.ts` when a history rehydrates from the server:
+`messageType`, `errorData`, `fileData`, `cards`, `cardInteractions`,
+`enabledDataSources`, `messageFiles`.
+
+`cardInteractions` is the user's answer to each interactive card of that answer
+— `{ "<cardType>-<index>": { decision, decidedAt } }`, `decision` from a closed
+union and `decidedAt` a UTC ISO instant (ADR-0030). It is why a settled
+`project_profile_patch` / `memory_proposal` cannot re-offer a button that would
+apply the same write twice. Unlike the other keys it is usually written *after*
+the insert, via `PATCH /api/conversations/{id}/messages/{messageId}` (merged per
+card key); it also rides the INSERT when a decision was already recorded
+locally, which is how a decision made before the row existed still reaches the
+server.
 
 **Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns).
 

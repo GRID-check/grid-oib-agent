@@ -64,6 +64,18 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0021](0021-db-claimed-research-workers.md) | DB-claimed workers for deep-research execution | Proposed |
 | [0022](0022-org-byok-llm-credentials.md) | Enterprise BYOK LLM credentials per organization (WorkOS Vault) and the org web-search setting | Accepted |
 | [0023](0023-workflows-scheduled-research.md) | Workflows — saved research briefs with cron scheduling | Proposed |
+| [0024](0024-org-wide-document-archiv.md) | Org-wide document Archiv | Proposed |
+| [0025](0025-norm-registry.md) | Norm catalog — flat curated pointers + prose legal notes, admin-managed | Accepted |
+| [0026](0026-unified-source-kind-model.md) | Unified source-kind model for citations, Herleitung, and reports | Accepted |
+| [0027](0027-platform-workflow-templates.md) | Platform-managed workflow templates | Accepted |
+| [0027](0027-unified-ingest-pipeline.md) | Unified document processing pipeline with concurrent VLM enrichment (duplicate number — see note below) | Accepted |
+| [0028](0028-horizontal-agent-scaling-conversation-affinity.md) | Horizontally scaling the aiq-agent container via conversation affinity | Accepted |
+| [0029](0029-aspire-dashboard-telemetry.md) | Aspire standalone dashboard as the live telemetry pane | Accepted |
+| [0030](0030-interactive-card-decisions-persist-on-the-message.md) | Interactive-card decisions persist on the message | Accepted |
+
+> Note: two ADRs were independently numbered 0027. Both are Accepted and in
+> effect; the collision is recorded rather than renumbered so existing links
+> keep resolving. Number the next new ADR from the highest in this table.
 
 ## Related documents
 

@@ -66,12 +66,104 @@ sanctioned path, carrying **real** data:
 The frontend validates the wire cards (`validateGridCards`) and renders them
 through the `features/grid-cards/` component set — one renderer per card type.
 
+## Interactive cards: the answer MUST be persisted
+
+> ⚠️ Full rationale: [ADR-0030](../adr/0030-interactive-card-decisions-persist-on-the-message.md).
+> **Read this before adding, editing, or reviewing any card that has a button
+> which writes something.**
+
+Most cards are pure presentation: same payload in, same pixels out, nothing to
+remember. **Two are not.** `project_profile_patch` and `memory_proposal` ask the
+user to authorize a write (`propose, never auto-apply` —
+`project-memory-design.md` §11.7), which makes the user's click the only place
+that outcome exists.
+
+If that click lives in component-local `useState`, it dies on reload — and
+because the card *payload* persists perfectly, the card comes back looking
+untouched, with a live button that applies the patch or writes the memory **a
+second time**. Neither endpoint is idempotent. This is a data-integrity bug, not
+a cosmetic one.
+
+**The rule:** a decision on a card is conversation history, so it is stored on
+the `ChatMessage` that owns the card — exactly like `isPromptResponded` for a
+HITL prompt.
+
+| piece | where |
+|---|---|
+| The stored decision | `ChatMessage.cardInteractions: Record<cardKey, { decision, decidedAt }>` |
+| The closed set of outcomes | `CARD_DECISIONS` in `features/grid-cards/card-decision.ts` |
+| Card identity within a message | `` cardKey(card, index) `` → `` `${type}-${index}` `` (also the React key) |
+| Keeping keys honest mid-stream | `reconcileCardInteractions` — a streaming turn replaces `cards` wholesale, so a decision is kept only while the card at its index is byte-identical to the one it was made about |
+| Read/write from a renderer | `useCardDecision(messageId, cardKey)` — not a hand-rolled `useState` (the hook keeps one mount-scoped fallback for when the store write cannot land) |
+| → localStorage | the chat store's `persist` middleware (rides the message) |
+| → Postgres | `_persistCardInteractions` → `PATCH /api/conversations/{id}/messages/{messageId}` → `messages.metadata.cardInteractions` |
+| ← rehydrate | `server-message-mapper.ts` via `sanitizeCardInteractions` |
+
+Server mirroring is **not** optional polish: a history rehydrated from the
+server (localStorage quota wipe, new device) is precisely the path that would
+otherwise resurrect a settled card as pending. `mergeMessageMetadata` merges the
+map **per card key**, so a second client PATCHing the decisions it knows about
+cannot erase one it never saw.
+
+**Scope today:** cards rendered in a chat answer. The deep-research **report**
+panel is deliberately not wired — its cards come from transient
+`deepResearchCards` with no reliable owning message id, and recording a decision
+onto the wrong message is worse than not recording one. ADR-0030 §Open Questions
+lists what has to change first.
+
+Transient state stays local — a submit spinner, a request error, an open preview
+dialog. Those describe an *attempt*, not a *decision*.
+
+### Is my new card interactive?
+
+Yes, if answering it **starts a commitment that is not safely repeatable**: an
+API write, a store mutation, a decision the user would be annoyed to make twice.
+
+No, if it only opens a read-only view. `legal_basis` opens a PDF and
+`document_grid` opens a file dialog — both hold local `useState` and both are
+correctly classified `presentational`, because nothing is committed.
+
+Prefer designing a card to be presentational. If it must be interactive, make
+its endpoint idempotent too — persistence stops the UI from *offering* the
+duplicate, it does not stop a determined double-POST.
+
+### You cannot skip this by accident
+
+Three guards, on both sides of the stack:
+
+1. **`tsc` fails on an unclassified card type.** `CARD_INTERACTIVITY`
+   (`card-decision.ts`) is `Record<GridCard['type'], …>`, so the moment
+   `npm run generate:cards` adds a type, the build breaks until you classify it.
+2. **A vitest guard fails on a classified-but-unwired card.**
+   `card-interactivity.spec.tsx` renders every `'interactive'` type through
+   `GridCards`, clicks it, and asserts the decision reached the store.
+3. **A pytest parity guard fails on cross-stack drift.**
+   `INTERACTIVE_CARD_TYPES` (`aiq_agent/cards/catalog.py`) must agree with the
+   TS map — `tests/aiq_agent/cards/test_interactive_card_parity.py`.
+
 ## Design intent (why it's a layer, not a feature)
 
 Adding a new card type should be: **define the model** (`cards/models.py`) → **add
 a renderer** (`features/grid-cards/`). No pipeline surgery. That keeps the set open
 to future types (requirement checklists, comparison tables, applicability panels)
 without re-plumbing generation or transport.
+
+### Checklist: adding a card type
+
+1. Define the Pydantic model in `src/aiq_agent/cards/models.py` and add it to the
+   `GridCard` union.
+2. Regenerate the schema: `uv run python scripts/generate_card_schema.py`, then
+   `cd frontends/ui && npm run generate:cards`.
+3. **Classify it in `CARD_INTERACTIVITY`** (`features/grid-cards/card-decision.ts`).
+   `tsc` fails until you do — see [Interactive cards](#interactive-cards-the-answer-must-be-persisted)
+   for how to decide, and for what an `'interactive'` classification obliges.
+4. Add the renderer under `features/grid-cards/` and wire the `GridCards`
+   dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
+5. Add a fixture to the `/dev/cards` gallery and a `visual/registry.mjs` target,
+   then capture screenshot evidence (`npm run screenshots`).
+6. For a **system** card (tool-emitted, never model-emitted): add it to
+   `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
+   list in the config.
 
 ## Card catalog
 
@@ -86,7 +178,7 @@ values render "fehlende Angabe", never a guess. See
 |---|---|---|
 | `summary` | prose overview / key points | any |
 | `legal_basis` | a cited OIB/norm excerpt | any |
-| `project_profile_patch` | a proposed Project Brief update (hard facts / assumptions) — Accept applies it via `POST /api/projects/{id}/profile/patches`, which wraps bare values with `user_confirmed` provenance and retires answered unknowns | intake / brief |
+| `project_profile_patch` **(interactive)** | a proposed Project Brief update (hard facts / assumptions) — Accept applies it via `POST /api/projects/{id}/profile/patches`, which wraps bare values with `user_confirmed` provenance and retires answered unknowns | intake / brief |
 | `requirement_checklist` | pass/fail criteria list, per-item verdict + reference | any |
 | `comparison_table` | options as columns, criteria as rows, optional per-row highlight + recommendation | any |
 | `building_section` | to-scale cross-section: storeys, ground line, Fluchtniveau/GK/Hochhaus markers | height / GK |
@@ -105,6 +197,10 @@ values render "fehlende Angabe", never a guess. See
 | `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
 | `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
 | `document_grid` *(system)* | a grid of REAL project/Büroarchiv files surfaced for browsing (thumbnail, provenance chip, summary), each opening the document | document discovery |
+| `memory_proposal` *(system)* **(interactive)** | a finding the `remember` tool wants written to org- or project-scoped memory — the user completes the write through their own session | memory |
+
+**(interactive)** marks a card whose answer is a commitment and is therefore
+persisted on the message; see [Interactive cards](#interactive-cards-the-answer-must-be-persisted).
 
 The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
 card type = define the Pydantic model (`cards/models.py`), regenerate the schema

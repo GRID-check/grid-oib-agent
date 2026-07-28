@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { useCardDecision } from '../hooks/use-card-decision'
 import { ProposalShell } from './ProposalShell'
 import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
 import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
@@ -12,21 +13,31 @@ interface ProjectProfilePatchCardProps {
   rationale: string
   patch: ProjectProfilePatchOperation[]
   projectId?: string | null
+  /** Message this card belongs to — keys its persisted decision. */
+  messageId?: string
+  /** Stable identity of this card within that message (`cardKey`). */
+  cardKey: string
 }
 
 /**
  * Agent-proposed update to the project brief. The change is applied only when
  * the user accepts — the agent can never silently rewrite a project fact
  * (docs/architecture/project-memory-design.md §11.7: propose, never auto-apply).
+ *
+ * Accept/Reject is recorded on the owning message (`useCardDecision`) rather
+ * than in local state, so an applied patch stays applied across reloads instead
+ * of re-offering a button that would write it to the brief a second time.
  */
 export function ProjectProfilePatchCard({
   title,
   rationale,
   patch,
   projectId,
+  messageId,
+  cardKey,
 }: ProjectProfilePatchCardProps) {
   const t = useTranslations('chat')
-  const [status, setStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending')
+  const { decision, decide } = useCardDecision(messageId, cardKey)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   // The before/after rows are DERIVED from the patch + current profile — never
@@ -71,7 +82,7 @@ export function ProjectProfilePatchCard({
         throw new Error(body.error || `${t('profilePatchCard.applyFailed')} (${res.status})`)
       }
       setIsSubmitting(false)
-      setStatus('accepted')
+      decide('accepted')
     } catch (e) {
       setIsSubmitting(false)
       setError(e instanceof Error ? e.message : t('profilePatchCard.applyFailed'))
@@ -79,11 +90,11 @@ export function ProjectProfilePatchCard({
   }
 
   const handleReject = () => {
-    setStatus('rejected')
+    decide('rejected')
     setError(null)
   }
 
-  if (status === 'accepted') {
+  if (decision === 'accepted') {
     return (
       <ProposalShell tone="accepted">
         <p className="text-sm text-foreground">{t('profilePatchCard.accepted')}</p>
@@ -91,7 +102,7 @@ export function ProjectProfilePatchCard({
     )
   }
 
-  if (status === 'rejected') {
+  if (decision === 'rejected') {
     return (
       <ProposalShell tone="dismissed">
         <p className="text-sm text-muted-foreground">{t('profilePatchCard.rejected')}</p>
