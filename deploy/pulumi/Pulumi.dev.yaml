@@ -124,7 +124,7 @@ config:
   # key. Until it is set, the capability gate skips the whole tier (that is the
   # designed fail-closed behaviour, not a missing config bug).
   grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
-  grid-oib:otelOidcClientId: client_01KYKYGK9NY0Q2QJ3BRMWCVR7Q
+  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV  # pragma: allowlist secret (public OAuth client id)
   grid-oib:otelDomain: otel.dev.bigls.net
   grid-oib:otelPrimaryApiKey:
     secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
