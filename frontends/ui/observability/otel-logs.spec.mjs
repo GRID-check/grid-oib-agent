@@ -60,4 +60,42 @@ describe('initOtelLogs', () => {
     const { LoggerProvider } = await import('@opentelemetry/sdk-logs')
     expect(logs.getLoggerProvider()).toBeInstanceOf(LoggerProvider)
   })
+
+  it('actually exports records end-to-end (regression: SDK 2.x processor ctor)', async () => {
+    // SDK 2.x BatchLogRecordProcessor takes { exporter } — positional
+    // construction left _exporter undefined and every flush threw inside the
+    // processor (swallowed by diag), so init looked fine but nothing ever
+    // landed. This test asserts a real POST reaches the collector endpoint.
+    const http = await import('node:http')
+    const received = []
+    const server = http.createServer((req, res) => {
+      const chunks = []
+      req.on('data', (c) => chunks.push(c))
+      req.on('end', () => {
+        received.push({ url: req.url, body: Buffer.concat(chunks) })
+        res.writeHead(200, { 'content-type': 'application/x-protobuf' })
+        res.end()
+      })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+      // The api-logs global registry survives vi.resetModules(), so the
+      // provider registered by the test above would swallow this one.
+      const { logs } = await import('@opentelemetry/api-logs')
+      logs.disable()
+
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', `http://127.0.0.1:${server.address().port}`)
+      const { initOtelLogs } = await freshModule()
+      expect(initOtelLogs()).toBe(true)
+
+      console.warn('e2e export assertion record')
+      await logs.getLoggerProvider().forceFlush()
+
+      expect(received.length).toBeGreaterThan(0)
+      expect(received[0].url).toBe('/v1/logs')
+      expect(received[0].body.length).toBeGreaterThan(0)
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+  }, 15000)
 })
