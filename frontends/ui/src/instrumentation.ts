@@ -8,4 +8,9 @@ export async function register() {
   registerOTel({
     serviceName: process.env.OTEL_SERVICE_NAME ?? "grid-ui",
   });
+
+  // Bridge console.* to OTLP log records (Aspire "Strukturierte Protokolle").
+  // Shared with the scheduler/purger workers; no-ops without the endpoint.
+  const { initOtelLogs } = await import("../observability/otel-logs.js");
+  initOtelLogs();
 }

@@ -295,6 +295,14 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
     sref("WORKOS_API_KEY"),
     { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
+    // OTLP logs via the cluster collector (see frontendEnv for the gating
+    // rationale). Base URL - the JS exporter derives /v1/logs.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: "grid-purger" },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
+        ]
+      : []),
   ];
 }
 
@@ -310,6 +318,14 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_WORKFLOW_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
     { name: "GRID_WORKFLOW_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
     { name: "GRID_WORKFLOW_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.workflowRunsRetentionDays) },
+    // OTLP logs via the cluster collector (see frontendEnv for the gating
+    // rationale). Base URL - the JS exporter derives /v1/logs.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: "grid-workflow-scheduler" },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
+        ]
+      : []),
   ];
 }
 

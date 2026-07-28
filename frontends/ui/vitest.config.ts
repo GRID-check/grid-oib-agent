@@ -15,6 +15,7 @@ export default defineConfig({
       'tests/**/*.test.{ts,tsx}',
       'purger/**/*.spec.mjs',
       'scheduler/**/*.spec.mjs',
+      'observability/**/*.spec.mjs',
     ],
     exclude: ['**/mocks/**', '**/node_modules/**'],
     setupFiles: ['./config/vitest/polyfills.ts', './config/vitest/vitest.setup.ts'],

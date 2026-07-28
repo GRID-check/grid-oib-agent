@@ -27,6 +27,10 @@ const {
 } = require('./db')
 const { createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
+const { initOtelLogs } = require('../observability/otel-logs')
+
+// No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
+initOtelLogs()
 
 const pollIntervalMs = parseInt(process.env.PURGER_POLL_INTERVAL_MS || '60000', 10)
 

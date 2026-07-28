@@ -332,6 +332,35 @@ Applied after an adversarial review pass:
   telemetry is dropped once those limits are exhausted. Telemetry loss never
   affects request serving.
 
+## Amendment 3 (2026-07-28): logs adopted on all tiers + OTLP/HTTP gzip fix
+
+Two follow-ups landed together once traces were flowing:
+
+1. **The dashboard does not decompress OTLP/HTTP bodies.** The collector's
+   `otlphttp` exporter defaults to gzip compression; the Aspire standalone
+   dashboard parses the raw body as protobuf and fails with
+   `InvalidProtocolBufferException: tag with an invalid wire type` (it reads
+   the gzip magic bytes as a field tag), answering every export with HTTP
+   500. Fix: `compression: none` on the `otlp_http/aspire` exporter
+   (`deploy/pulumi/src/platform/otel-collector.ts`). In-cluster traffic, so
+   the wire savings never justified the breakage.
+2. **Logs are now emitted by every tier** (the collector's logs pipeline was
+   wired from day one; this is the "app-only" signal adoption):
+   - Python tiers (`grid-aiq-agent`, `grid-agent-worker`): a NAT
+     `register_logging_method` (`_type: otelcollector_logs`,
+     `src/aiq_agent/observability/otlp_logging_method.py`) yields a stdlib
+     `LoggingHandler` onto an OTLP log exporter — NAT attaches it to the root
+     logger, so all application logging flows without touching call sites.
+     The `/v1/logs` URL is derived from the injected `/v1/traces` endpoint.
+   - Node tiers (`grid-ui`, `grid-workflow-scheduler`, `grid-purger`):
+     `frontends/ui/observability/otel-logs.js` bridges `console.*` to OTel
+     log records (console output preserved), wired into
+     `src/instrumentation.ts` and both worker entrypoints.
+   The capability gate is unchanged: no `OTEL_EXPORTER_OTLP_ENDPOINT` =>
+   `logging.NullHandler` / a no-op bridge, so compose and local dev are
+   unaffected. Metrics are still not emitted anywhere — adopting them means
+   adding explicit meters, which is deliberately not done.
+
 ## Alternatives considered
 
 **Option 1 — Full OTel Collector + Grafana stack.** Durable storage, alerting,

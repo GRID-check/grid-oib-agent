@@ -27,6 +27,7 @@ from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_con
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
+from aiq_agent.observability.otlp_logging_method import ensure_registered as _ensure_otlp_logging_registered
 from aiq_agent.project_context import get_memory_reflection_enabled_from_context
 from nat.builder.builder import Builder
 from nat.builder.context import Context
@@ -47,6 +48,7 @@ from .utils import _extract_query_and_sources
 logger = logging.getLogger(__name__)
 
 _ensure_otel_redaction_registered()
+_ensure_otlp_logging_registered()
 # Register a direct ChatResponse -> ChatResponseChunk converter so Grid cards
 # (attached as an extra field on the response) survive NAT's CHAT_STREAM
 # serialization instead of being dropped by the lossy indirect str conversion.

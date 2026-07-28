@@ -488,14 +488,25 @@ When enabled, the stack deploys two components:
   All producers send plain OTLP in-cluster; the collector batches, applies
   memory back-pressure, and is the ONLY holder of the Aspire ingestion key.
   Traces, logs, and metrics pipelines are all wired, so adopting a new
-  signal later is app-only work. Swapping the backend (Grafana/Tempo/…) is a
-  collector-config change, not an app change.
+  signal later is app-only work. Swapping the backend (Grafana/Tempo/.) is a
+  collector-config change, not an app change. The `otlp_http/aspire`
+  exporter sets `compression: none` - the dashboard does not decompress
+  OTLP/HTTP bodies and 500s on gzip (ADR-0029 Amendment 3).
+
+**Signals actually emitted today** (ADR-0029 Amendment 3): traces from
+grid-ui (`@vercel/otel`), grid-aiq-agent and grid-agent-worker (NAT tracing
+exporter); logs from all five tiers - the Python tiers via the
+`otelcollector_logs` NAT logging method
+(`src/aiq_agent/observability/otlp_logging_method.py`, attaches to the root
+logger) and the Node tiers (grid-ui, workflow-scheduler, purger) via the
+`frontends/ui/observability/otel-logs.js` console bridge. Metrics: nothing
+emits them yet; that requires explicit meters.
 - **`aspire-dashboard`** (`deploy/pulumi/src/platform/observability.ts`) — a
   .NET Aspire standalone dashboard behind the collector, as a live
   trace/span viewer for platform owners.
 
 ```text
-grid-ui / grid-aiq-agent / grid-agent-worker
+grid-ui / grid-aiq-agent / grid-agent-worker / grid-workflow-scheduler / grid-purger
         │  plain OTLP (in-cluster, no key)
         ▼
   otel-collector ── OTLP/HTTP + x-otlp-api-key ──▶ aspire-dashboard
