@@ -6,6 +6,11 @@ export const platform = {
   loadError: 'Could not load the platform overview.',
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
+  // >>> ui-knowledge: add this section's copy directly below this line <<<
+  // >>> ui-norms: add this section's copy directly below this line <<<
+  // >>> ui-workflows: add this section's copy directly below this line <<<
+  // >>> ui-overview: add this section's copy directly below this line <<<
+  // >>> ui-maintenance: add this section's copy directly below this line <<<
   nav: {
     label: 'Platform sections',
     overview: 'Overview',
