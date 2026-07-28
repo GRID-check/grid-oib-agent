@@ -6,6 +6,41 @@ export const platform = {
   loadError: 'Could not load the platform overview.',
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
+  nav: {
+    label: 'Platform sections',
+    overview: 'Overview',
+    quality: 'Answer quality',
+    knowledge: 'Base knowledge',
+    norms: 'Norm catalog',
+    workflows: 'Workflow templates',
+    maintenance: 'Maintenance',
+  },
+  sections: {
+    overview: {
+      title: 'Overview',
+      subtitle: 'Every organization on the platform, with projects and LLM spend.',
+    },
+    quality: {
+      title: 'Answer quality',
+      subtitle: 'How well answers are grounded — and the execution timeline behind any turn that was not.',
+    },
+    knowledge: {
+      title: 'Base knowledge',
+      subtitle: 'The shared OIB corpus every project grounds its answers on.',
+    },
+    norms: {
+      title: 'Norm catalog',
+      subtitle: 'Which legal sources bind, how they are ranked, and where they live in RIS.',
+    },
+    workflows: {
+      title: 'Workflow templates',
+      subtitle: 'Templates published into every organization’s gallery.',
+    },
+    maintenance: {
+      title: 'Maintenance',
+      subtitle: 'Vector-store upkeep. Only needed when retrieval and the corpus have drifted apart.',
+    },
+  },
   stats: {
     organizations: 'Organizations',
     projects: 'Projects',

@@ -188,6 +188,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="run-history-preview"] a',
   },
   {
+    id: 'platform-nav',
+    mobile: true,
+    path: '/dev/platform-nav',
+    description:
+      'Platform section nav — the sticky rail on desktop and the scrolling strip on mobile, with the active section marked. Replaces the single page that stacked seven admin domains in one column.',
+    waitFor: '[data-testid="platform-nav"]',
+  },
+  {
     id: 'citation-health',
     mobile: true,
     path: '/dev/citation-health',

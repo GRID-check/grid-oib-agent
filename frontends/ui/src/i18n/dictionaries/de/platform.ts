@@ -8,6 +8,41 @@ export const platform: typeof en.platform = {
   loadError: 'Die Plattform-Übersicht konnte nicht geladen werden.',
   loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
   retry: 'Erneut versuchen',
+  nav: {
+    label: 'Plattform-Bereiche',
+    overview: 'Übersicht',
+    quality: 'Antwortqualität',
+    knowledge: 'Basiswissen',
+    norms: 'Normenkatalog',
+    workflows: 'Workflow-Vorlagen',
+    maintenance: 'Wartung',
+  },
+  sections: {
+    overview: {
+      title: 'Übersicht',
+      subtitle: 'Alle Organisationen der Plattform, mit Projekten und LLM-Kosten.',
+    },
+    quality: {
+      title: 'Antwortqualität',
+      subtitle: 'Wie gut Antworten belegt sind — und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
+    },
+    knowledge: {
+      title: 'Basiswissen',
+      subtitle: 'Der gemeinsame OIB-Korpus, auf den jedes Projekt seine Antworten stützt.',
+    },
+    norms: {
+      title: 'Normenkatalog',
+      subtitle: 'Welche Rechtsquellen binden, wie sie eingestuft sind und wo sie im RIS liegen.',
+    },
+    workflows: {
+      title: 'Workflow-Vorlagen',
+      subtitle: 'Vorlagen, die in der Galerie jeder Organisation erscheinen.',
+    },
+    maintenance: {
+      title: 'Wartung',
+      subtitle: 'Pflege des Vektorspeichers. Nur nötig, wenn Retrieval und Korpus auseinanderlaufen.',
+    },
+  },
   stats: {
     organizations: 'Organisationen',
     projects: 'Projekte',
