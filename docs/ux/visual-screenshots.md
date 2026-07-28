@@ -12,10 +12,10 @@ harness so that evidence is a committed artifact, not a one-off manual capture.
 ## How it works
 
 Each target points at a **self-contained `/dev/*` preview route** that renders a
-real component with fixture data and **no backend**. The harness boots
-`next dev`, visits each route in light and dark, and writes a retina PNG per
-theme. Because the preview routes are backend-free, the screenshots are
-reproducible in CI and locally.
+real component with fixture data and **no backend**. The harness runs the route
+under `next dev` (booting a server or reusing a running one), visits it once per
+viewport, and writes a retina PNG per theme. Because the preview routes are
+backend-free, the screenshots are reproducible in CI and locally.
 
 ```bash
 cd frontends/ui
@@ -25,6 +25,47 @@ BASE_URL=http://localhost:3000 npm run screenshots   # reuse a running server
 npm run screenshots -- composer --mobile  # also capture the mobile variant
 npm run screenshots -- --mobile-only      # capture ONLY the mobile variants
 ```
+
+### Speed (and the fast inner loop)
+
+Startup — booting `next dev` and letting it compile the route on demand —
+dominates a small run, so the harness works to pay it once:
+
+- **An already-running `next dev` for this app is reused.** The harness reads
+  `.next/dev/lock` (Next records the live server there), checks the process is
+  alive and that the first target route answers `200` without a redirect, and
+  attaches to it. A server that gates `/dev/*` behind auth fails that probe and
+  is ignored rather than silently screenshotted as a sign-in page.
+- **`SCREENSHOT_KEEP_SERVER=1` leaves the harness's own server up** when it
+  finishes, so the next run attaches instead of booting. This is the loop you
+  want while iterating on one component:
+
+  ```bash
+  SCREENSHOT_KEEP_SERVER=1 npm run screenshots -- composer   # first run boots
+  npm run screenshots -- composer                            # reuses it
+  ```
+
+  Take the server down with `kill $(node -p "require('./.next/dev/lock').pid")`
+  (or just let the next `--no-reuse` run replace it).
+- **From cold, routes are pre-compiled while Chromium launches** — the harness
+  fires a plain `fetch` at every distinct target path in parallel with
+  `chromium.launch()`, so the dev server's compile overlaps the browser boot
+  instead of stalling the first navigation of every route.
+- **Each page is loaded once per viewport, not once per theme.** Light and dark
+  come off the same load by flipping Playwright's `colorScheme` and the `.dark`
+  class, which halves the navigations.
+- **Targets are captured by a worker pool** (`SCREENSHOT_CONCURRENCY`, default
+  about half the cores).
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `SCREENSHOT_CONCURRENCY` | `min(4, max(2, cores/2))` | Pages captured in parallel |
+| `SCREENSHOT_KEEP_SERVER` | unset | `1` leaves the dev server up for the next run |
+| `SCREENSHOT_NO_REUSE` | unset | `1` always boots a private server (what CI does not need, but useful when a stale server is misbehaving) |
+| `SCREENSHOT_NETWORK_IDLE_MS` | `5000` | Cap on the quiet-network wait per load |
+| `SCREENSHOT_SETTLE_MS` | `400` | Settle after the page is ready, before the first shot |
+| `SCREENSHOT_THEME_SETTLE_MS` | `150` | Settle after flipping the theme (repaint only) |
+| `BASE_URL` | unset | Capture against an explicit server, skipping detection entirely |
 
 ### Mobile variant
 
@@ -122,10 +163,23 @@ this on every PR that adds components:
   `if-no-files-found: ignore` it does so *silently*: the preview job copied four
   PNGs into `.preview-out`, logged them, uploaded an empty artifact and every
   preview comment then reported "produced no files". Stage into `preview-out`.
-- **Wait for `networkidle` *and* the `waitFor` selector.** `next dev` compiles
-  routes lazily, so the first navigation to a route is slow (generous 120s goto
-  timeout). Waiting only for load fires before the resolution fetch settles;
-  wait for the target selector too, then a short settle delay for fonts.
+- **Readiness is a gate with four parts, and dropping any one of them makes the
+  PNGs flaky.** `next dev` compiles routes lazily, so the first navigation to a
+  route is slow (generous 120s goto timeout), and waiting only for load fires
+  before the fixture fetch settles. After `domcontentloaded` the harness waits
+  for: the target's `waitFor` selector, a **bounded** `networkidle`
+  (`SCREENSHOT_NETWORK_IDLE_MS`, default 5s), fonts + in-flight images, and
+  **document height stability** (`scrollHeight` unchanged for three
+  double-`requestAnimationFrame`s), then `SCREENSHOT_SETTLE_MS`.
+  - The quiet-network wait is bounded rather than removed. Removing it entirely
+    is measurably wrong: `settings` then captured at 5120px, 4242px and 3446px
+    tall on three consecutive runs. Leaving it unbounded is what made the harness
+    slow: the React Flow previews keep the network busy for ~30s each, and those
+    three targets alone cost 390s of a 601s full run.
+  - Height stability catches the rest — React Flow sizes its canvas from
+    *measured* node bounds, which lands a few frames after the nodes mount.
+  - A `waitFor` selector that never matches logs a `WARN` and still captures;
+    check the log if a PNG looks empty.
 - **`deviceScaleFactor: 2`** gives retina-quality PNGs; drop it if diffs get
   noisy.
 - **Never put `border-radius: inherit` in the global `:focus-visible` rule.** A
