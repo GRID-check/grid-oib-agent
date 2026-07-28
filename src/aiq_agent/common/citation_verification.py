@@ -37,7 +37,6 @@ from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
-from aiq_agent.common.source_kinds import TOOL_SOURCE_KIND
 from aiq_agent.common.source_kinds import kind_for_lane
 
 if TYPE_CHECKING:
@@ -1359,12 +1358,7 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
 
     registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
     lane_key, lane_label = source_lane(entry, registry)
-    # A bare tool-result source names no document and no URL — it is a
-    # computation ("what time is it"), not evidence. The lane classifier has no
-    # stratum for that and fails open to ``web``, which rendered it as a web
-    # source chip sitting beside an OIB Richtlinie and claiming the same
-    # evidentiary weight. Assign its kind directly instead.
-    kind = TOOL_SOURCE_KIND if entry.source_type == TOOL_RESULT_SOURCE_TYPE else kind_for_lane(lane_key)
+    kind = kind_for_lane(lane_key)
 
     payload: dict[str, Any] = {
         # The [N] marker this source carries in the answer prose (when known).

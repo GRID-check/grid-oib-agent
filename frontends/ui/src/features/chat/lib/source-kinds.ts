@@ -13,25 +13,10 @@
 
 import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 
-/**
- * The coarse source kinds every source renders through.
- *
- * The first four are the document/provenance strata. `tool` is the odd one out
- * by design: it marks a bare tool result (a computation like "what time is
- * it") that names no document and no URL. It used to fail open to `web` and
- * render as a web source chip beside an OIB Richtlinie, claiming the same
- * evidentiary weight; it now carries its own kind so surfaces can say what it
- * is instead.
- */
-export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web' | 'tool'
+/** The four coarse source kinds every source renders through. */
+export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web'
 
-const SOURCE_KINDS: ReadonlySet<SourceKind> = new Set([
-  'baurecht',
-  'buero',
-  'projekt',
-  'web',
-  'tool',
-])
+const SOURCE_KINDS: ReadonlySet<SourceKind> = new Set(['baurecht', 'buero', 'projekt', 'web'])
 
 /** Narrow an untrusted wire value to a SourceKind, else undefined. */
 export const asSourceKind = (value: string | null | undefined): SourceKind | undefined =>
@@ -47,22 +32,8 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   buero: 'office',
   projekt: 'project',
   web: 'auto',
-  // A tool result shares the neutral `auto` family — it makes no provenance
-  // claim, and giving it a colour of its own would read as a fifth stratum.
-  // What separates it visually is its ICON (see `tintForKind`/`iconForTint`),
-  // never colour alone.
-  tool: 'auto',
 }
 
-/**
- * The `--source-*` family a kind paints with, before any lane refinement.
- *
- * `tool` resolves to its own tint token rather than to `auto` so the chip can
- * carry a distinct icon; the token itself aliases the `auto` greys in CSS, so
- * the colour is unchanged and only the glyph tells them apart.
- */
-export const tintForKind = (kind: SourceKind): SourceTint =>
-  kind === 'tool' ? 'tool' : KIND_TO_SIGNAL[kind]
 
 // Fine lane family → coarse kind (mirror of backend `source_kinds.kind_for_lane`).
 // The Herleitung fan-out and the chips MUST share this so they never disagree

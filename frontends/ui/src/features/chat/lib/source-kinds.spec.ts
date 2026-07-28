@@ -1,15 +1,9 @@
 import { describe, test, expect } from 'vitest'
-import {
-  KIND_TO_SIGNAL,
-  asSourceKind,
-  authorityTag,
-  tintForKind,
-  type SourceKind,
-} from './source-kinds'
+import { KIND_TO_SIGNAL, asSourceKind, authorityTag, type SourceKind } from './source-kinds'
 
 describe('asSourceKind', () => {
-  test('accepts the canonical kinds', () => {
-    for (const k of ['baurecht', 'buero', 'projekt', 'web', 'tool'] as SourceKind[]) {
+  test('accepts the four canonical kinds', () => {
+    for (const k of ['baurecht', 'buero', 'projekt', 'web'] as SourceKind[]) {
       expect(asSourceKind(k)).toBe(k)
     }
   })
@@ -33,22 +27,6 @@ describe('KIND_TO_SIGNAL', () => {
     expect(KIND_TO_SIGNAL.web).toBe('auto')
   })
 
-  test('a tool result shares the neutral family — it claims no provenance', () => {
-    expect(KIND_TO_SIGNAL.tool).toBe('auto')
-  })
-})
-
-describe('tintForKind', () => {
-  test('gives a tool result its own tint token so the icon can differ', () => {
-    expect(tintForKind('tool')).toBe('tool')
-  })
-
-  test('every other kind paints with its plain signal family', () => {
-    expect(tintForKind('baurecht')).toBe('law')
-    expect(tintForKind('buero')).toBe('office')
-    expect(tintForKind('projekt')).toBe('project')
-    expect(tintForKind('web')).toBe('auto')
-  })
 })
 
 describe('authorityTag', () => {

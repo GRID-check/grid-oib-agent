@@ -107,16 +107,6 @@ const sources: CitationSource[] = [
     isCited: false,
     timestamp: at,
   },
-  {
-    id: 'tool',
-    content: 'mcp_time__get_current_time',
-    citationKey: 'mcp_time__get_current_time',
-    tool: 'mcp_time__get_current_time',
-    sourceType: 'tool_result',
-    kind: 'tool',
-    isCited: false,
-    timestamp: at,
-  },
 ]
 
 export default function SourceListPreviewPage() {

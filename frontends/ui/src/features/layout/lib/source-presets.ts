@@ -35,13 +35,8 @@ export type SourceSignal = 'law' | 'project' | 'office' | 'auto'
  * painting both the same blue left the authority badge carrying that entire
  * distinction on its own. Resolve it with `accentForLane` in the chat feature,
  * which is the only place a fine lane key is known.
- *
- * `tool` is likewise not a signal: it marks a bare tool result, which makes no
- * provenance claim at all. Its CSS tokens alias the neutral `auto` greys, so it
- * is the ICON — not the colour — that stops a computation from reading as a
- * cited document. Resolve it with `tintForKind`.
  */
-export type SourceTint = SourceSignal | 'oib' | 'tool'
+export type SourceTint = SourceSignal | 'oib'
 
 /** Matches law/regulation sources: RIS, Baurecht, OIB Richtlinien, norms. */
 const LAW_RE = /(^|[^a-z])ris([^a-z]|$)|recht|\blaw\b|richtlin|oib|norm|gesetz/i

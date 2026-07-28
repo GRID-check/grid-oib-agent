@@ -1944,38 +1944,6 @@ class TestKnowledgeCitationLineFormats:
         assert source_entry_to_wire(entry)["file_name"] == "bestandsplan.pdf"
 
 
-class TestToolResultSourceKind:
-    """A bare tool result is a computation, not a document — say so on the wire."""
-
-    def test_tool_result_capture_gets_the_tool_kind(self):
-        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
-        from aiq_agent.common.citation_verification import source_entry_to_wire
-
-        entries = extract_sources_from_tool_result("mcp_time__get_current_time", "2026-07-28T10:00:00+02:00")
-        assert len(entries) == 1
-        assert entries[0].source_type == "tool_result"
-        assert source_entry_to_wire(entries[0])["kind"] == "tool"
-
-    def test_it_does_not_masquerade_as_a_web_source(self):
-        """It used to fail open to `web` and sit beside a Richtlinie as a peer."""
-        from aiq_agent.common.citation_verification import source_entry_to_wire
-
-        entry = SourceEntry(citation_key="some_tool", source_type="tool_result", tool_name="some_tool")
-        wire = source_entry_to_wire(entry)
-        assert wire["kind"] != "web"
-        # It names no document, so it offers no file to open and no origin token.
-        assert "file_name" not in wire
-        assert "origin" not in wire
-
-    def test_real_documents_and_urls_keep_their_kind(self):
-        from aiq_agent.common.citation_verification import source_entry_to_wire
-
-        kb = SourceEntry(citation_key="oib-rl_2.pdf, p.3", source_type="knowledge_layer", collection="oib_knowledge")
-        web = SourceEntry(url="https://example.com/a", source_type="generic", tool_name="web_search_tool")
-        assert source_entry_to_wire(kb)["kind"] == "baurecht"
-        assert source_entry_to_wire(web)["kind"] == "web"
-
-
 class TestCitedPageResolution:
     """The wire's page is the page the UI opens the PDF at — resolve it exactly."""
 

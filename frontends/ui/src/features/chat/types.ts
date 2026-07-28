@@ -301,7 +301,7 @@ export interface ThinkingTraceLane {
    * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
    * only `signal`, which stays the field consumers read.
    */
-  kind?: 'baurecht' | 'buero' | 'projekt' | 'web' | 'tool'
+  kind?: 'baurecht' | 'buero' | 'projekt' | 'web'
   signal: 'law' | 'project' | 'office' | 'auto'
 }
 
