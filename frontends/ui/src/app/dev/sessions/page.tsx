@@ -14,11 +14,6 @@
  * header (`top-[var(--header-height)]`). A preview without that chrome shows the
  * offset as an unexplained gap above the panel — a screenshot that invents a
  * layout bug. Keep any preview of a docked/overlaid surface host-accurate.
- *
- * `?variant=` selects the captured scenario:
- *   - (none)  → a full history: today / yesterday / older, one row selected.
- *   - empty   → no sessions at all (first run) — the empty state.
- *   - search  → a query that matches nothing, i.e. the no-results state.
  */
 
 import { useEffect } from 'react'

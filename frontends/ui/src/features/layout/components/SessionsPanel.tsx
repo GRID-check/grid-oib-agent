@@ -409,9 +409,8 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         </div>
       )}
 
-      {/* Session List — items stagger in when the panel opens (forceMount keeps the
-          panel in the DOM, so this is driven by the open state, not by mounting) */}
-      {/* The list fades in as ONE surface.
+      {/* Session List — the list fades in as ONE surface, driven by the open
+          state rather than by mounting (forceMount keeps the panel in the DOM).
           It used to stagger every row through `fadeRise` (`opacity: 0, y: 8`)
           with an uncapped `staggerChildren: 0.05`, so row N only began animating
           after 0.05 + N×0.05s — with a couple of dozen sessions the lower rows
