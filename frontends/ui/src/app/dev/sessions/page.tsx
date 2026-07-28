@@ -10,6 +10,11 @@
  * the group headers scrolling away, and the old per-row entrance stagger
  * leaving the lower rows offset and invisible while they waited their turn.
  *
+ * The page renders a stand-in nav bar because DockedPanel docks BELOW the app
+ * header (`top-[var(--header-height)]`). A preview without that chrome shows the
+ * offset as an unexplained gap above the panel — a screenshot that invents a
+ * layout bug. Keep any preview of a docked/overlaid surface host-accurate.
+ *
  * `?variant=` selects the captured scenario:
  *   - (none)  → a full history: today / yesterday / older, one row selected.
  *   - empty   → no sessions at all (first run) — the empty state.
@@ -52,25 +57,32 @@ export default function SessionsPreviewPage() {
   }, [setSessionsPanelOpen])
 
   return (
-    <main className="min-h-dvh bg-background px-4 py-10" data-testid="sessions-preview">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-        <h1 className="font-mono text-xs text-muted-foreground">
-          /dev/sessions — session history panel
-        </h1>
-        {/* Constrained to a realistic panel height so the list scrolls: the
-            sticky day headers and the trailing-margin fix only show at length. */}
-        <div className="h-[720px] w-[340px] overflow-hidden rounded-xl border">
-          <SessionsPanel
-            sessions={SESSIONS}
-            selectedSessionId="s-2"
-            onSelectSession={() => {}}
-            onNewSession={() => {}}
-            onDeleteSession={() => {}}
-            onDeleteAllSessions={() => {}}
-            onRenameSession={() => {}}
-          />
-        </div>
-      </div>
-    </main>
+    <div className="min-h-dvh bg-background" data-testid="sessions-preview">
+      {/* A stand-in for the app nav bar.
+          DockedPanel is `fixed top-[var(--header-height)] … md:top-12`, i.e. it
+          deliberately starts BELOW the header. Without a header in the preview
+          that offset floats over an empty page and reads as a stray top margin
+          on the panel — evidence that would send someone hunting a layout bug
+          that does not exist in the product. The bar is inert; it exists only so
+          the screenshot occupies the same space the real chrome does. */}
+      <header
+        className="bg-background sticky top-0 z-50 flex h-[var(--header-height)] items-center gap-2 border-b px-4 md:h-12"
+        aria-hidden="true"
+      >
+        <span className="font-mono text-xs text-muted-foreground">
+          /dev/sessions — nav bar stand-in (the panel docks beneath it)
+        </span>
+      </header>
+
+      <SessionsPanel
+        sessions={SESSIONS}
+        selectedSessionId="s-2"
+        onSelectSession={() => {}}
+        onNewSession={() => {}}
+        onDeleteSession={() => {}}
+        onDeleteAllSessions={() => {}}
+        onRenameSession={() => {}}
+      />
+    </div>
   )
 }
