@@ -177,7 +177,7 @@ adoption is app-only work.
    `otel-collector:4317/4318`. No NetworkPolicy changes (same-namespace
    ingress allowed, egress open by design).
 2. **OTLP key handling hardened**: the key moves into a dedicated Kubernetes
-   Secret `otel-ingestion` (created by the observability module) and is
+   Secret `aspire-dashboard-secrets` (created by the observability module) and is
    referenced via `secretKeyRef` by BOTH the dashboard
    (`Dashboard__Otlp__PrimaryApiKey`) and the collector (`OTLP_API_KEY` env,
    interpolated into the exporter header). Previously it was a plain env

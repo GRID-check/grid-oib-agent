@@ -241,7 +241,7 @@ These are set by the Pulumi stack on the respective Deployments — not part of
 | `OTEL_SERVICE_NAME` | No | per-tier | `service.name` resource: `grid-ui` / `grid-aiq-agent` / `grid-agent-worker`. |
 
 The Aspire ingestion key is NOT an env var on producers — it lives in the
-Kubernetes Secret `otel-ingestion`, referenced only by the collector and the
+Kubernetes Secret `aspire-dashboard-secrets`, referenced only by the collector and the
 dashboard (see `docs/deployment/kubernetes.md` §9).
 
 ---

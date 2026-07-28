@@ -48,9 +48,11 @@ Key decisions within the approach:
   in-cluster; the collector alone holds the ingestion key and is the only
   client of the dashboard's OTLP ports. See the amendment below.
 - **OTLP API key:** a Pulumi-managed value materialised exactly once, in the
-  dedicated Kubernetes Secret `otel-ingestion`, referenced via `secretKeyRef`
-  by the dashboard (`Dashboard:Otlp:PrimaryApiKey`) and the collector's
-  exporter header. It never appears as a plain env value on a pod spec.
+  dedicated Kubernetes Secret `aspire-dashboard-secrets` (keys `otlp-api-key`,
+  `workos-client-secret`), referenced via `secretKeyRef` by the dashboard
+  (`Dashboard:Otlp:PrimaryApiKey`, OIDC client secret) and the collector's
+  exporter header. Nothing sensitive appears as a plain env value on a pod
+  spec.
 - **Scope:** traces from all three app tiers — Next.js BFF (`grid-ui`),
   aiq-agent (`grid-aiq-agent`), and agent-worker (`grid-agent-worker`). The
   collector carries traces+logs+metrics pipelines so future signal adoption
@@ -153,6 +155,45 @@ dashboard quickstart and cost real debugging time if missed:
   instrumentation) — follow-up if needed.
 - The dashboard image is .NET-based (~200 MB), adding image-pull latency on
   cold start.
+
+## Security hardening (enterprise audit, 2026-07-28)
+
+Applied after an adversarial review pass:
+
+- `otelPrimaryApiKey` is `requireSecret` — a stack without the key fails at
+  `pulumi preview` instead of deploying an unauthenticated dashboard.
+- All sensitive values (OTLP key, WorkOS OIDC client secret) ride in the
+  `aspire-dashboard-secrets` Secret via `secretKeyRef`; no plain env values.
+- Both observability pods run with `automountServiceAccountToken: false`
+  (no K8s API access needed) and `runAsNonRoot`.
+- Both images are **digest-pinned** in `deploy/pulumi/src/config.ts`
+  (`aspire-dashboard@sha256:bd9d…`, `opentelemetry-collector-contrib@sha256:f2f0…`);
+  upgrades are deliberate config changes, not mutable-tag surprises.
+- `.github/workflows/security.yml` has an `image-scan` job (trivy,
+  HIGH/CRITICAL, `--ignore-unfixed`) that extracts the pinned digests from
+  the Pulumi config and blocks on fixable findings.
+
+### Residual risks (accepted, documented)
+
+- **Trace payloads contain user content** (prompts, retrieved snippets, LLM
+  responses — that is the point of the tool) and span URLs can carry
+  **presigned S3 query strings**. Blast radius is bounded by the OIDC
+  claim gate (platform-org members only), the in-memory-only store, and the
+  ring-buffer limits. Do NOT widen dashboard access without re-evaluating.
+- **Plaintext OTLP in-cluster** (no mTLS between producers → collector →
+  dashboard). Acceptable on a private cluster network; a service mesh would
+  be the upgrade path if the cluster threat model changes.
+- **Shared WorkOS client** for the dashboard OIDC: the dashboard uses the
+  same AuthKit client as the app (issuer is per-client). A dedicated WorkOS
+  app/client for observability would shrink the blast radius of the shared
+  secret — follow-up, not a blocker.
+- **Collector receivers are unauthenticated** (plain OTLP). Reachability is
+  bounded to same-namespace pods by the NetworkPolicy posture; a rogue
+  in-namespace pod could inject spans. Accepted: namespace workload identity
+  is already the trust boundary.
+- **Safe SPOFs**: dashboard and collector are single-replica with no durable
+  storage. A restart loses the ring buffer; producers' exporters queue/retry
+  briefly and then drop. Telemetry loss never affects request serving.
 
 ## Alternatives considered
 

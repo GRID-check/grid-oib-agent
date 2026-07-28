@@ -670,7 +670,7 @@ Plan complete and saved. Two execution options:
 Post-review architecture amendment (see spec amendment + ADR-0029 amendment for
 full rationale). Executed directly (not subagent) per maintainer quality bar:
 
-- **Task 6 — Ingestion Secret + key hardening**: `otel-ingestion` k8s Secret in
+- **Task 6 — Ingestion Secret + key hardening**: `aspire-dashboard-secrets` k8s Secret in
   `observability.ts`; dashboard `PrimaryApiKey` via `secretKeyRef`; deleted
   `OTLP_API_KEY`/`OTEL_EXPORTER_OTLP_HEADERS` from app `grid-secrets`.
 - **Task 7 — `src/platform/otel-collector.ts`**: contrib collector Deployment +

@@ -511,9 +511,10 @@ no telemetry, and the `server.js` WS proxy is not auto-instrumented
   FULL path (`http://otel-collector:4318/v1/traces` — the NAT exporter posts
   as-is); the frontend gets the BASE URL (`http://otel-collector:4318` — the
   JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec).
-- The ingestion key lives in the dedicated Secret `otel-ingestion`,
-  referenced via `secretKeyRef` by the dashboard
-  (`Dashboard:Otlp:PrimaryApiKey`) and the collector exporter header — never
+- Sensitive values live in the dedicated Secret `aspire-dashboard-secrets`
+  (keys: `otlp-api-key`, `workos-client-secret`), referenced via
+  `secretKeyRef` by the dashboard (`Dashboard:Otlp:PrimaryApiKey`,
+  OIDC client secret) and the collector exporter header — never
   a plain env value. Producers hold no key.
 - Only the dashboard UI port (18888) is exposed through the Gateway
   (`https-otel` listener + HTTPRoute). Collector and dashboard OTLP ports
