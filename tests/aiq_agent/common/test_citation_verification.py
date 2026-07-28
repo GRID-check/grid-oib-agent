@@ -1981,6 +1981,39 @@ class TestCitedPageResolution:
         assert self._registry().entry_for_citation_key("other.pdf, p.1") is None
 
 
+class TestDeletionDoesNotStrandPunctuation:
+    """Removing something mid-sentence must not leave "… Begehung ." behind.
+
+    Both upstream deletions produce the artifact — a bare URL stripped by
+    sanitization, and an unverifiable ``[N]`` stripped by verification — and the
+    result is user-visible prose in the answer.
+    """
+
+    def test_a_stripped_citation_does_not_strand_a_space(self):
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://real.example/a", title="Real", tool_name="web_search_tool"))
+        report = (
+            "Belegt [1]. Erfunden [2]. Ende.\n\n"
+            "## Quellen\n"
+            "- [1] Real - https://real.example/a\n"
+            "- [2] Fake - https://fake.example/b\n"
+        )
+        verified = verify_citations(report, registry).verified_report
+        body = sanitize_report(verified).sanitized_report
+        assert "Erfunden." in body
+        assert "Erfunden ." not in body
+
+    def test_a_removed_body_url_does_not_strand_a_space(self):
+        report = "Ein Satz mit https://nowhere.example/x . Ende.\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        body = sanitize_report(report).sanitized_report
+        assert body.startswith("Ein Satz mit. Ende.")
+
+    def test_a_line_break_before_punctuation_is_left_alone(self):
+        """A newline before punctuation is the author's layout, not our debris."""
+        report = "Zeile eins\n. Zeile zwei [1].\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        assert "eins\n." in sanitize_report(report).sanitized_report
+
+
 class TestSanitizeReportExposesRenumberMap:
     """Callers that put verify_citations' [N] on the wire must be able to remap."""
 
