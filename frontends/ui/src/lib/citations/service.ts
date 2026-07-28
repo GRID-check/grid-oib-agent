@@ -23,7 +23,7 @@ import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
 import { getNormRegistry } from '@/lib/norms/service'
 import { buildMissingSourceCandidates, type MissingSourceCandidate } from './missing-sources'
 import * as repository from './repository'
-import { clampWindowDays, DEFAULT_WINDOW_DAYS } from './window'
+import { clampWindowDays } from './window'
 
 export { clampWindowDays, DEFAULT_WINDOW_DAYS, parseWindowDaysParam } from './window'
 
