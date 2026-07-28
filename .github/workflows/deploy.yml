@@ -193,7 +193,15 @@ jobs:
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select matthiasbigl/grid-oib/dev
           pulumi config set grid-oib:imageTag "$IMAGE_TAG"
-          pulumi preview --policy-pack ./policy --json > .plan.json
+          # `--json` puts EVERYTHING on stdout, diagnostics included, so a bare
+          # redirect leaves a failed preview looking like a naked `exit 1` with
+          # no reason anywhere in the log. Surface the captured output before
+          # failing — the API server's rejection message is the whole story.
+          if ! pulumi preview --policy-pack ./policy --json > .plan.json; then
+            echo "::error::pulumi preview failed — captured output follows"
+            cat .plan.json
+            exit 1
+          fi
           node scripts/validate-crs.mjs .plan.json
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
