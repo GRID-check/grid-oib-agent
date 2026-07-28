@@ -54,7 +54,8 @@ export const workflows: typeof en.workflows = {
 
   run: {
     submitted: 'Ausführung gestartet.',
-    submittedDetail: 'Verfolgen Sie sie im Reiter „Recherche“.',
+    submittedDetail: 'Sie läuft jetzt – verfolgen Sie sie live im Ausführungsverlauf.',
+    viewProgress: 'Fortschritt ansehen',
     skipped: 'Ausführung übersprungen',
     error: 'Die Ausführung konnte nicht gestartet werden.',
     disabled: 'Aktivieren Sie den Workflow, bevor Sie ihn ausführen.',
@@ -148,15 +149,27 @@ export const workflows: typeof en.workflows = {
     loadError: 'Der Ausführungsverlauf konnte nicht geladen werden.',
     empty: 'Dieser Workflow wurde noch nicht ausgeführt.',
     viewReport: 'Bericht ansehen',
+    viewProgress: 'Fortschritt ansehen',
+    viewThinking: 'Denkprozess ansehen',
     scheduler: 'Zeitplaner',
     trigger: {
       manual: 'Manuell',
       schedule: 'Geplant',
     },
+    // Ergebnis der Übermittlung (workflow_runs.status).
     status: {
       submitted: 'Übermittelt',
       skipped: 'Übersprungen',
       error: 'Fehler',
+    },
+    // Stand der Ausführung selbst, aus dem Job-Speicher des Backends.
+    jobStatus: {
+      submitted: 'In Warteschlange',
+      pending: 'In Warteschlange',
+      running: 'Läuft',
+      completed: 'Abgeschlossen',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
     },
   },
 

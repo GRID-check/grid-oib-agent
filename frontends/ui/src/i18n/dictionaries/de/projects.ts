@@ -118,7 +118,6 @@ export const projects: typeof en.projects = {
   },
   researchRuns: {
     hint: {
-      reportPending: 'Bericht ausstehend',
       noReport: 'Kein Bericht',
     },
     status: {
@@ -137,6 +136,7 @@ export const projects: typeof en.projects = {
       'Tiefe Rechercheläufe erscheinen hier, sobald Sie Piloti im Chat eine komplexe Frage stellen — es durchsucht die OIB/RIS-Quellen und liefert einen belegten Bericht, den Sie erneut aufrufen können.',
     emptyAction: 'Einen Lauf im Chat starten',
     viewReport: 'Bericht ansehen',
+    viewProgress: 'Fortschritt ansehen',
   },
   intake: {
     validation: {
