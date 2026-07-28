@@ -165,6 +165,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="workflow-templates"]',
   },
   {
+    id: 'workflow-run-history',
+    path: '/dev/workflow-run-history',
+    description:
+      'A workflow’s run history joined with live job status — a run in flight (View progress), a finished one (View report), a failed one (View thinking) and a skipped one with no job.',
+    waitFor: '[data-testid="run-history-preview"] a',
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:

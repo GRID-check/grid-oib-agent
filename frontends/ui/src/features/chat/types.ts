@@ -843,6 +843,12 @@ export interface ChatActions {
 
   /** Start deep research streaming with a job ID and optional originating message ID */
   startDeepResearch: (jobId: string, messageId?: string) => void
+  /**
+   * Follow a run this session did not start (a workflow run, or one opened from
+   * the run history): binds the job so its SSE stream connects and the research
+   * panel updates live — without an owning conversation or tracking message.
+   */
+  attachToDeepResearchJob: (jobId: string) => void
   /** Update deep research job status */
   updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
   /** Update the last received SSE event ID (for reconnection) */

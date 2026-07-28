@@ -131,14 +131,21 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   /**
    * Check if the current session owns the active deep research stream.
    * This prevents SSE events from mutating the wrong session.
+   *
+   * A run with no owning conversation is an *attached* run (a workflow run or
+   * a run opened from the history — `attachToDeepResearchJob`). It belongs to
+   * the research panel rather than to a thread, so the job-id match is the
+   * whole guard there; there is no session it could leak into.
    */
   const isOwnerActive = useCallback((expectedJobId?: string): boolean => {
     const state = useChatStore.getState()
+    const ownerConversationId = state.deepResearchOwnerConversationId
     return Boolean(
       state.isDeepResearchStreaming &&
         (!expectedJobId || state.deepResearchJobId === expectedJobId) &&
-        state.deepResearchOwnerConversationId &&
-        state.currentConversation?.id === state.deepResearchOwnerConversationId
+        (ownerConversationId
+          ? state.currentConversation?.id === ownerConversationId
+          : true)
     )
   }, [])
 
@@ -342,6 +349,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             const state = useChatStore.getState()
             const ownerConvId = state.deepResearchOwnerConversationId
             const messageId = state.activeDeepResearchMessageId
+            // An attached run (no owning conversation — a workflow run opened
+            // from the run history) has no thread to write into. Its banner
+            // and error card would land in whatever conversation happens to be
+            // open, so the outcome is left to the research panel instead.
+            const isAttachedRun = !ownerConvId
 
             if (status === 'success') {
               setCurrentStatus('complete')
@@ -358,7 +370,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                   showViewReport: hasReport,
                 })
               }
-              addDeepResearchBanner('success', jobId, ownerConvId || undefined, { totalTokens, toolCallCount })
+              if (!isAttachedRun) {
+                addDeepResearchBanner('success', jobId, ownerConvId, { totalTokens, toolCallCount })
+              }
               stopAllDeepResearchSpinners(true)
               setStreamLoaded(true)
               completeDeepResearch()
@@ -377,12 +391,17 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                   showViewReport: hasReport,
                 })
               }
-              addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId || undefined)
+              if (!isAttachedRun) {
+                addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId)
+              }
               clientRef.current?.disconnect()
               setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
-              if (error && !isUserCancelled) {
+              // Error cards are thread artifacts too: an attached run has no
+              // thread, and the research panel's outcome notice carries its
+              // failure instead.
+              if (!isAttachedRun && error && !isUserCancelled) {
                 // The failure banner above carries the user-facing outcome and
                 // its View-report/Thinking affordances; the error card adds the
                 // technical context. No explicit message: ErrorBanner localizes
@@ -391,7 +410,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 // being shown as the headline.
                 const { addErrorCard } = useChatStore.getState()
                 addErrorCard('agent.deep_research_failed', undefined, error)
-              } else if (status === 'interrupted' && !isUserCancelled) {
+              } else if (!isAttachedRun && status === 'interrupted' && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
                 addErrorCard('agent.deep_research_failed', tChat('deepResearchErrors.interrupted'))
               }
@@ -702,7 +721,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             showViewReport: hasReport,
           })
         }
-        addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId || undefined)
+        // Attached runs (no owning conversation) get no thread banner — it
+        // would land in an unrelated conversation.
+        if (ownerConvId) {
+          addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId)
+        }
         stopAllDeepResearchSpinners()
         clientRef.current?.disconnect()
         clientRef.current = null

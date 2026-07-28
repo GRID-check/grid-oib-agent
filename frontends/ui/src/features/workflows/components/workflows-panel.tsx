@@ -17,11 +17,16 @@ import { WorkflowBuilder } from './workflow-builder'
 
 interface WorkflowsPanelProps {
   projectId: string
+  /**
+   * Qdrant collection of this project. The run history joins it against the
+   * backend's research runs to show each run's live job status.
+   */
+  projectCollection: string | null
 }
 
 type Mode = 'list' | 'create' | 'edit'
 
-export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element {
+export function WorkflowsPanel({ projectId, projectCollection }: WorkflowsPanelProps): JSX.Element {
   const t = useTranslations('workflows')
   const [mode, setMode] = useState<Mode>('list')
   const [editWorkflow, setEditWorkflow] = useState<WorkflowDetail | null>(null)
@@ -67,6 +72,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element 
     return (
       <WorkflowList
         projectId={projectId}
+        projectCollection={projectCollection}
         onCreate={openCreate}
         onUseTemplate={openTemplate}
         onEdit={openEdit}

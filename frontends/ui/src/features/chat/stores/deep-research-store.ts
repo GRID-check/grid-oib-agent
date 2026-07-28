@@ -55,6 +55,13 @@ export type DeepResearchSlice = {
   respondToInteractionFn: ((response: string) => void) | null
 
   startDeepResearch: (jobId: string, messageId?: string) => void
+  /**
+   * Observe a run this session did not start (a workflow run, or one opened
+   * from the run history / another device): binds the job so the SSE stream
+   * connects and the research panel follows it live, without an owning
+   * conversation or tracking message.
+   */
+  attachToDeepResearchJob: (jobId: string) => void
   updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
   completeDeepResearch: () => void
   setDeepResearchStalled: (stalled: boolean) => void
@@ -256,6 +263,26 @@ export const initialDeepResearchState = {
   respondToInteractionFn: null as ((response: string) => void) | null,
 }
 
+/**
+ * Per-run artifact reset shared by every entry point that (re)binds a run.
+ * A factory, so each bind gets its own arrays.
+ */
+const clearedRunArtifacts = (): Partial<ChatStore> => ({
+  deepResearchLastEventId: null,
+  reportContent: '',
+  reportContentCategory: null,
+  deepResearchCitations: [],
+  deepResearchTodos: [],
+  deepResearchLLMSteps: [],
+  deepResearchAgents: [],
+  deepResearchToolCalls: [],
+  deepResearchFiles: [],
+  deepResearchCards: [],
+  deepResearchStreamLoaded: false,
+  isDeepResearchStalled: false,
+  deepResearchConnectionLost: false,
+})
+
 export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], DeepResearchSlice> = (set, get) => ({
   ...initialDeepResearchState,
 
@@ -263,28 +290,39 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const { currentConversation } = get()
     set(
       {
+        ...clearedRunArtifacts(),
         deepResearchJobId: jobId,
-        deepResearchLastEventId: null,
         isDeepResearchStreaming: true,
         deepResearchStartedAt: Date.now(),
         deepResearchStatus: 'submitted',
         deepResearchOwnerConversationId: currentConversation?.id || null,
         activeDeepResearchMessageId: messageId || null,
-        reportContent: '',
-        reportContentCategory: null,
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchCards: [],
-        deepResearchStreamLoaded: false,
-        isDeepResearchStalled: false,
-        deepResearchConnectionLost: false,
       },
       false,
       'startDeepResearch'
+    )
+  },
+
+  attachToDeepResearchJob: (jobId: string) => {
+    set(
+      {
+        ...clearedRunArtifacts(),
+        deepResearchJobId: jobId,
+        isDeepResearchStreaming: true,
+        // The run started elsewhere (a workflow run, another tab/device), so
+        // its true start time is unknown — the elapsed pill stays hidden.
+        deepResearchStartedAt: null,
+        // 'running' (not 'submitted') puts the SSE connect into reconnect
+        // mode: replayed history is buffered and flushed once, then events
+        // stream live — instead of a per-event render storm over the backlog.
+        deepResearchStatus: 'running',
+        // No owning conversation: an attached run belongs to the research
+        // panel alone, so it must never write into whatever thread is open.
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+      },
+      false,
+      'attachToDeepResearchJob'
     )
   },
 

@@ -373,8 +373,6 @@ export const chat: typeof en.chat = {
     reportUnavailable: 'Dieser Recherchebericht ist nicht mehr verfügbar.',
     serviceUnreachable:
       'Der Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.',
-    jobStillRunning:
-      'Die Recherche läuft noch. Der Bericht kann geöffnet werden, sobald sie abgeschlossen ist.',
     loadFailed: 'Recherchedaten konnten nicht geladen werden.',
   },
   sessionActions: {
