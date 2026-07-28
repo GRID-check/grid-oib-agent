@@ -4,6 +4,13 @@ import { GridConfig } from "../config";
 import { PORT } from "../constants";
 
 /**
+ * `app.kubernetes.io/name` of the Aspire dashboard. Referenced by rule 2 (which
+ * must NOT select it) as well as rules 7 and 8 (which grant it exactly two
+ * callers), so the three stay in agreement.
+ */
+const OBSERVABILITY_DASHBOARD = "aspire-dashboard";
+
+/**
  * Namespace-scoped NetworkPolicies for `grid`: a **default-deny for ingress**
  * plus the minimum set of allows the stack actually needs. This contains lateral
  * movement — a compromised pod in another namespace can't reach the app/data
@@ -16,7 +23,10 @@ import { PORT } from "../constants";
  *     Tightening egress is a follow-up that needs a live cluster to validate.
  *   - **Intra-namespace is allowed wholesale** (frontend→backend, backend→data,
  *     workers→data, backend→frontend BFF). Per-edge micro-policies buy little
- *     here and are far easier to get subtly wrong.
+ *     here and are far easier to get subtly wrong. The ONE exception is the
+ *     Aspire dashboard, which authenticates nobody itself (auth lives on the
+ *     Gateway, ADR-0029 Amendment 2) and so cannot be left open to the
+ *     namespace — see rules 2 and 8.
  *   - Cross-namespace allows are explicit: the **edge** (Envoy Gateway) to the
  *     two public services, and the **CNPG operator** to its managed pods.
  *
@@ -43,9 +53,32 @@ export function installNetworkPolicies(
     policyTypes: ["Ingress"],
   });
 
-  // 2. Allow any pod in `grid` to reach any other pod in `grid`.
+  // 2. Allow any pod in `grid` to reach any other pod in `grid` — EXCEPT the
+  //    Aspire dashboard.
+  //
+  //    The dashboard runs `AuthMode=Unsecured` because authentication moved to
+  //    the Gateway SecurityPolicy (ADR-0029 Amendment 2). That makes the
+  //    wholesale allow below actively dangerous for this one pod: it would let
+  //    ANY pod in the namespace — the internet-facing BFF, an LLM agent worker
+  //    running model-chosen tool calls — read every tenant's telemetry
+  //    (prompts, retrieved snippets, LLM output, and span URLs carrying live
+  //    presigned S3 URLs) over :18888 with no credential whatsoever. Before the
+  //    dashboard's own OIDC was removed, that path still met a claim gate.
+  //
+  //    NetworkPolicy has no deny rule and allows are additive, so the narrower
+  //    `allow-edge-to-aspire-dashboard` below cannot subtract anything. NOT
+  //    SELECTING the pod here is the only way to withhold the blanket allow.
+  //    Its one legitimate in-namespace client is granted explicitly in rule 8.
+  //
+  //    `NotIn` also matches pods that lack the label entirely (Kubernetes label
+  //    semantics), so CNPG-managed Postgres pods and anything else without
+  //    `app.kubernetes.io/name` keep the intra-namespace allow.
   const intra = mk("allow-same-namespace", {
-    podSelector: {},
+    podSelector: {
+      matchExpressions: [
+        { key: "app.kubernetes.io/name", operator: "NotIn", values: [OBSERVABILITY_DASHBOARD] },
+      ],
+    },
     policyTypes: ["Ingress"],
     ingress: [{ from: [{ podSelector: {} }] }],
   });
@@ -91,7 +124,7 @@ export function installNetworkPolicies(
   //    observability tier is deployed (ADR-0029).
   const edgeOtel = cfg.observability.enabled
     ? mk("allow-edge-to-aspire-dashboard", {
-        podSelector: { matchLabels: { "app.kubernetes.io/name": "aspire-dashboard" } },
+        podSelector: { matchLabels: { "app.kubernetes.io/name": OBSERVABILITY_DASHBOARD } },
         policyTypes: ["Ingress"],
         ingress: [
           { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: 18888 }] },
@@ -99,5 +132,37 @@ export function installNetworkPolicies(
       })
     : undefined;
 
-  return [deny, intra, cnpg, edgeFrontend, edgeS3, acmeSolver, ...(edgeOtel ? [edgeOtel] : [])];
+  // 8. otel-collector → Aspire dashboard OTLP/HTTP. Rule 2 deliberately leaves
+  //    the dashboard out of the wholesale intra-namespace allow, so its only
+  //    legitimate in-cluster client needs saying explicitly. Port 4318 alone:
+  //    the collector's `otlphttp/aspire` exporter targets
+  //    http://aspire-dashboard:4318 and nothing speaks 4317 to it.
+  //
+  //    Not covered here (deliberately): kubelet probes the dashboard on 18888
+  //    from the host, which is not gated by NetworkPolicy on Cilium — see the
+  //    header. If a future CNI does gate them, this pod's probes are the first
+  //    place that will show up.
+  const collectorToDashboard = cfg.observability.enabled
+    ? mk("allow-collector-to-aspire-dashboard", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": OBSERVABILITY_DASHBOARD } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "otel-collector" } } }],
+            ports: [{ protocol: "TCP", port: 4318 }],
+          },
+        ],
+      })
+    : undefined;
+
+  return [
+    deny,
+    intra,
+    cnpg,
+    edgeFrontend,
+    edgeS3,
+    acmeSolver,
+    ...(edgeOtel ? [edgeOtel] : []),
+    ...(collectorToDashboard ? [collectorToDashboard] : []),
+  ];
 }

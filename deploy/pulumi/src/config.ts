@@ -307,6 +307,20 @@ export interface GridConfig {
      * OTLP to the collector and never see it. Empty when observability is off.
      */
     otelPrimaryApiKey: pulumi.Output<string>;
+    /**
+     * OPTIONAL dedicated WorkOS AuthKit client for the dashboard's OIDC flow.
+     * Empty (the default) falls back to the app's shared client — recorded as a
+     * residual risk in ADR-0029, because a token minted by an ordinary app
+     * sign-in is then also a valid dashboard credential and dashboard access
+     * cannot be revoked separately.
+     *
+     * Set BOTH keys together to separate them. The client secret replaces the
+     * WorkOS *management API key* currently doing double duty as the OIDC
+     * client secret, which is the real prize: its worst-case abuse drops from
+     * "administer the identity provider" to "run an OIDC code exchange".
+     */
+    oidcClientId: string;
+    oidcClientSecret: pulumi.Output<string> | undefined;
   };
 }
 
@@ -398,15 +412,29 @@ export function loadConfig(): GridConfig {
   // `observabilityEnabled` is the product decision; the capability is DERIVED
   // from the dependencies the tier cannot run without — never duplicated as a
   // second flag. Without them the components deploy broken, not degraded: the
-  // dashboard runs `AuthMode=OpenIdConnect` with no usable OIDC client (nobody
-  // can log in), and the collector has no key to authenticate its export. So
-  // the whole tier (dashboard, collector, Gateway listener, producer env) is
-  // skipped instead, with a warning naming exactly what is missing.
+  // Gateway SecurityPolicy in front of the dashboard has no usable OIDC client
+  // and no org to gate on — and the dashboard itself runs `AuthMode=Unsecured`
+  // precisely because the edge is doing that job, so a half-configured tier is
+  // an OPEN telemetry dashboard, not a locked one. The collector likewise has
+  // no key to authenticate its export. So the whole tier (dashboard, collector,
+  // SecurityPolicy, Gateway listener, producer env) is skipped instead, with a
+  // warning naming exactly what is missing.
   const workosClientId = cfg.get("workosClientId") ?? "";
   const workosApiKey = cfg.getSecret("workosApiKey");
   const otelDomain = cfg.get("otelDomain") ?? "";
   const platformOrgId = cfg.get("platformOrgId") ?? "";
   const otelPrimaryApiKey = cfg.getSecret("otelPrimaryApiKey");
+  // Optional dedicated AuthKit client for the dashboard (see the interface).
+  // Half-configured is worse than either state — it would silently keep using
+  // the shared client while looking provisioned — so require both or neither.
+  const otelOidcClientId = cfg.get("otelOidcClientId") ?? "";
+  const otelOidcClientSecret = cfg.getSecret("otelOidcClientSecret");
+  if ((otelOidcClientId === "") !== (otelOidcClientSecret === undefined)) {
+    throw new Error(
+      "grid-oib:otelOidcClientId and grid-oib:otelOidcClientSecret must be set together " +
+        "(or neither, to reuse the app's shared WorkOS client).",
+    );
+  }
   const observabilityFlag = bool(cfg, "observabilityEnabled", true);
   const missingObservabilityDeps = [
     otelDomain === "" ? "otelDomain" : undefined,
@@ -416,6 +444,21 @@ export function loadConfig(): GridConfig {
     workosApiKey === undefined ? "workosApiKey" : undefined,
   ].filter((k): k is string => k !== undefined);
   const observabilityEnabled = observabilityFlag && missingObservabilityDeps.length === 0;
+
+  // Fail closed: the Aspire dashboard authenticates nobody itself (ADR-0029
+  // Amendment 2 moved auth to the Gateway SecurityPolicy), and the ONLY thing
+  // keeping the rest of the namespace off its unauthenticated :18888 is the
+  // NetworkPolicy set. Turning policies off while the tier is deployed would
+  // publish every tenant's prompts, retrieved snippets, LLM output and
+  // presigned S3 URLs to any pod that gets a foothold. Refuse the combination
+  // rather than silently shipping it.
+  if (observabilityEnabled && !bool(cfg, "networkPolicies", true)) {
+    throw new Error(
+      "grid-oib:observabilityEnabled requires grid-oib:networkPolicies. The Aspire dashboard " +
+        "runs AuthMode=Unsecured and relies on NetworkPolicies to keep the namespace off its " +
+        "unauthenticated UI port. Set networkPolicies=true, or observabilityEnabled=false.",
+    );
+  }
   if (observabilityFlag && !observabilityEnabled) {
     pulumi.log.warn(
       "Observability (ADR-0029) not deployed: missing " +
@@ -611,6 +654,8 @@ export function loadConfig(): GridConfig {
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
       },
       otelPrimaryApiKey: otelPrimaryApiKey ?? pulumi.output(""),
+      oidcClientId: otelOidcClientId,
+      oidcClientSecret: otelOidcClientSecret,
     },
   };
 }
