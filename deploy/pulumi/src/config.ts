@@ -270,18 +270,13 @@ export interface GridConfig {
     /**
      * Whether the observability tier (OTel Collector + Aspire dashboard) is
      * deployed: the `observabilityEnabled` flag AND the capability derived from
-     * its dependencies (otelDomain, platformOrgId, otelPrimaryApiKey, and the
-     * WorkOS OIDC client the dashboard's claim gate needs). When false nothing
-     * is provisioned and no producer gets an OTLP endpoint.
+     * its dependencies (otelDomain, otelPrimaryApiKey, and the dashboard's
+     * dedicated WorkOS Connect application). When false nothing is provisioned
+     * and no producer gets an OTLP endpoint.
      */
     enabled: boolean;
     /** Public hostname for the Aspire dashboard (e.g. otel.dev.bigls.net). */
     otelDomain: string;
-    /**
-     * WorkOS organization id (not external id) for the GRID Platform org.
-     * Used as the OIDC claim value to gate dashboard access to platform owners.
-     */
-    platformOrgId: string;
     /**
      * Aspire dashboard image reference, digest-pinned by default (override
      * only for deliberate upgrades).
@@ -308,19 +303,23 @@ export interface GridConfig {
      */
     otelPrimaryApiKey: pulumi.Output<string>;
     /**
-     * OPTIONAL dedicated WorkOS AuthKit client for the dashboard's OIDC flow.
-     * Empty (the default) falls back to the app's shared client — recorded as a
-     * residual risk in ADR-0029, because a token minted by an ordinary app
-     * sign-in is then also a valid dashboard credential and dashboard access
-     * cannot be revoked separately.
+     * Issuer of the dedicated WorkOS **Connect** application, i.e. the
+     * environment's AuthKit domain (`https://<tenant>.authkit.app`). Its
+     * `/oauth2/*` endpoints are a spec-complete OIDC provider; the app's own
+     * `/user_management/*` endpoints are not, and cannot serve this flow at all
+     * (see the capability check in `loadConfig`).
      *
-     * Set BOTH keys together to separate them. The client secret replaces the
-     * WorkOS *management API key* currently doing double duty as the OIDC
-     * client secret, which is the real prize: its worst-case abuse drops from
-     * "administer the identity provider" to "run an OIDC code exchange".
+     * Required for the observability tier. As a side benefit the dashboard no
+     * longer shares the app's AuthKit client, so an ordinary app sign-in does
+     * not mint a dashboard credential, dashboard access is separately
+     * revocable, and the client secret is purpose-scoped instead of being the
+     * WorkOS management API key.
      */
+    oidcIssuer: string;
+    /** Client id of that Connect application. */
     oidcClientId: string;
-    oidcClientSecret: pulumi.Output<string> | undefined;
+    /** Its client secret — the application must be a confidential client. */
+    oidcClientSecret: pulumi.Output<string>;
   };
 }
 
@@ -365,7 +364,6 @@ export function loadConfig(): GridConfig {
   // class this guard exists to kill).
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
   rejectPlaceholder("otelDomain", ["example.com"]);
-  rejectPlaceholder("platformOrgId", ["REPLACE_ME"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
@@ -413,7 +411,7 @@ export function loadConfig(): GridConfig {
   // from the dependencies the tier cannot run without — never duplicated as a
   // second flag. Without them the components deploy broken, not degraded: the
   // Gateway SecurityPolicy in front of the dashboard has no usable OIDC client
-  // and no org to gate on — and the dashboard itself runs `AuthMode=Unsecured`
+  // to authenticate anyone with — and the dashboard itself runs `AuthMode=Unsecured`
   // precisely because the edge is doing that job, so a half-configured tier is
   // an OPEN telemetry dashboard, not a locked one. The collector likewise has
   // no key to authenticate its export. So the whole tier (dashboard, collector,
@@ -422,26 +420,32 @@ export function loadConfig(): GridConfig {
   const workosClientId = cfg.get("workosClientId") ?? "";
   const workosApiKey = cfg.getSecret("workosApiKey");
   const otelDomain = cfg.get("otelDomain") ?? "";
-  const platformOrgId = cfg.get("platformOrgId") ?? "";
   const otelPrimaryApiKey = cfg.getSecret("otelPrimaryApiKey");
-  // Optional dedicated AuthKit client for the dashboard (see the interface).
-  // Half-configured is worse than either state — it would silently keep using
-  // the shared client while looking provisioned — so require both or neither.
+  // Dedicated WorkOS **Connect** application for the dashboard. REQUIRED — the
+  // app's own AuthKit client cannot be reused, and this is not a preference:
+  //
+  //   Envoy Gateway hardcodes HTTP Basic auth for the token exchange
+  //   (`internal/xds/translator/oidc.go`, "every OIDC provider supports basic
+  //   auth"), with no SecurityPolicy field to change it. WorkOS's
+  //   /user_management/authenticate ignores the Basic header and answers
+  //   "Missing required parameter: client_id", so the flow dies at the
+  //   callback with "OAuth flow failed." A Connect application's issuer
+  //   (https://<tenant>.authkit.app) is a spec-complete OIDC provider that
+  //   does accept client_secret_basic — and, as a bonus, needs no
+  //   `provider=authkit` connection selector on /authorize.
+  //
+  // The application must be a CONFIDENTIAL client with a generated secret; a
+  // public (PKCE-only) client has no secret and SecurityPolicy requires one.
+  const otelOidcIssuer = (cfg.get("otelOidcIssuer") ?? "").replace(/\/+$/, "");
   const otelOidcClientId = cfg.get("otelOidcClientId") ?? "";
   const otelOidcClientSecret = cfg.getSecret("otelOidcClientSecret");
-  if ((otelOidcClientId === "") !== (otelOidcClientSecret === undefined)) {
-    throw new Error(
-      "grid-oib:otelOidcClientId and grid-oib:otelOidcClientSecret must be set together " +
-        "(or neither, to reuse the app's shared WorkOS client).",
-    );
-  }
   const observabilityFlag = bool(cfg, "observabilityEnabled", true);
   const missingObservabilityDeps = [
     otelDomain === "" ? "otelDomain" : undefined,
-    platformOrgId === "" ? "platformOrgId" : undefined,
     otelPrimaryApiKey === undefined ? "otelPrimaryApiKey" : undefined,
-    workosClientId === "" ? "workosClientId" : undefined,
-    workosApiKey === undefined ? "workosApiKey" : undefined,
+    otelOidcIssuer === "" ? "otelOidcIssuer" : undefined,
+    otelOidcClientId === "" ? "otelOidcClientId" : undefined,
+    otelOidcClientSecret === undefined ? "otelOidcClientSecret" : undefined,
   ].filter((k): k is string => k !== undefined);
   const observabilityEnabled = observabilityFlag && missingObservabilityDeps.length === 0;
 
@@ -638,7 +642,6 @@ export function loadConfig(): GridConfig {
     observability: {
       enabled: observabilityEnabled,
       otelDomain,
-      platformOrgId,
       // Digest-pinned (supply chain): 13.4.2 and 0.157.0 respectively. Bump
       // deliberately via config when upgrading — the pins are scanned by the
       // trivy job in .github/workflows/security.yml, which blocks on fixable
@@ -654,8 +657,9 @@ export function loadConfig(): GridConfig {
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
       },
       otelPrimaryApiKey: otelPrimaryApiKey ?? pulumi.output(""),
+      oidcIssuer: otelOidcIssuer,
       oidcClientId: otelOidcClientId,
-      oidcClientSecret: otelOidcClientSecret,
+      oidcClientSecret: otelOidcClientSecret ?? pulumi.output(""),
     },
   };
 }

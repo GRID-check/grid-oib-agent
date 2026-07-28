@@ -74,7 +74,7 @@ config:
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K
+  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K  # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "true"
   grid-oib:kubeconfig:
@@ -104,16 +104,28 @@ config:
   # Deployed only when the flag is on AND every dependency below is set;
   # otherwise `pulumi preview` logs a warning naming what is missing and the
   # tier (dashboard, collector, `https-otel` listener, producer OTLP env) is
-  # skipped. Rotating the ingestion key / moving the org:
+  # skipped. Rotating the ingestion key:
   #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
-  #   pulumi config set grid-oib:platformOrgId "org_..."   # WorkOS org id (not external id)
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
   # only override here when deliberately upgrading.
-  # WorkOS one-time setup: register https://<otelDomain>/oauth2/callback as a
-  # redirect URI (Envoy's callback path — the Gateway SecurityPolicy runs the
-  # OIDC flow, not the dashboard; ADR-0029 Amendment 2).
+  # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
+  # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
+  # serve this flow). One-time setup in the WorkOS dashboard:
+  #   1. Connect -> create an OAuth application, CONFIDENTIAL client.
+  #   2. Generate a client secret.
+  #   3. Sign-in callback: https://<otelDomain>/oauth2/callback
+  #   4. Scopes -> assign the platform:organizations:view permission.
+  # Then:
+  #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
+  #   pulumi config set        grid-oib:otelOidcClientId     client_...
+  #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
+  # NOTE: otelOidcClientSecret is deliberately absent below — it can only be
+  # written by an operator holding the WorkOS secret and the stack's encryption
+  # key. Until it is set, the capability gate skips the whole tier (that is the
+  # designed fail-closed behaviour, not a missing config bug).
+  grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
+  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV  # pragma: allowlist secret (public OAuth client id)
   grid-oib:otelDomain: otel.dev.bigls.net
-  grid-oib:platformOrgId: org_01KX06QQJN3KA25R9G2PNFBGXV
   grid-oib:otelPrimaryApiKey:
     secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
   grid-oib:loadBalancerIp: 45.144.209.191

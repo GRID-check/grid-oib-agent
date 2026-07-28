@@ -133,15 +133,13 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
 
 // ── Observability (OTel Collector + Aspire dashboard, ADR-0029) ──────────────
 // Availability = flag AND capability (see config.ts): skipped whole when the
-// stack has no otelDomain / platformOrgId / OTLP key / WorkOS OIDC client,
+// stack has no otelDomain / OTLP key / dashboard Connect application,
 // rather than shipping a dashboard nobody can log into.
 if (cfg.observability.enabled) {
   const obs = installObservabilityDashboard(
     cfg, provider, namespace,
     cfg.observability.otelPrimaryApiKey,
-    // The dedicated dashboard client's secret when provisioned, else the
-    // shared WorkOS API key (ADR-0029 residual risk).
-    cfg.observability.oidcClientSecret ?? cfg.auth.workosApiKey,
+    cfg.observability.oidcClientSecret,
     [gatewayResources.gateway],
   );
   installOtelCollector(
