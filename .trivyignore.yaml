@@ -1,0 +1,27 @@
+# Trivy ignore file for the `image-scan` job in `.github/workflows/security.yml`
+# (ADR-0029), which scans the digest-pinned observability images and blocks on
+# fixable HIGH/CRITICAL findings.
+#
+# An entry here is a DELIBERATE, TIME-BOXED exception, not noise tuning. Each one
+# must say why the finding is not exploitable in OUR deployment and carry an
+# `expired_at`, so the gate turns red again instead of silently ignoring a CVE
+# forever if upstream never ships the fix.
+vulnerabilities:
+  - id: CVE-2026-49451
+    expired_at: 2026-10-31
+    statement: |
+      Microsoft.OpenApi 3.5.3 is a transitive dependency INSIDE Microsoft's
+      aspire-dashboard image (app/Aspire.Dashboard.deps.json), not a package
+      this repo references. The fix is 3.5.4/2.7.5, which no published
+      aspire-dashboard tag ships yet (13.4.2 is the newest), so no digest bump
+      can currently clear it.
+
+      Not exploitable in this deployment: the CVE is a denial of service while
+      PARSING an OpenAPI document with circular schema references, and the
+      dashboard only PRODUCES its own OpenAPI description; it never parses
+      caller-supplied OpenAPI documents. Its only reachable surfaces are the
+      OIDC claim-gated UI on :18888 and the API-key-gated OTLP + telemetry
+      endpoints, which stay cluster-internal.
+
+      Drop this entry as soon as an aspire-dashboard image ships
+      Microsoft.OpenApi >= 3.5.4, and re-check it on every dashboard bump.

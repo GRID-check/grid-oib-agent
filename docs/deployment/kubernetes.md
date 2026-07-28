@@ -465,11 +465,104 @@ Chroma):
   syntax error in the multi-bucket init Job) — the reason this kind of live
   validation exists.
 
-## 9. Out of scope (deliberate follow-ups)
+## 9. Observability — OTel Collector + Aspire Dashboard (ADR-0029)
+
+**Gating (flag AND capability):** the tier is deployed only when
+`grid-oib:observabilityEnabled` is on (default `true`) **and** every dependency
+it needs is configured — `otelDomain`, `platformOrgId`, `otelPrimaryApiKey`,
+plus the WorkOS OIDC client (`workosClientId`/`workosApiKey`) behind the
+dashboard's claim gate. Miss one and `pulumi preview` logs a warning naming it
+and skips the whole tier: no collector, no dashboard, no `https-otel` Gateway
+listener/certificate, and no `OTEL_*` env on any producer (so the frontend's
+`src/instrumentation.ts` no-ops). That is deliberate: a dashboard running
+`AuthMode=OpenIdConnect` without a usable OIDC client is a UI nobody can log
+into, and producers pointed at an absent collector just retry exports forever.
+
+When enabled, the stack deploys two components:
+
+- **`otel-collector`** (`deploy/pulumi/src/platform/otel-collector.ts`) — an
+  OpenTelemetry Collector that is the cluster's single OTLP ingestion point.
+  All producers send plain OTLP in-cluster; the collector batches, applies
+  memory back-pressure, and is the ONLY holder of the Aspire ingestion key.
+  Traces, logs, and metrics pipelines are all wired, so adopting a new
+  signal later is app-only work. Swapping the backend (Grafana/Tempo/…) is a
+  collector-config change, not an app change.
+- **`aspire-dashboard`** (`deploy/pulumi/src/platform/observability.ts`) — a
+  .NET Aspire standalone dashboard behind the collector, as a live
+  trace/span viewer for platform owners.
+
+```text
+grid-ui / grid-aiq-agent / grid-agent-worker
+        │  plain OTLP (in-cluster, no key)
+        ▼
+  otel-collector ── OTLP/HTTP + x-otlp-api-key ──▶ aspire-dashboard
+```
+
+**URL:** `https://<otelDomain>` (stack output `otelUrl`).
+
+**Access:** WorkOS AuthKit OIDC (same WorkOS client as the app), claim-gated
+on `org_id = <platformOrgId>` — the same population that has platform admin
+access (ADR-0016). One-time setup: register
+`https://<otelDomain>/signin-oidc` as a redirect URI in the WorkOS dashboard.
+
+**Scope:** traces from all three app tiers. The Python tiers (`aiq-agent`
+chat/web, `agent-worker` deep-research jobs) share the NAT config; the
+Next.js BFF registers `@vercel/otel` from `src/instrumentation.ts`. They
+appear as separate resources via `OTEL_SERVICE_NAME` (`grid-ui` /
+`grid-aiq-agent` / `grid-agent-worker`). Workflow-scheduler and purger emit
+no telemetry, and the `server.js` WS proxy is not auto-instrumented
+(follow-ups).
+
+**Wiring:**
+
+- `configs/config_oib_openrouter.yml` enables the `otelcollector_redaction`
+  tracing exporter (spans only, OTLP/HTTP).
+- Pulumi injects `OTEL_SERVICE_NAME` + `OTEL_EXPORTER_OTLP_ENDPOINT` into all
+  three tiers (only when the tier is enabled — see Gating above). Endpoint
+  asymmetry (intentional): the Python tiers get the
+  FULL path (`http://otel-collector:4318/v1/traces` — the NAT exporter posts
+  as-is); the frontend gets the BASE URL (`http://otel-collector:4318` — the
+  JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec).
+- Sensitive values live in the dedicated Secret `aspire-dashboard-secrets`
+  (keys: `otlp-api-key`, `workos-client-secret`), referenced via
+  `secretKeyRef` by the dashboard (`Dashboard:Otlp:PrimaryApiKey`,
+  OIDC client secret) and the collector exporter header — never
+  a plain env value. Producers hold no key.
+- Only the dashboard UI port (18888) is exposed through the Gateway
+  (`https-otel` listener + HTTPRoute). Collector and dashboard OTLP ports
+  are cluster-internal; intra-namespace traffic is covered by the
+  `allow-same-namespace` NetworkPolicy.
+
+**Caveats:**
+
+- **In-memory ring buffer** (configured to 50k log/trace entries) — data is
+  lost on dashboard pod restart. This is a live-view tool, not a log archive.
+- Single replica each; an observability outage loses no application data. The
+  `batch` processor only groups telemetry — the durability that exists comes
+  from the `otlphttp` exporter's `exporterhelper` defaults (`sending_queue`:
+  in-memory, 1000 requests; `retry_on_failure`: 5s→30s backoff for up to
+  300s). Beyond those limits — a full queue or a dashboard down longer than the
+  retry window — **exports are dropped**, which is the intended trade for a
+  live-view tool.
+- No alerting — operators must watch the dashboard.
+
+**Non-obvious deployment facts** (verified against the dashboard docs and the
+installed NAT/OTel SDK — see ADR-0029 §"Verified deployment facts" for the
+full list): the container's OTLP listeners default to 18889/18890 and are
+rebound to 4317/4318 via `ASPIRE_DASHBOARD_OTLP_*_ENDPOINT_URL`; OIDC RP
+settings live under `Authentication:Schemes:OpenIdConnect:*` (NOT
+`Dashboard:Frontend:OpenIdConnect:*`); WorkOS's OIDC issuer is per-client
+(`https://api.workos.com/user_management/<client_id>`);
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` is required because TLS terminates
+at the Gateway; the NAT exporter posts OTLP/HTTP to the endpoint as-is, so
+the full `/v1/traces` path is required on the Python tiers.
+
+## 10. Out of scope (deliberate follow-ups)
 
 - SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
   loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
-- An observability stack (Prometheus/Grafana/Loki). Envoy Gateway, cert-manager,
-  CNPG, and SeaweedFS all expose Prometheus metrics, so this is a natural next
-  layer — and the provider's paid Metrics (Grafana) add-on is the quick option.
+- A metrics/alerting stack (Prometheus/Grafana/Loki) — the Aspire dashboard
+  (§9) covers live traces only. Envoy Gateway, cert-manager, CNPG, and
+  SeaweedFS all expose Prometheus metrics, so this is a natural next layer —
+  and the provider's paid Metrics (Grafana) add-on is the quick option.

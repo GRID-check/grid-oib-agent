@@ -265,6 +265,49 @@ export interface GridConfig {
     enabled: boolean;
     minIntervalMinutes: number;
   };
+
+  observability: {
+    /**
+     * Whether the observability tier (OTel Collector + Aspire dashboard) is
+     * deployed: the `observabilityEnabled` flag AND the capability derived from
+     * its dependencies (otelDomain, platformOrgId, otelPrimaryApiKey, and the
+     * WorkOS OIDC client the dashboard's claim gate needs). When false nothing
+     * is provisioned and no producer gets an OTLP endpoint.
+     */
+    enabled: boolean;
+    /** Public hostname for the Aspire dashboard (e.g. otel.dev.bigls.net). */
+    otelDomain: string;
+    /**
+     * WorkOS organization id (not external id) for the GRID Platform org.
+     * Used as the OIDC claim value to gate dashboard access to platform owners.
+     */
+    platformOrgId: string;
+    /**
+     * Aspire dashboard image reference, digest-pinned by default (override
+     * only for deliberate upgrades).
+     */
+    dashboardImage: string;
+    /**
+     * OpenTelemetry Collector image reference, digest-pinned by default —
+     * the single OTLP ingestion point that fans out to the dashboard
+     * (ADR-0029 amendment).
+     */
+    collectorImage: string;
+    /**
+     * Telemetry ring-buffer limits inside the dashboard pod. Aspire defaults
+     * to 10000/10000; raised to 50000 for a live view window.
+     */
+    telemetryLimits: {
+      maxLogCount: number;
+      maxTraceCount: number;
+    };
+    /**
+     * OTLP ingestion key. Held by the dashboard (`Dashboard:Otlp:PrimaryApiKey`)
+     * and the collector (exporter header) only — producers send unauthenticated
+     * OTLP to the collector and never see it. Empty when observability is off.
+     */
+    otelPrimaryApiKey: pulumi.Output<string>;
+  };
 }
 
 export interface ResourceSpec {
@@ -307,6 +350,8 @@ export function loadConfig(): GridConfig {
   // everything and then TLS silently never issues (the exact delayed-failure
   // class this guard exists to kill).
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
+  rejectPlaceholder("otelDomain", ["example.com"]);
+  rejectPlaceholder("platformOrgId", ["REPLACE_ME"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
@@ -346,6 +391,37 @@ export function loadConfig(): GridConfig {
         "  pulumi config set --secret grid-oib:jobPayloadKek $(openssl rand -base64 32)\n" +
         "To deliberately run with PLAINTEXT payloads (dev/single-node only), set:\n" +
         "  pulumi config set grid-oib:allowPlaintextJobPayloads true",
+    );
+  }
+
+  // ── Observability (ADR-0029): availability = flag AND capability ───────────
+  // `observabilityEnabled` is the product decision; the capability is DERIVED
+  // from the dependencies the tier cannot run without — never duplicated as a
+  // second flag. Without them the components deploy broken, not degraded: the
+  // dashboard runs `AuthMode=OpenIdConnect` with no usable OIDC client (nobody
+  // can log in), and the collector has no key to authenticate its export. So
+  // the whole tier (dashboard, collector, Gateway listener, producer env) is
+  // skipped instead, with a warning naming exactly what is missing.
+  const workosClientId = cfg.get("workosClientId") ?? "";
+  const workosApiKey = cfg.getSecret("workosApiKey");
+  const otelDomain = cfg.get("otelDomain") ?? "";
+  const platformOrgId = cfg.get("platformOrgId") ?? "";
+  const otelPrimaryApiKey = cfg.getSecret("otelPrimaryApiKey");
+  const observabilityFlag = bool(cfg, "observabilityEnabled", true);
+  const missingObservabilityDeps = [
+    otelDomain === "" ? "otelDomain" : undefined,
+    platformOrgId === "" ? "platformOrgId" : undefined,
+    otelPrimaryApiKey === undefined ? "otelPrimaryApiKey" : undefined,
+    workosClientId === "" ? "workosClientId" : undefined,
+    workosApiKey === undefined ? "workosApiKey" : undefined,
+  ].filter((k): k is string => k !== undefined);
+  const observabilityEnabled = observabilityFlag && missingObservabilityDeps.length === 0;
+  if (observabilityFlag && !observabilityEnabled) {
+    pulumi.log.warn(
+      "Observability (ADR-0029) not deployed: missing " +
+        missingObservabilityDeps.map((k) => `grid-oib:${k}`).join(", ") +
+        ". Set them to deploy the OTel Collector + Aspire dashboard, or set " +
+        "grid-oib:observabilityEnabled=false to silence this.",
     );
   }
 
@@ -493,8 +569,8 @@ export function loadConfig(): GridConfig {
 
     auth: {
       requireAuth: bool(cfg, "requireAuth", true),
-      workosClientId: cfg.get("workosClientId") ?? "",
-      workosApiKey: cfg.getSecret("workosApiKey") ?? pulumi.output(""),
+      workosClientId,
+      workosApiKey: workosApiKey ?? pulumi.output(""),
       workosCookiePassword: cfg.getSecret("workosCookiePassword") ?? pulumi.output(""),
       platformOwnerEmails: cfg.get("platformOwnerEmails") ?? "",
       platformOrgExternalId: cfg.get("platformOrgExternalId") ?? "grid-platform",
@@ -514,6 +590,27 @@ export function loadConfig(): GridConfig {
     workflows: {
       enabled: bool(cfg, "workflowsEnabled", false),
       minIntervalMinutes: num(cfg, "workflowMinIntervalMinutes", 15),
+    },
+
+    observability: {
+      enabled: observabilityEnabled,
+      otelDomain,
+      platformOrgId,
+      // Digest-pinned (supply chain): 13.4.2 and 0.157.0 respectively. Bump
+      // deliberately via config when upgrading — the pins are scanned by the
+      // trivy job in .github/workflows/security.yml, which blocks on fixable
+      // HIGH/CRITICAL, so a stale pin surfaces as a failing check.
+      dashboardImage:
+        cfg.get("dashboardImage") ??
+        "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:d71f709233fdd53092a9a562ca6fb74264aec7c16c9aff03da94091f18ea2394",
+      collectorImage:
+        cfg.get("collectorImage") ??
+        "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6",
+      telemetryLimits: {
+        maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
+        maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
+      },
+      otelPrimaryApiKey: otelPrimaryApiKey ?? pulumi.output(""),
     },
   };
 }

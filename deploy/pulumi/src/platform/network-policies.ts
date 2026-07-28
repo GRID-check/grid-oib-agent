@@ -87,5 +87,17 @@ export function installNetworkPolicies(
     ingress: [{ from: [nsLabel("envoy-gateway-system")] }],
   });
 
-  return [deny, intra, cnpg, edgeFrontend, edgeS3, acmeSolver];
+  // 7. Edge → Aspire dashboard (the otel HTTPRoute) — only when the
+  //    observability tier is deployed (ADR-0029).
+  const edgeOtel = cfg.observability.enabled
+    ? mk("allow-edge-to-aspire-dashboard", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": "aspire-dashboard" } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: 18888 }] },
+        ],
+      })
+    : undefined;
+
+  return [deny, intra, cnpg, edgeFrontend, edgeS3, acmeSolver, ...(edgeOtel ? [edgeOtel] : [])];
 }

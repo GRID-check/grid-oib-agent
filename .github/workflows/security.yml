@@ -8,6 +8,9 @@ name: Security
 #                    Dependabot opens the fix PRs, see .github/dependabot.yml)
 #   - dependency-audit -> pip-audit + npm audit, complementary advisory sources
 #   - gitleaks    -> secret scanning across full history
+#   - image-scan  -> trivy on the digest-pinned observability images (ADR-0029)
+#                    deployed via deploy/pulumi (these images are not part of
+#                    any repo-built Dockerfile, so no other scanner sees them)
 #
 # Runs on every PR and push to the integration branches, plus a weekly scheduled
 # full scan to catch newly-disclosed advisories in code that has not changed.
@@ -167,3 +170,43 @@ jobs:
         run: |
           docker run --rm -v "${{ github.workspace }}:/repo" \
             zricethezav/gitleaks:latest detect --source /repo --redact -v
+
+  image-scan:
+    name: Image vulns (trivy)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      # Needed for the digest extraction below to see deploy/pulumi/src/config.ts.
+      - uses: actions/checkout@v7
+      # The two observability images (ADR-0029) are digest-pinned in
+      # deploy/pulumi/src/config.ts and never flow through a repo Dockerfile,
+      # so OSV/dependency scanners never see them. trivy scans the pinned
+      # digests directly. Blocking on HIGH/CRITICAL is safe precisely because
+      # the digests are pinned: a new finding means a deliberate image bump
+      # decision, never a surprise from a mutable tag. --ignore-unfixed keeps
+      # the gate about what we can act on.
+      - name: Extract pinned images
+        id: images
+        run: |
+          grep -oE '(mcr\.microsoft\.com/dotnet/aspire-dashboard|otel/opentelemetry-collector-contrib)@sha256:[a-f0-9]{64}' \
+            deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
+          # A partial match would leave the loop below scanning one image (or
+          # none) and still passing. Require exactly one digest per image.
+          test "$(wc -l < pinned-images.txt)" -eq 2
+          grep -qE '^mcr\.microsoft\.com/dotnet/aspire-dashboard@sha256:[a-f0-9]{64}$' pinned-images.txt
+          grep -qE '^otel/opentelemetry-collector-contrib@sha256:[a-f0-9]{64}$' pinned-images.txt
+      # `.trivyignore.yaml` carries deliberate, time-boxed exceptions for
+      # findings inside the upstream images that we cannot fix by bumping (each
+      # entry states why it is not exploitable here and expires, so the gate
+      # comes back red rather than ignoring a CVE forever).
+      - name: Scan each pinned image
+        run: |
+          failed=0
+          while read -r img; do
+            echo "=== trivy: $img"
+            docker run --rm \
+              -v "$PWD/.trivyignore.yaml:/config/.trivyignore.yaml:ro" \
+              aquasec/trivy:0.61.1 image \
+              --ignorefile /config/.trivyignore.yaml \
+              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || failed=1
+          done < pinned-images.txt
+          exit $failed

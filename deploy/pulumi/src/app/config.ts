@@ -114,7 +114,7 @@ function srefAs(name: string, key: string): EnvVar {
  * worker/thread knobs and admission caps are the agent's VERTICAL scaling
  * levers (see docs/architecture/scaling-review-2026-07.md §4, §6).
  */
-export function backendEnv(w: AppWiring): EnvVar[] {
+export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): EnvVar[] {
   const { cfg } = w;
   const env: EnvVar[] = [
     { name: "APP_ENV", value: "production" },
@@ -148,6 +148,21 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
+    // OTLP tracing via the cluster collector (ADR-0029 amendment). Producers
+    // send plain OTLP in-cluster — the collector alone holds the Aspire API
+    // key. HTTP/protobuf to :4318 — the full /v1/traces path is required: the
+    // NAT exporter posts to the endpoint as-is (path appending only happens
+    // for SDK env-var defaults, not for an endpoint the config passes
+    // explicitly). OTEL_SERVICE_NAME becomes service.name on the spans so
+    // chat tier and worker tier are distinct resources in the dashboard.
+    // Injected only when the observability tier is deployed — otherwise every
+    // span export would retry against a Service that doesn't exist.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: otelServiceName },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318/v1/traces" },
+        ]
+      : []),
     // Dask (in-process research execution) — vertical scaling knobs.
     { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
     { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },
@@ -187,7 +202,7 @@ export function backendEnv(w: AppWiring): EnvVar[] {
  */
 export function workerEnv(w: AppWiring): EnvVar[] {
   return [
-    ...backendEnv(w),
+    ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
   ];
@@ -252,6 +267,18 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // Workflows.
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },
+    // OTLP tracing via the cluster collector — injected only when the
+    // observability tier is deployed, which is what makes
+    // src/instrumentation.ts register @vercel/otel (it no-ops without the
+    // endpoint). NOTE the BASE URL here vs. the backend's full /v1/traces
+    // path: the JS OTLP HTTP exporter appends the signal path per the OTEL
+    // spec; the Python NAT exporter does not.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: "grid-ui" },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
+        ]
+      : []),
   ];
 }
 
