@@ -55,6 +55,14 @@ config:
   # default. Set false only if a validation pass shows they block required
   # traffic on your cluster. Egress is left open (see network-policies.ts).
   # grid-oib:networkPolicies: "true"
+  # Pulumi `protect` on the resources whose loss is not recoverable by re-running
+  # `pulumi up`: the CloudNativePG Cluster (the operator owns its PVCs, so
+  # deleting the CR destroys every database) and the SeaweedFS / Chroma
+  # StatefulSets. Protected resources make Pulumi REFUSE to delete or replace
+  # them, so a stray rename or `pulumi destroy` fails loudly with the data still
+  # there. Keep this true on prod; lift a single resource deliberately with
+  # `pulumi state unprotect <urn>`.
+  # grid-oib:protectDataResources: "true"
 
   # ── Postgres (CloudNativePG) ──
   grid-oib:pgInstances: "3"           # HA: 1 primary + 2 streaming replicas
@@ -102,6 +110,13 @@ config:
   grid-oib:agentWorkerMinReplicas: "2"
   grid-oib:agentWorkerMaxReplicas: "8"
   grid-oib:agentWorkerConcurrency: "1"
+  # Seconds a terminating worker may spend finishing the research jobs it has
+  # already claimed (terminationGracePeriodSeconds). On SIGTERM the worker stops
+  # claiming and drains; below this budget the kubelet SIGKILLs it mid-job, so
+  # every deploy and every node drain destroys research a user is waiting on.
+  # Set it at or above the p99 job duration; the cost is deploy latency, since
+  # workers roll one at a time and a draining one holds its slot this long.
+  grid-oib:agentWorkerDrainSeconds: "600"
   # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
   # proxy pins each conversation to its owning replica — ADR-0028).
   grid-oib:backendReplicas: "2"

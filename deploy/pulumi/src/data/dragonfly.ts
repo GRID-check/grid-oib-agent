@@ -1,8 +1,11 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { ROLLOUT, gracefulShutdown, recreateRollout } from "../platform/rollout";
 import { DATA_RESOURCES, PORT } from "../constants";
+
+const DRAGONFLY_IMAGE = "docker.dragonflydb.io/dragonflydb/dragonfly:latest";
 
 export interface Dragonfly {
   service: k8s.core.v1.Service;
@@ -34,16 +37,25 @@ export function installDragonfly(
       metadata: { name: "dragonfly", namespace, labels },
       spec: {
         replicas: 1,
+        // Single replica on a single port: two Dragonfly pods would briefly
+        // serve two divergent caches, so Recreate (not a surge) is correct.
+        // Both tiers fail open to in-process caches during the gap.
+        ...recreateRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            terminationGracePeriodSeconds:
+              gracefulShutdown(ROLLOUT.dataPlane).terminationGracePeriodSeconds,
             containers: [
               {
                 name: "dragonfly",
                 // Cache only (state is regenerable) — safe to track latest.
-                image: "docker.dragonflydb.io/dragonflydb/dragonfly:latest",
+                image: DRAGONFLY_IMAGE,
+                // Moving tag ⇒ must re-pull, or a rescheduled pod pins whatever
+                // `latest` happened to be cached on that node.
+                imagePullPolicy: pullPolicyFor(DRAGONFLY_IMAGE),
                 args: [
                   "--logtostderr",
                   // io_uring is denied under many managed-node seccomp profiles

@@ -97,6 +97,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `installMetricsServer` | `false` | Only for bare clusters; the provider ships metrics already |
 | `loadBalancerIp` | — | Pin the Envoy LB IP via `k8s.at/managed-loadbalancer-ip` |
 | `networkPolicies` | `true` | Default-deny ingress + least-privilege allows |
+| `protectDataResources` | `true` | Pulumi `protect` on the CNPG Cluster + SeaweedFS/Chroma StatefulSets: refuses any delete/replace, so a stray rename or `pulumi destroy` fails loudly instead of destroying data. `false` on scratch stacks; lift one resource with `pulumi state unprotect <urn>` |
 | **Postgres (CNPG)** | | |
 | `pgInstances` | `1` (prod template: 3) | 1 = single primary; 3 = HA with auto-failover |
 | `pgStorageSize` | `20Gi` | Per-instance volume (expandable via config — CNPG manages PVCs) |
@@ -138,6 +139,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `agentWorkerMinReplicas` / `agentWorkerMaxReplicas` | 2 / 8 | Worker HPA bounds |
 | `agentWorkerHpaCpuTargetPercent` | `70` | Worker HPA target |
 | `agentWorkerConcurrency` | `1` | Jobs per worker process |
+| `agentWorkerDrainSeconds` | `600` | Seconds a terminating worker may spend finishing already-claimed research jobs (`terminationGracePeriodSeconds`). Below this the kubelet SIGKILLs the drain, so deploys and node drains destroy in-flight research. Costs deploy latency — workers roll one at a time. Floor 30 |
 | **Frontend** | | |
 | `frontendRequestsCpu/Memory`, `frontendLimitsCpu/Memory` | 100m / 256Mi / 1 / 1Gi | Sizing |
 | `frontendMinReplicas` / `frontendMaxReplicas` | 2 / 6 | HPA bounds |
@@ -175,11 +177,31 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs
 npm run validate    # pulumi preview → schema-check every CustomResource in the
                     # plan against the real upstream CRD schemas (CNPG included)
+npm run policy      # pulumi preview --policy-pack ./policy → CrossGuard
+                    # guardrails (rollout safety, resource bounds, pull policy)
 ```
 
-`validate` needs a selected stack (its config feeds the plan) but works even
-when the kubeconfig points at an unreachable cluster. The deploy workflow runs
-both before `pulumi up`.
+`validate` and `policy` need a selected stack (its config feeds the plan) but
+work even when the kubeconfig points at an unreachable cluster. The deploy
+workflow runs all three before `pulumi up`, and re-runs the policy pack on the
+`up` itself.
+
+### Rollout safety
+
+Every workload declares how it rolls rather than inheriting the defaults —
+surge-only updates (`maxUnavailable: 0`), a readiness soak, a progress deadline,
+a preStop endpoint drain on Service-backed tiers, and an explicit shutdown
+budget. The numbers and the reasoning live in one place,
+`src/platform/rollout.ts`; `policy/` enforces that no workload drops them. Two
+consequences worth knowing:
+
+- **Rotating a secret restarts pods.** Each consumer stamps a
+  `grid.bigls.net/secret-checksum` annotation derived from `grid-secrets`, so a
+  credential rotation is a real rolling update instead of a Secret nobody
+  re-reads. `pulumi preview` shows the annotation change before you approve it.
+- **Research workers drain.** `agentWorkerDrainSeconds` is the time a
+  terminating worker gets to finish claimed jobs, so rolling that tier can take
+  minutes by design. See `docs/deployment/kubernetes.md` §7b.
 
 The whole program was additionally smoke-deployed end-to-end against a real
 single-node cluster running the provider's exact Kubernetes version
@@ -193,7 +215,10 @@ the bootstrap Jobs ran to completion under enforced NetworkPolicies.
 ```
 index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
-src/platform/            provider, namespace, cert-manager, gateway (Envoy), metrics-server
+src/platform/            provider, namespace, cert-manager, gateway (Envoy),
+                         metrics-server, scheduling (PDB/spread), rollout
+                         (update strategy, drain, secret checksum)
+policy/                  CrossGuard policy pack (own package.json + npm ci)
 src/data/                postgres (CNPG), dragonfly, seaweedfs
 src/app/                 config (Secret + env), migrations Job, backend,
                          frontend (+HPA), workers, httproutes

@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
+import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
 import { OTLP_API_KEY_SECRET_KEY } from "./observability";
 
 const COMPONENT = "otel-collector";
@@ -109,6 +110,9 @@ service:
       metadata: { name, namespace, labels },
       spec: {
         replicas: 1,
+        // Stateless OTLP forwarder — surge so producers always have a collector
+        // Service endpoint to export to, even mid-roll.
+        ...surgeRollout(ROLLOUT.observability),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
@@ -117,6 +121,8 @@ service:
             // No K8s API access needed — don't hand the pod an API token.
             automountServiceAccountToken: false,
             securityContext: { runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001 },
+            terminationGracePeriodSeconds:
+              gracefulShutdown(ROLLOUT.observability).terminationGracePeriodSeconds,
             containers: [
               {
                 name: "collector",

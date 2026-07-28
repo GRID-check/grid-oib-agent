@@ -4,7 +4,13 @@ import { GridConfig, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
-import { AppWiring, backendEnv } from "./config";
+import {
+  ROLLOUT,
+  gracefulShutdown,
+  orderedRollout,
+  secretChecksumAnnotations,
+} from "../platform/rollout";
+import { AppSecrets, AppWiring, backendEnv } from "./config";
 import { PORT, UID } from "../constants";
 
 export interface Backend {
@@ -34,11 +40,12 @@ export interface Backend {
 export function installBackend(
   w: AppWiring,
   cfg: GridConfig,
-  secret: k8s.core.v1.Secret,
+  secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
 ): Backend {
   const labels = commonLabels("aiq-agent");
   const multiReplica = cfg.jobExecution === "db" && cfg.backend.replicas > 1;
+  const shutdown = gracefulShutdown(ROLLOUT.backend, "python");
 
   const statefulSet = new k8s.apps.v1.StatefulSet(
     "aiq-agent",
@@ -53,6 +60,11 @@ export function installBackend(
         // conversation affinity — ADR-0028).
         replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },
+        // One pod at a time, highest ordinal first, and each replacement must
+        // stay Ready for minReadySeconds before the next is touched — pinned
+        // explicitly because the conversation-affinity routing (ADR-0028)
+        // depends on exactly this ordering, not on a controller default.
+        ...orderedRollout(ROLLOUT.backend),
         // StatefulSet PVCs must survive the StatefulSet: the /app/data volume
         // holds the base OIB corpus + (in dask mode) the only Chroma store, and
         // the provider's StorageClasses all reclaim `Delete`, so a controller
@@ -61,10 +73,20 @@ export function installBackend(
         // future default flip to Delete can't silently start wiping volumes).
         persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         template: {
-          metadata: { labels },
+          metadata: {
+            labels,
+            // Credential rotation ⇒ pod-template change ⇒ a real, ordered
+            // rolling update (rollout.ts). Without it the pods keep serving with
+            // the pre-rotation keys and `pulumi up` still reports success.
+            annotations: secretChecksumAnnotations(secrets.checksum),
+          },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             imagePullSecrets: w.imagePullSecrets,
+            // preStop covers EndpointSlice propagation (both the ClusterIP and
+            // the affinity headless service route here), then uvicorn gets its
+            // SIGTERM with room to finish streaming responses in flight.
+            terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             // The image runs as UID 1000 and needs to write /app/data (Chroma +
             // uploads); fsGroup makes the PVC group-writable, replacing the
             // compose chown init container.
@@ -83,6 +105,7 @@ export function installBackend(
                 env: backendEnv(w),
                 volumeMounts: [{ name: "data", mountPath: "/app/data" }],
                 resources: toResourceRequirements(cfg.backend.resources),
+                lifecycle: shutdown.lifecycle,
                 // Boot spins up Dask + opens Chroma and may run a volume-based
                 // OIB sync — generous startup window before liveness kicks in.
                 startupProbe: {
@@ -119,7 +142,7 @@ export function installBackend(
     },
     {
       provider: w.provider,
-      dependsOn: [secret, ...dependsOn],
+      dependsOn: [secrets.secret, ...dependsOn],
       // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
       ignoreChanges: ["spec.volumeClaimTemplates"],
       // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).

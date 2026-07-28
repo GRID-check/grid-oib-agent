@@ -1,7 +1,8 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { ROLLOUT, gracefulShutdown, orderedRollout } from "../platform/rollout";
 import { hardenedJobSecurityContext } from "../platform/security";
 import { BOOTSTRAP_JOB_RESOURCES, DATA_RESOURCES, JOB_DEFAULTS, PORT } from "../constants";
 
@@ -103,16 +104,24 @@ export function installSeaweedFS(
         // across StatefulSet delete/scale so tearing down the workload never
         // cascades into irreversible data loss (matches the k8s default; pinned).
         persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
+        ...orderedRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             securityContext: { fsGroup: 1000 },
+            // `weed server` flushes volume/filer state on SIGTERM; the 30s
+            // default is thin for a store that may be mid-write.
+            terminationGracePeriodSeconds:
+              gracefulShutdown(ROLLOUT.dataPlane).terminationGracePeriodSeconds,
             containers: [
               {
                 name: "seaweedfs",
                 image: cfg.seaweedfs.image,
+                // Defaults to a MOVING tag (`latest`), which must re-pull on
+                // every start — see the pinning note on `seaweedfsImage`.
+                imagePullPolicy: pullPolicyFor(cfg.seaweedfs.image),
                 command: ["/bin/sh", "-c"],
                 args: [
                   // `-volume.max=0` is a trap: the volume server derives the
@@ -171,6 +180,11 @@ export function installSeaweedFS(
       ignoreChanges: ["spec.volumeClaimTemplates"],
       // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
       deleteBeforeReplace: true,
+      // The only S3 server in the stack: every uploaded PDF, every presigned
+      // preview URL, and (when pgBackupsEnabled) the Postgres PITR archive go
+      // through it. `protect` turns an accidental delete/replace into a refused
+      // operation rather than a full storage outage.
+      protect: cfg.protectDataResources,
     },
   );
 

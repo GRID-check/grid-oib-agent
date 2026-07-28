@@ -1,7 +1,8 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { ROLLOUT, gracefulShutdown, orderedRollout } from "../platform/rollout";
 import { DATA_RESOURCES, PORT } from "../constants";
 
 export interface Chroma {
@@ -41,10 +42,13 @@ export function installChroma(
         // across StatefulSet delete/scale so a teardown can't wipe the embeddings
         // (matches the k8s default; pinned against a future default flip).
         persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
+        ...orderedRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
           spec: {
+            terminationGracePeriodSeconds:
+              gracefulShutdown(ROLLOUT.dataPlane).terminationGracePeriodSeconds,
             // Legacy Docker-link env injection (CHROMA_PORT=tcp://…) collides
             // with Chroma's CHROMA_-prefixed config parsing and panics the server
             // on any pod restart after the Service exists (found live). Nothing
@@ -55,6 +59,7 @@ export function installChroma(
               {
                 name: "chroma",
                 image: cfg.chroma.image,
+                imagePullPolicy: pullPolicyFor(cfg.chroma.image),
                 ports: [{ containerPort: PORT.chroma, name: "http" }],
                 // Chroma 1.x is a Rust server configured by a baked /config.yaml
                 // (persist_path: /data); the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY
@@ -98,6 +103,11 @@ export function installChroma(
       // immutable-field replace must delete first — safe: the PVC is pinned
       // Retain and rebinds to the recreated StatefulSet by template name.
       deleteBeforeReplace: true,
+      // The shared vector index every replica and worker reads. `protect` makes
+      // Pulumi refuse to delete or replace it, so an accidental teardown fails
+      // loudly instead of taking retrieval down; lift deliberately with
+      // `pulumi state unprotect` (or protectDataResources=false on a scratch stack).
+      protect: cfg.protectDataResources,
     },
   );
 

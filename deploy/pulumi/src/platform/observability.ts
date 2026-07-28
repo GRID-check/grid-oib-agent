@@ -4,6 +4,7 @@ import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.netw
 import type { ISecurityPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/SecurityPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
+import { ROLLOUT, gracefulShutdown, recreateRollout } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
 
 const COMPONENT = "aspire-dashboard";
@@ -112,6 +113,9 @@ export function installObservabilityDashboard(
       metadata: { name, namespace, labels },
       spec: {
         replicas: 1,
+        // Single replica holding an in-memory telemetry ring buffer: two would
+        // split the live view, so Recreate rather than a surge.
+        ...recreateRollout(ROLLOUT.observability),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
@@ -120,6 +124,8 @@ export function installObservabilityDashboard(
             // No K8s API access needed — don't hand the pod an API token.
             automountServiceAccountToken: false,
             securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 },
+            terminationGracePeriodSeconds:
+              gracefulShutdown(ROLLOUT.observability).terminationGracePeriodSeconds,
             containers: [
               {
                 name: "dashboard",

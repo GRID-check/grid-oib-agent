@@ -117,6 +117,20 @@ const BACKEND_POD_WS_TEMPLATE = process.env.BACKEND_POD_WS_TEMPLATE || ''
 // would silently diverge per pod. Defaults to 1 (single-node / dev).
 const FRONTEND_REPLICAS = Math.max(1, parseInt(process.env.FRONTEND_REPLICAS || '1', 10) || 1)
 
+// ── Graceful shutdown / rolling-update drain ──
+// How long this process keeps serving after SIGTERM before forcing exit. Chat
+// WebSockets are long-lived (a streaming answer can run for minutes), so the
+// 2s local default would drop every in-flight response on every rollout. In
+// Kubernetes the deployment sets this to the tier's drain budget and sizes
+// terminationGracePeriodSeconds above it (deploy/pulumi/src/platform/rollout.ts).
+const SHUTDOWN_DRAIN_MS = Math.max(
+  0,
+  parseInt(process.env.GRID_SHUTDOWN_DRAIN_MS || '', 10) || 2000
+)
+// Set once SIGTERM/SIGINT arrives: readiness starts failing and new WebSocket
+// upgrades are refused, while everything already in flight runs to completion.
+let draining = false
+
 // FNV-1a: stable, dependency-free, well-distributed for short ids.
 function hashToIndex(str, mod) {
   let h = 0x811c9dc5
@@ -341,6 +355,17 @@ const startServer = async () => {
       return
     }
 
+    // Draining: fail readiness immediately so the kubelet marks this pod
+    // NotReady and the gateway stops sending it new traffic, while requests and
+    // WebSockets already in flight keep running to completion. Liveness uses the
+    // same path, but a NotReady pod that is already terminating is never
+    // restarted for it.
+    if (draining && parsedUrl.pathname === '/api/healthz') {
+      res.writeHead(503, { 'Content-Type': 'application/json', Connection: 'close' })
+      res.end(JSON.stringify({ status: 'draining' }))
+      return
+    }
+
     if (dev) {
       // Development: proxy everything to Next.js dev server
       nextProxy.web(req, res, { target: NEXT_INTERNAL_URL })
@@ -369,6 +394,15 @@ const startServer = async () => {
       return
     }
     const pathname = parsedUrl.pathname || '/'
+
+    // Refuse NEW sessions while draining — a pod that is going away must not
+    // accept a WebSocket it cannot see through. The client reconnects and the
+    // gateway routes it to a replica that is staying.
+    if (draining) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
 
     // Proxy /websocket to backend
     if (pathname === '/websocket' || pathname.startsWith('/websocket')) {
@@ -580,11 +614,15 @@ const startServer = async () => {
 `)
   })
 
-  // Graceful shutdown
+  // Graceful shutdown. `server.close()` stops accepting new connections and
+  // resolves once every existing one (including WebSockets) has ended, so the
+  // timer is the hard ceiling on how long a rolling update waits for this pod.
   const cleanExit = (signal) => {
-    console.log(`\nShutting down (${signal})...`)
+    if (draining) return
+    draining = true
+    console.log(`\nShutting down (${signal}) — draining for up to ${SHUTDOWN_DRAIN_MS}ms...`)
     server.close(() => process.exit(0))
-    setTimeout(() => process.exit(0), 2000)
+    setTimeout(() => process.exit(0), SHUTDOWN_DRAIN_MS)
   }
 
   process.once('SIGTERM', () => cleanExit('SIGTERM'))
