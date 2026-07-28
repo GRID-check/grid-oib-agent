@@ -36,6 +36,7 @@ import { installAgentWorker } from "./src/app/agent-worker";
 import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
 import { installOtelCollector } from "./src/platform/otel-collector";
+import { installErr2Issue } from "./src/platform/err2issue";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -145,10 +146,18 @@ if (cfg.observability.enabled) {
     cfg.observability.oidcClientSecret,
     [gatewayResources.gateway],
   );
+  // err2issue (ADR-0031) before the collector: the collector's logs/err2issue
+  // pipeline starts exporting the moment it boots, so having the Service
+  // resolvable first avoids a burst of connection-refused export errors on
+  // every deploy. Its own `enabled` already implies observability is on.
+  const errorSink = cfg.err2issue.enabled
+    ? installErr2Issue(cfg, provider, namespace, [ns])
+    : undefined;
+
   installOtelCollector(
     cfg, provider, namespace,
     obs.secrets,
-    [obs.service],
+    [obs.service, ...(errorSink ? [errorSink.service] : [])],
   );
 }
 
@@ -173,6 +182,9 @@ export const networkPoliciesEnabled = cfg.networkPolicies;
 export const otelUrl = cfg.observability.enabled
   ? pulumi.interpolate`https://${cfg.observability.otelDomain}`
   : pulumi.output("(none: observability disabled)");
+export const errorIssueRepo = cfg.err2issue.enabled
+  ? pulumi.output(cfg.err2issue.githubRepo)
+  : pulumi.output("(none: err2issue disabled)");
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

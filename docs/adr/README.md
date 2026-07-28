@@ -72,6 +72,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0028](0028-horizontal-agent-scaling-conversation-affinity.md) | Horizontally scaling the aiq-agent container via conversation affinity | Accepted |
 | [0029](0029-aspire-dashboard-telemetry.md) | Aspire standalone dashboard as the live telemetry pane | Accepted |
 | [0030](0030-interactive-card-decisions-persist-on-the-message.md) | Interactive-card decisions persist on the message | Accepted |
+| [0031](0031-err2issue-errors-to-github-issues.md) | err2issue — ERROR telemetry becomes deduplicated GitHub issues | Accepted |
 
 > Note: two ADRs were independently numbered 0027. Both are Accepted and in
 > effect; the collision is recorded rather than renumbered so existing links

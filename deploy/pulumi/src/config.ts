@@ -356,6 +356,49 @@ export interface GridConfig {
     /** Its client secret — the application must be a confidential client. */
     oidcClientSecret: pulumi.Output<string>;
   };
+
+  /**
+   * err2issue — ERROR-severity telemetry becomes deduplicated GitHub issues
+   * (ADR-0031). A second consumer on the collector's logs signal, alongside the
+   * Aspire dashboard.
+   */
+  err2issue: {
+    /**
+     * Whether the sink is deployed: the `err2issueEnabled` flag AND the
+     * capability derived from its dependencies (a GitHub token, a fallback
+     * repo) AND `observability.enabled` — it receives nothing without the
+     * collector in front of it.
+     */
+    enabled: boolean;
+    /**
+     * Image reference. Upstream publishes no version tags yet, so this
+     * defaults to a MOVING `:latest` (pulled Always — see err2issue.ts).
+     * Digest-pin it before enabling in prod.
+     */
+    image: string;
+    /** Fallback destination repo (`owner/repo`) for unrouted services. */
+    githubRepo: string;
+    /** PAT with Issues read/write. Empty when the sink is off. */
+    githubToken: pulumi.Output<string>;
+    /**
+     * Optional `service=owner/repo` routing, globs allowed
+     * (`aiq-agent=grid-check/grid-oib-agent,*-worker=grid-check/workers`).
+     * Empty string means route everything to `githubRepo`.
+     */
+    routeMap: string;
+    /**
+     * Optional Claude API key for AI-written issue titles. Empty falls back to
+     * rule-based titles — a degraded title, not a broken sink. Note this is a
+     * console API key; a Claude subscription OAuth token will not work here.
+     */
+    anthropicApiKey: pulumi.Output<string>;
+    /** Repeat-occurrence coalescing window, seconds (upstream default 600). */
+    suppressWindowSeconds: number;
+    /** Ceiling on NEW issues per day — the blast-radius control. */
+    maxNewFingerprintsPerDay: number;
+    /** Drop errors from services the route map does not match. */
+    dropUnrouted: boolean;
+  };
 }
 
 export interface ResourceSpec {
@@ -504,6 +547,31 @@ export function loadConfig(): GridConfig {
         missingObservabilityDeps.map((k) => `grid-oib:${k}`).join(", ") +
         ". Set them to deploy the OTel Collector + Aspire dashboard, or set " +
         "grid-oib:observabilityEnabled=false to silence this.",
+    );
+  }
+
+  // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────
+  // Opt-in (default false) because turning it on starts writing to a GitHub
+  // repo — a side effect outside the cluster, unlike every other component
+  // here. The dependency on `observabilityEnabled` is structural, not stylistic:
+  // err2issue has no receiver of its own in this design, it is fed by the
+  // collector's logs pipeline, so without the collector it is a pod that can
+  // only ever sit idle.
+  const err2issueFlag = bool(cfg, "err2issueEnabled", false);
+  const err2issueGithubRepo = cfg.get("err2issueGithubRepo") ?? "";
+  const err2issueGithubToken = cfg.getSecret("err2issueGithubToken");
+  const missingErr2IssueDeps = [
+    err2issueGithubRepo === "" ? "err2issueGithubRepo" : undefined,
+    err2issueGithubToken === undefined ? "err2issueGithubToken" : undefined,
+    observabilityEnabled ? undefined : "observabilityEnabled (err2issue is fed by the collector)",
+  ].filter((k): k is string => k !== undefined);
+  const err2issueEnabled = err2issueFlag && missingErr2IssueDeps.length === 0;
+  if (err2issueFlag && !err2issueEnabled) {
+    pulumi.log.warn(
+      "err2issue (ADR-0031) not deployed: missing " +
+        missingErr2IssueDeps.map((k) => (k.includes(" ") ? k : `grid-oib:${k}`)).join(", ") +
+        ". Set them to deploy the error→issue sink, or set " +
+        "grid-oib:err2issueEnabled=false to silence this.",
     );
   }
 
@@ -702,6 +770,26 @@ export function loadConfig(): GridConfig {
       oidcIssuer: otelOidcIssuer,
       oidcClientId: otelOidcClientId,
       oidcClientSecret: otelOidcClientSecret ?? pulumi.output(""),
+    },
+
+    err2issue: {
+      enabled: err2issueEnabled,
+      // NOT digest-pinned, unlike every other image here: upstream publishes
+      // no tags or releases yet, so `:latest` is the only reference that
+      // exists. Pin this before prod — see the dev/prod stack notes.
+      image: cfg.get("err2issueImage") ?? "ghcr.io/matthiasbigl/err2issue:latest",
+      githubRepo: err2issueGithubRepo,
+      githubToken: err2issueGithubToken ?? pulumi.output(""),
+      routeMap: cfg.get("err2issueRouteMap") ?? "",
+      anthropicApiKey: cfg.getSecret("err2issueAnthropicApiKey") ?? pulumi.output(""),
+      suppressWindowSeconds: num(cfg, "err2issueSuppressWindowSeconds", 600),
+      // Deliberately below the upstream default of 50. This is the first
+      // deployment of an error sink against a repo that has never had one: the
+      // realistic failure is a long tail of pre-existing, never-noticed errors
+      // arriving at once and burying the issue tracker on day one. Raise it
+      // once the steady-state volume is known.
+      maxNewFingerprintsPerDay: num(cfg, "err2issueMaxNewFingerprintsPerDay", 20),
+      dropUnrouted: bool(cfg, "err2issueDropUnrouted", true),
     },
   };
 }
