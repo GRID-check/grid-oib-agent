@@ -392,6 +392,9 @@ def _post_batch(payload: dict[str, Any]) -> None:
         method="POST",
     )
     try:
+        # The URL is the deployment-set internal frontend base plus a fixed path;
+        # no user input reaches it (same pattern as the profiler/cost ledgers).
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             if response.status not in (200, 201, 202):
                 logger.warning("Internal citation-events endpoint returned %s", response.status)
