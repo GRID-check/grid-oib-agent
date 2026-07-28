@@ -188,6 +188,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="run-history-preview"] a',
   },
   {
+    id: 'citation-health',
+    mobile: true,
+    path: '/dev/citation-health',
+    description:
+      'Platform citation-health card — clean-rate + defect stat tiles, the stacked per-day defect trend (with a visible incident mid-window), the removal-reason and flagged-source rankings, the per-organization table and the recent-findings list.',
+    waitFor: '[data-testid="citation-health"]',
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:

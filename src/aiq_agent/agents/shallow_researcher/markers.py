@@ -166,3 +166,61 @@ def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLev
 
     stripped = _strip_matches(content, matches).rstrip()
     return stripped, level, reason
+
+
+# ---------------------------------------------------------------------------
+# Overconfidence guard
+# ---------------------------------------------------------------------------
+#
+# Pure functions over a parsed ``[CONFIDENCE:…]`` level: the deterministic cap
+# the platform applies to the model's self-assessment. They live here, beside
+# the marker contract they interpret, so every consumer shares one
+# implementation — the chat orchestrator (which surfaces the level) and the
+# research agents (which record the cap as a citation-health event) alike.
+
+
+def surface_answer_confidence(
+    self_reported: ConfidenceLevel | None,
+    citation_grounded: bool,
+    quotes_verified: bool = True,
+) -> ConfidenceLevel | None:
+    """Apply the deterministic overconfidence guard to a self-reported level.
+
+    Returns ``None`` when there is no self-assessment to surface. Otherwise caps
+    the surfaced value at "low" whenever the answer is not grounded in a verified
+    citation (empty registry or verification removed every citation) OR carries a
+    quoted span that could not be verified against a retrieved passage
+    (``quotes_verified`` is False — the weak model's "real section, fabricated
+    quote" pattern). A self-reported "high"/"medium" in either case is
+    untrustworthy and becomes "low"; a fully grounded answer with all quotes
+    verified surfaces the model's own level verbatim.
+    """
+    if self_reported is None:
+        return None
+    if not citation_grounded or not quotes_verified:
+        return "low"
+    return self_reported
+
+
+def answer_confidence_capped_reason(
+    self_reported: ConfidenceLevel | None,
+    citation_grounded: bool,
+    quotes_verified: bool = True,
+) -> Literal["ungrounded", "quote_unverified"] | None:
+    """Why the surfaced confidence was capped, or ``None`` when no cap applied.
+
+    Returns a reason only when a real downgrade happened: a self-reported
+    "medium"/"high" that got capped to "low". ``"ungrounded"`` when the answer is
+    not grounded in a verified citation (the more fundamental failure, so it wins
+    when both apply); ``"quote_unverified"`` when the answer is grounded but
+    carries a quoted span not verifiable against a retrieved passage. A missing
+    self-report, an already-"low" self-report, or a fully-verified grounded
+    answer is not a downgrade and yields ``None``.
+    """
+    if self_reported is None or self_reported == "low":
+        return None
+    if not citation_grounded:
+        return "ungrounded"
+    if not quotes_verified:
+        return "quote_unverified"
+    return None

@@ -1,6 +1,7 @@
 export * from './agent-profiler'
 export * from './answer-feedback'
 export * from './budgets'
+export * from './citation-events'
 export * from './conversations'
 export * from './deletion-queue'
 export * from './documents'

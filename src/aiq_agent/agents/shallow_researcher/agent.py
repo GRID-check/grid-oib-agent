@@ -21,6 +21,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
+from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
@@ -44,6 +45,7 @@ from aiq_agent.common.norm_registry import render_block_for_prompt
 from ...common import LLMProvider
 from ...common import LLMRole
 from .dsml import strip_and_salvage_dsml_tool_calls
+from .markers import answer_confidence_capped_reason
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .models import ShallowResearchAgentState
@@ -110,6 +112,16 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
         if len(reasons) >= 5:
             break
     return {"count": len(removed_citations), "reasons": reasons}
+
+
+def _source_label(entry: SourceEntry) -> str | None:
+    """Stable identity of a captured source for the citation-health ledger.
+
+    The document key or URL — an identifier, never the retrieved passage — so
+    the platform export can say WHICH source was in play without carrying any
+    answer or corpus prose across tenants.
+    """
+    return entry.citation_key or entry.url or None
 
 
 def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
@@ -564,6 +576,13 @@ class ShallowResearcherAgent:
         # ``quote_unverified`` reason. Fail-open default: no sources / no quotes
         # leaves it True.
         answer_quotes_verified = True
+        # Same signal as a count, for the citation-health ledger (how MANY spans
+        # failed, not just whether any did).
+        unverified_quote_count = 0
+        # Whether the single-source fallback below had to supply the citation
+        # because nothing the model wrote survived verification. Grounded, but
+        # not by the model's own choice — recorded as its own ledger event.
+        citation_fallback_used = False
         # Sources the model actually cited in THIS turn's answer (its own
         # relevance decision), resolved from ``verification.valid_citations``.
         # These — NOT the cumulative session registry — become the turn's
@@ -589,6 +608,9 @@ class ShallowResearcherAgent:
         # turn. Populated in the verification block below; stays None when the
         # registry was empty or nothing was removed, so the field stays absent.
         citations_removed_summary: dict[str, Any] | None = None
+        # The raw drop records behind that summary. The ledger needs per-reason
+        # COUNTS (the wire summary only carries deduplicated reason keys).
+        removed_citations_detail: list[dict[str, Any]] = []
         messages_list = validated_result.get("messages") or []
         # Select the answer message with the SAME selector the chat node uses:
         # the last AIMessage that is not a tool call. Marker extraction, citation
@@ -639,6 +661,7 @@ class ShallowResearcherAgent:
                     )
                     content = verification.verified_report
                     citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
+                    removed_citations_detail = list(verification.removed_citations)
                     # Quote verification: verify_citations only proves a cited
                     # SOURCE is real, not that a QUOTED sentence actually appears
                     # in it. Catch the weak model's "real section, fabricated
@@ -650,6 +673,7 @@ class ShallowResearcherAgent:
                     if unverified_quotes:
                         content = annotate_unverified_quotes(content, unverified_quotes)
                         answer_quotes_verified = False
+                        unverified_quote_count = len(unverified_quotes)
                         logger.info(
                             "Shallow researcher: %d quoted span(s) not verbatim in any retrieved "
                             "passage; annotated inline and capping confidence",
@@ -693,6 +717,7 @@ class ShallowResearcherAgent:
                         # only surface it as a chip on a research turn.
                         content = _append_minimal_citation(content, sources[0])
                         citation_grounded = True
+                        citation_fallback_used = True
                         if state.requires_sources:
                             relevant_sources = [sources[0]]
                             # ``_append_minimal_citation`` always writes "[1]".
@@ -717,6 +742,15 @@ class ShallowResearcherAgent:
                             self.tools,
                             research_type="shallow research",
                             enable_logging=False,
+                        )
+                        # Record the hardest citation failure there is — the turn
+                        # captured nothing to cite — before it becomes an error
+                        # the user sees, so it lands on the platform dashboard
+                        # beside the softer defects instead of only in the logs.
+                        citation_events.record_empty_registry(
+                            agent="shallow",
+                            unavailable_tools=unavailable,
+                            available_count=available_count,
                         )
                         raise EmptySourceRegistryError(
                             "shallow research",
@@ -791,6 +825,35 @@ class ShallowResearcherAgent:
         # Transparency: only present when ≥1 citation was actually removed.
         if citations_removed_summary is not None:
             validated_result["citations_removed"] = citations_removed_summary
+
+        # Citation-health ledger: one batch per RESEARCH turn (a meta turn has
+        # nothing to cite, so counting it would inflate the clean rate). Gated
+        # on an answer message actually having been verified. Best-effort by
+        # construction — ``record_turn`` swallows everything.
+        if state.requires_sources and answer_index is not None:
+            registry_sources = registry.all_sources()
+            citation_events.record_turn(
+                agent="shallow",
+                source_count=len(registry_sources),
+                cited_count=len(wire_sources),
+                removed_citations=removed_citations_detail,
+                unverified_quote_count=unverified_quote_count,
+                grounded=citation_grounded,
+                fallback_used=citation_fallback_used,
+                confidence_capped_reason=answer_confidence_capped_reason(
+                    answer_confidence_marker, citation_grounded, answer_quotes_verified
+                ),
+                source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
+                source_lanes=[source.get("lane") for source in wire_sources],
+                source_tools=[entry.tool_name or None for entry in registry_sources],
+                # Source IDENTITIES (URL / document key) — never answer prose.
+                # They turn the platform export from "3 citations removed" into
+                # "these three documents were cited but never retrieved".
+                retrieved_source_labels=[_source_label(entry) for entry in registry_sources if _source_label(entry)],
+                cited_source_labels=[
+                    label for label in ((s.get("citation_key") or s.get("url")) for s in wire_sources) if label
+                ],
+            )
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

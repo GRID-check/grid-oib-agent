@@ -31,8 +31,10 @@ from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.agents.shallow_researcher.markers import CONFIDENCE_MARKER_RE  # noqa: F401 (re-exported)
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER  # noqa: F401 (re-exported)
 from aiq_agent.agents.shallow_researcher.markers import ConfidenceLevel
+from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason  # noqa: F401 (re-exported)
 from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
 from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_escalation_marker
+from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence  # noqa: F401 (re-exported)
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
@@ -49,53 +51,6 @@ from .models import ShallowResult
 from .utils import trim_message_history
 
 logger = logging.getLogger(__name__)
-
-
-def surface_answer_confidence(
-    self_reported: ConfidenceLevel | None,
-    citation_grounded: bool,
-    quotes_verified: bool = True,
-) -> ConfidenceLevel | None:
-    """Apply the deterministic overconfidence guard to a self-reported level.
-
-    Returns ``None`` when there is no self-assessment to surface. Otherwise caps
-    the surfaced value at "low" whenever the answer is not grounded in a verified
-    citation (empty registry or verification removed every citation) OR carries a
-    quoted span that could not be verified against a retrieved passage
-    (``quotes_verified`` is False — the weak model's "real section, fabricated
-    quote" pattern). A self-reported "high"/"medium" in either case is
-    untrustworthy and becomes "low"; a fully grounded answer with all quotes
-    verified surfaces the model's own level verbatim.
-    """
-    if self_reported is None:
-        return None
-    if not citation_grounded or not quotes_verified:
-        return "low"
-    return self_reported
-
-
-def answer_confidence_capped_reason(
-    self_reported: ConfidenceLevel | None,
-    citation_grounded: bool,
-    quotes_verified: bool = True,
-) -> Literal["ungrounded", "quote_unverified"] | None:
-    """Why the surfaced confidence was capped, or ``None`` when no cap applied.
-
-    Returns a reason only when a real downgrade happened: a self-reported
-    "medium"/"high" that got capped to "low". ``"ungrounded"`` when the answer is
-    not grounded in a verified citation (the more fundamental failure, so it wins
-    when both apply); ``"quote_unverified"`` when the answer is grounded but
-    carries a quoted span not verifiable against a retrieved passage. A missing
-    self-report, an already-"low" self-report, or a fully-verified grounded
-    answer is not a downgrade and yields ``None``.
-    """
-    if self_reported is None or self_reported == "low":
-        return None
-    if not citation_grounded:
-        return "ungrounded"
-    if not quotes_verified:
-        return "quote_unverified"
-    return None
 
 
 def derive_routing_decision(

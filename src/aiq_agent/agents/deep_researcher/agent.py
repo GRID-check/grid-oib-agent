@@ -15,10 +15,12 @@ from langchain_core.tools import BaseTool
 from langgraph.types import Checkpointer
 
 from aiq_agent.common import LLMProvider
+from aiq_agent.common import citation_events
 from aiq_agent.common import load_prompt
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
 
@@ -283,6 +285,14 @@ class DeepResearcherAgent:
             research_type="deep research",
             enable_logging=False,
         )
+        # Record the hardest citation failure there is — the run captured
+        # nothing to cite — so it lands on the platform's citation-health
+        # dashboard beside the softer defects, not only in the logs.
+        citation_events.record_empty_registry(
+            agent="deep",
+            unavailable_tools=unavailable,
+            available_count=available_count,
+        )
         return EmptySourceRegistryError(
             "deep research",
             unavailable_tools=unavailable,
@@ -408,6 +418,7 @@ class DeepResearcherAgent:
                     registry,
                     reference_sources=source_registry_middleware.get_source_entries(mode="compact"),
                 )
+                unverified_quote_count = 0
                 if verification.removed_citations:
                     removed_details = []
                     for c in verification.removed_citations:
@@ -435,6 +446,7 @@ class DeepResearcherAgent:
                 unverified_quotes = verify_quoted_spans(final_message, registry)
                 if unverified_quotes:
                     final_message = annotate_unverified_quotes(final_message, unverified_quotes)
+                    unverified_quote_count = len(unverified_quotes)
                     logger.info(
                         "Citation verification: %d quoted span(s) not verbatim in any retrieved "
                         "passage; annotated inline",
@@ -446,6 +458,32 @@ class DeepResearcherAgent:
                         "returning the generated report without failing the job. "
                         "This may indicate unsupported citation formatting or over-aggressive verification."
                     )
+
+                # Citation-health ledger: one batch per deep-research run, the
+                # same shape the shallow researcher posts. Deep reports carry no
+                # self-assessed confidence marker, so no cap reason is recorded.
+                registry_sources = registry.all_sources()
+                citation_events.record_turn(
+                    agent="deep",
+                    source_count=len(registry_sources),
+                    cited_count=len(verification.valid_citations),
+                    removed_citations=list(verification.removed_citations),
+                    unverified_quote_count=unverified_quote_count,
+                    grounded=bool(verification.valid_citations),
+                    source_origins=[
+                        source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources
+                    ],
+                    source_tools=[entry.tool_name or None for entry in registry_sources],
+                    # Source IDENTITIES (URL / document key) — never report prose.
+                    retrieved_source_labels=[
+                        label for label in ((e.citation_key or e.url) for e in registry_sources) if label
+                    ],
+                    cited_source_labels=[
+                        label
+                        for label in ((c.get("citation_key") or c.get("url")) for c in verification.valid_citations)
+                        if label
+                    ],
+                )
             elif self.enable_citation_verification:
                 # A completed report exists but no sources were ever captured:
                 # every finding is ungrounded (the writer answered from model

@@ -16,6 +16,8 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `documents.ts` | `documents` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
+| `agent-profiler.ts` | `agent_profiler_spans` |
+| `citation-events.ts` | `citation_events` |
 
 ---
 
@@ -361,3 +363,45 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   (`organization_id`,`conversation_id`) serves the per-conversation hydration
   list; `answer_feedback_org_project_idx` (`organization_id`,`project_id`).
   Schema: `frontends/ui/src/lib/db/schema/answer-feedback.ts`.
+
+---
+
+## citation_events
+
+Citation-quality ledger written **only** by `POST /api/internal/citation-events`
+(the backend emitter `src/aiq_agent/common/citation_events.py`) — the quality
+sibling of the cost ledger (`llm_usage_events`) and the timing ledger
+(`agent_profiler_spans`). Schema: `frontends/ui/src/lib/db/schema/citation-events.ts`;
+migration `drizzle/0025_citation_events.sql`.
+
+**One row per `(turn_id, kind)`.** Every observed research turn writes exactly
+one `turn_verified` baseline row — the denominator behind the platform
+dashboard's clean rate — plus one row per defect detected on that turn. That
+shape makes "turns observed" and "turns with defect X" both a plain `COUNT`
+instead of a jsonb scan. A unique index on `(turn_id, kind)` makes a retried
+flush idempotent.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `uuid` | PK, `gen_random_uuid()` |
+| `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
+| `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
+| `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `agent` | `text` | `shallow` \| `deep` |
+| `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
+| `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |
+| `count` | `integer` | Items the row covers (citations dropped, quotes unverified, …) |
+| `reasons` | `jsonb` | Machine reason key → occurrences, e.g. `{"url_not_in_registry": 2}` |
+| `detail` | `jsonb` | Coarse context: source/cited counts, origin+lane+tool mixes, and the failed citation `targets` (`{target, reason}`) |
+| `created_at` | `timestamptz` | Default `now()` |
+
+**No user content.** The ledger carries machine reason keys, counts, coarse
+source labels (origin/lane/tool), and source *identities* (a URL or a
+`file.pdf, p.12` document key) — never answer prose, never a quoted span, never
+a retrieved passage. That is what makes it safe to browse cross-organization
+from the platform tier.
+
+Read by the platform-owner-only citation-health surface
+(`frontends/ui/src/lib/citations/*`, `GET /api/platform/citation-health` and its
+`/export` sibling).

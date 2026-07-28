@@ -249,4 +249,177 @@ export const platform = {
       saving: 'Saving…',
     },
   },
+  /**
+   * Citation health (citation_events ledger): how often citation verification
+   * had to intervene on a research turn, and why.
+   */
+  citations: {
+    title: 'Citation health',
+    description:
+      'How often citation verification had to intervene on a research turn — and what it caught. Every research turn writes one row; defects are recorded alongside it.',
+    loadError: 'Could not load citation health.',
+    findingsTitle: 'What to do',
+    findingsDescription:
+      'Derived from the findings in this window — most urgent first. Each entry names the likely cause and the next step.',
+    findings: {
+      retrieval_unavailable: {
+        title: 'A retrieval integration is down',
+        meaning:
+          '{turns} research turn(s) captured no source at all. When retrieval returns nothing there is nothing to cite, and the turn fails instead of answering.',
+        action:
+          'Check the reported tool ({subject}) and its data-source configuration — API key, base URL, network reachability. Fix this before anything else on this list; every other finding is downstream of it.',
+        actionNoSubject:
+          'Check the data-source configuration of the research tools — API key, base URL, network reachability. Fix this before anything else on this list.',
+      },
+      answers_ungrounded: {
+        title: 'Answers are shipping without a source',
+        meaning:
+          '{turns} answer(s) ({share}% of turns) went out with the visible “Without source citation” note — sources were retrieved, but nothing the model cited survived verification.',
+        action:
+          'Open the flagged turns below and check whether the corpus actually covers the question. If it does, the citation contract in the writer prompt is the culprit; if it does not, the base knowledge for {subject} needs the missing documents.',
+        actionNoSubject:
+          'Open the flagged turns below and check whether the corpus actually covers the question. If it does, the citation contract in the writer prompt is the culprit; if it does not, the base knowledge needs the missing documents.',
+      },
+      citations_invented: {
+        title: 'The model cites sources that were never retrieved',
+        meaning:
+          '{citations} citation(s) across {turns} turn(s) were removed, and {share}% of removals were sources absent from the retrieval registry — the model is citing from memory.',
+        action:
+          'This is a prompt/model problem, not a retrieval one. Tighten the citation rules in the researcher prompt (cite only from retrieved passages) and re-check the model configured for the affected organizations. Verification is currently the only thing catching it.',
+      },
+      quotes_fabricated: {
+        title: 'Quoted passages do not appear in the sources',
+        meaning:
+          '{quotes} quoted span(s) across {turns} turn(s) ({share}% of turns) matched no retrieved passage — the classic “real section, invented wording” pattern.',
+        action:
+          'Spot-check the flagged turns against the cited document. If the quotes are genuinely correct, the fuzzy match threshold is too strict; if they are not, the model is fabricating wording and needs a stricter quoting instruction.',
+      },
+      citation_format_unparsed: {
+        title: 'Citations are being written in a format the verifier cannot parse',
+        meaning:
+          'On {turns} turn(s) ({share}% of turns) nothing the model wrote survived parsing, and a source had to be attached automatically.',
+        action:
+          'Compare the citation syntax in the researcher prompt with what verification expects. A format drift here silently discards correct citations, so the answer looks less grounded than it is.',
+      },
+      organization_outlier: {
+        title: 'One organization is much worse than the rest',
+        meaning:
+          '{subject} has a {share}% finding rate against a platform average of {platformShare}% ({turns} flagged turns).',
+        action:
+          'Look at that organization specifically rather than the pipeline: base knowledge coverage, uploaded project documents, and their configured model. A platform-wide change would be the wrong fix.',
+      },
+      sources_missing: {
+        title: 'Specific sources are cited but not held',
+        meaning:
+          '{sources} distinct source(s) were cited across {turns} turn(s) and none of them is in the base corpus or the norm catalog. The most-cited is {subject}.',
+        action:
+          'Work the “Sources to add” list below. {automatic} of them are RIS pointers that only need their legal rank confirmed; the rest are documents whose PDF you have to supply.',
+      },
+      sources_unretrievable: {
+        title: 'Sources the platform HAS are not reaching answers',
+        meaning:
+          '{sources} cited source(s) across {turns} turn(s) are already in the corpus, yet retrieval never returned them — starting with {subject}.',
+        action:
+          'Do NOT re-upload these. Check indexing instead: run a corpus sync, then reconcile the vector store. If they stay unretrievable, the chunking or the embedding of those documents is at fault.',
+      },
+      duplicates_only: {
+        title: 'Most removals are only duplicates',
+        meaning: '{share}% of removed citations were duplicates of a citation already present in the same answer.',
+        action:
+          'No action needed — this is cosmetic deduplication, not a grounding failure. Do not read the “citations removed” figure as a quality problem while this dominates.',
+      },
+      all_clear: {
+        title: 'Nothing needs your attention',
+        meaning: '{turns} research turns in this window, {share}% of them without a single finding.',
+        action: 'Nothing to do. Come back if the trend above starts climbing.',
+      },
+    },
+    export: 'Export diagnostics',
+    windowAria: 'Time window',
+    windowDays: 'Last {count} days',
+    unattributed: 'Unattributed',
+    turnId: 'Turn',
+    itemCount: '{count} affected',
+    empty: {
+      title: 'No research turns recorded yet',
+      description:
+        'Citation health fills up as soon as research turns run. Nothing recorded in this window means nothing to review.',
+    },
+    stats: {
+      cleanRate: 'Clean turns',
+      cleanRateHint: '{clean} of {turns} turns without a finding',
+      ungrounded: 'Without source citation',
+      ungroundedHint: 'Answers shipped without a verified citation',
+      removed: 'Citations removed',
+      removedHint: 'Individual citations the verifier could not confirm',
+      quotes: 'Unverified quotes',
+      quotesHint: 'Quoted spans found in no retrieved passage',
+    },
+    trend: {
+      title: 'Defects per day',
+      description: 'Research turns with a citation finding, per UTC day over the last {days} days.',
+      turns: '{count} turns',
+      empty: 'No citation findings in this window.',
+    },
+    missingTitle: 'Sources to add',
+    missingDescription:
+      'Specific sources answers keep citing that verification could not confirm, checked against what the platform actually holds. Most-cited first.',
+    missingCited: 'cited on {turns} turn(s) · {organizations} organization(s)',
+    missingCaveat:
+      'Each button opens the manager that owns the add flow, with the identifier copied to your clipboard. Adding is deliberately not silent: an uploaded PDF has to come from you, and a norm-catalog entry needs its legal rank and Bundesland confirmed before the agent may quote it as binding.',
+    missingStatus: {
+      absent: 'not held by the platform',
+      present: 'already held — retrieval did not surface it',
+    },
+    missingKinds: {
+      document: 'Document',
+      ris: 'RIS',
+      web: 'Web',
+    },
+    missingActions: {
+      upload_to_base_knowledge: 'Add to base knowledge',
+      add_to_norm_catalog: 'Add to norm catalog',
+      investigate_retrieval: 'Check indexing',
+      none: 'Outside the corpus',
+    },
+    reasonsTitle: 'Why citations were dropped',
+    reasonsDescription: 'The verifier’s own reason for each removal, most frequent first.',
+    reasonsEmpty: 'No removals in this window.',
+    sourcesTitle: 'Sources in play on flagged turns',
+    sourcesDescription: 'Retrieval origins and tools that were active on turns with a finding.',
+    sourcesEmpty: 'No source metadata for flagged turns in this window.',
+    orgsTitle: 'By organization',
+    orgsDescription: 'Most affected first. A high rate on few turns is noise; a high rate on many is a problem.',
+    orgsEmpty: 'No organizations recorded in this window.',
+    colTurns: 'Turns',
+    colDefects: 'Flagged',
+    colDefectRate: 'Rate',
+    recentTitle: 'Most recent findings',
+    recentDescription: 'The newest flagged turns. The turn id matches the agent profiler above.',
+    recentEmpty: 'No findings in this window.',
+    kinds: {
+      answer_ungrounded: 'Without source citation',
+      citations_removed: 'Citations removed',
+      quote_unverified: 'Quote not verifiable',
+      registry_empty: 'No sources captured',
+      citation_fallback: 'Citation supplied automatically',
+      confidence_capped: 'Confidence capped',
+    },
+    reasons: {
+      url_not_in_registry: 'URL not among the retrieved sources',
+      citation_key_not_in_registry: 'Document not among the retrieved sources',
+      unverifiable: 'No verifiable target in the citation',
+      duplicate: 'Duplicate of another citation',
+      ungrounded: 'Answer not grounded in a citation',
+      quote_unverified: 'Quote not verifiable',
+    },
+    dimensions: {
+      origin: 'Origin',
+      tool: 'Tool',
+    },
+    agents: {
+      shallow: 'Quick research',
+      deep: 'Deep research',
+    },
+  },
 }
