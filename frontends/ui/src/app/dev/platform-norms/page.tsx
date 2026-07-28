@@ -11,6 +11,7 @@
  * and the RIS verify call. Not linked from anywhere; 404s outside development.
  */
 
+import { useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 
@@ -198,6 +199,30 @@ export default function PlatformNormsDevPage(): JSX.Element {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
+  return <Preview />
+}
+
+function Preview(): JSX.Element {
+  // The authoring flow is what this preview exists to show — the list is
+  // already covered by the section screenshot. There is no prop to open the
+  // editor, so drive the real affordance once the catalog has loaded, exactly
+  // as a reviewer would.
+  useEffect(() => {
+    let cancelled = false
+    const open = (): void => {
+      if (cancelled) return
+      const button = Array.from(document.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim().startsWith('New entry'),
+      )
+      if (button) button.click()
+      else window.setTimeout(open, 100)
+    }
+    const handle = window.setTimeout(open, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [])
 
   return (
     <main

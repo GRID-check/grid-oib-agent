@@ -239,7 +239,10 @@ describe('NormRegistry', () => {
     render(<NormRegistry />)
     const sheet = await openEditor('Bauordnung für Wien')
 
-    await user().click(within(sheet).getByRole('button', { name: 'Verify' }))
+    // An entry that already carries a document number opens on its confirmed
+    // facts, not on the search box — re-searching is a deliberate act.
+    await user().click(within(sheet).getByRole('button', { name: 'Search again' }))
+    await user().click(within(sheet).getByRole('button', { name: 'Search RIS' }))
 
     const candidate = await screen.findByRole('button', {
       name: 'Apply Bauordnung für Wien — Fassung 2026',
@@ -254,8 +257,11 @@ describe('NormRegistry', () => {
 
     await user().click(candidate)
 
-    expect(within(sheet).getByPlaceholderText('NOR40251234')).toHaveValue('LrW40011223')
-    expect(within(sheet).getByPlaceholderText('YYYY-MM-DD')).toHaveValue('2026-07-28')
+    // The picked candidate's identity is now presented as confirmed fact rather
+    // than as raw fields the operator has to keep correct by hand.
+    const confirmed = await within(sheet).findByTestId('norm-editor-confirmed')
+    expect(within(confirmed).getByText('LrW40011223')).toBeDefined()
+    expect(within(confirmed).getByText('2026-07-28')).toBeDefined()
     // The diff makes the overwrite reviewable before it is applied to the file.
     expect(within(sheet).getByText('Applied:')).toBeDefined()
     expect(within(sheet).getByText(/LrW40009876 → LrW40011223/)).toBeDefined()
@@ -305,9 +311,24 @@ describe('NormRegistry', () => {
     await user().click(screen.getByRole('button', { name: 'New entry' }))
 
     const sheet = await screen.findByRole('dialog')
-    await user().type(within(sheet).getByPlaceholderText('e.g. oib-rl2-2023'), 'bauo-wien')
+    // The kind gates every field downstream, so it has to be picked first.
+    // It is a radiogroup, not buttons — single choice, correctly modelled.
+    // An external standard is the cheapest rank to fill: it needs no RIS
+    // lookup, so the duplicate-ID guard is reached without a document number.
+    await user().click(within(sheet).getByRole('radio', { name: /External standard/ }))
     await user().type(within(sheet).getByPlaceholderText('e.g. OIB-RL 2'), 'BO W')
     await user().type(within(sheet).getByPlaceholderText('Full title of the norm'), 'Duplikat')
+    await user().type(within(sheet).getByPlaceholderText('https://www.wien.gv.at/…'), 'https://example.test/n')
+
+    // The ID derives from the short name; overriding it lives under Advanced,
+    // which is exactly where a collision gets introduced by hand.
+    await user().click(within(sheet).getByRole('button', { name: /Advanced/ }))
+    const idField = within(within(sheet).getByTestId('norm-editor-advanced')).getByPlaceholderText(
+      'e.g. oib-rl2-2023',
+    )
+    await user().clear(idField)
+    await user().type(idField, 'bauo-wien')
+
     await user().click(within(sheet).getByRole('button', { name: 'Apply' }))
 
     await waitFor(() =>
