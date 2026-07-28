@@ -30,9 +30,11 @@ export interface Observability {
    * Dedicated Secret holding the sensitive values:
    *   - `otlp-api-key`  — OTLP ingestion key (dashboard PrimaryApiKey +
    *                       collector exporter header), via `secretKeyRef`
-   *   - `client-secret` — WorkOS API key as the OIDC client secret, read by
-   *                       Envoy Gateway (the key name is fixed by the
-   *                       SecurityPolicy API — see OIDC.ClientSecret)
+   *   - `client-secret` — OIDC client secret read by Envoy Gateway (key name
+   *                       fixed by the SecurityPolicy API — see
+   *                       OIDC.ClientSecret). The dedicated dashboard client's
+   *                       secret when provisioned, else the shared WorkOS API
+   *                       key.
    * Neither ever appears as a plain env value on a pod spec (visible to anyone
    * with Deployment read RBAC).
    */
@@ -75,7 +77,12 @@ export function installObservabilityDashboard(
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
   otlpApiKey: pulumi.Output<string>,
-  workosApiKey: pulumi.Output<string>,
+  /**
+   * OIDC client secret for the Gateway SecurityPolicy: the dedicated dashboard
+   * client's secret when one is provisioned, otherwise the shared WorkOS API
+   * key (see `observability.oidcClientSecret` in config.ts).
+   */
+  oidcClientSecret: pulumi.Output<string>,
   dependsOn: pulumi.Resource[],
 ): Observability {
   const labels = commonLabels(COMPONENT);
@@ -90,7 +97,7 @@ export function installObservabilityDashboard(
       metadata: { name: SECRETS_NAME, namespace, labels },
       stringData: {
         [OTLP_API_KEY_SECRET_KEY]: otlpApiKey,
-        [OIDC_CLIENT_SECRET_KEY]: workosApiKey,
+        [OIDC_CLIENT_SECRET_KEY]: oidcClientSecret,
       },
     },
     { provider, dependsOn },
@@ -273,7 +280,14 @@ export function installObservabilityDashboard(
  */
 export function otelSecurityPolicySpec(cfg: GridConfig): ISecurityPolicySpec {
   const { observability: obs, auth } = cfg;
-  const issuer = `https://api.workos.com/user_management/${auth.workosClientId}`;
+  // Prefer a dedicated AuthKit client when one is provisioned, so a dashboard
+  // token and an app token are not interchangeable and dashboard access can be
+  // revoked without touching the app. Falls back to the shared app client,
+  // which is the state ADR-0029 records as a residual risk. Issuer AND JWKS are
+  // both per-client, so all three must be derived from the same id — deriving
+  // one of them from the other client is the subtle way to break this.
+  const clientId = obs.oidcClientId || auth.workosClientId;
+  const issuer = `https://api.workos.com/user_management/${clientId}`;
   const jwtProviderName = "workos";
 
   return {
@@ -287,7 +301,7 @@ export function otelSecurityPolicySpec(cfg: GridConfig): ISecurityPolicySpec {
         authorizationEndpoint: "https://api.workos.com/user_management/authorize?provider=authkit",
         tokenEndpoint: "https://api.workos.com/user_management/authenticate",
       },
-      clientID: auth.workosClientId,
+      clientID: clientId,
       // Key name fixed by the SecurityPolicy API — see OIDC_CLIENT_SECRET_KEY.
       clientSecret: { name: SECRETS_NAME },
       // `offline_access` so WorkOS issues a refresh token for the renewal below.
@@ -305,9 +319,9 @@ export function otelSecurityPolicySpec(cfg: GridConfig): ISecurityPolicySpec {
       // oauth2/oauth_client.cc). Leaving it unset means every sign-in dies
       // immediately after a successful code exchange.
       //
-      // Keep this <= the WorkOS session access-token lifetime (5 minutes by
-      // default). Too long and Envoy keeps replaying a token the JWT filter
-      // already rejects; too short only costs an early refresh.
+      // Must stay <= the AuthKit application's `accessTokenExpiry` (confirmed
+      // 300s on this environment). Too long and Envoy keeps replaying a token
+      // the JWT filter already rejects; too short only costs an early refresh.
       defaultTokenTTL: "5m",
       // Renew silently rather than bouncing the browser through a full
       // redirect every few minutes (which would also drop the dashboard's
@@ -325,17 +339,55 @@ export function otelSecurityPolicySpec(cfg: GridConfig): ISecurityPolicySpec {
       ],
     },
     authorization: {
-      // Fail closed: anything that is not an authenticated platform-org member
-      // is denied, including a request that somehow skipped stages 1-2.
+      // Fail closed: anything that is not an authenticated platform OWNER is
+      // denied, including a request that somehow skipped stages 1-2.
+      //
+      // Membership of the platform org is deliberately NOT sufficient. That
+      // was the old dashboard gate (`RequiredClaimType=org_id`) and it does
+      // not match how the application itself decides platform access:
+      // `isPlatformOwner` (frontends/ui/src/lib/authz/platform.ts) requires the
+      // org AND (`org-platform-owner` role OR the platform:organizations:view
+      // permission). Gating on the org alone would mean anyone added to the
+      // platform org with WorkOS's default `member` role — an action that
+      // grants nothing in the app, and so reads as harmless to whoever does it
+      // — silently gains cross-tenant read of prompts, document snippets, LLM
+      // output and presigned S3 URLs.
+      //
+      // Claims inside one principal are ANDed and rules are ORed, so the app's
+      // `role || permission` becomes two rules that share the org_id claim.
       defaultAction: "Deny",
       rules: [
         {
-          name: "platform-org-members-only",
+          name: "platform-owner-by-role",
           action: "Allow",
           principal: {
             jwt: {
               provider: jwtProviderName,
-              claims: [{ name: "org_id", valueType: "String", values: [obs.platformOrgId] }],
+              claims: [
+                { name: "org_id", valueType: "String", values: [obs.platformOrgId] },
+                // PLATFORM_OWNER_ROLE_SLUG in src/lib/authz/platform.ts.
+                { name: "role", valueType: "String", values: ["org-platform-owner"] },
+              ],
+            },
+          },
+        },
+        {
+          name: "platform-owner-by-permission",
+          action: "Allow",
+          principal: {
+            jwt: {
+              provider: jwtProviderName,
+              claims: [
+                { name: "org_id", valueType: "String", values: [obs.platformOrgId] },
+                // PLATFORM_PERMISSIONS.organizationsView in authz/permissions.ts.
+                // StringArray: `permissions` is a JSON array in the token and
+                // matches when it CONTAINS the value.
+                {
+                  name: "permissions",
+                  valueType: "StringArray",
+                  values: ["platform:organizations:view"],
+                },
+              ],
             },
           },
         },

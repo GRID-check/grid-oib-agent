@@ -307,6 +307,20 @@ export interface GridConfig {
      * OTLP to the collector and never see it. Empty when observability is off.
      */
     otelPrimaryApiKey: pulumi.Output<string>;
+    /**
+     * OPTIONAL dedicated WorkOS AuthKit client for the dashboard's OIDC flow.
+     * Empty (the default) falls back to the app's shared client — recorded as a
+     * residual risk in ADR-0029, because a token minted by an ordinary app
+     * sign-in is then also a valid dashboard credential and dashboard access
+     * cannot be revoked separately.
+     *
+     * Set BOTH keys together to separate them. The client secret replaces the
+     * WorkOS *management API key* currently doing double duty as the OIDC
+     * client secret, which is the real prize: its worst-case abuse drops from
+     * "administer the identity provider" to "run an OIDC code exchange".
+     */
+    oidcClientId: string;
+    oidcClientSecret: pulumi.Output<string> | undefined;
   };
 }
 
@@ -410,6 +424,17 @@ export function loadConfig(): GridConfig {
   const otelDomain = cfg.get("otelDomain") ?? "";
   const platformOrgId = cfg.get("platformOrgId") ?? "";
   const otelPrimaryApiKey = cfg.getSecret("otelPrimaryApiKey");
+  // Optional dedicated AuthKit client for the dashboard (see the interface).
+  // Half-configured is worse than either state — it would silently keep using
+  // the shared client while looking provisioned — so require both or neither.
+  const otelOidcClientId = cfg.get("otelOidcClientId") ?? "";
+  const otelOidcClientSecret = cfg.getSecret("otelOidcClientSecret");
+  if ((otelOidcClientId === "") !== (otelOidcClientSecret === undefined)) {
+    throw new Error(
+      "grid-oib:otelOidcClientId and grid-oib:otelOidcClientSecret must be set together " +
+        "(or neither, to reuse the app's shared WorkOS client).",
+    );
+  }
   const observabilityFlag = bool(cfg, "observabilityEnabled", true);
   const missingObservabilityDeps = [
     otelDomain === "" ? "otelDomain" : undefined,
@@ -629,6 +654,8 @@ export function loadConfig(): GridConfig {
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
       },
       otelPrimaryApiKey: otelPrimaryApiKey ?? pulumi.output(""),
+      oidcClientId: otelOidcClientId,
+      oidcClientSecret: otelOidcClientSecret,
     },
   };
 }

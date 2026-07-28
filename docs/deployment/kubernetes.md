@@ -502,13 +502,40 @@ grid-ui / grid-aiq-agent / grid-agent-worker
 
 **URL:** `https://<otelDomain>` (stack output `otelUrl`).
 
-**Access:** WorkOS AuthKit OIDC (same WorkOS client as the app), claim-gated
-on `org_id = <platformOrgId>` — the same population that has platform admin
-access (ADR-0016). Enforced at the edge by the `grid-otel-auth`
-**SecurityPolicy** on the Envoy Gateway, not inside the dashboard
-(ADR-0029 Amendment 2): `oidc` authenticates, `jwt` verifies the forwarded
-WorkOS access token against the per-client JWKS, and `authorization`
-default-denies everything whose `org_id` claim is not the platform org.
+**Access:** WorkOS AuthKit OIDC, restricted to **platform owners** — the same
+population, and the same test, as the application's own `isPlatformOwner`
+(ADR-0016): the platform org **and** either the `org-platform-owner` role or
+the `platform:organizations:view` permission. Enforced at the edge by the
+`grid-otel-auth` **SecurityPolicy** on the Envoy Gateway, not inside the
+dashboard (ADR-0029 Amendment 2): `oidc` authenticates, `jwt` verifies the
+forwarded WorkOS access token against the per-client JWKS, and `authorization`
+default-denies, with two Allow rules (claims AND within a rule, rules OR
+across) mirroring that `role || permission` test.
+
+> **Bare membership of the platform org is not enough.** If nobody currently
+> holds the `org-platform-owner` role in WorkOS, nobody can open the dashboard —
+> including you. The `GRID_PLATFORM_OWNER_EMAILS` break-glass path is an
+> application-level bootstrap and does **not** apply at the Gateway. Assign the
+> role in WorkOS before relying on dashboard access.
+
+**Optional but recommended — a dedicated WorkOS client.** By default the
+dashboard reuses the app's AuthKit client, which means an ordinary app sign-in
+mints a token that is also a valid dashboard credential, and the OIDC client
+secret is the WorkOS **management API key**. Provisioning a second AuthKit
+application separates both:
+
+```bash
+# 1. Create a second AuthKit application in WorkOS, register
+#    https://<otelDomain>/oauth2/callback as one of its redirect URIs, and
+#    take its client id + secret key.
+pulumi config set        grid-oib:otelOidcClientId     client_...
+pulumi config set --secret grid-oib:otelOidcClientSecret sk_...
+```
+
+Set both or neither — `loadConfig` rejects a half-configured pair, because the
+half-configured state silently keeps using the shared client while looking
+provisioned. The issuer and JWKS are both derived from whichever client id is
+in effect.
 
 The dashboard pod itself runs `AuthMode=Unsecured`, which makes its network
 isolation part of the security control rather than a nicety: anything that

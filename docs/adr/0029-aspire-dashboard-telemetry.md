@@ -144,8 +144,16 @@ NetworkPolicy). Three stages, in Envoy's fixed filter order
    replays the WorkOS access token upstream as `Authorization: Bearer`.
 2. `jwt` — verifies it against the per-client JWKS
    (`https://api.workos.com/sso/jwks/<client_id>`).
-3. `authorization` — `defaultAction: Deny`, allowing only `org_id =
-   <platformOrgId>`.
+3. `authorization` — `defaultAction: Deny`, allowing only **platform owners**:
+   the platform org AND (`org-platform-owner` role OR
+   `platform:organizations:view`), as two Allow rules. This is a deliberate
+   tightening over the gate it replaced. The old `RequiredClaimType=org_id`
+   accepted bare membership of the platform org, which does not match
+   `isPlatformOwner` in the app — so a user added to the platform org with
+   WorkOS's default `member` role got nothing in the app but would have had
+   cross-tenant read of telemetry. Operational consequence: the role must
+   actually be assigned in WorkOS, and `GRID_PLATFORM_OWNER_EMAILS` (an
+   app-level bootstrap) does not apply at the Gateway.
 
 **Why this works where the dashboard could not.** Envoy's OAuth2 filter builds
 its authorization redirect by parsing the query string already present on
@@ -323,10 +331,16 @@ Applied after an adversarial review pass:
 - **Plaintext OTLP in-cluster** (no mTLS between producers → collector →
   dashboard). Acceptable on a private cluster network; a service mesh would
   be the upgrade path if the cluster threat model changes.
-- **Shared WorkOS client** for the dashboard OIDC: the dashboard uses the
-  same AuthKit client as the app (issuer is per-client). A dedicated WorkOS
-  app/client for observability would shrink the blast radius of the shared
-  secret — follow-up, not a blocker.
+- **Shared WorkOS client** for the dashboard OIDC, *by default*: the dashboard
+  reuses the app's AuthKit client (issuer and JWKS are both per-client), so an
+  ordinary app sign-in mints a token that is also a valid dashboard credential,
+  and the OIDC client secret is the WorkOS management API key. Amendment 2
+  added `grid-oib:otelOidcClientId` / `otelOidcClientSecret` to point the
+  dashboard at a dedicated AuthKit application; setting them separates the
+  credentials and drops the secret's worst case from "administer the identity
+  provider" to "run an OIDC code exchange". Left unset the residual risk
+  stands — provisioning the second application is a deploy-time action, not a
+  code change.
 - **Collector receivers are unauthenticated** (plain OTLP). Reachability is
   bounded to same-namespace pods by the NetworkPolicy posture; a rogue
   in-namespace pod could inject spans. Accepted: namespace workload identity
