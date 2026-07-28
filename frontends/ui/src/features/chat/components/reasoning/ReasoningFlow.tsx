@@ -175,7 +175,7 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
  */
 const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) => {
   const stack = (
-    <div className="flex w-full flex-col">
+    <div role="list" aria-label={data.groupLabel} className="flex w-full flex-col">
       {data.cards.map((card, i) => (
         <div key={card.id} className="flex flex-col">
           {i > 0 && (

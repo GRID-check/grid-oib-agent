@@ -24,7 +24,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/herleitung?variant=dense',
     description:
-      'Herleitung for a research-heavy turn (8 documents / 5 lanes) in the real 680px thread column — more sources than fit one row, so the fan packs into stacked COLUMNS instead of collapsing into a single vertical chain.',
+      'Herleitung for a research-heavy turn (9 documents / 5 lanes) in the real 680px thread column — more sources than fit one row, so the fan packs into stacked COLUMNS instead of collapsing into a single vertical chain.',
     waitFor: '.react-flow__node',
   },
   {

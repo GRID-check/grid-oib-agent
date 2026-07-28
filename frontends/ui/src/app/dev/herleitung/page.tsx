@@ -13,7 +13,7 @@
  *
  * `?variant=` selects the captured scenario:
  *   - (none)   → framing → parallel sources → assessment (findings converge).
- *   - dense    → a research-heavy turn (8 documents across 5 lanes): more
+ *   - dense    → a research-heavy turn (9 documents across 5 lanes): more
  *     sources than fit in one row, so the fan packs into stacked COLUMNS
  *     instead of degrading to a single vertical chain.
  *   - branches → a live choice prompt WITHOUT findings, so the sources fan IN to
@@ -108,7 +108,7 @@ const defaultCommon = {
     'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
 }
 
-// Dense scenario: what a real Tiefenrecherche turn looks like — eight documents
+// Dense scenario: what a real Tiefenrecherche turn looks like — nine documents
 // across five lanes. This is the case the old layout got wrong: the single-row
 // fan needed ~1.4k px, did not fit the 680px thread column, and collapsed the
 // whole graph into one vertical list. It must now pack into stacked columns.
@@ -262,7 +262,7 @@ export default function HerleitungPreviewPage() {
       : variant === 'live'
         ? '/dev/herleitung?variant=live — mid-stream turn (live status + chips)'
         : variant === 'dense'
-          ? '/dev/herleitung?variant=dense — 8 sources, packed into stacked columns'
+          ? '/dev/herleitung?variant=dense — 9 sources, packed into stacked columns'
           : '/dev/herleitung — reasoning graph (desktop + mobile)'
 
   return (

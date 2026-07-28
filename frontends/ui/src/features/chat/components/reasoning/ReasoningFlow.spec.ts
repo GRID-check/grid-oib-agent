@@ -175,8 +175,8 @@ describe('buildGraph — the fan splits from one line and merges back into one',
   })
 })
 
-describe('buildGraph — fan-in never collapses onto one handle (P1-5)', () => {
-  test('choice prompt without findings: columns fan IN to the branches node via per-column handles', () => {
+describe('buildGraph — the fan-in shares one centred anchor (P1-5)', () => {
+  test('choice prompt without findings: every column merges into the branches node centre handle', () => {
     const g = buildGraph(
       {
         ...base,
@@ -188,7 +188,7 @@ describe('buildGraph — fan-in never collapses onto one handle (P1-5)', () => {
     )
 
     expect(g.nodes.find((n) => n.id === 'findings')).toBeUndefined()
-    // Each column lands on its OWN target handle on the branches node.
+    // Every column lands on the same centred target handle on the branches node.
     expect(targetHandles(g, 'branches')).toEqual(['c-top'])
     expect(g.edges).toContainEqual(
       expect.objectContaining({ source: 'col-0', target: 'branches', targetHandle: 'c-top' })
