@@ -142,11 +142,10 @@ config:
   # A second consumer on the collector's logs signal. Requires the
   # observability tier above (it has no receiver of its own).
   #
-  # `err2issueGithubToken` is deliberately absent below — same reason as
-  # otelOidcClientSecret: only an operator holding both the PAT and the stack's
-  # encryption key can write it. Until it is set the capability gate skips the
-  # sink and `pulumi preview` says so. That is the designed fail-closed
-  # behaviour, not a missing config bug. To finish enabling:
+  # `err2issueGithubToken` is set below, so the capability gate passes and the
+  # sink is active on this stack. It stays fail-closed by construction: unset the
+  # token and the gate skips the sink (and `pulumi preview` says so) rather than
+  # erroring. To rotate the PAT:
   #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
   # The PAT needs Issues read/write on the destination repo (a fine-grained
   # token scoped to that one repo is enough — it never reads code).
@@ -162,3 +161,5 @@ config:
   # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent
+  grid-oib:err2issueGithubToken:
+    secure: AAABAPwDzOzuG0KIFfRWejuPFA4mU9gN6xlYBKB+zDJM08Fe38wgj7Gqco0SvSDZxZnCaJNJ+dM8urnvcEIJFDEtHd8uBnZS
