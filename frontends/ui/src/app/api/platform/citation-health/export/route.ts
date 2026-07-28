@@ -14,17 +14,15 @@ import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
 import { getCitationExport } from '@/lib/citations/service'
+import { parseWindowDaysParam } from '@/lib/citations/window'
 
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await getGridSession()
     await requirePlatformOwner(session)
 
-    // `Number(null)` is 0, so read the param as a string first — otherwise a
-    // missing `days` would silently request a 1-day window.
-    const raw = new URL(request.url).searchParams.get('days')
-    const days = raw === null ? Number.NaN : Number(raw)
-    const bundle = await getCitationExport({ days: Number.isFinite(days) ? days : undefined })
+    const days = parseWindowDaysParam(new URL(request.url).searchParams.get('days'))
+    const bundle = await getCitationExport({ days })
 
     const fileName = `citation-health-${bundle.windowStart.slice(0, 10)}-to-${bundle.generatedAt.slice(0, 10)}.json`
     return new NextResponse(JSON.stringify(bundle, null, 2), {

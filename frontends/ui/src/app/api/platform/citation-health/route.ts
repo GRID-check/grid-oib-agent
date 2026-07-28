@@ -10,17 +10,16 @@ import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
 import { getCitationHealth } from '@/lib/citations/service'
+import { parseWindowDaysParam } from '@/lib/citations/window'
 
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await getGridSession()
     await requirePlatformOwner(session)
-    // Clamped to 1–90 days in the service; an absent or junk value falls back
-    // to the default. `Number(null)` is 0, so the param must be read as a
-    // string first — otherwise a missing `days` would request a 1-day window.
-    const raw = new URL(request.url).searchParams.get('days')
-    const days = raw === null ? Number.NaN : Number(raw)
-    const snapshot = await getCitationHealth({ days: Number.isFinite(days) ? days : undefined })
+    // Clamped to 1–90 days in the service; absent, blank, non-numeric and
+    // non-positive values all fall through to the default window.
+    const days = parseWindowDaysParam(new URL(request.url).searchParams.get('days'))
+    const snapshot = await getCitationHealth({ days })
     return NextResponse.json(snapshot)
   } catch (error) {
     if (error instanceof PlatformAccessDeniedError) {

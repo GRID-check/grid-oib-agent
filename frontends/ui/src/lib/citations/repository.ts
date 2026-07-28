@@ -10,7 +10,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, gte, ne, sql } from 'drizzle-orm'
+import { and, desc, gte, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   CITATION_BASELINE_KIND,
@@ -19,6 +19,20 @@ import {
   type CitationEventKind,
   type NewCitationEvent,
 } from '@/lib/db/schema'
+
+/**
+ * A window bound for a RAW `db.execute(sql\`…\`)` query.
+ *
+ * The drizzle select-builder knows `createdAt` is a timestamptz and encodes a
+ * `Date` for it. A raw fragment carries no column type, so postgres-js receives
+ * an unencodable `Date` and the query dies at bind time with
+ * `The "string" argument must be of type string … Received an instance of Date`.
+ * Passing an ISO string with an explicit cast is the portable fix — every raw
+ * query below MUST use this, never a bare `Date`.
+ */
+function windowStart(start: Date): string {
+  return start.toISOString()
+}
 
 /**
  * Insert one turn's batch. `onConflictDoNothing` on (turn_id, kind) makes a
@@ -158,7 +172,9 @@ export async function aggregateReasons(start: Date): Promise<ReasonTotalRow[]> {
       coalesce(sum((r.value)::int), 0) as occurrences
     from ${citationEvents} e
     cross join lateral jsonb_each_text(e.reasons) r
-    where e.created_at >= ${start} and e.reasons is not null
+    -- jsonb_each_text ERRORS on an array or scalar, so the type check must gate
+    -- the lateral join, not merely filter its output.
+    where e.created_at >= ${windowStart(start)}::timestamptz and jsonb_typeof(e.reasons) = 'object'
     group by e.kind, r.key
     order by occurrences desc
     limit ${REASON_LIMIT}
@@ -193,22 +209,22 @@ export async function aggregateDefectiveSourceMix(start: Date): Promise<SourceMi
     with defective as (
       select distinct turn_id
       from ${citationEvents}
-      where created_at >= ${start} and kind <> ${CITATION_BASELINE_KIND}
+      where created_at >= ${windowStart(start)}::timestamptz and kind <> ${CITATION_BASELINE_KIND}
     ),
     baseline as (
       select e.detail
       from ${citationEvents} e
       join defective d on d.turn_id = e.turn_id
-      where e.created_at >= ${start} and e.kind = ${CITATION_BASELINE_KIND} and e.detail is not null
+      where e.created_at >= ${windowStart(start)}::timestamptz and e.kind = ${CITATION_BASELINE_KIND} and e.detail is not null
     )
     select dimension, label, count(*) as turns from (
       select 'origin' as dimension, o.key as label
       from baseline, lateral jsonb_each_text(baseline.detail -> 'origins') o
-      where baseline.detail ? 'origins'
+      where jsonb_typeof(baseline.detail -> 'origins') = 'object'
       union all
       select 'tool' as dimension, t.key as label
       from baseline, lateral jsonb_each_text(baseline.detail -> 'tools') t
-      where baseline.detail ? 'tools'
+      where jsonb_typeof(baseline.detail -> 'tools') = 'object'
     ) labels
     group by dimension, label
     order by turns desc
@@ -254,7 +270,9 @@ export async function aggregateFailedTargets(start: Date): Promise<FailedTargetR
   }>(sql`
     select
       t.target as target,
-      max(t.reason) as reason,
+      -- The reason that actually recurs for this target; max() would pick
+      -- the alphabetically last one, which is meaningless here.
+      mode() within group (order by t.reason) as reason,
       count(distinct t.turn_id) as turns,
       count(distinct t.organization_id) as organizations,
       max(t.created_at) as last_seen_at
@@ -267,7 +285,7 @@ export async function aggregateFailedTargets(start: Date): Promise<FailedTargetR
         coalesce(item ->> 'reason', 'unverifiable') as reason
       from ${citationEvents} e
       cross join lateral jsonb_array_elements(e.detail -> 'targets') item
-      where e.created_at >= ${start}
+      where e.created_at >= ${windowStart(start)}::timestamptz
         and jsonb_typeof(e.detail -> 'targets') = 'array'
         and item ->> 'target' is not null
     ) t
@@ -304,7 +322,7 @@ export async function aggregateUnavailableTools(start: Date): Promise<Unavailabl
     from (
       select jsonb_array_elements_text(e.detail -> 'unavailable_tools') as tool
       from ${citationEvents} e
-      where e.created_at >= ${start}
+      where e.created_at >= ${windowStart(start)}::timestamptz
         and e.kind = 'registry_empty'
         and jsonb_typeof(e.detail -> 'unavailable_tools') = 'array'
     ) tools
@@ -340,7 +358,7 @@ export async function aggregateByOrganization(start: Date): Promise<Organization
       count(distinct turn_id) filter (where kind <> ${CITATION_BASELINE_KIND}) as defect_turns,
       count(distinct turn_id) filter (where severity = 'error') as error_turns
     from ${citationEvents}
-    where created_at >= ${start}
+    where created_at >= ${windowStart(start)}::timestamptz
     group by organization_id
     order by defect_turns desc
     limit ${ORGANIZATION_LIMIT}
@@ -384,10 +402,4 @@ export async function listEventsForExport(start: Date, limit = EXPORT_ROW_CAP): 
     .orderBy(citationEvents.createdAt)
     // One row over the cap, so the caller can tell "exactly full" from "truncated".
     .limit(Math.min(Math.max(limit, 1), EXPORT_ROW_CAP) + 1)
-}
-
-/** Every event of one turn — used when drilling into a flagged turn. */
-export async function getEventsForTurn(turnId: string): Promise<CitationEvent[]> {
-  const db = getDb()
-  return db.select().from(citationEvents).where(eq(citationEvents.turnId, turnId)).orderBy(citationEvents.createdAt)
 }

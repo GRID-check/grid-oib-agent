@@ -317,9 +317,8 @@ export function CitationHealth(): JSX.Element {
           toast.error(t('citations.loadError'))
         })
         .finally(() => setLoading(false))
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [],
+    [t],
   )
 
   useEffect(() => {

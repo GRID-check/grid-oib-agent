@@ -37,12 +37,14 @@ import logging
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
+from threading import Lock
 from typing import Any
 from typing import Literal
 
@@ -312,6 +314,52 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 _MAX_EVENTS_PER_BATCH = 50
 _post_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="citation-events")
 
+#: Ceiling on batches queued but not yet posted. ThreadPoolExecutor's work queue
+#: is UNBOUNDED: with the BFF hung, every worker blocks for the full request
+#: timeout while new turns keep submitting, and the backlog (holding each
+#: payload) grows without limit. Telemetry must never be the thing that runs a
+#: replica out of memory, so past this point new batches are dropped — the
+#: honest trade for a best-effort ledger.
+_MAX_PENDING_BATCHES = 200
+_pending_batches = 0
+_pending_lock = Lock()
+_dropped_batches = 0
+
+
+def _release_pending(_future: Any) -> None:
+    """Free a backlog slot once a batch has been posted (or failed)."""
+    global _pending_batches
+    with _pending_lock:
+        _pending_batches -= 1
+
+
+def _submit_batch(payload: dict[str, Any]) -> bool:
+    """Queue a batch for posting; return False when the backlog is full."""
+    global _pending_batches, _dropped_batches
+    with _pending_lock:
+        if _pending_batches >= _MAX_PENDING_BATCHES:
+            _dropped_batches += 1
+            dropped = _dropped_batches
+            backlog_full = True
+        else:
+            _pending_batches += 1
+            backlog_full = False
+    if backlog_full:
+        # Log sparsely: a stuck BFF would otherwise produce one line per turn.
+        if dropped == 1 or dropped % 100 == 0:
+            logger.warning(
+                "Citation-event backlog full (%d pending) — dropped %d batch(es) so far",
+                _MAX_PENDING_BATCHES,
+                dropped,
+            )
+        return False
+    try:
+        _post_executor.submit(_post_batch, payload).add_done_callback(_release_pending)
+    except Exception:
+        _release_pending(None)
+        raise
+    return True
+
 
 def _events_enabled() -> bool:
     """Whether citation-health telemetry is emitted (default on)."""
@@ -373,25 +421,41 @@ def _resolve_context(
     return resolved
 
 
+#: Only real HTTP(S) endpoints may be posted to. A misconfigured
+#: FRONTEND_INTERNAL_URL must not let urllib open a ``file://`` (or ftp://, …)
+#: handler with the internal token and the batch attached.
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
+
 def _post_batch(payload: dict[str, Any]) -> None:
     """POST one batch to the BFF ledger endpoint. Best-effort, never raises."""
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
         logger.warning(
             "GRID_INTERNAL_API_TOKEN not configured — dropping %d citation event(s)",
-            len(payload["events"]),
+            len(payload.get("events") or ()),
         )
         return
     base_url = (
         os.environ.get("FRONTEND_INTERNAL_URL") or os.environ.get("FRONTEND_URL") or "http://frontend:3000"
     ).rstrip("/")
-    request = urllib.request.Request(
-        f"{base_url}/api/internal/citation-events",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-grid-internal-token": token},
-        method="POST",
-    )
+    scheme = urllib.parse.urlparse(base_url).scheme.lower()
+    if scheme not in _ALLOWED_URL_SCHEMES:
+        logger.warning(
+            "Internal frontend URL uses unsupported scheme %r — dropping citation events",
+            scheme or "(none)",
+        )
+        return
+    # Serialization and request construction are inside the guard too: a payload
+    # that will not serialize is a bug worth a log line, not a silent exception
+    # swallowed by an unread Future on the dispatch thread.
     try:
+        request = urllib.request.Request(
+            f"{base_url}/api/internal/citation-events",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-grid-internal-token": token},
+            method="POST",
+        )
         # The URL is the deployment-set internal frontend base plus a fixed path;
         # no user input reaches it (same pattern as the profiler/cost ledgers).
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
@@ -438,7 +502,7 @@ def emit_events(
         if wait:
             _post_batch(payload)
         else:
-            _post_executor.submit(_post_batch, payload)
+            _submit_batch(payload)
     except Exception:
         logger.warning("Could not dispatch citation-event batch", exc_info=True)
     return payload
@@ -501,11 +565,16 @@ def record_empty_registry(
     Emitted from the raise site, so the failure shows up on the dashboard next
     to the softer defects instead of only in the logs. Never raises.
     """
-    event = CitationEvent(
-        kind="registry_empty",
-        detail={
-            "available_tools": available_count,
-            "unavailable_tools": (unavailable_tools or [])[:_MAX_DETAIL_LABELS],
-        },
-    )
+    try:
+        # `unavailable_tools` comes from tool-validation callers and is not
+        # guaranteed to be a list — a set or generator is not sliceable, and the
+        # docstring promises this never raises.
+        tools = list(unavailable_tools or [])[:_MAX_DETAIL_LABELS]
+        event = CitationEvent(
+            kind="registry_empty",
+            detail={"available_tools": available_count, "unavailable_tools": tools},
+        )
+    except Exception:
+        logger.warning("Could not build the empty-registry citation event", exc_info=True)
+        return None
     return emit_events([event], agent=agent, job_id=job_id, identity=identity)
