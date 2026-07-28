@@ -303,6 +303,40 @@ export async function aggregateFailedTargets(start: Date): Promise<FailedTargetR
   }))
 }
 
+/**
+ * Distinct turns on which ANY of `targets` was the cited source verification
+ * rejected.
+ *
+ * Needed because per-target turn counts are NOT additive: three documents
+ * rejected on the SAME turn are three rows of `aggregateFailedTargets`, each
+ * with `turns: 1`. Summing them reports "3 turns" for a window that only ever
+ * saw one — which is how a single bad turn came to read as a platform-wide
+ * trend. The union has to come from the database.
+ *
+ * Targets are bound as individual parameters (never interpolated), and the
+ * caller passes at most `FAILED_TARGET_LIMIT` of them.
+ */
+export async function countTurnsForTargets(start: Date, targets: string[]): Promise<number> {
+  if (targets.length === 0) return 0
+  const db = getDb()
+  const list = sql.join(
+    targets.map((target) => sql`${target}`),
+    sql`, `,
+  )
+  const rows = await db.execute<{ turns: string }>(sql`
+    select count(distinct t.turn_id) as turns
+    from (
+      select e.turn_id, item ->> 'target' as target
+      from ${citationEvents} e
+      cross join lateral jsonb_array_elements(e.detail -> 'targets') item
+      where e.created_at >= ${windowStart(start)}::timestamptz
+        and jsonb_typeof(e.detail -> 'targets') = 'array'
+    ) t
+    where t.target in (${list})
+  `)
+  return Number(Array.from(rows)[0]?.turns ?? 0)
+}
+
 export interface UnavailableToolRow {
   tool: string
   turns: number

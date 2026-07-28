@@ -11,6 +11,7 @@ vi.mock('./repository', () => ({
   aggregateDefectiveSourceMix: vi.fn(),
   aggregateUnavailableTools: vi.fn(),
   aggregateFailedTargets: vi.fn(),
+  countTurnsForTargets: vi.fn(),
   listEventsForExport: vi.fn(),
   EXPORT_ROW_CAP: 5000,
   aggregateByOrganization: vi.fn(),
@@ -45,6 +46,7 @@ const mocked = {
   sourceMix: vi.mocked(repository.aggregateDefectiveSourceMix),
   unavailableTools: vi.mocked(repository.aggregateUnavailableTools),
   failedTargets: vi.mocked(repository.aggregateFailedTargets),
+  targetTurns: vi.mocked(repository.countTurnsForTargets),
   byOrg: vi.mocked(repository.aggregateByOrganization),
   recent: vi.mocked(repository.listRecentDefects),
 }
@@ -61,6 +63,7 @@ function withEmptyRepository(): void {
   mocked.sourceMix.mockResolvedValue([])
   mocked.unavailableTools.mockResolvedValue([])
   mocked.failedTargets.mockResolvedValue([])
+  mocked.targetTurns.mockResolvedValue(0)
   mocked.byOrg.mockResolvedValue([])
   mocked.recent.mockResolvedValue([])
   mockGetWorkOS.mockReturnValue({

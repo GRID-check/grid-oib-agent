@@ -30,6 +30,15 @@ interface CitationDefectChartProps {
   kinds: readonly string[]
   kindLabel: (kind: string) => string
   turnsLabel: (count: number) => string
+  /**
+   * Label for a count of FINDINGS. The stack sums per-kind turn counts, and a
+   * turn carrying three kinds contributes three segments — so the axis maximum
+   * and each column describe findings, never turns. Labelling the stack as
+   * turns made one flagged turn read as three.
+   */
+  findingsLabel: (count: number) => string
+  /** Label for the turns that carried at least one finding, for the tooltip. */
+  flaggedLabel: (count: number) => string
   emptyLabel: string
   /** Accessible name for the plot; the table-equivalent lives in the tooltips. */
   ariaLabel: string
@@ -47,6 +56,8 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
   kinds,
   kindLabel,
   turnsLabel,
+  findingsLabel,
+  flaggedLabel,
   emptyLabel,
   ariaLabel,
 }) => {
@@ -77,7 +88,7 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
         <div className="min-w-[420px]">
           <div className="flex justify-end">
             <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-              {turnsLabel(maxStack)}
+              {findingsLabel(maxStack)}
             </span>
           </div>
           {/* Deliberately NOT role="img": that would collapse the whole plot
@@ -96,7 +107,7 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
                     <div
                       tabIndex={0}
                       role="button"
-                      aria-label={`${dateLabel(point.day)}: ${turnsLabel(total)}`}
+                      aria-label={`${dateLabel(point.day)}: ${findingsLabel(total)}`}
                       className="flex h-full min-w-[6px] flex-1 cursor-default flex-col justify-end gap-[2px] rounded-[3px] focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
                     >
                       {total > 0 ? (
@@ -122,7 +133,11 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
                   </TooltipTrigger>
                   <TooltipContent>
                     <p className="font-medium">{dateLabel(point.day)}</p>
+                    {/* Turns observed, then how many of them carried a finding —
+                        the stack below counts findings, and without both lines a
+                        3-segment column reads as three bad turns. */}
                     <p className="tabular-nums text-muted-foreground">{turnsLabel(point.turns)}</p>
+                    <p className="tabular-nums text-muted-foreground">{flaggedLabel(point.defectTurns)}</p>
                     {total === 0 ? null : (
                       <ul className="mt-1 space-y-0.5">
                         {presentKinds

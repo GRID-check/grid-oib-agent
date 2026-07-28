@@ -160,6 +160,13 @@ export function buildFindings(input: {
   organizations: CitationOrganizationTotal[]
   unavailableTools: repository.UnavailableToolRow[]
   missingSources?: MissingSourceCandidate[]
+  /**
+   * Distinct turns behind the missing-source candidates, split by whether the
+   * platform holds the source. Per-candidate `turns` cannot be summed (several
+   * sources are typically rejected on the SAME turn), so the union comes from
+   * the database; without it we fall back to the only bound we can prove.
+   */
+  missingSourceTurns?: { held: number; addable: number }
 }): CitationFinding[] {
   const { turns, defectTurns, byKind, reasons, organizations, unavailableTools } = input
   const missingSources = input.missingSources ?? []
@@ -171,6 +178,22 @@ export function buildFindings(input: {
     reasons.filter((row) => keys.includes(row.reason)).reduce((sum, row) => sum + row.share, 0)
 
   const findings: CitationFinding[] = []
+
+  // The cited sources verification rejected, split by whether the platform
+  // holds them. The split drives two mutually exclusive diagnoses below, so it
+  // is computed once, up front.
+  // `unheld` is the invention signal: the platform holds it nowhere, whatever
+  // can be done about that. `addable` is the subset with a remedy — a web page
+  // is not addable to the corpus, but citing one that was never retrieved is
+  // still the model writing a source out of thin air.
+  const unheld = missingSources.filter((candidate) => !candidate.present)
+  const addable = unheld.filter((candidate) => candidate.action !== 'none')
+  const heldButUnretrieved = missingSources.filter((candidate) => candidate.present)
+  // Upper bound when the exact union is unavailable: a turn cannot be flagged
+  // more often than it was flagged. Summing per-candidate turns would report
+  // more turns than the whole window contains.
+  const boundedTurns = (candidates: MissingSourceCandidate[], exact: number | undefined): number =>
+    exact ?? Math.min(defectTurns, candidates.reduce((sum, candidate) => sum + candidate.turns, 0))
 
   // A retrieval integration is down — nothing else matters until it is back.
   const emptyTurns = kindTurns('registry_empty')
@@ -201,9 +224,23 @@ export function buildFindings(input: {
 
   // The model cites sources no tool ever returned — a prompt/model problem,
   // not a retrieval one, and the verifier is the only thing catching it.
+  //
+  // `*_not_in_registry` means "not among the sources RETRIEVED on that turn",
+  // NOT "unknown to the platform" — the two read alike and are opposite
+  // diagnoses. When the corpus cross-check says every rejected source is one
+  // the platform holds, the removals are already explained by
+  // `sources_unretrievable` (an indexing fault), and accusing the model of
+  // citing from memory would send an operator to rewrite a prompt over a
+  // retrieval bug. We cannot prove the model did not also guess a filename that
+  // happens to exist, so the tie goes to the explanation backed by evidence.
   const removedTurns = kindTurns('citations_removed')
   const inventedShare = reasonShare('url_not_in_registry', 'citation_key_not_in_registry')
-  if (removedTurns / turns >= THRESHOLDS.removedShare && inventedShare >= THRESHOLDS.inventedReasonShare) {
+  const inventionUnexplained = missingSources.length === 0 || unheld.length > 0
+  if (
+    removedTurns / turns >= THRESHOLDS.removedShare &&
+    inventedShare >= THRESHOLDS.inventedReasonShare &&
+    inventionUnexplained
+  ) {
     findings.push({
       id: 'citations_invented',
       severity: 'warn',
@@ -212,6 +249,7 @@ export function buildFindings(input: {
         turns: removedTurns,
         citations: kindItems('citations_removed'),
         share: pct(inventedShare),
+        unheld: unheld.length,
       },
     })
   }
@@ -266,7 +304,6 @@ export function buildFindings(input: {
 
   // A specific source is cited over and over and the platform does not hold it
   // — the one finding with a concrete, addable remedy attached.
-  const addable = missingSources.filter((candidate) => !candidate.present && candidate.action !== 'none')
   if (addable.length > 0) {
     findings.push({
       id: 'sources_missing',
@@ -274,7 +311,7 @@ export function buildFindings(input: {
       subject: { type: 'tool', label: addable[0].fileName ?? addable[0].target },
       metrics: {
         sources: addable.length,
-        turns: addable.reduce((sum, candidate) => sum + candidate.turns, 0),
+        turns: boundedTurns(addable, input.missingSourceTurns?.addable),
         automatic: addable.filter((candidate) => candidate.action === 'add_to_norm_catalog').length,
       },
     })
@@ -282,7 +319,6 @@ export function buildFindings(input: {
 
   // The opposite case, and a genuinely different fix: the platform HAS the
   // source, so retrieval or indexing is at fault, not the corpus.
-  const heldButUnretrieved = missingSources.filter((candidate) => candidate.present)
   if (heldButUnretrieved.length > 0) {
     findings.push({
       id: 'sources_unretrievable',
@@ -290,7 +326,7 @@ export function buildFindings(input: {
       subject: { type: 'tool', label: heldButUnretrieved[0].fileName ?? heldButUnretrieved[0].target },
       metrics: {
         sources: heldButUnretrieved.length,
-        turns: heldButUnretrieved.reduce((sum, candidate) => sum + candidate.turns, 0),
+        turns: boundedTurns(heldButUnretrieved, input.missingSourceTurns?.held),
       },
     })
   }
@@ -647,6 +683,22 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
     inventory.documentNumbers,
   )
 
+  // How many DISTINCT turns each half of that list accounts for. Per-candidate
+  // counts overlap (one turn commonly cites several of them), so the union is
+  // a second query rather than a sum — see `countTurnsForTargets`.
+  const [heldTurns, addableTurns] = await Promise.all([
+    repository.countTurnsForTargets(
+      start,
+      missingSources.filter((candidate) => candidate.present).map((candidate) => candidate.target),
+    ),
+    repository.countTurnsForTargets(
+      start,
+      missingSources
+        .filter((candidate) => !candidate.present && candidate.action !== 'none')
+        .map((candidate) => candidate.target),
+    ),
+  ])
+
   const byKindMap = new Map(kindRows.map((row) => [row.kind, row]))
   const cleanTurns = Math.max(0, turns - defectTurns)
   const share = (value: number): number => (turns > 0 ? value / turns : 0)
@@ -696,6 +748,7 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
       organizations,
       unavailableTools,
       missingSources,
+      missingSourceTurns: { held: heldTurns, addable: addableTurns },
     }),
     byKind,
     dailyTrend: buildDailyTrend(dailyKindRows, dailyTurnRows, start, windowDays),
