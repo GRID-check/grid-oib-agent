@@ -253,7 +253,8 @@ describe('flattenTraceSourceCards / deriveTraceSourceCards', () => {
       },
     ])
     expect(cards).toHaveLength(2)
-    const oib2 = cards.find((c) => c.name === 'OIB-RL_2.pdf')
+    // Dedup keys on the raw filename (`fileName`); `name` is the display name.
+    const oib2 = cards.find((c) => c.fileName === 'OIB-RL_2.pdf')
     expect(oib2).toMatchObject({
       tabLabel: 'OIB-Richtlinie',
       signal: 'law',
@@ -262,6 +263,35 @@ describe('flattenTraceSourceCards / deriveTraceSourceCards', () => {
       kind: 'hit',
     })
     expect(oib2?.detail).toContain('p.1')
+  })
+
+  test('cards carry the display name, never the raw corpus filename', () => {
+    const [card] = flattenTraceSourceCards([
+      {
+        key: 'baurecht_oib',
+        label: 'OIB-Richtlinie',
+        hitCount: 1,
+        sources: [{ name: 'oib-rl_2_ausgabe_mai_2023.pdf' }],
+        signal: 'law',
+      },
+    ])
+    expect(card?.name).toBe('OIB-Richtlinie 2')
+    expect(card?.fileName).toBe('oib-rl_2_ausgabe_mai_2023.pdf')
+  })
+
+  test('an authoritative title from the wire wins over the client derivation', () => {
+    const [card] = flattenTraceSourceCards([
+      {
+        key: 'baurecht_oib',
+        label: 'OIB-Richtlinie',
+        hitCount: 1,
+        // Backend `## Trace-Lanes` now ships the stored (admin-editable)
+        // display_title alongside the filename.
+        sources: [{ name: 'oib-rl_2_ausgabe_mai_2023.pdf', title: 'Hausregel Brandschutz' }],
+        signal: 'law',
+      },
+    ])
+    expect(card?.name).toBe('Hausregel Brandschutz')
   })
 
   test('carries the same OIB/RIS authority badge as the Belegt-durch chips', () => {
@@ -287,11 +317,18 @@ describe('flattenTraceSourceCards / deriveTraceSourceCards', () => {
         content: kbPayload,
       },
     ])
+    // Names are the humanized display names; the raw filenames stay on
+    // `fileName` for dedup and the tooltip.
     expect(cards.map((c) => c.name).sort()).toEqual([
+      'Brandschutzkonzept',
+      'Mustervorlage',
+      'OIB-Richtlinie 2',
+    ])
+    expect(cards.map((c) => c.fileName).sort()).toEqual([
       'Brandschutzkonzept.pdf',
       'Mustervorlage.pdf',
       'OIB-RL_2_Brandschutz.pdf',
     ])
-    expect(cards.find((c) => c.name === 'Mustervorlage.pdf')?.signal).toBe('office')
+    expect(cards.find((c) => c.fileName === 'Mustervorlage.pdf')?.signal).toBe('office')
   })
 })

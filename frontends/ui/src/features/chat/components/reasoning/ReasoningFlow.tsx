@@ -3,20 +3,53 @@
  *
  * Framing → the parallel Quellen fan-out → assessment → (live HITL) branches,
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
- * grows as a turn streams in. Each source gets its own handle on the framing/
- * assessment banners, aligned to the card centres, so the connectors run
- * straight and never pile onto one shared point. The canvas is non-interactive
- * (no pan/zoom/drag) and renders at 1:1 — its height comes from the MEASURED
- * node bounds and its nodes are placed from MEASURED heights (no fitView, no
- * hardcoded height guesses), so it sits inline in the chat like any other block.
+ * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
+ * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
+ * no hardcoded guesses), so it sits inline in the chat like any other block.
  *
- * Responsive: a wide-enough container gets the horizontal fan-out; a narrow one
- * (phone) collapses the sources into ONE grouped "Quellen" container node —
- * because a single column with parallel wiring forces edges to slant across
- * sibling cards (fan-in `spread` handles) or pass straight THROUGH stacked
- * cards. The grouped node keeps exactly two straight, centred edges
- * (framing → Quellen → assessment) and lets the stacked cards inside carry the
- * parallel semantics visually. While the turn is live the edges animate.
+ * ## Layout: columns, not an orientation flip
+ *
+ * The sources always fan out into COLUMNS across the full container width. How
+ * many columns is purely a function of the width: as many as fit at
+ * `MIN_COL_W`, capped at one column per card. Cards that don't fit in the row
+ * stack INSIDE a column rather than pushing the graph into a single vertical
+ * chain — so a desktop turn with eight sources still reads as a parallel
+ * fan-out (4 columns × 2), and only a genuinely phone-width container collapses
+ * to the one-column grouped "Quellen" container.
+ *
+ * The banners span the full content width, so every handle sits INSIDE its node
+ * (the old fixed 460px banner left the outer columns' edges dangling in empty
+ * space beside it).
+ *
+ * ## Wiring: one trunk that splits and merges
+ *
+ * Both banners expose a SINGLE centred handle, so the connectors share their
+ * first and last segment: one line leaves the framing card, splits across the
+ * columns, and merges back into one line entering the assessment. The old
+ * per-column handles landed N separate drops side by side on the banner edges,
+ * which read as parallel arrows rather than a fan.
+ *
+ * Getting the bar to be one line rather than a staircase is entirely
+ * @xyflow/react's own `getSmoothStepPath` — it takes `centerX`/`centerY` (the
+ * bend location) and `offset` (the minimum straight run out of a handle), none
+ * of which the built-in `SmoothStepEdge` forwards through `pathOptions`. Pin
+ * all three to the shared end and every edge bends on the same line; leave them
+ * to their defaults and each edge bends at its own midpoint, which with columns
+ * of unequal height scatters the merge and draws a doubled hairline. See
+ * `trunkEdge`.
+ *
+ * ## No flicker
+ *
+ * Three rules, because this graph re-lays out while a turn streams:
+ *  1. Nodes are re-seeded by MERGING into the previous ones — a streamed data
+ *     update never resets a measured position back to y=0, and a brand-new node
+ *     is seeded at its row's last known y instead of on top of the framing card.
+ *  2. The measure→place pass is a layout effect and both it and the re-seed
+ *     bail out when nothing actually moved, so the browser never paints a
+ *     provisional frame and repeated passes converge instead of oscillating.
+ *  3. The opacity gate lifts once, after the FIRST layout. Reflows (resize,
+ *     streaming, column re-packing) keep the graph visible — the old gate was
+ *     keyed on orientation and fired a full fade-out/in on every flip.
  */
 
 'use client'
@@ -33,15 +66,17 @@ import {
 import {
   ReactFlow,
   ReactFlowProvider,
+  BaseEdge,
   Handle,
   Position,
   applyNodeChanges,
+  getSmoothStepPath,
   useNodesInitialized,
   useReactFlow,
   type Node,
   type NodeChange,
   type Edge,
-  type BuiltInEdge,
+  type EdgeProps,
   type NodeProps,
 } from '@xyflow/react'
 import { Sparkles } from 'lucide-react'
@@ -76,12 +111,24 @@ type FramingData = {
   routingLabel?: string
   routing?: string
   escalation?: string
-  /** Bottom (source) handles — one per fanned source, or a single centre. */
+  /** Bottom (source) handles — one per column, or a single centre. */
   sources: HandleSpec[]
 }
-type SourceData = { card: TraceSourceCard; hitLabel: string; gapLabel: string; index: number }
-/** Grouped sources container (narrow layout) — the cards stack INSIDE one node. */
-type SourcesGroupData = { label: string; cards: TraceSourceCard[] }
+/**
+ * One column of the fan-out. Usually a single card; on a container too narrow
+ * for one column per source the extra cards stack inside the column instead of
+ * collapsing the whole graph into a vertical chain.
+ */
+type SourceColumnData = {
+  cards: TraceSourceCard[]
+  hitLabel: (count: number) => string
+  gapLabel: string
+  /** Enter-animation offset so the row cascades left→right. */
+  index: number
+  /** Single-column (phone) layout — the cards get the grouped container. */
+  grouped: boolean
+  groupLabel: string
+}
 type FindingsData = {
   label: string
   /**
@@ -90,7 +137,7 @@ type FindingsData = {
    * confidence chip and provenance chips live once, on the answer card.
    */
   hitSummary?: string
-  /** Top (target) handles — one per incoming source, or a single centre. */
+  /** Top (target) handles — one per incoming column, or a single centre. */
   targets: HandleSpec[]
   /** Bottom (source) handle — present only when a branches node follows. */
   source?: HandleSpec
@@ -119,45 +166,48 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
   </div>
 )
 
-const SourceFlowNode: FC<NodeProps<Node<SourceData>>> = ({ data }) => (
-  <div
-    className="animate-in fade-in-0 slide-in-from-bottom-2 w-[var(--source-w)] max-w-full duration-300"
-    style={{ animationDelay: `${data.index * 70}ms`, animationFillMode: 'backwards' }}
-  >
-    <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
-    <SourceCard card={data.card} hitLabel={data.hitLabel} gapLabel={data.gapLabel} />
-    <Handle id="out" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
-  </div>
-)
-
 /**
- * Grouped Quellen node (narrow layout): every source card stacked inside one
- * bordered container. Exactly two centred edges touch it — framing → group and
- * group → assessment — so a phone-width Herleitung has no slanted or
- * card-crossing connectors at all.
+ * One fan-out column. Exactly two edges touch it — framing → column and
+ * column → assessment — both centred, so the connector is always a straight
+ * drop no matter how many cards the column carries. Stacked cards are joined by
+ * a short hairline in the same ink as the edges, so the stack reads as "these
+ * were searched together", not as a sequence of steps.
  */
-const SourcesGroupFlowNode: FC<NodeProps<Node<SourcesGroupData>>> = ({ data }) => {
-  const t = useTranslations('chat')
-  return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-2 w-[var(--banner-w)] max-w-full rounded-xl border bg-muted/40 px-3 py-3 duration-300">
-      <Handle id="c-top" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
-      <Eyebrow>{data.label}</Eyebrow>
-      <div className="mt-2 flex flex-col gap-2.5">
-        {data.cards.map((card, i) => (
-          <div
-            key={card.id}
-            className="animate-in fade-in-0 slide-in-from-bottom-1 duration-300"
-            style={{ animationDelay: `${i * 60}ms`, animationFillMode: 'backwards' }}
-          >
-            <SourceCard
-              card={card}
-              hitLabel={t('thinking.hitCount', { count: card.hitCount })}
-              gapLabel={t('thinking.gapHit')}
+const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) => {
+  const stack = (
+    <div className="flex w-full flex-col">
+      {data.cards.map((card, i) => (
+        <div key={card.id} className="flex flex-col">
+          {i > 0 && (
+            <span
+              aria-hidden="true"
+              className="mx-auto h-2.5 w-px shrink-0"
+              style={{ backgroundColor: EDGE_STROKE }}
             />
+          )}
+          <div
+            className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
+            style={{ animationDelay: `${(data.index + i) * 60}ms`, animationFillMode: 'backwards' }}
+          >
+            <SourceCard card={card} hitLabel={data.hitLabel(card.hitCount)} gapLabel={data.gapLabel} />
           </div>
-        ))}
-      </div>
-      <Handle id="c-bottom" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
+        </div>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="w-[var(--source-w)] max-w-full">
+      <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
+      {data.grouped ? (
+        <div className="animate-in fade-in-0 duration-300 rounded-xl border bg-muted/40 px-3 py-3">
+          <Eyebrow>{data.groupLabel}</Eyebrow>
+          <div className="mt-2">{stack}</div>
+        </div>
+      ) : (
+        stack
+      )}
+      <Handle id="out" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
     </div>
   )
 }
@@ -196,8 +246,7 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
 
 const nodeTypes = {
   framing: FramingFlowNode,
-  source: SourceFlowNode,
-  sourcesGroup: SourcesGroupFlowNode,
+  sourceColumn: SourceColumnFlowNode,
   findings: FindingsFlowNode,
   branches: BranchesFlowNode,
 }
@@ -216,38 +265,170 @@ export interface ReasoningFlowProps {
   live?: boolean
 }
 
-// Horizontal layout constants (node widths + inter-row gaps).
-const SOURCE_W = 158
-const SOURCE_GAP = 14
-const BANNER_W = 460
-const H_GAP_Y = 40 // vertical gap between rows in the horizontal fan-out
-const V_GAP = 20 // vertical gap between stacked nodes on mobile
-const PAD = 8 // container bottom padding below the last row
-/** Below this natural width the horizontal fan won't fit → lay out vertically. */
-const FIT_PAD = 24
+// ── layout constants ──────────────────────────────────────────────────────────
+/** Narrowest a source card may get before we stack instead of adding a column. */
+const MIN_COL_W = 146
+/** Widest a single column grows to, so 2 sources don't become two half-pages. */
+const MAX_COL_W = 236
+/**
+ * At or below this content width the fan always collapses to ONE grouped
+ * column. A phone would arithmetically fit two ~160px columns, but a source
+ * card's name is a two-line clamp — side-by-side at that width it turns into
+ * two columns of ellipses. This is a readability floor, not a fitting rule.
+ */
+const GROUPED_MAX_W = 420
+const COL_GAP = 14
+/** Vertical gap between graph rows (framing / sources / assessment / branches). */
+const ROW_GAP = 40
+/** Container bottom padding below the last row. */
+const PAD = 8
+/** Floor for the content width, so a not-yet-measured container still builds. */
+const MIN_CONTENT_W = 220
+/**
+ * Width assumed when the container reports none — a typical desktop chat
+ * column. `clientWidth` is 0 in jsdom and in any display:none ancestor, and the
+ * graph must still render there; the ResizeObserver corrects it on the first
+ * real measurement (before paint, since it runs in a layout effect).
+ */
+const FALLBACK_W = 680
+
+/** How the sources are packed into columns for a given container width. */
+export interface FanLayout {
+  /** Card indices per column, left→right. Empty when the turn has no sources. */
+  columns: number[][]
+  colW: number
+  gap: number
+  /** x of the first column (the fan is centred in the content width). */
+  fanX: number
+  contentW: number
+  /**
+   * Narrow container → the single column wears the grouped "Quellen"
+   * container. Note this is about the WIDTH, not the column count: one source
+   * on a desktop is a single normal card, not a full-width box.
+   */
+  grouped: boolean
+}
 
 /**
- * One connector. Typed as the built-in smoothstep edge because `pathOptions`
- * (the rounded corners) lives on @xyflow/react's built-in edge variants, not on
- * the generic `Edge`.
+ * Pack `cardCount` source cards into as many columns as `width` affords.
+ *
+ * Exported for tests: this is the whole responsive story, and the property that
+ * matters is that the desktop chat column NEVER degrades to a single column
+ * just because a turn touched a lot of documents — it packs wider instead.
  */
-function edge(source: string, sourceHandle: string, target: string, targetHandle: string): BuiltInEdge {
+export function planFan(width: number, cardCount: number): FanLayout {
+  const contentW = Math.max(MIN_CONTENT_W, Math.floor(width) || MIN_CONTENT_W)
+  const grouped = contentW <= GROUPED_MAX_W
+  if (cardCount <= 0) {
+    return { columns: [], colW: contentW, gap: COL_GAP, fanX: 0, contentW, grouped: false }
+  }
+  const capacity = grouped ? 1 : Math.max(1, Math.floor((contentW + COL_GAP) / (MIN_COL_W + COL_GAP)))
+  const count = Math.min(cardCount, capacity)
+  const colW = grouped
+    ? contentW
+    : Math.min(MAX_COL_W, Math.floor((contentW - (count - 1) * COL_GAP) / count))
+  const fanW = count * colW + (count - 1) * COL_GAP
+  const fanX = Math.max(0, Math.round((contentW - fanW) / 2))
+
+  // Balanced, reading-order distribution: the remainder lands on the LEFT
+  // columns so the row is never one lone tall column at the end.
+  const base = Math.floor(cardCount / count)
+  const remainder = cardCount % count
+  const columns: number[][] = []
+  let next = 0
+  for (let c = 0; c < count; c++) {
+    const size = base + (c < remainder ? 1 : 0)
+    columns.push(Array.from({ length: size }, () => next++))
+  }
+  return { columns, colW, gap: COL_GAP, fanX, contentW, grouped }
+}
+
+/** Corner rounding on every connector. */
+const EDGE_RADIUS = 12
+/**
+ * Where the shared elbow sits, as a distance from the banner the edges leave
+ * (split) or enter (merge) — i.e. the middle of ROW_GAP. Keep it at least
+ * EDGE_RADIUS away from BOTH rows: the tallest column ends exactly ROW_GAP
+ * above the assessment, so an elbow closer than one corner radius leaves
+ * getSmoothStepPath no room and it degenerates into a doubled, kinked line.
+ */
+const TRUNK_ELBOW = ROW_GAP / 2
+
+/**
+ * A connector whose bend is pinned to a SHARED height instead of its own
+ * midpoint.
+ *
+ * `getSmoothStepPath` takes a `centerY` — the y of the horizontal segment — but
+ * React Flow's built-in `SmoothStepEdge` only forwards `borderRadius`/`offset`
+ * from `pathOptions`, so the bend defaults to each edge's own midpoint. With
+ * columns of unequal height that scatters the merge into a staircase: every
+ * edge turns at a different height on its way into the assessment.
+ *
+ * Pinning `centerY` to a fixed offset from the banner all these edges share
+ * puts every bend on ONE line, so the fan reads as a single trunk that splits
+ * and then merges — which is the whole point of the shape.
+ */
+function trunkEdge(anchor: 'source' | 'target'): FC<EdgeProps> {
+  const TrunkEdge: FC<EdgeProps> = ({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    markerEnd,
+    style,
+  }) => {
+    const [path] = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+      borderRadius: EDGE_RADIUS,
+      // Split: pinned just below the framing card, which every edge leaves.
+      // Merge: pinned just above the assessment, which every edge enters.
+      centerY: anchor === 'source' ? sourceY + TRUNK_ELBOW : targetY - TRUNK_ELBOW,
+      // Pin the x bend to the SHARED end too. Left to compute its own centerX,
+      // the path takes a second bend at the horizontal midpoint — a sub-pixel
+      // jog that renders as a doubled hairline along the trunk.
+      centerX: anchor === 'source' ? sourceX : targetX,
+      // `offset` is the minimum straight run out of a handle, and it OVERRIDES
+      // centerY when the two disagree. The default (20) is the full elbow
+      // distance, so the tallest column — which ends exactly ROW_GAP above the
+      // assessment — got pushed off the shared bar by a pixel or two, drawing
+      // the trunk as two near-parallel lines. Keep it well under TRUNK_ELBOW.
+      offset: TRUNK_ELBOW / 2,
+    })
+    return <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+  }
+  TrunkEdge.displayName = anchor === 'source' ? 'SplitEdge' : 'MergeEdge'
+  return TrunkEdge
+}
+
+const edgeTypes = {
+  split: trunkEdge('source'),
+  merge: trunkEdge('target'),
+}
+
+/** One connector. `type` picks which end its shared elbow is pinned to. */
+function edge(
+  source: string,
+  sourceHandle: string,
+  target: string,
+  targetHandle: string,
+  type: 'split' | 'merge' = 'merge'
+): Edge {
   return {
     id: `${source}:${sourceHandle}->${target}:${targetHandle}`,
     source,
     sourceHandle,
     target,
     targetHandle,
-    type: 'smoothstep',
-    pathOptions: { borderRadius: 12 },
+    type,
     style: { stroke: EDGE_STROKE, strokeWidth: 1.5 },
   }
-}
-
-/** Natural width the horizontal fan-out needs for the given source count. */
-export function naturalWidth(sourceCount: number): number {
-  const rowW = sourceCount > 0 ? sourceCount * SOURCE_W + (sourceCount - 1) * SOURCE_GAP : BANNER_W
-  return Math.max(rowW, BANNER_W)
 }
 
 export interface BuiltGraph {
@@ -259,23 +440,22 @@ export interface BuiltGraph {
 
 /**
  * Pure graph builder — exported for structural regression tests. Produces the
- * nodes (with per-orientation handle specs), the parallel wiring, and the row
- * groups for the measured layout pass. See ReasoningFlow.spec.
+ * nodes (with per-column handle specs), the parallel wiring, and the row groups
+ * for the measured layout pass. See ReasoningFlow.spec.
  */
-export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: boolean, cards: TraceSourceCard[]): BuiltGraph {
-  const hasSources = cards.length > 0
+export function buildGraph(
+  props: ReasoningFlowProps,
+  t: Translator,
+  layout: FanLayout,
+  cards: TraceSourceCard[]
+): BuiltGraph {
+  const { columns, colW, gap, fanX, grouped } = layout
+  const hasSources = cards.length > 0 && columns.length > 0
   const hasFindings = Boolean(props.answerConfidence) || (props.citations?.length ?? 0) > 0
   const hasBranches = Boolean(props.choicePrompt && props.choicePrompt.options.length > 0)
 
-  const rowW = hasSources ? cards.length * SOURCE_W + (cards.length - 1) * SOURCE_GAP : BANNER_W
-  const contentW = Math.max(rowW, BANNER_W)
-  const bannerX = (contentW - BANNER_W) / 2
-  const rowX = (contentW - rowW) / 2
-  const sourceIds = cards.map((c) => `src-${c.id}`)
-  // x of source i's centre, expressed as an offset from the banner's left edge —
-  // so a banner handle placed here sits directly above/below the card centre and
-  // the connector drops straight (no S-bend).
-  const handlePx = (i: number) => `${rowX + i * (SOURCE_W + SOURCE_GAP) + SOURCE_W / 2 - bannerX}px`
+  const columnIds = columns.map((_, i) => `col-${i}`)
+  const columnX = (i: number) => fanX + i * (colW + gap)
 
   const routing =
     props.routingDecision && props.routingReason?.trim()
@@ -288,23 +468,14 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
 
   const convergeId = hasFindings ? 'findings' : hasBranches ? 'branches' : null
 
-  // Framing's bottom handles: per-source (aligned) when fanning horizontally,
-  // else a single centre. Only the handles this orientation uses are rendered.
-  const framingSources: HandleSpec[] = hasSources
-    ? vertical
-      ? [{ id: 'c-bottom', left: '50%' }]
-      : sourceIds.map((sid, i) => ({ id: `to-${sid}`, left: handlePx(i) }))
-    : convergeId
-      ? [{ id: 'c-bottom', left: '50%' }]
-      : []
-
-  // Converge target's top handles: one per incoming source in the horizontal
-  // fan (so the fan-in never collapses onto a single point); a single centre
-  // handle when there are no sources or the sources sit in the grouped node.
-  const convergeTargets: HandleSpec[] =
-    hasSources && !vertical
-      ? sourceIds.map((sid, i) => ({ id: `from-${sid}`, left: handlePx(i) }))
-      : [{ id: 'c-top', left: '50%' }]
+  // ONE centred anchor on each banner, both directions. Every column edge
+  // leaves the framing card from the same point and lands on the assessment at
+  // the same point, so the fan reads as a single line that SPLITS into the
+  // sources and MERGES back out of them — the connectors share their first and
+  // last segment instead of arriving as N separate parallel drops.
+  const centre: HandleSpec[] = hasSources || convergeId ? [{ id: 'c-bottom', left: '50%' }] : []
+  const framingSources: HandleSpec[] = centre
+  const convergeTargets: HandleSpec[] = [{ id: 'c-top', left: '50%' }]
 
   const framingData: FramingData = {
     label: t('thinking.node.framingTab'),
@@ -346,93 +517,93 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
 
   const nodes: Node[] = []
   const edges: Edge[] = []
-  const bx = vertical ? 0 : bannerX
 
-  nodes.push({ id: 'framing', type: 'framing', position: { x: bx, y: 0 }, data: framingData as Record<string, unknown> })
-  if (hasSources && vertical) {
-    // Narrow layout: the cards stack INSIDE one grouped node — no per-card
-    // nodes, hence no connectors that slant across or pierce sibling cards.
+  nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
+  columns.forEach((indices, i) => {
+    const columnData: SourceColumnData = {
+      cards: indices.map((idx) => cards[idx]!),
+      hitLabel: (count: number) => t('thinking.hitCount', { count }),
+      gapLabel: t('thinking.gapHit'),
+      index: indices[0] ?? i,
+      grouped,
+      groupLabel: t('thinking.sourcesFanOut'),
+    }
     nodes.push({
-      id: 'sources',
-      type: 'sourcesGroup',
-      position: { x: bx, y: 0 },
-      data: { label: t('thinking.sourcesFanOut'), cards } as Record<string, unknown>,
+      id: columnIds[i]!,
+      type: 'sourceColumn',
+      position: { x: columnX(i), y: 0 },
+      data: columnData as unknown as Record<string, unknown>,
     })
-  } else {
-    cards.forEach((card, i) => {
-      nodes.push({
-        id: sourceIds[i],
-        type: 'source',
-        position: { x: rowX + i * (SOURCE_W + SOURCE_GAP), y: 0 },
-        data: { card, index: i, hitLabel: t('thinking.hitCount', { count: card.hitCount }), gapLabel: t('thinking.gapHit') } as Record<string, unknown>,
-      })
-    })
-  }
+  })
   if (findingsData) {
-    nodes.push({ id: 'findings', type: 'findings', position: { x: bx, y: 0 }, data: findingsData as Record<string, unknown> })
+    nodes.push({ id: 'findings', type: 'findings', position: { x: 0, y: 0 }, data: findingsData as Record<string, unknown> })
   }
   if (branchesData) {
-    nodes.push({ id: 'branches', type: 'branches', position: { x: bx, y: 0 }, data: branchesData as Record<string, unknown> })
+    nodes.push({ id: 'branches', type: 'branches', position: { x: 0, y: 0 }, data: branchesData as Record<string, unknown> })
   }
 
-  // Wiring. Horizontal: framing fans out to every source card, every card
-  // converges on the assessment/branches node (parallel, never a chain).
-  // Vertical: two straight centred edges — framing → Quellen group → converge.
-  if (hasSources && vertical) {
-    edges.push(edge('framing', 'c-bottom', 'sources', 'c-top'))
-    if (convergeId) edges.push(edge('sources', 'c-bottom', convergeId, 'c-top'))
-  } else if (hasSources) {
-    sourceIds.forEach((sid) => edges.push(edge('framing', `to-${sid}`, sid, 'in')))
-    if (convergeId) sourceIds.forEach((sid) => edges.push(edge(sid, 'out', convergeId, `from-${sid}`)))
+  // Wiring: framing fans out to every column, every column converges on the
+  // assessment/branches node (parallel, never a chain). All of it through the
+  // single centred anchor on each banner, so the split and the merge are real.
+  if (hasSources) {
+    columnIds.forEach((cid) => edges.push(edge('framing', 'c-bottom', cid, 'in', 'split')))
+    if (convergeId) columnIds.forEach((cid) => edges.push(edge(cid, 'out', convergeId, 'c-top', 'merge')))
   } else if (convergeId) {
     edges.push(edge('framing', 'c-bottom', convergeId, 'c-top'))
   }
   if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
 
-  // Row groups for the measured stacking pass. Horizontal: the sources share one
-  // row; vertical: framing → grouped sources → converge, one node per row.
+  // Row groups for the measured stacking pass — every column shares one row, so
+  // the assessment clears the TALLEST column.
   const rows: string[][] = [['framing']]
-  if (hasSources) {
-    if (vertical) rows.push(['sources'])
-    else rows.push(sourceIds)
-  }
+  if (hasSources) rows.push(columnIds)
   if (findingsData) rows.push(['findings'])
   if (branchesData) rows.push(['branches'])
 
   return { nodes, edges, rows }
 }
 
-const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live: boolean }> = ({ built, vertical, width, live }) => {
+const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = ({ built, layout, live }) => {
   const t = useTranslations('chat')
   const { nodes, edges, rows } = built
   const initialized = useNodesInitialized()
-  const { getNodes, getNodesBounds, setViewport } = useReactFlow()
+  const { getNodes } = useReactFlow()
   const [rfNodes, setRfNodes] = useState<Node[]>(nodes)
-  const [height, setHeight] = useState(vertical ? 480 : 360)
-  // Track WHICH orientation the current layout was measured for (not just "have
-  // we ever laid out"). On an orientation flip the freshly-seeded nodes sit at
-  // provisional y=0 until the measure effect re-stacks them; keying the opacity
-  // gate on the orientation hides that one provisional frame during a reflow,
-  // while same-orientation prop-stream updates keep the graph visible (no flicker).
-  const [laidOutFor, setLaidOutFor] = useState<'v' | 'h' | null>(null)
-  const orientation = vertical ? 'v' : 'h'
+  const [height, setHeight] = useState<number | null>(null)
+  // Lifts once, after the first measured layout. Reflows afterwards (resize,
+  // streaming, column re-packing) keep the graph visible — fading on every
+  // relayout is exactly the flicker this replaced.
+  const [laidOut, setLaidOut] = useState(false)
+  /** Last measured y per row index — seeds nodes that appear mid-stream. */
+  const rowYRef = useRef<number[]>([])
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setRfNodes((nds) => applyNodeChanges(changes, nds)), [])
-  // Track the last-seeded node-ids string to avoid re-seeding on reference-only
-  // changes (which creates an infinite render loop when the parent's useMemo
-  // deps — e.g. a mocked useTranslations — produce a new `built` on every render).
-  const seededIds = useRef('')
 
-  // Re-seed the controlled nodes when the derived graph structure changes (props
-  // stream in or the orientation flips) — positions are provisional until measured.
-  // Comparing node IDs structurally prevents the loop from a new `nodes` reference
-  // with identical content.
+  /** Row index a node belongs to, for seeding a newly-streamed node's y. */
+  const rowIndexById = useMemo(() => {
+    const map = new Map<string, number>()
+    rows.forEach((row, i) => row.forEach((id) => map.set(id, i)))
+    return map
+  }, [rows])
+
+  // Sync the derived graph into the controlled node list. Data (streamed text,
+  // new source cards) and x always come from the fresh build; y and the measured
+  // size are carried over from the node we already have, so an update never
+  // resets the layout to the provisional y=0 stack.
   useEffect(() => {
-    const ids = nodes.map((n) => n.id).sort().join(',')
-    if (ids === seededIds.current) return
-    seededIds.current = ids
-    setRfNodes(nodes)
-  }, [nodes])
+    setRfNodes((prev) => {
+      const prevById = new Map(prev.map((n) => [n.id, n]))
+      const next = nodes.map((n) => {
+        const old = prevById.get(n.id)
+        if (!old) {
+          const rowY = rowYRef.current[rowIndexById.get(n.id) ?? -1]
+          return { ...n, position: { x: n.position.x, y: rowY ?? 0 } }
+        }
+        return { ...old, ...n, position: { x: n.position.x, y: old.position.y } }
+      })
+      return next
+    })
+  }, [nodes, rowIndexById])
 
   // While the turn streams, the connectors march (React Flow's built-in
   // animated dashes); a finished turn freezes them solid.
@@ -441,51 +612,55 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live:
     [edges, live]
   )
 
+  const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
+
   // Measure → place: once every node reports a measured size, stack the rows by
-  // their REAL heights, then let React Flow's own utilities do the rest —
-  // `getNodesBounds` sizes the container to the exact content and `setViewport`
-  // centres it horizontally at 1:1 (no fitView, no manual origin math).
-  useEffect(() => {
+  // their REAL heights and size the container to the exact content. A layout
+  // effect so the provisional positions are never painted, and both updates bail
+  // out when nothing moved — that bail-out is what lets this depend on `rfNodes`
+  // (re-running as heights settle) without oscillating.
+  useLayoutEffect(() => {
     if (!initialized) return
     const measured = new Map(getNodes().map((n) => [n.id, n.measured?.height ?? 0]))
-    const gap = vertical ? V_GAP : H_GAP_Y
     const yById = new Map<string, number>()
+    const rowY: number[] = []
     let y = 0
-    for (const row of rows) {
+    rows.forEach((row, i) => {
+      rowY[i] = y
       let rowH = 0
       for (const id of row) {
         yById.set(id, y)
         rowH = Math.max(rowH, measured.get(id) ?? 0)
       }
-      y += rowH + gap
-    }
-    const positioned = nodes.map((n) => ({
-      ...n,
-      position: { x: n.position.x, y: yById.get(n.id) ?? n.position.y },
-    }))
-    setRfNodes(positioned)
-    const bounds = getNodesBounds(positioned)
-    setHeight(Math.max(120, Math.ceil(bounds.height) + PAD))
-    setViewport({ x: Math.max(0, (width - bounds.width) / 2), y: 0, zoom: 1 })
-    setLaidOutFor(vertical ? 'v' : 'h')
-    // getNodes/getNodesBounds/setViewport are stable; rfNodes and nodes
-    // intentionally excluded to avoid a re-layout loop — nodes structural
-    // changes are tracked via the re-seed effect above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, rows, vertical, width])
+      y += rowH + ROW_GAP
+    })
+    rowYRef.current = rowY
 
-  // In vertical mode every node spans the container; horizontal uses fixed widths.
-  const bannerW = vertical ? `${Math.max(200, width - 4)}px` : `${BANNER_W}px`
-  const sourceW = vertical ? `${Math.max(200, width - 4)}px` : `${SOURCE_W}px`
+    setRfNodes((prev) => {
+      let moved = false
+      const next = prev.map((n) => {
+        const ny = yById.get(n.id)
+        if (ny === undefined || n.position.y === ny) return n
+        moved = true
+        return { ...n, position: { ...n.position, y: ny } }
+      })
+      return moved ? next : prev
+    })
+    setHeight(Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD))
+    setLaidOut(true)
+    // rows is covered by rowsKey (stable string); getNodes is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialized, rowsKey, rfNodes])
 
   return (
     <div
       style={{
-        height,
-        opacity: laidOutFor === orientation ? 1 : 0,
+        height: height ?? undefined,
+        minHeight: height ? undefined : 160,
+        opacity: laidOut ? 1 : 0,
         transition: 'opacity 150ms ease-out',
-        ['--banner-w' as string]: bannerW,
-        ['--source-w' as string]: sourceW,
+        ['--banner-w' as string]: `${layout.contentW}px`,
+        ['--source-w' as string]: `${layout.colW}px`,
       }}
       className="w-full"
       data-testid="reasoning-flow"
@@ -496,6 +671,7 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live:
         nodes={rfNodes}
         edges={renderedEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={1}
@@ -525,6 +701,18 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live:
 }
 
 export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
+  const {
+    steps,
+    userQuestion,
+    answerConfidence,
+    citations,
+    choicePrompt,
+    onChoiceRespond,
+    routingDecision,
+    routingReason,
+    escalationReason,
+    live,
+  } = props
   const t = useTranslations('chat')
   const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -540,21 +728,54 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     return () => ro.disconnect()
   }, [])
 
-  const cards = useMemo(() => deriveTraceSourceCards(props.steps), [props.steps])
-  // Go vertical only when the horizontal fan genuinely won't fit — so the graph
-  // never overflows a narrow chat column and never floats tiny in a wide one.
-  const vertical = width > 0 && width < naturalWidth(cards.length) + FIT_PAD
-  const built = useMemo(() => buildGraph(props, t, vertical, cards), [props, t, vertical, cards])
+  const cards = useMemo(() => deriveTraceSourceCards(steps), [steps])
+  const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
+  // Memoised on the fields that actually shape the graph — NOT on the props
+  // object, whose identity changes on every parent render and would rebuild
+  // (and re-measure) the whole graph each time.
+  const built = useMemo(
+    () =>
+      buildGraph(
+        {
+          steps,
+          userQuestion,
+          answerConfidence,
+          citations,
+          choicePrompt,
+          onChoiceRespond,
+          routingDecision,
+          routingReason,
+          escalationReason,
+        },
+        t,
+        layout,
+        cards
+      ),
+    [
+      steps,
+      userQuestion,
+      answerConfidence,
+      citations,
+      choicePrompt,
+      onChoiceRespond,
+      routingDecision,
+      routingReason,
+      escalationReason,
+      t,
+      layout,
+      cards,
+    ]
+  )
 
   return (
     <div ref={containerRef} className="flex w-full flex-col gap-3">
       <ReactFlowProvider>
-        <FlowInner built={built} vertical={vertical} width={width || 720} live={props.live ?? false} />
+        <FlowInner built={built} layout={layout} live={live ?? false} />
       </ReactFlowProvider>
 
-      {showTechnicalReasoning && props.steps.length > 0 && (
+      {showTechnicalReasoning && steps.length > 0 && (
         <div className="border-t border-base pt-2">
-          <TechnicalSteps steps={props.steps} t={t} />
+          <TechnicalSteps steps={steps} t={t} />
         </div>
       )}
     </div>

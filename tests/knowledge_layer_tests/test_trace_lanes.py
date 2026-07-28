@@ -32,7 +32,31 @@ def test_trace_lanes_json_groups_by_lane():
     oib = next(lane for lane in payload["lanes"] if lane["key"] == "baurecht_oib")
     assert oib["label"] == "OIB-Richtlinie"
     assert oib["hitCount"] == 1
-    assert oib["sources"][0] == {"name": "OIB-RL_2_Brandschutz.pdf", "detail": "p.12"}
+    # `name` is document identity (dedup / preview resolution); `title` is the
+    # user-facing display name the Herleitung fan-out renders.
+    assert oib["sources"][0] == {
+        "name": "OIB-RL_2_Brandschutz.pdf",
+        "title": "OIB-Richtlinie 2",
+        "detail": "p.12",
+    }
+
+
+def test_trace_lanes_sources_carry_the_display_title():
+    """The fan-out must never make a user read a raw corpus filename."""
+    chunks = [_chunk(file_name="oib-rl_2.3_ausgabe_mai_2023.pdf", page=4, collection="oib_knowledge")]
+    payload = json.loads(_trace_lanes_json(chunks))
+    source = payload["lanes"][0]["sources"][0]
+    assert source["name"] == "oib-rl_2.3_ausgabe_mai_2023.pdf"
+    assert source["title"] == "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
+
+
+def test_trace_lanes_omits_title_when_it_would_repeat_the_filename():
+    """A project upload's filename IS its user-meaningful name — no redundancy."""
+    chunks = [_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc")]
+    payload = json.loads(_trace_lanes_json(chunks))
+    source = payload["lanes"][0]["sources"][0]
+    assert source["name"] == "Konzept.pdf"
+    assert "title" not in source
 
 
 def test_format_results_appends_trace_lanes_block():
