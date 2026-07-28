@@ -21,10 +21,9 @@
  * The first three are shown in the CITED state (check marker) and the rest as
  * merely discovered, which is the distinction the panel's two sub-tabs make.
  *
- * Not linked anywhere and 404s outside development.
+ * Not linked anywhere; the `/dev` server layout 404s it outside development.
  */
 
-import { notFound } from 'next/navigation'
 import { CitationCard } from '@/features/layout/components/CitationCard'
 import type { CitationSource } from '@/features/chat/types'
 
@@ -110,8 +109,6 @@ const sources: CitationSource[] = [
 ]
 
 export default function SourceListPreviewPage() {
-  if (process.env.NODE_ENV === 'production') notFound()
-
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6" data-testid="source-list-preview">
       <div className="space-y-1">
