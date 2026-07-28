@@ -104,9 +104,8 @@ config:
   # Deployed only when the flag is on AND every dependency below is set;
   # otherwise `pulumi preview` logs a warning naming what is missing and the
   # tier (dashboard, collector, `https-otel` listener, producer OTLP env) is
-  # skipped. Rotating the ingestion key / moving the org:
+  # skipped. Rotating the ingestion key:
   #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
-  #   pulumi config set grid-oib:platformOrgId "org_..."   # WorkOS org id (not external id)
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
   # only override here when deliberately upgrading.
   # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
@@ -120,10 +119,13 @@ config:
   #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
   #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
+  # NOTE: otelOidcClientSecret is deliberately absent below — it can only be
+  # written by an operator holding the WorkOS secret and the stack's encryption
+  # key. Until it is set, the capability gate skips the whole tier (that is the
+  # designed fail-closed behaviour, not a missing config bug).
   grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
   grid-oib:otelOidcClientId: client_01KYKYGK9NY0Q2QJ3BRMWCVR7Q
   grid-oib:otelDomain: otel.dev.bigls.net
-  grid-oib:platformOrgId: org_01KX06QQJN3KA25R9G2PNFBGXV
   grid-oib:otelPrimaryApiKey:
     secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
   grid-oib:loadBalancerIp: 45.144.209.191

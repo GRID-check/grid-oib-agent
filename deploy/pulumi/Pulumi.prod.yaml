@@ -118,8 +118,8 @@ config:
 
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
   # Deployed only when grid-oib:observabilityEnabled (default true) AND every
-  # dependency below is set (otelDomain, platformOrgId, otelPrimaryApiKey, plus
-  # the WorkOS OIDC client); otherwise `pulumi preview` warns and skips the tier.
+  # dependency below is set (otelDomain, otelPrimaryApiKey, plus the dashboard's
+  # Connect application); otherwise `pulumi preview` warns and skips the tier.
   # REQUIRED secret:
   #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
@@ -133,4 +133,3 @@ config:
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
   #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
   grid-oib:otelDomain: otel.example.com
-  grid-oib:platformOrgId: REPLACE_ME

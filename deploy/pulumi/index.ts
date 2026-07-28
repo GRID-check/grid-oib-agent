@@ -133,7 +133,7 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
 
 // ── Observability (OTel Collector + Aspire dashboard, ADR-0029) ──────────────
 // Availability = flag AND capability (see config.ts): skipped whole when the
-// stack has no otelDomain / platformOrgId / OTLP key / WorkOS OIDC client,
+// stack has no otelDomain / OTLP key / dashboard Connect application,
 // rather than shipping a dashboard nobody can log into.
 if (cfg.observability.enabled) {
   const obs = installObservabilityDashboard(

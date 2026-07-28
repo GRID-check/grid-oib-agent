@@ -469,9 +469,10 @@ Chroma):
 
 **Gating (flag AND capability):** the tier is deployed only when
 `grid-oib:observabilityEnabled` is on (default `true`) **and** every dependency
-it needs is configured — `otelDomain`, `platformOrgId`, `otelPrimaryApiKey`,
-plus the WorkOS OIDC client (`workosClientId`/`workosApiKey`) behind the
-edge claim gate. Miss one and `pulumi preview` logs a warning naming it
+it needs is configured — `otelDomain`, `otelPrimaryApiKey`, plus the dashboard's
+dedicated WorkOS Connect application (`otelOidcIssuer`/`otelOidcClientId`/
+`otelOidcClientSecret`) behind the edge permission gate. Miss one and `pulumi
+preview` logs a warning naming it
 and skips the whole tier: no collector, no dashboard, no SecurityPolicy, no
 `https-otel` Gateway listener/certificate, and no `OTEL_*` env on any producer
 (so the frontend's `src/instrumentation.ts` no-ops). That is deliberate: the
@@ -549,10 +550,14 @@ lacked, and the first thing to run if login breaks:
 ```bash
 ISSUER=$(pulumi config get grid-oib:otelOidcIssuer)
 CID=$(pulumi config get grid-oib:otelOidcClientId)
+OTEL_DOMAIN=$(pulumi config get grid-oib:otelDomain)
+# Same callback and scopes the SecurityPolicy sends, so this exercises the
+# deployed configuration rather than a laxer variant of it.
 curl -s -o /dev/null -w '%{redirect_url}\n' \
   "$ISSUER/oauth2/authorize?client_id=$CID\
 &redirect_uri=https%3A%2F%2F$OTEL_DOMAIN%2Foauth2%2Fcallback\
-&response_type=code&scope=openid+profile+email&state=x"
+&response_type=code\
+&scope=openid+profile+email+offline_access+platform%3Aorganizations%3Aview&state=x"
 ```
 
 It must redirect to the AuthKit login UI. `application_not_found` means the

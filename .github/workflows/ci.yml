@@ -75,7 +75,12 @@ jobs:
     name: Repo lint (pre-commit, all files)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
+      # No persisted checkout token: this job executes repository-defined
+      # pre-commit hooks, so the job's git config must not hand them a
+      # credential they never need (hook repos clone over anonymous https).
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-python-env
       - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |

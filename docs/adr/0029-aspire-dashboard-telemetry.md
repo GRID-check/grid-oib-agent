@@ -88,7 +88,7 @@ metrics** are all wired now.
   injects that endpoint only when the tier itself is enabled, so the whole
   feature follows the house rule **availability = flag AND capability**: the
   `observabilityEnabled` flag is the product decision, and the capability is
-  derived from `otelDomain` + `platformOrgId` + `otelPrimaryApiKey` + the
+  derived from `otelDomain` + `otelPrimaryApiKey` + the
   dashboard's Connect application (`otelOidcIssuer`/`ClientId`/`ClientSecret`,
   Amendment 2). Missing any of them skips the collector, the dashboard,
   the `https-otel` listener, and the producers' OTLP env (with a `preview`
@@ -265,8 +265,8 @@ dashboard quickstart and cost real debugging time if missed:
 Applied after an adversarial review pass:
 
 - The OTLP key is a hard dependency, not an optional one: a stack without
-  `otelPrimaryApiKey` (or without the WorkOS OIDC client, `otelDomain`, or
-  `platformOrgId`) does not deploy the tier at all — `pulumi preview` warns and
+  `otelPrimaryApiKey` (or without `otelDomain` or the dashboard's Connect
+  application) does not deploy the tier at all — `pulumi preview` warns and
   skips it — instead of deploying an unauthenticated dashboard or one with a
   broken login.
 - All sensitive values (OTLP key, WorkOS OIDC client secret) ride in the
@@ -300,22 +300,24 @@ Applied after an adversarial review pass:
 
 - **Trace payloads contain user content** (prompts, retrieved snippets, LLM
   responses — that is the point of the tool) and span URLs can carry
-  **presigned S3 query strings**. Blast radius is bounded by the OIDC
-  claim gate (platform-org members only), the in-memory-only store, and the
+  **presigned S3 query strings**. Blast radius is bounded by the edge
+  permission gate (`platform:organizations:view` holders only, Amendment 2), the
+  in-memory-only store, and the
   ring-buffer limits. Do NOT widen dashboard access without re-evaluating.
 - **Plaintext OTLP in-cluster** (no mTLS between producers → collector →
   dashboard). Acceptable on a private cluster network; a service mesh would
   be the upgrade path if the cluster threat model changes.
-- **Shared WorkOS client** for the dashboard OIDC, *by default*: the dashboard
-  reuses the app's AuthKit client (issuer and JWKS are both per-client), so an
-  ordinary app sign-in mints a token that is also a valid dashboard credential,
-  and the OIDC client secret is the WorkOS management API key. Amendment 2
-  added `grid-oib:otelOidcClientId` / `otelOidcClientSecret` to point the
-  dashboard at a dedicated AuthKit application; setting them separates the
-  credentials and drops the secret's worst case from "administer the identity
-  provider" to "run an OIDC code exchange". Left unset the residual risk
-  stands — provisioning the second application is a deploy-time action, not a
-  code change.
+- **A second OAuth application to provision.** Amendment 2 closed the original
+  shared-client risk rather than leaving it optional: the dashboard runs against
+  a dedicated WorkOS **Connect** application
+  (`grid-oib:otelOidcIssuer`/`otelOidcClientId`/`otelOidcClientSecret`), all
+  three part of the tier's capability gate, so there is no fallback to the app's
+  AuthKit client — a stack that has not provisioned the application deploys no
+  dashboard. That separates the credentials (an ordinary app sign-in is not a
+  dashboard credential) and keeps the secret's worst case at "run an OIDC code
+  exchange" instead of "administer the identity provider". The residual cost is
+  operational: provisioning it is a deploy-time action in the WorkOS dashboard,
+  and its permission assignment is a second place access can be granted.
 - **Collector receivers are unauthenticated** (plain OTLP). Reachability is
   bounded to same-namespace pods by the NetworkPolicy posture; a rogue
   in-namespace pod could inject spans. Accepted: namespace workload identity
