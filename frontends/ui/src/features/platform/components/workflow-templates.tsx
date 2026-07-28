@@ -536,7 +536,13 @@ export function WorkflowTemplates(): JSX.Element {
               event.preventDefault()
               setIsDragActive(true)
             }}
-            onDragLeave={() => setIsDragActive(false)}
+            // Dragging over the icon or the labels inside the zone fires
+            // dragleave on the label itself; only a pointer that has actually
+            // left the zone should clear the highlight.
+            onDragLeave={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+              setIsDragActive(false)
+            }}
             onDrop={onDrop}
             className={cn(
               'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors focus-within:ring-2 focus-within:ring-ring/60',

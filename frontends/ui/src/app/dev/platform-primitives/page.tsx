@@ -122,10 +122,25 @@ function Preview(): JSX.Element {
                 <TableRow>
                   <TableHead>
                     <Checkbox
-                      checked={allOnPageSelected}
+                      // Indeterminate on a partial page, and select-all touches
+                      // only THIS page's rows — matching base-knowledge. This
+                      // page is the conversion reference, so it has to show the
+                      // behaviour the real sections implement.
+                      checked={
+                        allOnPageSelected
+                          ? true
+                          : page.some((row) => selected.includes(row.name))
+                            ? 'indeterminate'
+                            : false
+                      }
                       aria-label="Select all on this page"
                       onCheckedChange={(checked) =>
-                        setSelected(checked ? page.map((row) => row.name) : [])
+                        setSelected((prev) => {
+                          const names = page.map((row) => row.name)
+                          return checked
+                            ? [...new Set([...prev, ...names])]
+                            : prev.filter((name) => !names.includes(name))
+                        })
                       }
                     />
                   </TableHead>

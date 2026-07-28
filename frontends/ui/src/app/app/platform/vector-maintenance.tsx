@@ -41,6 +41,9 @@ interface ReconcileResult {
   failures: { collectionName: string; error: string }[]
 }
 
+/** The wire shape: `failures` is normalised to an array on receipt. */
+type ReconcileResponse = Omit<ReconcileResult, 'failures'> & Partial<Pick<ReconcileResult, 'failures'>>
+
 /**
  * A sweep that has not answered in this long is not going to. The confirm
  * dialog refuses to close mid-flight (by design — the run is destructive), so
@@ -78,7 +81,7 @@ export function VectorMaintenance({ initialResult = null }: VectorMaintenancePro
         signal: controller.signal,
       })
       if (!res.ok) throw new Error(`Reconcile failed (${res.status})`)
-      const body = (await res.json()) as ReconcileResult
+      const body = (await res.json()) as ReconcileResponse
       // Normalise `failures` on the way in so every read site below can treat it
       // as an array; the route always sends one, but this panel is the last
       // thing that should throw while reporting a destructive run.
@@ -249,8 +252,10 @@ export function VectorMaintenance({ initialResult = null }: VectorMaintenancePro
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {lastResult.failures.map((failure) => (
-                            <TableRow key={failure.collectionName}>
+                          {/* A collection can fail twice in one sweep (listing,
+                              then deleting), so the name alone is not a key. */}
+                          {lastResult.failures.map((failure, index) => (
+                            <TableRow key={`${failure.collectionName}-${index}`}>
                               <TableCell className="font-medium break-all">{failure.collectionName}</TableCell>
                               <TableCell className="text-muted-foreground">{failure.error}</TableCell>
                             </TableRow>

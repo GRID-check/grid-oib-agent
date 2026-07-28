@@ -231,7 +231,12 @@ export const PlatformOverview: FC = () => {
   }
 
   const { totals } = overview
-  const page = visible.slice(offset, offset + PAGE_SIZE)
+  // Search and sort reset the offset, but a reload does not: if a retry returns
+  // fewer organizations than the reader's current page starts at, the offset
+  // points past the end and the table renders empty instead of falling back to
+  // page one. Clamp on read.
+  const safeOffset = offset < visible.length ? offset : 0
+  const page = visible.slice(safeOffset, safeOffset + PAGE_SIZE)
 
   const sortableColumn = (key: SortKey, label: string, className?: string): JSX.Element => (
     <SortableHead
@@ -369,7 +374,7 @@ export const PlatformOverview: FC = () => {
             )}
 
             <Pagination
-              offset={offset}
+              offset={safeOffset}
               pageSize={PAGE_SIZE}
               total={visible.length}
               onOffsetChange={setOffset}

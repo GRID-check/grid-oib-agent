@@ -450,7 +450,11 @@ export function BaseKnowledge() {
     // Optimistic: drop the rows immediately; the refetch in finally() reconciles
     // (and brings them back if a request failed).
     setStatus((prev) => (prev ? { ...prev, files: prev.files.filter((f) => !names.includes(f.fileName)) } : prev))
-    Promise.all(
+    // `allSettled`, not `all`: `all` rejects on the first failure, so nine of ten
+    // documents deleting successfully would still be reported as ten failures.
+    // This mirrors the per-item accounting in `handleBulkReclassify`, so both
+    // bulk paths report the same way.
+    Promise.allSettled(
       names.map((name) =>
         fetch(`/api/platform/knowledge/documents/${encodeURIComponent(name)}`, { method: 'DELETE' }).then((r) => {
           if (!r.ok) throw new Error(`Delete failed (${r.status})`)
@@ -458,19 +462,22 @@ export function BaseKnowledge() {
         }),
       ),
     )
-      .then(() => {
+      .then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length
+        const removed = results.length - failed
         if (names.length === 1) {
-          const isUploaded = targets[0]?.origin === 'uploaded'
-          toast.success(
-            t(isUploaded ? 'knowledge.deleteSuccess' : 'knowledge.corpusDeleteSuccess', { name: names[0] }),
-          )
-        } else {
-          toast.success(t('knowledgeAdmin.bulkDeleteDone', { count: names.length }))
+          if (failed > 0) {
+            toast.error(t('knowledge.deleteFailed', { name: names[0] }))
+          } else {
+            const isUploaded = targets[0]?.origin === 'uploaded'
+            toast.success(
+              t(isUploaded ? 'knowledge.deleteSuccess' : 'knowledge.corpusDeleteSuccess', { name: names[0] }),
+            )
+          }
+          return
         }
-      })
-      .catch(() => {
-        if (names.length === 1) toast.error(t('knowledge.deleteFailed', { name: names[0] }))
-        else toast.error(t('knowledgeAdmin.bulkDeleteFailed', { count: names.length }))
+        if (removed > 0) toast.success(t('knowledgeAdmin.bulkDeleteDone', { count: removed }))
+        if (failed > 0) toast.error(t('knowledgeAdmin.bulkDeleteFailed', { count: failed }))
       })
       .finally(() => {
         setIsDeleting(false)
@@ -875,7 +882,16 @@ export function BaseKnowledge() {
                         <TableRow>
                           <TableHead>
                             <Checkbox
-                              checked={allOnPageSelected}
+                              // A partial page selection would otherwise read as
+                              // "nothing selected", leaving the toolbar count as
+                              // the only signal.
+                              checked={
+                                allOnPageSelected
+                                  ? true
+                                  : page.some((f) => selected.includes(f.fileName))
+                                    ? 'indeterminate'
+                                    : false
+                              }
                               aria-label={t('knowledgeAdmin.selectAll')}
                               onCheckedChange={(checked) =>
                                 setSelected((prev) => {

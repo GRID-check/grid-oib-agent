@@ -13,6 +13,14 @@ import { cn } from '@/lib/utils'
  * `Table` wraps itself in an `overflow-x-auto` container: a wide admin table
  * scrolls inside its own box rather than making the page body scroll
  * horizontally.
+ *
+ * Deliberately NOT `min-w-max`. A `width: 100%` table already cannot render
+ * below its min-content width, so a genuinely too-wide column set overflows and
+ * the wrapper scrolls on its own. Adding a max-content floor instead pins every
+ * table to its unwrapped width, which defeats column sharing and forces
+ * horizontal scrolling on tables that fit today — measured on the workflow
+ * templates table, it clipped the publish state and pushed the row actions off
+ * the edge. Cells that need a ceiling get `max-w-*` at the call site.
  */
 
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
