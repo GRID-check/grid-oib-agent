@@ -27,7 +27,7 @@ legend. Offer a diagram proactively for architecture/design discussions.
 | `frontends/benchmarks/` | Evaluation harnesses |
 | `configs/` | Workflow configs. **LLM-agnostic** — any OpenAI-compatible endpoint (set `base_url`/`model_name`/key per config). **`config_oib_openrouter.yml` is the working reference config** (`config_grid_oib.yml`/Kimi is currently unmaintained) |
 | `deploy/` | Docker Compose assets and environment templates; `deploy/pulumi/` holds the Pulumi (TypeScript) Kubernetes deployment (see `docs/deployment/kubernetes.md`) |
-| `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`) |
+| `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`, `citation-system-audit-2026-07.md` for the citation pipeline as built) |
 | `skills/` | API-consumer skill examples |
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
 | `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |

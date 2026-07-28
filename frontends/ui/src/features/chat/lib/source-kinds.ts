@@ -34,6 +34,7 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   web: 'auto',
 }
 
+
 // Fine lane family → coarse kind (mirror of backend `source_kinds.kind_for_lane`).
 // The Herleitung fan-out and the chips MUST share this so they never disagree
 // (e.g. external norms are `baurecht`, not `web`).
@@ -85,5 +86,5 @@ export const authorityTag = (lane: string | null | undefined): string | null => 
  */
 export const accentForLane = (
   lane: string | null | undefined,
-  signal: SourceSignal
+  signal: SourceTint
 ): SourceTint => ((lane ?? '').toLowerCase().startsWith('baurecht_oib') ? 'oib' : signal)

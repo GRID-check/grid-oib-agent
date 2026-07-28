@@ -463,6 +463,13 @@ class DeepResearcherAgent:
                 # Citation-health ledger: one batch per deep-research run, the
                 # same shape the shallow researcher posts. Deep reports carry no
                 # self-assessed confidence marker, so no cap reason is recorded.
+                #
+                # The whole registry IS this run's retrieval here — the deep
+                # researcher builds a fresh SourceRegistry per run (ADR-0018),
+                # unlike the shallow agent's registry, which is cumulative
+                # across a conversation and therefore needs the per-turn capture
+                # log to keep source_count comparable to cited_count. The
+                # asymmetry is intentional; do not "align" them.
                 registry_sources = registry.all_sources()
                 citation_events.record_turn(
                     agent="deep",

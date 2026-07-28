@@ -30,8 +30,12 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import begin_turn_capture
+from aiq_agent.common.citation_verification import end_turn_capture
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
+from aiq_agent.common.citation_verification import get_turn_captures
+from aiq_agent.common.citation_verification import record_turn_capture
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
@@ -499,6 +503,9 @@ class ShallowResearcherAgent:
                     sources = extract_sources_from_tool_result(tool_name, str(msg.content), source_id=source_id)
                     for source in sources:
                         active_registry.add(source)
+                    # The registry is cumulative across the conversation; the
+                    # citation-health ledger needs THIS turn's retrieval.
+                    record_turn_capture(sources)
                     if sources:
                         logger.info(
                             "[CitationRegistry] Captured %d source(s) from %s: %s",
@@ -549,9 +556,17 @@ class ShallowResearcherAgent:
         config = {"recursion_limit": recursion_limit}
         if self.callbacks:
             config["callbacks"] = self.callbacks
+        # What THIS turn's tool calls returned. The registry is cumulative
+        # across the conversation (so a later turn can still cite an earlier
+        # turn's document), which makes it the wrong denominator for a per-turn
+        # citation-health row — see ``get_turn_captures``.
+        turn_sources: list[SourceEntry] = []
+        turn_capture_token = begin_turn_capture()
         try:
             result = await self._graph.ainvoke(state, config=config)
+            turn_sources = get_turn_captures()
         finally:
+            end_turn_capture(turn_capture_token)
             if registry_token is not None:
                 reset_session_registry(registry_token)
 
@@ -767,6 +782,17 @@ class ShallowResearcherAgent:
                 # Step 2: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
                 sanitization = sanitize_report(content)
                 content = sanitization.sanitized_report
+                # Sanitization closes the gaps that verify_citations' removals
+                # left in the [N] sequence, so the numbers captured above (which
+                # the model wrote) can be stale by the time the reader sees the
+                # answer. Remap them or a chip is labelled [3] while the prose
+                # that points at it now says [2] — and the inline marker's anchor
+                # scrolls to a row that does not exist.
+                if sanitization.renumber_map:
+                    citation_numbers = {
+                        entry_id: sanitization.renumber_map.get(number, number)
+                        for entry_id, number in citation_numbers.items()
+                    }
 
                 # Emit verified/sanitized report so the frontend shows the
                 # cleaned version (overwrites the raw draft auto-emitted
@@ -822,7 +848,10 @@ class ShallowResearcherAgent:
         # on an answer message actually having been verified. Best-effort by
         # construction — ``record_turn`` swallows everything.
         if state.requires_sources and answer_index is not None:
-            registry_sources = registry.all_sources()
+            # THIS turn's retrieval, not the cumulative conversation registry:
+            # the ledger's source_count is the denominator that cited_count is
+            # measured against, and cited_count has always been per-turn.
+            registry_sources = turn_sources
             citation_events.record_turn(
                 agent="shallow",
                 source_count=len(registry_sources),

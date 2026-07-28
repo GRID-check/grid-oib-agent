@@ -26,6 +26,7 @@ describe('KIND_TO_SIGNAL', () => {
     expect(KIND_TO_SIGNAL.projekt).toBe('project')
     expect(KIND_TO_SIGNAL.web).toBe('auto')
   })
+
 })
 
 describe('authorityTag', () => {

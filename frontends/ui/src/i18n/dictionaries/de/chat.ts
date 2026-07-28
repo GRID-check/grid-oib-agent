@@ -11,6 +11,7 @@ export const chat: typeof en.chat = {
     projectDocument: 'Projektunterlage',
     corpusDocument: 'Baurecht & Richtlinien',
     citedPassage: 'Fundstelle',
+    cited: 'Zitiert',
     loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
     bindingLabel: 'Bindungswirkung',
     openExternal: 'Im RIS öffnen',

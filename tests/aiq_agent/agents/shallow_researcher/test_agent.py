@@ -1675,6 +1675,32 @@ class TestShallowResearcherAnswerGrounding:
             result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
         assert [s["number"] for s in result.verified_sources] == [1]
 
+    @pytest.mark.asyncio
+    async def test_citation_numbers_survive_the_sanitize_renumber(self, mock_llm_provider, mock_llm):
+        # Real pipeline (no mocked verifier): the model cites [1] and [2], but
+        # [1] is fabricated. verify_citations drops it, then sanitize_report
+        # closes the gap so the surviving source becomes [1] in the prose. The
+        # wire number must follow, or the chip is labelled [2] while the answer
+        # points at [1] — and the inline marker's anchor leads nowhere.
+        answer = (
+            "Erfunden [1]. Belegt [2].\n\n"
+            "**References:**\n"
+            "- [1] Fake - https://not-in-registry.example/x\n"
+            "- [2] Real - https://example.com/real\n"
+        )
+        mock_llm.ainvoke.return_value = AIMessage(content=answer)
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/real", title="Real", tool_name="web_search_tool"))
+
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+        result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+
+        final_text = result.messages[-1].content
+        assert "[2]" not in final_text  # the gap was closed
+        assert "Belegt [1]" in final_text
+        assert [s["number"] for s in result.verified_sources] == [1]
+        assert [s["url"] for s in result.verified_sources] == ["https://example.com/real"]
+
     # --- citations_removed: transparency summary of dropped citations ---
 
     @pytest.mark.asyncio

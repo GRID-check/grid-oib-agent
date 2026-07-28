@@ -36,6 +36,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
 from aiq_agent.common.source_kinds import kind_for_lane
 
 if TYPE_CHECKING:
@@ -376,18 +377,30 @@ class SourceRegistry:
         return self._urls.get(_normalize_url(url))
 
     def entry_for_citation_key(self, key: str) -> SourceEntry | None:
-        """Return the registry entry whose filename matches ``key`` (lenient).
+        """Return the registry entry best matching ``key`` (lenient on the page).
 
-        Mirrors :meth:`has_citation_key`'s filename-only, case-insensitive match
-        but returns the owning :class:`SourceEntry` for origin-token labeling.
+        Identity still matches :meth:`has_citation_key` — filename-only and
+        case-insensitive — but when the SAME document was retrieved at several
+        pages, the entry whose page the citation actually names wins. The entry
+        this returns is what supplies the wire's ``page``, and therefore the page
+        the UI opens the PDF at; returning "whichever chunk landed in the
+        registry first" made a citation to p.30 open at p.12 whenever both were
+        retrieved. Falls back to the first filename match (so a page the
+        retrieval never returned still resolves to a real, retrieved page rather
+        than to nothing).
         """
-        target_file, _ = _parse_citation_key(key)
+        target_file, target_page = _parse_citation_key(key)
         target_lower = target_file.lower()
+        fallback: SourceEntry | None = None
         for entry in self._citation_keys:
-            entry_file, _ = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() == target_lower:
+            entry_file, entry_page = _parse_citation_key(entry.citation_key)
+            if entry_file.lower() != target_lower:
+                continue
+            if target_page is not None and entry_page == target_page:
                 return entry
-        return None
+            if fallback is None:
+                fallback = entry
+        return fallback
 
     def all_sources(self) -> list[SourceEntry]:
         """Return all registered sources."""
@@ -505,6 +518,66 @@ def get_or_create_session_registry(session_id: str | None) -> SourceRegistry:
         return registry
 
 
+# ---------------------------------------------------------------------------
+# Per-turn capture log (ContextVar)
+# ---------------------------------------------------------------------------
+#
+# The SourceRegistry is deliberately CUMULATIVE across a conversation, so a
+# later turn can still cite a document an earlier turn retrieved. That makes it
+# the wrong denominator for per-turn citation-health telemetry: reporting
+# ``len(registry.all_sources())`` as "sources retrieved" grew monotonically
+# while "sources cited" stayed per-turn, so the dashboard's implied efficiency
+# decayed over a long conversation for reasons that had nothing to do with
+# citation quality — and a turn that re-cited an earlier document could report
+# more citations than retrievals.
+#
+# This log records what THIS turn's tool calls actually returned. It is scoped
+# with a ContextVar (like the session registry) so concurrent turns cannot mix.
+
+_turn_captured_sources: contextvars.ContextVar[list[SourceEntry] | None] = contextvars.ContextVar(
+    "_turn_captured_sources", default=None
+)
+
+
+def begin_turn_capture() -> contextvars.Token:
+    """Start recording this turn's captured sources. Pair with :func:`end_turn_capture`."""
+    return _turn_captured_sources.set([])
+
+
+def end_turn_capture(token: contextvars.Token) -> None:
+    """Stop recording this turn's captured sources."""
+    _turn_captured_sources.reset(token)
+
+
+def record_turn_capture(entries: Sequence[SourceEntry]) -> None:
+    """Note sources a tool call returned during this turn. No-op when not recording."""
+    log = _turn_captured_sources.get()
+    if log is not None:
+        log.extend(entries)
+
+
+def get_turn_captures() -> list[SourceEntry]:
+    """Distinct sources this turn's tool calls returned, in first-seen order.
+
+    Deduplicated on the same identity the registry uses (URL / document key), so
+    a document returned by two queries in one turn counts once — but a document
+    retrieved again in a LATER turn counts again for that turn, which
+    ``registry.all_sources()`` could not express.
+    """
+    log = _turn_captured_sources.get()
+    if not log:
+        return []
+    seen: set[str] = set()
+    unique: list[SourceEntry] = []
+    for entry in log:
+        identity = _normalize_url(entry.url) if entry.url else (entry.citation_key or "").lower()
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(entry)
+    return unique
+
+
 def set_session_registry(registry: SourceRegistry | None) -> contextvars.Token:
     """Set the session-scoped SourceRegistry for the current async context."""
     return _session_source_registry.set(registry)
@@ -590,7 +663,7 @@ def extract_sources_from_tool_result(
     # this tool is eligible to contribute sources (typically by limiting
     # capture to the agent's loaded tool set).
     if content.strip():
-        return [SourceEntry(citation_key=tool_name, source_type="tool_result", tool_name=tool_name)]
+        return [SourceEntry(citation_key=tool_name, source_type=TOOL_RESULT_SOURCE_TYPE, tool_name=tool_name)]
 
     return []
 
@@ -776,32 +849,109 @@ _KL_TRACE_LANES_MARKER = "## Trace-Lanes"
 _KL_TRUNCATED_SUFFIX_RE = re.compile(r"\s*\.\.\.\s*\[truncated\]\s*$")
 
 
-def _extract_kl_chunk_bodies(content: str) -> list[str]:
-    """Extract the retrieved passage body for each ``--- Result N ---`` block.
+def _split_kl_result_blocks(content: str) -> list[str]:
+    """Split KB tool output into one text span per ``--- Result N ---`` block.
 
-    Returns one body per block in document order (aligned with the ``Citation:``
-    fields, since ``_format_results`` emits exactly one citation per block). An
-    empty string marks a block whose body could not be located. The trailing
-    ``## Trace-Lanes`` JSON summary and any ``... [truncated]`` marker are
-    stripped so only the real chunk text is returned.
+    Each span runs from just after its block marker to the start of the next
+    marker (or the ``## Trace-Lanes`` fan-out summary / end of content), so a
+    block contains exactly one hit's header fields AND its passage body. The
+    leading "Found N relevant document(s):" preamble is not a block and is
+    dropped. Returns ``[]`` when the output carries no block markers.
     """
     block_matches = list(_KL_RESULT_BLOCK_RE.finditer(content))
-    bodies: list[str] = []
+    blocks: list[str] = []
     for idx, block_match in enumerate(block_matches):
         block_start = block_match.end()
         block_end = block_matches[idx + 1].start() if idx + 1 < len(block_matches) else len(content)
         block = content[block_start:block_end]
-        relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
-        if relevance_match is None:
-            bodies.append("")
-            continue
-        body = block[relevance_match.end() :]
-        trace_lanes_at = body.find(_KL_TRACE_LANES_MARKER)
+        # The trailing Trace-Lanes JSON belongs to the whole result set, not to
+        # the last hit — cut it off so it can pollute neither the body nor the
+        # header-field scan below.
+        trace_lanes_at = block.find(_KL_TRACE_LANES_MARKER)
         if trace_lanes_at != -1:
-            body = body[:trace_lanes_at]
-        body = _KL_TRUNCATED_SUFFIX_RE.sub("", body.strip()).strip()
-        bodies.append(body)
-    return bodies
+            block = block[:trace_lanes_at]
+        blocks.append(block)
+    return blocks
+
+
+def _kl_block_body(block: str) -> str:
+    """The retrieved passage body of one result block.
+
+    ``_format_results`` puts the body after the ``Relevance Score:`` header line
+    and a blank line. Returns ``""`` when that header is absent (nothing to
+    anchor the body to). A very long body is truncated by the producer with a
+    trailing ``... [truncated]`` marker, which is stripped back off.
+    """
+    relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
+    if relevance_match is None:
+        return ""
+    return _KL_TRUNCATED_SUFFIX_RE.sub("", block[relevance_match.end() :].strip()).strip()
+
+
+def _kl_block_header(block: str) -> str:
+    """The HEADER region of one result block — everything above the passage body.
+
+    Header fields must be read from here, never from the whole block, because
+    the block also contains RETRIEVED DOCUMENT TEXT. ``_format_results`` omits
+    ``Dokumentart:``/``Collection:``/``Page:`` for a hit that has none, so a
+    passage whose own text contains such a line would otherwise supply the
+    missing field — and a scanned Einreichplan or Bescheid whose title block
+    carries a metadata table plausibly does. The result is the same user-visible
+    failure as positional misalignment: a private project plan classified as an
+    OIB Richtlinie, because ``doc_class`` is first priority in ``lane_for_hit``.
+
+    ``Source:``/``Citation:`` happen to be safe (the header always emits them,
+    so the header's own match wins), but scoping the region is what makes that
+    true by construction rather than by luck.
+
+    A block with no ``Relevance Score:`` line has no body to confuse us with, so
+    the whole block is its header.
+    """
+    relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
+    return block[: relevance_match.start()] if relevance_match else block
+
+
+def _extract_kl_chunk_bodies(content: str) -> list[str]:
+    """Retrieved passage body per ``--- Result N ---`` block, in document order."""
+    return [_kl_block_body(block) for block in _split_kl_result_blocks(content)]
+
+
+def _first(pattern: re.Pattern[str], text: str) -> str | None:
+    """First capture of ``pattern`` in ``text``, stripped; ``None`` when absent."""
+    match = pattern.search(text)
+    return match.group(1).strip() or None if match else None
+
+
+def _parse_kl_doc_class(raw: str | None) -> str | None:
+    """Machine doc_class key from a ``Dokumentart:`` value.
+
+    The line is emitted as ``<doc_class_key> — <German label>``; keep only the
+    leading machine key so lane placement gets a valid key.
+    """
+    if not raw:
+        return None
+    return raw.split("—")[0].split(" - ")[0].strip() or None
+
+
+def _kl_entry(
+    *,
+    citation_key: str,
+    title: str | None,
+    collection: str | None,
+    doc_class: str | None,
+    chunk_text: str | None,
+    tool_name: str,
+) -> SourceEntry:
+    """Build a knowledge-layer :class:`SourceEntry` from one hit's fields."""
+    return SourceEntry(
+        citation_key=citation_key.strip(),
+        title=title,
+        source_type="knowledge_layer",
+        tool_name=tool_name,
+        collection=collection or None,
+        doc_class=doc_class or None,
+        chunk_text=chunk_text or None,
+    )
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
@@ -809,37 +959,62 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
 
     Extracts citation keys (filename + page), the retrieval ``Collection:``
     each hit came from (threaded by the KB tool so ``source_lane`` can place
-    the hit deterministically), AND any URLs present.
-    Falls back to generic URL extraction if no Citation: fields found.
+    the hit deterministically), the explicit ``Dokumentart:`` classification,
+    and the retrieved passage body. Falls back to generic URL extraction if no
+    Citation: fields found.
+
+    Fields are read PER ``--- Result N ---`` BLOCK, never by zipping separate
+    whole-document ``findall`` lists. ``_format_results`` emits ``Collection:``
+    and ``Dokumentart:`` only when the hit HAS one, so a result set mixing a
+    classified hit (OIB corpus) with an unclassified one (a project upload)
+    shifts every later value up by one under positional zipping — and because
+    ``doc_class`` is the FIRST-priority signal in ``lane_for_hit``, that
+    silently rendered a project plan as an OIB Richtlinie. Block-scoped parsing
+    makes the association structural rather than coincidental.
     """
+    blocks = _split_kl_result_blocks(content)
     entries: list[SourceEntry] = []
-    citations = _KL_CITATION_RE.findall(content)
-    sources = _KL_SOURCE_RE.findall(content)
-    collections = _KL_COLLECTION_RE.findall(content)
-    doc_classes = _KL_DOC_CLASS_RE.findall(content)
-    # Retrieved passage bodies, one per ``--- Result N ---`` block, aligned with
-    # the citation index. Threaded onto each entry so quote verification can
-    # check quoted spans against the actual evidence text.
-    chunk_bodies = _extract_kl_chunk_bodies(content)
-    for i, citation_key in enumerate(citations):
-        title = sources[i].strip() if i < len(sources) else None
-        collection = collections[i].strip() if i < len(collections) else None
-        # The Dokumentart line is emitted as ``<doc_class_key> — <German label>``;
-        # keep only the leading machine key so lane placement gets a valid key.
-        doc_class_raw = doc_classes[i].strip() if i < len(doc_classes) else None
-        doc_class = doc_class_raw.split("—")[0].split(" - ")[0].strip() if doc_class_raw else None
-        chunk_text = chunk_bodies[i] if i < len(chunk_bodies) else None
-        entries.append(
-            SourceEntry(
-                citation_key=citation_key.strip(),
-                title=title,
-                source_type="knowledge_layer",
-                tool_name=tool_name,
-                collection=collection or None,
-                doc_class=doc_class or None,
-                chunk_text=chunk_text or None,
+
+    if blocks:
+        for block in blocks:
+            # Header fields come from the header region ONLY; the rest of the
+            # block is retrieved document text and must never be able to supply
+            # a field the producer omitted. See ``_kl_block_header``.
+            header = _kl_block_header(block)
+            citation_key = _first(_KL_CITATION_RE, header)
+            if not citation_key:
+                # A block without a Citation: field identifies nothing citable.
+                continue
+            entries.append(
+                _kl_entry(
+                    citation_key=citation_key,
+                    title=_first(_KL_SOURCE_RE, header),
+                    collection=_first(_KL_COLLECTION_RE, header),
+                    doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
+                    chunk_text=_kl_block_body(block),
+                    tool_name=tool_name,
+                )
             )
-        )
+    else:
+        # No block markers (a non-``_format_results`` producer whose tool name
+        # still matches "knowledge"). Nothing delimits the hits, so fall back to
+        # the historical positional pairing rather than dropping the sources.
+        citations = _KL_CITATION_RE.findall(content)
+        sources = _KL_SOURCE_RE.findall(content)
+        collections = _KL_COLLECTION_RE.findall(content)
+        doc_classes = _KL_DOC_CLASS_RE.findall(content)
+        for i, citation_key in enumerate(citations):
+            entries.append(
+                _kl_entry(
+                    citation_key=citation_key,
+                    title=sources[i].strip() if i < len(sources) else None,
+                    collection=collections[i].strip() if i < len(collections) else None,
+                    doc_class=_parse_kl_doc_class(doc_classes[i] if i < len(doc_classes) else None),
+                    chunk_text=None,
+                    tool_name=tool_name,
+                )
+            )
+
     if not entries:
         return _parse_generic_urls(content, tool_name)
     return entries
@@ -891,35 +1066,144 @@ _URL_IN_LINE_RE = re.compile(r"https?://\S+")
 _KL_CITATION_PATTERN_RE = re.compile(r"^(.+\.\w{2,5})(?:,\s*(?:p\.?|page)\s*\d+)?$", re.IGNORECASE)
 
 
+# Characters that may appear INSIDE a filename token. Used to require that a
+# registry filename found in a reference line stands on its own rather than
+# being the tail of a longer name — without this, a registry holding `plan.pdf`
+# claims a citation to `bestandsplan.pdf` and the chip opens the wrong document.
+_FILENAME_INNER_CHARS = "_-."
+
+
+def _filename_occurs_as_token(haystack_lower: str, needle_lower: str) -> int | None:
+    """Index just past ``needle_lower`` when it occurs as a standalone token.
+
+    Returns ``None`` when the filename only occurs as part of a longer one.
+    """
+    index = haystack_lower.find(needle_lower)
+    while index != -1:
+        end = index + len(needle_lower)
+        before_ok = index == 0 or not (
+            haystack_lower[index - 1].isalnum() or haystack_lower[index - 1] in _FILENAME_INNER_CHARS
+        )
+        # A trailing "." is allowed (sentence punctuation); a trailing word
+        # character would mean we matched a prefix of a longer filename.
+        after_ok = end >= len(haystack_lower) or not (haystack_lower[end].isalnum() or haystack_lower[end] in "_-")
+        if before_ok and after_ok:
+            return end
+        index = haystack_lower.find(needle_lower, index + 1)
+    return None
+
+
+def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | None:
+    """Resolve a reference line to a registered document key, page included.
+
+    Scans the line for any filename the registry actually holds and rebuilds a
+    canonical ``filename, p.N`` key from it: the registry's spelling of the
+    filename (so it always matches) plus the page THE LINE states (so a document
+    retrieved at several pages resolves to the one the answer is citing).
+
+    The longest match wins, so `bestandsplan.pdf` is never resolved to a
+    registered `plan.pdf`. ``None`` when the line names no registered document.
+
+    This runs on the RAW line, before any title/parenthetical trimming, because
+    those trims are exactly what used to lose the locator: a line written as
+    ``OIB-Richtlinie 2 (oib-rl_2.pdf, p.12)`` had its whole locator removed as
+    if it were an "(Internal)" annotation, and ``Titel - oib-rl_2.pdf, p.12``
+    had the title swallowed into the filename — both dropping a citation to a
+    document that was genuinely retrieved.
+    """
+    lowered = ref_text.lower()
+    best_name: str | None = None
+    best_end = 0
+    for entry in registry._citation_keys:
+        entry_file, _ = _parse_citation_key(entry.citation_key or "")
+        if not entry_file:
+            continue
+        end = _filename_occurs_as_token(lowered, entry_file.lower())
+        if end is None:
+            continue
+        if best_name is None or len(entry_file) > len(best_name):
+            best_name, best_end = entry_file, end
+    if best_name is None:
+        return None
+
+    # The page stated immediately after the filename, when there is one.
+    page_match = _PAGE_RE.search(ref_text[best_end:])
+    return f"{best_name}, p.{page_match.group(1)}" if page_match else best_name
+
+
+def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
+    """Registry documents the answer's SOURCE SECTION lists, in registry order.
+
+    The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
+    "which of the documents we retrieved does this answer cite?" without needing
+    a URL. Matching is the same standalone-token test the citation verifier uses,
+    so a registered ``plan.pdf`` is not claimed by a mention of
+    ``bestandsplan.pdf``.
+
+    Deep research had no such path — its "cited" signal was URL-only, so a
+    knowledge-base source could never be marked cited and was dropped from the
+    provenance row the moment any web source WAS cited.
+
+    Only the source section is scanned, NEVER the prose. Citing is a claim the
+    answer makes in its source list; a filename appearing in body text is not
+    that claim, and may well be the opposite of it ("Ich konnte oib-rl_2.pdf
+    nicht abrufen"). This matters because the caller runs on intermediate agent
+    output too, where documents are discussed far more often than cited — the
+    URL path gets away with the looser rule only because URLs rarely appear in
+    prose, while filenames routinely do. No source section means no citation
+    claim yet, so nothing is marked. Fail-open: returns an empty list rather
+    than raising.
+    """
+    if not text:
+        return []
+    section_match = _REFERENCE_SECTION_RE.search(_normalize_citation_syntax(text))
+    if section_match is None:
+        return []
+    lowered = _normalize_citation_syntax(text)[section_match.start() :].lower()
+    seen: set[str] = set()
+    cited: list[SourceEntry] = []
+    for entry in registry._citation_keys:
+        entry_file, _ = _parse_citation_key(entry.citation_key or "")
+        if not entry_file:
+            continue
+        key = entry_file.lower()
+        if key in seen:
+            continue
+        if _filename_occurs_as_token(lowered, key) is not None:
+            seen.add(key)
+            cited.append(entry)
+    return cited
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 
-    Uses a lenient matching strategy:
-    1. Try exact pattern match (filename.ext, p.N) after stripping markdown
-    2. If a registry is provided, check if ANY registered citation key's
-       filename appears anywhere in the reference text (very lenient —
-       handles all formatting variations the LLM might produce)
+    Matching strategy:
+    1. If a registry is provided, resolve the line against the documents that
+       were actually retrieved (:func:`_match_registry_filename`). This is both
+       the most reliable signal and the most forgiving of LLM formatting, so it
+       runs first.
+    2. Otherwise fall back to the shape test (``filename.ext, p.N``) after
+       trimming a trailing parenthetical and markdown emphasis.
 
     Returns (is_kl, citation_key_or_none).
     """
+    # Strip markdown bold/italic markers only (*, **) — preserve underscores in
+    # filenames. Done before the registry scan so `**file.pdf**` still matches.
+    unemphasized = re.sub(r"\*+", "", ref_text).strip()
+
+    if registry is not None:
+        matched = _match_registry_filename(unemphasized, registry)
+        if matched:
+            return True, matched
+
     # Strip trailing "(Internal)" or similar parenthetical
-    cleaned = re.sub(r"\s*\(.*?\)\s*$", "", ref_text).strip()
-    # Strip markdown bold/italic markers only (*, **) — preserve underscores in filenames
-    cleaned = re.sub(r"\*+", "", cleaned).strip()
+    cleaned = re.sub(r"\s*\(.*?\)\s*$", "", unemphasized).strip()
     # Remove leading "Title - " or "Title: " prefix by taking last segment
     # if it contains a filename pattern
     for segment in [cleaned, cleaned.split(" - ")[-1].strip(), cleaned.split(": ")[-1].strip()]:
         if _KL_CITATION_PATTERN_RE.match(segment):
             return True, segment
-
-    # Lenient fallback: check if any registered knowledge-layer filename
-    # appears in the reference text (handles arbitrary LLM formatting)
-    if registry is not None:
-        ref_lower = cleaned.lower()
-        for entry in registry._citation_keys:
-            entry_file, _ = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() in ref_lower:
-                return True, entry.citation_key
 
     return False, None
 
@@ -1206,7 +1490,12 @@ def _normalize_source_section_layout(ref_section: str) -> str:
     lines = ref_section.split("\n")
     if lines and _REFERENCE_HEADING_LINE_RE.match(lines[0]):
         # Keep German reports German: a "Quellen"-style heading is normalized
-        # to "## Quellen" instead of being anglicized to "## Sources".
+        # to "## Quellen" instead of being anglicized to "## Sources". This
+        # German-or-else binary mirrors the writer's contract, which allows the
+        # label exactly two forms: "**Quellen:**" for a German answer and
+        # "**References:**" for an answer in any other language, never a label
+        # translated into a third language (see researcher.j2 <language> and
+        # <output_contract>). A translated label would land on "## Sources".
         lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)
     return "\n".join(_split_collapsed_source_line(line) for line in ref_section.split("\n"))
@@ -1820,6 +2109,13 @@ _BARE_URL_RE = re.compile(r"https?://[^\s<>\"'\]]+")
 # Body URL patterns (used by sanitize_report)
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(\s*\w+://[^\s)]+\)")
 _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
+# Whatever gets removed from mid-sentence (a stripped URL, an empty pair of
+# parentheses, or an inline [N] that verification dropped) leaves the space that
+# preceded it stranded in front of the punctuation that followed, so
+# "eine jaehrliche Begehung [3]." reaches the reader as "Begehung .". Spaces and
+# tabs only, never a newline, so punctuation is never pulled up onto the
+# previous line.
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"[ \t]+(?=[.,;:!?])")
 
 
 @dataclass
@@ -1832,6 +2128,12 @@ class ReportSanitizationResult:
     shortened_urls_removed: list[str]
     truncated_urls_removed: list[str]
     unsafe_urls_removed: list[str]
+    # old ``[N]`` → new ``[N]`` for the gap-closing renumber this pass applied.
+    # ``verify_citations`` hands callers a ``[N]``→source binding computed BEFORE
+    # this renumbering, so a caller that puts those numbers on the wire has to
+    # remap them or the chips end up labelled with numbers the prose no longer
+    # uses. Empty when no source section was present or nothing moved.
+    renumber_map: dict[int, int] = field(default_factory=dict)
 
 
 def sanitize_report(report_text: str) -> ReportSanitizationResult:
@@ -1900,6 +2202,7 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
     # Clean up leftover empty parentheses and extra spaces
     cleaned_body = re.sub(r"\(\s*\)", "", cleaned_body)
     cleaned_body = re.sub(r"  +", " ", cleaned_body)
+    cleaned_body = _SPACE_BEFORE_PUNCTUATION_RE.sub("", cleaned_body)
 
     if body_urls_replaced:
         logger.debug("[ReportSanitize] Replaced %d body URL(s) with citation numbers", body_urls_replaced)
@@ -1991,8 +2294,9 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
             )
 
     # Renumber citations to close any gaps (from verify_citations and/or sanitize removals)
+    renumber_map: dict[int, int] = {}
     if ref_section:
-        cleaned_body, ref_section, _ = _renumber_citations(cleaned_body, ref_section)
+        cleaned_body, ref_section, renumber_map = _renumber_citations(cleaned_body, ref_section)
 
     sanitized_report = cleaned_body + ref_section
 
@@ -2023,4 +2327,5 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         shortened_urls_removed=shortened_urls_removed,
         truncated_urls_removed=truncated_urls_removed,
         unsafe_urls_removed=unsafe_urls_removed,
+        renumber_map=renumber_map,
     )

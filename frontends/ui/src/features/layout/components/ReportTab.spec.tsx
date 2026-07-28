@@ -150,9 +150,45 @@ describe('ReportTab', () => {
     render(<ReportTab />)
 
     expect(screen.getByText('Sources')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'https://oib.or.at/ri2' })).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://oib.or.at/ri2')
     // Uncited sources stay out of the report-level list.
     expect(screen.queryByText('https://example.com/uncited')).not.toBeInTheDocument()
+  })
+
+  test('a cited knowledge-base source renders as a real row, not a blank link', () => {
+    // This list printed `citation.url` as its whole content. A document source
+    // has no URL, so it rendered an empty anchor — harmless only while KB
+    // sources could never be marked cited at all.
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        reportContent: '# Report\n\nBody without a sources section.',
+        reportContentCategory: 'final_report',
+        isStreaming: false,
+        currentStatus: null,
+        deepResearchCards: [],
+        deepResearchCitations: [
+          {
+            id: 'c1',
+            url: undefined,
+            content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12',
+            citationKey: 'oib-rl_2_ausgabe_mai_2023.pdf, p.12',
+            fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+            page: 12,
+            title: 'OIB-Richtlinie 2',
+            kind: 'baurecht',
+            lane: 'baurecht_oib',
+            isCited: true,
+          },
+        ],
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<ReportTab />)
+
+    expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
+    expect(screen.getByText('OIB')).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
   test('renders an origin badge per source from the parsed token', () => {

@@ -80,6 +80,11 @@ SOURCE_KINDS: dict[str, SourceKind] = {
 #: ``("web", "Web")`` fallback.
 DEFAULT_SOURCE_KIND = "web"
 
+#: ``SourceEntry.source_type`` of the non-URL capture fallback: a tool that
+#: produced output but named no document and no URL, registered under its own
+#: tool name (``extract_sources_from_tool_result``).
+TOOL_RESULT_SOURCE_TYPE = "tool_result"
+
 # Fine lane stratum-key → coarse source kind. A prefix match on the lane family
 # keeps this table small and forward-compatible: any new ``baurecht_*`` sub-lane
 # (a new OIB document class, a new RIS rank) maps to ``baurecht`` without a code

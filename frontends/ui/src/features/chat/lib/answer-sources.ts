@@ -261,10 +261,14 @@ export const deriveAnswerSources = (
 // ---------------------------------------------------------------------------
 
 /**
- * The minimal shape of a project document a citation can resolve against.
- * Matches what `GET /api/documents?projectId=…` returns (DocumentListRow).
+ * The minimal shape of a STORED document a citation can resolve against — a
+ * project upload (`GET /api/documents?projectId=…`) or an org Archiv document
+ * (`GET /api/archiv/documents`). Both are DB-backed rows opened through the
+ * same scope-aware `/api/documents/{id}/preview`, so they share one list;
+ * project documents come first, so a filename held in both resolves to the one
+ * belonging to the project in view.
  */
-export interface ProjectDocumentRef {
+export interface StoredDocumentRef {
   id: string
   filename: string
   contentType?: string | null
@@ -273,9 +277,10 @@ export interface ProjectDocumentRef {
 /**
  * Where a clicked citation chip can take the user:
  *  - `url`      — a real outbound link (Web / RIS): keep linking out.
- *  - `document` — an in-app document preview, either a project upload
- *                 (presigned preview via /api/documents/{id}/preview) or a
- *                 base-corpus PDF (/api/knowledge-base/documents/{fileName}).
+ *  - `document` — an in-app document preview, either a stored document (a
+ *                 project upload or an org Archiv document, both presigned via
+ *                 /api/documents/{id}/preview) or a base-corpus PDF
+ *                 (/api/knowledge-base/documents/{fileName}).
  *  - `info`     — nothing openable: show title/origin/snippet only, never a
  *                 broken viewer.
  */
@@ -291,7 +296,7 @@ export type CitationTarget =
       /** Cited passage text when the citation carries one. */
       snippet?: string
       document:
-        | { type: 'project'; id: string; filename: string; contentType: string | null }
+        | { type: 'stored'; id: string; filename: string; contentType: string | null }
         | { type: 'base'; fileName: string }
     }
   | { kind: 'info'; origin: AnswerSourceKind; title: string; snippet?: string }
@@ -404,17 +409,20 @@ const isPreviewableContentType = (contentType: string | null | undefined): boole
  *  1. A real http(s) URL always links out (Web stays web, RIS keeps hitting
  *     the real RIS).
  *  2. Otherwise, a knowledge-layer locator is matched (case-insensitively, by
- *     exact filename) against the project's documents, then the base corpus.
- *     Project matches must be inline-previewable (PDF/image) — anything else
- *     degrades to `info` rather than opening a viewer that cannot render.
+ *     exact filename) against the stored documents — project uploads AND the
+ *     org Archiv — then the base corpus. Stored matches must be
+ *     inline-previewable (PDF/image); anything else degrades to `info` rather
+ *     than opening a viewer that cannot render.
  *  3. Anything unresolvable becomes an `info` target (title/origin/snippet).
  *
- * `projectDocuments` / `baseCorpusFiles` are optional: without them (lists not
+ * `storedDocuments` / `baseCorpusFiles` are optional: without them (lists not
  * loaded, or the caller cannot fetch), resolution honestly degrades to `info`.
+ * Omitting the Archiv from that list is what made every `buero`-kind citation
+ * permanently unopenable while project and Baurecht citations opened fine.
  */
 export const resolveCitationTarget = (
   citation: Pick<CitationSource, 'url' | 'content' | 'fileName' | 'page' | 'citationKey' | 'origin' | 'title'>,
-  projectDocuments?: ProjectDocumentRef[],
+  storedDocuments?: StoredDocumentRef[],
   baseCorpusFiles?: string[]
 ): CitationTarget => {
   const origin = classifyCitation(citation)
@@ -426,19 +434,19 @@ export const resolveCitationTarget = (
   const locator = locatorForCitation(citation)
   if (locator) {
     const wanted = locator.filename.toLowerCase()
-    const projectDoc = projectDocuments?.find((doc) => doc.filename.toLowerCase() === wanted)
-    if (projectDoc && isPreviewableContentType(projectDoc.contentType)) {
+    const storedDoc = storedDocuments?.find((doc) => doc.filename.toLowerCase() === wanted)
+    if (storedDoc && isPreviewableContentType(storedDoc.contentType)) {
       return {
         kind: 'document',
         origin: 'kb',
-        title: projectDoc.filename,
+        title: storedDoc.filename,
         page: locator.page,
         snippet,
         document: {
-          type: 'project',
-          id: projectDoc.id,
-          filename: projectDoc.filename,
-          contentType: projectDoc.contentType ?? null,
+          type: 'stored',
+          id: storedDoc.id,
+          filename: storedDoc.filename,
+          contentType: storedDoc.contentType ?? null,
         },
       }
     }

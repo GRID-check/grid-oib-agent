@@ -12,6 +12,8 @@ export const chat = {
     corpusDocument: 'Building law & guidelines',
     // Tinted box with the passage the answer cites.
     citedPassage: 'Cited passage',
+    // Marks a source the report actually cited (vs. merely discovered).
+    cited: 'Cited',
     loadFailed: 'The source preview could not be loaded. Please try again.',
     // Bindingness note (how a RIS source binds the project) in the info popover.
     bindingLabel: 'Binding effect',

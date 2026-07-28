@@ -16,7 +16,7 @@ vi.mock('../store', () => ({
 
 const jsonResponse = (data: unknown) => ({ ok: true, json: async () => data })
 
-/** Routes the module's three read APIs; anything else 404s. */
+/** Routes the module's read APIs (project docs, org Archiv, base corpus); anything else 404s. */
 const fetchMock = vi.fn((input: RequestInfo | URL) => {
   const url = String(input)
   if (url.startsWith('/api/documents?projectId=')) {
@@ -35,7 +35,16 @@ const fetchMock = vi.fn((input: RequestInfo | URL) => {
       })
     )
   }
-  if (url === '/api/documents/doc-1/preview') {
+  if (url === '/api/archiv/documents') {
+    return Promise.resolve(
+      jsonResponse({
+        documents: [
+          { id: 'archiv-1', filename: 'Bueroe_Detail_Attika.pdf', contentType: 'application/pdf' },
+        ],
+      })
+    )
+  }
+  if (url === '/api/documents/doc-1/preview' || url === '/api/documents/archiv-1/preview') {
     return Promise.resolve(jsonResponse({ url: 'https://storage.example/presigned.pdf' }))
   }
   return Promise.resolve({ ok: false, json: async () => ({}) })
@@ -142,6 +151,35 @@ describe('SourcePreviewChip', () => {
     expect(within(dialog).getByText('Project document')).toBeInTheDocument()
     // The presigned preview URL was fetched for the project document.
     expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview')
+  })
+
+  test('a citation resolving to an org Archiv document opens it too', async () => {
+    // Buero-kind citations were structurally unopenable: the preview index
+    // never listed the Archiv, so an Archiv document always degraded to a dead
+    // info popover even though the preview route would have served it.
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        source={sourceRef({
+          label: 'Bueroe_Detail_Attika.pdf',
+          signal: 'office',
+          citation: citation({
+            content: '[KB] Bueroe_Detail_Attika.pdf, p.2',
+            kind: 'buero',
+            lane: 'buero',
+          }),
+        })}
+        signal="office"
+      />
+    )
+
+    const chip = await screen.findByRole('button', {
+      name: 'Preview source: Bueroe_Detail_Attika.pdf',
+    })
+    await user.click(chip)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents/archiv-1/preview')
   })
 
   test('an unresolvable KB citation with a passage opens an info popover — no viewer', async () => {
