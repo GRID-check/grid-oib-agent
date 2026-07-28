@@ -4,7 +4,7 @@ import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.netw
 import type { ISecurityPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/SecurityPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
-import { ROLLOUT, gracefulShutdown, recreateRollout } from "./rollout";
+import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
 
 const COMPONENT = "aspire-dashboard";
@@ -113,9 +113,11 @@ export function installObservabilityDashboard(
       metadata: { name, namespace, labels },
       spec: {
         replicas: 1,
-        // Single replica holding an in-memory telemetry ring buffer: two would
-        // split the live view, so Recreate rather than a surge.
-        ...recreateRollout(ROLLOUT.observability),
+        // Surge, not Recreate: the ring buffer is lost on restart either way,
+        // so the only difference is whether the dashboard 502s during the roll.
+        // Two instances briefly means a reload may land on the empty one — much
+        // cheaper than the gap Recreate would leave.
+        ...surgeRollout(ROLLOUT.observability),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },

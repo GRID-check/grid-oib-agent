@@ -61,9 +61,8 @@ export function installBackend(
         replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },
         // One pod at a time, highest ordinal first, and each replacement must
-        // stay Ready for minReadySeconds before the next is touched — pinned
-        // explicitly because the conversation-affinity routing (ADR-0028)
-        // depends on exactly this ordering, not on a controller default.
+        // stay Ready for minReadySeconds before the next is touched — the
+        // ordering the conversation-affinity routing (ADR-0028) depends on.
         ...orderedRollout(ROLLOUT.backend),
         // StatefulSet PVCs must survive the StatefulSet: the /app/data volume
         // holds the base OIB corpus + (in dask mode) the only Chroma store, and
