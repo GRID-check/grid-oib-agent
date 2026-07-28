@@ -7,6 +7,7 @@ the worked examples must stay valid against the live card models.
 
 import pytest
 
+from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import grid_card_adapter
@@ -88,6 +89,16 @@ class TestToolDescription:
         desc = _build_tool_description()
         assert "Worked examples" in desc
         assert "daylight_incidence" in desc
+
+    def test_flags_cards_that_ask_the_user_to_confirm(self):
+        # An interactive card costs the user a DECISION, not just screen space
+        # (ADR-0029). Without saying so, the model emits them speculatively and
+        # the answer becomes a pile of consent prompts.
+        desc = _build_tool_description()
+        assert "Cards that ask the user to CONFIRM something" in desc
+        for card_type in INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES:
+            assert f'"{card_type}"' in desc
+        assert "At most one per turn" in desc
 
 
 class TestShapeHint:

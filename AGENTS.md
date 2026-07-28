@@ -129,6 +129,34 @@ every change to an existing endpoint MUST follow it** — this is not optional:
 The projects domain (`lib/projects/repository.ts`, `lib/projects/service.ts`,
 `app/api/projects/**`) is the reference implementation.
 
+## Cards — interactive cards must persist the user's answer (obligation)
+
+Cards are the agent's rich-UI presentation layer (ADR-0012,
+`docs/architecture/cards.md`). Most are pure presentation, but a card with a
+button that **writes something** — today `project_profile_patch` (applies a JSON
+Patch to the project brief) and `memory_proposal` (writes an org/project memory
+row) — is a different kind of object. Those cards follow *propose, never
+auto-apply*, so the user's click is the only place that authorization exists.
+
+**Never hold that outcome in component-local `useState`.** The card *payload*
+persists (localStorage and `messages.metadata.cards`), so a lost decision means
+the card returns after a reload looking untouched, with a live button that
+applies the patch or writes the memory **a second time** — neither endpoint is
+idempotent. The decision is conversation history and belongs on the
+`ChatMessage`, exactly like `isPromptResponded` does for a HITL prompt:
+`ChatMessage.cardInteractions`, keyed by `cardKey(card, index)`, read and
+written through `useCardDecision`. Rationale and full contract: **ADR-0029**.
+
+Adding a card type? You must classify it in `CARD_INTERACTIVITY`
+(`frontends/ui/src/features/grid-cards/card-decision.ts`) — the map is
+exhaustive over the generated union, so `npm run type-check` fails until you do.
+Classify it `'interactive'` if answering it starts a commitment that is not
+safely repeatable; opening a read-only preview is not one. Two further guards
+back this up: `card-interactivity.spec.tsx` (an interactive card must actually
+reach the store) and `tests/aiq_agent/cards/test_interactive_card_parity.py`
+(the backend `INTERACTIVE_CARD_TYPES` must agree with the frontend map). Full
+checklist for a new card type: `docs/architecture/cards.md`.
+
 ## Knowledge systems
 
 GRID has two distinct "knowledge" systems: **project knowledge** (the intake-wizard profile plus the agent-curated project/org memory, injected as WS headers `x-grid-project-context` and `x-grid-project-memory`; memory writes go through the token-guarded internal BFF endpoint so `grid_app` stays single-writer) and **RAG document knowledge** (SeaweedFS uploads ingested into scoped collections via `/v1/ingest`). See `docs/architecture/backend-deep-dive.md` and `docs/architecture/project-memory-design.md`.

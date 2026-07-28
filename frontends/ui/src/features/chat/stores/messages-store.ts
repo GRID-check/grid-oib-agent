@@ -15,6 +15,8 @@ import type {
   HumanPromptInputType,
 } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
+import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
+import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { getErrorMeta } from '../lib/error-registry'
 import { useLayoutStore } from '@/features/layout/store'
 import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
@@ -138,6 +140,7 @@ export type MessagesSlice = {
     messageId: string,
     patch: Partial<ChatMessage>
   ) => void
+  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => void
   addFileCard: (data: FileCardData) => void
   updateFileCard: (messageId: string, data: Partial<FileCardData>) => void
   addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
@@ -428,7 +431,20 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ? {
             ...msg,
             content: msg.content + text,
-            ...(meta.cards && meta.cards.length > 0 ? { cards: meta.cards } : {}),
+            // Replacing the card set can invalidate positional decision keys —
+            // re-anchor them (or drop them) rather than let one point at a
+            // different card. No-op in the common case (no cards, or the same
+            // set arriving again).
+            ...(meta.cards && meta.cards.length > 0
+              ? {
+                  cards: meta.cards,
+                  cardInteractions: reconcileCardInteractions(
+                    msg.cardInteractions,
+                    msg.cards,
+                    meta.cards
+                  ),
+                }
+              : {}),
             ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
             ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
           }
@@ -1163,7 +1179,12 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         // Cards/sources/confidence ride the terminal frame when streaming; keep
         // whatever the delta already attached when the terminal omits them (the
         // legacy path attaches cards on the in_progress frame).
-        ...(cards && cards.length > 0 ? { cards } : {}),
+        ...(cards && cards.length > 0
+          ? {
+              cards,
+              cardInteractions: reconcileCardInteractions(msg.cardInteractions, msg.cards, cards),
+            }
+          : {}),
         ...(answerConfidence ? { answerConfidence } : {}),
         ...(citations && citations.length > 0 ? { citations } : {}),
         // Transparency extras ride the terminal frame; attach only what's present.
@@ -1325,6 +1346,50 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'patchConversationMessage'
     )
+  },
+
+  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => {
+    const { currentConversation, conversations } = get()
+
+    // A card is rendered from whichever conversation owns its message — usually
+    // the current one, but the deep-research report panel can outlive a session
+    // switch, so locate the owner rather than assuming.
+    const targetConversation =
+      currentConversation?.messages.some((m) => m.id === messageId)
+        ? currentConversation
+        : conversations.find((c) => c.messages.some((m) => m.id === messageId))
+    if (!targetConversation) return
+
+    let cardInteractions: CardInteractions | undefined
+    const updatedMessages = targetConversation.messages.map((msg) => {
+      if (msg.id !== messageId) return msg
+      cardInteractions = {
+        ...msg.cardInteractions,
+        [cardKey]: { decision, decidedAt: new Date().toISOString() },
+      }
+      return { ...msg, cardInteractions }
+    })
+    if (!cardInteractions) return
+
+    const updatedConversation: Conversation = {
+      ...targetConversation,
+      messages: updatedMessages,
+      // Deliberately NOT bumping `updatedAt`: answering a card is not new
+      // conversation activity and must not reshuffle the session list.
+    }
+
+    set(
+      {
+        conversations: updateConversationInList(conversations, updatedConversation),
+        ...(currentConversation?.id === targetConversation.id && {
+          currentConversation: updatedConversation,
+        }),
+      },
+      false,
+      'setCardDecision'
+    )
+
+    void get()._persistCardInteractions(targetConversation.id, messageId, cardInteractions)
   },
 
   addFileCard: (data: FileCardData) => {

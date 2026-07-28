@@ -5,6 +5,7 @@
  */
 
 import type { GridCard } from '@/shared/cards/schemas'
+import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { SourceKind } from './lib/source-kinds'
 
 /** Message role types */
@@ -228,6 +229,15 @@ export interface ChatMessage {
   messageFiles?: Array<{ id: string; fileName: string }>
   /** Grid cards rendered with this agent response */
   cards?: GridCard[]
+  /**
+   * The user's answer to each interactive card of this answer (`accepted`,
+   * `dismissed`, …), keyed by `cardKey(card, index)`. Persisted alongside
+   * `cards` in both storage layers so an applied patch / saved memory stays
+   * settled across reloads instead of re-offering buttons that would apply it
+   * twice — the card-level twin of `isPromptResponded` (see
+   * `features/grid-cards/card-decision.ts`).
+   */
+  cardInteractions?: CardInteractions
   /**
    * The assistant's own guarded self-assessment of how well this answer is
    * grounded in its sources (shallow answers only). Absent on error, escalation,
@@ -805,6 +815,14 @@ export interface ChatActions {
     messageId: string,
     patch: Partial<ChatMessage>
   ) => void
+  /**
+   * Record the user's answer to one interactive card of an answer (see
+   * `features/grid-cards/card-decision.ts`). Writes it onto the owning message
+   * — persisting it to localStorage through the store's `persist` middleware —
+   * and mirrors it to the server message row so the decision also survives a
+   * storage wipe or a different device. No-op when the message is unknown.
+   */
+  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => void
   /** Set pending interaction requiring user response */
   setPendingInteraction: (interaction: PendingInteraction | null) => void
   /** Clear pending interaction (after user responds) */
@@ -981,6 +999,16 @@ export interface ChatActions {
   _ensureConversationExists: () => Promise<void>
   /** Append a single message to the server for the current conversation */
   _appendMessage: (message: ChatMessage) => Promise<void>
+  /**
+   * Mirror a message's card decisions to its server row. Best-effort: the local
+   * store is already the authoritative copy, so a failure here only costs the
+   * cross-device/after-a-storage-wipe replay and is logged, never surfaced.
+   */
+  _persistCardInteractions: (
+    conversationId: string,
+    messageId: string,
+    cardInteractions: CardInteractions
+  ) => Promise<void>
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void

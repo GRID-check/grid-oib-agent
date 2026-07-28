@@ -201,6 +201,15 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
         ) : (
           /* Final report: full prominence, with Grid cards when available */
           <div className="flex flex-1 flex-col gap-4">
+            {/* No `messageId`: report cards are rendered from transient
+                `deepResearchCards`, which has no reliable owning message —
+                `activeDeepResearchMessageId` is null after a session switch +
+                "View report", and `restoreSessionState` re-points it at the
+                LAST agent_response, which may be an unrelated later answer.
+                Binding decisions to it would record them onto the wrong
+                message, so an interactive card here keeps the old local-state
+                behaviour until the report owns a stable message id.
+                See ADR-0029 §Open Questions. */}
             {cards.length > 0 && <GridCards cards={cards} projectId={projectId} />}
             <MarkdownRenderer
               content={body}

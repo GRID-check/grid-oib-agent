@@ -6,7 +6,7 @@
  * localStorage no longer has them (quota cleanup, new device, cleared site
  * data). The server stores a deliberately small payload — role, content,
  * timestamps plus a metadata jsonb (messageType, errorData, fileData, cards,
- * enabledDataSources, messageFiles) — so heavy stream state (thinking steps,
+ * cardInteractions, enabledDataSources, messageFiles) — so heavy stream state (thinking steps,
  * report content) is not restored here; it is refetched on demand like the
  * localStorage pruning path already does.
  */
@@ -14,6 +14,7 @@
 import type { Message } from '@/lib/db/schema'
 import type { ChatMessage, ErrorCardData, FileCardData, MessageType } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
+import { sanitizeCardInteractions } from '@/features/grid-cards/card-decision'
 
 const MESSAGE_TYPES: ReadonlySet<string> = new Set([
   'user',
@@ -53,6 +54,14 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(metadata.errorData ? { errorData: metadata.errorData as ErrorCardData } : {}),
     ...(metadata.fileData ? { fileData: metadata.fileData as FileCardData } : {}),
     ...(Array.isArray(metadata.cards) ? { cards: metadata.cards as GridCard[] } : {}),
+    // Restored WITH their answers: a card whose patch was already applied must
+    // not come back offering the button again (see card-decision.ts). Narrowed
+    // rather than cast — this jsonb blob is the only card state not written by
+    // the current build.
+    ...(() => {
+      const interactions = sanitizeCardInteractions(metadata.cardInteractions)
+      return interactions ? { cardInteractions: interactions } : {}
+    })(),
     ...(Array.isArray(metadata.enabledDataSources)
       ? { enabledDataSources: metadata.enabledDataSources as string[] }
       : {}),

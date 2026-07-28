@@ -123,8 +123,16 @@ the detail — read the doc, don't guess.
 - **Grid cards are generated backend→frontend.** Editing `src/aiq_agent/cards/models.py`
   is not enough: run `uv run python scripts/generate_card_schema.py` then
   `cd frontends/ui && npm run generate:cards`, and add the renderer branch in
-  `features/grid-cards/components/GridCards.tsx`. Full recipe:
+  `features/grid-cards/components/GridCards.tsx`. You must also classify the new
+  type in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) — that
+  map is exhaustive, so `type-check` fails until you do. Full recipe:
   **`docs/architecture/cards.md`**.
+- **A card with a button that writes something is not done until its answer
+  persists.** `project_profile_patch` and `memory_proposal` authorize a real
+  write, so the decision must be recorded on the `ChatMessage`
+  (`cardInteractions` via `useCardDecision`), never in component-local
+  `useState`. A lost decision re-offers a button that applies the patch / writes
+  the memory a second time — neither endpoint is idempotent. **ADR-0029.**
 - **Raw `sql<T>` results aren't runtime-validated** — coerce at the repository
   boundary (`new Date(...)`, `Number(...)`). See the AGENTS.md Conventions note.
 
