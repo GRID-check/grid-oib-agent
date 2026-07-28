@@ -80,14 +80,25 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
               {turnsLabel(maxStack)}
             </span>
           </div>
-          <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="img" aria-label={ariaLabel}>
+          {/* Deliberately NOT role="img": that would collapse the whole plot
+              into one opaque node and hide the per-day tooltip triggers from
+              assistive tech. The group keeps an accessible name; each column
+              below is its own focusable, describable target. */}
+          <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="group" aria-label={ariaLabel}>
             {points.map((point) => {
               const total = stackTotal(point)
               return (
                 <Tooltip key={point.day}>
-                  {/* Full-height column = hit target bigger than the mark. */}
+                  {/* Full-height column = hit target bigger than the mark.
+                      tabIndex makes it reachable by keyboard, so the tooltip's
+                      per-day breakdown is not mouse-only. */}
                   <TooltipTrigger asChild>
-                    <div className="flex h-full min-w-[6px] flex-1 cursor-default flex-col justify-end gap-[2px]">
+                    <div
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`${dateLabel(point.day)}: ${turnsLabel(total)}`}
+                      className="flex h-full min-w-[6px] flex-1 cursor-default flex-col justify-end gap-[2px] rounded-[3px] focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                    >
                       {total > 0 ? (
                         presentKinds
                           // Bottom-up stack: render in reverse so slot 1 sits

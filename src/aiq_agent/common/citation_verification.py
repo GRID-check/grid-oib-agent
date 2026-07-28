@@ -1004,6 +1004,17 @@ def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = N
     return None
 
 
+def source_label(entry: SourceEntry) -> str | None:
+    """Stable identity of a captured source for the citation-health ledger.
+
+    The document key or URL — an identifier, never the retrieved passage — so
+    the platform export can name WHICH source was in play without carrying any
+    answer or corpus prose across tenants. ``None`` when the entry has neither
+    (a bare tool-result source, which identifies nothing citable).
+    """
+    return entry.citation_key or entry.url or None
+
+
 def source_origin_token(entry: SourceEntry) -> str:
     """Return a stable leading origin token for a source line.
 

@@ -23,6 +23,9 @@ import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
 import { getNormRegistry } from '@/lib/norms/service'
 import { buildMissingSourceCandidates, type MissingSourceCandidate } from './missing-sources'
 import * as repository from './repository'
+import { clampWindowDays, DEFAULT_WINDOW_DAYS } from './window'
+
+export { clampWindowDays, DEFAULT_WINDOW_DAYS, parseWindowDaysParam } from './window'
 
 export async function recordCitationEvents(events: NewCitationEvent[]): Promise<number> {
   return repository.insertCitationEvents(events)
@@ -32,16 +35,6 @@ export async function recordCitationEvents(events: NewCitationEvent[]): Promise<
 export const CITATION_DEFECT_KINDS = CITATION_EVENT_KINDS.filter(
   (kind) => kind !== CITATION_BASELINE_KIND,
 ) as readonly Exclude<CitationEventKind, 'turn_verified'>[]
-
-/** Window bounds, matching the platform spend trend's 1–90 day range. */
-const MIN_WINDOW_DAYS = 1
-const MAX_WINDOW_DAYS = 90
-export const DEFAULT_WINDOW_DAYS = 30
-
-export function clampWindowDays(days: number | undefined): number {
-  if (!Number.isFinite(days)) return DEFAULT_WINDOW_DAYS
-  return Math.min(Math.max(Math.floor(days as number), MIN_WINDOW_DAYS), MAX_WINDOW_DAYS)
-}
 
 /** Midnight UTC today — the same day boundary the spend ledger uses. */
 export function utcDayStart(): Date {
@@ -193,11 +186,15 @@ export function buildFindings(input: {
   // Answers shipped with the visible "Ohne Quellenangabe" gap.
   const ungroundedTurns = kindTurns('answer_ungrounded')
   if (ungroundedTurns / turns >= THRESHOLDS.ungroundedShare) {
-    const worst = organizations.find((org) => org.defectTurns > 0) ?? null
     findings.push({
       id: 'answers_ungrounded',
       severity: 'error',
-      subject: worst?.organizationId ? { type: 'organization', label: worst.name ?? worst.organizationId } : null,
+      // Deliberately unattributed. The per-org rollup counts ALL defects, so the
+      // worst org there may have zero ungrounded answers — naming it would send
+      // an operator to audit the wrong tenant's corpus. Attributing this needs a
+      // per-org breakdown of `answer_ungrounded` specifically, which the rollup
+      // does not carry.
+      subject: null,
       metrics: { turns: ungroundedTurns, share: pct(ungroundedTurns / turns) },
     })
   }
@@ -247,6 +244,9 @@ export function buildFindings(input: {
   const platformRate = defectTurns / turns
   const outlier = organizations.find(
     (org) =>
+      // The unattributed bucket (organizationId null) is not somewhere an
+      // operator can go look, and it would render an empty subject label.
+      org.organizationId !== null &&
       org.turns >= THRESHOLDS.outlierMinTurns &&
       platformRate > 0 &&
       org.defectRate >= platformRate * THRESHOLDS.outlierRateMultiple,
@@ -255,7 +255,7 @@ export function buildFindings(input: {
     findings.push({
       id: 'organization_outlier',
       severity: 'warn',
-      subject: { type: 'organization', label: outlier.name ?? outlier.organizationId ?? '' },
+      subject: { type: 'organization', label: outlier.name ?? outlier.organizationId! },
       metrics: {
         share: pct(outlier.defectRate),
         platformShare: pct(platformRate),
@@ -623,6 +623,8 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
     orgRows,
     recentRows,
     names,
+    failedTargets,
+    inventory,
   ] = await Promise.all([
     repository.aggregateByKind(start),
     repository.countObservedTurns(start),
@@ -635,12 +637,10 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
     repository.aggregateByOrganization(start),
     repository.listRecentDefects(start),
     organizationNames(),
-  ])
-
-  const [failedTargets, inventory] = await Promise.all([
     repository.aggregateFailedTargets(start),
     platformInventory(),
   ])
+
   const missingSources = buildMissingSourceCandidates(
     failedTargets,
     inventory.corpusFileNames,

@@ -4,12 +4,16 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+import { sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   aggregateByKind,
   aggregateByOrganization,
   aggregateDailyTurns,
+  aggregateDefectiveSourceMix,
+  aggregateFailedTargets,
   aggregateReasons,
+  aggregateUnavailableTools,
   countObservedTurns,
   insertCitationEvents,
 } from './repository'
@@ -93,5 +97,53 @@ describe('aggregate coercion', () => {
     expect(await aggregateByOrganization(new Date())).toEqual([
       { organizationId: null, turns: 7, defectTurns: 2, errorTurns: 1 },
     ])
+  })
+})
+
+describe('raw-SQL window bounds', () => {
+  /**
+   * Regression guard for a production failure: a raw `db.execute(sql`…`)`
+   * carries no column type, so a bare `Date` parameter reaches postgres-js
+   * unencodable and the query dies at bind time with
+   * `The "string" argument must be of type string … Received an instance of Date`.
+   * The select-builder queries are unaffected — only the raw ones, so every one
+   * of them must bind an ISO string instead.
+   */
+  const RAW_QUERIES: [string, (start: Date) => Promise<unknown>][] = [
+    ['aggregateReasons', aggregateReasons],
+    ['aggregateDefectiveSourceMix', aggregateDefectiveSourceMix],
+    ['aggregateFailedTargets', aggregateFailedTargets],
+    ['aggregateUnavailableTools', aggregateUnavailableTools],
+    ['aggregateByOrganization', aggregateByOrganization],
+  ]
+
+  it.each(RAW_QUERIES)('%s binds no Date parameter', async (_name, run) => {
+    const execute = mockExecute([])
+    await run(new Date('2026-06-29T00:00:00.000Z'))
+
+    const query = execute.mock.calls[0][0] as ReturnType<typeof sql>
+    const dateParams = (query.queryChunks as unknown[]).filter(
+      (chunk) => chunk instanceof Date || (chunk as { value?: unknown })?.value instanceof Date,
+    )
+    expect(dateParams).toEqual([])
+  })
+
+  it('still binds the requested window, as an ISO string', async () => {
+    const execute = mockExecute([])
+    await aggregateReasons(new Date('2026-06-29T00:00:00.000Z'))
+
+    // Walk the whole SQL object rather than assuming drizzle's chunk shape —
+    // the point is that the timestamp survives as a string, wherever it lands.
+    const seen: unknown[] = []
+    const walk = (node: unknown, depth: number): void => {
+      if (depth > 6 || node === null || typeof node !== 'object') return
+      for (const value of Object.values(node as Record<string, unknown>)) {
+        if (typeof value === 'string' || value instanceof Date) seen.push(value)
+        else walk(value, depth + 1)
+      }
+    }
+    walk(execute.mock.calls[0][0], 0)
+    expect(seen).toContain('2026-06-29T00:00:00.000Z')
+    expect(seen.some((value) => value instanceof Date)).toBe(false)
   })
 })

@@ -15,7 +15,6 @@ vi.mock('./repository', () => ({
   EXPORT_ROW_CAP: 5000,
   aggregateByOrganization: vi.fn(),
   listRecentDefects: vi.fn(),
-  getEventsForTurn: vi.fn(),
 }))
 
 vi.mock('@/lib/workos/client', () => ({

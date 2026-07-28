@@ -77,12 +77,20 @@ describe('GET /api/platform/citation-health', () => {
     expect(getCitationHealth).toHaveBeenCalledWith({ days: 7 })
   })
 
-  it('lets the service default the window when days is absent or junk', async () => {
+  it('takes the default window for every non-window value', async () => {
     isOwner.value = true
-    await GET(request())
-    expect(getCitationHealth).toHaveBeenLastCalledWith({ days: undefined })
+    // Blank and non-positive must mean "unspecified" — Number('') and
+    // Number(null) are both 0, which would otherwise clamp to a 1-DAY window
+    // and silently show the operator a near-empty dashboard.
+    for (const query of ['', '?days=', '?days=abc', '?days=0', '?days=-5']) {
+      await GET(request(`http://localhost/api/platform/citation-health${query}`))
+      expect(getCitationHealth).toHaveBeenLastCalledWith({ days: undefined })
+    }
+  })
 
-    await GET(request('http://localhost/api/platform/citation-health?days=abc'))
-    expect(getCitationHealth).toHaveBeenLastCalledWith({ days: undefined })
+  it('passes a valid window through untouched', async () => {
+    isOwner.value = true
+    await GET(request('http://localhost/api/platform/citation-health?days=7'))
+    expect(getCitationHealth).toHaveBeenLastCalledWith({ days: 7 })
   })
 })

@@ -15,7 +15,6 @@ vi.mock('./repository', () => ({
   aggregateFailedTargets: vi.fn(),
   aggregateByOrganization: vi.fn(),
   listRecentDefects: vi.fn(),
-  getEventsForTurn: vi.fn(),
 }))
 
 vi.mock('@/lib/workos/client', () => ({ getWorkOS: vi.fn() }))

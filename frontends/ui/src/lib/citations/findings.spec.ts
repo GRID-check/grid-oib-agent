@@ -74,7 +74,7 @@ describe('buildFindings', () => {
     expect(findings.find((f) => f.id === 'retrieval_unavailable')?.subject).toBeNull()
   })
 
-  it('flags ungrounded answers above the 1 % share and points at the worst org', () => {
+  it('flags ungrounded answers above the 1 % share, unattributed', () => {
     const findings = buildFindings({
       ...base,
       defectTurns: 20,
@@ -83,8 +83,11 @@ describe('buildFindings', () => {
     })
     const ungrounded = findings.find((f) => f.id === 'answers_ungrounded')
     expect(ungrounded?.severity).toBe('error')
-    expect(ungrounded?.subject).toEqual({ type: 'organization', label: 'Bauwerk' })
     expect(ungrounded?.metrics.share).toBe(2)
+    // Must NOT borrow the worst org from the overall defect rollup: that org's
+    // 18 defects may be removals with zero ungrounded answers among them, and
+    // naming it would send an operator to audit the wrong tenant's corpus.
+    expect(ungrounded?.subject).toBeNull()
   })
 
   it('stays quiet on a single ungrounded answer in a busy window', () => {
@@ -145,6 +148,19 @@ describe('buildFindings', () => {
     const outlier = findings.find((f) => f.id === 'organization_outlier')
     expect(outlier?.subject).toEqual({ type: 'organization', label: 'Statik Nord' })
     expect(outlier?.metrics).toEqual({ share: 40, platformShare: 10, turns: 20 })
+  })
+
+  it('never names the unattributed bucket as the outlier', () => {
+    // organizationId null is "events we could not attribute", not a tenant an
+    // operator can go look at — and it would render an empty subject label.
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 100,
+      organizations: [
+        org({ organizationId: null, name: null, turns: 200, defectTurns: 80, defectRate: 0.4 }),
+      ],
+    })
+    expect(ids(findings)).not.toContain('organization_outlier')
   })
 
   it('ignores a low-volume organization however bad its rate looks', () => {

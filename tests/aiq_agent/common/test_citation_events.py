@@ -334,3 +334,67 @@ class TestEmission:
 
         assert captured["url"] == "http://frontend:3000/api/internal/citation-events"
         assert captured["token"] == "test-token"
+
+
+class TestTransportHardening:
+    """The emitter must never be the thing that breaks — or leaks — a turn."""
+
+    @pytest.fixture(autouse=True)
+    def _token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+        monkeypatch.delenv("GRID_CITATION_EVENTS_ENABLED", raising=False)
+
+    def test_a_non_http_frontend_url_is_never_opened(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A misconfigured base URL must not hand urllib a file:// handler."""
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "file:///etc")
+        with patch("urllib.request.urlopen") as urlopen:
+            citation_events._post_batch({"events": [], "turnId": "t"})
+        urlopen.assert_not_called()
+
+    def test_https_is_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "https://frontend.internal")
+        with patch("urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.status = 202
+            citation_events._post_batch({"events": [], "turnId": "t"})
+        assert urlopen.call_count == 1
+
+    def test_an_unserializable_payload_is_logged_not_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Serialization sits inside the guard, so a bad payload cannot escape."""
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+        citation_events._post_batch({"events": [], "turnId": object()})  # type: ignore[dict-item]
+
+    def test_the_dispatch_backlog_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hung BFF must not let queued batches grow without limit."""
+        monkeypatch.setattr(citation_events, "_MAX_PENDING_BATCHES", 2)
+        monkeypatch.setattr(citation_events, "_pending_batches", 0)
+        monkeypatch.setattr(citation_events, "_dropped_batches", 0)
+        # submit() never completes, so nothing frees a slot — the stuck-BFF case.
+        with patch.object(citation_events._post_executor, "submit"):
+            assert citation_events._submit_batch({"events": []}) is True
+            assert citation_events._submit_batch({"events": []}) is True
+            assert citation_events._submit_batch({"events": []}) is False
+        assert citation_events._dropped_batches == 1
+
+    def test_a_completed_batch_frees_its_slot(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(citation_events, "_MAX_PENDING_BATCHES", 1)
+        monkeypatch.setattr(citation_events, "_pending_batches", 0)
+        with patch.object(citation_events._post_executor, "submit") as submit:
+            citation_events._submit_batch({"events": []})
+            # Run the done-callback the executor would have run.
+            submit.return_value.add_done_callback.call_args[0][0](None)
+            assert citation_events._submit_batch({"events": []}) is True
+
+    def test_record_empty_registry_survives_a_non_sliceable_tool_list(self) -> None:
+        """`unavailable_tools` is caller-supplied; a set is not sliceable."""
+        payload = record_empty_registry(
+            agent="shallow",
+            unavailable_tools={"ris_search_tool"},  # type: ignore[arg-type]
+            available_count=0,
+            identity={},
+        )
+        assert payload is not None
+        assert payload["events"][0]["detail"]["unavailable_tools"] == ["ris_search_tool"]
+
+    def test_record_empty_registry_never_raises_on_a_build_failure(self) -> None:
+        with patch.object(citation_events, "CitationEvent", side_effect=RuntimeError("boom")):
+            assert record_empty_registry(agent="deep", available_count=0, identity={}) is None

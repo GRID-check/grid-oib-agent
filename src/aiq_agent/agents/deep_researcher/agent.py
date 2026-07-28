@@ -20,6 +20,7 @@ from aiq_agent.common import load_prompt
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
@@ -475,9 +476,7 @@ class DeepResearcherAgent:
                     ],
                     source_tools=[entry.tool_name or None for entry in registry_sources],
                     # Source IDENTITIES (URL / document key) — never report prose.
-                    retrieved_source_labels=[
-                        label for label in ((e.citation_key or e.url) for e in registry_sources) if label
-                    ],
+                    retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
                     cited_source_labels=[
                         label
                         for label in ((c.get("citation_key") or c.get("url")) for c in verification.valid_citations)

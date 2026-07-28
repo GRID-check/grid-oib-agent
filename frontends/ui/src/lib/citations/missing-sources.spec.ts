@@ -122,3 +122,28 @@ describe('buildMissingSourceCandidates', () => {
     expect(candidate.lastSeenAt).toBe('2026-07-27T10:00:00.000Z')
   })
 })
+
+describe('buildMissingSourceCandidates — RIS without a document number', () => {
+  it('offers no catalog add when the URL carries no document number', () => {
+    // A catalog entry is keyed by its document number; without one there is
+    // nothing to verify or store, so offering "add" would be a dead button —
+    // and would inflate the "only needs its rank confirmed" count in the
+    // sources_missing finding.
+    const [candidate] = buildMissingSourceCandidates(
+      [
+        {
+          target: 'https://ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW',
+          reason: 'url_not_in_registry',
+          turns: 5,
+          organizations: 1,
+          lastSeenAt: new Date('2026-07-27T10:00:00.000Z'),
+        },
+      ],
+      [],
+      [],
+    )
+    expect(candidate.kind).toBe('ris')
+    expect(candidate.documentNumber).toBeNull()
+    expect(candidate.action).toBe('none')
+  })
+})

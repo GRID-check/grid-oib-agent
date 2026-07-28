@@ -35,6 +35,7 @@ from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
@@ -112,16 +113,6 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
         if len(reasons) >= 5:
             break
     return {"count": len(removed_citations), "reasons": reasons}
-
-
-def _source_label(entry: SourceEntry) -> str | None:
-    """Stable identity of a captured source for the citation-health ledger.
-
-    The document key or URL — an identifier, never the retrieved passage — so
-    the platform export can say WHICH source was in play without carrying any
-    answer or corpus prose across tenants.
-    """
-    return entry.citation_key or entry.url or None
 
 
 def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
@@ -849,7 +840,7 @@ class ShallowResearcherAgent:
                 # Source IDENTITIES (URL / document key) — never answer prose.
                 # They turn the platform export from "3 citations removed" into
                 # "these three documents were cited but never retrieved".
-                retrieved_source_labels=[_source_label(entry) for entry in registry_sources if _source_label(entry)],
+                retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
                 cited_source_labels=[
                     label for label in ((s.get("citation_key") or s.get("url")) for s in wire_sources) if label
                 ],

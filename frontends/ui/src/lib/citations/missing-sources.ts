@@ -10,8 +10,9 @@
  * already in the norm catalog.
  *
  * What can be added automatically, honestly stated:
- * - `ris`  — the URL identifies a real, fetchable RIS document, so it can be
- *            verified and appended to the norm catalog without human input.
+ * - `ris`  — only when the URL carries a document number, which is the key a
+ *            catalog entry is verified and stored under. Without one there is
+ *            nothing to look up, so the candidate gets no add action.
  * - `document` — only a FILENAME is known; the file itself exists nowhere in
  *            the system, so the remedy is an upload the operator must supply.
  *            We prefill and point at the uploader; we do not pretend to fetch.
@@ -106,7 +107,11 @@ export function buildMissingSourceCandidates(
 
     let action: MissingSourceAction = 'none'
     if (present) action = 'investigate_retrieval'
-    else if (kind === 'ris') action = 'add_to_norm_catalog'
+    // A norm-catalog entry is keyed by its RIS document number. Without one
+    // there is nothing to verify or append, so the candidate must not be
+    // offered as an add — nor counted among the "only needs its rank
+    // confirmed" additions the findings copy promises.
+    else if (kind === 'ris' && documentNumber) action = 'add_to_norm_catalog'
     else if (kind === 'document' && fileName) action = 'upload_to_base_knowledge'
 
     return {
