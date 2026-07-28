@@ -34,6 +34,8 @@ import { installFrontend } from "./src/app/frontend";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installHttpRoutes } from "./src/app/httproutes";
+import { installObservabilityDashboard } from "./src/platform/observability";
+import { installOtelCollector } from "./src/platform/otel-collector";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -129,6 +131,24 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
   seaweed.service,
 ]);
 
+// ── Observability (OTel Collector + Aspire dashboard, ADR-0029) ──────────────
+// Availability = flag AND capability (see config.ts): skipped whole when the
+// stack has no otelDomain / platformOrgId / OTLP key / WorkOS OIDC client,
+// rather than shipping a dashboard nobody can log into.
+if (cfg.observability.enabled) {
+  const obs = installObservabilityDashboard(
+    cfg, provider, namespace,
+    cfg.observability.otelPrimaryApiKey,
+    cfg.auth.workosApiKey,
+    [gatewayResources.gateway],
+  );
+  installOtelCollector(
+    cfg, provider, namespace,
+    obs.secrets,
+    [obs.service],
+  );
+}
+
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
 export const s3Url = pulumi.interpolate`https://${cfg.ingress.s3Domain}`;
@@ -147,6 +167,9 @@ export const jobExecution = cfg.jobExecution;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;
 export const networkPoliciesEnabled = cfg.networkPolicies;
+export const otelUrl = cfg.observability.enabled
+  ? pulumi.interpolate`https://${cfg.observability.otelDomain}`
+  : pulumi.output("(none: observability disabled)");
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

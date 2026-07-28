@@ -57,6 +57,9 @@ export const TasksTab: FC = () => {
     isDeepResearchStalled,
     deepResearchConnectionLost,
     reconnectDeepResearchFn,
+    deepResearchJobId,
+    deepResearchStatus,
+    deepResearchOwnerConversationId,
   } = useChatStore(
     useShallow((s) => ({
       deepResearchTodos: s.deepResearchTodos,
@@ -66,6 +69,9 @@ export const TasksTab: FC = () => {
       isDeepResearchStalled: s.isDeepResearchStalled,
       deepResearchConnectionLost: s.deepResearchConnectionLost,
       reconnectDeepResearchFn: s.reconnectDeepResearchFn,
+      deepResearchJobId: s.deepResearchJobId,
+      deepResearchStatus: s.deepResearchStatus,
+      deepResearchOwnerConversationId: s.deepResearchOwnerConversationId,
     }))
   )
 
@@ -85,6 +91,44 @@ export const TasksTab: FC = () => {
   const showConnectionLost = isDeepResearchStreaming && deepResearchConnectionLost
   const showStalled = isDeepResearchStreaming && isDeepResearchStalled && !deepResearchConnectionLost
   const showRecoveryNotice = showConnectionLost || showStalled
+
+  // Outcome notice for an ATTACHED run — one followed here without an owning
+  // chat thread (a workflow run opened from its run history). Those runs get
+  // no thread banner, so the panel itself has to say how the run ended.
+  const isAttachedRun = Boolean(deepResearchJobId) && !deepResearchOwnerConversationId
+  const attachedOutcome =
+    isAttachedRun && !isDeepResearchStreaming && deepResearchStatus
+      ? deepResearchStatus === 'success'
+        ? 'success'
+        : deepResearchStatus === 'failure' || deepResearchStatus === 'interrupted'
+          ? deepResearchStatus
+          : null
+      : null
+
+  const outcomeNotice = attachedOutcome ? (
+    <div
+      role="status"
+      className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 ${
+        attachedOutcome === 'success' ? 'bg-info-subtle' : 'bg-warning-subtle'
+      }`}
+      data-testid="deep-research-outcome-notice"
+    >
+      {attachedOutcome === 'success' ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-info" aria-hidden="true" />
+      ) : (
+        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+      )}
+      <span
+        className={`text-sm ${attachedOutcome === 'success' ? 'text-info' : 'text-warning'}`}
+      >
+        {attachedOutcome === 'success'
+          ? t('tasksTab.attachedRunFinished')
+          : attachedOutcome === 'failure'
+            ? t('tasksTab.attachedRunFailed')
+            : t('tasksTab.attachedRunStopped')}
+      </span>
+    </div>
+  ) : null
 
   const recoveryNotice = showRecoveryNotice ? (
     <div
@@ -145,6 +189,9 @@ export const TasksTab: FC = () => {
 
       {/* Stall / connection-loss recovery notice — shown in-context with the todos */}
       {recoveryNotice}
+
+      {/* How an attached (thread-less) run ended */}
+      {outcomeNotice}
 
       {/* Content */}
       {isEmpty ? (

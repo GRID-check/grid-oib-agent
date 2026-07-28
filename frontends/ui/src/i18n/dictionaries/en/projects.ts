@@ -116,7 +116,6 @@ export const projects = {
   },
   researchRuns: {
     hint: {
-      reportPending: 'Report pending',
       noReport: 'No report',
     },
     status: {
@@ -135,6 +134,7 @@ export const projects = {
       'Deep research runs appear here once you ask Piloti an involved question in Chat — it works the OIB/RIS sources and returns a cited report you can revisit.',
     emptyAction: 'Start a run in Chat',
     viewReport: 'View report',
+    viewProgress: 'View progress',
   },
   intake: {
     validation: {

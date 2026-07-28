@@ -12,6 +12,9 @@ let mockDeepResearchTodos: Array<{
 let mockIsDeepResearchStreaming = false
 let mockIsDeepResearchStalled = false
 let mockDeepResearchConnectionLost = false
+let mockDeepResearchJobId: string | null = null
+let mockDeepResearchStatus: string | null = null
+let mockDeepResearchOwnerConversationId: string | null = null
 const mockReconnect = vi.fn()
 
 vi.mock('@/features/chat', () => ({
@@ -22,6 +25,9 @@ vi.mock('@/features/chat', () => ({
     isDeepResearchStalled: mockIsDeepResearchStalled,
     deepResearchConnectionLost: mockDeepResearchConnectionLost,
     reconnectDeepResearchFn: mockReconnect,
+    deepResearchJobId: mockDeepResearchJobId,
+    deepResearchStatus: mockDeepResearchStatus,
+    deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
   }),
 }))
 
@@ -39,6 +45,56 @@ describe('TasksTab', () => {
     mockIsDeepResearchStreaming = false
     mockIsDeepResearchStalled = false
     mockDeepResearchConnectionLost = false
+    mockDeepResearchJobId = null
+    mockDeepResearchStatus = null
+    mockDeepResearchOwnerConversationId = null
+  })
+
+  // A run followed here without a chat thread of its own (a workflow run) gets
+  // no thread banner, so the panel has to report how it ended.
+  describe('attached-run outcome notice', () => {
+    test('reports a finished attached run and points at the report', () => {
+      mockDeepResearchJobId = 'job-1'
+      mockDeepResearchStatus = 'success'
+      mockIsDeepResearchStreaming = false
+
+      render(<TasksTab />)
+
+      expect(screen.getByTestId('deep-research-outcome-notice')).toHaveTextContent(
+        'This run has finished. The report is in the Report tab.',
+      )
+    })
+
+    test('reports a failed attached run', () => {
+      mockDeepResearchJobId = 'job-1'
+      mockDeepResearchStatus = 'failure'
+
+      render(<TasksTab />)
+
+      expect(screen.getByTestId('deep-research-outcome-notice')).toHaveTextContent(
+        'This run failed before it finished.',
+      )
+    })
+
+    test('stays silent while the attached run is still streaming', () => {
+      mockDeepResearchJobId = 'job-1'
+      mockDeepResearchStatus = 'running'
+      mockIsDeepResearchStreaming = true
+
+      render(<TasksTab />)
+
+      expect(screen.queryByTestId('deep-research-outcome-notice')).not.toBeInTheDocument()
+    })
+
+    test('stays silent for a run that belongs to a chat thread (it has a banner there)', () => {
+      mockDeepResearchJobId = 'job-1'
+      mockDeepResearchStatus = 'failure'
+      mockDeepResearchOwnerConversationId = 'conv-1'
+
+      render(<TasksTab />)
+
+      expect(screen.queryByTestId('deep-research-outcome-notice')).not.toBeInTheDocument()
+    })
   })
 
   describe('empty state', () => {

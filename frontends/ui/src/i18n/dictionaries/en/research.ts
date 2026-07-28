@@ -361,6 +361,11 @@ export const research = {
     connectionLostBody:
       'We lost the live connection, but the job may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
     reconnect: 'Reconnect',
+    // Outcome of a run followed here without a chat thread of its own (a
+    // workflow run) — it has no thread banner to report the ending.
+    attachedRunFinished: 'This run has finished. The report is in the Report tab.',
+    attachedRunFailed: 'This run failed before it finished.',
+    attachedRunStopped: 'This run was stopped before it finished.',
   },
 
   thinkingTab: {

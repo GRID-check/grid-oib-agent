@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { buildGraph, naturalWidth, type ReasoningFlowProps } from './ReasoningFlow'
+import { buildGraph, planFan, type ReasoningFlowProps } from './ReasoningFlow'
 import type { TraceSourceCard } from '../../lib/trace-lanes'
 import type { Translator } from '@/i18n'
 
@@ -19,6 +19,10 @@ const card = (id: string): TraceSourceCard => ({
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
 
+/** A desktop chat column; a phone viewport. */
+const DESKTOP_W = 680
+const PHONE_W = 340
+
 /** Handle ids a framing node exposes (its bottom/source handles). */
 const framingHandles = (g: ReturnType<typeof buildGraph>): string[] =>
   ((g.nodes.find((n) => n.id === 'framing')!.data as { sources: Array<{ id: string }> }).sources).map((h) => h.id)
@@ -27,69 +31,174 @@ const framingHandles = (g: ReturnType<typeof buildGraph>): string[] =>
 const targetHandles = (g: ReturnType<typeof buildGraph>, id: string): string[] =>
   ((g.nodes.find((n) => n.id === id)!.data as { targets: Array<{ id: string }> }).targets).map((h) => h.id)
 
-const sourceToSourceEdges = (g: ReturnType<typeof buildGraph>) =>
-  g.edges.filter((e) => e.source.startsWith('src-') && e.target.startsWith('src-'))
+const columnToColumnEdges = (g: ReturnType<typeof buildGraph>) =>
+  g.edges.filter((e) => e.source.startsWith('col-') && e.target.startsWith('col-'))
 
-describe('buildGraph — parallel wiring (P1-4)', () => {
-  test('horizontal: framing fans out to every source, each source converges — never a chain', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, false, [card('a'), card('b'), card('c')])
+/** Cards each column node carries, left→right. */
+const columnCards = (g: ReturnType<typeof buildGraph>): string[][] =>
+  g.nodes
+    .filter((n) => n.type === 'sourceColumn')
+    .map((n) => (n.data as unknown as { cards: TraceSourceCard[] }).cards.map((c) => c.id))
 
-    // framing → each source (per-source aligned handles), each source → findings.
-    expect(framingHandles(g)).toEqual(['to-src-a', 'to-src-b', 'to-src-c'])
-    for (const sid of ['src-a', 'src-b', 'src-c']) {
-      expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: sid }))
-      expect(g.edges).toContainEqual(expect.objectContaining({ source: sid, target: 'findings' }))
+describe('planFan — sources pack into columns, never a forced single column', () => {
+  test('a desktop chat column fans out one column per source for a typical turn', () => {
+    for (const n of [1, 2, 3, 4]) {
+      const fan = planFan(DESKTOP_W, n)
+      expect(fan.columns).toHaveLength(n)
+      expect(fan.grouped).toBe(false)
     }
-    // The bug was framing→src1→src2→…: there must be NO source→source edge.
-    expect(sourceToSourceEdges(g)).toHaveLength(0)
   })
 
-  test('vertical (mobile): sources collapse into ONE grouped node — two straight centred edges, nothing pierces a card', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, true, [card('a'), card('b')])
+  test('REGRESSION: more sources than fit widen into stacked columns — not one vertical chain', () => {
+    // The old layout compared a fixed natural width against the container and
+    // dropped to a SINGLE grouped column as soon as it did not fit, which is
+    // what made real turns render as one long vertical list on desktop.
+    const fan = planFan(DESKTOP_W, 8)
+    expect(fan.columns.length).toBeGreaterThan(1)
+    expect(fan.grouped).toBe(false)
+    // Every card is placed exactly once, in reading order.
+    expect(fan.columns.flat()).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+  })
 
-    // On mobile the cards stack INSIDE a single 'sources' group node; the graph
-    // is framing → sources → findings with one straight centred edge each —
-    // the old per-card parallel wiring slanted across and pierced sibling cards.
-    expect(g.nodes.map((n) => n.id)).toEqual(['framing', 'sources', 'findings'])
-    expect(g.nodes.find((n) => n.id === 'sources')!.type).toBe('sourcesGroup')
-    expect(framingHandles(g)).toEqual(['c-bottom'])
-    expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'framing', sourceHandle: 'c-bottom', target: 'sources', targetHandle: 'c-top' })
-    )
-    expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'sources', sourceHandle: 'c-bottom', target: 'findings', targetHandle: 'c-top' })
-    )
-    // No per-card nodes, hence no source→source or card-crossing edges at all.
-    expect(g.edges).toHaveLength(2)
-    expect(sourceToSourceEdges(g)).toHaveLength(0)
-    expect(g.rows).toEqual([['framing'], ['sources'], ['findings']])
+  test('columns are balanced, remainder on the left', () => {
+    const fan = planFan(DESKTOP_W, 7)
+    const sizes = fan.columns.map((c) => c.length)
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1)
+    expect(sizes).toEqual([...sizes].sort((a, b) => b - a))
+    expect(fan.columns.flat()).toHaveLength(7)
+  })
+
+  test('a narrow container always collapses to one grouped column, whatever the arithmetic', () => {
+    // A phone fits two ~160px columns on paper, but the card name is a two-line
+    // clamp — side-by-side there it degenerates into columns of ellipses.
+    for (const width of [280, 340, 400, 420]) {
+      const fan = planFan(width, 5)
+      expect(fan.columns).toHaveLength(1)
+      expect(fan.grouped).toBe(true)
+    }
+  })
+
+  test('the fan never overflows the container width', () => {
+    for (const width of [280, 340, 460, 680, 900]) {
+      for (const n of [1, 3, 5, 9]) {
+        const fan = planFan(width, n)
+        const fanW = fan.columns.length * fan.colW + (fan.columns.length - 1) * fan.gap
+        expect(fan.fanX + fanW).toBeLessThanOrEqual(fan.contentW)
+      }
+    }
+  })
+
+  test('phone width collapses to the single grouped column', () => {
+    const fan = planFan(PHONE_W, 4)
+    expect(fan.columns).toEqual([[0, 1, 2, 3]])
+    expect(fan.grouped).toBe(true)
+    expect(fan.colW).toBe(fan.contentW)
+  })
+
+  test('no sources → no columns', () => {
+    expect(planFan(DESKTOP_W, 0).columns).toEqual([])
   })
 })
 
-describe('buildGraph — fan-in never collapses onto one handle (P1-5)', () => {
-  test('choice prompt without findings: sources fan IN to the branches node via per-source handles', () => {
+describe('buildGraph — parallel wiring (P1-4)', () => {
+  test('framing fans out to every column, each column converges — never a chain', () => {
+    const cards = [card('a'), card('b'), card('c')]
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 3), cards)
+
+    // One column per source at this width, wired framing → column → findings.
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['c']])
+    expect(framingHandles(g)).toEqual(['c-bottom'])
+    for (const cid of ['col-0', 'col-1', 'col-2']) {
+      expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: cid }))
+      expect(g.edges).toContainEqual(expect.objectContaining({ source: cid, target: 'findings' }))
+    }
+    // The bug was framing→src1→src2→…: there must be NO column→column edge.
+    expect(columnToColumnEdges(g)).toHaveLength(0)
+  })
+
+  test('stacked columns keep exactly two straight edges each — nothing pierces a card', () => {
+    const cards = Array.from({ length: 8 }, (_, i) => card(`s${i}`))
+    const fan = planFan(DESKTOP_W, 8)
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, fan, cards)
+
+    const columnIds = g.nodes.filter((n) => n.type === 'sourceColumn').map((n) => n.id)
+    expect(columnIds.length).toBe(fan.columns.length)
+    // Two edges per column (in + out) and nothing else touches them.
+    expect(g.edges.filter((e) => e.target.startsWith('col-'))).toHaveLength(columnIds.length)
+    expect(g.edges.filter((e) => e.source.startsWith('col-'))).toHaveLength(columnIds.length)
+    expect(columnToColumnEdges(g)).toHaveLength(0)
+    // Every source card is rendered exactly once across the columns.
+    expect(columnCards(g).flat().sort()).toEqual(cards.map((c) => c.id).sort())
+  })
+
+  test('phone: the single grouped column takes one centred edge in and one out', () => {
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(PHONE_W, 2), [card('a'), card('b')])
+
+    expect(g.nodes.map((n) => n.id)).toEqual(['framing', 'col-0', 'findings'])
+    expect((g.nodes.find((n) => n.id === 'col-0')!.data as unknown as { grouped: boolean }).grouped).toBe(true)
+    expect(framingHandles(g)).toEqual(['c-bottom'])
+    expect(g.edges).toHaveLength(2)
+    expect(g.edges).toContainEqual(
+      expect.objectContaining({ source: 'framing', sourceHandle: 'c-bottom', target: 'col-0', targetHandle: 'in' })
+    )
+    expect(g.edges).toContainEqual(
+      expect.objectContaining({ source: 'col-0', sourceHandle: 'out', target: 'findings', targetHandle: 'c-top' })
+    )
+    expect(g.rows).toEqual([['framing'], ['col-0'], ['findings']])
+  })
+})
+
+describe('buildGraph — the fan splits from one line and merges back into one', () => {
+  test('every column edge shares the framing exit and the assessment entry point', () => {
+    const fan = planFan(DESKTOP_W, 4)
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, fan, [card('a'), card('b'), card('c'), card('d')])
+
+    // A single centred anchor per banner in each direction: the connectors share
+    // their first and last segment, so the graph reads as one line splitting
+    // into the sources and merging back out — not N parallel drops landing
+    // side by side on the assessment's top edge.
+    expect(framingHandles(g)).toEqual(['c-bottom'])
+    expect(targetHandles(g, 'findings')).toEqual(['c-top'])
+
+    const out = g.edges.filter((e) => e.source === 'framing')
+    const back = g.edges.filter((e) => e.target === 'findings')
+    expect(out).toHaveLength(4)
+    expect(back).toHaveLength(4)
+    expect(new Set(out.map((e) => e.sourceHandle))).toEqual(new Set(['c-bottom']))
+    expect(new Set(back.map((e) => e.targetHandle))).toEqual(new Set(['c-top']))
+
+    // Both anchors are centred, and the banners span the full width at x=0.
+    expect(framingHandles(g)).toEqual(['c-bottom'])
+    for (const id of ['framing', 'findings']) {
+      expect(g.nodes.find((n) => n.id === id)!.position.x).toBe(0)
+    }
+  })
+})
+
+describe('buildGraph — the fan-in shares one centred anchor (P1-5)', () => {
+  test('choice prompt without findings: every column merges into the branches node centre handle', () => {
     const g = buildGraph(
       {
         ...base,
         choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A', 'B'], isResponded: false },
       },
       t,
-      false,
+      planFan(DESKTOP_W, 2),
       [card('a'), card('b')]
     )
 
     expect(g.nodes.find((n) => n.id === 'findings')).toBeUndefined()
-    // Each source lands on its OWN target handle on the branches node.
-    expect(targetHandles(g, 'branches')).toEqual(['from-src-a', 'from-src-b'])
+    // Every column lands on the same centred target handle on the branches node.
+    expect(targetHandles(g, 'branches')).toEqual(['c-top'])
     expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'src-a', target: 'branches', targetHandle: 'from-src-a' })
+      expect.objectContaining({ source: 'col-0', target: 'branches', targetHandle: 'c-top' })
     )
     expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'src-b', target: 'branches', targetHandle: 'from-src-b' })
+      expect.objectContaining({ source: 'col-1', target: 'branches', targetHandle: 'c-top' })
     )
   })
 
-  test('findings + branches: sources fan into findings, findings feeds branches on a single centre handle', () => {
+  test('findings + branches: columns fan into findings, findings feeds branches on a single centre handle', () => {
     const g = buildGraph(
       {
         ...base,
@@ -97,11 +206,11 @@ describe('buildGraph — fan-in never collapses onto one handle (P1-5)', () => {
         choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A'], isResponded: false },
       },
       t,
-      false,
+      planFan(DESKTOP_W, 2),
       [card('a'), card('b')]
     )
 
-    expect(targetHandles(g, 'findings')).toEqual(['from-src-a', 'from-src-b'])
+    expect(targetHandles(g, 'findings')).toEqual(['c-top'])
     expect(targetHandles(g, 'branches')).toEqual(['c-top'])
     expect(g.edges).toContainEqual(
       expect.objectContaining({ source: 'findings', target: 'branches', targetHandle: 'c-top' })
@@ -109,9 +218,9 @@ describe('buildGraph — fan-in never collapses onto one handle (P1-5)', () => {
   })
 })
 
-describe('buildGraph — only the handles an orientation needs (P2-8)', () => {
+describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   test('no sources: framing feeds the converge node from a single centre handle', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'low' }, t, false, [])
+    const g = buildGraph({ ...base, answerConfidence: 'low' }, t, planFan(DESKTOP_W, 0), [])
     expect(framingHandles(g)).toEqual(['c-bottom'])
     expect(targetHandles(g, 'findings')).toEqual(['c-top'])
     expect(g.edges).toContainEqual(
@@ -120,16 +229,8 @@ describe('buildGraph — only the handles an orientation needs (P2-8)', () => {
   })
 
   test('findings without branches carries no dangling bottom (source) handle', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, false, [card('a')])
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 1), [card('a')])
     const findings = g.nodes.find((n) => n.id === 'findings')!.data as { source?: unknown }
     expect(findings.source).toBeUndefined()
-  })
-})
-
-describe('naturalWidth', () => {
-  test('never below the banner width; grows with the source count', () => {
-    expect(naturalWidth(0)).toBe(460)
-    expect(naturalWidth(1)).toBe(460)
-    expect(naturalWidth(4)).toBeGreaterThan(naturalWidth(2))
   })
 })

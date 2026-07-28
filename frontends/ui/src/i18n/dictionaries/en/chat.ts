@@ -380,8 +380,6 @@ export const chat = {
     interrupted: 'Research was interrupted before completion.',
     reportUnavailable: 'This research report is no longer available.',
     serviceUnreachable: 'The service is currently unreachable. Please try again later.',
-    jobStillRunning:
-      'This research is still running. The report can be opened once it finishes.',
     loadFailed: 'Research data could not be loaded.',
   },
   // Toasts fired when a session is deleted but its deep-research job could not

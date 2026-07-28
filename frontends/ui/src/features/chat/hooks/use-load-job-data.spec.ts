@@ -21,6 +21,7 @@ const mockCompleteDeepResearch = vi.fn()
 const mockSetStreaming = vi.fn()
 const mockPatchConversationMessage = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
+const mockAttachToDeepResearchJob = vi.fn()
 const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
 
@@ -80,6 +81,7 @@ type MockChatSelectorState = {
   setStreaming: typeof mockSetStreaming
   patchConversationMessage: typeof mockPatchConversationMessage
   addDeepResearchBanner: typeof mockAddDeepResearchBanner
+  attachToDeepResearchJob: typeof mockAttachToDeepResearchJob
 }
 
 type MockLayoutSelectorState = {
@@ -111,6 +113,7 @@ vi.mock('../store', () => ({
         setStreaming: mockSetStreaming,
         patchConversationMessage: mockPatchConversationMessage,
         addDeepResearchBanner: mockAddDeepResearchBanner,
+        attachToDeepResearchJob: mockAttachToDeepResearchJob,
       }
       return selector ? selector(state) : state
     }),
@@ -190,6 +193,54 @@ describe('useLoadJobData', () => {
     expect(mockGetJobStatus).not.toHaveBeenCalled()
     expect(mockGetJobReport).not.toHaveBeenCalled()
     expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('follows a still-running job live instead of failing with "still running"', async () => {
+    // A workflow run opened from its run history: the job is in flight, so the
+    // panel must attach to its live stream rather than report a dead end.
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-live', status: 'running', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-live', 'report')
+    })
+
+    expect(mockAttachToDeepResearchJob).toHaveBeenCalledWith('job-live')
+    // Progress lives on the Tasks tab — there is no report yet.
+    expect(mockSetResearchPanelTab).toHaveBeenLastCalledWith('tasks')
+    expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
+    expect(result.current.error).toBeNull()
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    // No replay: the live stream delivers the backlog and then the new events.
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('follows a still-running job from a stream-backed tab too', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-live', status: 'submitted', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-live', 'thinking')
+    })
+
+    expect(mockAttachToDeepResearchJob).toHaveBeenCalledWith('job-live')
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('does not re-attach a job that is already streaming live into the panel', async () => {
+    mockStoreState.deepResearchJobId = 'job-live'
+    mockStoreState.isDeepResearchStreaming = true
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-live', 'report')
+    })
+
+    expect(mockGetJobStatus).not.toHaveBeenCalled()
+    expect(mockAttachToDeepResearchJob).not.toHaveBeenCalled()
   })
 
   test('loads thinking tab data by replaying the full stream', async () => {

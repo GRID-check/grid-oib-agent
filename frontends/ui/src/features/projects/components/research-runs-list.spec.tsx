@@ -59,12 +59,40 @@ describe('ResearchRunsList', () => {
     expect(screen.getByText('job-1234')).toBeDefined()
   })
 
-  test('does not offer a report link for non-completed runs', async () => {
-    listResearchRuns.mockResolvedValue({ jobs: [makeRun({ status: 'running' })], total: 1 })
+  test('offers a progress link (not a report one) for a run still in flight', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-live-1', status: 'running' })],
+      total: 1,
+    })
     render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
 
-    expect(await screen.findByText(/Report pending/i)).toBeDefined()
+    // A run started outside chat (a workflow run) has no thread to follow, so
+    // this is the only way into it while it works.
+    const link = await screen.findByRole('link', { name: /View progress/i })
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-live-1&tab=tasks')
     expect(screen.queryByRole('link', { name: /View report/i })).toBeNull()
+  })
+
+  test('offers a progress link for a queued run as well', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-queued', status: 'submitted' })],
+      total: 1,
+    })
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    const link = await screen.findByRole('link', { name: /View progress/i })
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-queued&tab=tasks')
+  })
+
+  test('offers no link for a cancelled run (nothing to open)', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ status: 'cancelled' })],
+      total: 1,
+    })
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText(/No report/i)).toBeDefined()
+    expect(screen.queryByRole('link', { name: /View/i })).toBeNull()
   })
 
   test('labels a run with its originating session title when resolvable', async () => {

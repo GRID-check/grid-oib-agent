@@ -16,10 +16,18 @@
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { ThinkingStep } from '../types'
 import { KIND_TO_SIGNAL, authorityTag, kindForLane } from './source-kinds'
+import { documentShortName } from './document-names'
 
 /** One document/source hit inside a lane (wire / storage intermediate). */
 export interface TraceSourceHit {
+  /** Raw document identity (corpus filename / hostname) — used for dedup. */
   name: string
+  /**
+   * Authoritative human title from the backend (stored `display_title` or its
+   * derived default). Absent on older payloads and on the FE fallback parsers;
+   * `documentShortName` then derives one from `name`.
+   */
+  title?: string
   detail?: string
 }
 
@@ -46,7 +54,10 @@ export interface TraceSourceCard {
   signal: SourceSignal
   /** Compact authority badge (OIB / RIS / ÖNORM) — same as the Belegt-durch chips. */
   authority?: string
+  /** Human display name — never a raw corpus filename. */
   name: string
+  /** Raw filename behind `name`, kept for the tooltip and for source dedup. */
+  fileName?: string
   detail?: string
   hitCount: number
   kind: 'hit' | 'gap'
@@ -58,7 +69,7 @@ interface TraceLanesPayload {
     key?: string
     label?: string
     hitCount?: number
-    sources?: Array<{ name?: string; detail?: string }>
+    sources?: Array<{ name?: string; title?: string; detail?: string }>
   }>
 }
 
@@ -234,7 +245,8 @@ export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null =>
             const name = (s.name || '').trim()
             if (!name) return null
             const detail = (s.detail || '').trim() || undefined
-            return { name, detail }
+            const title = (s.title || '').trim() || undefined
+            return { name, title, detail }
           })
           .filter((s): s is TraceSourceHit => s != null)
         const hitCount =
@@ -292,8 +304,11 @@ export const parseUrlHits = (payload: string): TraceLaneCard[] => {
       buckets.set(key, card)
     }
     card.hitCount += 1
+    // A hostname is already the human label — mark it as the authoritative
+    // title so the filename humanizer never touches it (`ris.bka.gv.at` must
+    // not become "Ris.bka.gv.at").
     const name = hostnameOf(url)
-    card.sources.push({ name, detail: url })
+    card.sources.push({ name, title: name, detail: url })
   }
   return Array.from(buckets.values())
 }
@@ -411,6 +426,8 @@ export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard
     }
 
     for (const src of lane.sources) {
+      // Dedup on the RAW name (document identity); the card shows the derived
+      // display name, which several raw names could legitimately share.
       const id = `${lane.key}|${src.name}`
       const existing = byDoc.get(id)
       if (existing) {
@@ -430,7 +447,8 @@ export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard
           tabLabel,
           signal,
           authority,
-          name: src.name,
+          name: documentShortName(src.name, src.title),
+          fileName: src.name,
           detail: src.detail?.startsWith('http') ? undefined : src.detail,
           hitCount: 1,
           kind: 'hit',

@@ -1194,6 +1194,43 @@ describe('useChatStore', () => {
     })
   })
 
+  describe('attachToDeepResearchJob', () => {
+    test('binds a run started elsewhere without claiming the open conversation', () => {
+      const conversation: Conversation = {
+        id: 'conv-open',
+        userId: 'user-1',
+        title: 'An unrelated chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      useChatStore.setState({
+        currentConversation: conversation,
+        conversations: [conversation],
+        reportContent: 'Report of a previous run',
+      })
+
+      useChatStore.getState().attachToDeepResearchJob('job-workflow-1')
+
+      const state = useChatStore.getState()
+      expect(state.deepResearchJobId).toBe('job-workflow-1')
+      expect(state.isDeepResearchStreaming).toBe(true)
+      // 'running' makes the SSE connect buffer the replayed backlog instead of
+      // writing every historical event straight into the store.
+      expect(state.deepResearchStatus).toBe('running')
+      // No thread owns it — that is what keeps its banner out of the open chat.
+      expect(state.deepResearchOwnerConversationId).toBeNull()
+      expect(state.activeDeepResearchMessageId).toBeNull()
+      // Unknown start time: the elapsed indicator stays hidden.
+      expect(state.deepResearchStartedAt).toBeNull()
+      // Artifacts of whatever was shown before are cleared.
+      expect(state.reportContent).toBe('')
+      expect(state.deepResearchTodos).toEqual([])
+      expect(state.deepResearchStreamLoaded).toBe(false)
+    })
+  })
+
   describe('thinking steps', () => {
     // Helper to set up a user message context for thinking steps tests
     const setupUserMessageContext = () => {

@@ -100,4 +100,17 @@ config:
   grid-oib:registryUsername: matthiasbigl
   grid-oib:registryPassword:
     secure: AAABAD5rm3t73BC3YkLE7UV36PiM4TlgLOXTTVcE/QiykfIkccjjZTIuAvASwLCufN4HvWPdu+dOmbqBKvLBryxiYLZKzXkc
+  # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
+  # Deployed only when the flag is on AND every dependency below is set;
+  # otherwise `pulumi preview` logs a warning naming what is missing and the
+  # tier (dashboard, collector, `https-otel` listener, producer OTLP env) is
+  # skipped. Rotating the ingestion key / moving the org:
+  #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
+  #   pulumi config set grid-oib:platformOrgId "org_..."   # WorkOS org id (not external id)
+  # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
+  # only override here when deliberately upgrading.
+  grid-oib:otelDomain: otel.dev.bigls.net
+  grid-oib:platformOrgId: org_01KX06QQJN3KA25R9G2PNFBGXV
+  grid-oib:otelPrimaryApiKey:
+    secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
   grid-oib:loadBalancerIp: 45.144.209.191

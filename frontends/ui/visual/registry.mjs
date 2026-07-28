@@ -20,6 +20,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-dense',
+    mobile: true,
+    path: '/dev/herleitung?variant=dense',
+    description:
+      'Herleitung for a research-heavy turn (9 documents / 5 lanes) in the real 680px thread column — more sources than fit one row, so the fan packs into stacked COLUMNS instead of collapsing into a single vertical chain.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'herleitung-branches',
     mobile: true,
     path: '/dev/herleitung?variant=branches',
@@ -163,6 +171,13 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Org Workflows template gallery (ADR-0027) — GRID built-in templates followed by the platform-published ones.',
     waitFor: '[data-testid="workflow-templates"]',
+  },
+  {
+    id: 'workflow-run-history',
+    path: '/dev/workflow-run-history',
+    description:
+      'A workflow’s run history joined with live job status — a run in flight (View progress), a finished one (View report), a failed one (View thinking) and a skipped one with no job.',
+    waitFor: '[data-testid="run-history-preview"] a',
   },
   {
     id: 'focus-ring',
