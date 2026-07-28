@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    // @pulumi/policy ships a .d.ts that references removed proxy exports.
+    "skipLibCheck": true,
+    "target": "es2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": true,
+    "sourceMap": true,
+    "experimentalDecorators": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "files": ["index.ts"]
+}

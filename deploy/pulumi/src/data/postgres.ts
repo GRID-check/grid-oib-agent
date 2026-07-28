@@ -255,6 +255,13 @@ export function installPostgres(
       // boots and would otherwise race bucket-init into NoSuchBucket-degraded
       // ContinuousArchiving on every first deploy.
       dependsOn: [operator, webhookReady, ...(backupSecret ? [backupSecret] : []), ...backupDeps],
+      // The single most destructive resource in the program. CloudNativePG OWNS
+      // the cluster's PVCs, so unlike the StatefulSets (whose PVCs are pinned
+      // Retain) deleting this CR takes every database with it — irreversibly on
+      // a `Delete`-reclaim StorageClass, and completely if pgBackupsEnabled is
+      // off. `protect` makes Pulumi refuse the delete/replace outright.
+      // Deliberate teardown: `pulumi state unprotect <urn>` first.
+      protect: cfg.protectDataResources,
     },
   );
 

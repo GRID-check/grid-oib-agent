@@ -170,11 +170,18 @@ jobs:
           cache-dependency-path: deploy/pulumi/package-lock.json
       - run: npm ci
       # Type-checks every `spec` written against the @kubernetes-models CRD
-      # types (Gateway API / Envoy Gateway / cert-manager). The deeper gate —
-      # `npm run validate` (pulumi preview + schema-validate every CR) — needs
-      # stack credentials and still runs in deploy.yml; this is the part that
-      # can run on an untrusted PR.
+      # types (Gateway API / Envoy Gateway / cert-manager). The deeper gates —
+      # `pulumi preview` + schema-validate every CR + the CrossGuard policy pack
+      # — need stack credentials and still run in deploy.yml; this is the part
+      # that can run on an untrusted PR.
       - run: npm run typecheck
+      # The policy pack is its own Node program; a rule that no longer compiles
+      # would otherwise only surface at deploy time, i.e. with the guardrails
+      # already load-bearing.
+      - run: npm ci
+        working-directory: deploy/pulumi/policy
+      - run: npm run typecheck
+        working-directory: deploy/pulumi/policy
 
   ci-ok:
     name: CI OK

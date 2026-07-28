@@ -1,0 +1,8 @@
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+description: >-
+  Rollout-safety and resource guardrails for the Grid OIB Kubernetes stack.
+  Run with `pulumi preview --policy-pack ./policy` (CI does this on every
+  deploy); mandatory violations fail the plan before it reaches the cluster.

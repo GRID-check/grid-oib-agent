@@ -3,8 +3,14 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedContainerSecurityContext } from "../platform/security";
+import {
+  ROLLOUT,
+  gracefulShutdown,
+  recreateRollout,
+  secretChecksumAnnotations,
+} from "../platform/rollout";
 import { LIGHT_WORKER_RESOURCES, UID } from "../constants";
-import { AppWiring, purgerEnv, schedulerEnv } from "./config";
+import { AppSecrets, AppWiring, purgerEnv, schedulerEnv } from "./config";
 
 /**
  * The two background workers, both built off the frontend image with an
@@ -15,10 +21,11 @@ import { AppWiring, purgerEnv, schedulerEnv } from "./config";
 export function installWorkers(
   w: AppWiring,
   cfg: GridConfig,
-  secret: k8s.core.v1.Secret,
+  secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
 ): { purger: k8s.apps.v1.Deployment; scheduler?: k8s.apps.v1.Deployment } {
   const workerResources = LIGHT_WORKER_RESOURCES;
+  const shutdown = gracefulShutdown(ROLLOUT.lightWorker);
 
   const purger = new k8s.apps.v1.Deployment(
     "purger",
@@ -26,15 +33,23 @@ export function installWorkers(
       metadata: { name: "purger", namespace: w.namespace, labels: commonLabels("purger") },
       spec: {
         replicas: 1,
-        // Only one purger; avoid two racing (safe, but wasteful).
-        strategy: { type: "Recreate" },
+        // Only one purger; avoid two racing (safe, but wasteful). Recreate, but
+        // still gated by minReadySeconds + a progress deadline so a
+        // crash-looping replacement fails the deploy instead of passing it.
+        ...recreateRollout(ROLLOUT.lightWorker),
         selector: { matchLabels: commonLabels("purger") },
         template: {
-          metadata: { labels: commonLabels("purger") },
+          metadata: {
+            labels: commonLabels("purger"),
+            annotations: secretChecksumAnnotations(secrets.checksum),
+          },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             imagePullSecrets: w.imagePullSecrets,
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
+            // Room to finish the purge tick in flight (S3 deletes + DB writes)
+            // rather than being SIGKILLed part-way through one.
+            terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             containers: [
               {
                 name: "purger",
@@ -50,7 +65,7 @@ export function installWorkers(
         },
       },
     },
-    { provider: w.provider, dependsOn: [secret, ...dependsOn] },
+    { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
   );
 
   // The scheduler container exits 0 immediately when the Workflows feature is
@@ -68,14 +83,19 @@ export function installWorkers(
           },
           spec: {
             replicas: 1,
-            strategy: { type: "Recreate" },
+            ...recreateRollout(ROLLOUT.lightWorker),
             selector: { matchLabels: commonLabels("workflow-scheduler") },
             template: {
-              metadata: { labels: commonLabels("workflow-scheduler") },
+              metadata: {
+                labels: commonLabels("workflow-scheduler"),
+                annotations: secretChecksumAnnotations(secrets.checksum),
+              },
               spec: {
                 enableServiceLinks: false, // see chroma.ts — legacy env collisions
                 imagePullSecrets: w.imagePullSecrets,
                 securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
+                // Finish the claimed scheduler batch before exiting.
+                terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
                 containers: [
                   {
                     name: "workflow-scheduler",
@@ -91,7 +111,7 @@ export function installWorkers(
             },
           },
         },
-        { provider: w.provider, dependsOn: [secret, ...dependsOn] },
+        { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
       )
     : undefined;
 

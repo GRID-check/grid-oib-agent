@@ -67,8 +67,40 @@ endpoint must be reachable from them** (public endpoint + credentials in the
 kubeconfig is fine). If the API is private, change `runs-on:` in `deploy.yml` to a
 **self-hosted runner inside the cluster network** — nothing else changes.
 
+## Deploy-time gates
+Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that
+plan twice:
+- **`scripts/validate-crs.mjs`** — schema-validates every CustomResource against
+  the real upstream CRD schemas (tsc cannot type `apiextensions.CustomResource`).
+- **CrossGuard policy pack** (`deploy/pulumi/policy`, `--policy-pack ./policy`) —
+  rollout safety (surge-only updates, readiness soaks, progress deadlines,
+  shutdown budgets), CPU/memory bounds on every container, and pull-policy
+  correctness for moving tags. A `mandatory` violation fails the plan.
+  Run it locally with `cd deploy/pulumi && npm run policy`.
+
+The policy pack runs again on `pulumi up` (the `--refresh` re-plans, so `up` is
+not necessarily applying the previewed plan), and the run's full resource diff
+is written to the job summary.
+
+## Rolling back
+Deploys are pinned to an immutable `sha-<40-hex>` image tag, so a rollback is a
+deploy of an older tag — not a revert:
+
+1. Actions → **Deploy (staging)** → *Run workflow*.
+2. Set **`imageTag`** to the previous good build's tag (`sha-` + the full commit
+   sha; find it in that commit's Publish Images run).
+3. It goes through the identical gates and the identical gated rollout — surge,
+   readiness soak, drain. Nothing special-cases a rollback.
+
+For a change to the deployment *program* itself (not just the image), check out
+the previous commit and `pulumi up` from there. `pulumi cancel` only abandons an
+in-flight update; it does not revert one.
+
+Note that `protectDataResources` (default true on prod) makes Pulumi refuse to
+delete or replace the Postgres cluster and the storage StatefulSets, so a
+rollback can never quietly take the data tier with it.
+
 ## Day-to-day
 - Merge to `develop` → staging deploys automatically once green.
 - Fast-forward/merge `develop` → `prod` → production deploys after approval.
-- Roll back: `pulumi stack select grid-check/<stack> && pulumi up` on a previous
-  commit, or `pulumi cancel` / redeploy.
+- Roll back: see above.

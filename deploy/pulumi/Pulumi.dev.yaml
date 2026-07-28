@@ -68,6 +68,13 @@ config:
   grid-oib:agentWorkerMinReplicas: "1"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
+  # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).
+  # Shorter on staging: faster deploys matter more than saving a staging job.
+  grid-oib:agentWorkerDrainSeconds: "180"
+  # Staging is meant to be re-creatable, so the data resources are NOT protected
+  # here — `pulumi destroy` must work without a manual unprotect. Prod keeps the
+  # default (true).
+  grid-oib:protectDataResources: "false"
   grid-oib:backendReplicas: "1"
   # ── Frontend ──
   grid-oib:frontendMinReplicas: "1"

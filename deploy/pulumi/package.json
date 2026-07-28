@@ -9,7 +9,8 @@
     "preview": "pulumi preview",
     "validate": "pulumi preview --json > .plan.json && node scripts/validate-crs.mjs .plan.json",
     "up": "pulumi up",
-    "destroy": "pulumi destroy"
+    "destroy": "pulumi destroy",
+    "policy": "pulumi preview --policy-pack ./policy"
   },
   "devDependencies": {
     "@kubernetes-models/cert-manager": "^6.0.0",

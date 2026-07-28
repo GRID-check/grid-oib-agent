@@ -135,6 +135,24 @@ export interface GridConfig {
    */
   networkPolicies: boolean;
 
+  /**
+   * Pulumi `protect` on the resources whose loss is not recoverable by
+   * re-running `pulumi up`: the CloudNativePG `Cluster` (the operator owns its
+   * PVCs, so deleting the CR destroys the databases) and the SeaweedFS / Chroma
+   * StatefulSets (their PVCs are pinned `Retain`, but a delete is still a
+   * full-outage event for object storage and the vector index).
+   *
+   * A protected resource makes Pulumi REFUSE to delete or replace it — a
+   * mis-typed rename, a `pulumi destroy`, or an accidental immutable-field
+   * change fails loudly with the resource still standing, instead of succeeding
+   * quietly. Recovering is deliberate and auditable:
+   * `pulumi state unprotect <urn>`.
+   *
+   * ON by default. Ephemeral stacks that are genuinely meant to be torn down
+   * (a scratch dev cluster) set this false — see Pulumi.dev.yaml.
+   */
+  protectDataResources: boolean;
+
   chroma: {
     /**
      * Run a shared Chroma server (horizontal scaling). When true, the backend
@@ -221,6 +239,23 @@ export interface GridConfig {
     hpaCpuTargetPercent: number;
     /** Concurrent research jobs per worker process (GRID_RESEARCH_WORKERS). */
     concurrency: number;
+    /**
+     * Seconds a terminating worker may spend finishing the research jobs it has
+     * already claimed, before the kubelet SIGKILLs it
+     * (`terminationGracePeriodSeconds`).
+     *
+     * This is the single most consequential rollout knob in the stack. On
+     * SIGTERM the worker stops claiming and awaits its in-flight jobs
+     * (`aiq_api/jobs/worker.py`); Kubernetes' 30s default kills that drain
+     * part-way, so *every* deploy and *every* node drain destroyed research a
+     * user was waiting on. Set it at or above the p99 job duration.
+     *
+     * The cost is deploy latency: workers roll one at a time and a draining one
+     * can hold its slot for this long, so `pulumi up` may take
+     * (drain × replicas) in the worst case. Lower it only if you would rather
+     * lose in-flight research than wait.
+     */
+    drainSeconds: number;
   };
 
   /** LLM / model-provider settings shared by backend + frontend. */
@@ -536,6 +571,8 @@ export function loadConfig(): GridConfig {
 
     networkPolicies: bool(cfg, "networkPolicies", true),
 
+    protectDataResources: bool(cfg, "protectDataResources", true),
+
     chroma: {
       enabled: chromaEnabled,
       // Deliberately pinned (NOT latest): the server API/wire protocol is
@@ -602,6 +639,11 @@ export function loadConfig(): GridConfig {
       maxReplicas: num(cfg, "agentWorkerMaxReplicas", 8),
       hpaCpuTargetPercent: num(cfg, "agentWorkerHpaCpuTargetPercent", 70),
       concurrency: num(cfg, "agentWorkerConcurrency", 1),
+      // 10 minutes: long enough for a typical deep-research run to land, short
+      // enough that a rolling deploy of the tier stays inside the CD timeout.
+      // Clamped to a sane floor — a value below the default 30s would be a
+      // silent downgrade from Kubernetes' own behaviour.
+      drainSeconds: Math.max(30, num(cfg, "agentWorkerDrainSeconds", 600)),
     },
 
     llm: {
@@ -672,6 +714,22 @@ export function backendImage(c: GridConfig): string {
 /** Resolve the concrete frontend image reference. */
 export function frontendImage(c: GridConfig): string {
   return c.images.frontend ?? `${c.images.registry}/grid-oib-frontend:${c.images.tag}`;
+}
+
+/**
+ * The only correct `imagePullPolicy` for a given image reference.
+ *
+ * Same rule the app images follow (see `images.pullPolicy` above), applied to
+ * the upstream data-tier images too: a MOVING tag (`latest`, or no tag at all)
+ * must re-pull on every pod start or a rescheduled pod silently keeps a stale
+ * cached layer; a digest-pinned or version-pinned reference is immutable, so
+ * re-pulling is pure latency. Kubernetes already infers this, but stating it
+ * makes the intent reviewable — and lets the policy pack enforce it.
+ */
+export function pullPolicyFor(image: string): string {
+  if (image.includes("@sha256:")) return "IfNotPresent"; // digest-pinned = immutable
+  const tag = image.split("/").pop()?.split(":")[1];
+  return tag === undefined || tag === "latest" ? "Always" : "IfNotPresent";
 }
 
 /** Map a ResourceSpec to a k8s ResourceRequirements literal. */

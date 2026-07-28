@@ -4,7 +4,7 @@ import { GridConfig, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { JOB_DEFAULTS, LIGHT_WORKER_RESOURCES, UID } from "../constants";
-import { AppWiring, migrationEnv } from "./config";
+import { AppSecrets, AppWiring, migrationEnv } from "./config";
 
 /**
  * Runs `drizzle-kit migrate` against grid_app once per deploy, from the frontend
@@ -20,7 +20,7 @@ import { AppWiring, migrationEnv } from "./config";
 export function runMigrations(
   w: AppWiring,
   cfg: GridConfig,
-  secret: k8s.core.v1.Secret,
+  secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
 ): k8s.batch.v1.Job {
   return new k8s.batch.v1.Job(
@@ -52,6 +52,6 @@ export function runMigrations(
         },
       },
     },
-    { provider: w.provider, dependsOn: [secret, ...dependsOn] },
+    { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
   );
 }

@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { APP_DEFAULTS, PORT } from "../constants";
+import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -64,38 +65,61 @@ export function buildRegistryPullSecret(
 }
 
 /**
+ * The shared Secret plus the checksum every consumer stamps on its pod template.
+ *
+ * They travel together on purpose: a Secret without its checksum is the silent
+ * failure mode this pairing exists to remove (see `secretChecksum`), and
+ * computing the hash from the same object literal that becomes `stringData`
+ * makes it impossible for the two to drift apart.
+ */
+export interface AppSecrets {
+  secret: k8s.core.v1.Secret;
+  /** sha256 (truncated) over every value in `secret`. Not itself sensitive. */
+  checksum: pulumi.Output<string>;
+}
+
+/**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
  * BYOK KEK, S3 secret key, and the fully-formed DB DSNs — which embed the PG
  * password). Non-secret env is inlined directly on each workload. Values stay
  * encrypted in Pulumi state; this is the only place they are materialised.
+ *
+ * Consumers inject these with `secretKeyRef`, which is read ONCE at container
+ * start — so the returned `checksum` must be stamped on every consuming pod
+ * template, or a rotated credential updates this object and changes nothing
+ * that is actually running.
  */
-export function buildSecrets(w: AppWiring): k8s.core.v1.Secret {
+export function buildSecrets(w: AppWiring): AppSecrets {
   const { cfg } = w;
-  return new k8s.core.v1.Secret(
+  const values: Record<string, pulumi.Input<string>> = {
+    OPENROUTER_API_KEY: cfg.llm.openrouterApiKey,
+    TAVILY_API_KEY: cfg.llm.tavilyApiKey,
+    GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
+    GRID_ADMIN_TOKEN: cfg.internal.adminToken,
+    GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
+    WORKOS_API_KEY: cfg.auth.workosApiKey,
+    WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
+    GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
+    SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
+    // DSNs (embed the PG password → secret).
+    NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
+    AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
+    AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
+    AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
+    AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
+    GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
+  };
+
+  const secret = new k8s.core.v1.Secret(
     "grid-secrets",
     {
       metadata: { name: SECRET_NAME, namespace: w.namespace },
-      stringData: {
-        OPENROUTER_API_KEY: cfg.llm.openrouterApiKey,
-        TAVILY_API_KEY: cfg.llm.tavilyApiKey,
-        GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
-        GRID_ADMIN_TOKEN: cfg.internal.adminToken,
-        GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
-        WORKOS_API_KEY: cfg.auth.workosApiKey,
-        WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
-        GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
-        SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
-        // DSNs (embed the PG password → secret).
-        NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
-        AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-        AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
-        AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
-        AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-        GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
-      },
+      stringData: values,
     },
     { provider: w.provider },
   );
+
+  return { secret, checksum: secretChecksum(values) };
 }
 
 /** EnvVar sourced from the shared Secret. */
@@ -264,6 +288,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
     { name: "REDIS_URL", value: w.redisUrl },
     { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: String(APP_DEFAULTS.wsUpgradeRateLimit) },
+    // Graceful shutdown: how long server.js keeps serving after SIGTERM before
+    // forcing exit. Chat WebSockets are long-lived, so the 2s dev default would
+    // drop every streaming answer in flight on each deploy. Must stay inside the
+    // pod's terminationGracePeriodSeconds (see ROLLOUT.frontend in rollout.ts).
+    { name: "GRID_SHUTDOWN_DRAIN_MS", value: String(FRONTEND_DRAIN_SECONDS * 1000) },
     // Workflows.
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },

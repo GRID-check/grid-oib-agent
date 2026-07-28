@@ -30,7 +30,17 @@ on:
     workflows: ["Publish Images"]
     types: [completed]
     branches: [develop]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      imageTag:
+        description: >-
+          Image tag to deploy. Leave empty for the triggering commit's own
+          sha-<40-hex> tag. Set it to a PREVIOUS build's tag to roll the cluster
+          back without reverting code — the rollout is gated exactly like a
+          forward deploy (surge, soak, drain), so a rollback is just a deploy of
+          an older image.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -49,6 +59,10 @@ jobs:
     environment: staging
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # The image tag the cluster is pinned to for this run: normally the
+      # triggering commit's immutable tag, or an operator-supplied older tag
+      # when rolling back.
+      IMAGE_TAG: ${{ inputs.imageTag || format('sha-{0}', github.event.workflow_run.head_sha || github.sha) }}
     steps:
       # Manual dispatch only deploys develop: images are published only for
       # develop/release/tags, so dispatching from a feature branch would pin a
@@ -62,6 +76,20 @@ jobs:
         run: |
           echo "::error::workflow_dispatch deploys are only supported from develop (images for '$GITHUB_REF' are never published)."
           exit 1
+
+      # IMAGE_TAG is interpolated into `pulumi config set`, so constrain it to
+      # the shapes publish-images actually produces before it reaches a command
+      # line. Rejecting anything else also catches the likelier operator error
+      # of typing a tag GHCR does not have (→ cluster-wide ImagePullBackOff).
+      - name: Validate image tag
+        run: |
+          case "$IMAGE_TAG" in
+            sha-[0-9a-f]*) [ "${#IMAGE_TAG}" -eq 44 ] || { echo "::error::sha- tag must be the full 40-hex commit sha"; exit 1; } ;;
+            latest) ;;
+            v[0-9]*) ;;
+            *) echo "::error::refusing image tag '$IMAGE_TAG' — expected sha-<40-hex>, v<version>, or latest."; exit 1 ;;
+          esac
+          echo "deploying image tag: $IMAGE_TAG"
 
       # The upstream "Publish Images" workflow runs ONLY on push to
       # develop/release and on tags (never on pull_request), so
@@ -137,15 +165,24 @@ jobs:
         working-directory: deploy/pulumi
         run: npm ci
 
+      # The CrossGuard policy pack is a separate Node program with its own deps.
+      - name: Install policy-pack deps
+        working-directory: deploy/pulumi/policy
+        run: npm ci
+
       - name: Typecheck (cluster-free gate)
         working-directory: deploy/pulumi
-        run: npx tsc --noEmit
+        run: npx tsc --noEmit && (cd policy && npx tsc --noEmit)
 
-      # Plan + schema-validate every CustomResource against the upstream CRD
-      # schemas (tsc can't check apiextensions.CustomResource fields). The
-      # imageTag override is applied BEFORE previewing so the validated plan is
-      # the same plan `pulumi up` applies.
-      - name: Validate CR schemas from plan
+      # Plan + two independent gates on the SAME plan `pulumi up` will apply
+      # (the imageTag override is applied BEFORE previewing):
+      #   1. schema-validate every CustomResource against the upstream CRD
+      #      schemas — tsc can't check apiextensions.CustomResource fields;
+      #   2. the CrossGuard policy pack — rollout safety (surge-only rollouts,
+      #      readiness soaks, progress deadlines, shutdown budgets), resource
+      #      bounds, and image-pull correctness. A `mandatory` violation fails
+      #      the preview here, before anything touches the cluster.
+      - name: Validate plan (CRD schemas + policy pack)
         working-directory: deploy/pulumi
         run: |
           # Download the installer to a file first, then run it, rather than
@@ -155,8 +192,8 @@ jobs:
           sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select matthiasbigl/grid-oib/dev
-          pulumi config set grid-oib:imageTag "sha-${DEPLOY_SHA}"
-          pulumi preview --json > .plan.json
+          pulumi config set grid-oib:imageTag "$IMAGE_TAG"
+          pulumi preview --policy-pack ./policy --json > .plan.json
           node scripts/validate-crs.mjs .plan.json
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
@@ -168,10 +205,20 @@ jobs:
           stack-name: matthiasbigl/grid-oib/dev
           work-dir: deploy/pulumi
           refresh: true
-          # Pin this run to the commit's immutable image tag (publish-images tags
-          # with `type=sha,format=long` → `sha-<full-sha>`), overriding the
-          # stack's default `latest` for a reproducible deploy.
+          # Show the full resource diff in the job log — the audit trail for what
+          # a deploy actually changed in the cluster.
+          diff: true
+          # …and into the run summary, so "what did that deploy change?" is
+          # answerable from the Actions UI without opening the log.
+          comment-on-summary: true
+          # Re-run the guardrails against the real update, not just the preview:
+          # `up` re-plans after the refresh, so this is the plan that lands.
+          policyPacks: policy
+          # Pin this run to an immutable image tag (publish-images tags with
+          # `type=sha,format=long` → `sha-<full-sha>`), overriding the stack's
+          # default `latest` for a reproducible deploy. Rolling back is the same
+          # command with an older tag — see the workflow_dispatch input above.
           config-map: |
-            { "grid-oib:imageTag": { "value": "sha-${{ env.DEPLOY_SHA }}", "secret": false } }
+            { "grid-oib:imageTag": { "value": "${{ env.IMAGE_TAG }}", "secret": false } }
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

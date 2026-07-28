@@ -4,7 +4,13 @@ import { GridConfig, frontendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
-import { AppWiring, frontendEnv } from "./config";
+import {
+  ROLLOUT,
+  gracefulShutdown,
+  secretChecksumAnnotations,
+  surgeRollout,
+} from "../platform/rollout";
+import { AppSecrets, AppWiring, frontendEnv } from "./config";
 import { PORT, UID } from "../constants";
 
 export interface Frontend {
@@ -28,10 +34,11 @@ export interface Frontend {
 export function installFrontend(
   w: AppWiring,
   cfg: GridConfig,
-  secret: k8s.core.v1.Secret,
+  secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
 ): Frontend {
   const labels = commonLabels("frontend");
+  const shutdown = gracefulShutdown(ROLLOUT.frontend, "node");
 
   const deployment = new k8s.apps.v1.Deployment(
     "frontend",
@@ -41,15 +48,23 @@ export function installFrontend(
         // Initial size; the HPA owns replica count thereafter.
         replicas: cfg.frontend.minReplicas,
         selector: { matchLabels: labels },
-        strategy: {
-          type: "RollingUpdate",
-          rollingUpdate: { maxUnavailable: 0, maxSurge: 1 },
-        },
+        // Surge-only rolling update + a stability soak + a progress deadline.
+        ...surgeRollout(ROLLOUT.frontend),
         template: {
-          metadata: { labels },
+          metadata: {
+            labels,
+            // Rotating any credential in `grid-secrets` changes this annotation,
+            // which is what turns the rotation into an actual rolling update
+            // instead of a Secret nobody re-reads (rollout.ts).
+            annotations: secretChecksumAnnotations(secrets.checksum),
+          },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             imagePullSecrets: w.imagePullSecrets,
+            // Keep serving after SIGTERM: preStop covers EndpointSlice
+            // propagation at the gateway, then server.js drains in-flight
+            // requests and WebSockets (GRID_SHUTDOWN_DRAIN_MS).
+            terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             // The frontend image runs as non-root UID 1001; make it explicit so
             // the pod is Pod-Security "restricted"-ready.
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
@@ -68,6 +83,7 @@ export function installFrontend(
                 ports: [{ containerPort: PORT.frontend, name: "http" }],
                 env: frontendEnv(w),
                 resources: toResourceRequirements(cfg.frontend.resources),
+                lifecycle: shutdown.lifecycle,
                 readinessProbe: {
                   httpGet: { path: "/api/healthz", port: PORT.frontend },
                   initialDelaySeconds: 10,
@@ -85,9 +101,19 @@ export function installFrontend(
         },
       },
     },
-    // The HPA owns spec.replicas after creation — don't let `pulumi up` revert
-    // an autoscaling decision back to minReplicas.
-    { provider: w.provider, dependsOn: [secret, ...dependsOn], ignoreChanges: ["spec.replicas"] },
+    {
+      provider: w.provider,
+      dependsOn: [secrets.secret, ...dependsOn],
+      // The HPA owns spec.replicas after creation — don't let `pulumi up` revert
+      // an autoscaling decision back to minReplicas.
+      ignoreChanges: ["spec.replicas"],
+      // Surge-only rolling of up to `frontendMaxReplicas` pods, each soaking for
+      // minReadySeconds and draining for up to a full grace period, comfortably
+      // exceeds Pulumi's default 10m await. Keep this above
+      // progressDeadlineSeconds so the failure the operator sees is Kubernetes'
+      // real "ProgressDeadlineExceeded" reason, not an opaque Pulumi timeout.
+      customTimeouts: { create: "20m", update: "20m" },
+    },
   );
 
   const service = new k8s.core.v1.Service(

@@ -415,6 +415,114 @@ follow-up); high-traffic chat/retrieval does not need it.
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the
   deploy workflow already does this for staging.
 
+## 7b. Rolling updates — how a deploy actually lands
+
+A Kubernetes workload with default settings does not roll safely, and the
+defaults are silent about it. Everything below is set explicitly in
+`src/platform/rollout.ts`, which is the single home for the numbers and the
+reasoning; the tier modules only pick a profile.
+
+**The five defaults this replaces**
+
+| Default behaviour | What it costs here | What the stack sets |
+|---|---|---|
+| A pod is "available" the instant it first passes readiness | A crash-on-first-request image rolls through the whole fleet before anything notices | `minReadySeconds` (15–30s) — the replacement must stay Ready before the next old pod is touched, so a bad rollout STALLS after one pod |
+| `maxUnavailable: 25%` | Capacity drops the moment the roll starts, before the replacement serves | `maxUnavailable: 0, maxSurge: 1` — surge first, prove healthy, then retire |
+| No progress deadline | A wedged rollout hangs until the client gives up, with no reason | `progressDeadlineSeconds` — Kubernetes reports `ProgressDeadlineExceeded`, which is what Pulumi's await surfaces as the failure |
+| SIGTERM races EndpointSlice removal | The gateway keeps routing to a pod that is already stopping → a few 502s on every deploy | a `preStop` sleep on Service-backed tiers (frontend, aiq-agent) that holds the container open while the data plane converges |
+| `terminationGracePeriodSeconds: 30` | SIGKILL mid-drain | per-tier grace budgets, and for research workers an operator knob (below) |
+
+**The one that mattered most.** The research worker stops claiming on SIGTERM
+and then *awaits its in-flight jobs* (`aiq_api/jobs/worker.py`). Deep-research
+runs take minutes, so the 30s default killed them — every deploy, every node
+drain, silently. `grid-oib:agentWorkerDrainSeconds` (default 600, staging 180)
+is now that budget. The cost is deploy latency: workers roll one at a time and a
+draining pod holds its slot for up to the full budget, so `pulumi up` on this
+tier can take (drain × replicas) in the worst case. That is the trade being
+made deliberately — lower it only if losing in-flight research is preferable to
+waiting.
+
+**Secret rotation is a rollout, not a no-op.** Values injected with
+`secretKeyRef` are read once, at container start. Before this, rotating a key
+(`pulumi config set --secret grid-oib:openrouterApiKey …` + `pulumi up`) updated
+the `grid-secrets` object, reported success, and left every pod serving with the
+old credential indefinitely. Each consumer's pod template now carries a
+`grid.bigls.net/secret-checksum` annotation derived from the Secret's contents,
+so a rotation changes the pod template and triggers an ordinary, gated rolling
+update. The digest is a one-way SHA-256 and is deliberately *not* marked secret,
+so `pulumi preview` shows you the restart before you approve it.
+
+**Frontend WebSocket drain.** `server.js` honours `GRID_SHUTDOWN_DRAIN_MS` (set
+to 30s by the deployment; 2s locally). On SIGTERM it starts failing
+`/api/healthz`, refuses new WebSocket upgrades, and lets in-flight streaming
+answers finish. The pod's grace period (60s) covers preStop + that drain.
+
+**Verifying a rollout**
+
+```bash
+kubectl -n grid rollout status deploy/frontend --timeout=15m
+kubectl -n grid rollout status statefulset/aiq-agent --timeout=25m
+# What changed, and why a pod restarted:
+kubectl -n grid get pods -o custom-columns=\
+NAME:.metadata.name,CHECKSUM:.metadata.annotations.grid\.bigls\.net/secret-checksum
+# Undo the last rollout without touching Pulumi state (emergency only — the
+# next `pulumi up` re-asserts the declared state):
+kubectl -n grid rollout undo deploy/frontend
+```
+
+The supported rollback is a deploy of an older image: run the **Deploy
+(staging)** workflow with the `imageTag` input set to a previous
+`sha-<40-hex>`. It goes through the same gates as a forward deploy.
+
+## 7c. Guardrails — CrossGuard policy pack
+
+`deploy/pulumi/policy/` is a Pulumi **CrossGuard** policy pack that runs inside
+`pulumi preview` and `pulumi up` (CI passes `--policy-pack ./policy`). It exists
+because the settings in §7b are easy to lose — a new workload copy-pasted from
+an old one, a "temporary" strategy tweak — and losing them is invisible until an
+incident.
+
+| Policy | Level | Blocks |
+|---|---|---|
+| `deployment-rollout-gated` | mandatory | a Deployment with no `minReadySeconds` / `progressDeadlineSeconds` |
+| `deployment-no-capacity-dip` | mandatory | `maxUnavailable != 0`, or `Recreate` on a multi-replica tier |
+| `statefulset-rollout-gated` | mandatory | `updateStrategy: OnDelete` (updates the template and rolls nothing), or no soak |
+| `workload-graceful-termination` | mandatory | an unstated (or <5s) `terminationGracePeriodSeconds` |
+| `container-resources-bounded` | mandatory | a container missing CPU/memory requests or limits (autoscaler prerequisite, §1) |
+| `moving-tag-must-repull` | mandatory | a `latest`/untagged image without `imagePullPolicy: Always` |
+| `prefer-immutable-image-tags` | advisory | any moving tag (currently: the app images on the stack default, SeaweedFS, Dragonfly) |
+| `workload-health-probes` | advisory | a container with no probe at all (purger + scheduler are the accepted exceptions) |
+
+A `mandatory` violation fails the plan **before anything touches the cluster**.
+Helm-rendered charts (cert-manager, Envoy Gateway, CNPG) arrive as a single
+opaque `Release` resource and are out of scope by construction.
+
+```bash
+cd deploy/pulumi/policy && npm ci      # once
+cd .. && pulumi preview --policy-pack ./policy
+```
+
+## 7d. Protected resources
+
+`grid-oib:protectDataResources` (default **true**, `false` on the staging stack)
+applies Pulumi's `protect` to the resources whose loss is not recoverable by
+re-running `pulumi up`:
+
+- the **CloudNativePG `Cluster`** — the operator owns its PVCs, so deleting the
+  CR destroys every database, irreversibly on a `Delete`-reclaim StorageClass
+  and completely when `pgBackupsEnabled` is off;
+- the **SeaweedFS** and **Chroma** StatefulSets — their PVCs are pinned
+  `Retain`, but a delete/replace is still a full outage for object storage and
+  the vector index.
+
+Pulumi refuses to delete or replace a protected resource, so a stray rename, an
+accidental immutable-field change, or a `pulumi destroy` fails loudly with the
+resource still standing. Lifting it is deliberate and auditable:
+
+```bash
+pulumi state unprotect 'urn:pulumi:prod::grid-oib::kubernetes:apiextensions.k8s.io/v1:CustomResource::grid-pg'
+```
+
 ## 8. CI/CD
 
 `.github/workflows/deploy.yml` deploys the **dev** stack automatically after
@@ -422,11 +530,15 @@ follow-up); high-traffic chat/retrieval does not need it.
 gates: the commit's **CI and Security workflows must be green** (Publish Images
 runs in parallel with them, so the chain alone would deploy untested code — a
 polling gate closes that race), a **preflight** that the committed stack file
-is configured (see below), `tsc --noEmit` (typed manifests), and
-`scripts/validate-crs.mjs` (schema-validates every CustomResource in the plan
-— previewed with the same `sha-<sha>` imageTag the deploy applies). Manual
-`workflow_dispatch` is refused outside `develop` (no images exist for other
-branches). Prod is promoted manually.
+is configured (see below), `tsc --noEmit` (typed manifests), and two checks on
+the *same plan* `pulumi up` will apply — `scripts/validate-crs.mjs`
+(schema-validates every CustomResource against the real upstream CRD schemas)
+and the **CrossGuard policy pack** (§7c). The plan is previewed with the same
+imageTag the deploy applies, and the policy pack runs again on `up` because the
+`--refresh` re-plans. Manual `workflow_dispatch` is refused outside `develop`
+(no images exist for other branches) and accepts an optional **`imageTag`
+input** — the supported rollback path, deploying a previous `sha-<40-hex>`
+build through the identical gates. Prod is promoted manually.
 
 **Pulumi stack config is file-based — the configured stack file must be
 committed.** `pulumi config set` writes values (secrets as ciphertext) into

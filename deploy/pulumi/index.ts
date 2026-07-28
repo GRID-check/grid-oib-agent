@@ -89,27 +89,30 @@ const wiring: AppWiring = {
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
 };
 
-const secret = buildSecrets(wiring);
+// The Secret AND the checksum every consumer stamps on its pod template, so a
+// rotated credential is a gated rolling update rather than a silent no-op
+// (src/platform/rollout.ts).
+const secrets = buildSecrets(wiring);
 
 // grid_app DB is created at cluster bootstrap; run drizzle migrations before
 // the frontend/workers that read it.
-const migrations = runMigrations(wiring, cfg, secret, [postgres.cluster, postgres.initJob]);
+const migrations = runMigrations(wiring, cfg, secrets, [postgres.cluster, postgres.initJob]);
 
 // ── App workloads ──────────────────────────────────────────────────────────
-const backend = installBackend(wiring, cfg, secret, [
+const backend = installBackend(wiring, cfg, secrets, [
   postgres.initJob,
   seaweed.bucketInitJob,
   dragonfly.service,
   ...(chroma ? [chroma.service] : []),
 ]);
 
-const frontend = installFrontend(wiring, cfg, secret, [migrations, backend.service]);
-const workers = installWorkers(wiring, cfg, secret, [migrations]);
+const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
+const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 
 // Research worker tier — only when execution is DB-claimed (ADR-0021).
 const agentWorker =
   cfg.jobExecution === "db"
-    ? installAgentWorker(wiring, cfg, secret, [
+    ? installAgentWorker(wiring, cfg, secrets, [
         postgres.initJob,
         dragonfly.service,
         seaweed.bucketInitJob,
