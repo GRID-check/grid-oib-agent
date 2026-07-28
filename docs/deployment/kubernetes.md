@@ -471,12 +471,14 @@ Chroma):
 `grid-oib:observabilityEnabled` is on (default `true`) **and** every dependency
 it needs is configured — `otelDomain`, `platformOrgId`, `otelPrimaryApiKey`,
 plus the WorkOS OIDC client (`workosClientId`/`workosApiKey`) behind the
-dashboard's claim gate. Miss one and `pulumi preview` logs a warning naming it
-and skips the whole tier: no collector, no dashboard, no `https-otel` Gateway
-listener/certificate, and no `OTEL_*` env on any producer (so the frontend's
-`src/instrumentation.ts` no-ops). That is deliberate: a dashboard running
-`AuthMode=OpenIdConnect` without a usable OIDC client is a UI nobody can log
-into, and producers pointed at an absent collector just retry exports forever.
+edge claim gate. Miss one and `pulumi preview` logs a warning naming it
+and skips the whole tier: no collector, no dashboard, no SecurityPolicy, no
+`https-otel` Gateway listener/certificate, and no `OTEL_*` env on any producer
+(so the frontend's `src/instrumentation.ts` no-ops). That is deliberate: the
+dashboard runs `AuthMode=Unsecured` and relies entirely on the Gateway
+SecurityPolicy for auth, so a half-configured tier would be an **open**
+telemetry dashboard — and producers pointed at an absent collector just retry
+exports forever.
 
 When enabled, the stack deploys two components:
 
@@ -502,8 +504,33 @@ grid-ui / grid-aiq-agent / grid-agent-worker
 
 **Access:** WorkOS AuthKit OIDC (same WorkOS client as the app), claim-gated
 on `org_id = <platformOrgId>` — the same population that has platform admin
-access (ADR-0016). One-time setup: register
-`https://<otelDomain>/signin-oidc` as a redirect URI in the WorkOS dashboard.
+access (ADR-0016). Enforced at the edge by the `grid-otel-auth`
+**SecurityPolicy** on the Envoy Gateway, not inside the dashboard
+(ADR-0029 Amendment 2): `oidc` authenticates, `jwt` verifies the forwarded
+WorkOS access token against the per-client JWKS, and `authorization`
+default-denies everything whose `org_id` claim is not the platform org. The
+dashboard pod itself runs `AuthMode=Unsecured` and is reachable only from the
+Gateway.
+
+One-time setup: register **`https://<otelDomain>/oauth2/callback`** as a
+redirect URI in the WorkOS dashboard (Envoy's callback path — note this is
+*not* `/signin-oidc`, which is the ASP.NET default and no longer used).
+
+**Verifying access after a deploy** — the check that the original
+implementation lacked, and the first thing to run if login breaks:
+
+```bash
+CID=$(pulumi config get grid-oib:workosClientId)
+curl -s -o /dev/null -w '%{redirect_url}\n' \
+  "https://api.workos.com/user_management/authorize?provider=authkit\
+&client_id=$CID&redirect_uri=https%3A%2F%2F$OTEL_DOMAIN%2Foauth2%2Fcallback\
+&response_type=code&scope=openid+profile+email&state=x"
+```
+
+It must redirect to the AuthKit hosted login UI. If it lands on
+`error.workos.com/sso/invalid-connection-selector`, the `provider=authkit`
+selector has been lost from `oidc.provider.authorizationEndpoint` — see
+`otelSecurityPolicySpec` in `deploy/pulumi/src/platform/observability.ts`.
 
 **Scope:** traces from all three app tiers. The Python tiers (`aiq-agent`
 chat/web, `agent-worker` deep-research jobs) share the NAT config; the
@@ -524,10 +551,10 @@ no telemetry, and the `server.js` WS proxy is not auto-instrumented
   as-is); the frontend gets the BASE URL (`http://otel-collector:4318` — the
   JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec).
 - Sensitive values live in the dedicated Secret `aspire-dashboard-secrets`
-  (keys: `otlp-api-key`, `workos-client-secret`), referenced via
-  `secretKeyRef` by the dashboard (`Dashboard:Otlp:PrimaryApiKey`,
-  OIDC client secret) and the collector exporter header — never
-  a plain env value. Producers hold no key.
+  (keys: `otlp-api-key`, `client-secret`), referenced via
+  `secretKeyRef` by the dashboard (`Dashboard:Otlp:PrimaryApiKey`) and the
+  collector exporter header, and by the Gateway SecurityPolicy for the OIDC
+  client secret — never a plain env value. Producers hold no key.
 - Only the dashboard UI port (18888) is exposed through the Gateway
   (`https-otel` listener + HTTPRoute). Collector and dashboard OTLP ports
   are cluster-internal; intra-namespace traffic is covered by the
@@ -549,13 +576,15 @@ no telemetry, and the `server.js` WS proxy is not auto-instrumented
 **Non-obvious deployment facts** (verified against the dashboard docs and the
 installed NAT/OTel SDK — see ADR-0029 §"Verified deployment facts" for the
 full list): the container's OTLP listeners default to 18889/18890 and are
-rebound to 4317/4318 via `ASPIRE_DASHBOARD_OTLP_*_ENDPOINT_URL`; OIDC RP
-settings live under `Authentication:Schemes:OpenIdConnect:*` (NOT
-`Dashboard:Frontend:OpenIdConnect:*`); WorkOS's OIDC issuer is per-client
-(`https://api.workos.com/user_management/<client_id>`);
-`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` is required because TLS terminates
-at the Gateway; the NAT exporter posts OTLP/HTTP to the endpoint as-is, so
-the full `/v1/traces` path is required on the Python tiers.
+rebound to 4317/4318 via `ASPIRE_DASHBOARD_OTLP_*_ENDPOINT_URL`; WorkOS's OIDC
+issuer is per-client (`https://api.workos.com/user_management/<client_id>`) and
+its `/authorize` needs the non-standard `provider=authkit` selector, which is
+why OIDC runs on the Gateway (Envoy preserves query parameters already present
+on the configured authorization endpoint; ASP.NET 8 has no equivalent hook);
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` is still set so the dashboard
+generates `https://` links behind the TLS-terminating Gateway; the NAT exporter
+posts OTLP/HTTP to the endpoint as-is, so the full `/v1/traces` path is
+required on the Python tiers.
 
 ## 10. Out of scope (deliberate follow-ups)
 

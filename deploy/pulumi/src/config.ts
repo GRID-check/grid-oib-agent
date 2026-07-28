@@ -398,10 +398,13 @@ export function loadConfig(): GridConfig {
   // `observabilityEnabled` is the product decision; the capability is DERIVED
   // from the dependencies the tier cannot run without — never duplicated as a
   // second flag. Without them the components deploy broken, not degraded: the
-  // dashboard runs `AuthMode=OpenIdConnect` with no usable OIDC client (nobody
-  // can log in), and the collector has no key to authenticate its export. So
-  // the whole tier (dashboard, collector, Gateway listener, producer env) is
-  // skipped instead, with a warning naming exactly what is missing.
+  // Gateway SecurityPolicy in front of the dashboard has no usable OIDC client
+  // and no org to gate on — and the dashboard itself runs `AuthMode=Unsecured`
+  // precisely because the edge is doing that job, so a half-configured tier is
+  // an OPEN telemetry dashboard, not a locked one. The collector likewise has
+  // no key to authenticate its export. So the whole tier (dashboard, collector,
+  // SecurityPolicy, Gateway listener, producer env) is skipped instead, with a
+  // warning naming exactly what is missing.
   const workosClientId = cfg.get("workosClientId") ?? "";
   const workosApiKey = cfg.getSecret("workosApiKey");
   const otelDomain = cfg.get("otelDomain") ?? "";

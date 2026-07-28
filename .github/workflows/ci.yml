@@ -26,6 +26,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -38,12 +39,16 @@ jobs:
               - 'sources/**'
               - 'tests/**'
               - 'ci/**'
+              - 'configs/**'
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              - '.github/workflows/ci.yml'
+            infra:
+              - 'deploy/**'
               - '.github/workflows/ci.yml'
 
   backend-lint:
@@ -130,10 +135,33 @@ jobs:
         with:
           working-directory: frontends/ui
 
+  infra:
+    name: Infra (Pulumi typecheck)
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    defaults:
+      run:
+        working-directory: deploy/pulumi
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: deploy/pulumi/package-lock.json
+      - run: npm ci
+      # Type-checks every `spec` written against the @kubernetes-models CRD
+      # types (Gateway API / Envoy Gateway / cert-manager). The deeper gate —
+      # `npm run validate` (pulumi preview + schema-validate every CR) — needs
+      # stack credentials and still runs in deploy.yml; this is the part that
+      # can run on an untrusted PR.
+      - run: npm run typecheck
+
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend]
+    needs: [changes, backend-lint, backend-test, frontend, infra]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
