@@ -14,9 +14,7 @@
  *   • a RIS legal source     — law tint, "RIS" badge, links out;
  *   • an org Archiv document — office tint, openable (was unopenable at all);
  *   • a project upload       — project tint, openable;
- *   • a web page             — neutral tint, links out;
- *   • a bare tool result     — neutral tint, WRENCH icon, no badge: a
- *                              computation, not a document.
+ *   • a web page             — neutral tint, links out.
  *
  * The first three are shown in the CITED state (check marker) and the rest as
  * merely discovered, which is the distinction the panel's two sub-tabs make.
