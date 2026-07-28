@@ -41,6 +41,16 @@ interface ReconcileResult {
   failures: { collectionName: string; error: string }[]
 }
 
+/**
+ * A sweep that has not answered in this long is not going to. The confirm
+ * dialog refuses to close mid-flight (by design — the run is destructive), so
+ * without a ceiling a stalled request leaves both dialog buttons and the
+ * trigger dead with no escape short of a reload. Aborting only releases the
+ * UI; the server-side sweep is server-owned and may still complete, which is
+ * what the panel's copy already tells the operator.
+ */
+const RECONCILE_TIMEOUT_MS = 120_000
+
 export interface VectorMaintenanceProps {
   /**
    * Seeds the "last run" panel. Nothing in production passes this — no endpoint
@@ -60,8 +70,13 @@ export function VectorMaintenance({ initialResult = null }: VectorMaintenancePro
   const handleReconcile = useCallback(async () => {
     setIsRunning(true)
     setHasFailed(false)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
     try {
-      const res = await fetch('/api/platform/maintenance/reconcile-vectors', { method: 'POST' })
+      const res = await fetch('/api/platform/maintenance/reconcile-vectors', {
+        method: 'POST',
+        signal: controller.signal,
+      })
       if (!res.ok) throw new Error(`Reconcile failed (${res.status})`)
       const body = (await res.json()) as ReconcileResult
       // Normalise `failures` on the way in so every read site below can treat it
@@ -87,6 +102,7 @@ export function VectorMaintenance({ initialResult = null }: VectorMaintenancePro
       setHasFailed(true)
       toast.error(t('vectorMaintenance.failed'))
     } finally {
+      clearTimeout(timeout)
       setIsRunning(false)
       setIsOpen(false)
     }

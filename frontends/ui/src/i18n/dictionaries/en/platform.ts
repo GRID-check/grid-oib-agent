@@ -45,6 +45,7 @@ export const platform = {
     clearSelection: 'Clear',
     bulkReclassify: 'Change document type',
     bulkReclassifyDone: 'Document type of {count} document(s) set to “{label}”',
+    bulkReclassifyFailed: 'Document type of {count} document(s) could not be changed',
     bulkDelete: 'Remove',
     bulkDeleteTitle: 'Remove {count} documents?',
     bulkDeleteDescription:

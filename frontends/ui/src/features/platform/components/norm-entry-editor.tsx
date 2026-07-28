@@ -245,14 +245,18 @@ export function formToEntry(values: EntryFormValues): NormEntry {
   const exclude = splitList(values.verify_exclude)
   const expect = values.verify_expect.trim()
   const gesetzesnummer = values.verify_gesetzesnummer.trim()
-  const verify = titleQuery
-    ? {
-        title_query: titleQuery,
-        exclude,
-        ...(expect ? { expect } : {}),
-        ...(gesetzesnummer ? { gesetzesnummer } : {}),
-      }
-    : undefined
+  // Any populated verification field is worth persisting on its own: the seed
+  // schema defaults `title_query` to '', so keying the whole object off the
+  // query would silently drop a curated expect/exclude/Gesetzesnummer on save.
+  const verify =
+    titleQuery || expect || gesetzesnummer || exclude.length > 0
+      ? {
+          title_query: titleQuery,
+          exclude,
+          ...(expect ? { expect } : {}),
+          ...(gesetzesnummer ? { gesetzesnummer } : {}),
+        }
+      : undefined
   const bindingNote = values.binding_note.trim()
   const reviewNote = values.review_note.trim()
   return {

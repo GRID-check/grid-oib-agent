@@ -374,7 +374,7 @@ export function BaseKnowledge() {
             }),
           )
         }
-        if (failed > 0) toast.error(t('knowledge.docClassUpdateFailed', { name: `${failed}` }))
+        if (failed > 0) toast.error(t('knowledgeAdmin.bulkReclassifyFailed', { count: failed }))
         setSelected([])
         await load()
       })

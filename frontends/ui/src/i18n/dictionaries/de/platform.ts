@@ -47,6 +47,7 @@ export const platform: typeof en.platform = {
     clearSelection: 'Aufheben',
     bulkReclassify: 'Dokumentart ändern',
     bulkReclassifyDone: 'Dokumentart von {count} Dokument(en) auf „{label}“ gesetzt',
+    bulkReclassifyFailed: 'Dokumentart von {count} Dokument(en) konnte nicht geändert werden',
     bulkDelete: 'Entfernen',
     bulkDeleteTitle: '{count} Dokumente entfernen?',
     bulkDeleteDescription:
