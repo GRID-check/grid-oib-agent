@@ -44,7 +44,7 @@ Counted concretely:
 | Backend source model | **1** (`SourceEntry`) |
 | Backend → FE transports carrying source identity | **4** (WS `sources`, SSE `citation_source`/`citation_use`, written `## Quellen` markdown, `## Trace-Lanes` JSON) + `legal_basis` cards |
 | FE source models | **5** (`CitationSource`, `ReportSourceEntry`, `TraceSourceCard`, `AnswerSourceRef`, `AnswerSourceItem`) |
-| FE origin/kind classifiers | **4** (`classifyCitation`, `kindForLane`, `classifySourceSignal`, `resolveCorpusFileName`) |
+| FE origin/kind classifiers | **4** (`classifyCitation`, `kindForLane`, `classifySourceSignal`, `resolveCorpusFileName`) — see the correction below |
 | FE renderers of a citation | **5** (`SourcePreviewChip`, `ReportSourcesList`, `CitationCard`, `SourceCard`, `LegalBasisCard`) |
 
 So the user-visible symptom the maintainer describes — "citations became very
@@ -557,7 +557,7 @@ WIRE             source_entry_to_wire   ← the declared contract
                   file_name, page}
 
 TRANSPORT        WS sources ✅        SSE citation_source ✅ / citation_use ❌ (§2.2)
-                 written ## Quellen markdown ⚠️     ## Trace-Lanes JSON ⚠️
+                 written ## Quellen markdown ⚠️     ## Trace-Lanes JSON ✅ (kind + lane)
                  legal_basis cards ⚠️
 
 FE NORMALIZE     wire-citation.ts → CitationSource
@@ -658,8 +658,40 @@ Deliberately **not** done, and why:
   language is genuinely unknowable at that point — changing it would churn tests
   for no user-visible gain.
 
+### Follow-up — `## Trace-Lanes` now carries the taxonomy (R1, last bullet)
+
+`_trace_lanes_json` emits `kind` (from `kind_for_lane`) beside the existing
+`key`/`label`, so the Herleitung fan-out reads the same coarse taxonomy the
+chips do instead of re-deriving it. With that in place `trace-lanes.ts` lost its
+mirror of `lane_for_hit`'s document half — the OIB filename classes and the
+collection prefixes — together with the `--- Result N ---` fallback parser that
+was its only caller. That parser was never a legacy adapter: `_format_results`
+writes the block and the result blocks into one string, and every message
+reaching localStorage goes through `pruneMessageForStorage`, which drops the raw
+payload and stores the already-derived lanes. A KB payload whose block is absent
+or empty now yields no lanes rather than a second, weaker classification — and,
+because the same guard stops the URL scan from reading retrieved passages, a
+link inside a corpus chunk can no longer become a source card.
+
+What remains client-side is `laneForSourceUrl`: web and RIS tool output ships no
+structured block of its own, so those hosts are still placed in the browser.
+Giving them one would mean appending a UI-only side-channel to tool output the
+LLM also reads, which is a protocol change for third-party tools, not a
+consolidation.
+
 ### Still open
 
+- **`legal_basis` cards still carry display strings only** (§2.7 (4)), so
+  `resolveCorpusFileName` is still the bridge from "OIB RL 4 Leitfaden" to a
+  corpus PDF. Threading `file_name`/`page` was examined and deferred: both card
+  surfaces are LLM-authored (`emit_card`, `generate_cards`), so the field would
+  be model-asserted rather than backend-derived, and the honest handling of an
+  unverifiable value — drop it — silently removes the in-app "Ansehen" button
+  the heuristic offers today. The same resolver also backs `NormRefFooter` for
+  every `NormReference`-bearing schematic card, so retiring it means changing
+  the model-facing schema of most of the catalog. It is worth doing when a
+  DETERMINISTIC producer exists (a card emitted by a tool that already holds the
+  retrieved document, the way `surface_documents` does), not before.
 - The **shallow capture double-gate** (§2.10) still drops an evidence tool's
   sources at `debug` level when it is missing from `data_sources`. It wants a
   startup coverage assertion, not a behaviour change.
@@ -706,3 +738,35 @@ Two review observations were checked and deliberately left as they are:
   two rows** instead of one. That follows from the page-accurate resolution and
   is the desirable outcome: the prose numbered them separately, so collapsing
   them would leave one inline `[N]` marker with no anchor to scroll to.
+
+---
+
+## 8. Two more corrections to this audit
+
+**§1's classifier count was wrong.** `resolveCorpusFileName` was listed as one of
+four "FE origin/kind classifiers". It is not a classifier — it decides no
+taxonomy and produces no kind, lane or tint. It is a 39-line fail-safe RESOLVER
+that maps a human label ("OIB RL 4 Leitfaden") to a corpus filename so a card
+can offer a view option. Removing it would merge nothing. The real classifier
+count in §1 was three, and the Trace-Lanes work below takes it to two.
+
+**§2.1's fix was incomplete, and the contract tests caught it.** Scoping
+knowledge-layer parsing to the `--- Result N ---` block was necessary but not
+sufficient: a block holds the header AND the retrieved passage, and the producer
+omits `Dokumentart:`/`Collection:` for a hit that has none — so a passage whose
+own text contains such a line supplied the missing field. A scanned Einreichplan
+or Bescheid with a metadata table in its title block does exactly that:
+
+```
+Citation: einreichplan_og.pdf, p.4      ← a project upload
+Relevance Score: 0.71
+Deckblatt
+Dokumentart: oib_richtlinie — …        ← text FROM the scanned PDF
+→ doc_class = oib_richtlinie, lane = ("baurecht_oib", "OIB-Richtlinie")
+```
+
+Same user-visible failure as the positional bug, reached by a different route.
+Header fields are now read from the header region only (`_kl_block_header`).
+This is the clearest argument for §6's "no seam test" finding: the fix landed,
+the unit tests passed, and the hole survived until a test drove the REAL
+producer into the REAL parser.

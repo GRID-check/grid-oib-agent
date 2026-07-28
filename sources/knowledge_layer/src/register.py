@@ -577,6 +577,14 @@ def _trace_lanes_json(
     hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
     ``lane_for_hit``. Fail-open: never break tool output for the LLM.
 
+    Each lane carries BOTH classifications the consumer needs: the fine ``key``
+    /``label`` from ``lane_for_hit`` (the authority sub-tier — OIB-Richtlinie vs.
+    Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
+    :func:`~aiq_agent.common.source_kinds.kind_for_lane` — the same taxonomy
+    ``source_entry_to_wire`` puts on every citation (ADR-0026). Shipping ``kind``
+    is what lets the Herleitung fan-out stop mirroring the lane→kind table on the
+    frontend, so the fan-out and the "Belegt durch" chips cannot drift apart.
+
     Each source carries both identities: ``name`` is the raw filename (document
     identity — dedup, preview resolution) and ``title`` the user-facing display
     name, so the Herleitung fan-out shows "OIB-Richtlinie 2, Ausgabe Mai 2023"
@@ -594,6 +602,7 @@ def _trace_lanes_json(
         from collections import OrderedDict
 
         from aiq_agent.common.norm_registry import lane_for_hit
+        from aiq_agent.common.source_kinds import kind_for_lane
 
         if resolved is None:
             resolved = _resolve_doc_classes(chunks)
@@ -608,7 +617,13 @@ def _trace_lanes_json(
             key, label = lane_for_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
             bucket = lanes.get(key)
             if bucket is None:
-                bucket = {"key": key, "label": label, "hitCount": 0, "sources": []}
+                bucket = {
+                    "key": key,
+                    "label": label,
+                    "kind": kind_for_lane(key),
+                    "hitCount": 0,
+                    "sources": [],
+                }
                 lanes[key] = bucket
             bucket["hitCount"] += 1
             name = chunk.file_name or ""

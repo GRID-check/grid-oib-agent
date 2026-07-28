@@ -1,0 +1,35 @@
+Found 3 relevant document(s):
+
+--- Result 1 ---
+Source: OIB-Richtlinie 2, Ausgabe Mai 2023
+Collection: oib_knowledge
+Dokumentart: oib_richtlinie — OIB-Richtlinie (verbindlich)
+Page: 12
+Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.12
+Content Type: text
+Relevance Score: 0.87
+
+Brandabschnitte sind so auszubilden, dass eine Brandausbreitung begrenzt wird.
+
+--- Result 2 ---
+Source: einreichplan_og.pdf
+Collection: proj_abc
+Page: 4
+Citation: einreichplan_og.pdf, p.4
+Content Type: text
+Relevance Score: 0.87
+
+Der Einreichplan zeigt die Lage der Fluchtwege im Obergeschoss.
+
+--- Result 3 ---
+Source: detail_attika.pdf
+Collection: archiv_org1
+Page: 7
+Citation: detail_attika.pdf, p.7
+Content Type: text
+Relevance Score: 0.87
+
+Bueroeigenes Regeldetail fuer die Attikaausbildung.
+
+## Trace-Lanes
+{"lanes": [{"key": "baurecht_oib", "label": "OIB-Richtlinie", "kind": "baurecht", "hitCount": 1, "sources": [{"name": "oib-rl_2_ausgabe_mai_2023.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023", "detail": "p.12"}]}, {"key": "projekt", "label": "Projektwissen", "kind": "projekt", "hitCount": 1, "sources": [{"name": "einreichplan_og.pdf", "detail": "p.4"}]}, {"key": "buero", "label": "Büroarchiv", "kind": "buero", "hitCount": 1, "sources": [{"name": "detail_attika.pdf", "detail": "p.7"}]}]}

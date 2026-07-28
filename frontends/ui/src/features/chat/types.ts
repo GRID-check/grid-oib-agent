@@ -296,6 +296,12 @@ export interface ThinkingTraceLane {
   label: string
   hitCount: number
   sources: Array<{ name: string; detail?: string }>
+  /**
+   * Canonical coarse source kind (ADR-0026), as classified by the backend.
+   * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
+   * only `signal`, which stays the field consumers read.
+   */
+  kind?: 'baurecht' | 'buero' | 'projekt' | 'web' | 'tool'
   signal: 'law' | 'project' | 'office' | 'auto'
 }
 

@@ -4,7 +4,7 @@ import {
   deriveTraceSourceCards,
   extractTraceLanesFromPayload,
   flattenTraceSourceCards,
-  laneForHitClient,
+  laneForSourceUrl,
   laneKeyToSignal,
   parseTraceLanesBlock,
   totalTraceSourceCount,
@@ -63,55 +63,41 @@ describe('laneKeyToSignal', () => {
   })
 })
 
-describe('laneForHitClient', () => {
-  test('classifies collections and OIB filenames', () => {
-    expect(laneForHitClient({ collection: 'oib_knowledge' })).toEqual({
-      key: 'baurecht_oib',
-      label: 'OIB-Richtlinie',
-    })
-    expect(laneForHitClient({ collection: 'proj_x' })).toEqual({
-      key: 'projekt',
-      label: 'Projektwissen',
-    })
-    expect(laneForHitClient({ collection: 'archiv_y' })).toEqual({
-      key: 'buero',
-      label: 'Büroarchiv',
-    })
-    expect(laneForHitClient({ fileName: 'OIB-RL_2_Brandschutz.pdf' }).key).toBe('baurecht_oib')
-    expect(laneForHitClient({ sourceUrl: 'https://ris.bka.gv.at/eli/bgbl/1' }).key).toBe(
-      'baurecht_ris'
-    )
-    expect(laneForHitClient({ sourceUrl: 'https://example.com/a' }).key).toBe('web')
+describe('laneForSourceUrl', () => {
+  test('classifies the sources that carry no structured lane', () => {
+    expect(laneForSourceUrl('https://ris.bka.gv.at/eli/bgbl/1').key).toBe('baurecht_ris')
+    expect(laneForSourceUrl('https://example.com/a').key).toBe('web')
+    expect(laneForSourceUrl(null).key).toBe('web')
   })
 
   test('classifies the official OIB domain as Baurecht/OIB, not web', () => {
-    expect(laneForHitClient({ sourceUrl: 'https://www.oib.or.at/de/oib-richtlinien' })).toEqual({
+    expect(laneForSourceUrl('https://www.oib.or.at/de/oib-richtlinien')).toEqual({
       key: 'baurecht_oib',
       label: 'OIB-Richtlinie',
     })
-    expect(laneForHitClient({ sourceUrl: 'https://oib.or.at/anything' }).key).toBe('baurecht_oib')
+    expect(laneForSourceUrl('https://oib.or.at/anything').key).toBe('baurecht_oib')
   })
 
   test('classifies wien.gv.at as behördliche Information (Baurecht family), not web', () => {
     // The MA-37 (Baupolizei Wien) registry pointer must never read as a web
     // search hit; the behoerde lane maps to the law/baurecht signal.
-    expect(laneForHitClient({ sourceUrl: 'https://www.wien.gv.at/wohnen/baupolizei' })).toEqual({
+    expect(laneForSourceUrl('https://www.wien.gv.at/wohnen/baupolizei')).toEqual({
       key: 'behoerde',
       label: 'Behördliche Information',
     })
-    expect(laneKeyToSignal(laneForHitClient({ sourceUrl: 'https://wien.gv.at/x' }).key)).toBe('law')
+    expect(laneKeyToSignal(laneForSourceUrl('https://wien.gv.at/x').key)).toBe('law')
   })
 
   test('matches official domains on the host boundary, not as a substring', () => {
     // Lookalike hosts and URLs that merely mention a domain in the path/query
     // must not inherit an authoritative lane.
-    expect(laneForHitClient({ sourceUrl: 'https://evil.example/wien.gv.at' }).key).toBe('web')
-    expect(laneForHitClient({ sourceUrl: 'https://evil.example/?q=ris.bka.gv.at' }).key).toBe('web')
-    expect(laneForHitClient({ sourceUrl: 'https://wien.gv.at.evil.example/x' }).key).toBe('web')
-    expect(laneForHitClient({ sourceUrl: 'https://notoib.or.at/x' }).key).toBe('web')
+    expect(laneForSourceUrl('https://evil.example/wien.gv.at').key).toBe('web')
+    expect(laneForSourceUrl('https://evil.example/?q=ris.bka.gv.at').key).toBe('web')
+    expect(laneForSourceUrl('https://wien.gv.at.evil.example/x').key).toBe('web')
+    expect(laneForSourceUrl('https://notoib.or.at/x').key).toBe('web')
     // Real hosts still match, case-insensitively and with subdomains.
-    expect(laneForHitClient({ sourceUrl: 'https://WWW.WIEN.GV.AT/x' }).key).toBe('behoerde')
-    expect(laneForHitClient({ sourceUrl: 'wien.gv.at/wohnen' }).key).toBe('behoerde')
+    expect(laneForSourceUrl('https://WWW.WIEN.GV.AT/x').key).toBe('behoerde')
+    expect(laneForSourceUrl('wien.gv.at/wohnen').key).toBe('behoerde')
   })
 })
 
@@ -123,6 +109,7 @@ describe('parseTraceLanesBlock', () => {
       key: 'baurecht_oib',
       label: 'OIB-Richtlinie',
       hitCount: 1,
+      kind: 'baurecht',
       signal: 'law',
     })
     expect(cards![0].sources[0]).toEqual({
@@ -130,20 +117,54 @@ describe('parseTraceLanesBlock', () => {
       detail: 'p.12',
     })
   })
+
+  test('takes the coarse kind from the backend rather than re-deriving it', () => {
+    // The wire's `kind` is authoritative even when it disagrees with what this
+    // side would have guessed from the lane key — that is the point of shipping
+    // it: one classifier, on the producing side, for the chips and the fan-out.
+    const [lane] = parseTraceLanesBlock(
+      '## Trace-Lanes\n{"lanes":[{"key":"kein_lane_key_den_wir_kennen","label":"Neu","kind":"buero","hitCount":1,"sources":[{"name":"a.pdf"}]}]}\n'
+    )!
+    expect(lane.kind).toBe('buero')
+    expect(lane.signal).toBe('office')
+  })
+
+  test('a payload persisted before the block carried `kind` still classifies', () => {
+    // Back-compat only: `kindForLane` is the shared lane→kind table, applied
+    // here as a decode fallback for lanes emitted before the field existed.
+    const [lane] = parseTraceLanesBlock(
+      '## Trace-Lanes\n{"lanes":[{"key":"baurecht_ris","label":"Rechtsquelle (RIS)","hitCount":1,"sources":[{"name":"BO Wien"}]}]}\n'
+    )!
+    expect(lane.kind).toBe('baurecht')
+    expect(lane.signal).toBe('law')
+  })
 })
 
 describe('extractTraceLanesFromPayload', () => {
-  test('prefers Trace-Lanes block over Result blocks', () => {
+  test('reads the Trace-Lanes block for knowledge-layer output', () => {
     const cards = extractTraceLanesFromPayload(kbPayload)
     expect(cards.map((c) => c.key)).toEqual(['baurecht_oib', 'projekt', 'buero'])
   })
 
-  test('falls back to Result-block parsing without Trace-Lanes', () => {
-    const without = kbPayload.replace(/## Trace-Lanes[\s\S]*$/, '')
-    const cards = extractTraceLanesFromPayload(without)
-    expect(cards).toHaveLength(3)
-    expect(cards.find((c) => c.key === 'baurecht_oib')?.hitCount).toBe(1)
-    expect(cards.find((c) => c.key === 'projekt')?.sources[0].name).toBe('Brandschutzkonzept.pdf')
+  test('yields nothing for KB output whose Trace-Lanes block is missing or empty', () => {
+    // `_format_results` writes the block into the same string as the Result
+    // blocks, so a KB payload without lanes means the backend said "no lanes".
+    // Re-deriving them here (from less information than the producer had) is
+    // exactly the mirror that let the fan-out and the chips drift apart.
+    const withoutBlock = kbPayload.replace(/## Trace-Lanes[\s\S]*$/, '')
+    expect(extractTraceLanesFromPayload(withoutBlock)).toEqual([])
+    expect(extractTraceLanesFromPayload(`${withoutBlock}\n## Trace-Lanes\n{"lanes":[]}\n`)).toEqual(
+      []
+    )
+  })
+
+  test('never URL-scans a retrieved passage that happens to contain a link', () => {
+    // Chunk bodies are corpus prose; a link inside one is not a source the tool
+    // returned. Before the KB-marker guard this fell through to the URL scan.
+    const withLinkInBody = kbPayload
+      .replace(/## Trace-Lanes[\s\S]*$/, '')
+      .replace('Some brandschutz content', 'Siehe https://www.example.com/anhang')
+    expect(extractTraceLanesFromPayload(withLinkInBody)).toEqual([])
   })
 
   test('falls back to URL scan for web results', () => {

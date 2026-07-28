@@ -889,6 +889,29 @@ def _kl_block_body(block: str) -> str:
     return _KL_TRUNCATED_SUFFIX_RE.sub("", block[relevance_match.end() :].strip()).strip()
 
 
+def _kl_block_header(block: str) -> str:
+    """The HEADER region of one result block — everything above the passage body.
+
+    Header fields must be read from here, never from the whole block, because
+    the block also contains RETRIEVED DOCUMENT TEXT. ``_format_results`` omits
+    ``Dokumentart:``/``Collection:``/``Page:`` for a hit that has none, so a
+    passage whose own text contains such a line would otherwise supply the
+    missing field — and a scanned Einreichplan or Bescheid whose title block
+    carries a metadata table plausibly does. The result is the same user-visible
+    failure as positional misalignment: a private project plan classified as an
+    OIB Richtlinie, because ``doc_class`` is first priority in ``lane_for_hit``.
+
+    ``Source:``/``Citation:`` happen to be safe (the header always emits them,
+    so the header's own match wins), but scoping the region is what makes that
+    true by construction rather than by luck.
+
+    A block with no ``Relevance Score:`` line has no body to confuse us with, so
+    the whole block is its header.
+    """
+    relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
+    return block[: relevance_match.start()] if relevance_match else block
+
+
 def _extract_kl_chunk_bodies(content: str) -> list[str]:
     """Retrieved passage body per ``--- Result N ---`` block, in document order."""
     return [_kl_block_body(block) for block in _split_kl_result_blocks(content)]
@@ -955,16 +978,20 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
 
     if blocks:
         for block in blocks:
-            citation_key = _first(_KL_CITATION_RE, block)
+            # Header fields come from the header region ONLY; the rest of the
+            # block is retrieved document text and must never be able to supply
+            # a field the producer omitted. See ``_kl_block_header``.
+            header = _kl_block_header(block)
+            citation_key = _first(_KL_CITATION_RE, header)
             if not citation_key:
                 # A block without a Citation: field identifies nothing citable.
                 continue
             entries.append(
                 _kl_entry(
                     citation_key=citation_key,
-                    title=_first(_KL_SOURCE_RE, block),
-                    collection=_first(_KL_COLLECTION_RE, block),
-                    doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, block)),
+                    title=_first(_KL_SOURCE_RE, header),
+                    collection=_first(_KL_COLLECTION_RE, header),
+                    doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
                 )
