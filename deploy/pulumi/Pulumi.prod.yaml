@@ -117,6 +117,9 @@ config:
   grid-oib:workflowsEnabled: "false"
 
   # ── Observability / Aspire dashboard ──
+  # REQUIRED secret (preview fails without it):
+  #   pulumi config set --secret grid-oib:otelPrimaryApiKey "<openssl rand -hex 32>"
+  # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
+  # only override here when deliberately upgrading.
   grid-oib:otelDomain: otel.example.com
   grid-oib:platformOrgId: REPLACE_ME
-  grid-oib:dashboardImage: mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0

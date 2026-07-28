@@ -101,7 +101,10 @@ config:
   grid-oib:registryPassword:
     secure: AAABAD5rm3t73BC3YkLE7UV36PiM4TlgLOXTTVcE/QiykfIkccjjZTIuAvASwLCufN4HvWPdu+dOmbqBKvLBryxiYLZKzXkc
   # ── Observability / Aspire dashboard ──
+  # REQUIRED secret (preview fails without it):
+  #   pulumi config set --secret grid-oib:otelPrimaryApiKey "<openssl rand -hex 32>"
+  # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
+  # only override here when deliberately upgrading.
   grid-oib:otelDomain: otel.dev.bigls.net
   grid-oib:platformOrgId: REPLACE_ME
-  grid-oib:dashboardImage: mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0
   grid-oib:loadBalancerIp: 45.144.209.191

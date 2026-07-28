@@ -15,16 +15,19 @@ export interface Observability {
   service: k8s.core.v1.Service;
   route: k8s.apiextensions.CustomResource;
   /**
-   * Dedicated Secret holding the OTLP ingestion API key (key: `api-key`).
-   * Referenced via secretKeyRef by the dashboard (PrimaryApiKey) AND the
-   * OTel Collector (exporter header) — the key never appears as a plain env
-   * value on a pod spec.
+   * Dedicated Secret holding the dashboard's sensitive values:
+   *   - `otlp-api-key`         — OTLP ingestion key (dashboard PrimaryApiKey +
+   *                              collector exporter header)
+   *   - `workos-client-secret` — WorkOS API key as the OIDC client secret
+   * Both are referenced via secretKeyRef — never plain env values on a pod
+   * spec (visible to anyone with Deployment read RBAC).
    */
-  ingestionSecret: k8s.core.v1.Secret;
+  secrets: k8s.core.v1.Secret;
 }
 
-/** Key under which the OTLP ingestion API key is stored in the Secret. */
-export const OTLP_API_KEY_SECRET_KEY = "api-key";
+/** Secret keys in the observability Secret. */
+export const OTLP_API_KEY_SECRET_KEY = "otlp-api-key";
+const WORKOS_CLIENT_SECRET_KEY = "workos-client-secret";
 
 /**
  * Deploys the .NET Aspire standalone dashboard as a single-replica Deployment
@@ -50,20 +53,22 @@ export function installObservabilityDashboard(
   const name = COMPONENT;
   const { observability: obs } = cfg;
 
-  // OTLP ingestion key in a dedicated Secret — referenced via secretKeyRef by
-  // the dashboard and the OTel Collector so it never lands on a pod spec as a
-  // plain value.
-  const ingestionSecret = new k8s.core.v1.Secret(
-    "otel-ingestion",
+  // All sensitive values in one dedicated Secret — referenced via secretKeyRef
+  // so they never land on a pod spec as plain values.
+  const secrets = new k8s.core.v1.Secret(
+    "aspire-dashboard-secrets",
     {
-      metadata: { name: "otel-ingestion", namespace, labels },
-      stringData: { [OTLP_API_KEY_SECRET_KEY]: otlpApiKey },
+      metadata: { name: "aspire-dashboard-secrets", namespace, labels },
+      stringData: {
+        [OTLP_API_KEY_SECRET_KEY]: otlpApiKey,
+        [WORKOS_CLIENT_SECRET_KEY]: workosApiKey,
+      },
     },
     { provider, dependsOn },
   );
-  const apiKeyFromSecret: k8s.types.input.core.v1.EnvVarSource = {
-    secretKeyRef: { name: ingestionSecret.metadata.name, key: OTLP_API_KEY_SECRET_KEY },
-  };
+  const fromSecret = (key: string): k8s.types.input.core.v1.EnvVarSource => ({
+    secretKeyRef: { name: secrets.metadata.name, key },
+  });
 
   // The OIDC client secret for the built-in Aspire OIDC RP is the WorkOS API
   // key (AuthKit uses the API key as the OIDC client secret).
@@ -78,6 +83,8 @@ export function installObservabilityDashboard(
           metadata: { labels },
           spec: {
             enableServiceLinks: false,
+            // No K8s API access needed — don't hand the pod an API token.
+            automountServiceAccountToken: false,
             securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 },
             containers: [
               {
@@ -107,7 +114,7 @@ export function installObservabilityDashboard(
                     value: `https://api.workos.com/user_management/${cfg.auth.workosClientId}`,
                   },
                   { name: "Authentication__Schemes__OpenIdConnect__ClientId", value: cfg.auth.workosClientId },
-                  { name: "Authentication__Schemes__OpenIdConnect__ClientSecret", value: workosApiKey },
+                  { name: "Authentication__Schemes__OpenIdConnect__ClientSecret", valueFrom: fromSecret(WORKOS_CLIENT_SECRET_KEY) },
                   // Claim gate: only GRID Platform organization members pass.
                   { name: "Dashboard__Frontend__OpenIdConnect__RequiredClaimType", value: "org_id" },
                   { name: "Dashboard__Frontend__OpenIdConnect__RequiredClaimValue", value: obs.platformOrgId },
@@ -120,7 +127,7 @@ export function installObservabilityDashboard(
                   { name: "Dashboard__ApplicationName", value: "Grid" },
                   // OTLP ingestion auth (only the collector presents the key).
                   { name: "Dashboard__Otlp__AuthMode", value: "ApiKey" },
-                  { name: "Dashboard__Otlp__PrimaryApiKey", valueFrom: apiKeyFromSecret },
+                  { name: "Dashboard__Otlp__PrimaryApiKey", valueFrom: fromSecret(OTLP_API_KEY_SECRET_KEY) },
                   // Raised ring-buffer limits for a useful live-view window.
                   { name: "Dashboard__TelemetryLimits__MaxLogCount", value: String(obs.telemetryLimits.maxLogCount) },
                   { name: "Dashboard__TelemetryLimits__MaxTraceCount", value: String(obs.telemetryLimits.maxTraceCount) },
@@ -151,7 +158,7 @@ export function installObservabilityDashboard(
         },
       },
     },
-    { provider, dependsOn: [...dependsOn, ingestionSecret] },
+    { provider, dependsOn: [...dependsOn, secrets] },
   );
 
   // Cluster-internal Service: the UI port for the HTTPRoute target, and the
@@ -189,5 +196,5 @@ export function installObservabilityDashboard(
     { provider, dependsOn: service },
   );
 
-  return { deployment, service, route, ingestionSecret };
+  return { deployment, service, route, secrets };
 }

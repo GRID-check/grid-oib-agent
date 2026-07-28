@@ -275,13 +275,14 @@ export interface GridConfig {
      */
     platformOrgId: string;
     /**
-     * Aspire dashboard image reference with a pinned tag (e.g.
-     * mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0).
+     * Aspire dashboard image reference, digest-pinned by default (override
+     * only for deliberate upgrades).
      */
     dashboardImage: string;
     /**
-     * OpenTelemetry Collector image reference with a pinned tag — the single
-     * OTLP ingestion point that fans out to the dashboard (ADR-0029 amendment).
+     * OpenTelemetry Collector image reference, digest-pinned by default —
+     * the single OTLP ingestion point that fans out to the dashboard
+     * (ADR-0029 amendment).
      */
     collectorImage: string;
     /**
@@ -551,13 +552,19 @@ export function loadConfig(): GridConfig {
     observability: {
       otelDomain: cfg.require("otelDomain"),
       platformOrgId: cfg.require("platformOrgId"),
-      dashboardImage: cfg.get("dashboardImage") ?? "mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0",
-      collectorImage: cfg.get("collectorImage") ?? "otel/opentelemetry-collector-contrib:0.157.0",
+      // Digest-pinned (supply chain): 9.1.0 and 0.157.0 respectively. Bump
+      // deliberately via config when upgrading.
+      dashboardImage:
+        cfg.get("dashboardImage") ??
+        "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:bd9d365a596747a7d5eaf68f3d755a527cde4b0be0bc0547894566c16fa204c5",
+      collectorImage:
+        cfg.get("collectorImage") ??
+        "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6",
       telemetryLimits: {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
       },
-      otelPrimaryApiKey: cfg.getSecret("otelPrimaryApiKey") ?? pulumi.output(""),
+      otelPrimaryApiKey: cfg.requireSecret("otelPrimaryApiKey"),
     },
   };
 }

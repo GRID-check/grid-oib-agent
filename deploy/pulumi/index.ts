@@ -140,7 +140,7 @@ const obs = installObservabilityDashboard(
 );
 installOtelCollector(
   cfg, provider, namespace,
-  obs.ingestionSecret,
+  obs.secrets,
   [obs.service],
 );
 

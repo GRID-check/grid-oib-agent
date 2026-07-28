@@ -37,8 +37,7 @@ export function installOtelCollector(
   cfg: GridConfig,
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
-  ingestionSecret: k8s.core.v1.Secret,
-  dependsOn: pulumi.Resource[],
+  secrets: k8s.core.v1.Secret,  dependsOn: pulumi.Resource[],
 ): OtelCollector {
   const labels = commonLabels(COMPONENT);
   const name = COMPONENT;
@@ -110,6 +109,8 @@ service:
           metadata: { labels },
           spec: {
             enableServiceLinks: false,
+            // No K8s API access needed — don't hand the pod an API token.
+            automountServiceAccountToken: false,
             securityContext: { runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001 },
             containers: [
               {
@@ -127,7 +128,7 @@ service:
                     name: "OTLP_API_KEY",
                     valueFrom: {
                       secretKeyRef: {
-                        name: ingestionSecret.metadata.name,
+                        name: secrets.metadata.name,
                         key: OTLP_API_KEY_SECRET_KEY,
                       },
                     },
@@ -160,7 +161,7 @@ service:
         },
       },
     },
-    { provider, dependsOn: [...dependsOn, configMap, ingestionSecret] },
+    { provider, dependsOn: [...dependsOn, configMap, secrets] },
   );
 
   const service = new k8s.core.v1.Service(
