@@ -12,7 +12,7 @@
 'use client'
 
 import { forwardRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react'
-import { Archive, FileText, Globe, Scale } from 'lucide-react'
+import { Archive, FileText, Globe, Scale, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SourceSignal, SourceTint } from '../lib/source-presets'
 
@@ -24,13 +24,21 @@ const SIGNAL_ICON: Record<SourceSignal, typeof Globe> = {
   auto: Globe,
 }
 
-/**
- * Icon for a tint. Accents share their stratum's glyph on purpose: colour
- * separates OIB from RIS, the icon still says "this is Baurecht", so the two
- * read as siblings rather than as unrelated source types.
- */
+/** Icon per tint accent — the accents that are not plain signals. */
+const TINT_ICON: Record<'oib' | 'tool', typeof Globe> = {
+  // Accents share their stratum's glyph on purpose: colour separates OIB from
+  // RIS, the icon still says "this is Baurecht", so the two read as siblings
+  // rather than as unrelated source types.
+  oib: SIGNAL_ICON.law,
+  // `tool` is the exception that proves the rule — it shares the neutral `auto`
+  // COLOUR, so the icon is the only thing that can say "this is a computation,
+  // not a document you can look up".
+  tool: Wrench,
+}
+
+/** Icon for a tint, falling back to the neutral globe for unknown values. */
 export const iconForTint = (tint: SourceTint): typeof Globe =>
-  tint === 'oib' ? SIGNAL_ICON.law : SIGNAL_ICON[tint]
+  TINT_ICON[tint as 'oib' | 'tool'] ?? SIGNAL_ICON[tint as SourceSignal] ?? Globe
 
 /**
  * Tinted style from the --source-* token family (semantic fallbacks only).

@@ -19,7 +19,7 @@
 import type { GridCard } from '@/shared/cards/schemas'
 import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 import type { CitationSource } from '../types'
-import { KIND_TO_SIGNAL, accentForLane, authorityTag } from './source-kinds'
+import { KIND_TO_SIGNAL, accentForLane, authorityTag, tintForKind } from './source-kinds'
 
 /** Origin of an answer source — mirrors ReportSourceKind (kb/ris/web). */
 export type AnswerSourceKind = 'kb' | 'ris' | 'web'
@@ -200,13 +200,18 @@ export const deriveAnswerSources = (
       const kind = classifyCitation(citation)
       // Color by the canonical wire kind (OIB corpus + RIS → law family);
       // fall back to the legacy origin mapping only for pre-kind messages.
-      const baseSignal = citation.kind ? KIND_TO_SIGNAL[citation.kind] : LEGACY_KIND_TO_SIGNAL[kind]
+      const baseSignal = citation.kind ? tintForKind(citation.kind) : LEGACY_KIND_TO_SIGNAL[kind]
       const signal = accentForLane(citation.lane, baseSignal)
-      const authority = citation.lane
-        ? (authorityTag(citation.lane) ?? undefined)
-        : kind === 'ris'
-          ? 'RIS'
-          : undefined
+      // A tool result is a computation, not a document — it sits on no rung of
+      // the authority ladder, so it never carries a badge.
+      const authority =
+        citation.kind === 'tool'
+          ? undefined
+          : citation.lane
+            ? (authorityTag(citation.lane) ?? undefined)
+            : kind === 'ris'
+              ? 'RIS'
+              : undefined
       // Prefer the canonical OIB document identity so a KB citation and a
       // legal_basis card naming the same Richtlinie collapse to one chip; fall
       // back to the filename/url identity for everything else.

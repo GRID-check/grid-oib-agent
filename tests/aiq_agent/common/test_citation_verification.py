@@ -1813,6 +1813,323 @@ class TestKnowledgeLayerDocClassParsing:
         assert source_lane(entries[0]) == ("baurecht_ris", "Rechtsquelle (RIS)")
 
 
+class TestTurnCaptureLog:
+    """Per-turn retrieval, kept apart from the cumulative session registry."""
+
+    def _capture(self, *entries: SourceEntry) -> list[SourceEntry]:
+        from aiq_agent.common.citation_verification import begin_turn_capture
+        from aiq_agent.common.citation_verification import end_turn_capture
+        from aiq_agent.common.citation_verification import get_turn_captures
+        from aiq_agent.common.citation_verification import record_turn_capture
+
+        token = begin_turn_capture()
+        try:
+            record_turn_capture(list(entries))
+            return get_turn_captures()
+        finally:
+            end_turn_capture(token)
+
+    def test_records_what_the_turn_retrieved(self):
+        captured = self._capture(
+            SourceEntry(citation_key="a.pdf, p.1", source_type="knowledge_layer"),
+            SourceEntry(url="https://example.com/x", source_type="generic"),
+        )
+        assert len(captured) == 2
+
+    def test_same_document_twice_in_one_turn_counts_once(self):
+        captured = self._capture(
+            SourceEntry(citation_key="a.pdf, p.1", source_type="knowledge_layer"),
+            SourceEntry(citation_key="A.pdf, p.1", source_type="knowledge_layer"),
+        )
+        assert len(captured) == 1
+
+    def test_equivalent_urls_count_once(self):
+        captured = self._capture(
+            SourceEntry(url="https://example.com/a/", source_type="generic"),
+            SourceEntry(url="https://example.com/a?utm_source=x", source_type="generic"),
+        )
+        assert len(captured) == 1
+
+    def test_outside_a_turn_nothing_is_recorded(self):
+        from aiq_agent.common.citation_verification import get_turn_captures
+        from aiq_agent.common.citation_verification import record_turn_capture
+
+        record_turn_capture([SourceEntry(citation_key="stray.pdf", source_type="knowledge_layer")])
+        assert get_turn_captures() == []
+
+    def test_a_later_turn_can_recount_a_document_the_registry_already_holds(self):
+        """The distortion this exists to remove: cited_count > source_count."""
+        entry = SourceEntry(citation_key="a.pdf, p.1", source_type="knowledge_layer")
+        # Turn 1 retrieves it; the cumulative registry keeps it forever.
+        registry = SourceRegistry()
+        registry.add(entry)
+        # Turn 2 retrieves it AGAIN — the registry dedups, the turn log does not.
+        assert len(self._capture(entry)) == 1
+        assert len(registry.all_sources()) == 1
+
+
+class TestKnowledgeCitationLineFormats:
+    """Real citation lines must survive, whatever shape the model writes them in.
+
+    The title-prefixed and parenthesised forms are what models actually produce.
+    Both used to be dropped — the greedy filename pattern swallowed the title
+    into the "filename", and the trailing-parenthetical trim (meant for
+    "(Internal)") ate the whole locator. The user saw "Quellenangabe entfernt"
+    on a citation to a document that had genuinely been retrieved.
+    """
+
+    FILE = "oib-rl_2_ausgabe_mai_2023.pdf"
+
+    def _registry(self) -> SourceRegistry:
+        reg = SourceRegistry()
+        for page in (12, 30):
+            reg.add(
+                SourceEntry(
+                    citation_key=f"{self.FILE}, p.{page}",
+                    title="OIB-Richtlinie 2",
+                    source_type="knowledge_layer",
+                )
+            )
+        return reg
+
+    def _verify(self, line: str):
+        return verify_citations(f"Antwort [1].\n\n## Quellen\n{line}\n", self._registry())
+
+    @pytest.mark.parametrize(
+        "line,expected_page",
+        [
+            (f"- [1] {FILE}, p.12", 12),
+            (f"- [1] OIB-Richtlinie 2 – Brandschutz - {FILE}, p.30", 30),
+            (f"- [1] OIB-Richtlinie 2 ({FILE}, p.30)", 30),
+            (f"- [1] **{FILE}, p.12** (Internal)", 12),
+            (f"- [1] OIB-Richtlinie 2: {FILE}, p.30", 30),
+        ],
+    )
+    def test_line_is_kept_and_resolves_to_the_cited_page(self, line, expected_page):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        registry = self._registry()
+        result = verify_citations(f"Antwort [1].\n\n## Quellen\n{line}\n", registry)
+        assert len(result.valid_citations) == 1, f"dropped: {result.removed_citations}"
+        entry = registry.entry_for_citation_key(result.valid_citations[0]["citation_key"])
+        assert source_entry_to_wire(entry)["page"] == expected_page
+
+    def test_document_never_retrieved_is_still_dropped(self):
+        result = self._verify("- [1] Ein Dokument das es nicht gibt.pdf, p.4")
+        assert result.valid_citations == []
+        assert result.removed_citations[0]["reason"] == "citation_key_not_in_registry"
+
+    def test_label_without_a_document_is_still_unverifiable(self):
+        result = self._verify("- [1] Eine vage Bezeichnung ohne Datei")
+        assert result.valid_citations == []
+        assert result.removed_citations[0]["reason"] == "unverifiable"
+
+    def test_a_longer_filename_is_not_claimed_by_a_shorter_registered_one(self):
+        """`plan.pdf` in the registry must not answer for `bestandsplan.pdf`."""
+        reg = SourceRegistry()
+        reg.add(SourceEntry(citation_key="plan.pdf, p.1", source_type="knowledge_layer"))
+        result = verify_citations("Antwort [1].\n\n## Quellen\n- [1] bestandsplan.pdf, p.7\n", reg)
+        assert result.valid_citations == []
+        assert result.removed_citations[0]["reason"] == "citation_key_not_in_registry"
+
+    def test_the_more_specific_registered_filename_wins(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        reg = SourceRegistry()
+        reg.add(SourceEntry(citation_key="plan.pdf, p.1", source_type="knowledge_layer"))
+        reg.add(SourceEntry(citation_key="bestandsplan.pdf, p.7", source_type="knowledge_layer"))
+        result = verify_citations("Antwort [1].\n\n## Quellen\n- [1] Bestand - bestandsplan.pdf, p.7\n", reg)
+        assert len(result.valid_citations) == 1
+        entry = reg.entry_for_citation_key(result.valid_citations[0]["citation_key"])
+        assert source_entry_to_wire(entry)["file_name"] == "bestandsplan.pdf"
+
+
+class TestToolResultSourceKind:
+    """A bare tool result is a computation, not a document — say so on the wire."""
+
+    def test_tool_result_capture_gets_the_tool_kind(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entries = extract_sources_from_tool_result("mcp_time__get_current_time", "2026-07-28T10:00:00+02:00")
+        assert len(entries) == 1
+        assert entries[0].source_type == "tool_result"
+        assert source_entry_to_wire(entries[0])["kind"] == "tool"
+
+    def test_it_does_not_masquerade_as_a_web_source(self):
+        """It used to fail open to `web` and sit beside a Richtlinie as a peer."""
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = SourceEntry(citation_key="some_tool", source_type="tool_result", tool_name="some_tool")
+        wire = source_entry_to_wire(entry)
+        assert wire["kind"] != "web"
+        # It names no document, so it offers no file to open and no origin token.
+        assert "file_name" not in wire
+        assert "origin" not in wire
+
+    def test_real_documents_and_urls_keep_their_kind(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        kb = SourceEntry(citation_key="oib-rl_2.pdf, p.3", source_type="knowledge_layer", collection="oib_knowledge")
+        web = SourceEntry(url="https://example.com/a", source_type="generic", tool_name="web_search_tool")
+        assert source_entry_to_wire(kb)["kind"] == "baurecht"
+        assert source_entry_to_wire(web)["kind"] == "web"
+
+
+class TestCitedPageResolution:
+    """The wire's page is the page the UI opens the PDF at — resolve it exactly."""
+
+    def _registry(self) -> SourceRegistry:
+        reg = SourceRegistry()
+        # Same document, two retrieved pages — p.12 registered first.
+        reg.add(SourceEntry(citation_key="oib-rl_2.pdf, p.12", source_type="knowledge_layer"))
+        reg.add(SourceEntry(citation_key="oib-rl_2.pdf, p.30", source_type="knowledge_layer"))
+        return reg
+
+    def test_resolves_to_the_page_the_citation_names(self):
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf, p.30")
+        assert entry is not None and entry.citation_key == "oib-rl_2.pdf, p.30"
+
+    def test_wire_page_matches_the_cited_page(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf, p.30")
+        assert source_entry_to_wire(entry)["page"] == 30
+
+    def test_unretrieved_page_still_resolves_to_a_retrieved_one(self):
+        """A page the retrieval never returned must not deep-link to itself."""
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf, p.47")
+        assert entry is not None
+        assert source_entry_to_wire(entry)["page"] in (12, 30)
+
+    def test_pageless_citation_falls_back_to_the_first_match(self):
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf")
+        assert entry is not None and entry.citation_key == "oib-rl_2.pdf, p.12"
+
+    def test_unknown_file_resolves_to_nothing(self):
+        assert self._registry().entry_for_citation_key("other.pdf, p.1") is None
+
+
+class TestSanitizeReportExposesRenumberMap:
+    """Callers that put verify_citations' [N] on the wire must be able to remap."""
+
+    def test_gap_closing_is_reported(self):
+        report = "A [1] and C [3].\n\n## Sources\n- [1] https://a.example/x\n- [3] https://c.example/z\n"
+        result = sanitize_report(report)
+        assert result.renumber_map == {1: 1, 3: 2}
+        # …and the prose the reader sees uses the NEW numbers.
+        assert "C [2]" in result.sanitized_report
+
+    def test_sequential_report_maps_every_number_to_itself(self):
+        report = "A [1] and B [2].\n\n## Sources\n- [1] https://a.example/x\n- [2] https://b.example/y\n"
+        assert sanitize_report(report).renumber_map == {1: 1, 2: 2}
+
+    def test_report_without_a_source_section_has_an_empty_map(self):
+        assert sanitize_report("Just prose, no sources.").renumber_map == {}
+
+
+class TestKnowledgeLayerFieldsAreBlockScoped:
+    """Optional header fields must bind to THEIR hit, never to a later one.
+
+    ``_format_results`` emits ``Collection:`` and ``Dokumentart:`` only when the
+    hit has one. Zipping separate whole-document ``findall`` lists therefore
+    shifted every optional value up by one as soon as a result set mixed a
+    classified with an unclassified hit — and since ``doc_class`` is the
+    FIRST-priority signal in ``lane_for_hit``, a project upload silently
+    rendered as an OIB Richtlinie.
+    """
+
+    # Result 1 is a project upload: no Dokumentart line (nothing classifies it).
+    # Result 2 is an OIB corpus hit and carries one.
+    MIXED_OUTPUT = (
+        "Found 2 relevant document(s):\n\n"
+        "--- Result 1 ---\n"
+        "Source: Einreichplan Obergeschoss\n"
+        "Collection: proj_abc\n"
+        "Page: 4\n"
+        "Citation: einreichplan_og.pdf, p.4\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.71\n"
+        "\n"
+        "Der Einreichplan zeigt die Lage der Fluchtwege.\n"
+        "\n"
+        "--- Result 2 ---\n"
+        "Source: OIB-Richtlinie 2 – Brandschutz\n"
+        "Collection: oib_knowledge\n"
+        "Dokumentart: oib_richtlinie — OIB-Richtlinie\n"
+        "Page: 12\n"
+        "Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.88\n"
+        "\n"
+        "Brandabschnitte sind so auszubilden.\n"
+        "\n"
+        "## Trace-Lanes\n"
+        '{"lanes":[]}\n'
+    )
+
+    def _entries(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        return extract_sources_from_tool_result("knowledge_search", self.MIXED_OUTPUT)
+
+    def test_optional_doc_class_does_not_shift_onto_the_previous_hit(self):
+        entries = self._entries()
+        assert [e.citation_key for e in entries] == [
+            "einreichplan_og.pdf, p.4",
+            "oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+        ]
+        # The unclassified project upload keeps NO doc_class…
+        assert entries[0].doc_class is None
+        # …and the OIB hit keeps its own instead of losing it to the shift.
+        assert entries[1].doc_class == "oib_richtlinie"
+
+    def test_every_field_stays_with_its_own_hit(self):
+        first, second = self._entries()
+        assert (first.title, first.collection) == ("Einreichplan Obergeschoss", "proj_abc")
+        assert (second.title, second.collection) == ("OIB-Richtlinie 2 – Brandschutz", "oib_knowledge")
+        assert "Fluchtwege" in (first.chunk_text or "")
+        assert "Brandabschnitte" in (second.chunk_text or "")
+
+    def test_project_upload_is_not_rendered_as_building_law(self):
+        """The user-visible consequence: chip colour and authority badge."""
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        first, second = self._entries()
+        assert source_lane(first) == ("projekt", "Projektwissen")
+        assert source_entry_to_wire(first)["kind"] == "projekt"
+        # The real OIB document is the one that gets the Baurecht treatment.
+        assert source_lane(second)[0].startswith("baurecht_oib")
+        assert source_entry_to_wire(second)["kind"] == "baurecht"
+
+    def test_trace_lanes_block_is_not_parsed_as_a_hit_body(self):
+        second = self._entries()[1]
+        assert "Trace-Lanes" not in (second.chunk_text or "")
+        assert "lanes" not in (second.chunk_text or "")
+
+    def test_block_without_a_citation_field_is_skipped(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = (
+            "--- Result 1 ---\nSource: orphan.pdf\nRelevance Score: 0.5\n\nbody\n\n"
+            "--- Result 2 ---\nSource: real.pdf\nCitation: real.pdf, p.1\nRelevance Score: 0.9\n\nbody\n"
+        )
+        entries = extract_sources_from_tool_result("knowledge_search", content)
+        assert [e.citation_key for e in entries] == ["real.pdf, p.1"]
+
+    def test_output_without_block_markers_still_parses(self):
+        """A non-``_format_results`` producer keeps the legacy positional path."""
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = "Source: legacy.pdf\nCollection: oib_knowledge\nCitation: legacy.pdf, p.2\n"
+        entries = extract_sources_from_tool_result("knowledge_search", content)
+        assert len(entries) == 1
+        assert entries[0].citation_key == "legacy.pdf, p.2"
+        assert entries[0].collection == "oib_knowledge"
+
+
 # ---------------------------------------------------------------------------
 # Quote verification tests
 # ---------------------------------------------------------------------------

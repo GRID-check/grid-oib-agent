@@ -74,11 +74,29 @@ SOURCE_KINDS: dict[str, SourceKind] = {
         description="Rechercheergebnisse aus dem Web.",
         css_token="web",
     ),
+    "tool": SourceKind(
+        key="tool",
+        label="Werkzeug",
+        description="Ergebnis eines Werkzeugs — kein Dokument und keine Fundstelle.",
+        css_token="tool",
+    ),
 }
 
 #: Fail-open kind for an unclassifiable source, matching ``lane_for_hit``'s
 #: ``("web", "Web")`` fallback.
 DEFAULT_SOURCE_KIND = "web"
+
+#: ``SourceEntry.source_type`` of the non-URL capture fallback: a tool that
+#: produced output but named no document and no URL, registered under its own
+#: tool name (``extract_sources_from_tool_result``). It is a computation, not
+#: evidence, and gets the :data:`TOOL_SOURCE_KIND` so no surface can render it
+#: as a document alongside a Richtlinie.
+TOOL_RESULT_SOURCE_TYPE = "tool_result"
+
+#: Kind for :data:`TOOL_RESULT_SOURCE_TYPE` sources. Deliberately outside the
+#: lane taxonomy — a tool result has no stratum, so it is assigned directly
+#: rather than derived from ``lane_for_hit``.
+TOOL_SOURCE_KIND = "tool"
 
 # Fine lane stratum-key → coarse source kind. A prefix match on the lane family
 # keeps this table small and forward-compatible: any new ``baurecht_*`` sub-lane
