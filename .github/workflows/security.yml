@@ -175,6 +175,8 @@ jobs:
     name: Image vulns (trivy)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
+      # Needed for the digest extraction below to see deploy/pulumi/src/config.ts.
+      - uses: actions/checkout@v7
       # The two observability images (ADR-0029) are digest-pinned in
       # deploy/pulumi/src/config.ts and never flow through a repo Dockerfile,
       # so OSV/dependency scanners never see them. trivy scans the pinned
