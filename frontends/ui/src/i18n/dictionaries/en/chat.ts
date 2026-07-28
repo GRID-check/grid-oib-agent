@@ -239,6 +239,7 @@ export const chat = {
     stepsHeading: 'Intermediate steps',
     sourcesFanOut: 'Sources',
     hitCount: '{count} hits',
+    hitCountOne: '1 hit',
     gapHit: 'Not in corpus',
     moreSources: '+{count} more',
     selectedDataSources: 'Selected Data Sources:',
@@ -273,6 +274,15 @@ export const chat = {
       // produced hits. NOT the answer's trust verdict (confidence/provenance) —
       // that lives once, on the answer card.
       findingsHits: 'Hits in: {lanes}',
+      // The proof-of-work tally, stated where the fan converges: what was
+      // actually read, before naming which strata it came from.
+      findingsTally: '{hits} hits across {docs} documents',
+      findingsTallyOne: '{hits} hits in 1 document',
+      // While the turn streams there is no assessment yet, but the graph still
+      // needs its converge point — otherwise the source columns dangle and the
+      // shape jumps when the answer lands.
+      findingsPendingTab: 'Assessment',
+      findingsPending: 'Weighing the sources …',
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },

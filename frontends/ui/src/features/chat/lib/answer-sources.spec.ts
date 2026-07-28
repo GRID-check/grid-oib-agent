@@ -109,14 +109,17 @@ describe('deriveAnswerSources', () => {
     expect(sources[0].label).toBe('OIB-Richtlinie 2 Pkt. 5.1.1')
   })
 
-  test('colors by the canonical wire kind: OIB corpus and RIS both use the law family', () => {
+  test('colors by the canonical wire kind, refined by lane: OIB and RIS are distinguishable', () => {
     const sources = deriveAnswerSources([
       citation({ id: 'c-1', url: undefined, content: '[KB] oib-rl_2.pdf, p.5', kind: 'baurecht', lane: 'baurecht_oib' }),
       citation({ id: 'c-2', url: 'https://www.ris.bka.gv.at/Norm', kind: 'baurecht', lane: 'baurecht_ris' }),
       citation({ id: 'c-3', url: undefined, content: 'plan.pdf', kind: 'projekt', lane: 'projekt' }),
     ])
 
-    expect(sources.map((s) => s.signal)).toEqual(['law', 'law', 'project'])
+    // Both remain Baurecht (same `kind`, same scales glyph), but the OIB
+    // corpus paints with the `oib` accent so a fan-out of OIB + RIS is
+    // readable by colour and does not lean on the badge text alone.
+    expect(sources.map((s) => s.signal)).toEqual(['oib', 'law', 'project'])
     expect(sources.map((s) => s.authority)).toEqual(['OIB', 'RIS', undefined])
   })
 
@@ -129,14 +132,16 @@ describe('deriveAnswerSources', () => {
     expect(source.authority).toBeUndefined()
   })
 
-  test('legal_basis chips render in the law family with an authority tag', () => {
+  test('legal_basis chips render in the Baurecht family with an authority tag', () => {
     const cards = [
       { type: 'legal_basis', law: 'OIB-Richtlinie 2', section: 'Pkt. 5.1.1', article: null, original_text: null, summary: null },
     ] as GridCard[]
 
     const [source] = deriveAnswerSources(undefined, cards)
 
-    expect(source.signal).toBe('law')
+    // A legal_basis card naming a Richtlinie is OIB, so it must match the OIB
+    // citation chip it dedupes against — one colour per document identity.
+    expect(source.signal).toBe('oib')
     expect(source.authority).toBe('OIB')
   })
 

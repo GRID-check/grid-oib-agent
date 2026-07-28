@@ -140,6 +140,30 @@ chip path):
 - **`_session_registries` LRU vs. persist race** and the **`top_k` retrieval
   ceiling** are low-severity/intended caps — documented, not changed.
 
+## Amendment (2026-07-28): tint accents inside a signal
+
+`SourceSignal` stays the four-value taxonomy this ADR unified on — it is what
+`SourceKind` maps to and what "how much can I trust this?" means. Rendering,
+however, now resolves a `SourceTint = SourceSignal | 'oib'`: the OIB corpus
+paints with an indigo accent inside the `law` family.
+
+This does not reopen the decision above. The failure it fixes is a *rendering*
+one: this ADR deliberately made OIB and RIS share the `law` tint and pushed the
+OIB-vs-RIS distinction entirely onto the authority badge ("Color = how much can
+I trust this?; badge = which rung of the authority ladder?"). In the Herleitung
+fan-out that proved too thin — a research-heavy turn shows several OIB and RIS
+cards side by side, all one blue, and the tier became readable only by reading
+three characters of badge text on each card.
+
+Rules that keep the accent from becoming a fifth signal:
+
+- Coarse behaviour is untouched: OIB is still `baurecht` / `law` for
+  `KIND_TO_SIGNAL`, composer presets, trust grouping, and the backend model.
+- An accent keeps its stratum's ICON (`iconForTint`), so OIB and RIS read as
+  siblings, and colour still never travels alone.
+- Both surfaces resolve through the same `accentForLane(lane, signal)`, so the
+  Herleitung card and the "Belegt durch" chip for one document cannot disagree.
+
 ## References
 
 - Click-dummy: `Ask_Piloti_v6_standalone2.html` (`TYPES`, `threadSources`, `Belegt durch`).

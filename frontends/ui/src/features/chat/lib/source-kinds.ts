@@ -11,7 +11,7 @@
  * authority ladder?".
  */
 
-import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 
 /** The four coarse source kinds every source renders through. */
 export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web'
@@ -70,3 +70,20 @@ export const authorityTag = (lane: string | null | undefined): string | null => 
   if (key.startsWith('baurecht')) return 'RIS' // baurecht_ris / _bund / _land / _verordnung
   return null
 }
+
+/**
+ * The `--source-*` family a source paints with.
+ *
+ * A refinement of `SourceSignal`, not a replacement: `law` covers the whole
+ * Baurecht stratum, but OIB and RIS are the two tiers architects compare most
+ * often and a fan-out that painted both the same blue was unreadable — the
+ * authority badge alone had to carry the entire distinction. `oib` is that
+ * stratum's accent; every other source keeps its signal untouched.
+ *
+ * Use this (never the bare signal) wherever a LANE is known, so the Herleitung
+ * cards and the "Belegt durch" chips can never drift apart.
+ */
+export const accentForLane = (
+  lane: string | null | undefined,
+  signal: SourceSignal
+): SourceTint => ((lane ?? '').toLowerCase().startsWith('baurecht_oib') ? 'oib' : signal)

@@ -25,6 +25,19 @@ import type { SourcePresetId } from '../types'
  */
 export type SourceSignal = 'law' | 'project' | 'office' | 'auto'
 
+/**
+ * A `--source-*` token family name: the four signals plus the lane-level
+ * accents that refine one of them.
+ *
+ * `oib` is not a fifth signal — the OIB corpus is still `law` everywhere the
+ * coarse provenance stratum is what matters (icon, presets, trust grouping).
+ * It exists because OIB and RIS are the two tiers architects compare most, and
+ * painting both the same blue left the authority badge carrying that entire
+ * distinction on its own. Resolve it with `accentForLane` in the chat feature,
+ * which is the only place a fine lane key is known.
+ */
+export type SourceTint = SourceSignal | 'oib'
+
 /** Matches law/regulation sources: RIS, Baurecht, OIB Richtlinien, norms. */
 const LAW_RE = /(^|[^a-z])ris([^a-z]|$)|recht|\blaw\b|richtlin|oib|norm|gesetz/i
 /** Matches project-document/knowledge sources. */

@@ -22,7 +22,7 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties, type FC } from 'react'
-import { Archive, ExternalLink, FileSearch, FileText, Globe, Scale } from 'lucide-react'
+import { ExternalLink, FileSearch } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -31,9 +31,10 @@ import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dial
 import {
   SourceSignalChip,
   SourceSignalChipLink,
+  iconForTint,
   sourceSignalStyle,
 } from '@/features/layout/components/SourceSignalChip'
-import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
 import {
   parseKbLocator,
@@ -139,13 +140,9 @@ export const useSourcePreviewIndex = (
 // Shared chip styling (mirrors SourceSignalChip's chip vocabulary)
 // ---------------------------------------------------------------------------
 
-/** Icon per signal — kept in sync with SourceSignalChip. */
-const SIGNAL_ICON: Record<SourceSignal, typeof Globe> = {
-  law: Scale,
-  project: FileText,
-  office: Archive,
-  auto: Globe,
-}
+// (The per-signal icon map used to be duplicated here "kept in sync with
+// SourceSignalChip" by hand; it now comes from `iconForTint`, so the accent
+// families cannot drift between the chip and the preview.)
 
 const chipButtonClasses =
   'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap ' +
@@ -161,7 +158,7 @@ const chipButtonClasses =
 type DocumentTarget = Extract<CitationTarget, { kind: 'document' }>
 
 /** Tinted "Fundstelle" / cited-passage box shown above the document frame. */
-const CitedPassageBox: FC<{ snippet: string; signal: SourceSignal }> = ({ snippet, signal }) => {
+const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet, signal }) => {
   const t = useTranslations('chat')
   const style: CSSProperties = {
     backgroundColor: `var(--source-${signal}-tint, var(--muted))`,
@@ -253,13 +250,13 @@ const useDocumentPreview = (target: DocumentTarget) => {
 
 const DocumentPreviewChip: FC<{
   target: DocumentTarget
-  signal: SourceSignal
+  signal: SourceTint
   label: string
   authority?: string
 }> = ({ target, signal, label, authority }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target)
-  const Icon = SIGNAL_ICON[signal]
+  const Icon = iconForTint(signal)
   return (
     <>
       <button
@@ -290,7 +287,7 @@ type InfoTarget = Extract<CitationTarget, { kind: 'info' }>
 
 const InfoPreviewChip: FC<{
   target: InfoTarget
-  signal: SourceSignal
+  signal: SourceTint
   label: string
   authority?: string
   /** Fine authority tier ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
@@ -301,7 +298,7 @@ const InfoPreviewChip: FC<{
   url?: string
 }> = ({ target, signal, label, authority, tier, bindingNote, url }) => {
   const t = useTranslations('chat')
-  const Icon = SIGNAL_ICON[signal]
+  const Icon = iconForTint(signal)
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -368,8 +365,8 @@ const InfoPreviewChip: FC<{
 
 export interface SourcePreviewChipProps {
   source: AnswerSourceRef
-  /** Provenance signal for tint/icon (mapped by the caller from source.kind). */
-  signal: SourceSignal
+  /** Provenance tint for chip/icon (mapped by the caller from source.kind + lane). */
+  signal: SourceTint
 }
 
 /**

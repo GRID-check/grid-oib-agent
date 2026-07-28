@@ -27,7 +27,8 @@ Use shadcn semantic classes: `bg-background/card/muted/accent`, `text-foreground
 
 | Token family | Light base | Meaning | Paired icon |
 |---|---|---|---|
-| `--source-law(-tint/-text)` | blue #2359d3 | Baurecht & Richtlinien (RIS, BO Wien, OIB) | "§" |
+| `--source-law(-tint/-text)` | blue #2359d3 | Rechtsquellen (RIS, BO Wien, Behörde) | "§" |
+| `--source-oib(-tint/-text)` | indigo | **Accent inside law** — OIB-Richtlinien & Erläuterungen | "§" (same as law) |
 | `--source-project(-tint/-text)` | green #17914d | Projektwissen (project documents) | doc |
 | `--source-office(-tint/-text)` | gold #c08c28 | Büroarchiv (office archive) | archive box |
 | `--source-auto(-tint/-text)` | gray #83837f | Automatisch / **Lücke** (knowledge gap) | globe / gap |
@@ -36,6 +37,16 @@ Use shadcn semantic classes: `bg-background/card/muted/accent`, `text-foreground
 | `--signal-error(-tint)` | red #c14a38 | errors only | alert |
 
 All are mapped as Tailwind colors (`bg-source-law-tint`, `text-source-law-text`, `border-source-office`, `bg-status-active-tint`, …). **Rule: color never travels alone — a provenance color always appears together with its icon and a text label.** Never use a source color decoratively or for anything but its meaning. `--grid-blue` survives only as a legacy alias of the law blue; it is not an accent.
+
+**Accents vs. signals.** `--source-oib` is the one *accent*: a hue inside an
+existing signal, not a fifth family. OIB stays `law` everywhere the coarse
+stratum is what matters (icon, composer presets, trust grouping, `SourceKind`) —
+the accent exists only because OIB and RIS are the two tiers architects compare
+most, and a Herleitung fan-out painting both the same blue left the authority
+badge carrying that whole distinction alone. Resolve it with `accentForLane`
+(`features/chat/lib/source-kinds.ts`), never by hand, so the Herleitung cards and
+the "Belegt durch" chips cannot drift. The type is `SourceTint = SourceSignal |
+'oib'`; an accent always keeps its stratum's icon.
 
 ## Type ramp (Tailwind classes — use verbatim)
 

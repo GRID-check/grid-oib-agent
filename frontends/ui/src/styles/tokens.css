@@ -45,9 +45,17 @@
   --grid-blue-active: oklch(0.434 0.167 263.4); /* #1c47ab */
 
   /* ---- provenance signal system (light) — color + tint surface + text ---- */
-  --source-law: oklch(0.506 0.197 263.2); /* #2359d3 — Baurecht & Richtlinien (RIS/BO/OIB), icon "§" */
+  --source-law: oklch(0.506 0.197 263.2); /* #2359d3 — Rechtsquellen (RIS/BO/Behörde), icon "§" */
   --source-law-tint: oklch(0.945 0.02 264.5); /* #e6edfb */
   --source-law-text: oklch(0.434 0.167 263.4); /* #1c47ab */
+  /* OIB corpus — an ACCENT inside the law family, not a fifth signal. OIB and
+     RIS are both Baurecht (same icon, same `law` signal everywhere the coarse
+     stratum is what matters), but they are the two provenance tiers users
+     compare most often, and one shared blue made a fan-out of both unreadable.
+     Same lightness/chroma as law, shifted to indigo so they stay siblings. */
+  --source-oib: oklch(0.506 0.185 295); /* indigo — OIB-Richtlinien & Erläuterungen */
+  --source-oib-tint: oklch(0.945 0.022 296);
+  --source-oib-text: oklch(0.434 0.158 295);
   --source-project: oklch(0.578 0.144 152.3); /* #17914d — Projektwissen, doc icon */
   --source-project-tint: oklch(0.942 0.023 157.6); /* #e0f1e6 */
   --source-project-text: oklch(0.509 0.13 151.5); /* #0f7a3d */
@@ -163,6 +171,9 @@
   --source-law: oklch(0.711 0.125 266);
   --source-law-tint: oklch(0.295 0.042 266.8); /* deep blue-tinted card surface */
   --source-law-text: oklch(0.81 0.082 266.9);
+  --source-oib: oklch(0.711 0.118 297); /* indigo sibling of law — see light block */
+  --source-oib-tint: oklch(0.295 0.044 297);
+  --source-oib-text: oklch(0.81 0.078 297);
   --source-project: oklch(0.739 0.147 154.6);
   --source-project-tint: oklch(0.298 0.037 160.3);
   --source-project-text: oklch(0.842 0.103 158.3);
@@ -293,6 +304,9 @@
   --color-source-law: var(--source-law);
   --color-source-law-tint: var(--source-law-tint);
   --color-source-law-text: var(--source-law-text);
+  --color-source-oib: var(--source-oib);
+  --color-source-oib-tint: var(--source-oib-tint);
+  --color-source-oib-text: var(--source-oib-text);
   --color-source-project: var(--source-project);
   --color-source-project-tint: var(--source-project-tint);
   --color-source-project-text: var(--source-project-text);
