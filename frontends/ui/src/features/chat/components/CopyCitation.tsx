@@ -4,9 +4,9 @@
  * A link the user has to retype into their Befund is not provenance they can
  * work with. These two affordances hand over a real citation instead:
  *
- *  - `CopySourceCitationButton` — per row, quiet until hover/focus: copies the
- *    German Fachtext citation of that one source (the form an Austrian
- *    Einreichung / Gutachten uses).
+ *  - `CopySourceCitationButton` — inside a source's preview popover / document
+ *    dialog: copies the German Fachtext citation of that one source (the form
+ *    an Austrian Einreichung / Gutachten uses).
  *  - `CopyCitationsMenu` — on the block: copies ALL of the answer's sources in
  *    the chosen format — Fachtext, APA, BibTeX, EndNote/Zotero (.ris) or
  *    CSL-JSON, i.e. the formats reference managers and Word actually ingest.
@@ -66,20 +66,18 @@ export const CopySourceCitationButton: FC<{ item: AnswerSourceItem }> = ({ item 
       type="button"
       onClick={() => void handleCopy()}
       aria-label={t('answerSources.copyCitationAria', { label: item.ref.label })}
-      title={t('answerSources.copyCitation')}
       className={cn(
-        'shrink-0 rounded-md p-1 text-muted-foreground transition-opacity hover:text-foreground',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-        // Quiet by default; revealed on row hover or keyboard focus so the list
-        // stays a calm bibliography rather than a row of buttons.
-        copied ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
+        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium',
+        'text-muted-foreground transition-colors hover:text-foreground',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )}
     >
       {copied ? (
-        <Check aria-hidden="true" className="size-3.5" />
+        <Check aria-hidden="true" className="size-3" />
       ) : (
-        <Copy aria-hidden="true" className="size-3.5" />
+        <Copy aria-hidden="true" className="size-3" />
       )}
+      {copied ? t('answerSources.copied') : t('answerSources.copyCitation')}
     </button>
   )
 }

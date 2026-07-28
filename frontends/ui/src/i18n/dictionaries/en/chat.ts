@@ -122,6 +122,7 @@ export const chat = {
     // Citations the user can actually paste somewhere — per source (Fachtext)
     // and for the whole answer in the formats external tools ingest.
     copyCitation: 'Copy citation',
+    copied: 'Copied',
     copyCitationAria: 'Copy citation for {label}',
     copyFailed: 'The citation could not be copied.',
     citeAll: 'Cite',

@@ -12,14 +12,14 @@
  * WS-9: chips are interactive — Web/RIS chips link out, KB chips open a
  * source preview (document dialog or info popover) via SourcePreviewChip.
  *
- * Two shapes, one component:
- *  - NUMBERED LIST, whenever the answer numbers its sources (`[N]` markers).
- *    This is the consolidation: the numbers, full titles and page/host locators
- *    that used to sit in a separate written "Quellen" list below the answer are
- *    merged INTO the chips, so the answer states its sources once. Each row is
- *    an anchor target, so an inline `[N]` in the prose scrolls to its source.
- *  - COMPACT WRAP ROW, when there are no numbers (nothing per-source to line up)
- *    — the original chip row, unchanged.
+ * The consolidation (one row, not a row plus a written list): an answer used to
+ * end in its own "## Quellen" section AND carry this chip row, each holding half
+ * the truth. That section is now lifted out of the answer body and folded in
+ * here — the chip keeps its compact shape and gains the citation's `[N]`, while
+ * the rest of what the written list said (untruncated title, cited page, host,
+ * and a copyable citation) lives ONE CLICK AWAY in the chip's existing preview
+ * popover / document dialog. Each chip is also the anchor its inline `[N]`
+ * marker scrolls to.
  */
 
 'use client'
@@ -32,7 +32,7 @@ import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
 import { answerSourceItems } from '../lib/answer-source-list'
 import type { CitationSource } from '../types'
 import { SourcePreviewChip } from './SourcePreview'
-import { CopyCitationsMenu, CopySourceCitationButton } from './CopyCitation'
+import { CopyCitationsMenu } from './CopyCitation'
 
 interface AnswerSourcesRowProps {
   citations?: CitationSource[]
@@ -88,63 +88,35 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     )
   }
 
-  const label = (
-    <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-      {t('answerSources.label')}
-    </span>
-  )
-
-  // No numbers anywhere → nothing to line up; keep the compact chip row.
-  if (!items.some((item) => item.number != null)) {
-    return (
-      <div
-        className="flex flex-wrap items-center gap-1.5 border-t pt-2"
-        role="list"
-        aria-label={t('answerSources.ariaLabel')}
-      >
-        {label}
-        {items.map((item) => (
-          <span role="listitem" key={item.key} className="inline-flex max-w-full">
-            <SourcePreviewChip source={item.ref} signal={item.ref.signal} />
-          </span>
-        ))}
-      </div>
-    )
-  }
-
   return (
-    <div className="border-t pt-2">
-      <div className="flex items-center justify-between gap-2">
-        {label}
-        {/* The block's real payoff: every source as a citation the user can
-            paste into a Befund, Word or their reference manager. */}
-        <CopyCitationsMenu items={items} />
-      </div>
-      <ol className="mt-1 list-none space-y-0.5 pl-0" aria-label={t('answerSources.ariaLabel')}>
-        {items.map((item) => (
-          <li
-            key={item.key}
-            id={item.number != null && anchorPrefix ? `${anchorPrefix}${item.number}` : undefined}
-            className="group flex scroll-mt-4 items-center gap-1"
-          >
-            <span
-              className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground"
-              aria-hidden={item.number == null}
-            >
-              {item.number != null ? item.number : ''}
-            </span>
-            <SourcePreviewChip
-              source={item.ref}
-              signal={item.ref.signal}
-              variant="row"
-              meta={
-                item.page != null ? t('answerSources.page', { page: item.page }) : item.host
-              }
-            />
-            <CopySourceCitationButton item={item} />
-          </li>
-        ))}
-      </ol>
+    <div
+      className="flex flex-wrap items-center gap-1.5 border-t pt-2"
+      role="list"
+      aria-label={t('answerSources.ariaLabel')}
+    >
+      <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+        {t('answerSources.label')}
+      </span>
+      {items.map((item) => (
+        <span
+          role="listitem"
+          key={item.key}
+          // Anchor target for the inline [N] markers in the answer prose, so a
+          // citation still leads somewhere now that the written list is gone.
+          id={item.number != null && anchorPrefix ? `${anchorPrefix}${item.number}` : undefined}
+          className="inline-flex max-w-full scroll-mt-4"
+        >
+          <SourcePreviewChip
+            source={item.ref}
+            signal={item.ref.signal}
+            item={item}
+            meta={item.page != null ? t('answerSources.page', { page: item.page }) : item.host}
+          />
+        </span>
+      ))}
+      {/* Every source of this answer as a citation, in the format the user's
+          own tooling reads. Quiet, at the end of the row. */}
+      <CopyCitationsMenu items={items} />
     </div>
   )
 }

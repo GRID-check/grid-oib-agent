@@ -113,6 +113,7 @@ export const chat: typeof en.chat = {
     // Zitate zum Weiterverwenden — je Quelle als Fachtext, für die ganze
     // Antwort in den Formaten, die externe Werkzeuge einlesen.
     copyCitation: 'Zitat kopieren',
+    copied: 'Kopiert',
     copyCitationAria: 'Zitat kopieren: {label}',
     copyFailed: 'Das Zitat konnte nicht kopiert werden.',
     citeAll: 'Zitieren',

@@ -309,17 +309,28 @@ describe('AgentResponse', () => {
       expect(screen.queryByText(/\[KB\]/)).not.toBeInTheDocument()
     })
 
-    test('its entries become numbered, anchored rows of the provenance block', () => {
+    test('its entries become numbered, anchored chips of the provenance row', () => {
       render(<AgentResponse content={answer} messageId="m1" />)
 
       expect(
         screen.getByRole('list', { name: /sources this answer is backed by/i })
       ).toBeInTheDocument()
+      // The chip keeps its compact shape and carries the citation's [N] …
       expect(screen.getByText('1')).toBeInTheDocument()
-      // Filename in the row, cited page as its own quiet locator.
       expect(screen.getByText('oib-rl_4_ausgabe_mai_2023.pdf')).toBeInTheDocument()
-      expect(screen.getByText('p. 9')).toBeInTheDocument()
+      // … and is the anchor its inline [1] marker scrolls to.
       expect(document.getElementById('answer-source-m1-1')).not.toBeNull()
+    })
+
+    test('the cited page lives behind the click, not in the row', async () => {
+      const user = userEvent.setup()
+      render(<AgentResponse content={answer} messageId="m1" />)
+
+      expect(screen.queryByText('p. 9')).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /preview source/i }))
+
+      expect(await screen.findByText('p. 9')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /copy citation for/i })).toBeInTheDocument()
     })
 
     test('a written entry and its structured chip collapse into ONE row', () => {
@@ -344,8 +355,7 @@ describe('AgentResponse', () => {
         />
       )
 
-      const rows = screen.getAllByRole('listitem')
-      expect(rows).toHaveLength(1)
+      expect(screen.getAllByRole('listitem')).toHaveLength(1)
       // The chip keeps the human title; the raw filename is gone from the UI.
       expect(screen.getByText('OIB-Richtlinie 4, Ausgabe Mai 2023')).toBeInTheDocument()
       expect(screen.queryByText('oib-rl_4_ausgabe_mai_2023.pdf')).not.toBeInTheDocument()

@@ -35,7 +35,9 @@ import {
   sourceSignalStyle,
 } from '@/features/layout/components/SourceSignalChip'
 import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
+import type { AnswerSourceItem } from '../lib/answer-source-list'
 import { useChatStore } from '../store'
+import { CopySourceCitationButton } from './CopyCitation'
 import {
   parseKbLocator,
   resolveCitationTarget,
@@ -151,51 +153,18 @@ const chipButtonClasses =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
   'disabled:cursor-progress disabled:opacity-70'
 
-/** How a source renders: compact pill, or full-width bibliography row. */
-export type SourceVariant = 'chip' | 'row'
-
 /**
- * The ROW presentation of a source (the consolidated list under an answer).
+ * The `[N]` a source carries in the answer prose, rendered inside its chip.
  *
- * A bibliography entry, not a pill: full-width, left provenance rail in the
- * source tint, title in reading weight, locator + authority right-aligned and
- * quiet. Colour still travels with an icon and a text label, never alone.
+ * This is the one thing the written source list held that a chip could not: it
+ * is what an inline `[2]` in the answer points at. It uses the chip's own
+ * currentColor vocabulary (same as AuthorityTag) so it reads as part of the
+ * chip rather than as a new element bolted on.
  */
-const rowButtonClasses =
-  'group/row flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border border-transparent ' +
-  'border-l-2 py-1 pl-2 pr-1.5 text-left transition-colors hover:bg-muted/70 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
-  'disabled:cursor-progress disabled:opacity-70'
-
-/** Tint for the row rail + icon only — the row body stays on the card surface. */
-const sourceRowStyle = (signal: SourceTint): CSSProperties => ({
-  borderLeftColor: `color-mix(in oklch, var(--source-${signal}, var(--foreground)) 55%, transparent)`,
-})
-
-/** Shared inner layout of a source row: icon · title · authority · locator. */
-const SourceRowBody: FC<{
-  signal: SourceTint
-  label: string
-  authority?: string
-  /** Cited page / hostname, shown quietly at the end of the row. */
-  meta?: string
-}> = ({ signal, label, authority, meta }) => {
-  const Icon = iconForTint(signal)
-  return (
-    <>
-      <Icon
-        aria-hidden="true"
-        className="size-3.5 shrink-0"
-        style={{ color: `var(--source-${signal}-text, var(--muted-foreground))` }}
-      />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
-        {label}
-      </span>
-      {authority && <AuthorityTag>{authority}</AuthorityTag>}
-      {meta && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{meta}</span>}
-    </>
+const CitationIndex: FC<{ index?: number }> = ({ index }) =>
+  index == null ? null : (
+    <span className="shrink-0 text-[10px] font-semibold tabular-nums opacity-60">{index}</span>
   )
-}
 
 // ---------------------------------------------------------------------------
 // Document preview dialog (reuses the existing PdfViewerDialog machinery)
@@ -232,7 +201,7 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * The dialog only ever opens with a renderable source — a failed presign
  * surfaces as a toast, not a broken viewer.
  */
-const useDocumentPreview = (target: DocumentTarget) => {
+const useDocumentPreview = (target: DocumentTarget, item?: AnswerSourceItem) => {
   const t = useTranslations('chat')
   const [isOpen, setIsOpen] = useState(false)
   const [isResolving, setIsResolving] = useState(false)
@@ -278,13 +247,18 @@ const useDocumentPreview = (target: DocumentTarget) => {
       src={src ?? undefined}
       isImage={isImage}
       headerChip={
-        <SourceSignalChip signal={headerSignal}>
-          {t(
-            target.document.type === 'base'
-              ? 'sourcePreview.corpusDocument'
-              : 'sourcePreview.projectDocument'
-          )}
-        </SourceSignalChip>
+        <span className="flex items-center gap-2">
+          <SourceSignalChip signal={headerSignal}>
+            {t(
+              target.document.type === 'base'
+                ? 'sourcePreview.corpusDocument'
+                : 'sourcePreview.projectDocument'
+            )}
+          </SourceSignalChip>
+          {/* Same one-click citation the popover offers, for sources that open
+              a document instead. */}
+          {item && <CopySourceCitationButton item={item} />}
+        </span>
       }
     >
       {target.snippet && <CitedPassageBox snippet={target.snippet} signal={headerSignal} />}
@@ -300,19 +274,20 @@ const DocumentPreviewChip: FC<{
   label: string
   authority?: string
   className?: string
-  variant?: SourceVariant
-  meta?: string
-}> = ({ target, signal, label, authority, className, variant = 'chip', meta }) => {
+  /** The `[N]` this source carries in the answer prose, when known. */
+  index?: number
+  /** The full source row — powers the dialog's "copy citation" action. */
+  item?: AnswerSourceItem
+}> = ({ target, signal, label, authority, className, index, item }) => {
   const t = useTranslations('chat')
-  const { isResolving, openPreview, dialog } = useDocumentPreview(target)
-  const isRow = variant === 'row'
+  const { isResolving, openPreview, dialog } = useDocumentPreview(target, item)
   const Icon = iconForTint(signal)
   return (
     <>
       <button
         type="button"
-        className={cn(isRow ? rowButtonClasses : cn(chipButtonClasses, 'max-w-56'), className)}
-        style={isRow ? sourceRowStyle(signal) : sourceSignalStyle(signal)}
+        className={cn(chipButtonClasses, 'max-w-56', className)}
+        style={sourceSignalStyle(signal)}
         onClick={() => void openPreview()}
         disabled={isResolving}
         aria-busy={isResolving}
@@ -320,15 +295,10 @@ const DocumentPreviewChip: FC<{
         aria-label={t('sourcePreview.chipAria', { label })}
         title={t('sourcePreview.chipAria', { label })}
       >
-        {isRow ? (
-          <SourceRowBody signal={signal} label={label} authority={authority} meta={meta} />
-        ) : (
-          <>
-            <Icon aria-hidden="true" />
-            {authority && <AuthorityTag>{authority}</AuthorityTag>}
-            <span className="truncate">{label}</span>
-          </>
-        )}
+        <CitationIndex index={index} />
+        <Icon aria-hidden="true" />
+        {authority && <AuthorityTag>{authority}</AuthorityTag>}
+        <span className="truncate">{label}</span>
       </button>
       {dialog}
     </>
@@ -353,31 +323,29 @@ const InfoPreviewChip: FC<{
   /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
   url?: string
   className?: string
-  variant?: SourceVariant
+  /** The `[N]` this source carries in the answer prose, when known. */
+  index?: number
+  /** Cited page / hostname — shown in the popover, not on the chip. */
   meta?: string
-}> = ({ target, signal, label, authority, tier, bindingNote, url, className, variant = 'chip', meta }) => {
+  /** The whole source row, for the popover's "copy citation" action. */
+  item?: AnswerSourceItem
+}> = ({ target, signal, label, authority, tier, bindingNote, url, className, index, meta, item }) => {
   const t = useTranslations('chat')
-  const isRow = variant === 'row'
   const Icon = iconForTint(signal)
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(isRow ? rowButtonClasses : cn(chipButtonClasses, 'max-w-56'), className)}
-          style={isRow ? sourceRowStyle(signal) : sourceSignalStyle(signal)}
+          className={cn(chipButtonClasses, 'max-w-56', className)}
+          style={sourceSignalStyle(signal)}
           aria-label={t('sourcePreview.chipAria', { label })}
           title={t('sourcePreview.chipAria', { label })}
         >
-          {isRow ? (
-            <SourceRowBody signal={signal} label={label} authority={authority} meta={meta} />
-          ) : (
-            <>
-              <Icon aria-hidden="true" />
-              {authority && <AuthorityTag>{authority}</AuthorityTag>}
-              <span className="truncate">{label}</span>
-            </>
-          )}
+          <CitationIndex index={index} />
+          <Icon aria-hidden="true" />
+          {authority && <AuthorityTag>{authority}</AuthorityTag>}
+          <span className="truncate">{label}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
@@ -389,7 +357,15 @@ const InfoPreviewChip: FC<{
             <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
           )}
         </div>
-        <p className="break-words text-sm font-medium text-foreground">{target.title}</p>
+        {/* The written source list's payload, one click away: the citation
+            number, the untruncated title and the locator. */}
+        <p className="break-words text-sm font-medium text-foreground">
+          {index != null && (
+            <span className="mr-1 text-muted-foreground">[{index}]</span>
+          )}
+          {target.title}
+        </p>
+        {meta && <p className="text-[11px] text-muted-foreground">{meta}</p>}
         {bindingNote && (
           <div
             className="rounded-md border-l-2 py-1.5 pl-2.5 pr-2"
@@ -408,18 +384,23 @@ const InfoPreviewChip: FC<{
           </div>
         )}
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
-        {url && (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
-            style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
-          >
-            {t('sourcePreview.openExternal')}
-            <ExternalLink aria-hidden="true" className="size-3" />
-          </a>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          {url ? (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
+              style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
+            >
+              {t('sourcePreview.openExternal')}
+              <ExternalLink aria-hidden="true" className="size-3" />
+            </a>
+          ) : (
+            <span />
+          )}
+          {item && <CopySourceCitationButton item={item} />}
+        </div>
       </PopoverContent>
     </Popover>
   )
@@ -434,12 +415,17 @@ export interface SourcePreviewChipProps {
   /** Provenance tint for chip/icon (mapped by the caller from source.kind + lane). */
   signal: SourceTint
   /**
-   * `chip` — the compact pill of the wrap row (default, unchanged).
-   * `row`  — the full-width bibliography row of the consolidated source list.
-   * Both resolve the SAME preview target; only the presentation differs.
+   * The full source row this chip stands for. Everything the answer's written
+   * source list used to spell out — the citation number, the untruncated title,
+   * the cited page or host, and a copyable citation — travels in here and is
+   * shown BEHIND THE CLICK (popover / document dialog) instead of as a second
+   * list under the answer. Optional: without it the chip behaves exactly as before.
    */
-  variant?: SourceVariant
-  /** Cited page / hostname, rendered at the end of a `row`. */
+  item?: AnswerSourceItem
+  /**
+   * Cited page / host, localized by the caller — shown in the popover, never on
+   * the chip (which stays the compact pill it always was).
+   */
   meta?: string
   /** Layout override (width, truncation) for the caller's context. */
   className?: string
@@ -455,114 +441,75 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   source,
   signal,
   className,
-  variant = 'chip',
+  item,
   meta,
 }) => {
   const projectId = useChatStore((s) => s.projectId)
   // Only citation-backed refs without an outbound link can resolve to a
   // document — the index fetch is skipped entirely for link/card-only rows.
   const needsIndex = !!source.citation && !source.url
-  const index = useSourcePreviewIndex(projectId, needsIndex)
+  const previewIndex = useSourcePreviewIndex(projectId, needsIndex)
 
   const target: CitationTarget = source.citation
-    ? resolveCitationTarget(source.citation, index?.projectDocuments, index?.baseCorpusFiles)
+    ? resolveCitationTarget(source.citation, previewIndex?.projectDocuments, previewIndex?.baseCorpusFiles)
     : { kind: 'info', origin: source.kind, title: source.label, snippet: source.snippet }
 
+  const tier = source.citation?.laneLabel
+  const bindingNote = source.citation?.bindingNote
+  const shared = {
+    signal,
+    label: source.label,
+    authority: source.authority,
+    className,
+    index: source.number,
+    item,
+  }
+
   if (target.kind === 'url') {
-    const bindingNote = source.citation?.bindingNote
-    // A RIS source the registry says is binding opens a popover (bindingness +
-    // tier + "open in RIS") instead of just linking out — that "does this bind
-    // me?" answer is the highest-value thing to surface, not a silent jump.
-    if (bindingNote) {
+    // A URL source keeps linking out — that is what a web/RIS chip has always
+    // done and what makes it feel like a link. It only opens the popover when
+    // the click genuinely adds something the link cannot: the "does this bind
+    // me?" note or the authority tier of a legal source.
+    if (bindingNote || tier) {
       return (
         <InfoPreviewChip
-          target={{ kind: 'info', origin: source.kind, title: source.label }}
-          signal={signal}
-          label={source.label}
-          authority={source.authority}
-          tier={source.citation?.laneLabel}
+          {...shared}
+          target={{ kind: 'info', origin: source.kind, title: item?.ref.label ?? source.label }}
+          tier={tier}
           bindingNote={bindingNote}
           url={target.url}
-          className={className}
-          variant={variant}
           meta={meta}
         />
       )
     }
     return (
-      variant === 'row' ? (
-        <a
-          href={target.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(rowButtonClasses, className)}
-          style={sourceRowStyle(signal)}
-          title={source.label}
-        >
-          <SourceRowBody
-            signal={signal}
-            label={source.label}
-            authority={source.authority}
-            meta={meta}
-          />
-        </a>
-      ) : (
       <SourceSignalChipLink signal={signal} href={target.url} className={cn('max-w-56', className)}>
+        <CitationIndex index={source.number} />
         {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
         {source.label}
       </SourceSignalChipLink>
-      )
     )
   }
 
   if (target.kind === 'document') {
-    return (
-      <DocumentPreviewChip
-        target={target}
-        signal={signal}
-        label={source.label}
-        authority={source.authority}
-        className={className}
-        variant={variant}
-        meta={meta}
-      />
-    )
+    return <DocumentPreviewChip {...shared} target={target} />
   }
 
   // Info target: interactive when the popover adds something beyond the chip
-  // label (snippet, an untruncated title, or the authority tier). Gap/unknown
-  // sources with nothing to show stay plain — no fake preview.
-  const tier = source.citation?.laneLabel
-  const bindingNote = source.citation?.bindingNote
+  // label (snippet, an untruncated title, the authority tier, or a citation to
+  // copy). Gap/unknown sources with nothing to show stay plain — no fake preview.
   const hasPopoverContent =
-    !!target.snippet || target.title !== source.label || !!tier || !!bindingNote
+    !!target.snippet || target.title !== source.label || !!tier || !!bindingNote || !!item
   if (hasPopoverContent) {
-    return (
-      <InfoPreviewChip
-        target={target}
-        signal={signal}
-        label={source.label}
-        authority={source.authority}
-        tier={tier}
-        bindingNote={bindingNote}
-        className={className}
-        variant={variant}
-        meta={meta}
-      />
-    )
+    return <InfoPreviewChip {...shared} target={target} tier={tier} bindingNote={bindingNote} meta={meta} />
   }
 
   return (
-    variant === 'row' ? (
-      <span className={cn(rowButtonClasses, 'cursor-default hover:bg-transparent', className)} style={sourceRowStyle(signal)}>
-        <SourceRowBody signal={signal} label={source.label} authority={source.authority} meta={meta} />
-      </span>
-    ) : (
     <SourceSignalChip signal={signal} className={cn('max-w-56', className)}>
+      <CitationIndex index={source.number} />
       {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
       {source.label}
     </SourceSignalChip>
-    )
   )
 }
 
