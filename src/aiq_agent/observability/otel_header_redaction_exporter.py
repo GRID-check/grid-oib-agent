@@ -64,6 +64,11 @@ class OtelCollectorRedactionTelemetryExporter(
     name="otelcollector_redaction",
 ):
     resource_attributes: dict[str, str] = Field(default_factory=dict, description="Resource attributes to attach.")
+    # The parent mixin declares `endpoint: str`, but the config interpolates
+    # `${OTEL_EXPORTER_OTLP_ENDPOINT:-}` to None (not "") when the
+    # observability tier is not deployed, which crashed NAT startup with a
+    # pydantic str-validation error before the no-op path below could run.
+    endpoint: str | None = Field(default=None, description="The endpoint of the telemetry collector service.")
 
 
 class _DisabledSpanExporter(BaseExporter):

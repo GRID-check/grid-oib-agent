@@ -17,14 +17,17 @@ from aiq_agent.observability.otel_header_redaction_exporter import otelcollector
 CONFIG_PATH = "configs/config_oib_openrouter.yml"
 
 
-def _make_config(endpoint: str) -> OtelCollectorRedactionTelemetryExporter:
+def _make_config(endpoint: str | None) -> OtelCollectorRedactionTelemetryExporter:
     return OtelCollectorRedactionTelemetryExporter(
         _type="otelcollector_redaction", project="grid-aiq-agent", endpoint=endpoint
     )
 
 
-@pytest.mark.parametrize("endpoint", ["", "   "])
+@pytest.mark.parametrize("endpoint", ["", "   ", None])
 async def test_blank_endpoint_yields_a_noop_exporter(endpoint):
+    # None is what `${OTEL_EXPORTER_OTLP_ENDPOINT:-}` interpolates to when the
+    # var is unset — this exact value crashed NAT startup before `endpoint`
+    # was made Optional (pydantic str validation).
     # `register_telemetry_exporter` turns the factory into an async context manager.
     async with otelcollector_redaction_telemetry_exporter(_make_config(endpoint), None) as exporter:
         assert isinstance(exporter, _DisabledSpanExporter)

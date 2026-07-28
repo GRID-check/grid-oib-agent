@@ -7,6 +7,14 @@ general:
       console:
         _type: console
         level: INFO
+      otlp:
+        # Ships runtime logs to the same OTLP collector as the traces below
+        # (Aspire dashboard "Strukturierte Protokolle", ADR-0029). The
+        # /v1/logs path is derived from the injected traces endpoint; no
+        # endpoint == observability tier not deployed == no-op.
+        _type: otelcollector_logs
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+        level: INFO
     tracing:
       # Ships spans to the OTLP endpoint over HTTP/protobuf. Only the endpoint
       # is injected by the deployment (OTEL_EXPORTER_OTLP_ENDPOINT); producers
