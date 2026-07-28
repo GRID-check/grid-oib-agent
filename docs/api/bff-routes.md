@@ -261,6 +261,8 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 | Method | Path | Auth | Description | Response |
 |--------|------|------|-------------|----------|
 | `GET` | `/api/platform/overview` | Platform owner | Cross-org directory (WorkOS) joined with Grid stats: project counts + LLM spend per org from the usage ledger, totals, and the platform-wide 30-day `dailyTrend`. | `{ organizations, dailyTrend, totals, eurPerUsd }` |
+| `GET` | `/api/platform/citation-health?days=` | Platform owner | Cross-org citation-quality rollup over the `citation_events` ledger: clean rate, defect mix, per-day trend, removal reasons, flagged-turn source mix, missing-source candidates, per-org table, recent findings, and the derived `findings` action list. `days` clamps to 1–90 (default 30). | `{ windowDays, totals, findings, byKind, dailyTrend, reasons, sourceMix, unavailableTools, missingSources, organizations, recent }` |
+| `GET` | `/api/platform/citation-health/export?days=` | Platform owner | Diagnostic bundle for the same window as a downloadable JSON file (`Content-Disposition: attachment`, `Cache-Control: no-store`): one record per flagged turn with the sources retrieval returned, the sources the answer cited, and which citation failed for which reason — plus a glossary so a human or an AI agent can interpret it without further context. | `grid.citation-health.export/v1` bundle |
 | `POST` | `/api/platform/audit-portal` | Platform owner | Admin Portal audit-logs link for the GRID Platform org (platform trail incl. break-glass events). 404 = platform org not provisioned. | `{ link }` |
 | `GET` | `/api/widgets/token?org=platform&scope=…` | Platform owner | Widget token minted against the GRID Platform organization (platform dashboard widgets). | `{ token }` |
 
@@ -272,6 +274,7 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 |--------|------|------|-------------|
 | `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
+| `POST` | `/api/internal/citation-events` | `x-grid-internal-token` | Backend citation-health emitter's per-turn batches into the `citation_events` ledger (`src/aiq_agent/common/citation_events.py`). One row per `(turnId, kind)`; conflicts are ignored so a retried flush cannot double-count. |
 | `POST` | `/api/internal/workflows/fire` | `x-grid-internal-token` | Scheduler-fired workflow run (`{ workflowId }`). Re-checks `enabled` + the org's workflows gate, then submits through the shared fire path (ADR-0023). |
 | `GET` | `/api/internal/model-overrides?organizationId=` | `x-grid-internal-token` | **New 2026-07-16.** Just-in-time org model-override resolution (ADR-0014) for backend call sites whose request carries no `x-grid-model-overrides`/`X-Grid-Request-Context` header — `common/model_overrides.py`'s `resolve_org_model_overrides()` calls this, cached in-process. Returns `{ overrides: {group: modelId} \| null }`; reuses the write-invalidated cache inside `getActiveModelOverrides`, so a config save is visible on the next backend fetch. |
 

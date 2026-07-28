@@ -245,4 +245,179 @@ export const platform: typeof en.platform = {
       saving: 'Wird gespeichert…',
     },
   },
+  /**
+   * Zitations-Qualität (citation_events-Ledger): wie oft die Quellenprüfung in
+   * einen Recherche-Turn eingreifen musste — und warum.
+   */
+  citations: {
+    title: 'Zitations-Qualität',
+    description:
+      'Wie oft die Quellenprüfung in einen Recherche-Turn eingreifen musste — und was sie gefunden hat. Jeder Recherche-Turn schreibt eine Zeile; Auffälligkeiten werden daneben erfasst.',
+    loadError: 'Zitations-Qualität konnte nicht geladen werden.',
+    findingsTitle: 'Was zu tun ist',
+    findingsDescription:
+      'Abgeleitet aus den Befunden dieses Zeitraums — dringendste zuerst. Jeder Eintrag nennt die wahrscheinliche Ursache und den nächsten Schritt.',
+    findings: {
+      retrieval_unavailable: {
+        title: 'Eine Retrieval-Anbindung ist ausgefallen',
+        meaning:
+          '{turns} Recherche-Turn(s) haben überhaupt keine Quelle erfasst. Wenn das Retrieval nichts liefert, gibt es nichts zu zitieren — der Turn scheitert, statt zu antworten.',
+        action:
+          'Prüfen Sie das gemeldete Werkzeug ({subject}) und seine Datenquellen-Konfiguration — API-Key, Base-URL, Erreichbarkeit. Das zuerst beheben; alle anderen Befunde hängen davon ab.',
+        actionNoSubject:
+          'Prüfen Sie die Datenquellen-Konfiguration der Recherche-Werkzeuge — API-Key, Base-URL, Erreichbarkeit. Das zuerst beheben; alle anderen Befunde hängen davon ab.',
+      },
+      answers_ungrounded: {
+        title: 'Antworten gehen ohne Quelle raus',
+        meaning:
+          '{turns} Antwort(en) ({share}% der Turns) wurden mit dem sichtbaren Hinweis „Ohne Quellenangabe“ ausgeliefert — es wurden Quellen gefunden, aber keine zitierte hat die Prüfung überstanden.',
+        action:
+          'Öffnen Sie die markierten Turns unten und prüfen Sie, ob der Korpus die Frage überhaupt abdeckt. Wenn ja, liegt es am Zitier-Kontrakt im Writer-Prompt; wenn nein, fehlen dem Basiswissen von {subject} die Dokumente.',
+        actionNoSubject:
+          'Öffnen Sie die markierten Turns unten und prüfen Sie, ob der Korpus die Frage überhaupt abdeckt. Wenn ja, liegt es am Zitier-Kontrakt im Writer-Prompt; wenn nein, fehlen dem Basiswissen die Dokumente.',
+      },
+      citations_invented: {
+        title: 'Das Modell zitiert Quellen, die nie abgerufen wurden',
+        meaning:
+          '{citations} Quellenangabe(n) in {turns} Turn(s) wurden entfernt, und {share}% der Entfernungen betrafen Quellen, die gar nicht im Retrieval-Register standen — das Modell zitiert aus dem Gedächtnis.',
+        action:
+          'Das ist ein Prompt-/Modellproblem, kein Retrieval-Problem. Schärfen Sie die Zitierregeln im Researcher-Prompt (nur aus abgerufenen Passagen zitieren) und prüfen Sie das Modell der betroffenen Organisationen. Aktuell fängt das nur die Prüfung ab.',
+      },
+      quotes_fabricated: {
+        title: 'Wörtliche Zitate stehen so nicht in den Quellen',
+        meaning:
+          '{quotes} wörtliche(s) Zitat(e) in {turns} Turn(s) ({share}% der Turns) passten zu keiner abgerufenen Passage — das klassische Muster „echter Paragraf, erfundener Wortlaut“.',
+        action:
+          'Stichprobe: markierte Turns gegen das zitierte Dokument prüfen. Sind die Zitate tatsächlich korrekt, ist die Fuzzy-Schwelle zu streng; sind sie es nicht, erfindet das Modell Wortlaut und braucht eine strengere Zitieranweisung.',
+      },
+      citation_format_unparsed: {
+        title: 'Quellenangaben kommen in einem Format, das die Prüfung nicht lesen kann',
+        meaning:
+          'In {turns} Turn(s) ({share}% der Turns) hat nichts vom Modell Geschriebenes das Parsen überstanden, und eine Quelle musste automatisch ergänzt werden.',
+        action:
+          'Vergleichen Sie die Zitier-Syntax im Researcher-Prompt mit dem, was die Prüfung erwartet. Ein Format-Drift verwirft hier stillschweigend korrekte Quellenangaben — die Antwort wirkt schlechter belegt, als sie ist.',
+      },
+      organization_outlier: {
+        title: 'Eine Organisation ist deutlich schlechter als der Rest',
+        meaning:
+          '{subject} hat eine Befundquote von {share}% gegenüber {platformShare}% im Plattformdurchschnitt ({turns} auffällige Turns).',
+        action:
+          'Schauen Sie gezielt auf diese Organisation statt auf die Pipeline: Abdeckung des Basiswissens, hochgeladene Projektdokumente und das konfigurierte Modell. Eine plattformweite Änderung wäre hier die falsche Reparatur.',
+      },
+      sources_missing: {
+        title: 'Konkrete Quellen werden zitiert, sind aber nicht vorhanden',
+        meaning:
+          '{sources} verschiedene Quelle(n) wurden in {turns} Turn(s) zitiert, keine davon liegt im Basiskorpus oder im Normenkatalog. Am häufigsten: {subject}.',
+        action:
+          'Arbeiten Sie die Liste „Quellen zum Ergänzen“ unten ab. {automatic} davon sind RIS-Verweise, bei denen nur der Rechtsrang zu bestätigen ist; der Rest sind Dokumente, deren PDF Sie beisteuern müssen.',
+      },
+      sources_unretrievable: {
+        title: 'Vorhandene Quellen erreichen die Antworten nicht',
+        meaning:
+          '{sources} zitierte Quelle(n) in {turns} Turn(s) liegen bereits im Korpus, wurden vom Retrieval aber nie geliefert — allen voran {subject}.',
+        action:
+          'Diese NICHT erneut hochladen. Prüfen Sie stattdessen die Indexierung: Korpus-Sync ausführen, dann den Vektorspeicher abgleichen. Bleiben sie unauffindbar, liegt es am Chunking oder Embedding dieser Dokumente.',
+      },
+      duplicates_only: {
+        title: 'Die meisten Entfernungen sind nur Dubletten',
+        meaning:
+          '{share}% der entfernten Quellenangaben waren Dubletten einer bereits in derselben Antwort vorhandenen Angabe.',
+        action:
+          'Kein Handlungsbedarf — das ist kosmetische Entdopplung, kein Beleg-Problem. Solange das dominiert, ist die Zahl „entfernte Quellenangaben“ kein Qualitätsproblem.',
+      },
+      all_clear: {
+        title: 'Nichts erfordert Ihre Aufmerksamkeit',
+        meaning: '{turns} Recherche-Turns in diesem Zeitraum, {share}% davon ohne einen einzigen Befund.',
+        action: 'Nichts zu tun. Schauen Sie wieder rein, wenn der Trend oben ansteigt.',
+      },
+    },
+    export: 'Diagnose exportieren',
+    windowAria: 'Zeitraum',
+    windowDays: 'Letzte {count} Tage',
+    unattributed: 'Ohne Zuordnung',
+    turnId: 'Turn',
+    itemCount: '{count} betroffen',
+    empty: {
+      title: 'Noch keine Recherche-Turns erfasst',
+      description:
+        'Die Zitations-Qualität füllt sich, sobald Recherche-Turns laufen. Nichts erfasst heißt: nichts zu prüfen.',
+    },
+    stats: {
+      cleanRate: 'Saubere Turns',
+      cleanRateHint: '{clean} von {turns} Turns ohne Befund',
+      ungrounded: 'Ohne Quellenangabe',
+      ungroundedHint: 'Antworten ohne verifizierte Quellenangabe',
+      removed: 'Entfernte Quellenangaben',
+      removedHint: 'Einzelne Quellenangaben, die nicht bestätigt werden konnten',
+      quotes: 'Nicht verifizierte Zitate',
+      quotesHint: 'Wörtliche Zitate, die in keiner Fundstelle auftauchen',
+    },
+    trend: {
+      title: 'Befunde pro Tag',
+      description: 'Recherche-Turns mit einem Zitations-Befund, pro UTC-Tag über die letzten {days} Tage.',
+      turns: '{count} Turns',
+      empty: 'Keine Zitations-Befunde in diesem Zeitraum.',
+    },
+    missingTitle: 'Quellen zum Ergänzen',
+    missingDescription:
+      'Konkrete Quellen, die Antworten immer wieder zitieren und die die Prüfung nicht bestätigen konnte — abgeglichen mit dem, was die Plattform tatsächlich hat. Meistzitierte zuerst.',
+    missingCited: 'in {turns} Turn(s) zitiert · {organizations} Organisation(en)',
+    missingCaveat:
+      'Jede Schaltfläche öffnet die zuständige Verwaltung, mit der Kennung in der Zwischenablage. Das Hinzufügen erfolgt bewusst nicht still: Ein PDF muss von Ihnen kommen, und ein Eintrag im Normenkatalog braucht bestätigte Rechtsrang- und Bundesland-Angaben, bevor der Agent ihn als verbindlich zitieren darf.',
+    missingStatus: {
+      absent: 'nicht in der Plattform vorhanden',
+      present: 'bereits vorhanden — das Retrieval hat sie nicht gefunden',
+    },
+    missingKinds: {
+      document: 'Dokument',
+      ris: 'RIS',
+      web: 'Web',
+    },
+    missingActions: {
+      upload_to_base_knowledge: 'Zum Basiswissen hinzufügen',
+      add_to_norm_catalog: 'Zum Normenkatalog hinzufügen',
+      investigate_retrieval: 'Indexierung prüfen',
+      none: 'Außerhalb des Korpus',
+    },
+    reasonsTitle: 'Warum Quellenangaben entfernt wurden',
+    reasonsDescription: 'Der Grund der Prüfung für jede Entfernung, häufigster zuerst.',
+    reasonsEmpty: 'Keine Entfernungen in diesem Zeitraum.',
+    sourcesTitle: 'Quellen bei auffälligen Turns',
+    sourcesDescription: 'Herkünfte und Werkzeuge, die bei Turns mit Befund im Einsatz waren.',
+    sourcesEmpty: 'Keine Quellen-Metadaten für auffällige Turns in diesem Zeitraum.',
+    orgsTitle: 'Nach Organisation',
+    orgsDescription:
+      'Am stärksten betroffene zuerst. Eine hohe Quote bei wenigen Turns ist Rauschen; eine hohe Quote bei vielen ist ein Problem.',
+    orgsEmpty: 'Keine Organisationen in diesem Zeitraum erfasst.',
+    colTurns: 'Turns',
+    colDefects: 'Auffällig',
+    colDefectRate: 'Quote',
+    recentTitle: 'Neueste Befunde',
+    recentDescription: 'Die zuletzt auffälligen Turns. Die Turn-ID entspricht der im Agent-Profiler oben.',
+    recentEmpty: 'Keine Befunde in diesem Zeitraum.',
+    kinds: {
+      answer_ungrounded: 'Ohne Quellenangabe',
+      citations_removed: 'Quellenangaben entfernt',
+      quote_unverified: 'Zitat nicht verifizierbar',
+      registry_empty: 'Keine Quellen erfasst',
+      citation_fallback: 'Quellenangabe automatisch ergänzt',
+      confidence_capped: 'Konfidenz gedeckelt',
+    },
+    reasons: {
+      url_not_in_registry: 'URL nicht unter den abgerufenen Quellen',
+      citation_key_not_in_registry: 'Dokument nicht unter den abgerufenen Quellen',
+      unverifiable: 'Kein prüfbares Ziel in der Quellenangabe',
+      duplicate: 'Doppelte Quellenangabe',
+      ungrounded: 'Antwort nicht auf eine Quellenangabe gestützt',
+      quote_unverified: 'Zitat nicht verifizierbar',
+    },
+    dimensions: {
+      origin: 'Herkunft',
+      tool: 'Werkzeug',
+    },
+    agents: {
+      shallow: 'Schnellrecherche',
+      deep: 'Tiefenrecherche',
+    },
+  },
 }

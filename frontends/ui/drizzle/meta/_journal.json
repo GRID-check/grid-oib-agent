@@ -176,6 +176,13 @@
       "when": 1783422294817,
       "tag": "0024_platform_workflow_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783422295817,
+      "tag": "0025_citation_events",
+      "breakpoints": true
     }
   ]
 }

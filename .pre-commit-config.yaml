@@ -17,6 +17,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1024]
+        # Committed UI evidence (AGENTS.md: a user-visible change is only
+        # "done" with a screenshot). Full-page retina captures of a long
+        # surface routinely exceed 1 MB — the tracked gallery shots are ~3 MB —
+        # so the cap would block exactly the artifacts the repo requires.
+        exclude: ^frontends/ui/visual/screenshots/.*\.png$
       - id: check-yaml
         exclude: ^deploy/helm/helm-charts-k8s/.*/templates/.*\.ya?ml$
       - id: end-of-file-fixer

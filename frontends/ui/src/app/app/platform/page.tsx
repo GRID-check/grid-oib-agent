@@ -19,6 +19,7 @@ import { BaseKnowledge } from './base-knowledge'
 import { PlatformOverview } from './platform-overview'
 import { VectorMaintenance } from './vector-maintenance'
 import { AgentProfiler } from '@/features/platform/components/agent-profiler'
+import { CitationHealth } from '@/features/platform/components/citation-health'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 import { WorkflowTemplates } from '@/features/platform/components/workflow-templates'
 
@@ -78,10 +79,16 @@ export default async function PlatformPage(): Promise<JSX.Element> {
     <div className="flex flex-col gap-6">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
       <PlatformOverview />
+      <CitationHealth />
       <AgentProfiler />
-      <BaseKnowledge />
+      {/* Anchor targets for the citation-health "sources to add" actions. */}
+      <div id="platform-base-knowledge" className="scroll-mt-24">
+        <BaseKnowledge />
+      </div>
       <WorkflowTemplates />
-      <NormRegistry />
+      <div id="platform-norm-registry" className="scroll-mt-24">
+        <NormRegistry />
+      </div>
       <VectorMaintenance />
     </div>,
   )
