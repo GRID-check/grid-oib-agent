@@ -64,6 +64,19 @@ jobs:
           . .venv/bin/activate
           ruff check .
           ruff format --check .
+
+  # Deliberately NOT behind a paths filter. `pre-commit run --all-files` scans
+  # the WHOLE repo, so gating it on the backend filter meant a PR touching only
+  # deploy/** or frontends/ui/** could land drift on develop that stayed
+  # invisible until some later, unrelated backend PR tripped over it — which is
+  # exactly how the secrets baseline kept breaking CI. Running it on every PR
+  # means whoever introduces the drift is the one who sees it.
+  repo-lint:
+    name: Repo lint (pre-commit, all files)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-env
       - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |
           . .venv/bin/activate
@@ -161,7 +174,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, infra]
+    needs: [changes, backend-lint, backend-test, frontend, infra, repo-lint]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

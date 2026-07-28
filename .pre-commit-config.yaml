@@ -32,6 +32,22 @@ repos:
         # integrity hashes (not covered by detect-secrets' is_lock_file filter) —
         # neither holds real secrets, so keep them out of the scan.
         exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$)
+        # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
+        # failing again a few commits later:
+        #
+        #   detect-secrets scan --baseline .secrets.baseline --exclude-lines '^\s*secure:\s'
+        #
+        # Pulumi stack files are full of `secure:` values that are ciphertext BY
+        # DESIGN (encrypted by the stack's Pulumi-Cloud key, and deliberately
+        # committed — see deploy/pulumi/README.md). Tracking them as baseline
+        # entries pinned 13 hashes to LINE NUMBERS in Pulumi.dev.yaml, so adding
+        # any config key above them shifted every line, the hook rewrote the
+        # baseline, and the job failed with "files were modified by this hook" —
+        # on whichever unlucky PR happened to touch the file next.
+        #
+        # The filter is line-scoped, not file-scoped, on purpose: a PLAINTEXT
+        # secret pasted into a stack file is still caught (verified). Full
+        # history is independently covered by gitleaks in security.yml.
 
   - repo: local
     hooks:

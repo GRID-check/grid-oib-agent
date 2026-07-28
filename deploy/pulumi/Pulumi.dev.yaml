@@ -74,7 +74,7 @@ config:
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K
+  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K  # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "true"
   grid-oib:kubeconfig:
@@ -109,9 +109,17 @@ config:
   #   pulumi config set grid-oib:platformOrgId "org_..."   # WorkOS org id (not external id)
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
   # only override here when deliberately upgrading.
-  # WorkOS one-time setup: register https://<otelDomain>/oauth2/callback as a
-  # redirect URI (Envoy's callback path — the Gateway SecurityPolicy runs the
-  # OIDC flow, not the dashboard; ADR-0029 Amendment 2).
+  # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
+  # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
+  # serve this flow). One-time setup in the WorkOS dashboard:
+  #   1. Connect -> create an OAuth application, CONFIDENTIAL client.
+  #   2. Generate a client secret.
+  #   3. Sign-in callback: https://<otelDomain>/oauth2/callback
+  #   4. Scopes -> assign the platform:organizations:view permission.
+  # Then:
+  #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
+  #   pulumi config set        grid-oib:otelOidcClientId     client_...
+  #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
   grid-oib:otelDomain: otel.dev.bigls.net
   grid-oib:platformOrgId: org_01KX06QQJN3KA25R9G2PNFBGXV
   grid-oib:otelPrimaryApiKey:
