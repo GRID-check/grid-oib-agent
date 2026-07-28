@@ -187,7 +187,10 @@ Applied after an adversarial review pass:
   or base-OS patches, the check fails and forces a deliberate bump (the
   9.1.0 pin this ADR was written against shipped ASP.NET 8.0.15 and
   Azure Linux `openssl`, which is how 13.4.2 / ASP.NET 8.0.29 on the
-  `azurelinux/distroless/base` minimal base was selected).
+  `azurelinux/distroless/base` minimal base was selected). Findings that
+  live *inside* the upstream image and no bump can clear go in
+  `.trivyignore.yaml` as **time-boxed** exceptions (justification +
+  `expired_at`), so the gate returns red instead of ignoring a CVE forever.
 - The dashboard container also listens on `:18891` (MCP) and serves the
   Telemetry HTTP API (`/api/telemetry/*`, API-key auth, key auto-generated
   when unset). Neither is published: the Service exposes only 18888 plus the

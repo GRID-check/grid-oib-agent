@@ -194,12 +194,19 @@ jobs:
           test "$(wc -l < pinned-images.txt)" -eq 2
           grep -qE '^mcr\.microsoft\.com/dotnet/aspire-dashboard@sha256:[a-f0-9]{64}$' pinned-images.txt
           grep -qE '^otel/opentelemetry-collector-contrib@sha256:[a-f0-9]{64}$' pinned-images.txt
+      # `.trivyignore.yaml` carries deliberate, time-boxed exceptions for
+      # findings inside the upstream images that we cannot fix by bumping (each
+      # entry states why it is not exploitable here and expires, so the gate
+      # comes back red rather than ignoring a CVE forever).
       - name: Scan each pinned image
         run: |
           failed=0
           while read -r img; do
             echo "=== trivy: $img"
-            docker run --rm aquasec/trivy:0.61.1 image \
+            docker run --rm \
+              -v "$PWD/.trivyignore.yaml:/config/.trivyignore.yaml:ro" \
+              aquasec/trivy:0.61.1 image \
+              --ignorefile /config/.trivyignore.yaml \
               --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || failed=1
           done < pinned-images.txt
           exit $failed
