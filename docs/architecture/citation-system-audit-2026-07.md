@@ -5,9 +5,13 @@ capture → verification → classification → wire → transport → frontend
 normalization → render → click behaviour, plus the citation-health telemetry
 that observes it.
 
-**Scope:** read-only assessment. No behaviour was changed. Findings are ordered
-by severity and each carries a concrete failure scenario and the file:line it
-lives at.
+**Status:** every finding below has been **fixed** (commits `533458d`,
+`31dd36b`, `dd604b7`). The findings are kept as written so the reasoning stays
+readable; §6 records what changed, what the audit got wrong, and what was found
+only while fixing.
+
+Findings are ordered by severity and each carries a concrete failure scenario
+and the file:line it lived at.
 
 **Related:** ADR-0026 (unified source-kind model), ADR-0025 (norm registry),
 ADR-0024 (org Archiv), ADR-0012 (cards).
@@ -568,3 +572,89 @@ FE RENDER        SourcePreviewChip · ReportSourcesList · CitationCard ·
 TELEMETRY        citation_events → POST /api/internal/citation-events
                  → platform Citation health dashboard + JSON export   (§2.9)
 ```
+
+---
+
+## 6. Resolution — what actually changed
+
+All ten findings are fixed. Test counts moved from **2266 → 2304** (backend)
+and **3086 → 3115** (frontend); typecheck and lint are clean.
+
+### Corrections to the audit
+
+Fixing forced two of the findings to be re-examined, and the audit was wrong
+about both. Recorded here rather than quietly edited above:
+
+- **§2.5 overstated the page problem.** The claim was that the UI deep-links an
+  *unverified* page. It does not: the wire's `page` comes from the registry
+  ENTRY, which is by construction a page retrieval actually returned. The real
+  defect was narrower and different — `entry_for_citation_key` matched on
+  filename only and returned whichever chunk was registered FIRST, so a citation
+  to p.30 opened the PDF at p.12 whenever both pages had been retrieved. Fixed by
+  making the lookup prefer the page the citation names.
+
+- **§2.8 mis-identified the failure mode.** The concern was that a prose line
+  mentioning a filename would validate as a citation. Those lines only ever come
+  from the source section, where being a citation is the point — so that was not
+  a real defect. Probing the matcher instead surfaced something far worse: two
+  citation formats models routinely write were being **silently dropped**.
+  `[1] Titel - datei.pdf, p.12` had its title swallowed into the "filename" by a
+  greedy pattern, and `[1] Titel (datei.pdf, p.12)` had its whole locator eaten
+  by the trailing-parenthetical trim meant for "(Internal)". Both produced
+  "Quellenangabe entfernt" on citations to genuinely retrieved documents — very
+  likely the single largest contributor to the citation-health defect rate.
+
+### Found only while fixing
+
+- **Stale wire citation numbers.** `sanitize_report` renumbers `[N]` to close
+  the gaps that `verify_citations`' removals leave, but the `[N]`→source binding
+  was captured *before* that pass. A chip could be labelled `[3]` while the prose
+  pointing at it now said `[2]`, and the inline marker's anchor scrolled to a row
+  that did not exist. `sanitize_report` now returns its renumber map.
+
+- **Deep research dropped the whole taxonomy.** Beyond §2.2's cited-flag gap, the
+  SSE client hand-mapped citation fields and silently dropped `kind`, `lane`,
+  `lane_label`, `binding_note` and `number` — so every deep-research citation
+  fell back to the pre-ADR-0026 heuristic that tints the OIB corpus as project
+  material. Fixed by handing the artifact over whole to `citationFromWire`,
+  which also removed three parallel hand-mappings and a replay-only defect they
+  hid (buffered discovery + cited events produced two rows where the live path
+  produced one).
+
+- **The report tab's fallback source list rendered `citation.url` as a row's
+  entire content** — blank for a document. Harmless only while KB sources could
+  never be marked cited, so fixing §2.2 would have made it visible.
+
+- **The German prompt contradicted itself.** §2.10 blamed the normalizer; the
+  cause was the prompt's own German few-shot example writing `**References:**`.
+  The normalizer's canonicalisation is deliberate and was left alone.
+
+### Architecture: where it landed
+
+R1/R2 are done for the paths that matter: `source_entry_to_wire` is the single
+serializer and `citationFromWire` the single frontend normalizer, used by the
+WS path, both SSE artifact types and both replay buffers. R3 is done as a
+`variant` on one component rather than a new abstraction — the pill and the
+source-list row are two layouts of one renderer, so click behaviour, tint,
+authority badge and target resolution are defined once. R4 is done: the target
+resolver sees project uploads, the org Archiv and the base corpus.
+
+Deliberately **not** done, and why:
+
+- **No abstract `Citation` class.** The backend model was already singular; an
+  inheritance layer would have added a level without removing one.
+- **The report's written `## Quellen` list keeps its bibliography layout.** A
+  report legitimately renders its sources as a numbered list rather than chips;
+  what had to match was behaviour, not shape.
+- **`_append_minimal_citation` still writes an English `**References:**`
+  header.** It is lifted out of the answer before display and the answer's
+  language is genuinely unknowable at that point — changing it would churn tests
+  for no user-visible gain.
+
+### Still open
+
+- The **shallow capture double-gate** (§2.10) still drops an evidence tool's
+  sources at `debug` level when it is missing from `data_sources`. It wants a
+  startup coverage assertion, not a behaviour change.
+- **`_session_registries` LRU vs. persist race** and the **`top_k` ceiling** —
+  unchanged, as ADR-0026 already accepted.
