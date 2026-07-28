@@ -3,7 +3,7 @@
 An interactive card (one that asks the user to decide something and then acts
 on the answer) carries an obligation the rest of the catalog does not: the
 answer exists nowhere but in that click, so the frontend must persist it on the
-message. See ``docs/adr/0029-interactive-card-decisions-persist-on-the-message.md``.
+message. See ``docs/adr/0030-interactive-card-decisions-persist-on-the-message.md``.
 
 The classification is declared twice on purpose — once for the emission side
 (``aiq_agent.cards.catalog.INTERACTIVE_CARD_TYPES``) and once for the rendering

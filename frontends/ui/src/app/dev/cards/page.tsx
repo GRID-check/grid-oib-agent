@@ -359,7 +359,7 @@ export default function CardsGalleryPage() {
         />
       </Section>
 
-      {/* The two INTERACTIVE cards (ADR-0029) go through the GridCards
+      {/* The two INTERACTIVE cards (ADR-0030) go through the GridCards
           dispatcher rather than being rendered directly, so the gallery
           exercises the same `cardKey` wiring the chat uses. With no owning
           message they fall back to local state — clickable here, deliberately

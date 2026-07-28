@@ -146,7 +146,7 @@ applies the patch or writes the memory **a second time** — neither endpoint is
 idempotent. The decision is conversation history and belongs on the
 `ChatMessage`, exactly like `isPromptResponded` does for a HITL prompt:
 `ChatMessage.cardInteractions`, keyed by `cardKey(card, index)`, read and
-written through `useCardDecision`. Rationale and full contract: **ADR-0029**.
+written through `useCardDecision`. Rationale and full contract: **ADR-0030**.
 
 Adding a card type? You must classify it in `CARD_INTERACTIVITY`
 (`frontends/ui/src/features/grid-cards/card-decision.ts`) — the map is

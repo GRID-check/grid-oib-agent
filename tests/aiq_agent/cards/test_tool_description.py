@@ -92,7 +92,7 @@ class TestToolDescription:
 
     def test_flags_cards_that_ask_the_user_to_confirm(self):
         # An interactive card costs the user a DECISION, not just screen space
-        # (ADR-0029). Without saying so, the model emits them speculatively and
+        # (ADR-0030). Without saying so, the model emits them speculatively and
         # the answer becomes a pile of consent prompts.
         desc = _build_tool_description()
         assert "Cards that ask the user to CONFIRM something" in desc

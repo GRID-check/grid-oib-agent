@@ -116,7 +116,7 @@ export const messages = pgTable('messages', {
 
 `cardInteractions` is the user's answer to each interactive card of that answer
 — `{ "<cardType>-<index>": { decision, decidedAt } }`, `decision` from a closed
-union and `decidedAt` a UTC ISO instant (ADR-0029). It is why a settled
+union and `decidedAt` a UTC ISO instant (ADR-0030). It is why a settled
 `project_profile_patch` / `memory_proposal` cannot re-offer a button that would
 apply the same write twice. Unlike the other keys it is usually written *after*
 the insert, via `PATCH /api/conversations/{id}/messages/{messageId}` (merged per

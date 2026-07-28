@@ -3,7 +3,7 @@
  * card decisions. Each client PATCHes the whole `cardInteractions` map IT knows
  * about, so a plain top-level merge lets the second overwrite the first — which
  * resurrects a settled card and re-invites the duplicate write the whole
- * mechanism exists to prevent (ADR-0029).
+ * mechanism exists to prevent (ADR-0030).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

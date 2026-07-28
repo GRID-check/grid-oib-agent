@@ -31,7 +31,7 @@ SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid"})
 # card can be re-rendered from its payload forever, but an interactive card's
 # ANSWER is state that exists nowhere else, so the frontend must persist it on
 # the message (see
-# docs/adr/0029-interactive-card-decisions-persist-on-the-message.md).
+# docs/adr/0030-interactive-card-decisions-persist-on-the-message.md).
 #
 # Adding a card type here is a contract with the frontend, not a label:
 #   - `frontends/ui/src/features/grid-cards/card-decision.ts` must classify it

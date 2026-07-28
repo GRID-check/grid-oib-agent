@@ -209,7 +209,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
                 Binding decisions to it would record them onto the wrong
                 message, so an interactive card here keeps the old local-state
                 behaviour until the report owns a stable message id.
-                See ADR-0029 §Open Questions. */}
+                See ADR-0030 §Open Questions. */}
             {cards.length > 0 && <GridCards cards={cards} projectId={projectId} />}
             <MarkdownRenderer
               content={body}

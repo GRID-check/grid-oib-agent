@@ -132,7 +132,7 @@ the detail — read the doc, don't guess.
   write, so the decision must be recorded on the `ChatMessage`
   (`cardInteractions` via `useCardDecision`), never in component-local
   `useState`. A lost decision re-offers a button that applies the patch / writes
-  the memory a second time — neither endpoint is idempotent. **ADR-0029.**
+  the memory a second time — neither endpoint is idempotent. **ADR-0030.**
 - **Raw `sql<T>` results aren't runtime-validated** — coerce at the repository
   boundary (`new Date(...)`, `Number(...)`). See the AGENTS.md Conventions note.
 

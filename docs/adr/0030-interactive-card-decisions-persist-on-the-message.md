@@ -1,4 +1,4 @@
-# ADR-0029: Interactive-card decisions persist on the message
+# ADR-0030: Interactive-card decisions persist on the message
 
 - **Status:** Accepted
 - **Date:** 2026-07-28

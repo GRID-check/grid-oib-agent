@@ -48,7 +48,7 @@ export type CardInteractivity =
  * Opening a read-only preview dialog is NOT interactive: it starts no
  * commitment, so there is nothing to remember.
  *
- * See docs/adr/0029-interactive-card-decisions-persist-on-the-message.md.
+ * See docs/adr/0030-interactive-card-decisions-persist-on-the-message.md.
  */
 export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // Asks the user to apply a JSON Patch to the project brief.

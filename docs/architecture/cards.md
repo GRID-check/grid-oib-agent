@@ -68,7 +68,7 @@ through the `features/grid-cards/` component set — one renderer per card type.
 
 ## Interactive cards: the answer MUST be persisted
 
-> ⚠️ Full rationale: [ADR-0029](../adr/0029-interactive-card-decisions-persist-on-the-message.md).
+> ⚠️ Full rationale: [ADR-0030](../adr/0030-interactive-card-decisions-persist-on-the-message.md).
 > **Read this before adding, editing, or reviewing any card that has a button
 > which writes something.**
 
@@ -108,7 +108,7 @@ cannot erase one it never saw.
 **Scope today:** cards rendered in a chat answer. The deep-research **report**
 panel is deliberately not wired — its cards come from transient
 `deepResearchCards` with no reliable owning message id, and recording a decision
-onto the wrong message is worse than not recording one. ADR-0029 §Open Questions
+onto the wrong message is worse than not recording one. ADR-0030 §Open Questions
 lists what has to change first.
 
 Transient state stays local — a submit spinner, a request error, an open preview

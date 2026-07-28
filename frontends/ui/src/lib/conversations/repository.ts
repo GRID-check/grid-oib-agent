@@ -171,7 +171,7 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
  * clients holding different views of the same conversation each PATCH the whole
  * map they know about, so a plain top-level merge would let the second erase
  * the first's decision — resurrecting a settled card and re-inviting the
- * duplicate write this whole mechanism exists to prevent (ADR-0029).
+ * duplicate write this whole mechanism exists to prevent (ADR-0030).
  * Last-writer-wins still applies PER ENTRY, which is correct: the same card can
  * only be decided once.
  *

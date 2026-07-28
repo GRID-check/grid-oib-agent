@@ -70,7 +70,8 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0027](0027-platform-workflow-templates.md) | Platform-managed workflow templates | Accepted |
 | [0027](0027-unified-ingest-pipeline.md) | Unified document processing pipeline with concurrent VLM enrichment (duplicate number — see note below) | Accepted |
 | [0028](0028-horizontal-agent-scaling-conversation-affinity.md) | Horizontally scaling the aiq-agent container via conversation affinity | Accepted |
-| [0029](0029-interactive-card-decisions-persist-on-the-message.md) | Interactive-card decisions persist on the message | Accepted |
+| [0029](0029-aspire-dashboard-telemetry.md) | Aspire standalone dashboard as the live telemetry pane | Accepted |
+| [0030](0030-interactive-card-decisions-persist-on-the-message.md) | Interactive-card decisions persist on the message | Accepted |
 
 > Note: two ADRs were independently numbered 0027. Both are Accepted and in
 > effect; the collision is recorded rather than renumbered so existing links
