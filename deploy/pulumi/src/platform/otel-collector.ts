@@ -63,8 +63,13 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  otlphttp/aspire:
+  otlp_http/aspire:
     endpoint: ${ASPIRE_OTLP_HTTP}
+    # The dashboard's OTLP/HTTP endpoint does not decompress gzip request
+    # bodies — it parses the raw body as protobuf, so the gzip magic bytes
+    # (0x1f 0x8b) surface as HTTP 500 InvalidProtocolBufferException "tag with
+    # an invalid wire type". The exporter default is gzip; force identity.
+    compression: none
     headers:
       x-otlp-api-key: \${env:OTLP_API_KEY}
 
@@ -78,15 +83,15 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/aspire]
+      exporters: [otlp_http/aspire]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/aspire]
+      exporters: [otlp_http/aspire]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/aspire]
+      exporters: [otlp_http/aspire]
 `;
 
   const configMap = new k8s.core.v1.ConfigMap(
