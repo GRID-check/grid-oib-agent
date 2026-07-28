@@ -596,11 +596,13 @@ export function loadConfig(): GridConfig {
       enabled: observabilityEnabled,
       otelDomain,
       platformOrgId,
-      // Digest-pinned (supply chain): 9.1.0 and 0.157.0 respectively. Bump
-      // deliberately via config when upgrading.
+      // Digest-pinned (supply chain): 13.4.2 and 0.157.0 respectively. Bump
+      // deliberately via config when upgrading — the pins are scanned by the
+      // trivy job in .github/workflows/security.yml, which blocks on fixable
+      // HIGH/CRITICAL, so a stale pin surfaces as a failing check.
       dashboardImage:
         cfg.get("dashboardImage") ??
-        "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:bd9d365a596747a7d5eaf68f3d755a527cde4b0be0bc0547894566c16fa204c5",
+        "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:d71f709233fdd53092a9a562ca6fb74264aec7c16c9aff03da94091f18ea2394",
       collectorImage:
         cfg.get("collectorImage") ??
         "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6",

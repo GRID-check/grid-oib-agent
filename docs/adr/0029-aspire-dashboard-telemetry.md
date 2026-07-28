@@ -178,11 +178,21 @@ Applied after an adversarial review pass:
 - Both observability pods run with `automountServiceAccountToken: false`
   (no K8s API access needed) and `runAsNonRoot`.
 - Both images are **digest-pinned** in `deploy/pulumi/src/config.ts`
-  (`aspire-dashboard@sha256:bd9d…`, `opentelemetry-collector-contrib@sha256:f2f0…`);
-  upgrades are deliberate config changes, not mutable-tag surprises.
+  (`aspire-dashboard@sha256:d71f…` = 13.4.2, `opentelemetry-collector-contrib@sha256:f2f0…`
+  = 0.157.0); upgrades are deliberate config changes, not mutable-tag surprises.
 - `.github/workflows/security.yml` has an `image-scan` job (trivy,
   HIGH/CRITICAL, `--ignore-unfixed`) that extracts the pinned digests from
-  the Pulumi config and blocks on fixable findings.
+  the Pulumi config and blocks on fixable findings. **This makes the pins
+  self-maintaining**: when the pinned dashboard falls behind on .NET runtime
+  or base-OS patches, the check fails and forces a deliberate bump (the
+  9.1.0 pin this ADR was written against shipped ASP.NET 8.0.15 and
+  Azure Linux `openssl`, which is how 13.4.2 / ASP.NET 8.0.29 on the
+  `azurelinux/distroless/base` minimal base was selected).
+- The dashboard container also listens on `:18891` (MCP) and serves the
+  Telemetry HTTP API (`/api/telemetry/*`, API-key auth, key auto-generated
+  when unset). Neither is published: the Service exposes only 18888 plus the
+  two OTLP ports, the HTTPRoute targets 18888, and the NetworkPolicy admits
+  the edge to 18888 only.
 
 ### Residual risks (accepted, documented)
 
