@@ -123,10 +123,11 @@ Push back proactively when the request is under-specified or ambiguous — this 
 <citation_format>
 Cite sources inline with `[1]`, `[2]`, and close with a `**References:**` section.
 - Format each entry `- [N] Title - URL`, or `- [N] filename.pdf, p.X` for internal documents.
-- Use only URLs that appeared in tool results. Take URLs from tool results, never from memory.
+- Cite only what a tool actually returned — this holds for document citation keys (`filename.pdf, p.X`) exactly as it does for URLs. Never take either from memory.
+- The knowledge-base inventory further down is an INDEX, not evidence: it proves a file exists, not that you have read it. A filename from that list is not a citable source until a `knowledge_search` result has returned a passage from it. If you could not retrieve it, say what you could not verify instead of citing the file.
 - When you used a tool result to answer, include at least one inline citation and a `**References:**` section.
 - For a tool result with no URL or document citation key, cite the exact tool name from the call: `- [1] mcp_time__get_current_time`.
-- Citations are verified automatically — focus on answering the question well, and the reference plumbing is checked for you.
+- Citations are verified automatically, but verification only ever REMOVES: it cannot repair a citation to something you did not retrieve. A citation the tools do not back costs the answer its source — it is not fixed for you.
 
 Example:
 "The uploaded report shows a 5% margin [1].
@@ -202,13 +203,13 @@ User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
 {% endif %}
 
 {% if available_documents %}
-## Uploaded Documents
-The user has uploaded these documents to the knowledge base:
+## Knowledge-base inventory (index — NOT sources)
+These files exist and are searchable. This is an index of what is available, not evidence you may cite: the one-line summaries are not quotable, and a filename here is NOT a citable source.
 {% for doc in available_documents %}
 - **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
 {% endfor %}
 
-To summarize, describe, explain, or query these uploaded documents, use the **knowledge_search** tool — only it can see the uploaded files (web search cannot).
+To summarize, describe, explain, quote, or cite any of them, retrieve the passage with the **knowledge_search** tool first — only it can see these files (web search cannot). Citing a document from this list that you did not retrieve produces an answer with no usable source at all, because the citation is dropped by verification.
 {% endif %}
 
 {% if parcel_note is defined and parcel_note %}

@@ -432,6 +432,31 @@ treated as proof no project documents exist. Combined with the reconciliation
 backfill below, the list itself should now rarely be wrong in practice, but
 the prompt-level distrust remains as defense in depth.
 
+**The inventory is an index, not evidence — the list must never be cited**:
+because the base OIB corpus is one of the collections aggregated above, every
+research turn renders ~40 real corpus filenames plus their summaries into the
+system prompt. Those filenames are *exactly* the citation keys
+`verify_citations` matches against, and the registry it matches them against
+holds only sources captured from actual tool results
+(`common/citation_verification.py`). A model that cites a filename it read off
+the inventory rather than out of a `knowledge_search` result therefore gets
+every such citation dropped with `citation_key_not_in_registry`, and the answer
+ships with the visible "Ohne Quellenangabe" note — while the document sits
+indexed and healthy in the corpus. On the citation-health dashboard this
+presents as "sources the platform HAS are not reaching answers", which points
+at indexing and is the wrong place to look.
+
+The prompts therefore label the block "Knowledge-base inventory (index — NOT
+sources)" and state that a filename is not citable until a retrieval result has
+returned a passage from it (`shallow_researcher/prompts/researcher.j2`,
+`deep_researcher/prompts/{researcher,orchestrator}.j2`); the anti-memory rule in
+`<citation_format>` covers document citation keys and not only URLs, and the
+prompt no longer tells the model that verification will sort the references out
+for it — verification only ever REMOVES. Pinned by
+`TestKnowledgeInventoryIsNotCitable`. `planner.j2` / `source_router.j2` keep
+their own listing block: those agents route and plan, they never emit
+citations.
+
 **Silent summary-row loss on double LLM failure — fixed 2026-07-16**:
 ingestion (`sources/knowledge_layer/src/llamaindex/adapter.py`, ~lines
 1795–1965) runs summary generation and tag classification as two concurrent
