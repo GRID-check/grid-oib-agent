@@ -81,10 +81,18 @@ metrics** are all wired now.
   Grafana/Tempo stack later is a collector-config change, not an app change.
 - API-key auth, batching, and back-pressure live in exactly one place.
 - The frontend gap is closed: `frontends/ui/src/instrumentation.ts` registers
-  `@vercel/otel` (gated on `OTEL_EXPORTER_OTLP_ENDPOINT` being set — the
-  capability is derived from the dependency, no flag), giving end-to-end
-  traces `grid-ui` → `grid-aiq-agent`. Known gap: the custom `server.js` WS
-  proxy is not auto-instrumented (follow-up).
+  `@vercel/otel`, gated on `OTEL_EXPORTER_OTLP_ENDPOINT` being set — the
+  capability derived from the dependency, never a second env flag. Pulumi
+  injects that endpoint only when the tier itself is enabled, so the whole
+  feature follows the house rule **availability = flag AND capability**: the
+  `observabilityEnabled` flag is the product decision, and the capability is
+  derived from `otelDomain` + `platformOrgId` + `otelPrimaryApiKey` + the
+  WorkOS OIDC client. Missing any of them skips the collector, the dashboard,
+  the `https-otel` listener, and the producers' OTLP env (with a `preview`
+  warning naming what is missing) rather than shipping a dashboard nobody can
+  log into. Result when enabled: end-to-end traces `grid-ui` →
+  `grid-aiq-agent`. Known gap: the custom `server.js` WS proxy is not
+  auto-instrumented (follow-up).
 - Endpoint asymmetry (intentional): the frontend gets the BASE URL
   (`http://otel-collector:4318`, JS exporter appends `/v1/traces` per spec);
   the Python NAT exporter posts to explicit endpoints as-is, so the backend
@@ -160,8 +168,11 @@ dashboard quickstart and cost real debugging time if missed:
 
 Applied after an adversarial review pass:
 
-- `otelPrimaryApiKey` is `requireSecret` — a stack without the key fails at
-  `pulumi preview` instead of deploying an unauthenticated dashboard.
+- The OTLP key is a hard dependency, not an optional one: a stack without
+  `otelPrimaryApiKey` (or without the WorkOS OIDC client, `otelDomain`, or
+  `platformOrgId`) does not deploy the tier at all — `pulumi preview` warns and
+  skips it — instead of deploying an unauthenticated dashboard or one with a
+  broken login.
 - All sensitive values (OTLP key, WorkOS OIDC client secret) ride in the
   `aspire-dashboard-secrets` Secret via `secretKeyRef`; no plain env values.
 - Both observability pods run with `automountServiceAccountToken: false`
@@ -192,8 +203,12 @@ Applied after an adversarial review pass:
   in-namespace pod could inject spans. Accepted: namespace workload identity
   is already the trust boundary.
 - **Safe SPOFs**: dashboard and collector are single-replica with no durable
-  storage. A restart loses the ring buffer; producers' exporters queue/retry
-  briefly and then drop. Telemetry loss never affects request serving.
+  storage. A restart loses the ring buffer. Both hops only have the
+  `exporterhelper` defaults behind them (`sending_queue`, in-memory, 1000
+  requests; `retry_on_failure`, 5s→30s backoff up to 300s) — the collector's
+  `batch` processor groups telemetry, it does not make delivery reliable — so
+  telemetry is dropped once those limits are exhausted. Telemetry loss never
+  affects request serving.
 
 ## Alternatives considered
 

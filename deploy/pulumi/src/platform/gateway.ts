@@ -138,6 +138,19 @@ export function installGatewayResources(
     { provider, dependsOn },
   );
 
+  const otelListeners: IGatewaySpec["listeners"] = cfg.observability.enabled
+    ? [
+        {
+          name: "https-otel",
+          port: 443,
+          protocol: "HTTPS",
+          hostname: cfg.observability.otelDomain,
+          tls: { mode: "Terminate", certificateRefs: [{ name: "grid-otel-tls" }] },
+          allowedRoutes: { namespaces: { from: "Same" } },
+        },
+      ]
+    : [];
+
   const gatewaySpec: IGatewaySpec = {
     gatewayClassName: GATEWAY_CLASS,
     // Attach the HA proxy-infrastructure config above.
@@ -169,14 +182,10 @@ export function installGatewayResources(
         tls: { mode: "Terminate", certificateRefs: [{ name: "grid-s3-tls" }] },
         allowedRoutes: { namespaces: { from: "Same" } },
       },
-      {
-        name: "https-otel",
-        port: 443,
-        protocol: "HTTPS",
-        hostname: cfg.observability.otelDomain,
-        tls: { mode: "Terminate", certificateRefs: [{ name: "grid-otel-tls" }] },
-        allowedRoutes: { namespaces: { from: "Same" } },
-      },
+      // Aspire dashboard UI — only when the observability tier is deployed
+      // (ADR-0029). Otherwise there is no hostname to serve and cert-manager
+      // would chase a certificate for a host with no backing Service.
+      ...otelListeners,
     ],
   };
   const gateway = new k8s.apiextensions.CustomResource(

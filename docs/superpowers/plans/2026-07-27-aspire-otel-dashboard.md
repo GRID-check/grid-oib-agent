@@ -8,6 +8,26 @@
 
 **Tech Stack:** Pulumi TypeScript, Kubernetes (Gateway API / Envoy Gateway), .NET Aspire dashboard container, NAT OTEL exporter plugin.
 
+> ⚠️ **PARTIALLY SUPERSEDED — read the [Amendment](#amendment-2026-07-27-otel-collector--frontend-otel--executed-inline-by-controller) first.**
+> This plan is the historical task list; the amendment at the end of the file and
+> ADR-0029 describe what actually shipped. Do NOT implement the following from the
+> tasks below — they were replaced:
+>
+> - **OTLP credentials in `grid-secrets`** (Task 1/2 snippets, "OTLP API key … shared
+>   between the dashboard and the backend/worker deployments"): the key now lives ONLY
+>   in the dedicated `aspire-dashboard-secrets` Secret, referenced by the dashboard and
+>   the collector. Producers hold **no key** — never re-add `OTLP_API_KEY` /
+>   `OTEL_EXPORTER_OTLP_HEADERS` to the app Secret.
+> - **Producers exporting straight to the Aspire dashboard**: all producers send plain
+>   in-cluster OTLP to `otel-collector`, which is the single ingestion point.
+> - **"Backend traces only" scope**: the Next.js BFF is instrumented too
+>   (`@vercel/otel` in `frontends/ui/src/instrumentation.ts`), and the collector wires
+>   traces + logs + metrics pipelines.
+> - **Unconditional install**: the tier is gated on `observabilityEnabled` AND its
+>   config dependencies (`otelDomain`, `platformOrgId`, `otelPrimaryApiKey`, WorkOS
+>   OIDC client); missing any of them skips dashboard, collector, Gateway listener and
+>   producer OTLP env.
+
 ---
 
 ### Task 1: Pulumi config keys — config.ts + templates
@@ -299,7 +319,9 @@ Find the `listeners` array in `gateway.ts` (`installGatewayResources`). After th
       },
 ```
 
-- [ ] **Step 2: Generate OTLP API key in buildSecrets (config.ts)**
+- [ ] ~~**Step 2: Generate OTLP API key in buildSecrets (config.ts)**~~ — **SUPERSEDED**
+  (see amendment): the key must NOT enter the app `grid-secrets` Secret. It lives in
+  `aspire-dashboard-secrets`, referenced only by the dashboard and the collector.
 
 In `src/app/config.ts`, import the observability component function at the top or note it. In `buildSecrets` (`src/app/config.ts`), add two new entries to `stringData`:
 
@@ -547,10 +569,11 @@ Key decisions within the approach:
 - **Gateway:** dedicated `https-otel` listener on the shared Gateway (same Envoy
   Gateway fleet), with an HTTPRoute for the UI only. OTLP ingestion stays
   cluster-internal.
-- **OTLP API key:** a dedicated Pulumi-managed secret, shared between the
-  dashboard and the backend/worker deployments via the `grid-secrets` Secret.
-- **Scope:** backend (aiq-agent) traces only. Frontend Next.js OTEL instrumentation
-  and log pipelines are follow-ups.
+- **OTLP API key:** ~~shared between the dashboard and the backend/worker deployments
+  via the `grid-secrets` Secret~~ — **SUPERSEDED**: dedicated `aspire-dashboard-secrets`
+  Secret, held by the dashboard and the collector only; producers hold no key.
+- **Scope:** ~~backend (aiq-agent) traces only~~ — **SUPERSEDED**: backend, worker and
+  the Next.js BFF all export; the collector wires traces + logs + metrics pipelines.
 
 ## Consequences
 

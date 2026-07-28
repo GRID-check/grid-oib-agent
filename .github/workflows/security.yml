@@ -187,6 +187,11 @@ jobs:
         run: |
           grep -oE '(mcr\.microsoft\.com/dotnet/aspire-dashboard|otel/opentelemetry-collector-contrib)@sha256:[a-f0-9]{64}' \
             deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
+          # A partial match would leave the loop below scanning one image (or
+          # none) and still passing. Require exactly one digest per image.
+          test "$(wc -l < pinned-images.txt)" -eq 2
+          grep -qE '^mcr\.microsoft\.com/dotnet/aspire-dashboard@sha256:[a-f0-9]{64}$' pinned-images.txt
+          grep -qE '^otel/opentelemetry-collector-contrib@sha256:[a-f0-9]{64}$' pinned-images.txt
       - name: Scan each pinned image
         run: |
           failed=0

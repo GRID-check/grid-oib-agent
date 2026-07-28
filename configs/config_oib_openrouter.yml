@@ -8,10 +8,11 @@ general:
         _type: console
         level: INFO
     tracing:
-      # Ships spans to the OTLP endpoint over HTTP/protobuf. The endpoint and
-      # the x-otlp-api-key header are injected by the deployment via
-      # OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_EXPORTER_OTLP_HEADERS (the exporter
-      # reads the header from the env var when the config passes none).
+      # Ships spans to the OTLP endpoint over HTTP/protobuf. Only the endpoint
+      # is injected by the deployment (OTEL_EXPORTER_OTLP_ENDPOINT); producers
+      # send unauthenticated OTLP to the in-cluster collector and hold no
+      # ingestion key of their own (ADR-0029). Unset endpoint → the default
+      # below, i.e. a local collector.
       # The endpoint must include the full /v1/traces path — explicit config
       # endpoints are used as-is.
       otelcollector_redaction:

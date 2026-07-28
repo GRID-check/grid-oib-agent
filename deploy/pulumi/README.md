@@ -12,7 +12,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 
 | Layer | Resources |
 |-------|-----------|
-| Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, Aspire dashboard (ADR-0029), (metrics-server only on bare clusters) |
+| Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), (metrics-server only on bare clusters) |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `appDomain` and `s3Domain` |
@@ -159,11 +159,12 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `workflowsEnabled` | `false` | Scheduled workflows feature; the `workflow-scheduler` Deployment is only created when `true` |
 | `workflowMinIntervalMinutes` | `15` | Minimum schedule interval |
 | **Observability** (ADR-0029) | | |
+| `observabilityEnabled` | `true` | Feature flag for the tier. Deployed only when the flag is on **AND** the capability holds (`otelDomain`, `platformOrgId`, `otelPrimaryApiKey`, `workosClientId`, `workosApiKey` all set) — otherwise `preview` warns and nothing is provisioned, including the `https-otel` listener and the producers' OTLP env |
 | **`otelDomain`** | — | Public hostname of the Aspire dashboard UI (`https-otel` Gateway listener) |
 | **`platformOrgId`** | — | WorkOS org id required by the dashboard OIDC claim gate |
-| 🔒 `otelPrimaryApiKey` | — | Shared OTLP ingestion key (`x-otlp-api-key`) dashboard ↔ backend/worker |
-| `dashboardImage` | `mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0` | Dashboard image pin |
-| `collectorImage` | `otel/opentelemetry-collector-contrib:0.157.0` | OTel Collector image pin (single OTLP ingestion point) |
+| 🔒 `otelPrimaryApiKey` | — | OTLP ingestion key (`x-otlp-api-key`). Held by the **dashboard and collector only** — backend/worker/frontend send unauthenticated OTLP to the collector, so this key must never be copied into app secrets |
+| `dashboardImage` | digest-pinned `mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…` (9.1.0) | Dashboard image; override only for a deliberate upgrade |
+| `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.157.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |
 | `dashboardMaxLogCount` / `dashboardMaxTraceCount` | `50000` / `50000` | In-memory ring-buffer limits |
 
 ## Validation (no target cluster required)

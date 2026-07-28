@@ -233,7 +233,10 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 ## Observability (ADR-0029, Kubernetes/Pulumi-injected)
 
 These are set by the Pulumi stack on the respective Deployments — not part of
-`deploy/.env`. In Compose they are unset and tracing no-ops.
+`deploy/.env`. In Compose they are unset and tracing no-ops. Pulumi injects them
+only when the observability tier is actually deployed (`observabilityEnabled`
+AND its config dependencies — `docs/deployment/kubernetes.md` §9); otherwise
+they stay unset and no producer exports.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|

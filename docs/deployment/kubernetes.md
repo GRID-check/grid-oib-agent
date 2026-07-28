@@ -467,7 +467,18 @@ Chroma):
 
 ## 9. Observability — OTel Collector + Aspire Dashboard (ADR-0029)
 
-The stack deploys two observability components:
+**Gating (flag AND capability):** the tier is deployed only when
+`grid-oib:observabilityEnabled` is on (default `true`) **and** every dependency
+it needs is configured — `otelDomain`, `platformOrgId`, `otelPrimaryApiKey`,
+plus the WorkOS OIDC client (`workosClientId`/`workosApiKey`) behind the
+dashboard's claim gate. Miss one and `pulumi preview` logs a warning naming it
+and skips the whole tier: no collector, no dashboard, no `https-otel` Gateway
+listener/certificate, and no `OTEL_*` env on any producer (so the frontend's
+`src/instrumentation.ts` no-ops). That is deliberate: a dashboard running
+`AuthMode=OpenIdConnect` without a usable OIDC client is a UI nobody can log
+into, and producers pointed at an absent collector just retry exports forever.
+
+When enabled, the stack deploys two components:
 
 - **`otel-collector`** (`deploy/pulumi/src/platform/otel-collector.ts`) — an
   OpenTelemetry Collector that is the cluster's single OTLP ingestion point.
@@ -480,7 +491,7 @@ The stack deploys two observability components:
   .NET Aspire standalone dashboard behind the collector, as a live
   trace/span viewer for platform owners.
 
-```
+```text
 grid-ui / grid-aiq-agent / grid-agent-worker
         │  plain OTLP (in-cluster, no key)
         ▼
@@ -507,7 +518,8 @@ no telemetry, and the `server.js` WS proxy is not auto-instrumented
 - `configs/config_oib_openrouter.yml` enables the `otelcollector_redaction`
   tracing exporter (spans only, OTLP/HTTP).
 - Pulumi injects `OTEL_SERVICE_NAME` + `OTEL_EXPORTER_OTLP_ENDPOINT` into all
-  three tiers. Endpoint asymmetry (intentional): the Python tiers get the
+  three tiers (only when the tier is enabled — see Gating above). Endpoint
+  asymmetry (intentional): the Python tiers get the
   FULL path (`http://otel-collector:4318/v1/traces` — the NAT exporter posts
   as-is); the frontend gets the BASE URL (`http://otel-collector:4318` — the
   JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec).
@@ -525,8 +537,13 @@ no telemetry, and the `server.js` WS proxy is not auto-instrumented
 
 - **In-memory ring buffer** (configured to 50k log/trace entries) — data is
   lost on dashboard pod restart. This is a live-view tool, not a log archive.
-- Single replica each; an observability outage loses no application data (the
-  collector's batch processor retries exports).
+- Single replica each; an observability outage loses no application data. The
+  `batch` processor only groups telemetry — the durability that exists comes
+  from the `otlphttp` exporter's `exporterhelper` defaults (`sending_queue`:
+  in-memory, 1000 requests; `retry_on_failure`: 5s→30s backoff for up to
+  300s). Beyond those limits — a full queue or a dashboard down longer than the
+  retry window — **exports are dropped**, which is the intended trade for a
+  live-view tool.
 - No alerting — operators must watch the dashboard.
 
 **Non-obvious deployment facts** (verified against the dashboard docs and the

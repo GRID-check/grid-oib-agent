@@ -267,6 +267,14 @@ export interface GridConfig {
   };
 
   observability: {
+    /**
+     * Whether the observability tier (OTel Collector + Aspire dashboard) is
+     * deployed: the `observabilityEnabled` flag AND the capability derived from
+     * its dependencies (otelDomain, platformOrgId, otelPrimaryApiKey, and the
+     * WorkOS OIDC client the dashboard's claim gate needs). When false nothing
+     * is provisioned and no producer gets an OTLP endpoint.
+     */
+    enabled: boolean;
     /** Public hostname for the Aspire dashboard (e.g. otel.dev.bigls.net). */
     otelDomain: string;
     /**
@@ -293,7 +301,11 @@ export interface GridConfig {
       maxLogCount: number;
       maxTraceCount: number;
     };
-    /** OTLP Primary API key shared with the dashboard. */
+    /**
+     * OTLP ingestion key. Held by the dashboard (`Dashboard:Otlp:PrimaryApiKey`)
+     * and the collector (exporter header) only — producers send unauthenticated
+     * OTLP to the collector and never see it. Empty when observability is off.
+     */
     otelPrimaryApiKey: pulumi.Output<string>;
   };
 }
@@ -379,6 +391,37 @@ export function loadConfig(): GridConfig {
         "  pulumi config set --secret grid-oib:jobPayloadKek $(openssl rand -base64 32)\n" +
         "To deliberately run with PLAINTEXT payloads (dev/single-node only), set:\n" +
         "  pulumi config set grid-oib:allowPlaintextJobPayloads true",
+    );
+  }
+
+  // ── Observability (ADR-0029): availability = flag AND capability ───────────
+  // `observabilityEnabled` is the product decision; the capability is DERIVED
+  // from the dependencies the tier cannot run without — never duplicated as a
+  // second flag. Without them the components deploy broken, not degraded: the
+  // dashboard runs `AuthMode=OpenIdConnect` with no usable OIDC client (nobody
+  // can log in), and the collector has no key to authenticate its export. So
+  // the whole tier (dashboard, collector, Gateway listener, producer env) is
+  // skipped instead, with a warning naming exactly what is missing.
+  const workosClientId = cfg.get("workosClientId") ?? "";
+  const workosApiKey = cfg.getSecret("workosApiKey");
+  const otelDomain = cfg.get("otelDomain") ?? "";
+  const platformOrgId = cfg.get("platformOrgId") ?? "";
+  const otelPrimaryApiKey = cfg.getSecret("otelPrimaryApiKey");
+  const observabilityFlag = bool(cfg, "observabilityEnabled", true);
+  const missingObservabilityDeps = [
+    otelDomain === "" ? "otelDomain" : undefined,
+    platformOrgId === "" ? "platformOrgId" : undefined,
+    otelPrimaryApiKey === undefined ? "otelPrimaryApiKey" : undefined,
+    workosClientId === "" ? "workosClientId" : undefined,
+    workosApiKey === undefined ? "workosApiKey" : undefined,
+  ].filter((k): k is string => k !== undefined);
+  const observabilityEnabled = observabilityFlag && missingObservabilityDeps.length === 0;
+  if (observabilityFlag && !observabilityEnabled) {
+    pulumi.log.warn(
+      "Observability (ADR-0029) not deployed: missing " +
+        missingObservabilityDeps.map((k) => `grid-oib:${k}`).join(", ") +
+        ". Set them to deploy the OTel Collector + Aspire dashboard, or set " +
+        "grid-oib:observabilityEnabled=false to silence this.",
     );
   }
 
@@ -526,8 +569,8 @@ export function loadConfig(): GridConfig {
 
     auth: {
       requireAuth: bool(cfg, "requireAuth", true),
-      workosClientId: cfg.get("workosClientId") ?? "",
-      workosApiKey: cfg.getSecret("workosApiKey") ?? pulumi.output(""),
+      workosClientId,
+      workosApiKey: workosApiKey ?? pulumi.output(""),
       workosCookiePassword: cfg.getSecret("workosCookiePassword") ?? pulumi.output(""),
       platformOwnerEmails: cfg.get("platformOwnerEmails") ?? "",
       platformOrgExternalId: cfg.get("platformOrgExternalId") ?? "grid-platform",
@@ -550,8 +593,9 @@ export function loadConfig(): GridConfig {
     },
 
     observability: {
-      otelDomain: cfg.require("otelDomain"),
-      platformOrgId: cfg.require("platformOrgId"),
+      enabled: observabilityEnabled,
+      otelDomain,
+      platformOrgId,
       // Digest-pinned (supply chain): 9.1.0 and 0.157.0 respectively. Bump
       // deliberately via config when upgrading.
       dashboardImage:
@@ -564,7 +608,7 @@ export function loadConfig(): GridConfig {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
       },
-      otelPrimaryApiKey: cfg.requireSecret("otelPrimaryApiKey"),
+      otelPrimaryApiKey: otelPrimaryApiKey ?? pulumi.output(""),
     },
   };
 }

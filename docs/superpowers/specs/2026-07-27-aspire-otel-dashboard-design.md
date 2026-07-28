@@ -34,7 +34,7 @@ Limits will be raised to 50k and pod sized accordingly.
 
 ## Architecture
 
-```
+```text
 aiq-agent ──┐  OTLP/gRPC :4317 (x-otlp-api-key, cluster-internal Service)
 (future     │
  senders)   ▼
@@ -156,7 +156,7 @@ Services no longer export OTLP directly to the Aspire dashboard. A dedicated
 **OpenTelemetry Collector** (`otel/opentelemetry-collector-contrib`, pinned) is
 the cluster's single OTLP ingestion point:
 
-```
+```text
 browser/Next.js BFF ─┐
 aiq-agent (chat)     ├─ plain OTLP (in-cluster, no key) ─> otel-collector ─> OTLP/HTTP + x-otlp-api-key ─> aspire-dashboard
 agent-worker         ┘                                   (batch, memory_limiter; traces+logs+metrics pipelines)
@@ -189,8 +189,12 @@ adoption is app-only work.
    to explicit endpoints as-is). Header plumbing deleted.
 4. **Frontend OTEL (new)**: `frontends/ui/src/instrumentation.ts` with
    `@vercel/otel` (`registerOTel`), gated on
-   `process.env.OTEL_EXPORTER_OTLP_ENDPOINT` being set (capability derived
-   from the dependency — no flag). Covers BFF route handlers + server-side
+   `process.env.OTEL_EXPORTER_OTLP_ENDPOINT` being set — the capability derived
+   from the dependency, never a duplicate env flag. Pulumi injects that endpoint
+   only when the observability tier itself is deployed, i.e. the
+   `observabilityEnabled` flag AND the capability derived from `otelDomain` +
+   `platformOrgId` + `otelPrimaryApiKey` + the WorkOS OIDC client
+   (availability = flag AND capability). Covers BFF route handlers + server-side
    fetch automatically. Pulumi injects `OTEL_SERVICE_NAME=grid-ui` and
    `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` (BASE URL — the
    JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec; this
