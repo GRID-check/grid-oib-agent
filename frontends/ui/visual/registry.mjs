@@ -188,6 +188,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="run-history-preview"] a',
   },
   {
+    id: 'platform-primitives',
+    mobile: true,
+    path: '/dev/platform-primitives',
+    description:
+      'The platform admin primitives as one worked example — SectionCard chrome around a DataToolbar + Table + Pagination, plus the loading / error / empty states every section now shares. The shape each platform page is being converted to.',
+    waitFor: '[data-testid="primitives-demo"]',
+  },
+  {
     id: 'platform-nav',
     mobile: true,
     path: '/dev/platform-nav',
