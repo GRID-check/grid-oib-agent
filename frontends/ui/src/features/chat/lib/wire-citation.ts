@@ -53,6 +53,10 @@ export const citationFromWire = (
     tool: wire.tool?.trim() || undefined,
     fileName: wire.file_name?.trim() || undefined,
     page: typeof wire.page === 'number' && Number.isFinite(wire.page) ? wire.page : undefined,
+    number:
+      typeof wire.number === 'number' && Number.isInteger(wire.number) && wire.number > 0
+        ? wire.number
+        : undefined,
     kind: asSourceKind(wire.kind),
     lane: trimmed(wire.lane),
     laneLabel: trimmed(wire.lane_label),

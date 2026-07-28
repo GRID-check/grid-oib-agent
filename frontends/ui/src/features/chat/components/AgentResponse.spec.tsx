@@ -291,6 +291,90 @@ describe('AgentResponse', () => {
     })
   })
 
+  // Consolidation: an answer that ends in a written sources section must state
+  // its sources ONCE — in the provenance block — not as dead markdown text AND
+  // a chip row that each carry half the information.
+  describe('consolidated source list', () => {
+    const answer = [
+      'Garagen brauchen zwei Fluchtwege [1].',
+      '',
+      '## Quellen',
+      '- [1] [KB] oib-rl_4_ausgabe_mai_2023.pdf, p.9',
+    ].join('\n')
+
+    test('the written sources section is not rendered a second time in the body', () => {
+      render(<AgentResponse content={answer} messageId="m1" />)
+
+      expect(screen.queryByText(/## Quellen/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/\[KB\]/)).not.toBeInTheDocument()
+    })
+
+    test('its entries become numbered, anchored rows of the provenance block', () => {
+      render(<AgentResponse content={answer} messageId="m1" />)
+
+      expect(
+        screen.getByRole('list', { name: /sources this answer is backed by/i })
+      ).toBeInTheDocument()
+      expect(screen.getByText('1')).toBeInTheDocument()
+      // Filename in the row, cited page as its own quiet locator.
+      expect(screen.getByText('oib-rl_4_ausgabe_mai_2023.pdf')).toBeInTheDocument()
+      expect(screen.getByText('p. 9')).toBeInTheDocument()
+      expect(document.getElementById('answer-source-m1-1')).not.toBeNull()
+    })
+
+    test('a written entry and its structured chip collapse into ONE row', () => {
+      render(
+        <AgentResponse
+          content={answer}
+          messageId="m1"
+          citations={[
+            {
+              id: 'c1',
+              content: '',
+              timestamp: new Date(),
+              isCited: true,
+              kind: 'baurecht',
+              lane: 'baurecht_oib',
+              fileName: 'oib-rl_4_ausgabe_mai_2023.pdf',
+              title: 'OIB-Richtlinie 4, Ausgabe Mai 2023',
+              page: 9,
+              number: 1,
+            },
+          ]}
+        />
+      )
+
+      const rows = screen.getAllByRole('listitem')
+      expect(rows).toHaveLength(1)
+      // The chip keeps the human title; the raw filename is gone from the UI.
+      expect(screen.getByText('OIB-Richtlinie 4, Ausgabe Mai 2023')).toBeInTheDocument()
+      expect(screen.queryByText('oib-rl_4_ausgabe_mai_2023.pdf')).not.toBeInTheDocument()
+    })
+
+    test('an answer with no written section keeps the compact chip row', () => {
+      render(
+        <AgentResponse
+          content="Cited answer"
+          citations={[
+            {
+              id: 'c-1',
+              url: 'https://example.com/article',
+              content: '[Web] Some article',
+              timestamp: new Date('2026-07-17T10:00:00Z'),
+              isCited: true,
+            },
+          ]}
+        />
+      )
+
+      // No numbers → no anchored rows, just the chips.
+      expect(document.querySelector('[id^="answer-source-"]')).toBeNull()
+      expect(
+        screen.getByRole('list', { name: /sources this answer is backed by/i })
+      ).toBeInTheDocument()
+    })
+  })
+
   // The routingDecision-driven visual distinction: a substantive Baurecht
   // answer (shallow/deep) wears the ink "Result" role tab; a conversational /
   // clarifying meta reply wears the quiet neutral "Note" tab. Fallback (no

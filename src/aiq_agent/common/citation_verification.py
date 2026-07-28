@@ -1022,13 +1022,21 @@ def source_origin_token(entry: SourceEntry) -> str:
     return ""
 
 
-def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
+def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> dict[str, Any]:
     """Serialize a :class:`SourceEntry` for the citation wire (SSE / WS).
 
     The frontend opens document previews from structured ``file_name`` /
     ``page`` / ``collection`` fields rather than inventing filenames from free
     text. ``content`` still carries a human-readable line (optional leading
     origin token + citation key or title) for legacy parsers and chip labels.
+
+    ``number`` is the citation's ``[N]`` label in the verified answer — the one
+    fact the frontend cannot recover on its own, because the ``[N]``→source
+    binding lives in ``verify_citations``' ``valid_citations`` and nowhere else.
+    Carrying it lets the UI render ONE provenance block (numbered, colored,
+    clickable) instead of the LLM-written "## Sources" list AND a chip row that
+    each hold half the truth. Omitted when unknown, so every existing caller and
+    every persisted message keeps working unchanged.
     """
     origin_token = source_origin_token(entry)
     origin = origin_token.strip("[]").lower() if origin_token else None
@@ -1058,6 +1066,8 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
     kind = kind_for_lane(lane_key)
 
     payload: dict[str, Any] = {
+        # The [N] marker this source carries in the answer prose (when known).
+        "number": number,
         "content": content,
         "title": entry.title or file_name,
         "citation_key": entry.citation_key,

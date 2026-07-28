@@ -14,6 +14,10 @@
  *                 answer card dominant, with sources + confidence shown ONCE on
  *                 the answer (deduped out of the reasoning assessment node).
  *
+ * The fixture answer deliberately ends in a written "## Quellen" section, the way
+ * a verified backend answer does: it must NOT render as a second source list —
+ * AgentResponse folds it into the one numbered "Belegt durch" block.
+ *
  * Not linked anywhere and 404s outside development.
  */
 
@@ -72,6 +76,7 @@ const citations: CitationSource[] = [
     fileName: 'OIB-RL_2_Brandschutz.pdf',
     title: 'OIB-Richtlinie 2 · Brandschutz',
     page: 18,
+    number: 1,
   },
   {
     id: 'c2',
@@ -83,6 +88,7 @@ const citations: CitationSource[] = [
     laneLabel: 'Bundesrecht',
     title: 'Bauordnung für Wien § 108',
     url: 'https://www.ris.bka.gv.at/',
+    number: 2,
   },
 ]
 
@@ -94,7 +100,11 @@ const answer = `Für ein Bürogebäude der **Gebäudeklasse 4** sind in der Rege
 - **Erster Fluchtweg** — ein baulicher Rettungsweg über ein Sicherheitstreppenhaus.
 - **Zweiter Fluchtweg** — ein zweiter baulicher Weg oder eine über die Feuerwehr anleiterbare Stelle.
 
-Die maximale Fluchtweglänge bis zum sicheren Bereich beträgt **40 m** (OIB-RL 2, Pkt. 3.2).`
+Die maximale Fluchtweglänge bis zum sicheren Bereich beträgt **40 m** [1]; § 108 BO Wien verlangt zusätzlich den zweiten Weg [2].
+
+## Quellen
+- [1] [KB] OIB-RL_2_Brandschutz.pdf, p.18
+- [2] [RIS] Bauordnung für Wien § 108 — https://www.ris.bka.gv.at/`
 
 const commonThinking = {
   steps: [step],

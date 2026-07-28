@@ -115,6 +115,24 @@ export const chat = {
     // grounding (design language — first-class knowledge-gap treatment).
     gapLabel: 'Without source citation',
     gapAria: 'This answer cites no sources',
+    // The consolidated list numbers each source the way the answer's inline
+    // [N] markers do, and shows the cited page after the chip.
+    sourceNumber: 'Source {number}',
+    page: 'p. {page}',
+    // Citations the user can actually paste somewhere — per source (Fachtext)
+    // and for the whole answer in the formats external tools ingest.
+    copyCitation: 'Copy citation',
+    copyCitationAria: 'Copy citation for {label}',
+    copyFailed: 'The citation could not be copied.',
+    citeAll: 'Cite',
+    citeAsLabel: 'Copy all sources as',
+    formats: {
+      fachtext: { label: 'Citation text', hint: 'For a report or submission' },
+      apa: { label: 'APA', hint: 'Formatted bibliography' },
+      bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
+      ris: { label: 'EndNote/Zotero (.ris)', hint: 'Reference managers' },
+      'csl-json': { label: 'CSL-JSON', hint: 'Zotero, Word, pandoc' },
+    },
     // Note under the sources row when citation verification dropped one or more
     // unverifiable citations (WP-A `citations_removed`).
     citationsRemoved: '{count} citation(s) removed (not verifiable)',

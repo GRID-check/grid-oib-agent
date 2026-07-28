@@ -106,6 +106,24 @@ export const chat: typeof en.chat = {
     // zu verbergen (Designsprache — erstklassige Wissenslücken-Behandlung).
     gapLabel: 'Ohne Quellenbeleg',
     gapAria: 'Diese Antwort nennt keine Quellen',
+    // Die zusammengeführte Liste nummeriert jede Quelle so, wie die [N]-Marker
+    // im Antworttext sie zitieren, und nennt die belegte Seite nach dem Chip.
+    sourceNumber: 'Quelle {number}',
+    page: 'S. {page}',
+    // Zitate zum Weiterverwenden — je Quelle als Fachtext, für die ganze
+    // Antwort in den Formaten, die externe Werkzeuge einlesen.
+    copyCitation: 'Zitat kopieren',
+    copyCitationAria: 'Zitat kopieren: {label}',
+    copyFailed: 'Das Zitat konnte nicht kopiert werden.',
+    citeAll: 'Zitieren',
+    citeAsLabel: 'Alle Quellen kopieren als',
+    formats: {
+      fachtext: { label: 'Zitiertext', hint: 'Für Befund, Gutachten, Einreichung' },
+      apa: { label: 'APA', hint: 'Formatiertes Literaturverzeichnis' },
+      bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
+      ris: { label: 'EndNote/Zotero (.ris)', hint: 'Literaturverwaltung' },
+      'csl-json': { label: 'CSL-JSON', hint: 'Zotero, Word, pandoc' },
+    },
     // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
     // Quellenangaben entfernt hat (WP-A `citations_removed`).
     citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',

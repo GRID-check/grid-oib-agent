@@ -151,6 +151,52 @@ const chipButtonClasses =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
   'disabled:cursor-progress disabled:opacity-70'
 
+/** How a source renders: compact pill, or full-width bibliography row. */
+export type SourceVariant = 'chip' | 'row'
+
+/**
+ * The ROW presentation of a source (the consolidated list under an answer).
+ *
+ * A bibliography entry, not a pill: full-width, left provenance rail in the
+ * source tint, title in reading weight, locator + authority right-aligned and
+ * quiet. Colour still travels with an icon and a text label, never alone.
+ */
+const rowButtonClasses =
+  'group/row flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border border-transparent ' +
+  'border-l-2 py-1 pl-2 pr-1.5 text-left transition-colors hover:bg-muted/70 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
+  'disabled:cursor-progress disabled:opacity-70'
+
+/** Tint for the row rail + icon only — the row body stays on the card surface. */
+const sourceRowStyle = (signal: SourceTint): CSSProperties => ({
+  borderLeftColor: `color-mix(in oklch, var(--source-${signal}, var(--foreground)) 55%, transparent)`,
+})
+
+/** Shared inner layout of a source row: icon · title · authority · locator. */
+const SourceRowBody: FC<{
+  signal: SourceTint
+  label: string
+  authority?: string
+  /** Cited page / hostname, shown quietly at the end of the row. */
+  meta?: string
+}> = ({ signal, label, authority, meta }) => {
+  const Icon = iconForTint(signal)
+  return (
+    <>
+      <Icon
+        aria-hidden="true"
+        className="size-3.5 shrink-0"
+        style={{ color: `var(--source-${signal}-text, var(--muted-foreground))` }}
+      />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+        {label}
+      </span>
+      {authority && <AuthorityTag>{authority}</AuthorityTag>}
+      {meta && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{meta}</span>}
+    </>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Document preview dialog (reuses the existing PdfViewerDialog machinery)
 // ---------------------------------------------------------------------------
@@ -253,16 +299,20 @@ const DocumentPreviewChip: FC<{
   signal: SourceTint
   label: string
   authority?: string
-}> = ({ target, signal, label, authority }) => {
+  className?: string
+  variant?: SourceVariant
+  meta?: string
+}> = ({ target, signal, label, authority, className, variant = 'chip', meta }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target)
+  const isRow = variant === 'row'
   const Icon = iconForTint(signal)
   return (
     <>
       <button
         type="button"
-        className={cn(chipButtonClasses, 'max-w-56')}
-        style={sourceSignalStyle(signal)}
+        className={cn(isRow ? rowButtonClasses : cn(chipButtonClasses, 'max-w-56'), className)}
+        style={isRow ? sourceRowStyle(signal) : sourceSignalStyle(signal)}
         onClick={() => void openPreview()}
         disabled={isResolving}
         aria-busy={isResolving}
@@ -270,9 +320,15 @@ const DocumentPreviewChip: FC<{
         aria-label={t('sourcePreview.chipAria', { label })}
         title={t('sourcePreview.chipAria', { label })}
       >
-        <Icon aria-hidden="true" />
-        {authority && <AuthorityTag>{authority}</AuthorityTag>}
-        <span className="truncate">{label}</span>
+        {isRow ? (
+          <SourceRowBody signal={signal} label={label} authority={authority} meta={meta} />
+        ) : (
+          <>
+            <Icon aria-hidden="true" />
+            {authority && <AuthorityTag>{authority}</AuthorityTag>}
+            <span className="truncate">{label}</span>
+          </>
+        )}
       </button>
       {dialog}
     </>
@@ -296,22 +352,32 @@ const InfoPreviewChip: FC<{
   bindingNote?: string
   /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
   url?: string
-}> = ({ target, signal, label, authority, tier, bindingNote, url }) => {
+  className?: string
+  variant?: SourceVariant
+  meta?: string
+}> = ({ target, signal, label, authority, tier, bindingNote, url, className, variant = 'chip', meta }) => {
   const t = useTranslations('chat')
+  const isRow = variant === 'row'
   const Icon = iconForTint(signal)
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(chipButtonClasses, 'max-w-56')}
-          style={sourceSignalStyle(signal)}
+          className={cn(isRow ? rowButtonClasses : cn(chipButtonClasses, 'max-w-56'), className)}
+          style={isRow ? sourceRowStyle(signal) : sourceSignalStyle(signal)}
           aria-label={t('sourcePreview.chipAria', { label })}
           title={t('sourcePreview.chipAria', { label })}
         >
-          <Icon aria-hidden="true" />
-          {authority && <AuthorityTag>{authority}</AuthorityTag>}
-          <span className="truncate">{label}</span>
+          {isRow ? (
+            <SourceRowBody signal={signal} label={label} authority={authority} meta={meta} />
+          ) : (
+            <>
+              <Icon aria-hidden="true" />
+              {authority && <AuthorityTag>{authority}</AuthorityTag>}
+              <span className="truncate">{label}</span>
+            </>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
@@ -367,6 +433,16 @@ export interface SourcePreviewChipProps {
   source: AnswerSourceRef
   /** Provenance tint for chip/icon (mapped by the caller from source.kind + lane). */
   signal: SourceTint
+  /**
+   * `chip` — the compact pill of the wrap row (default, unchanged).
+   * `row`  — the full-width bibliography row of the consolidated source list.
+   * Both resolve the SAME preview target; only the presentation differs.
+   */
+  variant?: SourceVariant
+  /** Cited page / hostname, rendered at the end of a `row`. */
+  meta?: string
+  /** Layout override (width, truncation) for the caller's context. */
+  className?: string
 }
 
 /**
@@ -375,7 +451,13 @@ export interface SourcePreviewChipProps {
  * project upload or base-corpus PDF, an info popover when it only carries
  * text, and stay plain when there is nothing beyond the label.
  */
-export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({ source, signal }) => {
+export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
+  source,
+  signal,
+  className,
+  variant = 'chip',
+  meta,
+}) => {
   const projectId = useChatStore((s) => s.projectId)
   // Only citation-backed refs without an outbound link can resolve to a
   // document — the index fetch is skipped entirely for link/card-only rows.
@@ -401,14 +483,35 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({ source, signal }
           tier={source.citation?.laneLabel}
           bindingNote={bindingNote}
           url={target.url}
+          className={className}
+          variant={variant}
+          meta={meta}
         />
       )
     }
     return (
-      <SourceSignalChipLink signal={signal} href={target.url} className="max-w-56">
+      variant === 'row' ? (
+        <a
+          href={target.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(rowButtonClasses, className)}
+          style={sourceRowStyle(signal)}
+          title={source.label}
+        >
+          <SourceRowBody
+            signal={signal}
+            label={source.label}
+            authority={source.authority}
+            meta={meta}
+          />
+        </a>
+      ) : (
+      <SourceSignalChipLink signal={signal} href={target.url} className={cn('max-w-56', className)}>
         {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
         {source.label}
       </SourceSignalChipLink>
+      )
     )
   }
 
@@ -419,6 +522,9 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({ source, signal }
         signal={signal}
         label={source.label}
         authority={source.authority}
+        className={className}
+        variant={variant}
+        meta={meta}
       />
     )
   }
@@ -439,15 +545,24 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({ source, signal }
         authority={source.authority}
         tier={tier}
         bindingNote={bindingNote}
+        className={className}
+        variant={variant}
+        meta={meta}
       />
     )
   }
 
   return (
-    <SourceSignalChip signal={signal} className="max-w-56">
+    variant === 'row' ? (
+      <span className={cn(rowButtonClasses, 'cursor-default hover:bg-transparent', className)} style={sourceRowStyle(signal)}>
+        <SourceRowBody signal={signal} label={source.label} authority={source.authority} meta={meta} />
+      </span>
+    ) : (
+    <SourceSignalChip signal={signal} className={cn('max-w-56', className)}>
       {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
       {source.label}
     </SourceSignalChip>
+    )
   )
 }
 

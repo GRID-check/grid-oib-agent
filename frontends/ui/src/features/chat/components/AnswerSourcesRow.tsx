@@ -1,16 +1,25 @@
 /**
- * AnswerSourcesRow — "Belegt durch" provenance chip row under an answer.
+ * AnswerSourcesRow — the answer's single "Belegt durch" provenance block.
  *
  * Renders ONLY source data that already exists on the message (citations from
- * the deep-research path, legal_basis cards on shallow answers) — no fake
- * chips (WS-3 item 4). Origins map onto the spec §4 provenance signals:
- * color family: Baurecht (OIB corpus + RIS), Büroarchiv, Projektwissen, Web —
- * derived from the canonical wire `kind` (ADR-0026), with an OIB/RIS/ÖNORM
- * authority badge on top. Each chip carries icon + label + color together
- * (color is never the only carrier).
+ * the deep-research path, legal_basis cards on shallow answers, and the answer's
+ * own written sources section) — no fake chips (WS-3 item 4). Origins map onto
+ * the spec §4 provenance signals: color family: Baurecht (OIB corpus + RIS),
+ * Büroarchiv, Projektwissen, Web — derived from the canonical wire `kind`
+ * (ADR-0026), with an OIB/RIS/ÖNORM authority badge on top. Each chip carries
+ * icon + label + color together (color is never the only carrier).
  *
  * WS-9: chips are interactive — Web/RIS chips link out, KB chips open a
  * source preview (document dialog or info popover) via SourcePreviewChip.
+ *
+ * Two shapes, one component:
+ *  - NUMBERED LIST, whenever the answer numbers its sources (`[N]` markers).
+ *    This is the consolidation: the numbers, full titles and page/host locators
+ *    that used to sit in a separate written "Quellen" list below the answer are
+ *    merged INTO the chips, so the answer states its sources once. Each row is
+ *    an anchor target, so an inline `[N]` in the prose scrolls to its source.
+ *  - COMPACT WRAP ROW, when there are no numbers (nothing per-source to line up)
+ *    — the original chip row, unchanged.
  */
 
 'use client'
@@ -19,13 +28,22 @@ import { type FC } from 'react'
 import { Globe } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import type { GridCard } from '@/shared/cards/schemas'
-import { deriveAnswerSources } from '../lib/answer-sources'
+import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
+import { answerSourceItems } from '../lib/answer-source-list'
 import type { CitationSource } from '../types'
 import { SourcePreviewChip } from './SourcePreview'
+import { CopyCitationsMenu, CopySourceCitationButton } from './CopyCitation'
 
 interface AnswerSourcesRowProps {
   citations?: CitationSource[]
   cards?: GridCard[]
+  /**
+   * The written source entries lifted out of the answer markdown (AgentResponse
+   * splits them off so they are not rendered twice). Merged into the chips here.
+   */
+  sourceEntries?: ReportSourceEntry[]
+  /** DOM id prefix for the numbered rows — per message, so anchors stay unique. */
+  anchorPrefix?: string
   /**
    * The turn's routing (WP-A). A substantive `shallow`/`deep` (or absent/legacy)
    * answer with zero sources gets the honest "Lücke" gap row; a `meta`/`error`
@@ -36,16 +54,19 @@ interface AnswerSourcesRowProps {
   isStreaming?: boolean
 }
 
+
 export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   citations,
   cards,
+  sourceEntries,
+  anchorPrefix,
   routingDecision,
   isStreaming = false,
 }) => {
   const t = useTranslations('chat')
-  const sources = deriveAnswerSources(citations, cards)
+  const items = answerSourceItems(sourceEntries, citations, cards)
 
-  if (sources.length === 0) {
+  if (items.length === 0) {
     // Honest "Lücke" treatment (design language §Domain-specific): a substantive
     // answer that cites nothing must say so in the neutral `--source-auto` gray
     // family (globe/gap icon + label), never hide its lack of grounding. Skipped
@@ -67,20 +88,63 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     )
   }
 
+  const label = (
+    <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+      {t('answerSources.label')}
+    </span>
+  )
+
+  // No numbers anywhere → nothing to line up; keep the compact chip row.
+  if (!items.some((item) => item.number != null)) {
+    return (
+      <div
+        className="flex flex-wrap items-center gap-1.5 border-t pt-2"
+        role="list"
+        aria-label={t('answerSources.ariaLabel')}
+      >
+        {label}
+        {items.map((item) => (
+          <span role="listitem" key={item.key} className="inline-flex max-w-full">
+            <SourcePreviewChip source={item.ref} signal={item.ref.signal} />
+          </span>
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <div
-      className="flex flex-wrap items-center gap-1.5 border-t pt-2"
-      role="list"
-      aria-label={t('answerSources.ariaLabel')}
-    >
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-        {t('answerSources.label')}
-      </span>
-      {sources.map((source) => (
-        <span role="listitem" key={source.key} className="inline-flex max-w-full">
-          <SourcePreviewChip source={source} signal={source.signal} />
-        </span>
-      ))}
+    <div className="border-t pt-2">
+      <div className="flex items-center justify-between gap-2">
+        {label}
+        {/* The block's real payoff: every source as a citation the user can
+            paste into a Befund, Word or their reference manager. */}
+        <CopyCitationsMenu items={items} />
+      </div>
+      <ol className="mt-1 list-none space-y-0.5 pl-0" aria-label={t('answerSources.ariaLabel')}>
+        {items.map((item) => (
+          <li
+            key={item.key}
+            id={item.number != null && anchorPrefix ? `${anchorPrefix}${item.number}` : undefined}
+            className="group flex scroll-mt-4 items-center gap-1"
+          >
+            <span
+              className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground"
+              aria-hidden={item.number == null}
+            >
+              {item.number != null ? item.number : ''}
+            </span>
+            <SourcePreviewChip
+              source={item.ref}
+              signal={item.ref.signal}
+              variant="row"
+              meta={
+                item.page != null ? t('answerSources.page', { page: item.page }) : item.host
+              }
+            />
+            <CopySourceCitationButton item={item} />
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
