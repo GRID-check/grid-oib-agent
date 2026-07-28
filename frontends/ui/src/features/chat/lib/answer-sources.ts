@@ -53,6 +53,13 @@ export interface AnswerSourceRef {
   /** Outbound link, only when the citation has a real http(s) URL */
   url?: string
   /**
+   * The `[N]` marker this source carries in the answer prose, when known
+   * (backend `verify_citations` → wire `number`, or matched from the answer's
+   * written source list). Drives the numbered provenance list and the in-page
+   * anchor an inline `[N]` marker scrolls to.
+   */
+  number?: number
+  /**
    * The underlying citation, kept so the chip can resolve a preview target
    * (WS-9). Absent for card-derived refs (legal_basis), which carry `snippet`.
    */
@@ -65,7 +72,7 @@ export interface AnswerSourceRef {
 }
 
 /** Max chips rendered under one answer — keep the row a summary, not a dump. */
-const MAX_ANSWER_SOURCES = 8
+export const MAX_ANSWER_SOURCES = 8
 
 /**
  * Canonical identity for an OIB base-corpus document, derived PURELY from either
@@ -113,10 +120,10 @@ const TOKEN_TO_KIND: Record<string, AnswerSourceKind> = {
   ris: 'ris',
 }
 
-const isHttpUrl = (url: string | undefined | null): boolean =>
+export const isHttpUrl = (url: string | undefined | null): boolean =>
   !!url && /^https?:\/\//i.test(url)
 
-const hostnameOf = (url: string): string | null => {
+export const hostnameOf = (url: string): string | null => {
   try {
     return new URL(url).hostname.replace(/^www\./i, '')
   } catch {
@@ -162,10 +169,16 @@ const citationLabel = (
 /**
  * Derive the provenance chips for one agent response from data that already
  * exists on the message. Deduplicates by url/label and caps the row length.
+ *
+ * `limit` exists for the consolidated list (`answer-source-list.ts`), which
+ * merges these refs with the answer's WRITTEN source entries and must not have
+ * a numbered entry silently dropped before the merge — it applies its own cap
+ * afterwards.
  */
 export const deriveAnswerSources = (
   citations?: CitationSource[],
-  cards?: GridCard[]
+  cards?: GridCard[],
+  limit: number = MAX_ANSWER_SOURCES
 ): AnswerSourceRef[] => {
   const refs: AnswerSourceRef[] = []
   const seen = new Set<string>()
@@ -211,6 +224,7 @@ export const deriveAnswerSources = (
           signal,
           authority,
           url: isHttpUrl(citation.url) ? citation.url : undefined,
+          number: citation.number,
           citation,
         },
         dedupe
@@ -239,7 +253,7 @@ export const deriveAnswerSources = (
     }
   }
 
-  return refs.slice(0, MAX_ANSWER_SOURCES)
+  return refs.slice(0, limit)
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
 
 'use client'
 
-import { type FC, memo, useCallback } from 'react'
+import { type FC, memo, useCallback, useId, useMemo } from 'react'
 import { Check, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -23,6 +23,7 @@ import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { answerSourceAnchorPrefix, splitAnswerBody } from '../lib/answer-source-list'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -197,6 +198,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const projectId = useChatStore((s) => s.projectId)
+  // An answer that ends in a written "## Quellen" list used to state its sources
+  // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
+  // (numbers/titles/pages vs. provenance color, authority and click-through).
+  // Lift the list out of the body and hand its entries to AnswerSourcesRow,
+  // which renders the one consolidated block; the inline [N] markers left in the
+  // prose become links to its rows. Answers without such a section are untouched.
+  const fallbackId = useId()
+  const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
+  const { body, entries: sourceEntries } = useMemo(
+    () => splitAnswerBody(content, anchorPrefix),
+    [content, anchorPrefix]
+  )
 
   const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
     useChatStore(useShallow((s) => ({
@@ -286,7 +299,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               : undefined
           }
         >
-          <MarkdownRenderer content={content} isStreaming={isStreaming} />
+          <MarkdownRenderer content={body} isStreaming={isStreaming} />
           {isStreaming && <StreamingCaret />}
         </div>
 
@@ -322,6 +335,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         <AnswerSourcesRow
           citations={citations}
           cards={cards}
+          sourceEntries={sourceEntries}
+          anchorPrefix={anchorPrefix}
           routingDecision={routingDecision}
           isStreaming={isStreaming}
         />
@@ -407,7 +422,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 : undefined
             }
           >
-            <MarkdownRenderer content={content} isStreaming={isStreaming} />
+            <MarkdownRenderer content={body} isStreaming={isStreaming} />
             {isStreaming && <StreamingCaret />}
           </div>
 
@@ -447,6 +462,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           <AnswerSourcesRow
             citations={citations}
             cards={cards}
+            sourceEntries={sourceEntries}
+            anchorPrefix={anchorPrefix}
             routingDecision={routingDecision}
             isStreaming={isStreaming}
           />

@@ -1777,6 +1777,22 @@ class TestSourceLane:
         assert wire["kind"] == "baurecht"
 
 
+class TestWireCitationNumber:
+    """The wire carries the [N] label a source has in the answer prose."""
+
+    def test_number_is_emitted_when_known(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = SourceEntry(citation_key="oib-rl_4_ausgabe_mai_2023.pdf, p.9", source_type="knowledge_layer")
+        assert source_entry_to_wire(entry, number=3)["number"] == 3
+
+    def test_number_is_absent_when_unknown(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = SourceEntry(url="https://example.com/a", title="A")
+        assert "number" not in source_entry_to_wire(entry)
+
+
 class TestKnowledgeLayerDocClassParsing:
     """The knowledge-layer parser reads the Dokumentart field into doc_class."""
 

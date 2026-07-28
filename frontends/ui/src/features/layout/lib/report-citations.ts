@@ -44,12 +44,23 @@ export interface SplitReportSources {
   entries: ReportSourceEntry[]
 }
 
-/** Recognized sources-section heading titles (EN + DE variants). */
+/**
+ * Recognized sources-section heading titles (EN + DE variants), as either a
+ * markdown heading (`## Quellen`) or a bold label (`**References:**`). The bold
+ * form is what the backend's minimal-citation fallback writes
+ * (`_append_minimal_citation`), so missing it left those source sections
+ * unparsed — and therefore rendered raw, next to the chip row that already said
+ * the same thing.
+ */
 const SOURCES_HEADING_RE =
-  /^#{1,4}\s*(?:\d+\.?\s*)?(sources|quellen|quellenverzeichnis|references|referenzen)\s*:?\s*$/i
+  /^(?:#{1,4}\s*|\*\*)?(?:\d+\.?\s*)?(sources|quellen|quellenverzeichnis|quellenangaben|references|referenzen)\s*:?\s*(?:\*\*)?$/i
 
-/** A numbered source entry line: "1. ...", "1) ..." or "[1] ...". */
-const SOURCE_ENTRY_RE = /^\s*(?:\[(\d{1,3})\]|(\d{1,3})[.)])\s+(.+)$/
+/**
+ * A numbered source entry line: "1. ...", "1) ..." or "[1] ...", optionally as a
+ * markdown bullet ("- [1] ..."). The bullet form is the backend's own output
+ * (`_CITATION_LINE_RE` accepts it and `_append_minimal_citation` writes it).
+ */
+const SOURCE_ENTRY_RE = /^\s*(?:[-*+]\s+)?(?:\[(\d{1,3})\]|(\d{1,3})[.)])\s+(.+)$/
 
 /**
  * Leading backend origin token on a source entry, e.g. "[KB] ...".

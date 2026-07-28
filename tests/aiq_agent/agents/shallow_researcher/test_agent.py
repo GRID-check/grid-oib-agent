@@ -1634,6 +1634,47 @@ class TestShallowResearcherAnswerGrounding:
         result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
         assert result.verified_sources is None
 
+    # --- citation numbers: the [N] label each cited source carries in the prose ---
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_carry_their_citation_number(self, mock_llm_provider, mock_llm):
+        # The [N] → source binding exists only inside verify_citations. Emitting
+        # it lets the frontend render ONE numbered provenance block instead of
+        # the written source list plus an unnumbered chip row.
+        mock_llm.ainvoke.return_value = AIMessage(content="Antwort [1][2].")
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
+        registry.add(SourceEntry(citation_key="oib-rl_4.pdf, p.9", title="OIB 4", tool_name="kb_search"))
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Antwort [1][2].",
+                valid_citations=[
+                    {"number": 1, "url": "https://example.com/a", "citation_key": None, "line": "[1]"},
+                    {"number": 2, "url": None, "citation_key": "oib-rl_4.pdf, p.9", "line": "[2]"},
+                ],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert [s["number"] for s in result.verified_sources] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_minimal_citation_source_is_numbered_one(self, mock_llm_provider, mock_llm):
+        # ``_append_minimal_citation`` writes "[1]" into the answer, so the one
+        # emitted source must claim that number.
+        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool"))
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Answer without any citation.",
+                valid_citations=[],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert [s["number"] for s in result.verified_sources] == [1]
+
     # --- citations_removed: transparency summary of dropped citations ---
 
     @pytest.mark.asyncio

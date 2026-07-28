@@ -248,6 +248,10 @@ export const NATSystemResponseMessageSchema = z.object({
           source_type: z.string().nullable().optional(),
           tool: z.string().nullable().optional(),
           origin: z.string().nullable().optional(),
+          // The [N] citation label this source carries in the answer prose, so
+          // the provenance block can render as the answer's numbered source
+          // list instead of duplicating a written one.
+          number: z.number().nullable().optional(),
           file_name: z.string().nullable().optional(),
           page: z.number().nullable().optional(),
         })

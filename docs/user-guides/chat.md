@@ -79,9 +79,27 @@ Deep research submits a job to the backend and receives progress via SSE events 
 - **Files tab**: Generated files
 - **Tasks tab**: Progress checklist
 
-## Answer source chips ("Belegt durch")
+## Answer sources ("Belegt durch")
 
-Answers that already carry source data show a provenance chip row: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Chips are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS chips link out. Answers without source data show no row — chips are never fabricated.
+Answers that already carry source data show a provenance block: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`/`number`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Sources are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS sources link out. Answers without source data show no block — sources are never fabricated.
+
+**One row, not a row plus a written list.** A verified answer ends in a written sources section (`## Quellen` / `**References:**`, produced by the backend's citation verification). That section is *not* rendered a second time under the answer: it is lifted out of the answer body and folded into the chip row. The chip keeps its compact shape and gains the citation's `[N]`; everything else the written list said — the untruncated title, the cited page or host, and a copyable citation — sits **one click away**, in the chip's existing preview popover or document dialog. Each chip is also the anchor its inline `[N]` marker scrolls to. The `[N]` → source binding comes from the backend (`sources[].number`, resolved by `verify_citations`); when it is absent (legacy messages, deep-research SSE) the frontend falls back to matching on document identity, and an answer whose sources were never numbered simply shows no indices.
+
+### Citing a source elsewhere
+
+A source's preview popover (or document dialog) carries a copy button that yields a **German Fachtext citation** — the form a Befund, Gutachten or Einreichung uses (e.g. `OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023, S. 18 (Österreichisches Institut für Bautechnik, Wien).`). The **Zitieren / Cite** menu at the end of the chip row copies *all* of the answer's sources in one of:
+
+| Format | For |
+|---|---|
+| Zitiertext (Fachtext) | Pasting into a report or submission |
+| APA | A formatted bibliography |
+| BibTeX (`.bib`) | LaTeX, JabRef |
+| EndNote/Zotero (`.ris`) | Reference managers |
+| CSL-JSON | Zotero, Word, pandoc |
+
+The citations are built from CSL-JSON items derived from the source data — an OIB Richtlinie becomes a CSL `standard` with its publisher and edition, a RIS source `legislation` with its retrieval date, a project upload a `report`. Nothing is invented: an unknown edition, page or date is simply absent. The bibliographic formats are rendered by [citation-js](https://citation.js.org/) on the BFF (`POST /api/citations/format`) because it is a Node library; if that call fails, the copy degrades to the Fachtext bibliography.
+
+Note the name collision: "RIS" is both the Austrian Rechtsinformationssystem (a source) and the RIS tagged file format (`.ris`, the reference-manager interchange). The menu labels the latter "EndNote/Zotero (.ris)".
 
 ### Source preview (clicking a chip)
 

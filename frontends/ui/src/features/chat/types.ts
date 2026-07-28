@@ -382,6 +382,14 @@ export interface CitationSource {
   isCited?: boolean
   /** Backend origin token without brackets: kb | ris | web */
   origin?: 'kb' | 'ris' | 'web'
+  /**
+   * The `[N]` marker this source carries in the answer prose, when the backend
+   * resolved one (`verify_citations` owns that binding). Lets the provenance
+   * block render as the answer's numbered source list — one block instead of a
+   * written list plus an unnumbered chip row. Absent on legacy/persisted
+   * messages and on the deep-research SSE path.
+   */
+  number?: number
   title?: string
   citationKey?: string
   collection?: string
@@ -419,6 +427,8 @@ export interface WireCitationSource {
   source_type?: string | null
   tool?: string | null
   origin?: string | null
+  /** Citation label ([N]) this source carries in the answer prose. */
+  number?: number | null
   file_name?: string | null
   page?: number | null
   kind?: string | null

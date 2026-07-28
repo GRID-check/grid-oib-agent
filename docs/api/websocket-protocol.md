@@ -192,6 +192,11 @@ Delivers final or streaming response text.
     source_type?: string | null
     tool?: string | null
     origin?: "kb" | "ris" | "web" | string | null
+    // The [N] marker this source carries in the answer prose, resolved by
+    // verify_citations (the only place that binding exists). Lets the UI render
+    // ONE numbered provenance block instead of the written "## Quellen" list
+    // plus an unnumbered chip row. Absent when unknown (legacy/meta turns).
+    number?: number | null
     file_name?: string | null
     page?: number | null
   }>,

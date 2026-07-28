@@ -571,6 +571,11 @@ class ShallowResearcherAgent:
         # turn's RIS sources. Defaults to empty; populated in the verification
         # block below where ``verification`` is in scope.
         relevant_sources: list[SourceEntry] = []
+        # ``id(entry)`` → the ``[N]`` citation label that entry carries in the
+        # answer prose. Only the verifier knows this binding, so it travels on
+        # the wire; the FE renders one numbered provenance block from it instead
+        # of duplicating the written source list next to an unnumbered chip row.
+        citation_numbers: dict[int, int] = {}
         # Control-marker signals extracted from the model's answer. Populated
         # below and carried as STRUCTURED state so the chat node does not have to
         # re-parse the answer string (which also leaked the markers downstream).
@@ -672,6 +677,14 @@ class ShallowResearcherAgent:
                                 if entry is not None and id(entry) not in seen_ids:
                                     seen_ids.add(id(entry))
                                     relevant_sources.append(entry)
+                                    # Keep the [N] label this source carries in the
+                                    # prose. The binding exists only here (the
+                                    # verifier resolved it); without it the FE
+                                    # cannot fold the written "## Sources" list
+                                    # and the chip row into one provenance block.
+                                    number = citation.get("number")
+                                    if isinstance(number, int):
+                                        citation_numbers[id(entry)] = number
                     elif len(sources) == 1:
                         # No model citation survived, but exactly one registry
                         # source is available: append it as the single minimal
@@ -682,6 +695,8 @@ class ShallowResearcherAgent:
                         citation_grounded = True
                         if state.requires_sources:
                             relevant_sources = [sources[0]]
+                            # ``_append_minimal_citation`` always writes "[1]".
+                            citation_numbers = {id(sources[0]): 1}
                 elif state.requires_sources:
                     # Distinguish "retrieval genuinely failed" from "the agent
                     # answered from conversation/project context without ever
@@ -765,7 +780,7 @@ class ShallowResearcherAgent:
         wire_sources: list[dict[str, Any]] = []
         for entry in relevant_sources:
             try:
-                wire_sources.append(source_entry_to_wire(entry))
+                wire_sources.append(source_entry_to_wire(entry, number=citation_numbers.get(id(entry))))
             except Exception:
                 logger.warning(
                     "Skipping source that failed wire serialization: %s",
