@@ -6,6 +6,7 @@ vi.mock('@/lib/knowledge/service', () => ({ getKnowledgeBaseStatus: vi.fn() }))
 vi.mock('@/lib/norms/service', () => ({ getNormRegistry: vi.fn() }))
 
 import { buildFindings, type CitationKindTotal, type CitationOrganizationTotal, type CitationReasonTotal } from './service'
+import type { MissingSourceCandidate } from './missing-sources'
 
 /**
  * The findings engine IS the actionable half of the feature — an operator acts
@@ -25,6 +26,20 @@ const org = (overrides: Partial<CitationOrganizationTotal>): CitationOrganizatio
   defectTurns: 10,
   errorTurns: 0,
   defectRate: 0.1,
+  ...overrides,
+})
+
+const candidate = (overrides: Partial<MissingSourceCandidate>): MissingSourceCandidate => ({
+  target: 'oib-rl_2_ausgabe_mai_2023.pdf, p.4',
+  kind: 'document',
+  reason: 'citation_key_not_in_registry',
+  turns: 1,
+  organizations: 1,
+  lastSeenAt: '2026-07-28T17:09:40.000Z',
+  present: true,
+  action: 'investigate_retrieval',
+  fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+  documentNumber: null,
   ...overrides,
 })
 
@@ -122,6 +137,91 @@ describe('buildFindings', () => {
       reasons: [reason('url_not_in_registry', 1)],
     })
     expect(ids(rare)).not.toContain('citations_invented')
+  })
+
+  it('does not accuse the model of inventing sources the platform actually holds', () => {
+    // The regression this guards: `citation_key_not_in_registry` means "not
+    // among the sources RETRIEVED on that turn", not "unknown to the platform".
+    // Reading it as invention produced two contradictory diagnoses for the same
+    // removals — "tighten the prompt" next to "check your indexing".
+    const findings = buildFindings({
+      ...base,
+      turns: 1,
+      defectTurns: 1,
+      byKind: [kind('citations_removed', 1, 3)],
+      reasons: [reason('citation_key_not_in_registry', 1)],
+      missingSources: [
+        candidate({ target: 'erlaeuterungen_oib-rl_2.1_ausgabe_mai_2023.pdf' }),
+        candidate({ target: 'erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf' }),
+        candidate({ target: 'oib-rl_2_ausgabe_mai_2023.pdf' }),
+      ],
+      missingSourceTurns: { held: 1, addable: 0 },
+    })
+    expect(ids(findings)).not.toContain('citations_invented')
+    expect(ids(findings)).toContain('sources_unretrievable')
+  })
+
+  it('counts a cited web page as invention even though it cannot be added', () => {
+    // `action: 'none'` means "no remedy", not "the platform has it" — a web URL
+    // retrieval never returned is the clearest case of a source written from
+    // memory, and gating on addability would have hidden it.
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 80,
+      byKind: [kind('citations_removed', 80, 240)],
+      reasons: [reason('url_not_in_registry', 1)],
+      missingSources: [
+        candidate({ target: 'https://example.test/leitfaden', kind: 'web', present: false, action: 'none', fileName: null }),
+      ],
+    })
+    expect(findings.find((f) => f.id === 'citations_invented')?.metrics.unheld).toBe(1)
+    expect(ids(findings)).not.toContain('sources_missing')
+  })
+
+  it('still blames invention when a rejected source is held nowhere', () => {
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 80,
+      byKind: [kind('citations_removed', 80, 240)],
+      reasons: [reason('citation_key_not_in_registry', 1)],
+      missingSources: [
+        candidate({ target: 'erfundene_norm.pdf', present: false, action: 'upload_to_base_knowledge' }),
+        candidate({ target: 'oib-rl_2_ausgabe_mai_2023.pdf' }),
+      ],
+      missingSourceTurns: { held: 40, addable: 50 },
+    })
+    const invented = findings.find((f) => f.id === 'citations_invented')
+    expect(invented?.metrics.unheld).toBe(1)
+  })
+
+  it('never reports more affected turns than the window flagged', () => {
+    // Three sources rejected on ONE turn are three candidate rows, each with
+    // turns: 1. Summing them claimed three turns in a window that had one.
+    const findings = buildFindings({
+      ...base,
+      turns: 1,
+      defectTurns: 1,
+      byKind: [kind('citations_removed', 1, 3)],
+      missingSources: [
+        candidate({ target: 'a.pdf' }),
+        candidate({ target: 'b.pdf' }),
+        candidate({ target: 'c.pdf' }),
+      ],
+      missingSourceTurns: { held: 1, addable: 0 },
+    })
+    const unretrievable = findings.find((f) => f.id === 'sources_unretrievable')
+    expect(unretrievable?.metrics).toEqual({ sources: 3, turns: 1 })
+  })
+
+  it('falls back to the flagged-turn ceiling when the exact union is unavailable', () => {
+    const findings = buildFindings({
+      ...base,
+      turns: 10,
+      defectTurns: 2,
+      byKind: [kind('citations_removed', 2, 6)],
+      missingSources: [candidate({ target: 'a.pdf' }), candidate({ target: 'b.pdf' }), candidate({ target: 'c.pdf' })],
+    })
+    expect(findings.find((f) => f.id === 'sources_unretrievable')?.metrics.turns).toBe(2)
   })
 
   it('flags fabricated quotes above the 2 % share', () => {

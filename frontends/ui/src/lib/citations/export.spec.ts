@@ -13,6 +13,7 @@ vi.mock('./repository', () => ({
   aggregateDefectiveSourceMix: vi.fn(),
   aggregateUnavailableTools: vi.fn(),
   aggregateFailedTargets: vi.fn(),
+  countTurnsForTargets: vi.fn(),
   aggregateByOrganization: vi.fn(),
   listRecentDefects: vi.fn(),
 }))
@@ -66,6 +67,7 @@ beforeEach(() => {
   vi.mocked(repository.aggregateDefectiveSourceMix).mockResolvedValue([])
   vi.mocked(repository.aggregateUnavailableTools).mockResolvedValue([])
   vi.mocked(repository.aggregateFailedTargets).mockResolvedValue([])
+  vi.mocked(repository.countTurnsForTargets).mockResolvedValue(0)
   vi.mocked(repository.aggregateByOrganization).mockResolvedValue([
     { organizationId: 'org_1', turns: 2, defectTurns: 1, errorTurns: 0 },
   ])

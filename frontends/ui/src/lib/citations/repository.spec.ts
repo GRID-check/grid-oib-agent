@@ -15,6 +15,7 @@ import {
   aggregateReasons,
   aggregateUnavailableTools,
   countObservedTurns,
+  countTurnsForTargets,
   insertCitationEvents,
 } from './repository'
 
@@ -100,6 +101,47 @@ describe('aggregate coercion', () => {
   })
 })
 
+describe('countTurnsForTargets', () => {
+  it('counts the DISTINCT turns behind a set of rejected targets', async () => {
+    // The union, not the sum: three documents rejected on the same turn are
+    // three `aggregateFailedTargets` rows of one turn each.
+    mockExecute([{ turns: '1' }])
+    expect(await countTurnsForTargets(new Date(), ['a.pdf', 'b.pdf', 'c.pdf'])).toBe(1)
+  })
+
+  it('makes no DB round trip for an empty target list', async () => {
+    expect(await countTurnsForTargets(new Date(), [])).toBe(0)
+    expect(mockGetDb).not.toHaveBeenCalled()
+  })
+
+  it('binds every target as a parameter rather than interpolating it', async () => {
+    const execute = mockExecute([{ turns: '2' }])
+    await countTurnsForTargets(new Date(), ["o'brien.pdf", 'b.pdf'])
+
+    // Walk only the chunk tree (arrays + nested SQL), never arbitrary object
+    // properties — `queryChunks` also holds the drizzle table, which is cyclic.
+    const params: unknown[] = []
+    const literalSql: string[] = []
+    // A value passed THROUGH the template sits in the chunk list as a bare
+    // string (drizzle binds it); text drizzle will emit verbatim is wrapped in
+    // a StringChunk. That distinction is exactly what this test is about.
+    const collect = (node: unknown): void => {
+      if (typeof node === 'string') return void params.push(node)
+      if (Array.isArray(node)) return node.forEach(collect)
+      if (node === null || typeof node !== 'object') return
+      if (node.constructor?.name === 'StringChunk') {
+        return void literalSql.push(...((node as { value: string[] }).value ?? []))
+      }
+      if ('queryChunks' in node) collect((node as { queryChunks: unknown[] }).queryChunks)
+    }
+    collect((execute.mock.calls[0][0] as ReturnType<typeof sql>).queryChunks)
+
+    expect(params).toContain("o'brien.pdf")
+    expect(params).toContain('b.pdf')
+    expect(literalSql.join(' ')).not.toContain("o'brien.pdf")
+  })
+})
+
 describe('raw-SQL window bounds', () => {
   /**
    * Regression guard for a production failure: a raw `db.execute(sql`…`)`
@@ -115,6 +157,7 @@ describe('raw-SQL window bounds', () => {
     ['aggregateFailedTargets', aggregateFailedTargets],
     ['aggregateUnavailableTools', aggregateUnavailableTools],
     ['aggregateByOrganization', aggregateByOrganization],
+    ['countTurnsForTargets', (start: Date) => countTurnsForTargets(start, ['a.pdf'])],
   ]
 
   it.each(RAW_QUERIES)('%s binds no Date parameter', async (_name, run) => {

@@ -279,7 +279,7 @@ export const platform: typeof en.platform = {
       citations_invented: {
         title: 'Das Modell zitiert Quellen, die nie abgerufen wurden',
         meaning:
-          '{citations} Quellenangabe(n) in {turns} Turn(s) wurden entfernt, und {share}% der Entfernungen betrafen Quellen, die gar nicht im Retrieval-Register standen — das Modell zitiert aus dem Gedächtnis.',
+          '{citations} Quellenangabe(n) in {turns} Turn(s) wurden entfernt, {share}% davon, weil die zitierte Quelle nicht unter den in diesem Turn abgerufenen Quellen war — und {unheld} dieser Quellen liegen nirgends auf der Plattform, das Modell zitiert also aus dem Gedächtnis.',
         action:
           'Das ist ein Prompt-/Modellproblem, kein Retrieval-Problem. Schärfen Sie die Zitierregeln im Researcher-Prompt (nur aus abgerufenen Passagen zitieren) und prüfen Sie das Modell der betroffenen Organisationen. Aktuell fängt das nur die Prüfung ab.',
       },
@@ -354,11 +354,14 @@ export const platform: typeof en.platform = {
     },
     trend: {
       title: 'Befunde pro Tag',
-      description: 'Recherche-Turns mit einem Zitations-Befund, pro UTC-Tag über die letzten {days} Tage.',
+      description:
+        'Zitations-Befunde pro UTC-Tag über die letzten {days} Tage. Ein Turn kann mehrere Befunde tragen — die Balken zählen Befunde, nicht Turns.',
       turns: '{count} Turns',
+      findings: '{count} Befunde',
+      flagged: '{count} auffällig',
       empty: 'Keine Zitations-Befunde in diesem Zeitraum.',
     },
-    missingTitle: 'Quellen zum Ergänzen',
+    missingTitle: 'Quellen ohne Nachweis',
     missingDescription:
       'Konkrete Quellen, die Antworten immer wieder zitieren und die die Prüfung nicht bestätigen konnte — abgeglichen mit dem, was die Plattform tatsächlich hat. Meistzitierte zuerst.',
     missingCited: 'in {turns} Turn(s) zitiert · {organizations} Organisation(en)',

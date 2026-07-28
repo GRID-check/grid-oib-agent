@@ -506,6 +506,8 @@ export function CitationHealth(): JSX.Element {
                 kinds={DEFECT_KINDS}
                 kindLabel={kindLabel}
                 turnsLabel={(count) => t('citations.trend.turns', { count })}
+                findingsLabel={(count) => t('citations.trend.findings', { count })}
+                flaggedLabel={(count) => t('citations.trend.flagged', { count })}
                 emptyLabel={t('citations.trend.empty')}
                 ariaLabel={t('citations.trend.title')}
               />

@@ -1951,3 +1951,78 @@ class TestOffTopicDeclineShape:
         banner = rendered.split("<turn_classification>")[1].split("</turn_classification>")[0]
         assert "off-topic" in banner.lower()
         assert "decline" in banner.lower()
+
+
+class TestKnowledgeInventoryIsNotCitable:
+    """The corpus inventory in the prompt must not read as citable evidence.
+
+    Every research turn renders the whole knowledge base — base OIB corpus
+    included — as `file_name: summary` lines. Those filenames are the exact
+    citation keys verification matches against, so a model that cites one it
+    never retrieved produces citations that are all dropped
+    (`citation_key_not_in_registry`) and an answer that ships with no source at
+    all. The prompt used to forbid recalling URLs from memory but said nothing
+    about document keys, while handing the model a list of them.
+    """
+
+    def _render(self, prompt: str, documents: list[dict]) -> str:
+        from aiq_agent.common import render_prompt_template
+
+        return render_prompt_template(
+            prompt,
+            tools=[{"name": "knowledge_search", "description": "Search the knowledge base"}],
+            user_info=None,
+            current_datetime="2026-07-28",
+            available_documents=documents,
+            project_context=None,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=True,
+            execution_enabled=False,
+            jurisdiction_grounding=None,
+            enable_source_router=False,
+            max_research_concurrency=3,
+        )
+
+    @staticmethod
+    def _prompt(path: str) -> str:
+        from pathlib import Path
+
+        import aiq_agent
+
+        return (Path(aiq_agent.__file__).parent / "agents" / path).read_text(encoding="utf-8")
+
+    DOCUMENTS = [{"file_name": "oib-rl_2_ausgabe_mai_2023.pdf", "summary": "Brandschutz.", "tags": []}]
+
+    def test_shallow_prompt_marks_the_inventory_as_not_a_source(self):
+        rendered = self._render(self._prompt("shallow_researcher/prompts/researcher.j2"), self.DOCUMENTS)
+
+        # The inventory still lists the file — the agent must know it exists.
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" in rendered
+        # …but it is labelled an index, not evidence.
+        assert "NOT sources" in rendered
+        assert "not a citable source" in rendered
+        # And the anti-memory rule covers document keys, not only URLs.
+        citation_block = rendered.split("<citation_format>")[1].split("</citation_format>")[0]
+        assert "document citation keys" in citation_block
+        assert "knowledge_search" in citation_block
+
+    def test_deep_researcher_prompt_marks_the_inventory_as_not_a_source(self):
+        rendered = self._render(self._prompt("deep_researcher/prompts/researcher.j2"), self.DOCUMENTS)
+
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" in rendered
+        assert "NOT sources" in rendered
+        assert "not a citable source" in rendered
+
+    def test_no_prompt_still_calls_the_base_corpus_a_user_upload(self):
+        """The list mixes the platform's OIB corpus with project uploads, so
+        "User Uploaded Documents" was also simply untrue — and a heading rename
+        must not leave dangling references to the old one."""
+        for path in (
+            "shallow_researcher/prompts/researcher.j2",
+            "deep_researcher/prompts/researcher.j2",
+            "deep_researcher/prompts/orchestrator.j2",
+        ):
+            source = self._prompt(path)
+            assert "Uploaded Documents" not in source, path

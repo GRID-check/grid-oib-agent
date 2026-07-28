@@ -405,3 +405,21 @@ from the platform tier.
 Read by the platform-owner-only citation-health surface
 (`frontends/ui/src/lib/citations/*`, `GET /api/platform/citation-health` and its
 `/export` sibling).
+
+**Two counting rules the readers must respect**, because both were violated and
+produced a dashboard that contradicted itself:
+
+- `*_not_in_registry` (`url_not_in_registry`, `citation_key_not_in_registry`)
+  means the cited source was **not among the sources retrieval returned on that
+  turn** — NOT that the platform does not hold it. A document sitting indexed in
+  the base corpus produces exactly this reason when retrieval fails to surface
+  it, so the reason alone never proves the model invented the citation. The
+  service resolves the ambiguity by cross-checking the corpus
+  (`missing-sources.ts`): held → an indexing fault (`sources_unretrievable`);
+  held nowhere → invention (`citations_invented`). The two are mutually
+  exclusive by construction.
+- **Per-kind and per-target turn counts are not additive.** One turn commonly
+  carries several kinds and several rejected targets, so summing them reports
+  more turns than the window contains. Rollups take `count(distinct turn_id)`
+  (`countTurnsForTargets` for a set of targets); the trend chart's stack counts
+  *findings*, not turns, and is labelled as such.

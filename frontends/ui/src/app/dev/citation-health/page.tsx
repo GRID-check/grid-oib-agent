@@ -74,7 +74,7 @@ const SNAPSHOT = {
       id: 'citations_invented',
       severity: 'warn',
       subject: null,
-      metrics: { turns: 121, citations: 412, share: 68 },
+      metrics: { turns: 121, citations: 412, share: 68, unheld: 3 },
     },
     {
       id: 'organization_outlier',

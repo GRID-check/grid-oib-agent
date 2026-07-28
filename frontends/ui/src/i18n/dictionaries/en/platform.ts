@@ -283,7 +283,7 @@ export const platform = {
       citations_invented: {
         title: 'The model cites sources that were never retrieved',
         meaning:
-          '{citations} citation(s) across {turns} turn(s) were removed, and {share}% of removals were sources absent from the retrieval registry — the model is citing from memory.',
+          '{citations} citation(s) across {turns} turn(s) were removed, {share}% of them because the cited source was not among the sources retrieval returned on that turn — and {unheld} of those sources are held nowhere on the platform, so the model is citing from memory.',
         action:
           'This is a prompt/model problem, not a retrieval one. Tighten the citation rules in the researcher prompt (cite only from retrieved passages) and re-check the model configured for the affected organizations. Verification is currently the only thing catching it.',
       },
@@ -357,11 +357,14 @@ export const platform = {
     },
     trend: {
       title: 'Defects per day',
-      description: 'Research turns with a citation finding, per UTC day over the last {days} days.',
+      description:
+        'Citation findings per UTC day over the last {days} days. One turn can carry several findings, so the bars count findings, not turns.',
       turns: '{count} turns',
+      findings: '{count} findings',
+      flagged: '{count} flagged',
       empty: 'No citation findings in this window.',
     },
-    missingTitle: 'Sources to add',
+    missingTitle: 'Sources answers could not prove',
     missingDescription:
       'Specific sources answers keep citing that verification could not confirm, checked against what the platform actually holds. Most-cited first.',
     missingCited: 'cited on {turns} turn(s) · {organizations} organization(s)',
