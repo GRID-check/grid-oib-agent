@@ -106,6 +106,35 @@ Concretely:
    disagree. `features/grid-cards/card-interactivity.spec.tsx` fails if a type
    is classified interactive but is not wired for persistence.
 
+### The flow
+
+Where a decision lives at each hop, and the two paths that can drop it
+(`reconcileCardInteractions` during streaming, the mount-scoped fallback when no
+message owns the card):
+
+```mermaid
+flowchart LR
+  click["User clicks Accept / Yes / Dismiss"] --> hook["useCardDecision<br/>(messageId + cardKey)"]
+
+  hook --> api["Write endpoint<br/>PATCH project brief /<br/>POST org memory<br/><b>not idempotent</b>"]
+  hook --> store["setCardDecision<br/>ChatMessage.cardInteractions"]
+
+  store -->|"no owning message,<br/>or message gone"| fallback["mount-scoped fallback<br/>(settles this mount only,<br/>lost on reload)"]
+
+  store --> ls[("localStorage<br/>persist middleware")]
+  store --> patch["PATCH /api/conversations/{id}<br/>/messages/{messageId}"]
+  patch --> pg[("messages.metadata<br/>.cardInteractions<br/>jsonb, deep-merged<br/>under a row lock")]
+
+  ls --> rehydrate["rehydrate"]
+  pg --> mapper["server-message-mapper<br/>sanitizeCardInteractions"]
+  mapper --> rehydrate
+  rehydrate --> render["GridCards renders the card<br/><b>already settled</b> — no live button"]
+
+  stream["streaming frame<br/>replaces message.cards"] --> reconcile{"card at that index<br/>byte-identical?"}
+  reconcile -->|yes| store
+  reconcile -->|no| drop["drop the decision<br/>card returns to pending"]
+```
+
 ### What counts as interactive
 
 Classify a card `'interactive'` if answering it **starts a commitment that is
@@ -163,7 +192,11 @@ prefer making its endpoint idempotent as well — persistence stops the UI from
   `mergeMessageMetadata` merges `cardInteractions` **per key** rather than
   replacing it; otherwise a second client could erase a decision it never saw
   and resurrect a settled card. Last-writer-wins still applies per entry, which
-  is correct — one card is decided once.
+  is correct — one card is decided once. Because that merge runs in JS between a
+  read and a write, both statements run in one transaction and the read takes
+  `SELECT … FOR UPDATE`: without the lock the two PATCHes read the same snapshot
+  and the later write drops the earlier entry, which is the same lost decision
+  by a different route.
 
 ## Alternatives Considered
 

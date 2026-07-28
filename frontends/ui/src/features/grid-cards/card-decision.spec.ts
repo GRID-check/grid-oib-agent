@@ -128,11 +128,19 @@ describe('sanitizeCardInteractions', () => {
     }
   })
 
-  it('keeps a valid UTC ISO timestamp as-is', () => {
-    const clean = sanitizeCardInteractions({
-      'x-0': { decision: 'accepted', decidedAt: '2026-07-28T09:00:00.000Z' },
-    })
-    expect(clean?.['x-0'].decidedAt).toBe('2026-07-28T09:00:00.000Z')
+  it('keeps every UTC ISO form the PATCH route accepts as-is', () => {
+    // `.datetime()` requires `Z` and seconds but leaves the fractional part
+    // optional, so second- and microsecond-precision instants are just as
+    // valid as `toISOString()`'s three digits. Clobbering them to the epoch
+    // would silently rewrite another client's history.
+    for (const good of [
+      '2026-07-28T09:00:00.000Z',
+      '2026-07-28T09:00:00Z',
+      '2026-07-28T09:00:00.123456Z',
+    ]) {
+      const clean = sanitizeCardInteractions({ 'x-0': { decision: 'accepted', decidedAt: good } })
+      expect(clean?.['x-0'].decidedAt).toBe(good)
+    }
   })
 
   it('returns undefined for non-objects and for input with nothing usable', () => {

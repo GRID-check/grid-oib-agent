@@ -140,13 +140,19 @@ export const isCardDecision = (value: unknown): value is CardDecision =>
   typeof value === 'string' && DECISIONS.has(value)
 
 /**
- * A UTC ISO-8601 instant — the one form the PATCH route's `.datetime()` takes.
- * The parse check comes first: `toISOString()` THROWS on an unparseable date.
+ * A UTC ISO-8601 instant, matching what the PATCH route's `.datetime()` takes:
+ * `Z`-terminated (no offsets), seconds required, fractional digits optional.
+ *
+ * Deliberately NOT `value === new Date(value).toISOString()`: that round trip
+ * only accepts exactly three fractional digits, so a perfectly valid
+ * second-precision instant another client wrote (`…T09:00:00Z`) would be
+ * rejected and clobbered to the epoch. `Date.parse` then rejects the values the
+ * shape alone lets through (month 15, day 32).
  */
+const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
+
 const isTimestamp = (value: unknown): value is string =>
-  typeof value === 'string' &&
-  !Number.isNaN(Date.parse(value)) &&
-  value === new Date(value).toISOString()
+  typeof value === 'string' && UTC_INSTANT.test(value) && !Number.isNaN(Date.parse(value))
 
 /**
  * Drop decisions that no longer refer to the card they were made about.

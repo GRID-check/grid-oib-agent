@@ -164,7 +164,12 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
  * message by guessing its id).
  *
  * The merge happens in JS on the row we just read rather than in SQL, so the
- * jsonb stays a plain object the mapper can read.
+ * jsonb stays a plain object the mapper can read — but read-merge-write is a
+ * lost-update race, so the whole thing runs in ONE transaction and the read
+ * takes a row lock (`SELECT … FOR UPDATE`). Without the lock two concurrent
+ * PATCHes both read the same snapshot and the later UPDATE discards the
+ * earlier one's entry, which is the very failure the deep merge below exists
+ * to prevent.
  *
  * `deepMergeKeys` names top-level keys whose OBJECT value should be merged
  * entry-by-entry instead of replaced. `cardInteractions` needs this: two
@@ -186,22 +191,27 @@ export async function mergeMessageMetadata(
   const db = getDb()
   const scope = and(eq(messages.id, messageId), eq(messages.conversationId, conversationId))
 
-  const [existing] = await db.select().from(messages).where(scope).limit(1)
-  if (!existing) return null
+  return db.transaction(async (tx) => {
+    // `for('update')` is what makes the read-merge-write below safe: it holds
+    // the row until this transaction commits, so a second PATCH to the same
+    // message blocks here instead of racing us with a stale snapshot.
+    const [existing] = await tx.select().from(messages).where(scope).limit(1).for('update')
+    if (!existing) return null
 
-  const current = (existing.metadata ?? {}) as Record<string, unknown>
-  const merged: Record<string, unknown> = { ...current, ...patch }
+    const current = (existing.metadata ?? {}) as Record<string, unknown>
+    const merged: Record<string, unknown> = { ...current, ...patch }
 
-  for (const key of deepMergeKeys) {
-    const before = current[key]
-    const after = patch[key]
-    if (isPlainObject(before) && isPlainObject(after)) {
-      merged[key] = { ...before, ...after }
+    for (const key of deepMergeKeys) {
+      const before = current[key]
+      const after = patch[key]
+      if (isPlainObject(before) && isPlainObject(after)) {
+        merged[key] = { ...before, ...after }
+      }
     }
-  }
 
-  const [row] = await db.update(messages).set({ metadata: merged }).where(scope).returning()
-  return row ?? null
+    const [row] = await tx.update(messages).set({ metadata: merged }).where(scope).returning()
+    return row ?? null
+  })
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>

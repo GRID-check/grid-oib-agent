@@ -9,11 +9,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const selectedRow = vi.hoisted(() => ({ current: null as unknown }))
 const updateSpy = vi.hoisted(() => vi.fn())
+const transactionSpy = vi.hoisted(() => vi.fn())
+const lockSpy = vi.hoisted(() => vi.fn())
 
-vi.mock('@/lib/db', () => ({
-  getDb: () => ({
+vi.mock('@/lib/db', () => {
+  const tx = {
     select: () => ({
-      from: () => ({ where: () => ({ limit: async () => (selectedRow.current ? [selectedRow.current] : []) }) }),
+      from: () => ({
+        where: () => ({
+          limit: () => ({
+            for: async (mode: string) => {
+              lockSpy(mode)
+              return selectedRow.current ? [selectedRow.current] : []
+            },
+          }),
+        }),
+      }),
     }),
     update: () => ({
       set: (values: Record<string, unknown>) => {
@@ -21,8 +32,16 @@ vi.mock('@/lib/db', () => ({
         return { where: () => ({ returning: async () => [{ id: 'm1', ...values }] }) }
       },
     }),
-  }),
-}))
+  }
+  return {
+    getDb: () => ({
+      transaction: <T,>(fn: (t: typeof tx) => Promise<T>) => {
+        transactionSpy()
+        return fn(tx)
+      },
+    }),
+  }
+})
 
 import { mergeMessageMetadata } from './repository'
 
@@ -37,6 +56,19 @@ describe('mergeMessageMetadata', () => {
   it('returns null when the message is not in that conversation', async () => {
     expect(await mergeMessageMetadata('conv_1', 'm1', { cardInteractions: {} })).toBeNull()
     expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it('reads and writes in one transaction, holding the row lock across the merge', async () => {
+    // The merge itself runs in JS, so the read and the write must be one
+    // serialized unit — otherwise two PATCHes read the same snapshot and the
+    // later write drops the earlier decision, which is the lost update this
+    // whole deep merge exists to prevent.
+    selectedRow.current = { id: 'm1', metadata: { cardInteractions: { a: 1 } } }
+
+    await mergeMessageMetadata('conv_1', 'm1', { cardInteractions: { b: 2 } }, ['cardInteractions'])
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1)
+    expect(lockSpy).toHaveBeenCalledWith('update')
   })
 
   it('preserves the metadata keys it is not patching', async () => {
