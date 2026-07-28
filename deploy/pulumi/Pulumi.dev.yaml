@@ -129,3 +129,5 @@ config:
   grid-oib:otelPrimaryApiKey:
     secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
   grid-oib:loadBalancerIp: 45.144.209.191
+  grid-oib:otelOidcClientSecret:
+    secure: AAABANxz0yOpeiXuthqRpt6ISXW2og+EzwOSgcA8tPkdPj8Kejvv6HgyH7qBRceT8+/JE44EgZLXStWSxfylFO7aYHYN2RSsONmyWdMXRPJ0URx3yK95xwKAYhW/RDz6
