@@ -18,7 +18,7 @@ const OTEL_ROUTE_NAME = "grid-otel";
  * SecurityPolicy spec is a plain (typed) object, not a Pulumi resource input —
  * threading an Output through it would need a cast that defeats the typing.
  */
-const SECRETS_NAME = "aspire-dashboard-secrets";
+const SECRETS_NAME = "aspire-dashboard-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 
 export interface Observability {
   deployment: k8s.apps.v1.Deployment;
@@ -42,13 +42,13 @@ export interface Observability {
 }
 
 /** Secret keys in the observability Secret. */
-export const OTLP_API_KEY_SECRET_KEY = "otlp-api-key";
+export const OTLP_API_KEY_SECRET_KEY = "otlp-api-key"; // pragma: allowlist secret (Secret key name, not a credential)
 /**
  * Envoy Gateway requires the OIDC client secret under exactly this key
  * (`OIDC.ClientSecret`: "the client secret should be stored in the key
  * client-secret"). Do not rename.
  */
-const OIDC_CLIENT_SECRET_KEY = "client-secret";
+const OIDC_CLIENT_SECRET_KEY = "client-secret"; // pragma: allowlist secret (Secret key name fixed by the Envoy Gateway API, not a credential)
 
 /**
  * Deploys the .NET Aspire standalone dashboard as a single-replica Deployment
