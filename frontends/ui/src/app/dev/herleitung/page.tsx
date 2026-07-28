@@ -6,8 +6,16 @@
  * reviewed and screenshotted (visual/registry.mjs → `herleitung`). Not linked
  * anywhere and 404s outside development.
  *
+ * The desktop instance is wrapped in the SAME `w-[680px] max-w-full` box the
+ * real thread uses (ChatArea's assistant-side spine). Without that the preview
+ * rendered ~90px wider than production and made the fan-out look like it fitted
+ * when in the real chat it did not.
+ *
  * `?variant=` selects the captured scenario:
  *   - (none)   → framing → parallel sources → assessment (findings converge).
+ *   - dense    → a research-heavy turn (9 documents across 5 lanes): more
+ *     sources than fit in one row, so the fan packs into stacked COLUMNS
+ *     instead of degrading to a single vertical chain.
  *   - branches → a live choice prompt WITHOUT findings, so the sources fan IN to
  *     the branches node directly (per-source handles, no single-point collapse);
  *     a long question + many branch options exercise the measured, content-driven
@@ -100,6 +108,70 @@ const defaultCommon = {
     'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
 }
 
+// Dense scenario: what a real Tiefenrecherche turn looks like — nine documents
+// across five lanes. This is the case the old layout got wrong: the single-row
+// fan needed ~1.4k px, did not fit the 680px thread column, and collapsed the
+// whole graph into one vertical list. It must now pack into stacked columns.
+const denseStep: ThinkingStep = {
+  ...step,
+  id: 'kb-dense',
+  traceLanes: [
+    {
+      key: 'baurecht_oib',
+      label: 'OIB-Richtlinie',
+      hitCount: 5,
+      signal: 'law',
+      sources: [
+        { name: 'oib-rl_2_ausgabe_mai_2023.pdf', detail: 'p.12' },
+        { name: 'oib-rl_2.3_ausgabe_mai_2023.pdf', detail: 'p.4' },
+        { name: 'oib-rl_4_ausgabe_mai_2023.pdf', detail: 'p.9' },
+      ],
+    },
+    {
+      key: 'baurecht_oib_erlaeuterung',
+      label: 'OIB-Erläuterung',
+      hitCount: 2,
+      signal: 'law',
+      sources: [{ name: 'erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf', detail: 'p.7' }],
+    },
+    {
+      key: 'baurecht_ris',
+      label: 'Bundesrecht',
+      hitCount: 3,
+      signal: 'law',
+      sources: [
+        { name: 'Bauordnung für Wien', detail: '§ 108 Fluchtwege' },
+        { name: 'Wiener Garagengesetz', detail: '§ 4' },
+      ],
+    },
+    {
+      key: 'projekt',
+      label: 'Projektwissen',
+      hitCount: 2,
+      signal: 'project',
+      sources: [
+        { name: 'Grundriss_EG.pdf', detail: 'Seite 2' },
+        { name: 'Schnitt_A-A.pdf', detail: 'Seite 1' },
+      ],
+    },
+    {
+      key: 'buero',
+      label: 'Büroarchiv',
+      hitCount: 1,
+      signal: 'office',
+      sources: [{ name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt' }],
+    },
+  ],
+}
+
+const denseCommon = {
+  ...defaultCommon,
+  steps: [denseStep],
+  routingDecision: 'deep' as const,
+  routingReason:
+    'mehrteilige Frage über Rettungswege, Garagen und Bestandsschutz — Tiefenrecherche über mehrere Richtlinien und Landesrecht',
+}
+
 // Branches scenario: a live choice prompt and NO findings, so the parallel
 // sources converge directly onto the branches node. A long question and four
 // branch options make the framing + branches nodes tall — the measured layout
@@ -177,13 +249,21 @@ export default function HerleitungPreviewPage() {
   }, [])
 
   const common =
-    variant === 'branches' ? branchesCommon : variant === 'live' ? liveCommon : defaultCommon
+    variant === 'branches'
+      ? branchesCommon
+      : variant === 'live'
+        ? liveCommon
+        : variant === 'dense'
+          ? denseCommon
+          : defaultCommon
   const label =
     variant === 'branches'
       ? '/dev/herleitung?variant=branches — sources → branches (no findings)'
       : variant === 'live'
         ? '/dev/herleitung?variant=live — mid-stream turn (live status + chips)'
-        : '/dev/herleitung — reasoning graph (desktop + mobile)'
+        : variant === 'dense'
+          ? '/dev/herleitung?variant=dense — 9 sources, packed into stacked columns'
+          : '/dev/herleitung — reasoning graph (desktop + mobile)'
 
   return (
     <main className="min-h-dvh bg-background px-4 py-10">
@@ -191,7 +271,12 @@ export default function HerleitungPreviewPage() {
         <h1 className="font-mono text-xs text-muted-foreground" data-testid="herleitung-preview">
           {label}
         </h1>
-        <ChatThinking {...common} />
+        {/* Same box the real thread gives the Herleitung (ChatArea's
+            assistant-side spine) — the preview must not be wider than
+            production, or the fan-out looks like it fits when it doesn't. */}
+        <div className="w-[680px] max-w-full">
+          <ChatThinking {...common} />
+        </div>
         <div>
           <div className="mb-2 font-mono text-xs text-muted-foreground">↓ mobile width (380px)</div>
           <div className="w-[380px] max-w-full">

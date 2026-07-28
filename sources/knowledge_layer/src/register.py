@@ -566,16 +566,28 @@ def _hit_display_title(chunk, resolved: dict[tuple[str, str], str]) -> str | Non
     return None
 
 
-def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None) -> str:
+def _trace_lanes_json(
+    chunks,
+    resolved: dict[tuple[str, str], str] | None = None,
+    resolved_titles: dict[tuple[str, str], str] | None = None,
+) -> str:
     """Machine-readable lane fan-out for the chat Herleitung UI.
 
     One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
     hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
     ``lane_for_hit``. Fail-open: never break tool output for the LLM.
 
+    Each source carries both identities: ``name`` is the raw filename (document
+    identity — dedup, preview resolution) and ``title`` the user-facing display
+    name, so the Herleitung fan-out shows "OIB-Richtlinie 2, Ausgabe Mai 2023"
+    rather than ``oib-rl_2_ausgabe_mai_2023.pdf``. ``title`` is omitted when it
+    would merely repeat the filename (project/Büroarchiv uploads, where the
+    filename IS the user-meaningful name).
+
     ``resolved`` is the store-authoritative doc_class map from
-    :func:`_resolve_doc_classes`; when omitted it is computed here so the
-    function stays usable standalone.
+    :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
+    map from :func:`_resolve_display_titles`; when omitted they are computed here
+    so the function stays usable standalone.
     """
     try:
         import json
@@ -585,6 +597,8 @@ def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None
 
         if resolved is None:
             resolved = _resolve_doc_classes(chunks)
+        if resolved_titles is None:
+            resolved_titles = _resolve_display_titles(chunks)
 
         lanes: OrderedDict[str, dict] = OrderedDict()
         for chunk in chunks:
@@ -604,6 +618,9 @@ def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None
             existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
             if name and sig not in existing:
                 entry: dict[str, str] = {"name": name}
+                title = _hit_display_title(chunk, resolved_titles)
+                if title and title != name:
+                    entry["title"] = title
                 if detail:
                     entry["detail"] = detail
                 bucket["sources"].append(entry)
@@ -686,7 +703,7 @@ def _format_results(retrieval_result, query: str) -> str:
     # Fan-out summary for the Herleitung UI (after chunk bodies so the LLM
     # still sees citations first; parsers look for the marker explicitly).
     lines.append("## Trace-Lanes")
-    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved))
+    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved, resolved_titles))
     lines.append("")
 
     return "\n".join(lines)

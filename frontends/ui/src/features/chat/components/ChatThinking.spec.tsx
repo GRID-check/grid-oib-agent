@@ -299,7 +299,12 @@ describe('ChatThinking', () => {
 
       await user.click(screen.getByText(/Trace ·/))
 
-      expect(screen.getByText('OIB-RL_2_Brandschutz.pdf')).toBeVisible()
+      // The card shows the DISPLAY name; the raw corpus filename only survives
+      // on the tooltip, so a user never reads `oib-rl_2_ausgabe_mai_2023.pdf`.
+      const name = screen.getByText('OIB-Richtlinie 2')
+      expect(name).toBeVisible()
+      expect(name).toHaveAttribute('title', expect.stringContaining('OIB-RL_2_Brandschutz.pdf'))
+      expect(screen.queryByText('OIB-RL_2_Brandschutz.pdf')).not.toBeInTheDocument()
       expect(screen.getByText('2 hits')).toBeVisible()
       expect(screen.getByText('OIB-Richtlinie')).toBeVisible()
     })

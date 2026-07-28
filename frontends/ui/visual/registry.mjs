@@ -20,6 +20,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-dense',
+    mobile: true,
+    path: '/dev/herleitung?variant=dense',
+    description:
+      'Herleitung for a research-heavy turn (9 documents / 5 lanes) in the real 680px thread column — more sources than fit one row, so the fan packs into stacked COLUMNS instead of collapsing into a single vertical chain.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'herleitung-branches',
     mobile: true,
     path: '/dev/herleitung?variant=branches',

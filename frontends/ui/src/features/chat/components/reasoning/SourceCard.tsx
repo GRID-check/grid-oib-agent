@@ -59,7 +59,10 @@ export const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel:
         {/* Two-line clamp instead of a hard truncate — OIB filenames are long
             and the second line usually carries the distinguishing part; the
             full name stays on the title tooltip. */}
-        <div className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground" title={card.name}>
+        <div
+          className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground"
+          title={card.fileName && card.fileName !== card.name ? `${card.name}\n${card.fileName}` : card.name}
+        >
           {card.name}
         </div>
         {card.detail && (
