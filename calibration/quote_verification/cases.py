@@ -234,6 +234,29 @@ _SHORT_FABRICATIONS: list[str] = [
 ]
 
 
+# Probe grid for the length × divergence surface.
+DIVERGENCE_LENGTHS = (12, 16, 20, 24, 28, 32, 40, 60, 100)
+DIVERGENCE_COUNTS = (1, 2, 3, 4, 6)
+
+
+def _substitute(text: str, count: int) -> str | None:
+    """Substitute ``count`` characters, spread evenly, keeping the length.
+
+    A same-length substitution is the shape almost all mechanical noise takes
+    (``ß``→``ss`` is one character longer; a mark swap is exactly equal), and it
+    costs the coverage metric exactly ``count`` matched characters — no elision
+    is involved, so this isolates the threshold from the gap budget.
+    """
+    if len(text) < count * 3:
+        return None
+    chars = list(text)
+    stride = len(chars) // (count + 1)
+    for step in range(1, count + 1):
+        position = step * stride
+        chars[position] = "x" if chars[position] != "x" else "y"
+    return "".join(chars)
+
+
 def _norm(text: str) -> str:
     """Local mirror of the module's normalization, used only for corpus lookups."""
     text = unicodedata.normalize("NFKC", text)
@@ -437,6 +460,61 @@ def build_cases(corpus: Corpus, *, max_sentences: int | None = None) -> list[Cas
                 origin=passage.citation_key,
                 note="single-character divergence — the smallest possible mechanical error",
             )
+
+    # ---------------- length × divergence surface ----------------
+    # The decisive interaction between QUOTE_MATCH_THRESHOLD and MIN_QUOTE_LEN.
+    # Coverage of a genuine quote carrying ``k`` unmatched characters is
+    # ``(L - k) / L``, so the tolerance is a fraction of the quote — a short
+    # quote gets almost none. This family measures the boundary directly instead
+    # of arguing it: a real verbatim fragment of a controlled length, with a
+    # controlled number of characters substituted. Everything here is a genuine
+    # quote of retrieved text, so every flag is a false positive.
+    for target in DIVERGENCE_LENGTHS:
+        for divergences in DIVERGENCE_COUNTS:
+            for index, (passage, sentence) in enumerate(pairs[:6]):
+                fragment = sentence[:target].rstrip()
+                if len(fragment) < target - 4 or len(fragment) < divergences * 3:
+                    continue
+                noisy = _substitute(fragment, divergences)
+                if noisy is None:
+                    continue
+                add(
+                    case_id=f"len_div/{target}/{divergences}/{index}",
+                    family="length_vs_divergence",
+                    noise_class=f"len_{target}_div_{divergences}",
+                    label="verify",
+                    answer=build_answer(noisy),
+                    quote=noisy,
+                    registry=REGISTRY_CLEAN,
+                    origin=passage.citation_key,
+                    note=f"{divergences} unmatched characters in a {target}-character verbatim quote",
+                )
+
+    # ---------------- German orthography on SHORT quotes ----------------
+    # The two-character divergences that occur in ordinary correct German:
+    # ``ß``→``ss`` and a German→ASCII quotation-mark pair. Applied to short
+    # fragments, where a two-character cost is a large fraction of the quote.
+    for target in (24, 32, 48, 72):
+        for index, (passage, sentence) in enumerate(pairs):
+            fragment = sentence[:target].rstrip()
+            for name, function in (
+                ("sz_to_ss", pert.p_sz_to_ss),
+                ("umlaut_transliteration", pert.p_umlaut_transliteration),
+                ("interior_quote_ascii", pert.p_interior_quote_ascii),
+            ):
+                perturbed = function(fragment, random.Random(SEED + index))
+                if perturbed is None or perturbed == fragment:
+                    continue
+                add(
+                    case_id=f"short_orthography/{name}/{target}/{index}",
+                    family="short_german_orthography",
+                    noise_class=f"{name}_len_{target}",
+                    label="verify",
+                    answer=build_answer(perturbed),
+                    quote=perturbed,
+                    registry=REGISTRY_CLEAN,
+                    origin=passage.citation_key,
+                )
 
     # ---------------- meaning-inverting micro-elisions ----------------
     # The elision budget is an ABSOLUTE character count, so it is blind to WHICH

@@ -108,6 +108,28 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0915 - a report scri
         f"false positive rate : {baseline.fp_rate:6.1%}  "
         f"({baseline.false_positives}/{baseline.verify_total} genuine quotes flagged)"
     )
+    # The aggregate is NOT a prevalence estimate — it depends entirely on how
+    # many cases each noise class contributed. `length_vs_divergence` is a
+    # controlled probe of the decision boundary, deliberately including
+    # divergence magnitudes that no real transcript need contain; quoting it
+    # inside one headline number would be misleading in both directions.
+    probe_families = {"length_vs_divergence"}
+    observed_fp = sum(
+        1
+        for observation in current
+        if observation.case.label == "verify"
+        and observation.case.family not in probe_families
+        and observation.flagged(sweep.CURRENT_THRESHOLD, sweep.CURRENT_MIN_LEN)
+    )
+    observed_total = sum(
+        1
+        for observation in current
+        if observation.case.label == "verify" and observation.case.family not in probe_families
+    )
+    print(
+        f"  ├─ transcript-shaped noise only : {observed_fp / max(1, observed_total):6.1%} "
+        f"({observed_fp}/{observed_total}) — excludes the controlled length×divergence probe"
+    )
     print(
         f"false negative rate : {baseline.fn_rate:6.1%}  "
         f"({baseline.false_negatives}/{baseline.flag_total} fabrications verified)"
@@ -178,7 +200,16 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0915 - a report scri
             gap=gap,
         )
         mark = " <- current" if gap == sweep.CURRENT_GAP else ""
-        print(f"{gap:5d}  {row.fp_rate:6.1%}  {row.fn_rate:6.1%}{mark}")
+        culprits = sorted(
+            {
+                observation.case.noise_class
+                for observation in observations_by_gap[gap]
+                if observation.case.label == "verify"
+                and observation.flagged(sweep.CURRENT_THRESHOLD, sweep.CURRENT_MIN_LEN)
+            }
+        )
+        detail = f"   FP from: {', '.join(culprits)}" if culprits else ""
+        print(f"{gap:5d}  {row.fp_rate:6.1%}  {row.fn_rate:6.1%}{mark}{detail}")
 
     # ---------------------------------------------------------------- elision detail
     print()
@@ -200,6 +231,46 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0915 - a report scri
         cells = "".join(f"{caught[size][0] / max(1, caught[size][1]):>7.0%}" for size in sizes)
         mark = " <- current" if gap == sweep.CURRENT_GAP else ""
         print(f"{gap:5d}  {cells}{mark}")
+
+    # ---------------------------------------------------------------- length x divergence
+    print()
+    print("-" * 78)
+    print("LENGTH × DIVERGENCE  (genuine quotes: share FALSELY FLAGGED, current constants)")
+    print("-" * 78)
+    surface: dict[tuple[int, int], list[int]] = defaultdict(lambda: [0, 0])
+    for observation in current:
+        if observation.case.family != "length_vs_divergence":
+            continue
+        parts = observation.case.noise_class.split("_")
+        key = (int(parts[1]), int(parts[3]))
+        surface[key][1] += 1
+        if observation.flagged(sweep.CURRENT_THRESHOLD, sweep.CURRENT_MIN_LEN):
+            surface[key][0] += 1
+    lengths = sorted({length for length, _ in surface})
+    divergences = sorted({count for _, count in surface})
+    print("  unmatched chars →" + "".join(f"{count:>7}" for count in divergences))
+    for length in lengths:
+        cells = "".join(
+            f"{surface[(length, count)][0] / surface[(length, count)][1]:>7.0%}"
+            if surface[(length, count)][1]
+            else f"{'-':>7}"
+            for count in divergences
+        )
+        skipped = " (below MIN_QUOTE_LEN)" if length < sweep.CURRENT_MIN_LEN else ""
+        print(f"  quote len {length:4d}    {cells}{skipped}")
+
+    print()
+    print("SHORT-QUOTE GERMAN ORTHOGRAPHY (genuine quotes: share falsely flagged):")
+    orthography: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for observation in current:
+        if observation.case.family != "short_german_orthography":
+            continue
+        orthography[observation.case.noise_class][1] += 1
+        if observation.flagged(sweep.CURRENT_THRESHOLD, sweep.CURRENT_MIN_LEN):
+            orthography[observation.case.noise_class][0] += 1
+    for noise_class, (wrong, total) in sorted(orthography.items()):
+        marker = "  " if wrong == 0 else "!!"
+        print(f"  {marker} {noise_class:40s} {wrong}/{total} falsely flagged")
 
     # ---------------------------------------------------------------- length detail
     print()

@@ -14,9 +14,8 @@ appended to the sentence and its surfaced confidence is capped to `low`. The
 expensive error is therefore the **false positive** — a genuine verbatim quote
 publicly accused of fabrication.
 
-Findings are written up in `docs/architecture/quote-verification-calibration-2026-07.md`
-once a full run has been interpreted. Until that file exists, this harness ships
-as a tool without a verdict — run it yourself with the commands below.
+The findings this harness produced are written up in
+[`docs/architecture/quote-verification-calibration-2026-07.md`](../../docs/architecture/quote-verification-calibration-2026-07.md).
 
 ## Run it
 
