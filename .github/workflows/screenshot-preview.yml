@@ -140,6 +140,20 @@ jobs:
         working-directory: frontends/ui
         run: npx playwright-core install chromium
 
+      - name: Cache the Turbopack dev compile
+        # The harness runs `next dev`, which compiles each preview route on demand —
+        # from cold that is by far the longest part of the job. Turbopack persists
+        # its work here, so restoring it turns most of that compile into a cache hit.
+        # `restore-keys` makes a near-miss (a source change since the last run) still
+        # useful: Turbopack revalidates what changed instead of rebuilding everything.
+        uses: actions/cache@v4
+        with:
+          path: frontends/ui/.next/dev/cache
+          key: turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}-
+            turbopack-dev-${{ runner.os }}-
+
       - name: Capture screenshots for the new targets
         working-directory: frontends/ui
         env:
