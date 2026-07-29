@@ -264,3 +264,55 @@ describe('ReportSourcePreviewChip', () => {
     expect(container.querySelector('button')).toBeNull()
   })
 })
+
+describe('a document read at several pages', () => {
+  beforeEach(() => {
+    resetSourcePreviewIndexCache()
+    fetchMock.mockClear()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('names every cited page in the dialog it opens', async () => {
+    // The chip stands for the DOCUMENT. Without this the reader opens it at the
+    // first cited page and never learns the answer also leaned on the others.
+    const user = userEvent.setup()
+    const [document] = buildCitationModel({
+      citations: [
+        citation({
+          content: '[KB] Brandschutzkonzept.pdf, p.3',
+          citationKey: 'Brandschutzkonzept.pdf, p.3',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 3,
+          number: 1,
+          isCited: true,
+        }),
+        citation({
+          id: 'c-2',
+          content: '[KB] Brandschutzkonzept.pdf, p.9',
+          citationKey: 'Brandschutzkonzept.pdf, p.9',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 9,
+          number: 2,
+          isCited: true,
+        }),
+      ],
+    })
+
+    render(<SourcePreviewChip citation={{ document: document! }} meta="pp. 3, 9" />)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('pp. 3, 9')).toBeInTheDocument()
+  })
+})

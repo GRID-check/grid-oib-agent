@@ -410,7 +410,7 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * The dialog only ever opens with a renderable source — a failed presign
  * surfaces as a toast, not a broken viewer.
  */
-const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
+const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef, meta?: string) => {
   const t = useTranslations('chat')
   const [isOpen, setIsOpen] = useState(false)
   const [isResolving, setIsResolving] = useState(false)
@@ -471,6 +471,11 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
           </SourceSignalChip>
           {/* Same one-click citation the popover offers, for sources that open
               a document instead. */}
+          {/* Which pages of this document the answer actually used. The chip
+              stands for the DOCUMENT, so without this the reader could open it
+              at the first cited page and never learn the answer also leaned on
+              three others. */}
+          {meta && <span className="text-xs text-muted-foreground">{meta}</span>}
           {citation && <CopySourceCitationButton citation={citation} />}
         </span>
       }
@@ -495,6 +500,8 @@ const DocumentPreviewChip: FC<{
   citation?: CitationRef
   trailing?: ReactNode
   detail?: CitationDetail
+  /** Cited pages / host — shown in the dialog header, never on the chip. */
+  meta?: string
 }> = ({
   target,
   signal,
@@ -506,9 +513,10 @@ const DocumentPreviewChip: FC<{
   citation,
   trailing,
   detail,
+  meta,
 }) => {
   const t = useTranslations('chat')
-  const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
+  const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation, meta)
   return (
     <>
       <button
@@ -797,7 +805,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   }
 
   if (target.kind === 'document') {
-    return <DocumentPreviewChip {...shared} target={target} />
+    return <DocumentPreviewChip {...shared} target={target} meta={meta} />
   }
 
   // Resolution is still in flight: this document MAY yet turn out to be
