@@ -191,7 +191,10 @@ paired with icon + label so color is never the only carrier (a11y).
   backend feature we do not have. Gallery ships with the templates we can
   actually run (scheduled deep research presets).
 - **Sharing model** ("Privater Workspace" chip) — implies private vs. shared
-  chats. Undesigned; recorded as an open question, no UI now.
+  chats. **Now specified:** `collaboration-sharing-and-inbox-spec.md` defines
+  the reusable sharing substrate (private / project / organisation visibility
+  plus additive per-person grants) and the access chip this dummy element
+  implies (SH-18). Still no UI here until that spec's Phase 1 ships.
 - **Answer feedback storage + NPS** — needs a small BFF domain (§6, WS-7).
 
 ---
