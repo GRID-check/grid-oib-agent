@@ -7,15 +7,18 @@
  * injection failed. Guarded by `GRID_INTERNAL_API_TOKEN`, same as the BYOK
  * credential route.
  *
- * Returns `{ overrides: null }` when the org runs on workflow defaults.
- * `zdrOnly` reports the org's Zero-Data-Retention policy so the backend can add
- * `provider.zdr` to its OpenRouter requests. Both reuse write-invalidated
- * caches, so a config save/toggle is visible on the next backend fetch.
+ * `overrides` is the EFFECTIVE selection: the platform-owner defaults
+ * (`platform_model_defaults`) with the org's own choices layered on top. It is
+ * `null` only when neither layer has anything to say — then the workflow YAML
+ * models apply. `zdrOnly` reports the org's Zero-Data-Retention policy so the
+ * backend can add `provider.zdr` to its OpenRouter requests. Both reuse
+ * write-invalidated caches, so a config save/toggle — by the tenant OR by the
+ * platform owner — is visible on the next backend fetch.
  */
 
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 
 const querySchema = z.object({
@@ -25,7 +28,7 @@ const querySchema = z.object({
 export const GET = internalApiRoute('model-overrides', async ({ request }) => {
   const { organizationId } = parseQuery(request, querySchema)
   const [overrides, zdrOnly] = await Promise.all([
-    getActiveModelOverrides(organizationId),
+    getEffectiveModelOverrides(organizationId),
     isZdrOnlyForOrg(organizationId),
   ])
   return { overrides, zdrOnly }

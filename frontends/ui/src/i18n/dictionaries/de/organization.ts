@@ -61,7 +61,7 @@ export const organization: typeof en.organization = {
     title: 'KI-Modellkonfiguration',
     description:
       'Wählen Sie, mit welchem OpenRouter-Modell jede Agentengruppe arbeitet. Änderungen gelten sofort für neue Unterhaltungen; jeder Speichervorgang erzeugt eine neue Version, zu der Sie zurückkehren können.',
-    defaultModel: 'Workflow-Standard',
+    defaultModel: 'Plattform-Standard',
     defaultBadge: 'Standard',
     overrideBadge: 'Override',
     discard: 'Änderungen verwerfen',
@@ -78,7 +78,7 @@ export const organization: typeof en.organization = {
     saved: 'Modellkonfiguration gespeichert',
     saveError: 'Die Modellkonfiguration konnte nicht gespeichert werden.',
     history: 'Versionsverlauf',
-    historyEmpty: 'Noch keine Versionen — die Organisation nutzt die Workflow-Standards.',
+    historyEmpty: 'Noch keine Versionen — die Organisation nutzt die Plattform-Standards.',
     version: 'Version',
     activeBadge: 'Aktiv',
     activate: 'Aktivieren',
@@ -88,8 +88,8 @@ export const organization: typeof en.organization = {
     activateDescription:
       'Setzt {target} sofort als Produktionsmodell für alle Mitglieder Ihrer Organisation — wirksam für neue Unterhaltungen. Sie können jederzeit zu einer anderen Version zurückkehren.',
     activateConfirm: 'Jetzt aktivieren',
-    defaultsTarget: 'die Workflow-Standards',
-    useDefaults: 'Overrides deaktivieren (Workflow-Standards verwenden)',
+    defaultsTarget: 'die Plattform-Standards',
+    useDefaults: 'Overrides deaktivieren (Plattform-Standards verwenden)',
     loadError: 'Die Modellkonfiguration konnte nicht geladen werden.',
     byokCatalogHint:
       'Ihr Organisationsschlüssel ({provider}) ist aktiv: Die Auswahl zeigt die Modelle, die IHR Provider-Konto anbietet, und der gesamte Traffic wird darüber abgerechnet. Wird der Schlüssel entfernt, gilt wieder der Plattformkatalog.',

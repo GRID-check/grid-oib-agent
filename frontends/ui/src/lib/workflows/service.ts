@@ -15,7 +15,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { computeCollectionScope } from '@/lib/collection-scope'
 import { buildGridRequestContextWireHeaders, encodeGridBudgetHeader, type GridBudgetSnapshot } from '@/lib/request-context'
@@ -263,7 +263,7 @@ export async function fireWorkflow(
     // advanced past this occurrence, so a silent loss would leave no trace.
     const [budgetSnapshot, modelOverrides, collectionScope, projectContext, bundesland] = await Promise.all([
       resolveBudgetSnapshot(organizationId, createdBy, projectId),
-      getActiveModelOverrides(organizationId).catch(() => null),
+      getEffectiveModelOverrides(organizationId).catch(() => null),
       buildProjectCollectionScope(projectId, organizationId),
       loadProjectPromptView(projectId).catch(() => null),
       // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,

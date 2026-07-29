@@ -47,8 +47,14 @@ function baseUrl(): string {
   return (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '')
 }
 
-/** The base `author/slug`, dropping any `:variant` suffix (`:free`, `:nitro`, …). */
-function baseModelId(id: string): string {
+/**
+ * The base `author/slug`, dropping any `:variant` suffix (`:free`, `:nitro`, …).
+ *
+ * Exported because the ZDR listing is keyed by base id: anyone testing a
+ * catalog model against it has to strip the variant the same way, and two
+ * hand-rolled `split(':')`s are two chances to drift.
+ */
+export function baseModelId(id: string): string {
   return id.split(':', 1)[0]
 }
 

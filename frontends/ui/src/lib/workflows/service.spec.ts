@@ -13,7 +13,7 @@ vi.mock('@/lib/budgets/service', () => ({
 }))
 
 vi.mock('@/lib/model-config/service', () => ({
-  getActiveModelOverrides: vi.fn(),
+  getEffectiveModelOverrides: vi.fn(),
 }))
 
 vi.mock('@/lib/project-profile/prompt-view', () => ({
@@ -48,7 +48,7 @@ vi.mock('./backend-client', async (importActual) => {
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import * as repository from './repository'
@@ -73,7 +73,7 @@ import type { Workflow } from '@/lib/db/schema'
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockFindProjectInOrg = vi.mocked(findProjectInOrg)
 const mockGetBudgetStatus = vi.mocked(getBudgetStatus)
-const mockGetModelOverrides = vi.mocked(getActiveModelOverrides)
+const mockGetModelOverrides = vi.mocked(getEffectiveModelOverrides)
 const mockLoadPromptView = vi.mocked(loadProjectPromptView)
 const mockLoadBundesland = vi.mocked(loadProjectBundesland)
 const mockSubmit = vi.mocked(submitWorkflowJob)

@@ -3,11 +3,17 @@
 /**
  * Org-admin editor for runtime model configuration (ADR-0014).
  *
- * Per agent group: the effective model — an override or the actual workflow
- * default (resolved from the backend's loaded YAML) — with a searchable
- * picker (Popover) that only lists models passing the group's capability
- * requirements, and a per-group reset back to the default. Saving creates a
- * new immutable version; the history panel offers one-click rollback.
+ * Per agent group: the effective model — this org's own choice, or the default
+ * it inherits — with a searchable picker (Popover) that only lists models
+ * passing the group's capability requirements, and a per-group reset back to
+ * the inherited default. Saving creates a new immutable version; the history
+ * panel offers one-click rollback.
+ *
+ * The inherited default is NOT static: it is whatever the platform owner has
+ * pinned for that group (falling back to the workflow YAML where they have
+ * pinned nothing), resolved server-side by `getGroupDefaults()`. So a group
+ * showing "Default" here follows a platform-side model change on its own —
+ * which is the point of not overriding it.
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'

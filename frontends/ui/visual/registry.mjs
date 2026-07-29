@@ -220,6 +220,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-overview-preview"]',
   },
   {
+    id: 'platform-models',
+    mobile: true,
+    path: '/dev/platform-models',
+    description:
+      'Platform default models — the model each agent group runs on for every organization that has not chosen its own. Shows all three per-group states: pinned to a platform default, still on the workflow config, and pinned to a model with no zero-data-retention endpoint (flagged, because ZDR tenants cannot inherit it).',
+    waitFor: '[data-testid="platform-models-preview"]',
+  },
+  {
     id: 'platform-maintenance',
     mobile: true,
     path: '/dev/platform-maintenance',

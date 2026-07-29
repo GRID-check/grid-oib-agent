@@ -282,11 +282,26 @@ LangGraph conversation checkpoint tables:
 | `checkpoint_writes` | Pending writes | `thread_id`, `checkpoint_ns`, `checkpoint_id`, `task_id`, `idx` (composite PK), `channel`, `type`, `blob` (BYTEA) |
 | `checkpoint_migrations` | Schema version tracking | `v` (PK) |
 
+## platform_model_defaults (migration 0026)
+
+The platform-controlled default model per agent group — the layer *under* every
+tenant's own configuration (ADR-0014, extended). Global: no `organization_id`,
+one row per `agent_group` (PK), carrying the catalog-validated `model`, a
+`model_snapshot` jsonb (catalog metadata + `_zdr.safe`), an optional `note`, and
+`updated_by`/`updated_by_email`. **No row = that group falls through to the
+workflow YAML for organizations without an org override of their own** (an org
+override still wins). A save replaces the whole set — groups omitted from the
+payload are deleted, which is how a group is handed back to the YAML for those
+organizations. Resolution at
+runtime is per group: org override → platform default → YAML. Schema:
+`frontends/ui/src/lib/db/schema/platform-model-defaults.ts`.
+
 ## org_model_configs / org_model_config_versions (migration 0012)
 
 Org-level runtime model configuration (ADR-0014). `org_model_configs` holds
 one row per WorkOS org with the pointer to the currently active version
-(`active_version_id`, NULL = workflow YAML defaults) plus `updated_by`.
+(`active_version_id`, NULL = the inherited default — the platform default,
+or the workflow YAML where none is pinned) plus `updated_by`.
 `org_model_config_versions` is immutable append-only history: `version`
 (monotonic per org, unique `(organization_id, version)`), `overrides` jsonb
 (`{agentGroup: {model}}`), `model_snapshot` jsonb (OpenRouter catalog

@@ -183,6 +183,13 @@
       "when": 1783422295817,
       "tag": "0025_citation_events",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783422296817,
+      "tag": "0026_platform_model_defaults",
+      "breakpoints": true
     }
   ]
 }

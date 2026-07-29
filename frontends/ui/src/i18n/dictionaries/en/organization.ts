@@ -59,7 +59,7 @@ export const organization = {
     title: 'AI model configuration',
     description:
       'Choose which OpenRouter model each agent group runs on. Changes apply to new conversations immediately; every save is a new version you can roll back to.',
-    defaultModel: 'Workflow default',
+    defaultModel: 'Platform default',
     defaultBadge: 'Default',
     overrideBadge: 'Override',
     discard: 'Discard changes',
@@ -76,7 +76,7 @@ export const organization = {
     saved: 'Model configuration saved',
     saveError: 'Could not save the model configuration.',
     history: 'Version history',
-    historyEmpty: 'No versions yet — the organization runs on the workflow defaults.',
+    historyEmpty: 'No versions yet — the organization runs on the platform defaults.',
     version: 'Version',
     activeBadge: 'Active',
     activate: 'Activate',
@@ -86,8 +86,8 @@ export const organization = {
     activateDescription:
       'Makes {target} the production model for every member of your organization, effective immediately for new conversations. You can roll back to another version at any time.',
     activateConfirm: 'Activate now',
-    defaultsTarget: 'the workflow defaults',
-    useDefaults: 'Deactivate overrides (use workflow defaults)',
+    defaultsTarget: 'the platform defaults',
+    useDefaults: 'Deactivate overrides (use the platform defaults)',
     loadError: 'Could not load the model configuration.',
     byokCatalogHint:
       'Your organization key ({provider}) is active: the picker lists the models available to YOUR provider account, and all traffic is billed to it. Removing the key switches back to the platform catalog.',

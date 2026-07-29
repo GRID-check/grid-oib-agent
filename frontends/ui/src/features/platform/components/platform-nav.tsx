@@ -18,6 +18,7 @@ import { usePathname } from 'next/navigation'
 import {
   BookOpenCheck,
   Building2,
+  Cpu,
   DatabaseZap,
   Scale,
   ShieldCheck,
@@ -30,6 +31,7 @@ import { useTranslations } from '@/i18n'
 /** Section order = reading order: what you own, then what it produces, then upkeep. */
 export const PLATFORM_SECTIONS = [
   { key: 'overview', href: '/app/platform', icon: Building2 },
+  { key: 'models', href: '/app/platform/models', icon: Cpu },
   { key: 'quality', href: '/app/platform/quality', icon: ShieldCheck },
   { key: 'knowledge', href: '/app/platform/knowledge', icon: BookOpenCheck },
   { key: 'norms', href: '/app/platform/norms', icon: Scale },

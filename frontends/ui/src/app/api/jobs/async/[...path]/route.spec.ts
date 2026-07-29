@@ -18,19 +18,19 @@ vi.mock('@/lib/collection-scope-request', () => ({
 // Org model overrides lookup used by the POST handler to build
 // X-Grid-Model-Overrides — controlled per-test below.
 vi.mock('@/lib/model-config/service', () => ({
-  getActiveModelOverrides: vi.fn(),
+  getEffectiveModelOverrides: vi.fn(),
 }))
 
 // Structured bundesland fact lookup (backlog T3-9 follow-up, 2026-07-16,
 // user-mandated) — avoids pulling in the real @/lib/db chain; controlled
-// per-test below like getActiveModelOverrides.
+// per-test below like getEffectiveModelOverrides.
 vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectBundesland: vi.fn().mockResolvedValue(null),
 }))
 
 import { GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 
@@ -182,7 +182,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
   })
 
   it('forwards X-Grid-Model-Overrides with the base64url payload when the org has overrides', async () => {
-    vi.mocked(getActiveModelOverrides).mockResolvedValue({ deep_research: 'openrouter/model-x' })
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue({ deep_research: 'openrouter/model-x' })
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -200,7 +200,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
   })
 
   it('omits the header cleanly when the org has no overrides configured', async () => {
-    vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -214,7 +214,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
   })
 
   it('still proxies the submission without the header when override resolution throws', async () => {
-    vi.mocked(getActiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
+    vi.mocked(getEffectiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -254,7 +254,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
     } as any)
-    vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
     vi.mocked(loadProjectBundesland).mockResolvedValue(null)
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job-1' }), {
@@ -318,7 +318,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
   })
 
   it('still attaches the envelope when model-overrides resolution throws (envelope is not best-effort)', async () => {
-    vi.mocked(getActiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
+    vi.mocked(getEffectiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
