@@ -107,3 +107,24 @@ describe('citation persistence', () => {
     expect(first.map((c) => c.id)).toEqual(second.map((c) => c.id))
   })
 })
+
+describe('untrusted stored payloads', () => {
+  it('a legacy row with a non-string field decodes to nothing, never a crash', () => {
+    // Storage is untrusted: a hand-edited localStorage entry or a row from an
+    // older build can hold any JSON type, and `citationFromWire` calls `.trim()`
+    // on it. Unvalidated, one bad row took down the whole history restore.
+    const legacy = [{ title: 123, citation_key: { nope: true }, content: 'x' }]
+    expect(() => decodeCitations(legacy, WHEN)).not.toThrow()
+    expect(decodeCitations(legacy, WHEN)).toBeUndefined()
+  })
+
+  it('a well-formed legacy row alongside a malformed one is not silently half-read', () => {
+    const rows = [
+      { content: '[KB] Plan.pdf, p.1', citationKey: 'Plan.pdf, p.1', fileName: 'Plan.pdf' },
+      { content: 'x', title: { not: 'a string' } },
+    ]
+    // All-or-nothing: a partially-decoded provenance row is a false claim about
+    // where the answer came from, which is worse than visibly having none.
+    expect(decodeCitations(rows, WHEN)).toBeUndefined()
+  })
+})

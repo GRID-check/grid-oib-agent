@@ -45,8 +45,13 @@ export const answerSourceAnchorPrefix = (messageId: string): string =>
  * hide grounding that exists.
  */
 export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
-  const cited = docs.filter(isCited)
-  return cited.length > 0 ? cited : docs
+  // A document with NO loci is not "uncited" — it has no retrieved evidence for
+  // `isCited` to be a statement about. That is what a `legal_basis` card is: the
+  // model naming a law it leaned on, with no passage behind it. Filtering on
+  // `isCited` alone dropped every such card the moment the turn also had one
+  // real citation, which is exactly the mixed answer where it matters most.
+  const claimed = docs.filter((doc) => isCited(doc) || doc.loci.length === 0)
+  return claimed.length > 0 ? claimed : docs
 }
 
 /**

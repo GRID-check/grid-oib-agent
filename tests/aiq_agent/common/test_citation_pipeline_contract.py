@@ -444,10 +444,25 @@ class TestDocumentKey:
         other = SourceEntry(url="https://example.com/Article", source_type="generic")
         assert document_key(entry) == document_key(other)
 
-    def test_a_source_with_neither_document_nor_url_still_gets_a_key(self):
-        """Never identity-less: an unkeyed source would silently merge with any other."""
+    def test_a_source_with_neither_document_nor_url_falls_back_to_its_label(self):
         entry = SourceEntry(title="Ein Werkzeugergebnis", tool_name="some_tool")
-        assert document_key(entry).startswith("label:")
+        assert document_key(entry) == "label:ein werkzeugergebnis"
+
+    def test_two_sources_with_no_label_at_all_do_not_share_one_key(self):
+        """Never identity-less, and never falsely identical.
+
+        A bare ``label:`` made every anonymous entry key the same — and the
+        frontend PREFERS a supplied ``document_id`` over its own derivation, so
+        distinct sources would have been folded into one document downstream.
+        """
+        first = SourceEntry(source_type="tool_result", chunk_text="ein Absatz")
+        second = SourceEntry(source_type="tool_result", chunk_text="ein anderer Absatz")
+        assert document_key(first) != document_key(second)
+
+    def test_the_anonymous_key_is_deterministic(self):
+        """Same entry, same key — across processes and across a cached registry."""
+        made = lambda: SourceEntry(source_type="tool_result", chunk_text="ein Absatz")  # noqa: E731
+        assert document_key(made()) == document_key(made())
 
 
 # ---------------------------------------------------------------------------

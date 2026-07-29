@@ -294,3 +294,61 @@ describe('a source known only from the written list', () => {
     ])
   })
 })
+
+describe('merging is not fooled by empty values', () => {
+  // `??` treats a trimmed whitespace-only string as a real value, so it both
+  // ACCEPTS the blank and makes every later observation carrying a real value
+  // lose to it — permanently, because `''` is not nullish either.
+  it('a whitespace-only collection never blocks the real one', () => {
+    const blank: CitationSource = {
+      id: 'a',
+      content: 'x',
+      timestamp: new Date(0),
+      fileName: 'Plan.pdf',
+      collection: '   ',
+      citationKey: 'Plan.pdf, p.1',
+      page: 1,
+      isCited: true,
+    }
+    const real: CitationSource = { ...blank, id: 'b', collection: 'proj_1' }
+
+    for (const order of [[blank, real], [real, blank]]) {
+      const [doc] = buildCitationModel({ citations: order })
+      expect(doc!.collection).toBe('proj_1')
+    }
+  })
+
+  it('a whitespace-only citation key never blocks the real one', () => {
+    const blank: CitationSource = {
+      id: 'a',
+      content: 'x',
+      timestamp: new Date(0),
+      fileName: 'Plan.pdf',
+      collection: 'proj_1',
+      citationKey: '   ',
+      page: 1,
+      isCited: true,
+    }
+    const real: CitationSource = { ...blank, id: 'b', citationKey: 'Plan.pdf, p.1' }
+
+    const [doc] = buildCitationModel({ citations: [blank, real] })
+    expect(doc!.loci[0]!.citationKey).toBe('Plan.pdf, p.1')
+  })
+})
+
+describe('a legal_basis card in a mixed answer', () => {
+  it('stays in the provenance row beside a cited source', () => {
+    // A card has no loci, so it can never satisfy `isCited` — filtering on that
+    // alone dropped every card the moment the turn also had one real citation,
+    // which is exactly the answer where the card matters most.
+    const card = {
+      type: 'legal_basis',
+      law: 'Bauordnung für Wien',
+      section: '§ 108',
+    } as unknown as GridCard
+
+    const docs = buildCitationModel({ citations: [wireLocus(1, 5)], cards: [card] })
+    expect(docs).toHaveLength(2)
+    expect(answerDocuments(docs).map((doc) => doc.title)).toContain('Bauordnung für Wien § 108')
+  })
+})

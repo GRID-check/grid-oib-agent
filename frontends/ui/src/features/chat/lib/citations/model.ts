@@ -523,9 +523,12 @@ export class CitationAccumulator {
       loci: [],
     }
 
-    // Field-wise "the more specific value wins, first non-empty otherwise".
-    doc.fileName = doc.fileName ?? observation.fileName?.trim() ?? undefined
-    doc.collection = doc.collection ?? observation.collection?.trim() ?? undefined
+    // Field-wise "the first NON-EMPTY value wins". `||`, never `??`: a trimmed
+    // whitespace-only value is `''`, which is not nullish — so `??` would both
+    // accept it AND make every later observation carrying a real value lose to
+    // it, permanently.
+    doc.fileName = doc.fileName || observation.fileName?.trim() || undefined
+    doc.collection = doc.collection || observation.collection?.trim() || undefined
     // The collection is the stronger statement; a key's qualifier is only the
     // model's rendering of it, so structured beats parsed — but either is
     // better than none.
@@ -583,8 +586,9 @@ export class CitationAccumulator {
       // later event must be able to RAISE a locus without erasing anything.
       existing.isCited = existing.isCited || !!locus.isCited
       existing.number = existing.number ?? locus.number
-      existing.snippet = existing.snippet ?? locus.snippet?.trim() ?? undefined
-      existing.citationKey = existing.citationKey ?? locus.citationKey?.trim() ?? undefined
+      // `||` for the same reason as the document fields above.
+      existing.snippet = existing.snippet || locus.snippet?.trim() || undefined
+      existing.citationKey = existing.citationKey || locus.citationKey?.trim() || undefined
       return
     }
     doc.loci.push({

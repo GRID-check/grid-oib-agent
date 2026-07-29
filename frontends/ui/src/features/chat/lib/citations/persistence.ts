@@ -154,7 +154,7 @@ const readSources = (value: unknown): Array<z.infer<typeof wireSourceSchema>> | 
   // on disk is not lost the day the envelope ships.
   const legacy = z.array(z.record(z.unknown())).safeParse(value)
   if (!legacy.success) return null
-  return legacy.data.map((row) => ({
+  const mapped = legacy.data.map((row) => ({
     ...row,
     citation_key: pickString(row.citation_key ?? row.citationKey),
     document_id: pickString(row.document_id ?? row.documentId),
@@ -165,6 +165,14 @@ const readSources = (value: unknown): Array<z.infer<typeof wireSourceSchema>> | 
     is_cited: typeof row.isCited === 'boolean' ? row.isCited : undefined,
     content: pickString(row.content) ?? '',
   }))
+  // The rename map above only normalizes the fields whose NAMES differ; the
+  // rest are spread through untouched and could still be any JSON type. This is
+  // untrusted storage — a hand-edited localStorage entry or a row written by an
+  // older build — and `citationFromWire` calls `.trim()` on them, so an
+  // unvalidated number where a title belongs takes down the whole history
+  // restore. Validate the mapped shape before anything downstream trusts it.
+  const validated = z.array(wireSourceSchema).safeParse(mapped)
+  return validated.success ? validated.data : null
 }
 
 const pickString = (value: unknown): string | undefined =>

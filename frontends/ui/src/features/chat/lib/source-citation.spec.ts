@@ -196,3 +196,26 @@ describe('renderCitations', () => {
     expect(await renderCitations([], 'bibtex', NOW)).toBe('')
   })
 })
+
+describe('CSL ids are unique per reference', () => {
+  test('two pages of one document export as two entries, not one', () => {
+    // A bibliography lists one row per LOCUS and CSL consumers key on `id`, so
+    // two unnumbered pages of the same document collided and the importer
+    // silently dropped one.
+    const page = (n: number): CitationSource => ({
+      id: `c${n}`,
+      content: `[KB] Plan.pdf, p.${n}`,
+      citationKey: `Plan.pdf, p.${n}`,
+      fileName: 'Plan.pdf',
+      collection: 'proj_1',
+      timestamp: NOW,
+      kind: 'projekt',
+      page: n,
+      isCited: true,
+    })
+    const [document] = buildCitationModel({ citations: [page(3), page(9)] })
+    const ids = document!.loci.map((locus) => toCslItem({ document: document!, locus }, NOW).id)
+
+    expect(new Set(ids).size).toBe(2)
+  })
+})

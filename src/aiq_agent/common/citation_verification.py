@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextvars
 import dataclasses
 import difflib
+import hashlib
 import logging
 import os
 import re
@@ -1421,7 +1422,14 @@ def document_key(entry: SourceEntry) -> str:
          two different ``Plan.pdf`` can arrive in one result set.
       2. ``filename`` alone, when the collection is unknown.
       3. the normalized URL, for web/RIS sources.
-      4. the title, as a last resort, so a source is never identity-less.
+      4. the title, so a source is never identity-less.
+      5. a content digest, when the entry has no human label at all. Falling
+         back to a bare ``label:`` made every anonymous entry share one key —
+         and because the frontend PREFERS a supplied ``document_id`` over its
+         own derivation, distinct sources would have been folded into a single
+         document downstream. The digest is deterministic (no clock, no
+         randomness), so the same entry keys the same way across processes and
+         across a registry rehydrated from cache.
     """
     filename = ""
     if entry.citation_key:
@@ -1432,7 +1440,15 @@ def document_key(entry: SourceEntry) -> str:
         return f"doc:{collection}:{filename}" if collection else f"doc:{filename}"
     if entry.url:
         return f"url:{_normalize_url(entry.url)}"
-    return f"label:{(entry.title or entry.tool_name or '').strip().lower()[:120]}"
+    label = (entry.title or entry.tool_name or "").strip().lower()[:120]
+    if label:
+        return f"label:{label}"
+    fingerprint = hashlib.sha256(
+        "\x1f".join(
+            (entry.source_type or "", entry.tool_name or "", entry.collection or "", entry.chunk_text or "")
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"anon:{fingerprint}"
 
 
 def source_label(entry: SourceEntry) -> str | None:

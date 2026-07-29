@@ -137,7 +137,11 @@ export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
   const pageNumber = refPage(ref)
   const page = pageNumber != null ? String(pageNumber) : undefined
   const url = ref.document.url
-  const id = `source-${refNumber(ref) ?? ref.document.id}`
+  // Unique per REFERENCE, not per document: a bibliography lists one row per
+  // locus, and CSL consumers key on `id` — two unnumbered pages of the same
+  // document would otherwise export as one entry and the importer would drop
+  // the other.
+  const id = `source-${refNumber(ref) ?? ref.document.id}${ref.locus ? `-${ref.locus.key}` : ''}`
 
   if (isOib(ref) || isNorm(ref)) {
     // A technical guideline / standard — CSL `standard` is exactly this type.
