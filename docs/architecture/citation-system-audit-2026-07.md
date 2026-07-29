@@ -109,6 +109,12 @@ Most specific first (`documentIdentity`):
 6. the label — and an observation with **none of these identifies nothing** and is
    dropped rather than rendered as a nameless card.
 
+On the backend side of step 2, `citation_verification.document_key` has the same
+"identifies nothing" case: a source with no collection, filename, URL *or* label.
+It answers with a deterministic `anon:<fingerprint>` derived from the source's own
+content rather than a bare `label:` sentinel, so two unrelated anonymous sources
+are no longer merged into one document by virtue of both being nameless.
+
 A **label-only** identity also matches a document with that title in either
 direction: `## Trace-Lanes` knows a RIS norm only as "Bauordnung für Wien" while
 the answer's citation of it arrives with a real RIS URL. Same document, two

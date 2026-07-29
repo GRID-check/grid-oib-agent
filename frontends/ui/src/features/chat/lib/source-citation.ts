@@ -122,6 +122,28 @@ const isLaw = (ref: CitationRef): boolean =>
   (ref.document.lane ?? '').toLowerCase().startsWith('baurecht') ||
   ref.document.origin === 'ris'
 
+/** Characters a CSL `id` may carry — citation-js writes it as the BibTeX key. */
+const UNSAFE_ID_CHARS = /[^A-Za-z0-9._-]+/g
+
+/**
+ * The identifier of ONE reference.
+ *
+ * Unique per REFERENCE, not per document: a bibliography lists one row per
+ * locus, and CSL consumers key on `id` — two unnumbered pages of the same
+ * document would otherwise export as one entry and the importer would drop the
+ * other.
+ *
+ * The parts it is built from are storage identities, not identifiers: a locus
+ * key can be `k:Plan.pdf, p.3` and a document id `doc:proj_1:plan.pdf`. Left raw
+ * that comma ends the BibTeX key mid-entry and the record no longer parses, so
+ * the id is reduced to characters a key may carry.
+ */
+const cslId = (ref: CitationRef): string => {
+  const base = refNumber(ref) ?? ref.document.id
+  const locus = ref.locus ? `-${ref.locus.key}` : ''
+  return `source-${base}${locus}`.replace(UNSAFE_ID_CHARS, '-')
+}
+
 /**
  * Map one source row onto a CSL-JSON item.
  *
@@ -137,11 +159,7 @@ export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
   const pageNumber = refPage(ref)
   const page = pageNumber != null ? String(pageNumber) : undefined
   const url = ref.document.url
-  // Unique per REFERENCE, not per document: a bibliography lists one row per
-  // locus, and CSL consumers key on `id` — two unnumbered pages of the same
-  // document would otherwise export as one entry and the importer would drop
-  // the other.
-  const id = `source-${refNumber(ref) ?? ref.document.id}${ref.locus ? `-${ref.locus.key}` : ''}`
+  const id = cslId(ref)
 
   if (isOib(ref) || isNorm(ref)) {
     // A technical guideline / standard — CSL `standard` is exactly this type.

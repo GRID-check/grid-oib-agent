@@ -61,9 +61,15 @@ export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
  * the surface that claims to show the derivation has to be able to say it.
  * Before the model existed this set was not expressible at all — the trace and
  * the answer were separate pipelines with no shared identity to subtract.
+ *
+ * The same rule {@link answerDocuments} applies, read the other way: "read, not
+ * used" is a claim about a LOCUS, so a locus-less card document is not a member
+ * — it was never retrieved. Without that clause the two projections would both
+ * claim it, and the Herleitung would report a law the answer leaned on as one it
+ * discarded.
  */
 export const unusedDocuments = (docs: CitedDocument[]): CitedDocument[] =>
-  docs.filter((doc) => !isCited(doc))
+  docs.filter((doc) => doc.loci.length > 0 && !isCited(doc))
 
 /** One row of the report bibliography: a `[N]`, and where it points. */
 export interface BibliographyRow {
