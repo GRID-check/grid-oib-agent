@@ -252,6 +252,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="citation-interaction-preview"]',
   },
   {
+    id: 'citation-peek',
+    mobile: true,
+    path: '/dev/citation-interaction?open=peek',
+    description:
+      'The citation peek OPEN \u2014 the surface a resting screenshot can never show. Clicking an inline marker answers "what is this?" in place: provenance kind, authority tier, document title, the cited page, the passage itself, and the actions (open at this passage, copy link, copy citation).',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'answer-sources',
     mobile: true,
     path: '/dev/answer-sources',

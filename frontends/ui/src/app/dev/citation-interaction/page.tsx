@@ -23,7 +23,8 @@
  * Not linked anywhere; the `/dev` server layout 404s it outside development.
  */
 
-import type { FC, ReactNode } from 'react'
+import { useEffect, type FC, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import type { CitationSource } from '@/features/chat/types'
 
@@ -105,12 +106,40 @@ const Block: FC<{ title: string; note: string; children: ReactNode }> = ({
   </section>
 )
 
+/**
+ * Opens a marker's peek before the screenshot harness captures.
+ *
+ * The harness captures a page at rest, so the popover and the document dialog —
+ * the two surfaces this work actually adds — never appeared in any committed
+ * screenshot. `?open=peek` clicks the first marker once the answer has
+ * rendered, which is the only way to get those states on film.
+ */
+const OpenOnLoad: FC = () => {
+  const params = useSearchParams()
+  const which = params?.get('open')
+
+  useEffect(() => {
+    if (!which) return
+    // One frame after paint: the marker exists only once the markdown body and
+    // the citation scope have both rendered.
+    const timer = window.setTimeout(() => {
+      const markers = document.querySelectorAll<HTMLButtonElement>('[data-citation-marker]')
+      const target = which === 'dialog' ? markers[1] : markers[0]
+      target?.click()
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [which])
+
+  return null
+}
+
 export default function CitationInteractionPreview() {
   return (
     <div
       data-testid="citation-interaction-preview"
       className="mx-auto flex w-full max-w-4xl flex-col gap-8 p-8"
     >
+      <OpenOnLoad />
       <Block
         title="Inline markers are citations"
         note="Each [N] is tinted by the provenance family of the source it names — three OIB passages and one binding legal source, distinguishable mid-sentence. Clicking one previews the document, its authority, its page and the passage itself, and marks the chip it belongs to."

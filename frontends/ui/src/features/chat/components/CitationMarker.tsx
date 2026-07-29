@@ -53,6 +53,9 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
         <PopoverTrigger asChild>
           <button
             type="button"
+            // The visual registry needs a handle to open a peek before
+            // capturing, so the popover state is a committed screenshot too.
+            data-citation-marker={number}
             onClick={() => {
               // Still goes where it always went — but the chip now says so.
               scope.focus(number)
