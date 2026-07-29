@@ -14,7 +14,9 @@
  *   • a RIS legal source     — law tint, "RIS" badge, links out;
  *   • an org Archiv document — office tint, openable (was unopenable at all);
  *   • a project upload       — project tint, openable;
- *   • a web page             — neutral tint, links out.
+ *   • a web page             — neutral tint, links out;
+ *   • an UNCLASSIFIED upload — Baurecht tint but NO authority badge;
+ *   • one filename on two shelves — the citation key carries the shelf.
  *
  * The first three are shown in the CITED state (check marker) and the rest as
  * merely discovered, which is the distinction the panel's two sub-tabs make.
@@ -101,6 +103,59 @@ const sources: CitationSource[] = [
     kind: 'web',
     lane: 'web',
     laneLabel: 'Web',
+    isCited: false,
+    timestamp: at,
+  },
+  // An upload nobody has classified yet: `baurecht_basis` is the lane of the
+  // DEFAULT doc_class. It must NOT wear the `baurecht` family's RIS badge —
+  // that is the strongest provenance claim this UI makes, and an unclassified
+  // file has not earned it. Colour still says Baurecht; no tier is asserted.
+  {
+    id: 'unclassified',
+    content: '[KB] Gutachten_Schallschutz.pdf, p.6',
+    citationKey: 'Gutachten_Schallschutz.pdf, p.6',
+    fileName: 'Gutachten_Schallschutz.pdf',
+    page: 6,
+    title: 'Schallschutzgutachten (noch nicht klassifiziert)',
+    origin: 'kb',
+    kind: 'baurecht',
+    lane: 'baurecht_basis',
+    laneLabel: 'Basiswissen',
+    sourceType: 'knowledge_layer',
+    collection: 'oib_knowledge',
+    isCited: false,
+    timestamp: at,
+  },
+  // The same filename retrieved from two shelves in one turn. A bare
+  // `Plan_EG.pdf` no longer names a document, so the citation key carries the
+  // shelf — the only place that qualifier is visible to the reader.
+  {
+    id: 'collision-projekt',
+    content: '[KB] Plan_EG.pdf (Projektwissen), p.2',
+    citationKey: 'Plan_EG.pdf (Projektwissen), p.2',
+    fileName: 'Plan_EG.pdf',
+    page: 2,
+    origin: 'kb',
+    kind: 'projekt',
+    lane: 'projekt',
+    laneLabel: 'Projektwissen',
+    sourceType: 'knowledge_layer',
+    collection: 'proj_demo',
+    isCited: false,
+    timestamp: at,
+  },
+  {
+    id: 'collision-buero',
+    content: '[KB] Plan_EG.pdf (Büroarchiv), p.2',
+    citationKey: 'Plan_EG.pdf (Büroarchiv), p.2',
+    fileName: 'Plan_EG.pdf',
+    page: 2,
+    origin: 'kb',
+    kind: 'buero',
+    lane: 'buero',
+    laneLabel: 'Büroarchiv',
+    sourceType: 'knowledge_layer',
+    collection: 'archiv_demo',
     isCited: false,
     timestamp: at,
   },
