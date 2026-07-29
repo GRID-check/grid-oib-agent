@@ -4,6 +4,7 @@ import {
   extractTraceLanesFromPayload,
   laneForSourceUrl,
   laneKeyToSignal,
+  mergeTraceLaneCards,
   parseTraceLanesBlock,
   totalTraceSourceCount,
 } from './trace-lanes'
@@ -176,6 +177,65 @@ Results:
     expect(cards).toHaveLength(2)
     expect(cards.find((c) => c.key === 'baurecht_ris')?.hitCount).toBe(1)
     expect(cards.find((c) => c.key === 'web')?.hitCount).toBe(1)
+  })
+})
+
+describe('mergeTraceLaneCards', () => {
+  const oib = (sources: Array<{ name: string; title?: string; detail?: string }>, hitCount = 1) => ({
+    key: 'baurecht_oib',
+    label: 'OIB-Richtlinie',
+    hitCount,
+    sources,
+    kind: 'baurecht' as const,
+    signal: 'law' as const,
+  })
+
+  test('unions the hits of two reports of the same step', () => {
+    const merged = mergeTraceLaneCards(
+      [oib([{ name: 'a.pdf', detail: 'p.12' }])],
+      [oib([{ name: 'b.pdf', detail: 'p.3' }])]
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0].sources.map((s) => s.name)).toEqual(['a.pdf', 'b.pdf'])
+    expect(merged[0].hitCount).toBe(2)
+  })
+
+  test('counts a re-reported hit once, but keeps two pages of one document apart', () => {
+    // The second call of a tool routinely returns the same passage again; that
+    // is one hit told twice, not new evidence. Two pages of the same file are
+    // two hits and must survive as two.
+    const same = mergeTraceLaneCards(
+      [oib([{ name: 'a.pdf', detail: 'p.12' }])],
+      [oib([{ name: ' A.PDF ', detail: 'P.12' }])]
+    )
+    expect(same[0].sources).toHaveLength(1)
+    expect(same[0].hitCount).toBe(1)
+
+    const pages = mergeTraceLaneCards(
+      [oib([{ name: 'a.pdf', detail: 'p.12' }])],
+      [oib([{ name: 'a.pdf', detail: 'p.31' }])]
+    )
+    expect(pages[0].sources).toHaveLength(2)
+    expect(pages[0].hitCount).toBe(2)
+  })
+
+  test('takes a backend title a later report adds to a hit already known', () => {
+    const merged = mergeTraceLaneCards(
+      [oib([{ name: 'a.pdf', detail: 'p.12' }])],
+      [oib([{ name: 'a.pdf', title: 'OIB-Richtlinie 2', detail: 'p.12' }])]
+    )
+    expect(merged[0].sources[0].title).toBe('OIB-Richtlinie 2')
+  })
+
+  test('never lowers a hitCount a producer claimed without listing sources', () => {
+    expect(mergeTraceLaneCards([oib([], 3)], [oib([], 2)])[0].hitCount).toBe(3)
+  })
+
+  test('is a no-op on either side being empty', () => {
+    expect(mergeTraceLaneCards(undefined, null)).toEqual([])
+    expect(mergeTraceLaneCards([oib([{ name: 'a.pdf' }])], null)).toEqual([
+      oib([{ name: 'a.pdf' }]),
+    ])
   })
 })
 

@@ -22,11 +22,11 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
-import { ExternalLink, FileSearch, Link2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import {
   SourceSignalChip,
@@ -36,6 +36,8 @@ import {
 } from '@/features/layout/components/SourceSignalChip'
 import type { SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
+import { useHoverPopover } from '../lib/hover-popover'
+import { CitationPeek } from './CitationPeek'
 import { CopySourceCitationButton } from './CopyCitation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
@@ -414,14 +416,27 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * surfaces as a toast, not a broken viewer.
  */
 /**
- * The Fundstellen rail — every place in this document the answer used, as
- * something you can walk.
+ * The Fundstellen rail — every place in this document the turn read, as a
+ * table of contents you can walk.
  *
  * This is the half the click used to throw away. The model knows a document was
  * read at pages 5, 12, 18 and 22; the viewer opened at 5 and offered no way to
- * reach the rest, so verifying the other three citations meant closing the
- * dialog, finding another chip, and hoping. Each locus is now a button that
- * moves the page, and the one you are reading is marked.
+ * reach the rest, so verifying the other three meant closing the dialog,
+ * finding another chip, and hoping.
+ *
+ * A row of page pills was the first repair, and it was still the wrong shape:
+ * pills say "p. 12" and nothing else, so choosing between four of them is
+ * choosing between four numbers. What the reader is actually looking for is a
+ * PASSAGE, so each entry now shows the passage — its marker in the answer, its
+ * page, and the opening of the text itself. That turns the rail from a pager
+ * into a contents list, which is why it sits BESIDE the document (a contents
+ * list you scroll past to reach the book is not a contents list) and stays
+ * visible while you read.
+ *
+ * It shows every retrieved locus, not only the cited ones: a passage retrieval
+ * found and the answer passed over is part of what the reader is checking, and
+ * hiding it would make the document look thinner than the research was. The
+ * `[N]` badge is what separates the two.
  */
 const LocusRail: FC<{
   document: CitedDocument
@@ -429,41 +444,136 @@ const LocusRail: FC<{
   onSelect: (locus: CitationLocus) => void
 }> = ({ document: doc, activeKey, onSelect }) => {
   const t = useTranslations('chat')
-  // Only loci that name a page are navigable — a whole-document hit has
-  // nowhere else to go, and a rail with one inert button is noise.
-  const loci = doc.loci.filter((locus) => typeof locus.page === 'number')
+  // Only loci that name a page are navigable — a whole-document hit has nowhere
+  // else to go. Page order, not retrieval order: this is a way through the
+  // DOCUMENT, and a contents list that jumps 18 → 5 → 22 is a list of hits.
+  const loci = doc.loci
+    .filter((locus) => typeof locus.page === 'number')
+    .sort((a, b) => a.page! - b.page!)
+  // One entry is not a navigation; the passage box below already names it.
   if (loci.length < 2) return null
 
+  const activeIndex = loci.findIndex((locus) => locus.key === activeKey)
+  const step = (delta: number): void => {
+    const next = loci[Math.min(loci.length - 1, Math.max(0, activeIndex + delta))]
+    if (next && next.key !== activeKey) onSelect(next)
+  }
+
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5" role="group" aria-label={t('citationPeek.lociAria')}>
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-        {t('citationPeek.lociLabel', { count: loci.length })}
-      </span>
-      {loci.map((locus) => {
-        const isActive = locus.key === activeKey
-        return (
-          <button
-            key={locus.key}
-            type="button"
-            onClick={() => onSelect(locus)}
-            aria-current={isActive ? 'true' : undefined}
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums',
-              'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-              isActive ? 'border-transparent' : 'border-border text-muted-foreground hover:text-foreground'
-            )}
-            style={isActive ? sourceSignalStyle(doc.tint) : undefined}
-          >
-            {t('answerSources.page', { page: locus.page! })}
-            {locus.number != null && (
-              <span className="opacity-60">[{locus.number}]</span>
-            )}
-          </button>
-        )
-      })}
-    </div>
+    <nav
+      aria-label={t('citationPeek.lociAria')}
+      // Beside the document on a real screen, above it on a phone — where a
+      // 16rem column would leave the document a slot. The entries carry the
+      // shape change: full-width rows stacked, or fixed-width cards scrolling
+      // sideways, which is the one gesture a narrow viewport has room for.
+      className="flex min-h-0 shrink-0 flex-col gap-1.5 md:w-64"
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+        event.preventDefault()
+        step(event.key === 'ArrowDown' ? 1 : -1)
+      }}
+    >
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          {t('citationPeek.lociLabel', { count: loci.length })}
+        </span>
+        <span className="flex-1" />
+        {/* The stepper is for reading STRAIGHT THROUGH — the reader who wants
+            the next passage rather than a particular one, and who should not
+            have to find it in the list to get there. */}
+        <span className="text-[10.5px] tabular-nums text-muted-foreground">
+          {t('citationPeek.lociPosition', {
+            index: activeIndex >= 0 ? activeIndex + 1 : 0,
+            count: loci.length,
+          })}
+        </span>
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          disabled={activeIndex <= 0}
+          aria-label={t('citationPeek.previousLocus')}
+          className={stepperClasses}
+        >
+          <ChevronUp aria-hidden="true" className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={activeIndex === loci.length - 1}
+          aria-label={t('citationPeek.nextLocus')}
+          className={stepperClasses}
+        >
+          <ChevronDown aria-hidden="true" className="size-3.5" />
+        </button>
+      </div>
+
+      <ol className="flex min-h-0 gap-1.5 overflow-x-auto pb-1 md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pb-0">
+        {loci.map((locus) => {
+          const isActive = locus.key === activeKey
+          return (
+            <li key={locus.key} className="w-52 shrink-0 md:w-full">
+              <button
+                type="button"
+                onClick={() => onSelect(locus)}
+                aria-current={isActive ? 'true' : undefined}
+                className={cn(
+                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                  isActive
+                    ? 'border-transparent'
+                    : 'border-border bg-card hover:bg-accent'
+                )}
+                // The active entry wears the SOURCE's colour, the same tint the
+                // chip that opened this dialog wore — so "where am I" is
+                // answered by the same signal throughout.
+                style={isActive ? sourceSignalStyle(doc.tint) : undefined}
+              >
+                <span className="flex items-center gap-1.5">
+                  {locus.number != null ? (
+                    <span className="shrink-0 text-[10.5px] font-semibold tabular-nums opacity-70">
+                      [{locus.number}]
+                    </span>
+                  ) : (
+                    // No marker means retrieval surfaced this passage and the
+                    // answer did not lean on it. Saying so is the difference
+                    // between a thin document and an honest one.
+                    <span
+                      className={cn(
+                        'shrink-0 text-[10px] uppercase tracking-[0.04em]',
+                        isActive ? 'opacity-70' : 'text-muted-foreground'
+                      )}
+                    >
+                      {t('citationPeek.retrievedOnly')}
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  <span className="shrink-0 text-[11px] font-medium tabular-nums">
+                    {t('answerSources.page', { page: locus.page! })}
+                  </span>
+                </span>
+                {locus.snippet && (
+                  <span
+                    className={cn(
+                      'mt-1 line-clamp-2 text-[11.5px] leading-snug',
+                      isActive ? 'opacity-80' : 'text-muted-foreground'
+                    )}
+                  >
+                    {locus.snippet}
+                  </span>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    </nav>
   )
 }
+
+const stepperClasses =
+  'inline-flex size-5 items-center justify-center rounded-md border border-border text-muted-foreground ' +
+  'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 ' +
+  'focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40'
 
 /**
  * Open/fetch state for a document target. Project uploads need a fresh
@@ -559,14 +669,16 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
           {shown && <CopySourceCitationButton citation={shown} />}
         </span>
       }
+      aside={
+        citation && (
+          <LocusRail
+            document={citation.document}
+            activeKey={activeLocus?.key}
+            onSelect={setActiveLocus}
+          />
+        )
+      }
     >
-      {citation && (
-        <LocusRail
-          document={citation.document}
-          activeKey={activeLocus?.key}
-          onSelect={setActiveLocus}
-        />
-      )}
       {(activeLocus?.snippet ?? target.snippet) && (
         <CitedPassageBox snippet={(activeLocus?.snippet ?? target.snippet)!} signal={headerSignal} />
       )}
@@ -603,30 +715,63 @@ const DocumentPreviewChip: FC<{
 }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
+  const peek = useHoverPopover()
+
+  const open = (): void => {
+    // The dialog supersedes the peek — the peek's question is "what is this?",
+    // and the document answers it far better than a panel floating over it.
+    peek.dismiss()
+    void openPreview()
+  }
+
+  const face = (
+    <button
+      type="button"
+      className={cn(faceClasses(variant), className)}
+      style={faceStyle(variant, signal)}
+      {...peek.triggerProps}
+      onClick={open}
+      disabled={isResolving}
+      aria-busy={isResolving}
+      aria-haspopup="dialog"
+      aria-label={t('sourcePreview.chipAria', { label })}
+      title={t('sourcePreview.chipAria', { label })}
+    >
+      <CitationFace
+        variant={variant}
+        signal={signal}
+        label={label}
+        authority={authority}
+        index={index}
+        citation={citation}
+        trailing={trailing}
+        detail={detail}
+      />
+    </button>
+  )
+
+  // Without a reference there is nothing to preview, so the chip keeps its
+  // plain open-on-click behaviour rather than promising a peek it cannot fill.
+  if (!citation) {
+    return (
+      <>
+        {face}
+        {dialog}
+      </>
+    )
+  }
+
   return (
     <>
-      <button
-        type="button"
-        className={cn(faceClasses(variant), className)}
-        style={faceStyle(variant, signal)}
-        onClick={() => void openPreview()}
-        disabled={isResolving}
-        aria-busy={isResolving}
-        aria-haspopup="dialog"
-        aria-label={t('sourcePreview.chipAria', { label })}
-        title={t('sourcePreview.chipAria', { label })}
-      >
-        <CitationFace
-          variant={variant}
-          signal={signal}
-          label={label}
-          authority={authority}
-          index={index}
-          citation={citation}
-          trailing={trailing}
-          detail={detail}
-        />
-      </button>
+      {/* Hovering answers the question; clicking commits to the document. An
+          openable source used to offer only the commitment, so checking one of
+          eight chips meant opening and closing eight near-fullscreen dialogs. */}
+      <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+        <PopoverAnchor asChild>{face}</PopoverAnchor>
+        <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+          <CitationPeek citation={citation} snippet={target.snippet} onOpen={open} />
+        </PopoverContent>
+      </Popover>
       {dialog}
     </>
   )
@@ -684,13 +829,15 @@ const InfoPreviewChip: FC<{
   detail,
 }) => {
   const t = useTranslations('chat')
+  const peek = useHoverPopover()
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+      <PopoverAnchor asChild>
         <button
           type="button"
           className={cn(faceClasses(variant), className)}
           style={faceStyle(variant, signal)}
+          {...peek.triggerProps}
           aria-label={t('sourcePreview.chipAria', { label })}
           title={t('sourcePreview.chipAria', { label })}
         >
@@ -705,8 +852,8 @@ const InfoPreviewChip: FC<{
             detail={detail}
           />
         </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 space-y-2 p-3">
+      </PopoverAnchor>
+      <PopoverContent align="start" className="w-80 space-y-2 p-3" {...peek.contentProps}>
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
           {tier && (
@@ -881,7 +1028,12 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
       <SourceSignalChipLink
         signal={doc.tint}
         href={target.url}
-        className={cn('max-w-56', className)}
+        // `rounded-md` overrides the signal chip's pill: in the answer's source
+        // row a web source sits beside a document source, and only the shape
+        // differed — one capsule, one rounded rectangle, for two things that
+        // are the same kind of thing. The chip keeps its pill everywhere it is
+        // used as a label; as a CITATION it wears the citation silhouette.
+        className={cn('max-w-56 rounded-md', className)}
       >
         <CitationIndex index={index} />
         {doc.authority && <AuthorityTag>{doc.authority}</AuthorityTag>}

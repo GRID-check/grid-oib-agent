@@ -161,6 +161,10 @@ export const chat = {
     markerAria: 'Source {number}: {label} — open preview',
     lociLabel: '{count} passages',
     lociAria: 'Passages in this document',
+    lociPosition: '{index}/{count}',
+    previousLocus: 'Previous passage',
+    nextLocus: 'Next passage',
+    retrievedOnly: 'Read',
   },
   breadcrumb: {
     ariaLabel: 'Conversation breadcrumb',

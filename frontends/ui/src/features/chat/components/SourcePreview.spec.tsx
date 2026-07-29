@@ -276,25 +276,10 @@ describe('a document read at several pages', () => {
     vi.unstubAllGlobals()
   })
 
-  test('every cited page is reachable from the dialog, not just the first', async () => {
-    // The defect: a document read at pages 3 and 9 opened at 3 and offered no
-    // way to reach 9 — verifying the second citation meant closing the viewer,
-    // hunting for another chip, and hoping. Each Fundstelle is now a button.
-    const user = userEvent.setup()
-    const [document] = buildCitationModel({
+  const readAtSeveralPages = () =>
+    buildCitationModel({
       citations: [
         citation({
-          content: '[KB] Brandschutzkonzept.pdf, p.3',
-          citationKey: 'Brandschutzkonzept.pdf, p.3',
-          fileName: 'Brandschutzkonzept.pdf',
-          collection: 'proj_1',
-          kind: 'projekt',
-          page: 3,
-          number: 1,
-          isCited: true,
-        }),
-        citation({
-          id: 'c-2',
           content: '[KB] Brandschutzkonzept.pdf, p.9',
           citationKey: 'Brandschutzkonzept.pdf, p.9',
           fileName: 'Brandschutzkonzept.pdf',
@@ -304,26 +289,93 @@ describe('a document read at several pages', () => {
           number: 2,
           isCited: true,
         }),
+        citation({
+          id: 'c-2',
+          content: '[KB] Brandschutzkonzept.pdf, p.3\nFluchtwege sind freizuhalten.',
+          citationKey: 'Brandschutzkonzept.pdf, p.3',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 3,
+          number: 1,
+          isCited: true,
+        }),
+        // Retrieval surfaced this one and the answer passed over it: it carries
+        // no [N]. It still belongs in the rail — it is part of what the reader
+        // is checking — but it must not look like grounding.
+        citation({
+          id: 'c-3',
+          content: '[KB] Brandschutzkonzept.pdf, p.14',
+          citationKey: 'Brandschutzkonzept.pdf, p.14',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 14,
+          isCited: false,
+        }),
       ],
     })
 
+  const openRail = async (user: ReturnType<typeof userEvent.setup>) => {
+    const [document] = readAtSeveralPages()
     render(<SourcePreviewChip citation={{ document: document! }} />)
     await user.click(
       await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
     )
-
     const dialog = await screen.findByRole('dialog')
-    const rail = within(dialog).getByRole('group', { name: /passages in this document/i })
-    const pages = within(rail).getAllByRole('button')
+    return within(dialog).getByRole('navigation', { name: /passages in this document/i })
+  }
 
-    expect(pages.map((button) => button.textContent)).toEqual(['p. 3[1]', 'p. 9[2]'])
+  test('every passage is reachable from the dialog, not just the first', async () => {
+    // The defect: a document read at pages 3, 9 and 14 opened at 3 and offered
+    // no way to reach the rest — verifying the second citation meant closing
+    // the viewer, hunting for another chip, and hoping.
+    const user = userEvent.setup()
+    const rail = await openRail(user)
+    const entries = within(rail).getAllByRole('listitem')
+
+    // Document order, not retrieval order: this is a way through the document,
+    // and the model handed them over as 9, 3, 14.
+    expect(entries.map((entry) => entry.textContent)).toEqual([
+      '[1]p. 3Fluchtwege sind freizuhalten.',
+      '[2]p. 9',
+      'Readp. 14',
+    ])
+
+    const buttons = entries.map((entry) => within(entry).getByRole('button'))
     // The one being read is marked, so the rail says WHERE you are, not just
     // where you could go.
-    expect(pages[0]).toHaveAttribute('aria-current', 'true')
+    expect(buttons[0]).toHaveAttribute('aria-current', 'true')
 
-    await user.click(pages[1]!)
-    expect(pages[1]).toHaveAttribute('aria-current', 'true')
-    expect(pages[0]).not.toHaveAttribute('aria-current')
+    await user.click(buttons[1]!)
+    expect(buttons[1]).toHaveAttribute('aria-current', 'true')
+    expect(buttons[0]).not.toHaveAttribute('aria-current')
+  })
+
+  test('the stepper reads straight through, and stops at the ends', async () => {
+    // Picking a passage from the list is one intent; reading the next one is
+    // another, and it should not require finding it in the list first.
+    const user = userEvent.setup()
+    const rail = await openRail(user)
+    const next = within(rail).getByRole('button', { name: 'Next passage' })
+    const previous = within(rail).getByRole('button', { name: 'Previous passage' })
+    const current = () =>
+      within(rail)
+        .getAllByRole('listitem')
+        .findIndex((entry) => within(entry).getByRole('button').getAttribute('aria-current'))
+
+    expect(current()).toBe(0)
+    expect(previous).toBeDisabled()
+
+    await user.click(next)
+    expect(current()).toBe(1)
+    await user.click(next)
+    expect(current()).toBe(2)
+    // The last passage is the end of the document, not a wrap-around.
+    expect(next).toBeDisabled()
+
+    await user.click(previous)
+    expect(current()).toBe(1)
   })
 
   test('a document read at ONE page shows no rail — there is nowhere else to go', async () => {
@@ -348,6 +400,6 @@ describe('a document read at several pages', () => {
     )
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).queryByRole('group', { name: /passages/i })).toBeNull()
+    expect(within(dialog).queryByRole('navigation', { name: /passages/i })).toBeNull()
   })
 })

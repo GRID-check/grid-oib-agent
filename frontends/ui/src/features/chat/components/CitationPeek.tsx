@@ -127,6 +127,9 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
           <button
             type="button"
             onClick={onOpen}
+            // The screenshot harness needs to walk peek → document the way a
+            // reader does; naming the step beats guessing at button order.
+            data-citation-open=""
             className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
             style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
           >

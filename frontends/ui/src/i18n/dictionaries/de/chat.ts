@@ -150,6 +150,10 @@ export const chat: typeof en.chat = {
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
     lociLabel: '{count} Fundstellen',
     lociAria: 'Fundstellen in diesem Dokument',
+    lociPosition: '{index}/{count}',
+    previousLocus: 'Vorherige Fundstelle',
+    nextLocus: 'Nächste Fundstelle',
+    retrievedOnly: 'Gelesen',
   },
   breadcrumb: {
     ariaLabel: 'Navigationspfad',

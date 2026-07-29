@@ -285,8 +285,84 @@ const mergeCards = (into: Map<string, TraceLaneCard>, cards: TraceLaneCard[]) =>
 }
 
 /**
- * Aggregate lane cards across thinking steps. Prefer compact `traceLanes`
- * (survives storage prune); else parse content/rawPayload.
+ * Identity of one lane hit, for the cumulative merge below.
+ *
+ * A hit is the document AND the place inside it that retrieval returned, so the
+ * name alone cannot be the key: the same Richtlinie read at p.12 and at p.31 is
+ * two hits and has to stay two, while the same file at the same page re-reported
+ * by a second call of the same tool is one hit told twice. Both halves are
+ * compared case- and whitespace-insensitively because they arrive as free text
+ * from several producers (a corpus filename, a hostname, "p.12", a full URL).
+ */
+const traceSourceIdentity = (source: TraceSourceHit): string =>
+  `${source.name.trim().toLowerCase()} ${(source.detail || '').trim().toLowerCase()}`
+
+/**
+ * Union two sets of lane cards, keeping every hit either side knows about.
+ *
+ * ReAct-style agents call the same tool several times within one turn, and each
+ * "Function Complete: X" frame carries only the lanes of THAT call. The store
+ * overwrites the step's `content` with the newest payload, so without this the
+ * documents an earlier call retrieved simply disappear from the step the
+ * Herleitung derives its cards from — the defect where a source card showed up
+ * mid-stream and then vanished the moment the tool ran again. A turn's
+ * retrieval is cumulative: a document the turn has read cannot become un-read,
+ * which is the same sticky rule the citation accumulator already applies to
+ * `isCited`.
+ *
+ * Note how this differs from `mergeCards`: that one folds together DIFFERENT
+ * steps, where a document retrieved by two separate tools legitimately counts
+ * twice. Here both sides are reports of the SAME step, so a repeated hit is one
+ * hit reported again — hits are de-duplicated by identity, and `hitCount` is the
+ * larger of the de-duplicated hit total and the biggest count either side
+ * claimed, because a producer may report more hits than it lists sources for.
+ */
+export const mergeTraceLaneCards = (
+  existing: readonly TraceLaneCard[] | null | undefined,
+  incoming: readonly TraceLaneCard[] | null | undefined
+): TraceLaneCard[] => {
+  const buckets = new Map<
+    string,
+    { card: TraceLaneCard; hits: Map<string, TraceSourceHit>; claimed: number }
+  >()
+  for (const card of [...(existing || []), ...(incoming || [])]) {
+    let bucket = buckets.get(card.key)
+    if (!bucket) {
+      bucket = { card: { ...card, sources: [] }, hits: new Map(), claimed: 0 }
+      buckets.set(card.key, bucket)
+    }
+    bucket.claimed = Math.max(bucket.claimed, card.hitCount)
+    for (const source of card.sources) {
+      const id = traceSourceIdentity(source)
+      const kept = bucket.hits.get(id)
+      if (!kept) {
+        bucket.hits.set(id, source)
+        continue
+      }
+      // A later report may carry the backend `display_title` an earlier one
+      // lacked. Merging may only ever add facts about a hit, never drop them,
+      // so the title is taken whenever the kept hit has none.
+      if (!kept.title && source.title) bucket.hits.set(id, { ...kept, title: source.title })
+    }
+  }
+  return Array.from(buckets.values()).map(({ card, hits, claimed }) => ({
+    ...card,
+    sources: Array.from(hits.values()),
+    hitCount: Math.max(hits.size, claimed),
+  }))
+}
+
+/**
+ * Aggregate lane cards across thinking steps.
+ *
+ * A step's own `traceLanes` wins whenever it has any, because that field is the
+ * step's ACCUMULATED retrieval: merged across every completion frame while the
+ * turn streams (`updateThinkingStepByFunctionName`) and then carried through the
+ * storage prune. `content`, by contrast, only ever holds the last payload the
+ * step reported, which is why deriving from it alone lost everything a repeated
+ * tool call had found before. Parsing content/rawPayload stays the fallback for
+ * steps that never carried a structured block — web/RIS output, whose lanes come
+ * from the URL scan.
  */
 export const deriveTraceLanes = (
   steps: Array<

@@ -23,7 +23,7 @@
 
 'use client'
 
-import { type FC } from 'react'
+import { type CSSProperties, type FC } from 'react'
 import { Globe } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -140,10 +140,16 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
           key={doc.id}
           data-focused={isFocused || undefined}
           className={cn(
-            'inline-flex max-w-full scroll-mt-6 rounded-full transition-shadow',
-            isFocused && 'ring-2 ring-offset-2 ring-offset-background'
+            // `rounded-md`, matching the chip button inside: the highlight is
+            // drawn on this wrapper, so a pill radius here traced a capsule
+            // around a rounded rectangle — round on square, the shape of two
+            // elements disagreeing rather than one element being marked.
+            'inline-flex max-w-full scroll-mt-6 rounded-md',
+            isFocused && 'animate-citation-pulse motion-reduce:animate-none'
           )}
-          style={isFocused ? { boxShadow: undefined, ['--tw-ring-color' as string]: `var(--source-${doc.tint})` } : undefined}
+          style={
+            isFocused ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties) : undefined
+          }
         >
           {/* One anchor per [N] this document carries, all resolving to this
               chip. A document cited as [2] and [7] is one chip that both

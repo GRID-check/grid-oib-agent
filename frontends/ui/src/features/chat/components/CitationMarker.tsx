@@ -23,9 +23,10 @@
 import { type FC, type ReactNode, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { scrollToAnchor } from '@/shared/components/MarkdownRenderer/anchor-context'
 import { citationSnippet, type CitationRef } from '../lib/citations'
+import { useHoverPopover } from '../lib/hover-popover'
 import { useCitationScope } from './CitationScope'
 import { CitationPeek } from './CitationPeek'
 import { SourceDocumentDialog } from './SourcePreview'
@@ -40,6 +41,7 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
   const scope = useCitationScope()
   const t = useTranslations('chat')
   const [openDocument, setOpenDocument] = useState<CitationRef | null>(null)
+  const peek = useHoverPopover()
 
   const number = scope ? numberFromHref(href, scope.anchorPrefix) : null
   const ref = number != null ? scope?.referenceFor(number) : undefined
@@ -49,14 +51,16 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
 
   return (
     <>
-      <Popover>
-        <PopoverTrigger asChild>
+      <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+        <PopoverAnchor asChild>
           <button
             type="button"
             // The visual registry needs a handle to open a peek before
             // capturing, so the popover state is a committed screenshot too.
             data-citation-marker={number}
+            {...peek.triggerProps}
             onClick={() => {
+              peek.triggerProps.onClick()
               // Still goes where it always went — but the chip now says so.
               scope.focus(number)
               scrollToAnchor(`${scope.anchorPrefix}${number}`)
@@ -84,13 +88,23 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
           >
             {number}
           </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 p-3">
+        </PopoverAnchor>
+        <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
           <CitationPeek
             citation={ref}
             snippet={snippet}
             url={ref.document.url}
-            onOpen={ref.document.url ? undefined : () => setOpenDocument(ref)}
+            onOpen={
+              ref.document.url
+                ? undefined
+                : () => {
+                    // The peek asked a question the document now answers in
+                    // full; leaving it hanging over the dialog would be two
+                    // views of one citation arguing for the same attention.
+                    peek.dismiss()
+                    setOpenDocument(ref)
+                  }
+            }
           />
         </PopoverContent>
       </Popover>
