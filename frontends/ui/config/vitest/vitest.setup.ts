@@ -71,6 +71,9 @@ vi.mock('@xyflow/react', async () => {
         }),
       ),
     useNodesInitialized: () => true,
+    // Re-measures a node's handle bounds in a real canvas; nothing to measure
+    // here, and the graph only calls it when a handle set changed under it.
+    useUpdateNodeInternals: () => () => {},
     // The measured layout pass reads node bounds and centres the viewport; with
     // no real canvas both are inert stubs (an undefined `getNodesBounds` would
     // throw inside the layout effect and fail every test that renders the graph).
