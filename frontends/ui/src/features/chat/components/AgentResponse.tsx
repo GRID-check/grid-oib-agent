@@ -23,7 +23,8 @@ import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { answerSourceAnchorPrefix, splitAnswerBody } from '../lib/citations'
+import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
+import { AnswerCitations } from './AnswerCitations'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -210,6 +211,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     () => splitAnswerBody(content, anchorPrefix),
     [content, anchorPrefix]
   )
+  // ONE derivation for the whole answer: the inline `[N]` markers in the prose
+  // and the provenance chips below are the same citations seen twice, and two
+  // derivations of one citation is exactly the defect the model removes.
+  const documents = useMemo(
+    () => buildCitationModel({ citations, entries: sourceEntries, cards }),
+    [citations, sourceEntries, cards]
+  )
 
   const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
     useChatStore(useShallow((s) => ({
@@ -285,6 +293,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
+      <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Optional Grid cards rendered before the markdown body */}
         {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
@@ -333,9 +342,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
         {/* "Belegt durch": provenance chips for sources this answer carries */}
         <AnswerSourcesRow
-          citations={citations}
-          cards={cards}
-          sourceEntries={sourceEntries}
+          documents={documents}
           anchorPrefix={anchorPrefix}
           routingDecision={routingDecision}
           isStreaming={isStreaming}
@@ -366,6 +373,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </span>
         )}
       </div>
+      </AnswerCitations>
     )
   }
 
@@ -380,6 +388,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
   const isMeta = routingDecision === 'meta'
   return (
+    <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
@@ -460,9 +469,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             body's hairline. */}
         <div className="px-[22px] pb-3.5 pt-3">
           <AnswerSourcesRow
-            citations={citations}
-            cards={cards}
-            sourceEntries={sourceEntries}
+            documents={documents}
             anchorPrefix={anchorPrefix}
             routingDecision={routingDecision}
             isStreaming={isStreaming}
@@ -500,6 +507,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         <span className="text-subtle mr-3 mt-1 self-end text-xs">{formatTime(timestamp)}</span>
       )}
     </div>
+    </AnswerCitations>
   )
 }
 

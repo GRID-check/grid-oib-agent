@@ -47,6 +47,15 @@ export {
 export { parseKbLocator, locatorFromPseudoUrl, type KbCitationLocator } from './locator'
 
 export {
+  CITATION_PARAM,
+  citationShareUrl,
+  encodeCitationLink,
+  parseCitationLink,
+  resolveCitationLink,
+  type CitationLink,
+} from './deep-link'
+
+export {
   CITATIONS_PAYLOAD_VERSION,
   decodeCitations,
   encodeCitations,

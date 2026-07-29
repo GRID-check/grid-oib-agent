@@ -22,7 +22,7 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
-import { ExternalLink, FileSearch } from 'lucide-react'
+import { ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -37,10 +37,13 @@ import {
 import type { SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
+import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
   buildCitationModel,
   citationNumbers,
+  citedLoci,
   resolveCitationTarget,
+  type CitationLocus,
   type CitationRef,
   type CitationTarget,
   type CitedDocument,
@@ -410,13 +413,90 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * The dialog only ever opens with a renderable source — a failed presign
  * surfaces as a toast, not a broken viewer.
  */
-const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef, meta?: string) => {
+/**
+ * The Fundstellen rail — every place in this document the answer used, as
+ * something you can walk.
+ *
+ * This is the half the click used to throw away. The model knows a document was
+ * read at pages 5, 12, 18 and 22; the viewer opened at 5 and offered no way to
+ * reach the rest, so verifying the other three citations meant closing the
+ * dialog, finding another chip, and hoping. Each locus is now a button that
+ * moves the page, and the one you are reading is marked.
+ */
+const LocusRail: FC<{
+  document: CitedDocument
+  activeKey: string | undefined
+  onSelect: (locus: CitationLocus) => void
+}> = ({ document: doc, activeKey, onSelect }) => {
+  const t = useTranslations('chat')
+  // Only loci that name a page are navigable — a whole-document hit has
+  // nowhere else to go, and a rail with one inert button is noise.
+  const loci = doc.loci.filter((locus) => typeof locus.page === 'number')
+  if (loci.length < 2) return null
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5" role="group" aria-label={t('citationPeek.lociAria')}>
+      <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+        {t('citationPeek.lociLabel', { count: loci.length })}
+      </span>
+      {loci.map((locus) => {
+        const isActive = locus.key === activeKey
+        return (
+          <button
+            key={locus.key}
+            type="button"
+            onClick={() => onSelect(locus)}
+            aria-current={isActive ? 'true' : undefined}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums',
+              'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+              isActive ? 'border-transparent' : 'border-border text-muted-foreground hover:text-foreground'
+            )}
+            style={isActive ? sourceSignalStyle(doc.tint) : undefined}
+          >
+            {t('answerSources.page', { page: locus.page! })}
+            {locus.number != null && (
+              <span className="opacity-60">[{locus.number}]</span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Open/fetch state for a document target. Project uploads need a fresh
+ * presigned preview URL per open (they expire); base-corpus PDFs stream from
+ * the knowledge-base route PdfViewerDialog already builds from `fileName`.
+ * The dialog only ever opens with a renderable source — a failed presign
+ * surfaces as a toast, not a broken viewer.
+ *
+ * The dialog owns an ACTIVE LOCUS, not just a page: which Fundstelle the reader
+ * is on is the thing the rail marks, the citation footer copies, and a deep
+ * link restores.
+ */
+const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   const t = useTranslations('chat')
   const [isOpen, setIsOpen] = useState(false)
   const [isResolving, setIsResolving] = useState(false)
   const [src, setSrc] = useState<string | null>(null)
+  // A chip is a DOCUMENT-level reference, so it arrives with no locus — but the
+  // viewer still opens at the first cited passage, and the rail must say so.
+  // Leaving it unset marked nothing, so the reader could not tell which of four
+  // Fundstellen they were looking at.
+  const [activeLocus, setActiveLocus] = useState<CitationLocus | undefined>(
+    () => citation?.locus ?? (citation ? citedLoci(citation.document)[0] : undefined)
+  )
 
-  const openPreview = async (): Promise<void> => {
+  // A deep link (or a second click on a different marker) can change which
+  // locus this dialog should be showing while it is already mounted.
+  useEffect(() => {
+    if (citation?.locus) setActiveLocus(citation.locus)
+  }, [citation?.locus])
+
+  const openPreview = async (locus?: CitationLocus): Promise<void> => {
+    if (locus) setActiveLocus(locus)
     if (target.document.type === 'base') {
       setIsOpen(true)
       return
@@ -443,10 +523,16 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef, meta
     (target.document.contentType ?? '').toLowerCase().startsWith('image/')
   // The provenance tint comes from the SOURCE, not from where the file happens
   // to be stored: a chip and the dialog it opens must never disagree about what
-  // kind of source this is. The storage-shape guess is only the fallback for
-  // callers that have no source row (the report tab's locator-only chip).
+  // kind of source this is.
   const headerSignal: SourceTint =
     citation?.document.tint ?? (target.document.type === 'base' ? 'law' : 'project')
+  const page = activeLocus?.page ?? target.page
+  // The reference the dialog is CURRENTLY showing — what its copy actions must
+  // describe, so a citation copied from page 18 does not say page 5.
+  const shown: CitationRef | undefined = citation && {
+    document: citation.document,
+    locus: activeLocus,
+  }
 
   const dialog = (
     <PdfViewerDialog
@@ -456,7 +542,7 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef, meta
         if (!open) setSrc(null)
       }}
       fileName={target.document.type === 'base' ? target.document.fileName : target.document.filename}
-      page={target.page ?? null}
+      page={page ?? null}
       title={target.title}
       src={src ?? undefined}
       isImage={isImage}
@@ -469,22 +555,25 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef, meta
                 : 'sourcePreview.projectDocument'
             )}
           </SourceSignalChip>
-          {/* Same one-click citation the popover offers, for sources that open
-              a document instead. */}
-          {/* Which pages of this document the answer actually used. The chip
-              stands for the DOCUMENT, so without this the reader could open it
-              at the first cited page and never learn the answer also leaned on
-              three others. */}
-          {meta && <span className="text-xs text-muted-foreground">{meta}</span>}
-          {citation && <CopySourceCitationButton citation={citation} />}
+          {shown && <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />}
+          {shown && <CopySourceCitationButton citation={shown} />}
         </span>
       }
     >
-      {target.snippet && <CitedPassageBox snippet={target.snippet} signal={headerSignal} />}
+      {citation && (
+        <LocusRail
+          document={citation.document}
+          activeKey={activeLocus?.key}
+          onSelect={setActiveLocus}
+        />
+      )}
+      {(activeLocus?.snippet ?? target.snippet) && (
+        <CitedPassageBox snippet={(activeLocus?.snippet ?? target.snippet)!} signal={headerSignal} />
+      )}
     </PdfViewerDialog>
   )
 
-  return { isResolving, openPreview, dialog }
+  return { isResolving, openPreview, dialog, isOpen, setIsOpen }
 }
 
 const DocumentPreviewChip: FC<{
@@ -500,8 +589,6 @@ const DocumentPreviewChip: FC<{
   citation?: CitationRef
   trailing?: ReactNode
   detail?: CitationDetail
-  /** Cited pages / host — shown in the dialog header, never on the chip. */
-  meta?: string
 }> = ({
   target,
   signal,
@@ -513,10 +600,9 @@ const DocumentPreviewChip: FC<{
   citation,
   trailing,
   detail,
-  meta,
 }) => {
   const t = useTranslations('chat')
-  const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation, meta)
+  const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
   return (
     <>
       <button
@@ -805,7 +891,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   }
 
   if (target.kind === 'document') {
-    return <DocumentPreviewChip {...shared} target={target} meta={meta} />
+    return <DocumentPreviewChip {...shared} target={target} />
   }
 
   // Resolution is still in flight: this document MAY yet turn out to be
@@ -912,4 +998,62 @@ const ReportSourceDocumentButton: FC<{ target: DocumentTarget; document: CitedDo
       {dialog}
     </>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Standalone document dialog — the same viewer, opened from outside a chip
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens a citation's document immediately, with no chip in between.
+ *
+ * The inline `[3]` marker and a deep link both need to put a reader in front of
+ * the document without there being a chip to click. They get the SAME dialog —
+ * same Fundstellen rail, same passage box, same copy actions — because a source
+ * must not behave differently depending on which affordance reached it.
+ */
+export const SourceDocumentDialog: FC<{
+  citation: CitationRef
+  /** Page to land on; defaults to the reference's own locus. */
+  openAtPage?: number
+  onClose: () => void
+}> = ({ citation, onClose }) => {
+  const projectId = useChatStore((s) => s.projectId)
+  const previewIndex = useSourcePreviewIndex(projectId, !citation.document.url)
+  const target = resolveCitationTarget(citation.document, {
+    locus: citation.locus,
+    storedDocuments: previewIndex?.storedDocuments,
+    baseCorpusFiles: previewIndex?.baseCorpusFiles,
+  })
+  const isDocument = target.kind === 'document'
+  const { openPreview, dialog, isOpen } = useDocumentPreview(
+    isDocument ? target : EMPTY_DOCUMENT_TARGET,
+    citation
+  )
+
+  // Open as soon as resolution succeeds; close the owner when the reader
+  // dismisses the dialog, so the mount is tied to the viewing session.
+  useEffect(() => {
+    if (isDocument && !isOpen) void openPreview(citation.locus)
+    // Opening is a one-shot per resolved target; re-running on every render
+    // would reopen a dialog the reader just dismissed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDocument])
+
+  useEffect(() => {
+    if (isDocument && previewIndex && !isOpen) return
+    // Nothing openable and the index has answered: there is no viewer to show.
+    if (previewIndex && !isDocument) onClose()
+  }, [previewIndex, isDocument, isOpen, onClose])
+
+  if (!isDocument) return null
+  return <>{dialog}</>
+}
+
+/** Placeholder while a target has not resolved — never rendered. */
+const EMPTY_DOCUMENT_TARGET: DocumentTarget = {
+  kind: 'document',
+  title: '',
+  fileName: '',
+  document: { type: 'base', fileName: '' },
 }

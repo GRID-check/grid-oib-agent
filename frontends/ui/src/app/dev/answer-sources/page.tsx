@@ -29,6 +29,8 @@
 
 import type { FC, ReactNode } from 'react'
 import { AnswerSourcesRow } from '@/features/chat/components/AnswerSourcesRow'
+import { AnswerCitations } from '@/features/chat/components/AnswerCitations'
+import { buildCitationModel, type CitationInputs } from '@/features/chat/lib/citations'
 import type { CitationSource } from '@/features/chat/types'
 import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
 
@@ -138,6 +140,24 @@ const Block: FC<{ title: string; note: string; children: ReactNode }> = ({
   </section>
 )
 
+/** One provenance row, built through the real derivation the answer uses. */
+const Row: FC<{ inputs: CitationInputs; anchorPrefix: string; routing?: 'shallow' | 'deep' }> = ({
+  inputs,
+  anchorPrefix,
+  routing = 'deep',
+}) => {
+  const documents = buildCitationModel(inputs)
+  return (
+    <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
+      <AnswerSourcesRow
+        documents={documents}
+        anchorPrefix={anchorPrefix}
+        routingDecision={routing}
+      />
+    </AnswerCitations>
+  )
+}
+
 export default function AnswerSourcesPreview() {
   return (
     <div
@@ -148,16 +168,12 @@ export default function AnswerSourcesPreview() {
         title="One document, four pages"
         note="One chip for one Richtlinie, carrying every [N] the prose uses; the pages it was read at are one click away in its popover. This rendered as FOUR rows — one complete, three degraded to a raw filename with no badge and the wrong tint."
       >
-        <AnswerSourcesRow
-          citations={[locus(5, 1), locus(12, 2), locus(18, 3), locus(22, 4)]}
-          sourceEntries={[
-            writtenEntry(5, 1),
-            writtenEntry(12, 2),
-            writtenEntry(18, 3),
-            writtenEntry(22, 4),
-          ]}
+        <Row
+          inputs={{
+            citations: [locus(5, 1), locus(12, 2), locus(18, 3), locus(22, 4)],
+            entries: [writtenEntry(5, 1), writtenEntry(12, 2), writtenEntry(18, 3), writtenEntry(22, 4)],
+          }}
           anchorPrefix="answer-source-preview-a-"
-          routingDecision="deep"
         />
       </Block>
 
@@ -165,21 +181,17 @@ export default function AnswerSourcesPreview() {
         title="Mixed provenance"
         note="Each family in its own tint with its authority badge: OIB corpus, RIS legal source, Büroarchiv, project upload, web page."
       >
-        <AnswerSourcesRow
-          citations={mixed}
-          anchorPrefix="answer-source-preview-b-"
-          routingDecision="deep"
-        />
+        <Row inputs={{ citations: mixed }} anchorPrefix="answer-source-preview-b-" />
       </Block>
 
       <Block
         title="Written source list only — no structured wire"
         note="The answer's own ## Quellen section, with nothing from the citation wire. This is the case that produced raw filenames; it now resolves to the same title, tint and badge as the structured path."
       >
-        <AnswerSourcesRow
-          sourceEntries={[writtenEntry(9, 1), writtenEntry(14, 2)]}
+        <Row
+          inputs={{ entries: [writtenEntry(9, 1), writtenEntry(14, 2)] }}
           anchorPrefix="answer-source-preview-c-"
-          routingDecision="shallow"
+          routing="shallow"
         />
       </Block>
 
@@ -187,7 +199,7 @@ export default function AnswerSourcesPreview() {
         title="No sources — the honest gap"
         note="A substantive answer that cites nothing says so, in the neutral family. It never hides its lack of grounding."
       >
-        <AnswerSourcesRow routingDecision="shallow" />
+        <AnswerSourcesRow documents={[]} routingDecision="shallow" />
       </Block>
     </div>
   )

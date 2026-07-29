@@ -152,6 +152,16 @@ export const chat = {
     citationsRemovedReasonsLabel: 'Reasons',
   },
   // Thread-header breadcrumb (project / session title) with inline rename.
+  // The citation peek: what a Fundstelle IS, before you open it.
+  citationPeek: {
+    wholeDocument: 'Whole document',
+    openAtPage: 'Open at this passage',
+    copyLink: 'Copy link',
+    copyLinkAria: 'Copy a link to this passage: {label}',
+    markerAria: 'Source {number}: {label} — open preview',
+    lociLabel: '{count} passages',
+    lociAria: 'Passages in this document',
+  },
   breadcrumb: {
     ariaLabel: 'Conversation breadcrumb',
     renameAria: 'Rename session — click to edit the title',
