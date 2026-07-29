@@ -50,9 +50,9 @@ export interface GridConfig {
   };
 
   ingress: {
-    /** Public host for the app (frontend + BFF + WS). */
+    /** Public host for the app (frontend + BFF + WS). Derived: `app.<baseDomain>` unless the `appDomain` key overrides it. */
     appDomain: string;
-    /** Public host for the S3 endpoint used to sign browser preview/download URLs. */
+    /** Public host for the S3 endpoint used to sign browser preview/download URLs. Derived: `s3.<baseDomain>` unless the `s3Domain` key overrides it. */
     s3Domain: string;
     /** Email for the Let's Encrypt ACME account. */
     letsEncryptEmail: string;
@@ -305,12 +305,12 @@ export interface GridConfig {
     /**
      * Whether the observability tier (OTel Collector + Aspire dashboard) is
      * deployed: the `observabilityEnabled` flag AND the capability derived from
-     * its dependencies (otelDomain, otelPrimaryApiKey, and the dashboard's
+     * its dependencies (otelPrimaryApiKey and the dashboard's
      * dedicated WorkOS Connect application). When false nothing is provisioned
      * and no producer gets an OTLP endpoint.
      */
     enabled: boolean;
-    /** Public hostname for the Aspire dashboard (e.g. otel.dev.bigls.net). */
+    /** Public hostname for the Aspire dashboard. Derived: `otel.<baseDomain>` unless the `otelDomain` key overrides it. */
     otelDomain: string;
     /**
      * Aspire dashboard image reference, digest-pinned by default (override
@@ -433,6 +433,13 @@ export function loadConfig(): GridConfig {
     }
   };
   rejectPlaceholder("storageClass", ["REPLACE_ME"]);
+  // Single source for every public host: app/s3/otel subdomains derive from
+  // baseDomain, so a domain move is a one-key change. The per-host keys
+  // (appDomain/s3Domain/otelDomain) survive only as explicit overrides.
+  const baseDomain = cfg.require("baseDomain");
+  const appDomain = cfg.get("appDomain") ?? `app.${baseDomain}`;
+  const s3Domain = cfg.get("s3Domain") ?? `s3.${baseDomain}`;
+  rejectPlaceholder("baseDomain", ["example.com"]);
   rejectPlaceholder("appDomain", ["example.com"]);
   rejectPlaceholder("s3Domain", ["example.com"]);
   rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
@@ -497,7 +504,7 @@ export function loadConfig(): GridConfig {
   // warning naming exactly what is missing.
   const workosClientId = cfg.get("workosClientId") ?? "";
   const workosApiKey = cfg.getSecret("workosApiKey");
-  const otelDomain = cfg.get("otelDomain") ?? "";
+  const otelDomain = cfg.get("otelDomain") ?? `otel.${baseDomain}`;
   const otelPrimaryApiKey = cfg.getSecret("otelPrimaryApiKey");
   // Dedicated WorkOS **Connect** application for the dashboard. REQUIRED — the
   // app's own AuthKit client cannot be reused, and this is not a preference:
@@ -519,7 +526,6 @@ export function loadConfig(): GridConfig {
   const otelOidcClientSecret = cfg.getSecret("otelOidcClientSecret");
   const observabilityFlag = bool(cfg, "observabilityEnabled", true);
   const missingObservabilityDeps = [
-    otelDomain === "" ? "otelDomain" : undefined,
     otelPrimaryApiKey === undefined ? "otelPrimaryApiKey" : undefined,
     otelOidcIssuer === "" ? "otelOidcIssuer" : undefined,
     otelOidcClientId === "" ? "otelOidcClientId" : undefined,
@@ -601,8 +607,8 @@ export function loadConfig(): GridConfig {
     },
 
     ingress: {
-      appDomain: cfg.require("appDomain"),
-      s3Domain: cfg.require("s3Domain"),
+      appDomain,
+      s3Domain,
       letsEncryptEmail: cfg.require("letsEncryptEmail"),
       // Default to the LE STAGING CA: on a first deploy the LoadBalancer IP (and
     // therefore DNS) doesn't exist yet, so HTTP-01 can't be solved and every

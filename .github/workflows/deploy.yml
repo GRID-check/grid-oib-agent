@@ -13,7 +13,7 @@ name: Deploy (staging)
 # Cloud (which stores only state + the secrets-decryption key). CI reads the
 # checked-out file, so the configured stack file MUST BE COMMITTED:
 #   1. cd deploy/pulumi && pulumi stack init matthiasbigl/dev
-#   2. Edit Pulumi.dev.yaml: real appDomain/s3Domain/letsEncryptEmail/
+#   2. Edit Pulumi.dev.yaml: real baseDomain/letsEncryptEmail/
 #      workosClientId/storageClass (placeholders make the program fail closed).
 #   3. Set every secret with `pulumi config set --secret ...` (full list in the
 #      Pulumi.dev.yaml header). For the kubeconfig use a NON-EXPIRING

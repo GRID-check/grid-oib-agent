@@ -39,9 +39,9 @@ config:
   # All classes reclaim `Delete` — deleting a PVC destroys its data irreversibly.
   grid-oib:storageClass: premium
 
-  # ── Ingress / TLS ──
-  grid-oib:appDomain: app.example.com
-  grid-oib:s3Domain: s3.example.com
+  # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
+  # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
+  grid-oib:baseDomain: example.com
   grid-oib:letsEncryptEmail: ops@example.com
   grid-oib:useStagingIssuer: "true"   # flip to false once DNS + TLS verified
   # The provider ships an unremovable metrics stack, so DON'T install a second.
@@ -133,8 +133,9 @@ config:
 
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
   # Deployed only when grid-oib:observabilityEnabled (default true) AND every
-  # dependency below is set (otelDomain, otelPrimaryApiKey, plus the dashboard's
-  # Connect application); otherwise `pulumi preview` warns and skips the tier.
+  # dependency below is set (otelPrimaryApiKey plus the dashboard's Connect
+  # application; otel.<baseDomain> is the host); otherwise `pulumi preview`
+  # warns and skips the tier.
   # REQUIRED secret:
   #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
@@ -147,7 +148,6 @@ config:
   #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
   #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
-  grid-oib:otelDomain: otel.example.com
 
   # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
   # OFF in prod for now — deliberately, not by oversight. Two things must be
