@@ -553,25 +553,34 @@ gates: the commit's **CI and Security workflows must be green** (Publish Images
 runs in parallel with them, so the chain alone would deploy untested code — a
 polling gate closes that race), a **preflight** that the committed stack file
 is configured (see below), `tsc --noEmit` (typed manifests), and two checks on
-the *same plan* `pulumi up` will apply — `scripts/validate-crs.mjs`
+the *same commit* the apply runs — `scripts/validate-crs.mjs`
 (schema-validates every CustomResource against the real upstream CRD schemas)
 and the **CrossGuard policy pack** (§7c). The plan is previewed with the same
-imageTag the deploy applies, and the policy pack runs again on `up` because the
-`--refresh` re-plans. Manual `workflow_dispatch` is refused outside `develop`
+imageTag the deploy applies; the apply is then delegated to Pulumi Deployments
+(`pulumi up --remote --remote-git-commit <sha>`), which runs a plain `up` on
+the gated commit — the policy pack does not re-run on the apply (accepted
+residual, see `docs/deployment/pulumi-cloud-feature-audit.md`). Manual
+`workflow_dispatch` is refused outside `develop`
 (no images exist for other branches) and accepts an optional **`imageTag`
 input** — the supported rollback path, deploying a previous `sha-<40-hex>`
 build through the identical gates. Prod is promoted manually.
 
-**Pulumi stack config is file-based — the configured stack file must be
-committed.** `pulumi config set` writes values (secrets as ciphertext) into
-`deploy/pulumi/Pulumi.dev.yaml` in your working copy; Pulumi Cloud stores only
-state and the decryption key. CI reads the *checked-out* file, so the one-time
-setup is: `pulumi stack init grid-check/dev` → edit the placeholder values →
-set every `--secret` (kubeconfig must be the **non-expiring ServiceAccount
-token** from §2b, not the ≤2-week Control-Center download) → **commit the
-updated `Pulumi.dev.yaml` to `develop`** (encrypted secrets are safe to
-commit) → add the `PULUMI_ACCESS_TOKEN` repo secret. Until that commit lands,
-every CI deploy fails its preflight with instructions. Two more infrastructure
+**Pulumi stack config is file-based for plaintext, ESC-based for secrets — the
+configured stack file must be committed.** `Pulumi.dev.yaml` holds the
+non-secret values plus an `environment:` import of the `grid-oib/dev` ESC
+environment, which holds the secrets (Pulumi Cloud stores state, the
+secrets-decryption key, and the ESC values). CI reads the *checked-out* file
+and resolves the import at open time, so the one-time setup is:
+`pulumi stack init matthiasbigl/dev` → edit the placeholder values →
+`pulumi config env init --stack dev --keep-config` to move the secrets into
+ESC (kubeconfig must be the **non-expiring ServiceAccount
+token** from §2b, not the ≤2-week Control-Center download) → delete the
+duplicated `secure:` blocks → **commit the updated `Pulumi.dev.yaml` to
+`develop`** → save the stack's **deployment settings** (console → stack →
+Settings → Deploy: GitHub source, branch `develop`, folder `deploy/pulumi`,
+push-to-deploy off) → add the `PULUMI_ACCESS_TOKEN` repo secret. Until the
+commit lands, every CI deploy fails its preflight with instructions. Two more
+infrastructure
 prerequisites: the `blacksmith-*` runner integration, and the `staging` GitHub
 environment (created on first run; note that adding required reviewers to it
 turns the "automatic" deploy into an approval-gated one).
