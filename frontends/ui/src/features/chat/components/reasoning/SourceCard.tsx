@@ -48,7 +48,9 @@ export const SourceCard: FC<{
   document: CitedDocument
   hitLabel: string
   gapLabel: string
-}> = ({ document: doc, hitLabel, gapLabel }) => {
+  /** The turn is still running — see the `live` note on the verdict below. */
+  live?: boolean
+}> = ({ document: doc, hitLabel, gapLabel, live = false }) => {
   const t = useTranslations('chat')
   const tabLabel = documentTabLabel(doc)
   // Icon keys off the coarse SIGNAL (all Baurecht shares the scales glyph); the
@@ -95,7 +97,10 @@ export const SourceCard: FC<{
       <div
         className={cn(
           'min-w-0 flex-1 rounded-[10px] border bg-card px-3 py-2.5 shadow-xs',
-          !used && 'border-dashed opacity-75'
+          // Only set a document back once the verdict is real. While the turn
+          // streams nothing has been cited yet, so dimming would grey out every
+          // source the answer is about to lean on.
+          !used && !live && 'border-dashed opacity-75'
         )}
       >
         {/* The card IS the citation — clicking it opens the document at the
@@ -137,7 +142,12 @@ export const SourceCard: FC<{
               {numbers.map((n) => `[${n}]`).join(' ')}
             </span>
           )}
-          {!used && (
+          {/* "gelesen, nicht verwendet" is a claim about the FINISHED answer.
+              While the turn is still running there is no answer to make it
+              about, so every retrieved document read as discarded — including
+              the ones about to be cited a second later. Withheld until the
+              turn lands. */}
+          {!used && !live && (
             <span className="text-[10.5px] italic text-muted-foreground/80">
               {t('thinking.readNotUsed')}
             </span>

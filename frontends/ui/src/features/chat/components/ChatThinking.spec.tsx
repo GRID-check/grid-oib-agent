@@ -269,6 +269,41 @@ describe('ChatThinking', () => {
   })
 
   describe('source fan-out', () => {
+    test('a still-running turn never reports a source as unused', async () => {
+      // "gelesen, nicht verwendet" is a claim about the FINISHED answer. While
+      // the turn streams nothing has been cited yet, so every retrieved
+      // document read as discarded — including the ones about to be cited a
+      // second later.
+      const user = userEvent.setup()
+      const steps = [
+        createStep({
+          id: 'kb',
+          category: 'tools',
+          functionName: 'knowledge_retrieval',
+          displayName: 'Knowledge Retrieval',
+          content: '',
+          traceLanes: [
+            {
+              key: 'baurecht_oib',
+              label: 'OIB-Richtlinie',
+              hitCount: 1,
+              sources: [{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }],
+              signal: 'law',
+            },
+          ],
+        }),
+      ]
+
+      const { rerender } = render(<ChatThinking steps={steps} isThinking={true} />)
+      await user.click(screen.getByText(/Trace ·/))
+      expect(screen.queryByText('read, not used')).not.toBeInTheDocument()
+
+      // Once the turn lands and the answer cited nothing from it, the verdict
+      // becomes true and is stated.
+      rerender(<ChatThinking steps={steps} isThinking={false} />)
+      expect(screen.getByText('read, not used')).toBeInTheDocument()
+    })
+
     test('renders per-document source cards from traceLanes', async () => {
       const user = userEvent.setup()
       const steps = [
