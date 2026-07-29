@@ -68,6 +68,12 @@ export const authorityTag = (lane: string | null | undefined): string | null => 
   if (key.startsWith('baurecht_oib')) return 'OIB'
   if (key === 'norm_extern') return 'ÖNORM'
   if (key === 'behoerde') return 'Behörde'
+  // `baurecht_basis` is the lane of the DEFAULT doc_class ("sonstiges") — a
+  // document nobody has classified yet. It must not inherit the `baurecht`
+  // prefix's RIS badge: every unclassified upload would then claim to be an
+  // Austrian legal source, which is the strongest provenance claim this UI can
+  // make and the one an architect is most entitled to trust.
+  if (key === 'baurecht_basis') return null
   if (key.startsWith('baurecht')) return 'RIS' // baurecht_ris / _bund / _land / _verordnung
   return null
 }

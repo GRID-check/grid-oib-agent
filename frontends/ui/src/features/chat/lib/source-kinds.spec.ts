@@ -49,4 +49,12 @@ describe('authorityTag', () => {
     expect(authorityTag('web')).toBeNull()
     expect(authorityTag(null)).toBeNull()
   })
+
+  test('an unclassified document does not claim to be an Austrian legal source', () => {
+    // `baurecht_basis` is the lane of the DEFAULT doc_class — nobody has
+    // classified this document yet. Inheriting the `baurecht` prefix's RIS
+    // badge would let any upload wear the strongest provenance claim the UI
+    // can make.
+    expect(authorityTag('baurecht_basis')).toBeNull()
+  })
 })
