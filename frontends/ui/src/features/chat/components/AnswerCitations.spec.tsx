@@ -33,8 +33,13 @@ const locus = (page: number, number: number): CitationSource => ({
   timestamp: at,
 })
 
-const documents = buildCitationModel({ citations: [locus(5, 1), locus(18, 2)] })
-const link = encodeCitationLink({ document: documents[0]!, locus: documents[0]!.loci[1]! })
+// Two answers citing the same source build their OWN model from their own
+// citation payload, so the models are equivalent but not the same objects — the
+// case a reference-based comparison would wave through.
+const answered = () => buildCitationModel({ citations: [locus(5, 1), locus(18, 2)] })
+const first = answered()
+const second = answered()
+const link = encodeCitationLink({ document: first[0]!, locus: first[0]!.loci[1]! })
 
 // The viewer itself is not what this asserts — how MANY of it are mounted is.
 vi.mock('./SourcePreview', () => ({
@@ -64,10 +69,10 @@ describe('an answer arriving on a shared citation link', () => {
   test('one link opens one dialog, however many answers hold the document', () => {
     render(
       <>
-        <AnswerCitations documents={documents} anchorPrefix="src-m1-">
+        <AnswerCitations documents={first} anchorPrefix="src-m1-">
           <p>Erste Antwort</p>
         </AnswerCitations>
-        <AnswerCitations documents={documents} anchorPrefix="src-m2-">
+        <AnswerCitations documents={second} anchorPrefix="src-m2-">
           <p>Zweite Antwort</p>
         </AnswerCitations>
       </>
@@ -75,16 +80,16 @@ describe('an answer arriving on a shared citation link', () => {
 
     const dialogs = screen.getAllByTestId('document-dialog')
     expect(dialogs).toHaveLength(1)
-    expect(dialogs[0]).toHaveTextContent(documents[0]!.id)
+    expect(dialogs[0]).toHaveTextContent(first[0]!.id)
   })
 
   test('closing the dialog does not hand the link to the next answer', async () => {
     render(
       <>
-        <AnswerCitations documents={documents} anchorPrefix="src-m1-">
+        <AnswerCitations documents={first} anchorPrefix="src-m1-">
           <p>Erste Antwort</p>
         </AnswerCitations>
-        <AnswerCitations documents={documents} anchorPrefix="src-m2-">
+        <AnswerCitations documents={second} anchorPrefix="src-m2-">
           <p>Zweite Antwort</p>
         </AnswerCitations>
       </>
