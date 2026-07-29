@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextvars
 import dataclasses
 import difflib
+import hashlib
 import logging
 import os
 import re
@@ -1401,6 +1402,55 @@ def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = N
     return None
 
 
+def document_key(entry: SourceEntry) -> str:
+    """Stable identity of the DOCUMENT an entry belongs to.
+
+    A captured source is a *locus* — a passage at one page of one document —
+    and the registry has always keyed it on ``(collection, filename, page)``.
+    This function drops the page, leaving the identity of the document itself,
+    which is what every consumer actually groups by: the chip row shows one chip
+    per document, the Herleitung one card per document, and the bibliography one
+    row per locus WITHIN a document.
+
+    Stamping it on the wire (``document_id``) means the frontend no longer has
+    to re-derive the grouping from filename heuristics. Precedence mirrors the
+    registry's own ``_identity``:
+
+      1. ``(collection, filename)`` — the primary key of ``document_metadata``
+         and the only pair that is unique. One search fans out across the base
+         corpus, the session collection and the project collections at once, so
+         two different ``Plan.pdf`` can arrive in one result set.
+      2. ``filename`` alone, when the collection is unknown.
+      3. the normalized URL, for web/RIS sources.
+      4. the title, so a source is never identity-less.
+      5. a content digest, when the entry has no human label at all. Falling
+         back to a bare ``label:`` made every anonymous entry share one key —
+         and because the frontend PREFERS a supplied ``document_id`` over its
+         own derivation, distinct sources would have been folded into a single
+         document downstream. The digest is deterministic (no clock, no
+         randomness), so the same entry keys the same way across processes and
+         across a registry rehydrated from cache.
+    """
+    filename = ""
+    if entry.citation_key:
+        filename, _page = _parse_citation_key(entry.citation_key)
+    filename = filename.strip().lower()
+    if filename:
+        collection = (entry.collection or "").strip().lower()
+        return f"doc:{collection}:{filename}" if collection else f"doc:{filename}"
+    if entry.url:
+        return f"url:{_normalize_url(entry.url)}"
+    label = (entry.title or entry.tool_name or "").strip().lower()[:120]
+    if label:
+        return f"label:{label}"
+    fingerprint = hashlib.sha256(
+        "\x1f".join(
+            (entry.source_type or "", entry.tool_name or "", entry.collection or "", entry.chunk_text or "")
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"anon:{fingerprint}"
+
+
 def source_label(entry: SourceEntry) -> str | None:
     """Stable identity of a captured source for the citation-health ledger.
 
@@ -1476,6 +1526,12 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
     payload: dict[str, Any] = {
         # The [N] marker this source carries in the answer prose (when known).
         "number": number,
+        # Identity of the DOCUMENT this source is a passage of. A wire source is
+        # a locus, not a document — four pages of one Richtlinie are four
+        # sources — and every surface groups by document. Shipping the key the
+        # registry itself groups on means the frontend folds on the backend's
+        # identity instead of re-deriving one from the filename.
+        "document_id": document_key(entry),
         "content": content,
         "title": entry.title or file_name,
         "citation_key": entry.citation_key,

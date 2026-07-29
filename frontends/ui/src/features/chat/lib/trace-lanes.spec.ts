@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   deriveTraceLanes,
-  deriveTraceSourceCards,
   extractTraceLanesFromPayload,
-  flattenTraceSourceCards,
   laneForSourceUrl,
   laneKeyToSignal,
   parseTraceLanesBlock,
@@ -255,101 +253,5 @@ describe('deriveTraceLanes', () => {
       },
     ])
     expect(cards.map((c) => c.key)).toContain('baurecht_oib')
-  })
-})
-
-describe('flattenTraceSourceCards / deriveTraceSourceCards', () => {
-  test('flattens lane hits into per-document cards with Treffer counts', () => {
-    const cards = flattenTraceSourceCards([
-      {
-        key: 'baurecht_oib',
-        label: 'OIB-Richtlinie',
-        hitCount: 3,
-        sources: [
-          { name: 'OIB-RL_2.pdf', detail: 'p.1' },
-          { name: 'OIB-RL_2.pdf', detail: 'p.2' },
-          { name: 'OIB-RL_4.pdf', detail: 'p.5' },
-        ],
-        signal: 'law',
-      },
-    ])
-    expect(cards).toHaveLength(2)
-    // Dedup keys on the raw filename (`fileName`); `name` is the display name.
-    const oib2 = cards.find((c) => c.fileName === 'OIB-RL_2.pdf')
-    expect(oib2).toMatchObject({
-      tabLabel: 'OIB-Richtlinie',
-      signal: 'law',
-      authority: 'OIB',
-      hitCount: 2,
-      kind: 'hit',
-    })
-    expect(oib2?.detail).toContain('p.1')
-  })
-
-  test('cards carry the display name, never the raw corpus filename', () => {
-    const [card] = flattenTraceSourceCards([
-      {
-        key: 'baurecht_oib',
-        label: 'OIB-Richtlinie',
-        hitCount: 1,
-        sources: [{ name: 'oib-rl_2_ausgabe_mai_2023.pdf' }],
-        signal: 'law',
-      },
-    ])
-    expect(card?.name).toBe('OIB-Richtlinie 2')
-    expect(card?.fileName).toBe('oib-rl_2_ausgabe_mai_2023.pdf')
-  })
-
-  test('an authoritative title from the wire wins over the client derivation', () => {
-    const [card] = flattenTraceSourceCards([
-      {
-        key: 'baurecht_oib',
-        label: 'OIB-Richtlinie',
-        hitCount: 1,
-        // Backend `## Trace-Lanes` now ships the stored (admin-editable)
-        // display_title alongside the filename.
-        sources: [{ name: 'oib-rl_2_ausgabe_mai_2023.pdf', title: 'Hausregel Brandschutz' }],
-        signal: 'law',
-      },
-    ])
-    expect(card?.name).toBe('Hausregel Brandschutz')
-  })
-
-  test('carries the same OIB/RIS authority badge as the Belegt-durch chips', () => {
-    const [oib] = flattenTraceSourceCards([
-      { key: 'baurecht_oib', label: 'OIB-Richtlinie', hitCount: 1, sources: [{ name: 'x.pdf' }], signal: 'law' },
-    ])
-    const [ris] = flattenTraceSourceCards([
-      { key: 'baurecht_ris', label: 'Rechtsquelle (RIS)', hitCount: 1, sources: [{ name: 'BO Wien' }], signal: 'law' },
-    ])
-    const [buero] = flattenTraceSourceCards([
-      { key: 'buero', label: 'Büroarchiv', hitCount: 1, sources: [{ name: 'detail.pdf' }], signal: 'office' },
-    ])
-    expect(oib?.authority).toBe('OIB')
-    expect(ris?.authority).toBe('RIS')
-    expect(buero?.authority).toBeUndefined()
-  })
-
-  test('deriveTraceSourceCards returns one card per document from live payload', () => {
-    const cards = deriveTraceSourceCards([
-      {
-        functionName: 'knowledge_retrieval',
-        category: 'tools',
-        content: kbPayload,
-      },
-    ])
-    // Names are the humanized display names; the raw filenames stay on
-    // `fileName` for dedup and the tooltip.
-    expect(cards.map((c) => c.name).sort()).toEqual([
-      'Brandschutzkonzept',
-      'Mustervorlage',
-      'OIB-Richtlinie 2',
-    ])
-    expect(cards.map((c) => c.fileName).sort()).toEqual([
-      'Brandschutzkonzept.pdf',
-      'Mustervorlage.pdf',
-      'OIB-RL_2_Brandschutz.pdf',
-    ])
-    expect(cards.find((c) => c.fileName === 'Mustervorlage.pdf')?.signal).toBe('office')
   })
 })

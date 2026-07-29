@@ -244,6 +244,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-nav"]',
   },
   {
+    id: 'answer-sources',
+    mobile: true,
+    path: '/dev/answer-sources',
+    description:
+      'The answer\u2019s "Belegt durch" provenance row, where the document\u2192locus model becomes visible: ONE chip per document carrying every [N] and every page it was read at (the case that used to render four rows, three of them degraded to a raw filename with no badge), mixed provenance families side by side, a written-source-list-only answer resolving identically to the structured path, and the honest "L\u00fccke" row.',
+    waitFor: '[data-testid="answer-sources-preview"]',
+  },
+  {
     id: 'source-list',
     mobile: true,
     path: '/dev/source-list',

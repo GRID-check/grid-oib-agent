@@ -130,6 +130,7 @@ export const chat = {
     // [N] markers do, and shows the cited page after the chip.
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
+    pages: 'pp. {pages}',
     // Citations the user can actually paste somewhere — per source (Fachtext)
     // and for the whole answer in the formats external tools ingest.
     copyCitation: 'Copy citation',
@@ -271,6 +272,9 @@ export const chat = {
     hitCount: '{count} hits',
     hitCountOne: '1 hit',
     gapHit: 'Not in corpus',
+    // A document the research read but the answer never cited — a real
+    // research outcome, not a gap.
+    readNotUsed: 'read, not used',
     moreSources: '+{count} more',
     selectedDataSources: 'Selected Data Sources:',
     // "Why this path?" — the routing classification for this turn (WP-A

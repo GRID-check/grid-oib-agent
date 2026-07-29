@@ -1,7 +1,13 @@
 /**
- * Herleitung source fan-out (click-dummy overhaul spec §7).
+ * Trace-lane PARSING — one of the citation model's producers, nothing more.
  *
- * Builds parallel **per-document** source cards from thinking-step payloads:
+ * This module turns thinking-step payloads into lane buckets and stops there.
+ * It used to also flatten them into per-document render cards and derive their
+ * tab labels, tints and hit tallies — a second, parallel presentation pipeline
+ * that the answer's chips knew nothing about, which is why the Herleitung and
+ * the "Belegt durch" row could disagree about a document's name and colour.
+ * That half now lives in `lib/citations`, which builds the documents BOTH
+ * surfaces render. What is left here is the parse:
  *  1. The backend `## Trace-Lanes` JSON block — the authoritative classification
  *     for every knowledge-layer hit. It ships the fine lane (`key`/`label`) AND
  *     the coarse `kind` from `source_kinds.kind_for_lane`, i.e. exactly the
@@ -11,18 +17,13 @@
  *     own. Deliberately narrow — see `extractTraceLanesFromPayload`.
  *
  * Lane keys / German labels are produced by `norm_registry.lane_for_hit` on the
- * backend; nothing here re-derives them for knowledge-layer hits. Provenance
- * signals map onto the `--source-*` token family (law / project / office / auto).
- *
- * Card shape matches the click-dummy `traceSources[]`:
- *   tab (label) · name · detail · "N Treffer" | gap
+ * backend; nothing here re-derives them for knowledge-layer hits.
  */
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { ThinkingStep } from '../types'
 import type { SourceKind } from './source-kinds'
-import { KIND_TO_SIGNAL, asSourceKind, authorityTag, kindForLane } from './source-kinds'
-import { documentShortName } from './document-names'
+import { KIND_TO_SIGNAL, asSourceKind, kindForLane } from './source-kinds'
 
 /** One document/source hit inside a lane (wire / storage intermediate). */
 export interface TraceSourceHit {
@@ -51,28 +52,6 @@ export interface TraceLaneCard {
   kind?: SourceKind
   /** Provenance signal for --source-* tint */
   signal: SourceSignal
-}
-
-/**
- * One parallel card in the Herleitung fan-out (click-dummy `traceSources` item).
- * Individual document — not a lane aggregate.
- */
-export interface TraceSourceCard {
-  /** Stable list key */
-  id: string
-  laneKey: string
-  /** Tab strip label (e.g. "OIB-Richtlinie", "Büroarchiv", "Lücke") */
-  tabLabel: string
-  signal: SourceSignal
-  /** Compact authority badge (OIB / RIS / ÖNORM) — same as the Belegt-durch chips. */
-  authority?: string
-  /** Human display name — never a raw corpus filename. */
-  name: string
-  /** Raw filename behind `name`, kept for the tooltip and for source dedup. */
-  fileName?: string
-  detail?: string
-  hitCount: number
-  kind: 'hit' | 'gap'
 }
 
 /** Backend JSON shape under `## Trace-Lanes`. */
@@ -111,27 +90,12 @@ const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/gi
 const RESEARCH_AGENT_STEP_RE =
   /^(chat_researcher|chat_deepresearcher_agent|intent_classifier|depth_router|shallow_research|deep_research|meta_chatter)/i
 
-/** Product-stratum tab when the fine lane label is too granular for the chip. */
-const COARSE_TAB: Record<SourceSignal, string> = {
-  law: 'Baurecht',
-  project: 'Projektwissen',
-  office: 'Büroarchiv',
-  auto: 'Web',
-}
-
 /**
  * Lane key → provenance signal. Delegates to the canonical SourceKind mapping
  * (ADR-0026) so the Herleitung fan-out and the "Belegt durch" chips agree on
  * every lane — notably external norms (`norm_extern`) are `law`, not `web`.
  */
 export const laneKeyToSignal = (key: string): SourceSignal => KIND_TO_SIGNAL[kindForLane(key)]
-
-/** Prefer fine backend label; fall back to product stratum. */
-export const tabLabelForLane = (laneKey: string, laneLabel: string): string => {
-  const trimmed = laneLabel.trim()
-  if (trimmed) return trimmed
-  return COARSE_TAB[laneKeyToSignal(laneKey)]
-}
 
 /**
  * Host of a source URL, lowercased, or `null` when it has none.
@@ -366,105 +330,6 @@ export const deriveTraceLanes = (
   })
 }
 
-/** Flatten lane buckets into click-dummy per-document source cards. */
-export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard[] => {
-  const byDoc = new Map<string, TraceSourceCard>()
-
-  for (const lane of lanes) {
-    const tabLabel = tabLabelForLane(lane.key, lane.label)
-    // The canonical kind wins when the lane carries one; `signal` is what a
-    // lane persisted before the wire shipped `kind` still has.
-    const signal = lane.kind ? KIND_TO_SIGNAL[lane.kind] : lane.signal
-    const authority = authorityTag(lane.key) ?? undefined
-    if (lane.sources.length === 0) {
-      // Layer count without names — one synthetic card for the lane.
-      if (lane.hitCount <= 0) continue
-      const id = `${lane.key}|*`
-      byDoc.set(id, {
-        id,
-        laneKey: lane.key,
-        tabLabel,
-        signal,
-        authority,
-        name: lane.label,
-        hitCount: lane.hitCount,
-        kind: 'hit',
-      })
-      continue
-    }
-
-    for (const src of lane.sources) {
-      // Dedup on the RAW name (document identity); the card shows the derived
-      // display name, which several raw names could legitimately share.
-      const id = `${lane.key}|${src.name}`
-      const existing = byDoc.get(id)
-      if (existing) {
-        existing.hitCount += 1
-        // Keep first non-http detail; append extra page refs if distinct.
-        if (src.detail && !src.detail.startsWith('http')) {
-          if (!existing.detail) {
-            existing.detail = src.detail
-          } else if (!existing.detail.includes(src.detail)) {
-            existing.detail = `${existing.detail}, ${src.detail}`
-          }
-        }
-      } else {
-        byDoc.set(id, {
-          id,
-          laneKey: lane.key,
-          tabLabel,
-          signal,
-          authority,
-          name: documentShortName(src.name, src.title),
-          fileName: src.name,
-          detail: src.detail?.startsWith('http') ? undefined : src.detail,
-          hitCount: 1,
-          kind: 'hit',
-        })
-      }
-    }
-
-    // If backend hitCount > listed unique sources (only name listed once in
-    // Trace-Lanes JSON), boost the first card so Treffer stays honest.
-    const listed = lane.sources.length
-    if (lane.hitCount > listed && listed > 0) {
-      const firstName = lane.sources[0]!.name
-      const first = byDoc.get(`${lane.key}|${firstName}`)
-      if (first && first.hitCount < lane.hitCount && listed === 1) {
-        first.hitCount = lane.hitCount
-      } else if (first && listed > 1) {
-        // distribute remainder onto first
-        first.hitCount += lane.hitCount - listed
-      }
-    }
-  }
-
-  const signalOrder: Record<SourceSignal, number> = {
-    law: 0,
-    project: 1,
-    office: 2,
-    auto: 3,
-  }
-  return Array.from(byDoc.values()).sort((a, b) => {
-    const sig = signalOrder[a.signal] - signalOrder[b.signal]
-    if (sig !== 0) return sig
-    const tab = a.tabLabel.localeCompare(b.tabLabel, 'de')
-    if (tab !== 0) return tab
-    return a.name.localeCompare(b.name, 'de')
-  })
-}
-
-/** Lanes → individual source cards across thinking steps. */
-export const deriveTraceSourceCards = (
-  steps: Array<
-    Pick<ThinkingStep, 'content' | 'rawPayload' | 'traceLanes' | 'functionName' | 'category'>
-  >
-): TraceSourceCard[] => flattenTraceSourceCards(deriveTraceLanes(steps))
-
-/** Total unique source hits across lane cards (bar "m Quellen"). */
+/** Total hits across lane buckets — the parser's own tally, before folding. */
 export const totalTraceSourceCount = (lanes: TraceLaneCard[]): number =>
   lanes.reduce((sum, lane) => sum + lane.hitCount, 0)
-
-/** Total hits across flattened source cards. */
-export const totalSourceCardHits = (cards: TraceSourceCard[]): number =>
-  cards.reduce((sum, c) => sum + (c.kind === 'gap' ? 0 : c.hitCount), 0)

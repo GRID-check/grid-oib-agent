@@ -1,20 +1,18 @@
 import { describe, test, expect } from 'vitest'
 import { buildGraph, planFan, type ReasoningFlowProps } from './ReasoningFlow'
-import type { TraceSourceCard } from '../../lib/trace-lanes'
+import type { CitedDocument } from '../../lib/citations'
 import type { Translator } from '@/i18n'
 
 // Identity translator — the graph structure (nodes/edges/handles) is what these
 // regression tests assert, not the copy, so echoing the key is enough.
 const t = ((key: string) => key) as unknown as Translator
 
-const card = (id: string): TraceSourceCard => ({
+const card = (id: string): CitedDocument => ({
   id,
-  laneKey: id,
-  tabLabel: id,
-  signal: 'law',
-  name: id,
-  hitCount: 1,
-  kind: 'hit',
+  title: id,
+  kind: 'baurecht',
+  tint: 'law',
+  loci: [{ key: 'whole', isCited: true }],
 })
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
@@ -38,7 +36,7 @@ const columnToColumnEdges = (g: ReturnType<typeof buildGraph>) =>
 const columnCards = (g: ReturnType<typeof buildGraph>): string[][] =>
   g.nodes
     .filter((n) => n.type === 'sourceColumn')
-    .map((n) => (n.data as unknown as { cards: TraceSourceCard[] }).cards.map((c) => c.id))
+    .map((n) => (n.data as unknown as { cards: CitedDocument[] }).cards.map((c) => c.id))
 
 describe('planFan — sources pack into columns, never a forced single column', () => {
   test('a desktop chat column fans out one column per source for a typical turn', () => {

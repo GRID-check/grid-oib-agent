@@ -1,25 +1,24 @@
 /**
  * AnswerSourcesRow — the answer's single "Belegt durch" provenance block.
  *
- * Renders ONLY source data that already exists on the message (citations from
- * the deep-research path, legal_basis cards on shallow answers, and the answer's
- * own written sources section) — no fake chips (WS-3 item 4). Origins map onto
- * the spec §4 provenance signals: color family: Baurecht (OIB corpus + RIS),
- * Büroarchiv, Projektwissen, Web — derived from the canonical wire `kind`
- * (ADR-0026), with an OIB/RIS/ÖNORM authority badge on top. Each chip carries
- * icon + label + color together (color is never the only carrier).
+ * ONE CHIP PER DOCUMENT. That is the whole design, and it is what the flat
+ * shape could not express: an answer that leans on OIB-Richtlinie 2.1 at four
+ * different pages is leaning on ONE Richtlinie, and a row that showed it four
+ * times — three of them degraded to a raw filename with no authority badge —
+ * both looked broken and overstated the breadth of the grounding.
  *
- * WS-9: chips are interactive — Web/RIS chips link out, KB chips open a
- * source preview (document dialog or info popover) via SourcePreviewChip.
+ * So a chip stands for a {@link CitedDocument}, and the `[N]` markers it
+ * carries are listed on it. Every inline `[N]` in the prose anchors to the chip
+ * of the document it belongs to, so a marker still leads somewhere; the
+ * per-passage detail (which page, which excerpt, a copyable citation) lives ONE
+ * CLICK AWAY in the chip's popover / document dialog, which is where it always
+ * belonged.
  *
- * The consolidation (one row, not a row plus a written list): an answer used to
- * end in its own "## Quellen" section AND carry this chip row, each holding half
- * the truth. That section is now lifted out of the answer body and folded in
- * here — the chip keeps its compact shape and gains the citation's `[N]`, while
- * the rest of what the written list said (untruncated title, cited page, host,
- * and a copyable citation) lives ONE CLICK AWAY in the chip's existing preview
- * popover / document dialog. Each chip is also the anchor its inline `[N]`
- * marker scrolls to.
+ * Nothing is fabricated: the row renders only sources the message already
+ * carries (structured citations, the answer's own written sources section,
+ * `legal_basis` cards). Colour comes from the canonical wire `kind` (ADR-0026)
+ * refined by the lane, with an OIB/RIS/ÖNORM authority badge on top; every chip
+ * carries icon + label + colour together, so colour is never the only carrier.
  */
 
 'use client'
@@ -29,7 +28,15 @@ import { Globe } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
-import { answerSourceItems } from '../lib/answer-source-list'
+import {
+  answerDocuments,
+  buildCitationModel,
+  citationNumbers,
+  citedPages,
+  refHost,
+  type CitationRef,
+  type CitedDocument,
+} from '../lib/citations'
 import type { CitationSource } from '../types'
 import { SourcePreviewChip } from './SourcePreview'
 import { CopyCitationsMenu } from './CopyCitation'
@@ -39,10 +46,10 @@ interface AnswerSourcesRowProps {
   cards?: GridCard[]
   /**
    * The written source entries lifted out of the answer markdown (AgentResponse
-   * splits them off so they are not rendered twice). Merged into the chips here.
+   * splits them off so they are not rendered twice). Folded into the model here.
    */
   sourceEntries?: ReportSourceEntry[]
-  /** DOM id prefix for the numbered rows — per message, so anchors stay unique. */
+  /** DOM id prefix for the numbered anchors — per message, so ids stay unique. */
   anchorPrefix?: string
   /**
    * The turn's routing (WP-A). A substantive `shallow`/`deep` (or absent/legacy)
@@ -54,6 +61,24 @@ interface AnswerSourcesRowProps {
   isStreaming?: boolean
 }
 
+/**
+ * How many chips the row shows before it stops. A summary, not a dump — but the
+ * cap now bites far later than it used to, because collapsing a document's
+ * pages onto one chip is exactly what stopped a four-page Richtlinie from
+ * eating half the budget on its own.
+ */
+const MAX_ANSWER_SOURCES = 8
+
+/** The quiet meta line after a chip: which pages, or which host. */
+const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
+  const t = useTranslations('chat')
+  return (doc) => {
+    const pages = citedPages(doc)
+    if (pages.length === 1) return t('answerSources.page', { page: pages[0]! })
+    if (pages.length > 1) return t('answerSources.pages', { pages: pages.join(', ') })
+    return refHost({ document: doc })
+  }
+}
 
 export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   citations,
@@ -64,13 +89,22 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   isStreaming = false,
 }) => {
   const t = useTranslations('chat')
-  const items = answerSourceItems(sourceEntries, citations, cards)
+  const metaFor = useSourceMeta()
 
-  if (items.length === 0) {
+  const documents = answerDocuments(
+    buildCitationModel({ citations, entries: sourceEntries, cards })
+  )
+  // Never drop a document the prose numbered: dropping one would leave an
+  // inline [N] pointing at an anchor that does not exist.
+  const numbered = documents.filter((doc) => citationNumbers(doc).length > 0)
+  const rest = documents.filter((doc) => citationNumbers(doc).length === 0)
+  const shown = [...numbered, ...rest.slice(0, Math.max(0, MAX_ANSWER_SOURCES - numbered.length))]
+
+  if (shown.length === 0) {
     // Honest "Lücke" treatment (design language §Domain-specific): a substantive
     // answer that cites nothing must say so in the neutral `--source-auto` gray
-    // family (globe/gap icon + label), never hide its lack of grounding. Skipped
-    // for meta/error turns (no source claim) and while still streaming.
+    // family, never hide its lack of grounding. Skipped for meta/error turns
+    // (no source claim) and while still streaming.
     const isSubstantive = routingDecision !== 'meta' && routingDecision !== 'error'
     if (!isSubstantive || isStreaming) return null
 
@@ -88,6 +122,8 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     )
   }
 
+  const refs: CitationRef[] = shown.map((doc) => ({ document: doc }))
+
   return (
     <div
       className="flex flex-wrap items-center gap-1.5 border-t pt-2"
@@ -97,26 +133,22 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
         {t('answerSources.label')}
       </span>
-      {items.map((item) => (
-        <span
-          role="listitem"
-          key={item.key}
-          // Anchor target for the inline [N] markers in the answer prose, so a
-          // citation still leads somewhere now that the written list is gone.
-          id={item.number != null && anchorPrefix ? `${anchorPrefix}${item.number}` : undefined}
-          className="inline-flex max-w-full scroll-mt-4"
-        >
-          <SourcePreviewChip
-            source={item.ref}
-            signal={item.ref.signal}
-            item={item}
-            meta={item.page != null ? t('answerSources.page', { page: item.page }) : item.host}
-          />
+      {shown.map((doc) => (
+        <span role="listitem" key={doc.id} className="inline-flex max-w-full scroll-mt-4">
+          {/* One anchor per [N] this document carries, all resolving to this
+              chip. A document cited as [2] and [7] is one chip that both
+              markers scroll to — which is the truth, and what the 1:1 shape
+              could only fake by rendering the document twice. */}
+          {anchorPrefix &&
+            citationNumbers(doc).map((number) => (
+              <span key={number} id={`${anchorPrefix}${number}`} className="scroll-mt-4" />
+            ))}
+          <SourcePreviewChip citation={{ document: doc }} meta={metaFor(doc)} />
         </span>
       ))}
       {/* Every source of this answer as a citation, in the format the user's
           own tooling reads. Quiet, at the end of the row. */}
-      <CopyCitationsMenu items={items} />
+      <CopyCitationsMenu citations={refs} />
     </div>
   )
 }

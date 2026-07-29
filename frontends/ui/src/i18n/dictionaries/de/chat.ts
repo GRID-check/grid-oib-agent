@@ -120,6 +120,7 @@ export const chat: typeof en.chat = {
     // im Antworttext sie zitieren, und nennt die belegte Seite nach dem Chip.
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
+    pages: 'S. {pages}',
     // Zitate zum Weiterverwenden — je Quelle als Fachtext, für die ganze
     // Antwort in den Formaten, die externe Werkzeuge einlesen.
     copyCitation: 'Zitat kopieren',
@@ -261,6 +262,9 @@ export const chat: typeof en.chat = {
     hitCount: '{count} Treffer',
     hitCountOne: '1 Treffer',
     gapHit: 'Nicht im Bestand',
+    // Ein Dokument, das die Recherche gelesen, die Antwort aber nicht zitiert
+    // hat — ein echtes Rechercheergebnis, keine Lücke.
+    readNotUsed: 'gelesen, nicht verwendet',
     moreSources: '+{count} weitere',
     selectedDataSources: 'Ausgewählte Datenquellen:',
     // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A

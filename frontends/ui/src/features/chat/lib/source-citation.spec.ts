@@ -2,74 +2,67 @@ import { describe, test, expect, vi } from 'vitest'
 import { toCslItem, toFachtext, toFachtextList } from './source-citation'
 import { renderCitations } from './citation-export'
 import { renderCitations as renderOnServer } from '@/lib/citations/render'
-import type { AnswerSourceItem } from './answer-source-list'
+import { buildCitationModel, type CitationRef } from './citations'
+import type { CitationSource } from '../types'
 
 const NOW = new Date('2026-07-28T12:00:00Z')
 
-const oib: AnswerSourceItem = {
-  key: 'c1',
-  number: 1,
+/**
+ * Fixtures go through the REAL model rather than being hand-built, so a change
+ * to how a document is identified, titled or tinted shows up here instead of
+ * being papered over by a literal that no producer would ever emit.
+ */
+const refFor = (citation: CitationSource): CitationRef => {
+  const [document] = buildCitationModel({ citations: [citation] })
+  if (!document) throw new Error('fixture produced no document')
+  return { document, locus: document.loci[0] }
+}
+
+const oib = refFor({
+  id: 'c1',
+  content: '',
+  timestamp: NOW,
+  title: 'OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023',
+  fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+  citationKey: 'oib-rl_2_ausgabe_mai_2023.pdf, p.18',
+  collection: 'oib_knowledge',
+  kind: 'baurecht',
+  lane: 'baurecht_oib',
+  origin: 'kb',
   page: 18,
-  ref: {
-    key: 'c1',
-    label: 'OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023',
-    kind: 'kb',
-    signal: 'oib',
-    authority: 'OIB',
-    number: 1,
-    citation: {
-      id: 'c1',
-      content: '',
-      timestamp: NOW,
-      fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
-      lane: 'baurecht_oib',
-      page: 18,
-    },
-  },
-}
+  number: 1,
+  isCited: true,
+})
 
-const law: AnswerSourceItem = {
-  key: 'c2',
+const law = refFor({
+  id: 'c2',
+  content: '',
+  timestamp: NOW,
+  title: 'Bauordnung für Wien § 108',
+  kind: 'baurecht',
+  lane: 'baurecht_ris',
+  laneLabel: 'Rechtsquelle (RIS)',
+  origin: 'ris',
+  url: 'https://www.ris.bka.gv.at/x',
   number: 2,
-  host: 'ris.bka.gv.at',
-  ref: {
-    key: 'c2',
-    label: 'Bauordnung für Wien § 108',
-    kind: 'ris',
-    signal: 'law',
-    authority: 'RIS',
-    url: 'https://www.ris.bka.gv.at/x',
-    number: 2,
-    citation: {
-      id: 'c2',
-      content: '',
-      timestamp: NOW,
-      lane: 'baurecht_ris',
-      laneLabel: 'Rechtsquelle (RIS)',
-      url: 'https://www.ris.bka.gv.at/x',
-    },
-  },
-}
+  isCited: true,
+})
 
-const projectDoc: AnswerSourceItem = {
-  key: 'c3',
-  number: 3,
+const projectDoc = refFor({
+  id: 'c3',
+  content: '',
+  timestamp: NOW,
+  title: 'Grundriss EG',
+  fileName: 'Grundriss_EG.pdf',
+  citationKey: 'Grundriss_EG.pdf, p.2',
+  collection: 'proj_abc',
+  kind: 'projekt',
+  lane: 'projekt',
+  origin: 'kb',
   page: 2,
-  ref: {
-    key: 'c3',
-    label: 'Grundriss EG',
-    kind: 'kb',
-    signal: 'project',
-    number: 3,
-    citation: {
-      id: 'c3',
-      content: '',
-      timestamp: NOW,
-      fileName: 'Grundriss_EG.pdf',
-      page: 2,
-    },
-  },
-}
+  number: 3,
+  isCited: true,
+})
 
 describe('toCslItem', () => {
   test('an OIB Richtlinie is a CSL standard with publisher, edition and page', () => {
@@ -102,8 +95,19 @@ describe('toCslItem', () => {
   })
 
   test('nothing is invented: no edition phrase → no edition and no issued date', () => {
+    // Neither the title nor the filename states an edition, so the citation
+    // must not carry one — a fabricated Fundstelle is worse than a short one.
     const csl = toCslItem(
-      { ...oib, ref: { ...oib.ref, label: 'OIB-Richtlinie 2 – Brandschutz', citation: undefined } },
+      refFor({
+        id: 'c4',
+        content: '',
+        timestamp: NOW,
+        title: 'OIB-Richtlinie 2 – Brandschutz',
+        kind: 'baurecht',
+        lane: 'baurecht_oib',
+        origin: 'kb',
+        isCited: true,
+      }),
       NOW
     )
 
@@ -190,5 +194,28 @@ describe('renderCitations', () => {
 
   test('no sources → empty string, never a stray header', async () => {
     expect(await renderCitations([], 'bibtex', NOW)).toBe('')
+  })
+})
+
+describe('CSL ids are unique per reference', () => {
+  test('two pages of one document export as two entries, not one', () => {
+    // A bibliography lists one row per LOCUS and CSL consumers key on `id`, so
+    // two unnumbered pages of the same document collided and the importer
+    // silently dropped one.
+    const page = (n: number): CitationSource => ({
+      id: `c${n}`,
+      content: `[KB] Plan.pdf, p.${n}`,
+      citationKey: `Plan.pdf, p.${n}`,
+      fileName: 'Plan.pdf',
+      collection: 'proj_1',
+      timestamp: NOW,
+      kind: 'projekt',
+      page: n,
+      isCited: true,
+    })
+    const [document] = buildCitationModel({ citations: [page(3), page(9)] })
+    const ids = document!.loci.map((locus) => toCslItem({ document: document!, locus }, NOW).id)
+
+    expect(new Set(ids).size).toBe(2)
   })
 })

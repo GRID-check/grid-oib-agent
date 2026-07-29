@@ -28,6 +28,7 @@ import {
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
 import { conversationMatchesProject } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
+import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 
 export type SessionsSlice = {
@@ -1335,6 +1336,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
+          // An answer's grounding has to outlive the tab that produced it: a
+          // chat restored from the server used to come back with the answer
+          // intact and its whole provenance row missing.
+          ...(() => {
+            const citations = encodeCitations(message.citations)
+            return citations ? { citations } : {}
+          })(),
         },
         createdAt: message.timestamp instanceof Date
           ? message.timestamp.toISOString()

@@ -6,15 +6,22 @@
  * localStorage no longer has them (quota cleanup, new device, cleared site
  * data). The server stores a deliberately small payload — role, content,
  * timestamps plus a metadata jsonb (messageType, errorData, fileData, cards,
- * cardInteractions, enabledDataSources, messageFiles) — so heavy stream state (thinking steps,
- * report content) is not restored here; it is refetched on demand like the
- * localStorage pruning path already does.
+ * cardInteractions, enabledDataSources, messageFiles, citations) — so heavy
+ * stream state (thinking steps, report content) is not restored here; it is
+ * refetched on demand like the localStorage pruning path already does.
+ *
+ * Citations ARE restored, and are not optional in the way the rest of that
+ * payload is: an answer that comes back without its provenance is an answer
+ * making an ungrounded claim, which is the one thing this product must never
+ * render. They are decoded through the same versioned contract the write path
+ * encodes with — see `lib/citations/persistence`.
  */
 
 import type { Message } from '@/lib/db/schema'
 import type { ChatMessage, ErrorCardData, FileCardData, MessageType } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
 import { sanitizeCardInteractions } from '@/features/grid-cards/card-decision'
+import { decodeCitations } from './citations'
 
 const MESSAGE_TYPES: ReadonlySet<string> = new Set([
   'user',
@@ -43,14 +50,19 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
 
   const messageType =
     asMessageType(metadata.messageType) ?? (message.role === 'user' ? 'user' : 'agent_response')
+  // Over JSON the timestamp arrives as an ISO string despite the Date type.
+  const timestamp = new Date(message.createdAt as unknown as string)
+  // The message's own time, not the clock: a citation restored from history was
+  // captured when the answer was written, not when the page was reopened.
+  const citations = decodeCitations(metadata.citations, timestamp)
 
   return {
     id: String(message.id),
     role: message.role,
     content: message.content,
-    // Over JSON the timestamp arrives as an ISO string despite the Date type.
-    timestamp: new Date(message.createdAt as unknown as string),
+    timestamp,
     messageType,
+    ...(citations ? { citations } : {}),
     ...(metadata.errorData ? { errorData: metadata.errorData as ErrorCardData } : {}),
     ...(metadata.fileData ? { fileData: metadata.fileData as FileCardData } : {}),
     ...(Array.isArray(metadata.cards) ? { cards: metadata.cards as GridCard[] } : {}),

@@ -23,7 +23,7 @@
  * "EndNote/Zotero (.ris)" so nobody has to guess which one they are copying.
  */
 
-import type { AnswerSourceItem } from './answer-source-list'
+import type { CitationRef } from './citations'
 import { toCslItem, toCslJson, toFachtextList } from './source-citation'
 
 /** The formats the source block can hand out. */
@@ -55,13 +55,13 @@ const SERVER_RENDERED = new Set<CitationFormat>(['apa', 'bibtex', 'ris'])
  * bibliography whenever the server-rendered formats are unavailable.
  */
 export const renderCitations = async (
-  items: AnswerSourceItem[],
+  refs: CitationRef[],
   format: CitationFormat,
   now: Date
 ): Promise<string> => {
-  if (items.length === 0) return ''
-  if (format === 'csl-json') return toCslJson(items, now)
-  if (!SERVER_RENDERED.has(format)) return toFachtextList(items, now)
+  if (refs.length === 0) return ''
+  if (format === 'csl-json') return toCslJson(refs, now)
+  if (!SERVER_RENDERED.has(format)) return toFachtextList(refs, now)
 
   try {
     const response = await fetch('/api/citations/format', {
@@ -69,15 +69,15 @@ export const renderCitations = async (
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         format,
-        items: items.map((item) => toCslItem(item, now)),
+        items: refs.map((ref) => toCslItem(ref, now)),
       }),
     })
-    if (!response.ok) return toFachtextList(items, now)
+    if (!response.ok) return toFachtextList(refs, now)
     const data = (await response.json()) as { text?: unknown }
     return typeof data.text === 'string' && data.text.trim()
       ? data.text
-      : toFachtextList(items, now)
+      : toFachtextList(refs, now)
   } catch {
-    return toFachtextList(items, now)
+    return toFachtextList(refs, now)
   }
 }
