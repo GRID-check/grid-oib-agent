@@ -19,7 +19,15 @@
 import type { GridCard } from '@/shared/cards/schemas'
 import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 import type { CitationSource } from '../types'
-import { KIND_TO_SIGNAL, accentForLane, authorityTag } from './source-kinds'
+import {
+  KIND_TO_SIGNAL,
+  SCOPE_QUALIFIERS,
+  accentForLane,
+  authorityTag,
+  collectionScope,
+  scopeForQualifier,
+  type CollectionScope,
+} from './source-kinds'
 
 /** Origin of an answer source — mirrors ReportSourceKind (kb/ris/web). */
 export type AnswerSourceKind = 'kb' | 'ris' | 'web'
@@ -264,14 +272,18 @@ export const deriveAnswerSources = (
  * The minimal shape of a STORED document a citation can resolve against — a
  * project upload (`GET /api/documents?projectId=…`) or an org Archiv document
  * (`GET /api/archiv/documents`). Both are DB-backed rows opened through the
- * same scope-aware `/api/documents/{id}/preview`, so they share one list;
- * project documents come first, so a filename held in both resolves to the one
- * belonging to the project in view.
+ * same scope-aware `/api/documents/{id}/preview`, so they share one list.
+ *
+ * `scope` says which of the two a row came from, so a citation that knows its
+ * own shelf resolves to the right copy of a name held on both. Ordering is the
+ * tie-break when it does not (project first — the project in view is the better
+ * guess), but ordering is a heuristic and scope is the actual identity.
  */
 export interface StoredDocumentRef {
   id: string
   filename: string
   contentType?: string | null
+  scope?: CollectionScope
 }
 
 /**
@@ -301,10 +313,12 @@ export type CitationTarget =
     }
   | { kind: 'info'; origin: AnswerSourceKind; title: string; snippet?: string }
 
-/** A knowledge-layer citation locator: filename + optional page. */
+/** A knowledge-layer citation locator: filename + optional page + optional shelf. */
 export interface KbCitationLocator {
   filename: string
   page?: number
+  /** Scope named by the key's `(Projektwissen)` qualifier, when it carries one. */
+  scope?: CollectionScope
 }
 
 /**
@@ -316,6 +330,19 @@ const PAGE_REF_RE = /[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))/i
 
 /** A plausible filename (mirrors the backend's `_KL_CITATION_PATTERN_RE`). */
 const FILENAME_RE = /^.+\.\w{2,5}$/
+
+/**
+ * Trailing scope qualifier of a citation key (`Plan.pdf (Projektwissen)`) —
+ * mirrors the backend's `_SCOPE_QUALIFIER_RE`. Only the KNOWN qualifiers match,
+ * so a parenthetical that is genuinely part of a filename ("Bescheid
+ * (Kopie).pdf") is never mistaken for one.
+ */
+const SCOPE_QUALIFIER_RE = new RegExp(
+  `\\s*\\((${Object.values(SCOPE_QUALIFIERS)
+    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})\\)\\s*$`,
+  'i'
+)
 
 /** Pseudo-URL scheme prefix (kb://…, doc://…) sometimes carried by citations. */
 const PSEUDO_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i
@@ -330,35 +357,45 @@ export const parseKbLocator = (text: string): KbCitationLocator | null => {
   if (!line) return null
   const pageMatch = PAGE_REF_RE.exec(line)
   const page = pageMatch ? Number(pageMatch[1]) : undefined
-  const filename = (pageMatch ? line.slice(0, pageMatch.index) : line)
-    .replace(/[\s,]+$/, '')
-    .trim()
+  let filename = (pageMatch ? line.slice(0, pageMatch.index) : line).replace(/[\s,]+$/, '').trim()
+  const qualifierMatch = SCOPE_QUALIFIER_RE.exec(filename)
+  const scope = qualifierMatch ? scopeForQualifier(qualifierMatch[1]) : undefined
+  if (qualifierMatch) {
+    filename = filename.slice(0, qualifierMatch.index).replace(/[\s,]+$/, '').trim()
+  }
   if (!FILENAME_RE.test(filename)) return null
-  return { filename, page }
+  return { filename, page, scope }
 }
 
 /** Locator from a citation: structured fields first, then content / pseudo-URL. */
 const locatorForCitation = (
-  citation: Pick<CitationSource, 'url' | 'content' | 'fileName' | 'page' | 'citationKey'>
+  citation: Pick<CitationSource, 'url' | 'content' | 'fileName' | 'page' | 'citationKey' | 'collection'>
 ): KbCitationLocator | null => {
+  // The wire's `collection` is the document's real shelf; a key's qualifier is
+  // only the model's rendering of it, so structured beats parsed.
+  const wireScope = collectionScope(citation.collection)
   if (citation.fileName?.trim()) {
     return {
       filename: citation.fileName.trim(),
       page: typeof citation.page === 'number' ? citation.page : undefined,
+      scope: wireScope,
     }
   }
+  // `?? wireScope`: the parsed key wins only where it actually says something.
+  const withScope = (locator: KbCitationLocator | null): KbCitationLocator | null =>
+    locator && { ...locator, scope: locator.scope ?? wireScope }
   if (citation.citationKey?.trim()) {
-    const fromKey = parseKbLocator(citation.citationKey)
+    const fromKey = withScope(parseKbLocator(citation.citationKey))
     if (fromKey) return fromKey
   }
-  const fromContent = citation.content ? parseKbLocator(citation.content) : null
+  const fromContent = citation.content ? withScope(parseKbLocator(citation.content)) : null
   if (fromContent) return fromContent
   if (citation.url && !isHttpUrl(citation.url)) {
     const basename = citation.url.replace(PSEUDO_SCHEME_RE, '').split('/').pop() ?? ''
     try {
-      return parseKbLocator(decodeURIComponent(basename))
+      return withScope(parseKbLocator(decodeURIComponent(basename)))
     } catch {
-      return parseKbLocator(basename)
+      return withScope(parseKbLocator(basename))
     }
   }
   return null
@@ -421,7 +458,10 @@ const isPreviewableContentType = (contentType: string | null | undefined): boole
  * permanently unopenable while project and Baurecht citations opened fine.
  */
 export const resolveCitationTarget = (
-  citation: Pick<CitationSource, 'url' | 'content' | 'fileName' | 'page' | 'citationKey' | 'origin' | 'title'>,
+  citation: Pick<
+    CitationSource,
+    'url' | 'content' | 'fileName' | 'page' | 'citationKey' | 'origin' | 'title' | 'collection'
+  >,
   storedDocuments?: StoredDocumentRef[],
   baseCorpusFiles?: string[]
 ): CitationTarget => {
@@ -434,7 +474,13 @@ export const resolveCitationTarget = (
   const locator = locatorForCitation(citation)
   if (locator) {
     const wanted = locator.filename.toLowerCase()
-    const storedDoc = storedDocuments?.find((doc) => doc.filename.toLowerCase() === wanted)
+    const named = storedDocuments?.filter((doc) => doc.filename.toLowerCase() === wanted) ?? []
+    // Narrow to the shelf the citation names — the same document identity the
+    // backend registry keys on. FAIL-OPEN: a scope that matches nothing falls
+    // back to the plain filename match, so nothing that opens today stops
+    // opening because a scope was missing, stale, or wrong.
+    const scoped = locator.scope ? named.filter((doc) => doc.scope === locator.scope) : []
+    const storedDoc = scoped[0] ?? named[0]
     if (storedDoc && isPreviewableContentType(storedDoc.contentType)) {
       return {
         kind: 'document',

@@ -56,6 +56,61 @@ export const kindForLane = (lane: string | null | undefined): SourceKind => {
   return 'web'
 }
 
+// ---------------------------------------------------------------------------
+// Collection scope — the collection half of a document's identity
+// ---------------------------------------------------------------------------
+//
+// Mirror of the backend `source_kinds.collection_scope` / `SCOPE_QUALIFIERS`.
+// A document is `(collection, filename)` — the PRIMARY KEY of `document_metadata`
+// and the only pair that is unique, because one knowledge_search fans out across
+// the base corpus, the session collection and the project collections at once.
+// A citation key cannot carry a raw collection id, so it carries the SCOPE.
+
+/** The shelf a document sits on. A strict subset of SourceKind (never `web`). */
+export type CollectionScope = Extract<SourceKind, 'baurecht' | 'buero' | 'projekt'>
+
+const COLLECTION_SCOPE_PREFIXES: ReadonlyArray<readonly [string, CollectionScope]> = [
+  ['archiv_', 'buero'],
+  ['proj_', 'projekt'],
+  ['s_', 'projekt'],
+]
+
+/** Scope owning a retrieval collection; undefined when there is no collection. */
+export const collectionScope = (
+  collection: string | null | undefined
+): CollectionScope | undefined => {
+  const key = (collection ?? '').trim().toLowerCase()
+  if (!key) return undefined
+  for (const [prefix, scope] of COLLECTION_SCOPE_PREFIXES) {
+    if (key.startsWith(prefix)) return scope
+  }
+  // A named collection that is neither project/session nor Archiv is the base
+  // knowledge corpus (matches `lane_for_hit`'s final `if collection` branch).
+  return 'baurecht'
+}
+
+/**
+ * Scope → the qualifier a citation key uses (`Plan.pdf (Projektwissen), p.3`).
+ * These strings are part of persisted citation keys — changing one invalidates
+ * keys in messages already written. Kept byte-identical to the backend's
+ * `SCOPE_QUALIFIERS`, which a parity test enforces.
+ */
+export const SCOPE_QUALIFIERS: Record<CollectionScope, string> = {
+  buero: 'Büroarchiv',
+  projekt: 'Projektwissen',
+  baurecht: 'Basiswissen',
+}
+
+/** Inverse of SCOPE_QUALIFIERS — parse a citation key's qualifier back to a scope. */
+export const scopeForQualifier = (
+  qualifier: string | null | undefined
+): CollectionScope | undefined => {
+  const key = (qualifier ?? '').trim().toLowerCase()
+  return (Object.keys(SCOPE_QUALIFIERS) as CollectionScope[]).find(
+    (scope) => SCOPE_QUALIFIERS[scope].toLowerCase() === key
+  )
+}
+
 /**
  * Compact authority tag within the Baurecht family, derived from the fine lane
  * (`norm_registry.lane_for_hit`). Returns null when no meaningful tier applies

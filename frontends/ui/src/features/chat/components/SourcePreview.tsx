@@ -47,7 +47,7 @@ import {
   type StoredDocumentRef,
 } from '../lib/answer-sources'
 import type { CitationSource } from '../types'
-import type { SourceKind } from '../lib/source-kinds'
+import type { CollectionScope, SourceKind } from '../lib/source-kinds'
 import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
@@ -57,8 +57,9 @@ import { AuthorityTag } from './AuthorityTag'
 export interface SourcePreviewIndex {
   /**
    * Every DB-backed document the user can open: this project's uploads FIRST,
-   * then the organization's Archiv. Order matters — a filename held in both
-   * resolves to the project's copy, which is the one in view.
+   * then the organization's Archiv. Each row carries the shelf it came from, so
+   * a citation that names its own shelf resolves to the right copy of a filename
+   * held on both; order is only the tie-break for one that does not.
    */
   storedDocuments: StoredDocumentRef[]
   baseCorpusFiles: string[]
@@ -96,19 +97,28 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
     const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
 
-    const toRefs = (rows: unknown): StoredDocumentRef[] =>
+    const toRefs = (rows: unknown, scope: CollectionScope): StoredDocumentRef[] =>
       Array.isArray(rows)
         ? rows
             .filter(
               (doc): doc is { id: string; filename: string; contentType?: string | null } =>
                 !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
             )
-            .map((doc) => ({ id: doc.id, filename: doc.filename, contentType: doc.contentType ?? null }))
+            .map((doc) => ({
+              id: doc.id,
+              filename: doc.filename,
+              contentType: doc.contentType ?? null,
+              scope,
+            }))
         : []
 
-    // Project uploads first: a filename present in both resolves to the copy
-    // belonging to the project the user is looking at.
-    const storedDocuments: StoredDocumentRef[] = [...toRefs(docs), ...toRefs(archivDocs)]
+    // Tagged with the shelf each row came from, so a citation that names its own
+    // shelf resolves to the right copy of a filename held on both. Project
+    // uploads still come first, as the tie-break for a citation that does not.
+    const storedDocuments: StoredDocumentRef[] = [
+      ...toRefs(docs, 'projekt'),
+      ...toRefs(archivDocs, 'buero'),
+    ]
 
     // Only corpus files whose PDF actually exists on this deployment are
     // openable (index-only entries and removed files would 404 the viewer).
