@@ -15,7 +15,8 @@
 --
 -- One row per agent group (`lib/model-config/agent-groups.ts` /
 -- `AgentGroup` in src/aiq_agent/common/model_overrides.py). Deleting a row
--- returns that group to the YAML default.
+-- returns that group to the YAML default for organizations without an org
+-- override of their own; an org override still wins.
 CREATE TABLE IF NOT EXISTS "platform_model_defaults" (
   -- Agent group id, e.g. 'shallow_research'. Not an enum: the registry is code,
   -- and an id retired there must not need a migration to disappear from here.

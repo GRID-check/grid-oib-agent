@@ -73,17 +73,27 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
   const [loading, setLoading] = useState(true)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Only the newest search may write state: a slow earlier request resolving
+  // after a later one would otherwise leave the list showing results for a
+  // query the user has already typed past.
+  const requestId = useRef(0)
+
   const search = useCallback(
     (q: string) => {
       setLoading(true)
+      const id = ++requestId.current
       fetch(`/api/platform/model-defaults/models?group=${encodeURIComponent(groupId)}&q=${encodeURIComponent(q)}`)
         .then(async (res) => {
           if (!res.ok) throw new Error(String(res.status))
           const body = (await res.json()) as { models: ModelDto[] }
-          setModels(body.models)
+          if (id === requestId.current) setModels(body.models)
         })
-        .catch(() => setModels(null))
-        .finally(() => setLoading(false))
+        .catch(() => {
+          if (id === requestId.current) setModels(null)
+        })
+        .finally(() => {
+          if (id === requestId.current) setLoading(false)
+        })
     },
     [groupId],
   )
@@ -186,7 +196,14 @@ export const PlatformModelDefaults: FC = () => {
     () => Object.fromEntries(Object.entries(payload?.defaults ?? {}).map(([g, v]) => [g, v.model])),
     [payload],
   )
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved])
+  // Compared per key, not via JSON.stringify: `draft` is rebuilt by delete +
+  // spread, so resetting a group and re-picking the model it already had
+  // reorders the keys. Stringifying would call that dirty and let Save fire a
+  // real PUT — and a fleet-wide audit event — for a no-op.
+  const dirty = useMemo(() => {
+    const keys = new Set([...Object.keys(draft), ...Object.keys(saved)])
+    return [...keys].some((key) => draft[key] !== saved[key])
+  }, [draft, saved])
 
   const handleSave = useCallback(async () => {
     setSaving(true)

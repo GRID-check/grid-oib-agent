@@ -163,7 +163,7 @@ one you get depends on which question is being asked:
   The **org** screen shows this, because that is what a tenant actually
   inherits and what its per-group reset returns to.
 
-Both are 5-minute cached and fail soft per layer to a generic label.
+Both are cached for five minutes and fail soft per layer to a generic label.
 
 OpenRouter catalog client: `frontends/ui/src/lib/model-config/openrouter.ts`
 — `GET {OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}/models`, 5-minute

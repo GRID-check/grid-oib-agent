@@ -136,6 +136,14 @@ export async function PUT(request: Request): Promise<Response> {
         metadata: flat,
         request,
       })
+    } else {
+      // The platform org did not resolve (not provisioned, or a WorkOS miss
+      // cached by its own fail-closed TTL). The save stands — refusing a
+      // fleet-wide model bump because the audit sink is unreachable is worse
+      // — but an unaudited change of this reach must not pass silently.
+      console.error(
+        `[Platform Model Defaults] Fleet defaults saved by ${session.email ?? session.userId} were NOT audited: the platform organization did not resolve`,
+      )
     }
 
     return NextResponse.json({

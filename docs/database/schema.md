@@ -289,8 +289,10 @@ tenant's own configuration (ADR-0014, extended). Global: no `organization_id`,
 one row per `agent_group` (PK), carrying the catalog-validated `model`, a
 `model_snapshot` jsonb (catalog metadata + `_zdr.safe`), an optional `note`, and
 `updated_by`/`updated_by_email`. **No row = that group falls through to the
-workflow YAML.** A save replaces the whole set — groups omitted from the payload
-are deleted, which is how a group is handed back to the YAML. Resolution at
+workflow YAML for organizations without an org override of their own** (an org
+override still wins). A save replaces the whole set — groups omitted from the
+payload are deleted, which is how a group is handed back to the YAML for those
+organizations. Resolution at
 runtime is per group: org override → platform default → YAML. Schema:
 `frontends/ui/src/lib/db/schema/platform-model-defaults.ts`.
 

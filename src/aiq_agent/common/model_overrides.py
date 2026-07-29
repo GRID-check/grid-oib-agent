@@ -236,7 +236,8 @@ def get_model_overrides_from_context() -> dict[str, str]:
     requests; a WebSocket connection keeps its upgrade-time value, preserving
     the documented per-conversation pinning). When the header is absent —
     endpoints the BFF does not front, or a failed best-effort injection — falls
-    back to resolving the org's active overrides via the internal endpoint,
+    back to resolving the org's *effective* selection via the internal endpoint
+    (the platform-owner defaults with the org's own overrides layered on top),
     mirroring BYOK credential resolution.
 
     Returns ``{}`` when no overrides apply — callers then use the
