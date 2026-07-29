@@ -719,11 +719,16 @@ def _document_anchor(reference: str) -> str:
     never stored (and vice versa).
 
     A URL whose identity cannot be read contributes no anchor at all rather than
-    a sanitized URL soup: the title alone is stable, a mangled URL is not.
+    a sanitized URL soup: the title alone is stable, a mangled URL is not. That
+    includes a URL `urlparse` refuses (``http://[`` raises ValueError): naming a
+    document must never be the thing that fails an otherwise successful fetch.
     """
     ref = (reference or "").strip()
     if ref.lower().startswith(("http://", "https://")):
-        parsed = urlparse(ref)
+        try:
+            parsed = urlparse(ref)
+        except ValueError:
+            return ""
         query = {key.lower(): values for key, values in parse_qs(parsed.query).items()}
         ref = ""
         for param in _RIS_URL_ID_PARAMS:

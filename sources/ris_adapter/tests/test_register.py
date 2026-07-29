@@ -504,6 +504,10 @@ class TestSafeDocumentName:
 
         assert name == "RIS_Garagengesetz_10008935.txt"
 
+    def test_a_url_urlparse_refuses_still_yields_a_name(self):
+        """Naming the document must not fail a fetch that already succeeded."""
+        assert _safe_document_name("http://[", "RIS - Garagengesetz") == "RIS_Garagengesetz.txt"
+
     def test_an_unreadable_url_contributes_no_anchor(self):
         """The title alone is stable; a sanitized URL is neither stable nor legible."""
         name = _safe_document_name("https://www.ris.bka.gv.at/Suche?query=garagen", "RIS - Garagengesetz")
