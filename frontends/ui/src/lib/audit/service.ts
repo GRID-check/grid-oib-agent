@@ -35,6 +35,9 @@ export const AUDIT_ACTIONS = [
   'compliance.hold.created',
   'compliance.hold.released',
   'platform.access.break_glass',
+  // A fleet-wide default-model change: it re-points every organization that
+  // has not chosen its own model, so it belongs in the platform org's trail.
+  'platform.model_defaults.updated',
   'platform.norm_registry.updated',
   'project.created',
   'project.deleted',

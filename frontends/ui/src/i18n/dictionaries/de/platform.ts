@@ -508,6 +508,7 @@ export const platform: typeof en.platform = {
   nav: {
     label: 'Plattform-Bereiche',
     overview: 'Übersicht',
+    models: 'Modelle',
     quality: 'Antwortqualität',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
@@ -518,6 +519,10 @@ export const platform: typeof en.platform = {
     overview: {
       title: 'Übersicht',
       subtitle: 'Alle Organisationen der Plattform, mit Projekten und LLM-Kosten.',
+    },
+    models: {
+      title: 'Modelle',
+      subtitle: 'Das Standardmodell, auf dem jede Organisation läuft, solange sie kein eigenes wählt.',
     },
     quality: {
       title: 'Antwortqualität',
@@ -539,6 +544,39 @@ export const platform: typeof en.platform = {
       title: 'Wartung',
       subtitle: 'Pflege des Vektorspeichers. Nur nötig, wenn Retrieval und Korpus auseinanderlaufen.',
     },
+  },
+  /** Plattform → Modelle: das flottenweite Standardmodell je Agentenbereich. */
+  models: {
+    title: 'Standardmodelle',
+    description:
+      'Das Modell, auf dem jeder Teil des Agenten läuft. Eine Änderung hier bewegt jede Organisation, die für diesen Teil kein eigenes Modell gewählt hat — ab ihrer nächsten Nachricht, ohne Deployment.',
+    // Zustand je Bereich.
+    pinnedBadge: 'Plattform-Standard',
+    yamlBadge: 'Workflow-Konfiguration',
+    unknownFallback: 'Workflow-Konfiguration',
+    change: 'Ändern',
+    clear: 'Zurück zur Workflow-Konfiguration',
+    zdrWarning:
+      'Kein Zero-Data-Retention-Endpunkt — Organisationen mit dieser Richtlinie bleiben bei ihrem eigenen Modell.',
+    noZdr: 'Kein Zero-Data-Retention-Endpunkt',
+    // Auswahl.
+    searchPlaceholder: 'Modelle suchen…',
+    contextWindow: 'Kontext',
+    noResults: 'Kein passendes Modell gefunden.',
+    // Speichern.
+    unsavedChanges: 'Nicht gespeicherte Änderungen.',
+    note: 'Notiz',
+    notePlaceholder: 'Warum diese Änderung? (optional)',
+    save: 'Standards speichern',
+    saving: 'Wird gespeichert…',
+    discard: 'Verwerfen',
+    saved: 'Standardmodelle gespeichert.',
+    saveError: 'Die Standardmodelle konnten nicht gespeichert werden.',
+    loadError: 'Die Standardmodelle konnten nicht geladen werden.',
+    confirmTitle: 'Standard für alle Organisationen ändern?',
+    confirmDescription:
+      'Jede Organisation, die für diese Teile des Agenten kein eigenes Modell gewählt hat, wechselt mit ihrer nächsten Nachricht. Organisationen mit eigener Wahl bleiben unberührt.',
+    confirmSave: 'Standards ändern',
   },
   stats: {
     organizations: 'Organisationen',

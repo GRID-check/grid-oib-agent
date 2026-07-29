@@ -1,18 +1,24 @@
-"""Per-organization runtime model overrides (``X-Grid-Model-Overrides``).
+"""Runtime model selection per agent group (``X-Grid-Model-Overrides``).
 
-Org admins can re-point each *agent group* at a different OpenRouter model at
-runtime (see docs/architecture/org-model-configuration.md and ADR-0014). The
-BFF resolves the org's active configuration version at the WebSocket upgrade
-and forwards it as the base64url-encoded JSON header::
+Which model an *agent group* runs on is decided at runtime, not in the workflow
+YAML (see docs/architecture/org-model-configuration.md and ADR-0014). The BFF
+resolves it and forwards the base64url-encoded JSON header::
 
     X-Grid-Model-Overrides: base64url({"shallow_research": "vendor/model", ...})
+
+That map is already the EFFECTIVE selection — the BFF merges the
+platform-owner defaults (``platform_model_defaults``, admin-controlled, applies
+to every tenant that has not chosen otherwise) with the org's own active
+configuration version, which wins per group. This module deliberately knows
+nothing about those two layers: one map arrives, it is applied.
 
 The backend treats the header as advisory *model selection only*: every other
 generation parameter (max_tokens, reasoning_effort, base_url, api_key) still
 comes from the workflow YAML, so an override can never re-point traffic at a
 different provider or credential. Unknown groups and malformed ids are
-dropped; a missing/broken header means "use the YAML defaults" (fail-open to
-defaults, never an error — model selection must not take chat down).
+dropped; a missing/broken header means "use the YAML models" (fail-open to the
+config's boot fallback, never an error — model selection must not take chat
+down).
 """
 
 import base64
@@ -48,11 +54,14 @@ _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}(/[A-Za-z0-9_.:-]{1,128})?$")
 
 
 class AgentGroup(StrEnum):
-    """Semantic agent groups an org admin can independently re-model.
+    """Semantic agent groups that a platform or org admin can independently re-model.
 
     Groups deliberately sit *above* the YAML LLM names: they are stable,
-    user-meaningful override points, while the YAML remains free to reshuffle
-    which named LLM serves which role. The registry mirror lives in
+    user-meaningful selection points, while the YAML remains free to reshuffle
+    which named LLM serves which role. They are also the granularity at which
+    the platform default and the org override meet — an org that pinned only
+    ``deep_research`` still follows the platform default everywhere else. The
+    registry mirror lives in
     ``frontends/ui/src/lib/model-config/agent-groups.ts`` (which additionally
     carries the OpenRouter capability requirements per group) — keep the two
     id sets in sync.
@@ -133,9 +142,10 @@ def reset_overrides_cache() -> None:
 def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     """One HTTP round-trip to the BFF's internal model-overrides endpoint.
 
-    Returns ``(overrides, zdr_only)`` — the org's active model selection plus
-    its Zero-Data-Retention policy (whether every OpenRouter request must pin to
-    a ZDR endpoint).
+    Returns ``(overrides, zdr_only)`` — the org's EFFECTIVE model selection
+    (platform defaults with the org's own choices layered on top, merged
+    BFF-side) plus its Zero-Data-Retention policy (whether every OpenRouter
+    request must pin to a ZDR endpoint).
     """
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
@@ -197,7 +207,12 @@ def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | N
 
 
 def resolve_org_model_overrides(organization_id: str | None) -> dict[str, str]:
-    """The org's active model overrides, resolved by org id (fail-open to {})."""
+    """The effective model selection for an org, by org id (fail-open to {}).
+
+    Includes the platform-owner defaults — the BFF merges them in before
+    answering, so a group the org never touched still resolves to the
+    admin-chosen model rather than the YAML boot fallback.
+    """
     entry = _resolve_org_config(organization_id)
     return entry.overrides if entry is not None else {}
 

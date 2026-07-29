@@ -495,6 +495,7 @@ export const platform = {
   nav: {
     label: 'Platform sections',
     overview: 'Overview',
+    models: 'Models',
     quality: 'Answer quality',
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
@@ -505,6 +506,10 @@ export const platform = {
     overview: {
       title: 'Overview',
       subtitle: 'Every organization on the platform, with projects and LLM spend.',
+    },
+    models: {
+      title: 'Models',
+      subtitle: 'The default model every organization runs on until it picks its own.',
     },
     quality: {
       title: 'Answer quality',
@@ -526,6 +531,39 @@ export const platform = {
       title: 'Maintenance',
       subtitle: 'Vector-store upkeep. Only needed when retrieval and the corpus have drifted apart.',
     },
+  },
+  /** Platform → models: the fleet-wide default model per agent group. */
+  models: {
+    title: 'Default models',
+    description:
+      'The model each part of the agent runs on. Changing one here moves every organization that has not chosen its own model for that part — on their next message, with no deployment.',
+    // Per-group state.
+    pinnedBadge: 'Platform default',
+    yamlBadge: 'Workflow config',
+    unknownFallback: 'Workflow config',
+    change: 'Change',
+    clear: 'Back to the workflow config',
+    zdrWarning:
+      'No zero-data-retention endpoint — organizations with that policy on keep their own model instead.',
+    noZdr: 'No zero-data-retention endpoint',
+    // Picker.
+    searchPlaceholder: 'Search models…',
+    contextWindow: 'Context',
+    noResults: 'No suitable model found.',
+    // Save.
+    unsavedChanges: 'Unsaved changes.',
+    note: 'Note',
+    notePlaceholder: 'Why this change? (optional)',
+    save: 'Save defaults',
+    saving: 'Saving…',
+    discard: 'Discard',
+    saved: 'Default models saved.',
+    saveError: 'Could not save the default models.',
+    loadError: 'Could not load the default models.',
+    confirmTitle: 'Change the default for every organization?',
+    confirmDescription:
+      'Every organization that has not picked its own model for these parts of the agent switches over on its next message. Organizations with their own choice are unaffected.',
+    confirmSave: 'Change defaults',
   },
   stats: {
     organizations: 'Organizations',

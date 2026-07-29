@@ -13,7 +13,7 @@ import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-prof
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
@@ -69,11 +69,13 @@ export async function GET(req: Request): Promise<Response> {
         console.warn('[WebSocket Scope API] Failed to resolve web-search setting:', error)
       }
 
-      // Per-org runtime model overrides (active org_model_configs version) —
-      // forwarded by server.js as x-grid-model-overrides. Best-effort: a
-      // config read failure must not block chat; defaults apply instead.
+      // Effective runtime model selection — the platform defaults
+      // (`platform_model_defaults`) with the org's own active
+      // org_model_configs version layered on top — forwarded by server.js as
+      // x-grid-model-overrides. Best-effort: a config read failure must not
+      // block chat; the workflow YAML models apply instead.
       try {
-        const modelOverrides = await getActiveModelOverrides(session.organizationId)
+        const modelOverrides = await getEffectiveModelOverrides(session.organizationId)
         if (modelOverrides) {
           response.modelOverrides = modelOverrides
         }

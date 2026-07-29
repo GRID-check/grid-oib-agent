@@ -29,7 +29,7 @@ import { NextResponse } from 'next/server'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 import { buildGridRequestContextWireHeaders, type GridRequestContextInput } from '@/lib/request-context'
 import {
@@ -79,7 +79,7 @@ async function resolveGridContextHeaders(
 
   if (session?.organizationId) {
     try {
-      const overrides = await getActiveModelOverrides(session.organizationId)
+      const overrides = await getEffectiveModelOverrides(session.organizationId)
       if (overrides) {
         input.modelOverrides = overrides
       }

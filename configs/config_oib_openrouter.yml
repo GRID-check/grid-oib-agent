@@ -1,4 +1,6 @@
-# Grid OIB workflow config — OpenRouter DeepSeek LLMs, persistent OIB knowledge base plus web search.
+# Grid OIB workflow config — OpenRouter endpoint + credential, persistent OIB
+# knowledge base plus web search. The MODEL each role runs on is admin-controlled
+# at runtime (Platform → Models), not decided here; see the note above `llms:`.
 
 general:
   use_uvloop: true
@@ -63,6 +65,26 @@ general:
 
 llms:
   # ───────────────────────────────────────────────────────────────────────────
+  # THIS FILE NO LONGER DECIDES WHICH MODEL RUNS.
+  #
+  # `model_name` below is the BOOT FALLBACK only — what a role runs on before
+  # anything has been configured, or if the BFF is unreachable. The real default
+  # is an admin decision taken at runtime: the platform owner picks it under
+  # Platform → Models (`platform_model_defaults`), and every organization that
+  # has not chosen its own model for that agent group follows on its next turn.
+  # A tenant's own choice (Organization → Models) still wins over both.
+  # Resolution order: org override → platform default → the value here.
+  # See docs/architecture/org-model-configuration.md.
+  #
+  # So: do NOT edit these to move the fleet to a newer model — that is a save in
+  # the admin UI, not a commit and a redeploy. Change them (or set
+  # GRID_DEFAULT_MODEL) only to move the *floor*, e.g. for a deployment that
+  # runs without the BFF. What this file remains the sole owner of is the
+  # plumbing: base_url, api_key, temperature, max_tokens, reasoning_effort,
+  # timeouts and retries — none of which an override may touch.
+  # ───────────────────────────────────────────────────────────────────────────
+  #
+  # ───────────────────────────────────────────────────────────────────────────
   # REASONING EFFORT PER AGENT ROLE — OPENROUTER-STANDARD VALUES, PASSED THROUGH
   # reasoning_effort uses OpenRouter's unified vocabulary (none/minimal/low/
   # medium/high/xhigh) and is sent verbatim: OpenRouter maps the requested
@@ -90,7 +112,7 @@ llms:
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
   intent_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     # Pure router: classification must be repeatable for the same query.
@@ -112,7 +134,7 @@ llms:
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -131,7 +153,7 @@ llms:
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -144,7 +166,7 @@ llms:
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -157,7 +179,7 @@ llms:
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -170,7 +192,7 @@ llms:
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -183,7 +205,7 @@ llms:
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -199,7 +221,7 @@ llms:
   # which is also the deep-research source_router_llm where medium still matters.
   ris_planner_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -212,7 +234,7 @@ llms:
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -226,7 +248,7 @@ llms:
   # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
   compliance_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -239,7 +261,7 @@ llms:
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
