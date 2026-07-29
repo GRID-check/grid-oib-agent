@@ -15,6 +15,15 @@ export const chat: typeof en.chat = {
     loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
     bindingLabel: 'Bindungswirkung',
     openExternal: 'Im RIS öffnen',
+    // Coarse source kind (ADR-0026) shown in the info popover. Preferred
+    // over `origins` because the origin token is kb/ris/web only, so a
+    // knowledge-base copy of a legal text reads as project material.
+    kinds: {
+      baurecht: 'Baurecht & Richtlinien',
+      buero: 'Büroarchiv',
+      projekt: 'Projektwissen',
+      web: 'Webquelle',
+    },
     origins: {
       kb: 'Projektwissen',
       ris: 'Recht & Richtlinien (RIS)',

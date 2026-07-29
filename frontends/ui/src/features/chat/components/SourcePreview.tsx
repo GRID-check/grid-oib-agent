@@ -47,6 +47,7 @@ import {
   type StoredDocumentRef,
 } from '../lib/answer-sources'
 import type { CitationSource } from '../types'
+import type { SourceKind } from '../lib/source-kinds'
 import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
@@ -492,6 +493,13 @@ const InfoPreviewChip: FC<{
   tier?: string
   /** Bindingness note ("does this bind me?") from the norm registry. */
   bindingNote?: string
+  /**
+   * Canonical coarse kind (ADR-0026). Preferred over `target.origin` for the
+   * popover's provenance line: origin is only kb/ris/web, so a knowledge-base
+   * copy of a legal text reads as "Project knowledge" while the chip beside it
+   * shows a RIS badge and a Baurecht lane — the same source, contradicted.
+   */
+  kind?: SourceKind
   /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
   url?: string
   className?: string
@@ -519,6 +527,7 @@ const InfoPreviewChip: FC<{
   variant = 'chip',
   citation,
   trailing,
+  kind,
 }) => {
   const t = useTranslations('chat')
   return (
@@ -545,7 +554,7 @@ const InfoPreviewChip: FC<{
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>
-            {t(`sourcePreview.origins.${target.origin}`)}
+            {kind ? t(`sourcePreview.kinds.${kind}`) : t(`sourcePreview.origins.${target.origin}`)}
           </SourceSignalChip>
           {tier && (
             <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
@@ -673,6 +682,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     variant,
     citation: source.citation,
     trailing,
+    kind: source.citation?.kind,
   }
 
   if (target.kind === 'url') {
