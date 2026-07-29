@@ -480,6 +480,36 @@ class TestSafeDocumentName:
         assert ".." not in name
         assert name.endswith(".txt")
 
+    def test_a_url_and_its_document_number_name_ONE_document(self):
+        """`ris_fetch_document` takes either form for the same document.
+
+        Sanitizing the whole URL made the two forms two documents. The ingest
+        marker is keyed on the fetched URL, so the second form skipped ingestion
+        and told the agent about a filename that was never stored.
+        """
+        by_number = _safe_document_name("NOR40217157", "RIS - Garagengesetz")
+        by_url = _safe_document_name(
+            "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html",
+            "RIS - Garagengesetz",
+        )
+
+        assert by_number == by_url
+        assert "NOR40217157" in by_number
+
+    def test_a_consolidated_law_url_is_anchored_by_its_Gesetzesnummer(self):
+        name = _safe_document_name(
+            "https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10008935",
+            "RIS - Garagengesetz",
+        )
+
+        assert name == "RIS_Garagengesetz_10008935.txt"
+
+    def test_an_unreadable_url_contributes_no_anchor(self):
+        """The title alone is stable; a sanitized URL is neither stable nor legible."""
+        name = _safe_document_name("https://www.ris.bka.gv.at/Suche?query=garagen", "RIS - Garagengesetz")
+
+        assert name == "RIS_Garagengesetz.txt"
+
     def test_two_different_laws_never_collide(self):
         assert _safe_document_name("LWI40010002", "RIS - Garagengesetz") != _safe_document_name(
             "LWI40000225", "RIS - Garagengesetz"

@@ -23,6 +23,8 @@ import tempfile
 from datetime import UTC
 from datetime import datetime
 from typing import Literal
+from urllib.parse import parse_qs
+from urllib.parse import urlparse
 
 from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel
@@ -699,13 +701,51 @@ _RIS_TITLE_FASSUNG_RE = re.compile(r"[,;]?\s*Fassung\s+vom\s+[\d.]+\s*$", re.IGN
 _RIS_NAME_TITLE_CHARS = 60
 
 
+#: A RIS URL carries the document's identity either as a query parameter
+#: (`Dokument.wxe?…&Dokumentnummer=NOR40217157`,
+#: `GeltendeFassung.wxe?…&Gesetzesnummer=10008935`) or in the content path
+#: (`/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html`).
+_RIS_URL_ID_PARAMS = ("dokumentnummer", "gesetzesnummer")
+_RIS_DOCUMENT_PATH_RE = re.compile(r"/Dokumente/[^/]+/([^/]+)/", re.IGNORECASE)
+
+
+def _document_anchor(reference: str) -> str:
+    """The document number a `ris_fetch_document` reference identifies.
+
+    ``reference`` is either a bare document number or a RIS URL for the same
+    document, and both MUST anchor the same name: the ingest marker is keyed on
+    the FETCHED document's URL, so a URL fetch that reuses a number fetch's
+    ingestion would otherwise skip ingestion while reporting a filename that was
+    never stored (and vice versa).
+
+    A URL whose identity cannot be read contributes no anchor at all rather than
+    a sanitized URL soup: the title alone is stable, a mangled URL is not.
+    """
+    ref = (reference or "").strip()
+    if ref.lower().startswith(("http://", "https://")):
+        parsed = urlparse(ref)
+        query = {key.lower(): values for key, values in parse_qs(parsed.query).items()}
+        ref = ""
+        for param in _RIS_URL_ID_PARAMS:
+            value = next((v.strip() for v in query.get(param, []) if v.strip()), "")
+            if value:
+                ref = value
+                break
+        else:
+            path_match = _RIS_DOCUMENT_PATH_RE.search(parsed.path)
+            ref = path_match.group(1) if path_match else ""
+    return re.sub(r"[^\w.\-]+", "", ref)
+
+
 def _safe_document_name(reference: str, title: str) -> str:
     """Build a stable, filesystem- and citation-friendly name for an ingested document.
 
     The name becomes a CITATION KEY the reader sees, so it has to be both
-    human-legible and stable across fetches. The document number anchors it:
-    two fetches of the same law converge on one document instead of piling up
-    date-stamped copies, and the reader can still tell which law it is.
+    human-legible and stable across fetches. The document number anchors it
+    (read out of a URL reference when that is what the agent passed, see
+    :func:`_document_anchor`): two fetches of the same law converge on one
+    document instead of piling up date-stamped copies, and the reader can still
+    tell which law it is.
     """
     base = _RIS_TITLE_FASSUNG_RE.sub("", _RIS_TITLE_PREFIX_RE.sub("", title or ""))
     base = re.sub(r"[^\w.\- ]+", "_", base).strip("_ ").replace(" ", "_")
@@ -713,8 +753,7 @@ def _safe_document_name(reference: str, title: str) -> str:
     # trailing "." that collided with the extension ("…vom_28..txt").
     base = re.sub(r"[._\-]+$", "", base[:_RIS_NAME_TITLE_CHARS])
 
-    document_number = re.sub(r"[^\w.\-]+", "", reference or "")
-    parts = [part for part in (base, document_number) if part]
+    parts = [part for part in (base, _document_anchor(reference)) if part]
     return f"RIS_{'_'.join(parts) or 'Dokument'}.txt"
 
 
