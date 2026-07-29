@@ -26,29 +26,26 @@
 import { type FC } from 'react'
 import { Globe } from 'lucide-react'
 import { useTranslations } from '@/i18n'
-import type { GridCard } from '@/shared/cards/schemas'
-import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
+import { cn } from '@/lib/utils'
 import {
   answerDocuments,
-  buildCitationModel,
   citationNumbers,
   citedPages,
   refHost,
   type CitationRef,
   type CitedDocument,
 } from '../lib/citations'
-import type { CitationSource } from '../types'
 import { SourcePreviewChip } from './SourcePreview'
 import { CopyCitationsMenu } from './CopyCitation'
+import { useCitationScope } from './CitationScope'
 
 interface AnswerSourcesRowProps {
-  citations?: CitationSource[]
-  cards?: GridCard[]
   /**
-   * The written source entries lifted out of the answer markdown (AgentResponse
-   * splits them off so they are not rendered twice). Folded into the model here.
+   * The turn's citation model. Derived ONCE by the answer and passed in, so the
+   * prose's inline markers and this row are reading the same objects — two
+   * derivations of one citation is the defect the model exists to remove.
    */
-  sourceEntries?: ReportSourceEntry[]
+  documents: CitedDocument[]
   /** DOM id prefix for the numbered anchors — per message, so ids stay unique. */
   anchorPrefix?: string
   /**
@@ -81,19 +78,16 @@ const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
 }
 
 export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
-  citations,
-  cards,
-  sourceEntries,
+  documents: allDocuments,
   anchorPrefix,
   routingDecision,
   isStreaming = false,
 }) => {
   const t = useTranslations('chat')
   const metaFor = useSourceMeta()
+  const scope = useCitationScope()
 
-  const documents = answerDocuments(
-    buildCitationModel({ citations, entries: sourceEntries, cards })
-  )
+  const documents = answerDocuments(allDocuments)
   // Never drop a document the prose numbered: dropping one would leave an
   // inline [N] pointing at an anchor that does not exist.
   const numbered = documents.filter((doc) => citationNumbers(doc).length > 0)
@@ -133,19 +127,36 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
         {t('answerSources.label')}
       </span>
-      {shown.map((doc) => (
-        <span role="listitem" key={doc.id} className="inline-flex max-w-full scroll-mt-4">
+      {shown.map((doc) => {
+        const numbers = citationNumbers(doc)
+        // The chip the reader just asked about, from an inline [N] or a shared
+        // link. Marking it is what turns "the page scrolled" into "THIS is the
+        // source" — without it a marker click leaves you to guess where you
+        // landed among eight near-identical chips.
+        const isFocused = scope?.focused != null && numbers.includes(scope.focused)
+        return (
+        <span
+          role="listitem"
+          key={doc.id}
+          data-focused={isFocused || undefined}
+          className={cn(
+            'inline-flex max-w-full scroll-mt-6 rounded-full transition-shadow',
+            isFocused && 'ring-2 ring-offset-2 ring-offset-background'
+          )}
+          style={isFocused ? { boxShadow: undefined, ['--tw-ring-color' as string]: `var(--source-${doc.tint})` } : undefined}
+        >
           {/* One anchor per [N] this document carries, all resolving to this
               chip. A document cited as [2] and [7] is one chip that both
               markers scroll to — which is the truth, and what the 1:1 shape
               could only fake by rendering the document twice. */}
           {anchorPrefix &&
-            citationNumbers(doc).map((number) => (
-              <span key={number} id={`${anchorPrefix}${number}`} className="scroll-mt-4" />
+            numbers.map((number) => (
+              <span key={number} id={`${anchorPrefix}${number}`} className="scroll-mt-6" />
             ))}
           <SourcePreviewChip citation={{ document: doc }} meta={metaFor(doc)} />
         </span>
-      ))}
+        )
+      })}
       {/* Every source of this answer as a citation, in the format the user's
           own tooling reads. Quiet, at the end of the row. */}
       <CopyCitationsMenu citations={refs} />

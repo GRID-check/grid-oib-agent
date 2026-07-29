@@ -276,9 +276,10 @@ describe('a document read at several pages', () => {
     vi.unstubAllGlobals()
   })
 
-  test('names every cited page in the dialog it opens', async () => {
-    // The chip stands for the DOCUMENT. Without this the reader opens it at the
-    // first cited page and never learns the answer also leaned on the others.
+  test('every cited page is reachable from the dialog, not just the first', async () => {
+    // The defect: a document read at pages 3 and 9 opened at 3 and offered no
+    // way to reach 9 — verifying the second citation meant closing the viewer,
+    // hunting for another chip, and hoping. Each Fundstelle is now a button.
     const user = userEvent.setup()
     const [document] = buildCitationModel({
       citations: [
@@ -306,13 +307,47 @@ describe('a document read at several pages', () => {
       ],
     })
 
-    render(<SourcePreviewChip citation={{ document: document! }} meta="pp. 3, 9" />)
-
+    render(<SourcePreviewChip citation={{ document: document! }} />)
     await user.click(
       await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
     )
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('pp. 3, 9')).toBeInTheDocument()
+    const rail = within(dialog).getByRole('group', { name: /passages in this document/i })
+    const pages = within(rail).getAllByRole('button')
+
+    expect(pages.map((button) => button.textContent)).toEqual(['p. 3[1]', 'p. 9[2]'])
+    // The one being read is marked, so the rail says WHERE you are, not just
+    // where you could go.
+    expect(pages[0]).toHaveAttribute('aria-current', 'true')
+
+    await user.click(pages[1]!)
+    expect(pages[1]).toHaveAttribute('aria-current', 'true')
+    expect(pages[0]).not.toHaveAttribute('aria-current')
+  })
+
+  test('a document read at ONE page shows no rail — there is nowhere else to go', async () => {
+    const user = userEvent.setup()
+    const [document] = buildCitationModel({
+      citations: [
+        citation({
+          content: '[KB] Brandschutzkonzept.pdf, p.3',
+          citationKey: 'Brandschutzkonzept.pdf, p.3',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 3,
+          isCited: true,
+        }),
+      ],
+    })
+
+    render(<SourcePreviewChip citation={{ document: document! }} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('group', { name: /passages/i })).toBeNull()
   })
 })

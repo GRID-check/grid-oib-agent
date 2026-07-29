@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import type { MarkdownRendererProps } from './types'
+import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { getLanguageFromClassName } from './utils'
 
 function getTextFromChildren(node: ReactNode): string {
@@ -89,6 +90,7 @@ function stabilizeStreamingMarkdown(raw: string): string {
  */
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false }) => {
+    const renderInPageAnchor = useInPageAnchorRenderer()
     // While streaming, run partial content through the stabilizer so half-formed
     // fences/tables don't thrash the layout token-by-token. Finalized content is
     // rendered verbatim.
@@ -191,15 +193,20 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         // Links — anchor hrefs scroll in-page; external hrefs open new tabs
         a: ({ href, children }) => {
           if (href?.startsWith('#')) {
+            // A surface that knows what this anchor MEANS can render it itself
+            // — the chat answer turns its `[3]` into a citation with a preview.
+            // Without a provider this falls through to the plain scroll link,
+            // which is what every other markdown surface wants.
+            if (renderInPageAnchor) {
+              return <>{renderInPageAnchor({ href, children })}</>
+            }
             return (
               <a
                 href={href}
                 className="text-brand underline underline-offset-2 hover:opacity-80"
                 onClick={(e: React.MouseEvent) => {
                   e.preventDefault()
-                  const el = document.getElementById(href.slice(1))
-                  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-                  el?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' })
+                  scrollToAnchor(href.slice(1))
                 }}
               >
                 {children}
@@ -250,7 +257,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }),
-      [compact]
+      [compact, renderInPageAnchor]
     )
 
     return (
