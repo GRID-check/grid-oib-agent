@@ -7,9 +7,12 @@ develop ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  dev
 prod    ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  prod stack ──▶ production domain
 ```
 
-- **State + secrets**: [Pulumi Cloud](https://app.pulumi.com). Stack state and every
-  `--secret` config value are encrypted there; the app secrets live **in the stack
-  config** (committed encrypted in `Pulumi.<stack>.yaml`), not in GitHub.
+- **State + secrets**: [Pulumi Cloud](https://app.pulumi.com). Stack state lives
+  there, and the app secrets live in the **ESC environment `grid-oib/<stack>`**,
+  imported by the stack file's `environment:` block — not in GitHub and not as
+  committed ciphertext. `Pulumi.<stack>.yaml` holds only non-secret config (so
+  config changes stay reviewable in the PR diff); after the ESC migration it
+  contains no `secure:` blocks.
 - **The only GitHub secret** the pipeline needs is `PULUMI_ACCESS_TOKEN`.
 - **Gating**: `deploy.yml` triggers on the **CI** workflow completing successfully,
   then re-checks that both aggregate gates (`CI OK` **and** `Security OK`) are green
@@ -21,9 +24,12 @@ prod    ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  pro
 ```bash
 cd deploy/pulumi
 pulumi login                     # Pulumi Cloud
-pulumi stack init grid-check/dev
-pulumi stack init grid-check/prod
+pulumi stack init matthiasbigl/grid-oib/dev
+pulumi stack init matthiasbigl/grid-oib/prod
 ```
+Stacks are named `<org>/<project>/<stack>` and every command in this guide, in
+`deploy/pulumi/README.md`, and in `deploy.yml` uses that one fully-qualified
+identity (`matthiasbigl/grid-oib/dev` for staging) — there is no second stack.
 Create a Pulumi **access token** (Pulumi Cloud → Settings → Access Tokens).
 
 ### 2. Populate each stack's config
@@ -37,7 +43,10 @@ Edit the non-secret placeholders in `Pulumi.dev.yaml` / `Pulumi.prod.yaml`
 pulumi stack select matthiasbigl/grid-oib/dev
 # First-time migration of file-based secrets into ESC:
 pulumi config env init --stack dev --keep-config   # creates the grid-oib/dev environment
-# …then delete the now-duplicated `secure:` blocks from Pulumi.dev.yaml.
+# …then delete the now-duplicated `secure:` blocks from Pulumi.dev.yaml —
+# `--keep-config` leaves them behind and stack config OVERRIDES ESC, so the
+# secrets only really move once they are gone.
+pulumi preview --stack dev   # must be a no-op: same values, now via ESC
 # Setting/changing a secret afterwards:
 pulumi env edit grid-oib/dev                        # add under values.pulumiConfig as fn::secret
 ```
@@ -68,12 +77,17 @@ Point `app.<domain>` / `s3.<domain>` (prod) and `app.dev.<domain>` / `s3.dev.<do
 DNS resolves and a staging cert issues, then flip prod to `false`.
 
 ## Runner → cluster reachability
-The **gate preview** runs on Blacksmith/GitHub-hosted runners and the **apply**
-runs on Pulumi's Deployment runners, so the **cluster API endpoint must be
-reachable from both** (public endpoint + credentials in the kubeconfig is
-fine). If the API is private, change `runs-on:` in `deploy.yml` to a
-**self-hosted runner inside the cluster network** and use a self-hosted Pulumi
-deployment runner pool — nothing else changes.
+Only the **apply** needs the cluster. The **gates** (typecheck, CRD-schema
+validation, CrossGuard) run on Blacksmith/GitHub-hosted runners and only need
+Pulumi Cloud — the plan they check is built from stack config, so they pass with
+a kubeconfig pointing at an unreachable API (see
+[`deploy/pulumi/README.md`](../../deploy/pulumi/README.md) → *Validation*). The
+**apply** runs on Pulumi's Deployment runners, which **must reach the cluster
+API endpoint** (public endpoint + credentials in the kubeconfig is fine).
+
+If the API is private, that is a Pulumi-Deployments concern only: use a
+**self-hosted Pulumi deployment runner inside the cluster network**. The GHA
+gate job stays on the hosted runners — nothing else changes.
 
 ## Deploy-time gates
 Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that

@@ -6,7 +6,7 @@
 # can decrypt). To re-create a stack from scratch:
 #
 #   cd deploy/pulumi
-#   pulumi stack init matthiasbigl/dev          # Pulumi Cloud backend
+#   pulumi stack init matthiasbigl/grid-oib/dev          # Pulumi Cloud backend
 #   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
 #   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
 #   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"

@@ -15,7 +15,7 @@ name: Deploy (staging)
 # The apply itself runs on Pulumi Deployments (console → stack → Deployments);
 # this workflow keeps the gates (typecheck, CRD validation, CrossGuard preview)
 # and then runs the apply remotely via `pulumi up --remote`:
-#   1. cd deploy/pulumi && pulumi stack init matthiasbigl/dev
+#   1. cd deploy/pulumi && pulumi stack init matthiasbigl/grid-oib/dev
 #   2. Edit Pulumi.dev.yaml: real baseDomain/letsEncryptEmail/
 #      workosClientId/storageClass (placeholders make the program fail closed).
 #   3. Move the secrets into ESC: `pulumi config env init --stack dev
@@ -150,12 +150,63 @@ jobs:
 
       # Fail fast, with instructions, if the committed stack file is still the
       # template — otherwise the failure surfaces as a cryptic preview error.
+      #
+      # The check walks the document structurally rather than grepping for
+      # substrings: the stack file's own header carries `pulumi config set
+      # --secret` examples and placeholder hostnames, so a plain grep matches
+      # documentation, and a bare `environment:` match would accept an import of
+      # the WRONG environment. Requirements, all position-aware:
+      #   * no placeholder values on a real (non-comment) config line;
+      #   * either a `secure:` key nested under `config:` (committed ciphertext)
+      #     or a top-level `environment:` block importing exactly `grid-oib/dev`.
       - name: Preflight - stack file is configured, not the template
         working-directory: deploy/pulumi
         run: |
           bad=0
-          grep -nE "REPLACE_ME|example\.com" Pulumi.dev.yaml && bad=1
-          grep -qE "secure:|environment:" Pulumi.dev.yaml || { echo "no secret config found - neither committed 'secure:' ciphertext nor an ESC 'environment:' import"; bad=1; }
+          awk -f - Pulumi.dev.yaml <<'AWK' || bad=1
+          # Documentation and blank lines carry no configuration.
+          /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+
+          # Track the current top-level key (column 0 = document root).
+          /^[^[:space:]]/ { top = $0; sub(/:.*$/, "", top) }
+
+          /REPLACE_ME|example\.com/ {
+            printf "placeholder value still in the stack file: %s\n", $0
+            placeholder = 1
+          }
+
+          # Committed ciphertext: a `secure:` mapping key inside the config tree.
+          top == "config" && /^[[:space:]]+secure:[[:space:]]*[^[:space:]]/ { encrypted = 1 }
+
+          # ESC import: `environment: [grid-oib/dev]` or a `- grid-oib/dev` item
+          # under a top-level `environment:` block. Any other value is a
+          # different environment and must not satisfy the check.
+          top == "environment" {
+            entry = $0
+            sub(/^[[:space:]]*environment:[[:space:]]*/, "", entry)
+            gsub(/[][,"]/, " ", entry)
+            sub(/^[[:space:]]*-[[:space:]]*/, " ", entry)
+            n = split(entry, fields, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+              if (fields[i] == "") continue
+              if (fields[i] == "grid-oib/dev") esc = 1
+              else other = fields[i]
+            }
+          }
+
+          END {
+            if (placeholder) exit 1
+            if (top == "") {
+              print "Pulumi.dev.yaml has no configuration at all."
+              exit 1
+            }
+            if (!encrypted && !esc) {
+              if (other != "") printf "environment: imports %s, not the grid-oib/dev ESC environment\n", other
+              else print "no encrypted config found - neither a committed secure: entry under config: nor an environment: import of grid-oib/dev"
+              exit 1
+            }
+          }
+          AWK
           if [ "$bad" -ne 0 ]; then
             echo "::error::deploy/pulumi/Pulumi.dev.yaml on develop is still the placeholder template."
             echo "::error::Run the one-time setup in this workflow's header (edit values, set --secret config, COMMIT the file), then re-run."

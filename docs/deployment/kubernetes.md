@@ -571,16 +571,24 @@ non-secret values plus an `environment:` import of the `grid-oib/dev` ESC
 environment, which holds the secrets (Pulumi Cloud stores state, the
 secrets-decryption key, and the ESC values). CI reads the *checked-out* file
 and resolves the import at open time, so the one-time setup is:
-`pulumi stack init matthiasbigl/dev` → edit the placeholder values →
+`pulumi stack init matthiasbigl/grid-oib/dev` → edit the placeholder values →
 `pulumi config env init --stack dev --keep-config` to move the secrets into
 ESC (kubeconfig must be the **non-expiring ServiceAccount
 token** from §2b, not the ≤2-week Control-Center download) → delete the
 duplicated `secure:` blocks → **commit the updated `Pulumi.dev.yaml` to
 `develop`** → save the stack's **deployment settings** (console → stack →
 Settings → Deploy: GitHub source, branch `develop`, folder `deploy/pulumi`,
-push-to-deploy off) → add the `PULUMI_ACCESS_TOKEN` repo secret. Until the
-commit lands, every CI deploy fails its preflight with instructions. Two more
-infrastructure
+push-to-deploy off) → add the `PULUMI_ACCESS_TOKEN` repo secret.
+
+Know where each of those is caught, because it is not all the same step. The
+workflow's **preflight** only inspects the committed stack file: placeholder
+values, and that secrets resolve from either a `secure:` entry under `config:`
+or an `environment:` import of `grid-oib/dev` — so an unconfigured or
+uncommitted `Pulumi.dev.yaml` fails there, with instructions. The **deployment
+settings** and **`PULUMI_ACCESS_TOKEN`** are Pulumi Cloud state that the
+preflight cannot see; missing either one fails later, when the gates call
+Pulumi Cloud and when `pulumi up --remote` hands the apply to the managed
+runner. Two more infrastructure
 prerequisites: the `blacksmith-*` runner integration, and the `staging` GitHub
 environment (created on first run; note that adding required reviewers to it
 turns the "automatic" deploy into an approval-gated one).
