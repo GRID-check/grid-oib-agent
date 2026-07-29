@@ -22,7 +22,7 @@ import { ApiError, ServiceUnavailableError, UnprocessableError } from '@/lib/api
 import { recordAuditEvent } from '@/lib/audit/service'
 import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
 import { getWorkflowGroupDefaults } from '@/lib/model-config/backend-defaults'
-import { fetchModelCatalog, fetchZdrModelIds, validateOverrides } from '@/lib/model-config/openrouter'
+import { baseModelId, fetchModelCatalog, fetchZdrModelIds, validateOverrides } from '@/lib/model-config/openrouter'
 import { listPlatformModelDefaults, savePlatformModelDefaults } from '@/lib/model-config/platform-defaults'
 
 const putSchema = z.object({
@@ -111,7 +111,7 @@ export async function PUT(request: Request): Promise<Response> {
     const modelSnapshot = Object.fromEntries(
       Object.entries(validation.snapshot).map(([group, model]) => [
         group,
-        { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(model.id.split(':', 1)[0]) : null } },
+        { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null } },
       ]),
     )
 

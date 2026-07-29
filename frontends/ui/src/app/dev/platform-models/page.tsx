@@ -14,51 +14,15 @@
  * and the picker search. Not linked from anywhere and 404s outside development.
  */
 
+import { useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformModelDefaults } from '@/app/app/platform/models/platform-model-defaults'
+import { AGENT_GROUPS as REGISTRY } from '@/lib/model-config/agent-groups'
 
-const AGENT_GROUPS = [
-  {
-    id: 'intent',
-    label: 'Intent & routing',
-    description:
-      'Classifies each message (meta vs research, shallow vs deep) and writes short meta answers. High-frequency, latency-sensitive.',
-  },
-  {
-    id: 'clarifier',
-    label: 'Clarifier',
-    description:
-      'Asks clarification questions and drafts research plans before deep research. Calls tools (e.g. web search) for context.',
-  },
-  {
-    id: 'shallow_research',
-    label: 'Shallow research',
-    description: 'The default research agent: iterative tool-calling over knowledge and web sources.',
-  },
-  {
-    id: 'deep_research',
-    label: 'Deep research',
-    description:
-      'Orchestrator, planner, researcher, and report writer of multi-phase deep research. The heaviest reasoning and longest contexts in the system.',
-  },
-  {
-    id: 'deep_research_router',
-    label: 'Deep-research source router',
-    description: 'Routes deep-research subtasks to data sources. Small, high-frequency structured outputs.',
-  },
-  {
-    id: 'memory_reflection',
-    label: 'Memory reflection',
-    description:
-      'Post-answer background pass that distills durable project memory from a finished turn. Cost-sensitive; runs after every substantive answer when enabled.',
-  },
-  {
-    id: 'ingest_vlm',
-    label: 'Document vision (ingestion)',
-    description:
-      'Captions images and describes vector/scanned drawings (plans, sections, elevations, perspectives) during document ingestion. Must be a vision model that accepts image input.',
-  },
-]
+// The real registry, not a copy of it: a renamed group or a reworded
+// description should show up in this preview (and its screenshots) instead of
+// quietly drifting from what the surface actually renders.
+const AGENT_GROUPS = REGISTRY.map(({ id, label, description }) => ({ id, label, description }))
 
 const DEFAULTS = {
   intent: {
@@ -89,25 +53,47 @@ const CATALOG = [
   { id: 'vendor/router-mini', name: 'Router Mini', contextLength: 65536, promptPrice: 0.0000001, completionPrice: 0.0000004, zdrSafe: false },
 ]
 
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+/** Install the fixture responder; returns the undo, or undefined if not needed. */
+function installShim(): (() => void) | undefined {
+  if (typeof window === 'undefined' || process.env.NODE_ENV !== 'development') return undefined
   const w = window as unknown as { __platformModelDefaultsShim?: boolean }
-  if (!w.__platformModelDefaultsShim) {
-    w.__platformModelDefaultsShim = true
-    const real = window.fetch.bind(window)
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith('/api/platform/model-defaults/models')) {
-        return Response.json({ group: 'preview', models: CATALOG })
-      }
-      if (url.startsWith('/api/platform/model-defaults')) {
-        return Response.json({ agentGroups: AGENT_GROUPS, defaults: DEFAULTS, workflowDefaults: WORKFLOW_DEFAULTS })
-      }
-      return real(input, init)
+  if (w.__platformModelDefaultsShim) return undefined
+  w.__platformModelDefaultsShim = true
+  const real = window.fetch.bind(window)
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    if (url.startsWith('/api/platform/model-defaults/models')) {
+      return Response.json({ group: 'preview', models: CATALOG })
     }
+    if (url.startsWith('/api/platform/model-defaults')) {
+      return Response.json({ agentGroups: AGENT_GROUPS, defaults: DEFAULTS, workflowDefaults: WORKFLOW_DEFAULTS })
+    }
+    return real(input, init)
+  }
+  return () => {
+    window.fetch = real
+    w.__platformModelDefaultsShim = false
   }
 }
 
+// Installed at module scope rather than from the page's effect: the card fetches
+// from an effect of its own, and a child's effects run BEFORE the parent's, so a
+// shim armed on mount would arrive after the first request had already left for
+// the real API. The page still tears it down on unmount (below) so a client
+// navigation away from the preview does not leave `window.fetch` patched for
+// the rest of the session.
+let uninstallShim = installShim()
+
 export default function PlatformModelsDevPage(): JSX.Element {
+  useEffect(() => {
+    // Re-arm when returning to the preview after a previous unmount tore it down.
+    uninstallShim ??= installShim()
+    return () => {
+      uninstallShim?.()
+      uninstallShim = undefined
+    }
+  }, [])
+
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }

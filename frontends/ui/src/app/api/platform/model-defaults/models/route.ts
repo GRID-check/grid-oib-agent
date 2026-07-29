@@ -13,7 +13,7 @@ import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
-import { fetchModelCatalog, fetchZdrModelIds, searchModelsForGroup } from '@/lib/model-config/openrouter'
+import { baseModelId, fetchModelCatalog, fetchZdrModelIds, searchModelsForGroup } from '@/lib/model-config/openrouter'
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -46,7 +46,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const models = searchModelsForGroup(catalog, groupId, query, 30, true).map((model) => ({
       ...model,
-      zdrSafe: zdrModelIds ? zdrModelIds.has(model.id.split(':', 1)[0]) : null,
+      zdrSafe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null,
     }))
 
     return NextResponse.json({ group: group.id, models })
