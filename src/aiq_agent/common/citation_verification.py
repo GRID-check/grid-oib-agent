@@ -25,6 +25,7 @@ import threading
 import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable
+from collections.abc import Iterator
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
@@ -1140,10 +1141,13 @@ _KL_CITATION_PATTERN_RE = re.compile(r"^(.+\.\w{2,5})(?:,\s*(?:p\.?|page)\s*\d+)
 _FILENAME_INNER_CHARS = "_-."
 
 
-def _filename_occurs_as_token(haystack_lower: str, needle_lower: str) -> int | None:
-    """Index just past ``needle_lower`` when it occurs as a standalone token.
+def _filename_token_ends(haystack_lower: str, needle_lower: str) -> Iterator[int]:
+    """Every index just past ``needle_lower`` where it occurs as a standalone token.
 
-    Returns ``None`` when the filename only occurs as part of a longer one.
+    Yields nothing when the filename only occurs as part of a longer one. Each
+    occurrence is yielded because one source section can name the SAME filename
+    on two different shelves (`Plan.pdf (Büroarchiv)` and `Plan.pdf
+    (Projektwissen)`), and those are two citations, not one.
     """
     index = haystack_lower.find(needle_lower)
     while index != -1:
@@ -1155,9 +1159,26 @@ def _filename_occurs_as_token(haystack_lower: str, needle_lower: str) -> int | N
         # character would mean we matched a prefix of a longer filename.
         after_ok = end >= len(haystack_lower) or not (haystack_lower[end].isalnum() or haystack_lower[end] in "_-")
         if before_ok and after_ok:
-            return end
+            yield end
         index = haystack_lower.find(needle_lower, index + 1)
-    return None
+
+
+def _filename_occurs_as_token(haystack_lower: str, needle_lower: str) -> int | None:
+    """Index just past ``needle_lower`` when it occurs as a standalone token.
+
+    Returns ``None`` when the filename only occurs as part of a longer one.
+    """
+    return next(_filename_token_ends(haystack_lower, needle_lower), None)
+
+
+def _document_identity(entry: SourceEntry) -> tuple[str | None, str]:
+    """The `(collection, filename)` a document is unique under, page aside.
+
+    Same identity :meth:`SourceRegistry._identity` dedups on, minus the page:
+    two pages of one document are one cited document.
+    """
+    collection, filename, _page = SourceRegistry._identity(entry)
+    return collection, filename
 
 
 def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | None:
@@ -1226,6 +1247,13 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     knowledge-base source could never be marked cited and was dropped from the
     provenance row the moment any web source WAS cited.
 
+    A document is `(collection, filename)`, so the shelf a source line names is
+    part of what it cites: a line reading `Plan.pdf (Büroarchiv), p.3` marks the
+    Archiv document, not the project upload that happens to share the name and
+    to sit earlier in the registry. Unqualified lines keep the old, fail-open
+    reading (the first same-named entry), because a bare filename is proof the
+    document was retrieved but says nothing about which copy.
+
     Only the source section is scanned, NEVER the prose. Citing is a claim the
     answer makes in its source list; a filename appearing in body text is not
     that claim, and may well be the opposite of it ("Ich konnte oib-rl_2.pdf
@@ -1242,18 +1270,26 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     if section_match is None:
         return []
     lowered = _normalize_citation_syntax(text)[section_match.start() :].lower()
-    seen: set[str] = set()
+    seen: set[tuple[str | None, str]] = set()
     cited: list[SourceEntry] = []
     for entry in registry._citation_keys:
         entry_file, _ = _parse_citation_key(entry.citation_key or "")
         if not entry_file:
             continue
-        key = entry_file.lower()
-        if key in seen:
-            continue
-        if _filename_occurs_as_token(lowered, key) is not None:
-            seen.add(key)
-            cited.append(entry)
+        for end in _filename_token_ends(lowered, entry_file.lower()):
+            # Resolve through the registry with the shelf this line states, so
+            # the entry marked cited is the document the line names. The
+            # qualifier regex is case-insensitive, hence matching the lowered
+            # section is safe.
+            qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(lowered[end:])
+            scope = scope_for_qualifier(qualifier_match.group(1)) if qualifier_match else None
+            key = f"{entry_file} ({SCOPE_QUALIFIERS[scope]})" if scope else entry_file
+            match = registry.entry_for_citation_key(key) or entry
+            identity = _document_identity(match)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            cited.append(match)
     return cited
 
 

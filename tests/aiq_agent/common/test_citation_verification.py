@@ -11,6 +11,7 @@ from aiq_agent.common.citation_verification import _is_knowledge_citation
 from aiq_agent.common.citation_verification import _normalize_url
 from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import _parse_citation_ref
+from aiq_agent.common.citation_verification import cited_document_entries
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import register_source_parser
 from aiq_agent.common.citation_verification import sanitize_report
@@ -2677,3 +2678,61 @@ class TestQualifiedKeysSurviveVerification:
         is_kl, key = _is_knowledge_citation("Plan.pdf (Internal)", self._registry())
         assert is_kl is True
         assert key == "Plan.pdf"
+
+
+class TestCitedDocumentsKeepTheirShelf:
+    """Being cited is a per-DOCUMENT claim, and a document is `(collection, filename)`.
+
+    `cited_document_entries` feeds the deep-research `citation_use` events, i.e.
+    the provenance row's "cited" filter. Matching on the bare filename marked
+    whichever same-named entry the registry held first, so a report citing the
+    Büroarchiv `Plan.pdf` credited the project's unrelated file of the same name
+    and dropped the Archiv document the answer actually stood on.
+    """
+
+    @staticmethod
+    def _registry() -> SourceRegistry:
+        registry = SourceRegistry()
+        for collection in ("proj_alpha", "archiv_org1"):
+            registry.add(
+                SourceEntry(
+                    citation_key="Plan.pdf, p.3",
+                    source_type="knowledge_layer",
+                    collection=collection,
+                )
+            )
+        return registry
+
+    def test_the_qualified_shelf_is_the_one_marked_cited(self):
+        report = "Wie im Archivplan [1].\n\n**Quellen:**\n- [1] Plan.pdf (Büroarchiv), p.3\n"
+        entries = cited_document_entries(report, self._registry())
+        assert [entry.collection for entry in entries] == ["archiv_org1"]
+
+    def test_both_shelves_are_cited_when_the_answer_names_both(self):
+        report = (
+            "Projekt [1] gegen Archiv [2].\n\n"
+            "**Quellen:**\n"
+            "- [1] Plan.pdf (Projektwissen), p.3\n"
+            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+        )
+        entries = cited_document_entries(report, self._registry())
+        assert {entry.collection for entry in entries} == {"proj_alpha", "archiv_org1"}
+
+    def test_an_unqualified_line_still_cites_one_document(self):
+        # Fail-open: a bare filename proves the document was cited but not which
+        # copy, so exactly one entry is marked — never zero, never both.
+        report = "Wie im Plan [1].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n"
+        assert len(cited_document_entries(report, self._registry())) == 1
+
+    def test_pages_of_one_document_are_one_cited_document(self):
+        registry = SourceRegistry()
+        for page in (3, 9):
+            registry.add(
+                SourceEntry(
+                    citation_key=f"Plan.pdf, p.{page}",
+                    source_type="knowledge_layer",
+                    collection="proj_alpha",
+                )
+            )
+        report = "Siehe Plan [1][2].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n- [2] Plan.pdf, p.9\n"
+        assert len(cited_document_entries(report, registry)) == 1
