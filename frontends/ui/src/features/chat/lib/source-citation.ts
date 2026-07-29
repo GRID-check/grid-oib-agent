@@ -137,11 +137,34 @@ const UNSAFE_ID_CHARS = /[^A-Za-z0-9._-]+/g
  * key can be `k:Plan.pdf, p.3` and a document id `doc:proj_1:plan.pdf`. Left raw
  * that comma ends the BibTeX key mid-entry and the record no longer parses, so
  * the id is reduced to characters a key may carry.
+ *
+ * That reduction is lossy — `p:3` and `p/3` both read as `p-3` — and collapsing
+ * two references onto one id is the very failure the per-locus id exists to
+ * prevent, so a reference whose identity did not survive sanitizing carries a
+ * fingerprint of the identity it really has.
  */
 const cslId = (ref: CitationRef): string => {
   const base = refNumber(ref) ?? ref.document.id
   const locus = ref.locus ? `-${ref.locus.key}` : ''
-  return `source-${base}${locus}`.replace(UNSAFE_ID_CHARS, '-')
+  const identity = `source-${base}${locus}`
+  const safe = identity.replace(UNSAFE_ID_CHARS, '-')
+  return safe === identity ? safe : `${safe}-${fingerprint(identity)}`
+}
+
+/**
+ * A short, stable digest of a reference identity.
+ *
+ * FNV-1a, 32 bits: no dependency, deterministic across runs and processes (an
+ * exported bibliography must not change id between two exports of the same
+ * answer), and only needed to tell sanitized near-collisions apart.
+ */
+const fingerprint = (text: string): string => {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 /**

@@ -223,6 +223,31 @@ describe('CSL ids are unique per reference', () => {
     for (const id of ids) expect(id).toMatch(/^[A-Za-z0-9._-]+$/)
   })
 
+  test('two loci that sanitize alike still export as two entries', () => {
+    // Reducing an id to BibTeX-safe characters maps `,` and `;` onto the same
+    // `-`, so two loci of one document whose keys differ only in punctuation
+    // collided — and a CSL consumer keys on `id`, so one row overwrote the
+    // other. Sanitizing must not undo the per-locus identity.
+    const keyed = (citationKey: string, n: number): CitationSource => ({
+      id: `c${n}`,
+      content: `[KB] ${citationKey}`,
+      citationKey,
+      fileName: 'Plan.pdf',
+      collection: 'archiv_1',
+      timestamp: NOW,
+      kind: 'buero',
+      isCited: true,
+    })
+    const [document] = buildCitationModel({
+      citations: [keyed('Plan.pdf, p.3', 1), keyed('Plan.pdf; p.3', 2)],
+    })
+    const ids = document!.loci.map((locus) => toCslItem({ document: document!, locus }, NOW).id)
+
+    expect(document!.loci).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+    for (const id of ids) expect(id).toMatch(/^[A-Za-z0-9._-]+$/)
+  })
+
   test('a locus known only by its citation key still yields a usable key', () => {
     // No page, so the locus is keyed on the citation key itself — commas,
     // spaces and dots included.

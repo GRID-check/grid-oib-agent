@@ -62,10 +62,28 @@ describe('citation deep links', () => {
     expect(restored?.locus?.page).toBe(3)
   })
 
+  it('survives a comma in the document id read straight off a URL', () => {
+    // The value goes through ONE decode on the way in (`searchParams.get`), so
+    // a document whose name carries the separator is exactly the case a
+    // percent-encoded link loses: the decode hands the parser a second comma.
+    const comma = buildCitationModel({
+      citations: [{ ...locus(3, 1), fileName: 'Plan,Rev.pdf', citationKey: 'Plan,Rev.pdf, p.3' }],
+    })
+    const ref = { document: comma[0]!, locus: comma[0]!.loci[0]! }
+    const url = new URL(`https://app.example/app/chat?cite=${encodeCitationLink(ref)}`)
+    const restored = resolveCitationLink(parseCitationLink(url.searchParams.get('cite')), comma)
+
+    expect(comma[0]!.id).toContain(',')
+    expect(restored?.document.id).toBe(comma[0]!.id)
+    expect(restored?.locus?.page).toBe(3)
+  })
+
   it('opens the document when the linked passage no longer exists', () => {
     // Re-retrieval can land on different pages than when the link was shared.
     // Losing the page is a graceful outcome; losing the document is not.
-    const stale = parseCitationLink(`${encodeURIComponent(document.id)},${encodeURIComponent('p:999')}`)
+    const stale = parseCitationLink(
+      encodeCitationLink({ document, locus: { ...document.loci[0]!, key: 'p:999' } })
+    )
     const restored = resolveCitationLink(stale, documents)
 
     expect(restored?.document.id).toBe(document.id)
@@ -82,6 +100,8 @@ describe('citation deep links', () => {
   })
 
   it('a mangled link degrades to nothing rather than throwing', () => {
+    // Not base64url at all (a hand-edited or truncated link).
+    expect(parseCitationLink('doc:oib_knowledge:file.pdf,p:3')).toBeNull()
     expect(parseCitationLink('%E0%A4%A')).toBeNull()
     expect(parseCitationLink('')).toBeNull()
     expect(parseCitationLink(null)).toBeNull()

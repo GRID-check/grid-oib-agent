@@ -1011,11 +1011,15 @@ const ReportSourceDocumentButton: FC<{ target: DocumentTarget; document: CitedDo
  * the document without there being a chip to click. They get the SAME dialog —
  * same Fundstellen rail, same passage box, same copy actions — because a source
  * must not behave differently depending on which affordance reached it.
+ *
+ * Where it lands is the REFERENCE's business, not the caller's: the citation's
+ * own locus, or — when it names the document as a whole — the first passage the
+ * document was read at. A caller-supplied page would be a second, weaker way to
+ * say the same thing (the dialog marks an active *locus*, and a bare page cannot
+ * name one), so there is no page prop to disagree with the citation.
  */
 export const SourceDocumentDialog: FC<{
   citation: CitationRef
-  /** Page to land on; defaults to the reference's own locus. */
-  openAtPage?: number
   onClose: () => void
 }> = ({ citation, onClose }) => {
   const projectId = useChatStore((s) => s.projectId)

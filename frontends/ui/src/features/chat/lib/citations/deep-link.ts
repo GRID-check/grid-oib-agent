@@ -10,8 +10,8 @@
  * document key the backend already groups on, plus the locus key within it. So
  * the link is not a new concept — it is the existing identity, in a URL.
  *
- *     ?cite=doc%3Aoib_knowledge%3Aoib-rl_2.1.pdf,p%3A18
- *            └─ document ─────────────────────┘ └locus┘
+ *     ?cite=ZG9jJTNBb2liX2tub3dsZWRnZSUzQW9pYi1ybF8yLjEucGRmLHAlM0ExOA
+ *           └─ base64url of `<document>,<locus>` ─────────────────────┘
  *
  * The locus half is optional: a link to a document alone is a legitimate thing
  * to send ("this Richtlinie backs the answer"), and one to a specific page is a
@@ -33,6 +33,33 @@ export const CITATION_PARAM = 'cite'
  */
 const SEPARATOR = ','
 
+/**
+ * The link value is base64url, so a URL parser cannot reach inside it.
+ *
+ * Percent-encoding the two halves is what keeps the split unambiguous, but it
+ * only holds while nothing decodes the value again on the way in — and reading
+ * a query parameter does exactly that. `searchParams.get('cite')` turns the
+ * `%2C` of a document named `Plan,Rev.pdf` back into a comma, and the parser
+ * then splits at a separator that was never one. Wrapping the whole thing in an
+ * alphabet of `A-Za-z0-9-_` leaves nothing for a decoder to change, so the
+ * value survives being pasted, re-encoded, or read straight off a URL.
+ */
+const toBase64Url = (text: string): string => {
+  let binary = ''
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+const fromBase64Url = (value: string): string | null => {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null
+  try {
+    const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/'))
+    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)))
+  } catch {
+    return null
+  }
+}
+
 /** A citation reference as it travels in a URL. */
 export interface CitationLink {
   documentId: string
@@ -43,18 +70,20 @@ export interface CitationLink {
 /**
  * The `?cite=` value for a reference.
  *
- * Both halves are percent-encoded independently: a document id contains `:`
- * and a filename, either of which can legitimately contain the separator.
+ * Both halves are percent-encoded independently — a document id contains `:`
+ * and a filename, either of which can legitimately contain the separator — and
+ * the pair is then wrapped in base64url so no decoder downstream can reach the
+ * separator again.
  */
 export const encodeCitationLink = (ref: CitationRef): string => {
   const document = encodeURIComponent(ref.document.id)
-  if (!ref.locus) return document
-  return `${document}${SEPARATOR}${encodeURIComponent(ref.locus.key)}`
+  const locus = ref.locus ? `${SEPARATOR}${encodeURIComponent(ref.locus.key)}` : ''
+  return toBase64Url(`${document}${locus}`)
 }
 
 /** Parse a `?cite=` value. Returns null for anything unusable. */
 export const parseCitationLink = (value: string | null | undefined): CitationLink | null => {
-  const raw = (value ?? '').trim()
+  const raw = fromBase64Url((value ?? '').trim())
   if (!raw) return null
   // Split once: the locus key may itself contain the separator only in escaped
   // form, but splitting on the first occurrence is the unambiguous reading.

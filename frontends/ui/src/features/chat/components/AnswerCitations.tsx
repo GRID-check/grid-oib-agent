@@ -9,13 +9,14 @@
  *
  * It also honours a shared link: arriving with `?cite=…` opens the named
  * document at the named page, in the answer that actually holds it. Every other
- * answer on screen sees the same parameter and correctly ignores it, because
- * resolution is by document identity, not by position.
+ * answer on screen sees the same parameter and stands down — by document
+ * identity rather than position, and, when several answers cite the same
+ * document, by a single claim so one link opens exactly one dialog.
  */
 
 'use client'
 
-import { useEffect, useState, type FC, type ReactNode } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { InPageAnchorProvider } from '@/shared/components/MarkdownRenderer/anchor-context'
 import {
@@ -69,23 +70,111 @@ export const AnswerCitations: FC<{
  * URL is deliberately left alone so a reload still lands in the same place —
  * the link is an address, and rewriting it out from under the reader would make
  * the back button lie.
+ *
+ * "The one holding it" is a claim, not a coincidence: a document cited by two
+ * answers in the same conversation resolves in BOTH, and two dialogs for one
+ * source stacked on top of each other is not a viewing session. The earliest
+ * answer that actually holds the document owns the link ({@link claimLink});
+ * the rest resolve it and stand down.
  */
 const useLinkedCitation = (
   documents: CitedDocument[]
 ): { ref: CitationRef | null; dismiss: () => void } => {
   const params = useSearchParams()
   const value = params?.get(CITATION_PARAM) ?? null
-  const [dismissed, setDismissed] = useState<string | null>(null)
+  const claimant = useRef(0)
+  if (claimant.current === 0) claimant.current = nextClaimant()
+  const id = claimant.current
+  const owner = useSyncExternalStore(subscribeToClaim, claimSnapshot, noOwner)
 
-  // A new link while the page is open (a second shared URL pasted into the bar)
-  // is a fresh request, so the previous dismissal no longer applies.
+  const ref = value ? resolveCitationLink(parseCitationLink(value), documents) : null
+  const holds = ref !== null
+
   useEffect(() => {
-    setDismissed((current) => (current === value ? current : null))
-  }, [value])
+    if (!value || !holds) return
+    claimLink(id, value)
+    // Released on unmount so a link whose owner left the message list is picked
+    // up by another answer holding the same document.
+    return () => releaseLink(id, value)
+  }, [value, holds, id])
 
-  if (!value || dismissed === value) return { ref: null, dismiss: () => setDismissed(value) }
+  // Unowned — the previous owner unmounted — and this answer holds it.
+  useEffect(() => {
+    if (value && holds && !owner) claimLink(id, value)
+  }, [value, holds, owner, id])
+
   return {
-    ref: resolveCitationLink(parseCitationLink(value), documents),
-    dismiss: () => setDismissed(value),
+    ref: value && owner === claimKey(value, id) ? ref : null,
+    dismiss: () => value && dismissLink(value),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Who owns the current `?cite=` link
+// ---------------------------------------------------------------------------
+
+/**
+ * One claim on the link, outside React.
+ *
+ * The answers competing for it are siblings with no common owner below the chat
+ * page, so the alternative is threading a provider through the message list for
+ * a single string. There is only ever one link in the address bar, and both
+ * facts about it — who is showing it and whether the reader is done with it —
+ * belong to the LINK rather than to any one answer: a dismissal held per answer
+ * would simply hand the dialog to the next answer that cites the document.
+ */
+const claim: { value: string | null; owner: number | null; dismissed: boolean } = {
+  value: null,
+  owner: null,
+  dismissed: false,
+}
+const listeners = new Set<() => void>()
+
+let claimants = 0
+const nextClaimant = (): number => (claimants += 1)
+
+const claimKey = (value: string, id: number): string => `${value}#${id}`
+const noOwner = (): string => ''
+const claimSnapshot = (): string =>
+  claim.value !== null && claim.owner !== null && !claim.dismissed
+    ? claimKey(claim.value, claim.owner)
+    : ''
+
+const subscribeToClaim = (listener: () => void): (() => void) => {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+const notify = (): void => listeners.forEach((listener) => listener())
+
+/** Take the link, unless an earlier answer has this one or it was dismissed. */
+const claimLink = (id: number, value: string): void => {
+  // A different link is a new request (a second shared URL pasted into the bar),
+  // so neither the previous owner's claim nor its dismissal carries over.
+  if (claim.value !== value) {
+    claim.value = value
+    claim.owner = id
+    claim.dismissed = false
+    notify()
+    return
+  }
+  if (claim.owner !== null || claim.dismissed) return
+  claim.owner = id
+  notify()
+}
+
+const releaseLink = (id: number, value: string): void => {
+  if (claim.value !== value || claim.owner !== id) return
+  claim.owner = null
+  notify()
+}
+
+/** The reader closed the viewer: this link is spent until a new one arrives. */
+const dismissLink = (value: string): void => {
+  claim.value = value
+  claim.owner = null
+  claim.dismissed = true
+  notify()
 }

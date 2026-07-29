@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { scrollToAnchor } from '@/shared/components/MarkdownRenderer/anchor-context'
-import { citationSnippet, refPage, type CitationRef } from '../lib/citations'
+import { citationSnippet, type CitationRef } from '../lib/citations'
 import { useCitationScope } from './CitationScope'
 import { CitationPeek } from './CitationPeek'
 import { SourceDocumentDialog } from './SourcePreview'
@@ -45,7 +45,6 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
   const ref = number != null ? scope?.referenceFor(number) : undefined
   if (!scope || number == null || !ref) return <>{fallback}</>
 
-  const page = refPage(ref)
   const snippet = ref.locus?.snippet ?? citationSnippet({ content: ref.document.snippet ?? '' })
 
   return (
@@ -93,12 +92,9 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
         </PopoverContent>
       </Popover>
       {/* Mounted only once opened, so a page of markers costs no fetches. */}
+      {/* The reference carries the page, so the dialog needs nothing else. */}
       {openDocument && (
-        <SourceDocumentDialog
-          citation={openDocument}
-          openAtPage={page}
-          onClose={() => setOpenDocument(null)}
-        />
+        <SourceDocumentDialog citation={openDocument} onClose={() => setOpenDocument(null)} />
       )}
     </>
   )
