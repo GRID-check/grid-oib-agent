@@ -155,7 +155,7 @@ jobs:
         run: |
           bad=0
           grep -nE "REPLACE_ME|example\.com" Pulumi.dev.yaml && bad=1
-          grep -qE "secure:|environment:" Pulumi.dev.yaml || { echo "no secrets: neither committed 'secure:' ciphertext nor an ESC 'environment:' import found"; bad=1; }
+          grep -qE "secure:|environment:" Pulumi.dev.yaml || { echo "no secret config found - neither committed 'secure:' ciphertext nor an ESC 'environment:' import"; bad=1; }
           if [ "$bad" -ne 0 ]; then
             echo "::error::deploy/pulumi/Pulumi.dev.yaml on develop is still the placeholder template."
             echo "::error::Run the one-time setup in this workflow's header (edit values, set --secret config, COMMIT the file), then re-run."
