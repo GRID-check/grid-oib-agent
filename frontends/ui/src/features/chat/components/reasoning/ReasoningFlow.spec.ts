@@ -228,9 +228,117 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
     )
   })
 
-  test('findings without branches carries no dangling bottom (source) handle', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 1), [card('a')])
-    const findings = g.nodes.find((n) => n.id === 'findings')!.data as { source?: unknown }
-    expect(findings.source).toBeUndefined()
+  test('every node declares its full handle set, whatever the turn is missing', () => {
+    // REGRESSION: handles used to be conditional — the framing card of a turn
+    // with nothing streamed yet had NO source handle, and the assessment grew
+    // its bottom handle only once a branches prompt existed. React Flow measures
+    // handle bounds when the node element is measured and re-measures only on a
+    // RESIZE, so a handle added to a node already on screen never gets bounds
+    // and `getEdgePosition` drops every edge on it: the connectors vanished
+    // unless some other change happened to resize the node in the same tick.
+    // The anchors are 1x1 and invisible, so carrying them always costs nothing.
+    const bare = buildGraph({ ...base, live: true }, t, planFan(DESKTOP_W, 0), [])
+    expect(framingHandles(bare)).toEqual(['c-bottom'])
+
+    const streamed = buildGraph({ ...base, live: true }, t, planFan(DESKTOP_W, 1), [card('a')])
+    expect(framingHandles(streamed)).toEqual(framingHandles(bare))
+
+    // The assessment keeps its bottom anchor with and without branches, so a
+    // prompt arriving under a settled assessment still draws its connector.
+    const noBranches = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 1), [card('a')])
+    const withBranches = buildGraph(
+      {
+        ...base,
+        answerConfidence: 'high',
+        choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A'], isResponded: false },
+      },
+      t,
+      planFan(DESKTOP_W, 1),
+      [card('a')]
+    )
+    const bottomHandle = (g: ReturnType<typeof buildGraph>) =>
+      (g.nodes.find((n) => n.id === 'findings')!.data as { source: { id: string; left: string } }).source
+    expect(bottomHandle(noBranches)).toEqual({ id: 'out', left: '50%' })
+    expect(bottomHandle(withBranches)).toEqual(bottomHandle(noBranches))
+
+    // Same for the branches node: one centred target, whether it is the fan-in
+    // point itself or merely fed by the assessment.
+    const branchesOnly = buildGraph(
+      {
+        ...base,
+        choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A'], isResponded: false },
+      },
+      t,
+      planFan(DESKTOP_W, 1),
+      [card('a')]
+    )
+    expect(targetHandles(branchesOnly, 'branches')).toEqual(targetHandles(withBranches, 'branches'))
+  })
+
+  test('every edge lands on a handle its node actually declares', () => {
+    // The invariant behind the regression above, asserted directly across the
+    // shapes a turn passes through: an edge referencing a handle the node does
+    // not render is an edge React Flow silently refuses to draw.
+    const declared = (g: ReturnType<typeof buildGraph>, id: string) => {
+      const d = g.nodes.find((n) => n.id === id)!.data as {
+        sources?: Array<{ id: string }>
+        targets?: Array<{ id: string }>
+        source?: { id: string }
+      }
+      return new Set([
+        ...(d.sources ?? []).map((h) => h.id),
+        ...(d.targets ?? []).map((h) => h.id),
+        ...(d.source ? [d.source.id] : []),
+        // Column nodes render their two anchors directly, not via node data.
+        ...(id.startsWith('col-') ? ['in', 'out'] : []),
+      ])
+    }
+    const shapes: ReasoningFlowProps[] = [
+      { ...base, live: true },
+      { ...base, live: true },
+      { ...base, answerConfidence: 'high' },
+      { ...base, choicePrompt: { promptId: 'p', text: '?', options: ['A'], isResponded: false } },
+      {
+        ...base,
+        answerConfidence: 'high',
+        choicePrompt: { promptId: 'p', text: '?', options: ['A'], isResponded: false },
+      },
+    ]
+    for (const props of shapes) {
+      for (const n of [0, 1, 5]) {
+        const cards = Array.from({ length: n }, (_, i) => card(`s${i}`))
+        const g = buildGraph(props, t, planFan(DESKTOP_W, n), cards)
+        for (const e of g.edges) {
+          expect(declared(g, e.source)).toContain(e.sourceHandle!)
+          expect(declared(g, e.target)).toContain(e.targetHandle!)
+        }
+      }
+    }
+  })
+})
+
+describe('buildGraph — a card animates once, not once per re-pack', () => {
+  test('only cards in enterOrder carry a cascade slot, and it starts at 0 per batch', () => {
+    // The fan re-packs on every card-count change, which moves cards between
+    // column NODES; React remounts them there and the CSS entrance replays. The
+    // columns therefore animate by card IDENTITY: `enterOrder` holds only the
+    // cards that have never entered, numbered from 0 within that batch.
+    const cards = [card('a'), card('b'), card('c')]
+    const fresh = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 3), cards, new Map([['c', 0]]))
+    const orders = fresh.nodes
+      .filter((n) => n.type === 'sourceColumn')
+      .map((n) => (n.data as unknown as { enterOrder: ReadonlyMap<string, number> }).enterOrder)
+    // Every column reads the same map, so a card's slot does not depend on
+    // which column the re-pack happened to put it in.
+    for (const o of orders) expect(o.get('c')).toBe(0)
+    for (const o of orders) expect(o.has('a')).toBe(false)
+  })
+
+  test('a graph built without an enterOrder animates nothing', () => {
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), [card('a'), card('b')])
+    const order = (g.nodes.find((n) => n.type === 'sourceColumn')!.data as unknown as {
+      enterOrder: ReadonlyMap<string, number>
+    }).enterOrder
+    expect(order.size).toBe(0)
   })
 })

@@ -38,18 +38,59 @@
  * of unequal height scatters the merge and draws a doubled hairline. See
  * `trunkEdge`.
  *
+ * ## Handles are structural, never conditional
+ *
+ * React Flow measures a node's handle positions when the node element is first
+ * measured and re-measures them only when that element RESIZES (its
+ * ResizeObserver) or when the node's type / sourcePosition / targetPosition
+ * changes. Mounting a new `<Handle>` into a node already on screen is invisible
+ * to it: the stale `handleBounds` has no entry for the new id, so
+ * `getEdgePosition` returns null and every edge on that handle silently fails
+ * to render.
+ *
+ * That is what a conditional handle used to do here. A live turn starts with no
+ * sources and no verdict, so the framing card was measured with an EMPTY handle
+ * list; the first streamed source then added its bottom anchor without changing
+ * the card's height, and the fan-out drew no connectors at all — unless the
+ * routing line happened to land in the same tick and resize the card into a
+ * re-measure. Hence "sometimes the connectors are mangled".
+ *
+ * So every node declares its FULL handle set for its whole lifetime, whether or
+ * not an edge is currently attached: the anchors are 1×1 and invisible, and one
+ * nothing connects to costs nothing. The `handleSigs` effect is the belt to that
+ * braces — if a handle set ever becomes conditional again it re-measures the
+ * node instead of quietly dropping its edges.
+ *
  * ## No flicker
  *
- * Three rules, because this graph re-lays out while a turn streams:
+ * Four rules, because this graph re-lays out while a turn streams:
  *  1. Nodes are re-seeded by MERGING into the previous ones — a streamed data
  *     update never resets a measured position back to y=0, and a brand-new node
  *     is seeded at its row's last known y instead of on top of the framing card.
- *  2. The measure→place pass is a layout effect and both it and the re-seed
- *     bail out when nothing actually moved, so the browser never paints a
- *     provisional frame and repeated passes converge instead of oscillating.
- *  3. The opacity gate lifts once, after the FIRST layout. Reflows (resize,
+ *  2. Both the re-seed and the measure→place pass are LAYOUT effects, so a
+ *     streamed update lands its data, its x and its measured y in one pre-paint
+ *     commit. As a passive effect the re-seed painted a frame of the previous
+ *     tick's data at the new tick's layout, every tick.
+ *  3. The pass measures the node ELEMENTS, and re-runs on every width the fan is
+ *     planned against. React Flow's own `measured` is a frame behind across a
+ *     reflow, and it emits no dimension change for a node that ends a reflow at
+ *     the size it started — a viewport that widens and snaps back (a rotation, a
+ *     devtools pane, a full-page screenshot) therefore left the graph placed
+ *     from the widths it had MID-reflow, with every row overlapping the next and
+ *     nothing left to trigger a correction.
+ *  4. The opacity gate lifts once, after the FIRST layout. Reflows (resize,
  *     streaming, column re-packing) keep the graph visible — the old gate was
  *     keyed on orientation and fired a full fade-out/in on every flip.
+ *
+ * ## Entrances fire once per CARD, not once per mount
+ *
+ * The source cards animate in. Which column NODE a card lives in is a function
+ * of the container width and the card count, so one new source re-packs the fan
+ * and moves most cards to a different column — React unmounts them there and
+ * mounts them here, and a CSS enter animation replays on mount. The fix is not
+ * to fight the re-pack but to key the entrance on card IDENTITY: `ReasoningFlow`
+ * remembers which cards have already animated and hands the columns an
+ * `enterOrder` holding only the ones that have not. See `animatedRef`.
  */
 
 'use client'
@@ -72,7 +113,7 @@ import {
   applyNodeChanges,
   getSmoothStepPath,
   useNodesInitialized,
-  useReactFlow,
+  useUpdateNodeInternals,
   type Node,
   type NodeChange,
   type Edge,
@@ -101,6 +142,25 @@ const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
 /** One anchor point on a banner edge: a handle id + its x offset within the node. */
 type HandleSpec = { id: string; left: string }
 
+/**
+ * The centred anchors every banner carries for its whole lifetime. Declared here
+ * rather than inline so they read as what they are: a fixed part of each node's
+ * shape, not something a turn's state switches on. See the module header — a
+ * handle that appears after its node was measured never gets measured, and the
+ * edges on it disappear.
+ */
+const CENTRE_BOTTOM: HandleSpec = { id: 'c-bottom', left: '50%' }
+const CENTRE_TOP: HandleSpec = { id: 'c-top', left: '50%' }
+const CENTRE_OUT: HandleSpec = { id: 'out', left: '50%' }
+
+/**
+ * The card entrance, in ms. Kept in code because `animatedRef` has to know when
+ * the animation it started is over, and the animation itself is pure CSS
+ * (`duration-300` plus an inline per-card delay).
+ */
+const ENTER_MS = 300
+const ENTER_STAGGER_MS = 60
+
 const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">{children}</div>
 )
@@ -112,7 +172,10 @@ type FramingData = {
   routingLabel?: string
   routing?: string
   escalation?: string
-  /** Bottom (source) handles — one per column, or a single centre. */
+  /**
+   * Bottom (source) handles. Always populated — even on a turn that has not
+   * streamed a single source yet. See the module header on structural handles.
+   */
   sources: HandleSpec[]
 }
 /**
@@ -124,8 +187,13 @@ type SourceColumnData = {
   cards: TraceSourceCard[]
   hitLabel: (count: number) => string
   gapLabel: string
-  /** Enter-animation offset so the row cascades left→right. */
-  index: number
+  /**
+   * Cascade slot per card id, for the cards that have NOT played their entrance
+   * yet. A card missing from the map has already animated — in this column, or
+   * in whichever one it sat in before the fan re-packed — and renders with no
+   * enter animation at all.
+   */
+  enterOrder: ReadonlyMap<string, number>
   /** Single-column (phone) layout — the cards get the grouped container. */
   grouped: boolean
   groupLabel: string
@@ -144,8 +212,13 @@ type FindingsData = {
   pending?: boolean
   /** Top (target) handles — one per incoming column, or a single centre. */
   targets: HandleSpec[]
-  /** Bottom (source) handle — present only when a branches node follows. */
-  source?: HandleSpec
+  /**
+   * Bottom (source) handle. Rendered whether or not a branches node follows: a
+   * live turn grows the branches prompt UNDER an assessment that is already
+   * measured, and a handle added at that point gets no handle bounds — the
+   * findings→branches connector would simply not draw.
+   */
+  source: HandleSpec
 }
 type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
 
@@ -181,23 +254,34 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
 const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) => {
   const stack = (
     <div role="list" aria-label={data.groupLabel} className="flex w-full flex-col">
-      {data.cards.map((card, i) => (
-        <div key={card.id} className="flex flex-col">
-          {i > 0 && (
-            <span
-              aria-hidden="true"
-              className="mx-auto h-2.5 w-px shrink-0"
-              style={{ backgroundColor: EDGE_STROKE }}
-            />
-          )}
-          <div
-            className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
-            style={{ animationDelay: `${(data.index + i) * 60}ms`, animationFillMode: 'backwards' }}
-          >
-            <SourceCard card={card} hitLabel={data.hitLabel(card.hitCount)} gapLabel={data.gapLabel} />
+      {data.cards.map((card, i) => {
+        // Only a card that has never animated gets the entrance. Everything else
+        // is here because the fan re-packed — it was on screen a frame ago, and
+        // replaying its entrance is the flash this graph used to be full of.
+        const slot = data.enterOrder.get(card.id)
+        const entering = slot !== undefined
+        return (
+          <div key={card.id} className="flex flex-col">
+            {i > 0 && (
+              <span
+                aria-hidden="true"
+                className="mx-auto h-2.5 w-px shrink-0"
+                style={{ backgroundColor: EDGE_STROKE }}
+              />
+            )}
+            <div
+              className={entering ? 'animate-in fade-in-0 slide-in-from-bottom-2 duration-300' : undefined}
+              style={
+                entering
+                  ? { animationDelay: `${slot * ENTER_STAGGER_MS}ms`, animationFillMode: 'backwards' }
+                  : undefined
+              }
+            >
+              <SourceCard card={card} hitLabel={data.hitLabel(card.hitCount)} gapLabel={data.gapLabel} />
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 
@@ -205,7 +289,10 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
     <div className="w-[var(--source-w)] max-w-full">
       <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
       {data.grouped ? (
-        <div className="animate-in fade-in-0 duration-300 rounded-xl border bg-muted/40 px-3 py-3">
+        // No entrance on the container itself — the cards inside carry it, and
+        // this wrapper re-mounts whenever the width crosses GROUPED_MAX_W, which
+        // faded the whole box back in on top of them on every such resize.
+        <div className="rounded-xl border bg-muted/40 px-3 py-3">
           <Eyebrow>{data.groupLabel}</Eyebrow>
           <div className="mt-2">{stack}</div>
         </div>
@@ -248,7 +335,7 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
     {data.hitSummary && (
       <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{data.hitSummary}</p>
     )}
-    {data.source && <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />}
+    <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />
   </div>
 )
 
@@ -479,7 +566,13 @@ export function buildGraph(
   props: ReasoningFlowProps,
   t: Translator,
   layout: FanLayout,
-  cards: TraceSourceCard[]
+  cards: TraceSourceCard[],
+  /**
+   * Cascade slot for each card that has not played its entrance yet. Empty by
+   * default: a graph built without it animates nothing, which is the right
+   * answer both for a structural test and for a rebuild that added no cards.
+   */
+  enterOrder: ReadonlyMap<string, number> = new Map()
 ): BuiltGraph {
   const { columns, colW, gap, fanX, grouped } = layout
   const hasSources = cards.length > 0 && columns.length > 0
@@ -514,9 +607,14 @@ export function buildGraph(
   // the same point, so the fan reads as a single line that SPLITS into the
   // sources and MERGES back out of them — the connectors share their first and
   // last segment instead of arriving as N separate parallel drops.
-  const centre: HandleSpec[] = hasSources || convergeId ? [{ id: 'c-bottom', left: '50%' }] : []
-  const framingSources: HandleSpec[] = centre
-  const convergeTargets: HandleSpec[] = [{ id: 'c-top', left: '50%' }]
+  //
+  // Unconditional on purpose: gating these on `hasSources || convergeId` meant
+  // the framing card of a just-started turn was measured with no handles, and
+  // the anchor the first streamed source needs was then added to a node already
+  // on screen — which React Flow never re-measures, so the fan drew no
+  // connectors. See the module header.
+  const framingSources: HandleSpec[] = [CENTRE_BOTTOM]
+  const convergeTargets: HandleSpec[] = [CENTRE_TOP]
 
   const framingData: FramingData = {
     label: t('thinking.node.framingTab'),
@@ -557,7 +655,7 @@ export function buildGraph(
             ? t('thinking.node.findingsHits', { lanes: hitLanes.join(', ') })
             : undefined,
         targets: convergeTargets,
-        source: hasBranches ? { id: 'out', left: '50%' } : undefined,
+        source: CENTRE_OUT,
       }
     : null
   const branchesData: BranchesData | null =
@@ -567,8 +665,10 @@ export function buildGraph(
           onRespond: props.onChoiceRespond ?? (() => {}),
           sub: t('thinking.node.branchesSub'),
           // Branches receives the fan-in only when it IS the converge target
-          // (no findings); otherwise it takes a single feed from findings.
-          targets: hasFindings ? [{ id: 'c-top', left: '50%' }] : convergeTargets,
+          // (no findings); otherwise it takes a single feed from findings —
+          // either way the same centred anchor, so the node's handle set never
+          // depends on which.
+          targets: convergeTargets,
         }
       : null
 
@@ -584,7 +684,7 @@ export function buildGraph(
       hitLabel: (count: number) =>
         count === 1 ? t('thinking.hitCountOne') : t('thinking.hitCount', { count }),
       gapLabel: t('thinking.gapHit'),
-      index: indices[0] ?? i,
+      enterOrder,
       grouped,
       groupLabel: t('thinking.sourcesFanOut'),
     }
@@ -627,7 +727,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   const t = useTranslations('chat')
   const { nodes, edges, rows } = built
   const initialized = useNodesInitialized()
-  const { getNodes } = useReactFlow()
+  const paneRef = useRef<HTMLDivElement>(null)
   const [rfNodes, setRfNodes] = useState<Node[]>(nodes)
   const [height, setHeight] = useState<number | null>(null)
   // Lifts once, after the first measured layout. Reflows afterwards (resize,
@@ -650,20 +750,56 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   // new source cards) and x always come from the fresh build; y and the measured
   // size are carried over from the node we already have, so an update never
   // resets the layout to the provisional y=0 stack.
-  useEffect(() => {
+  //
+  // A LAYOUT effect, not a passive one: the measure→place pass below is one, so
+  // as a passive effect this landed a frame later and every stream tick painted
+  // the previous tick's node data sitting at the new tick's layout.
+  useLayoutEffect(() => {
     setRfNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]))
       const next = nodes.map((n) => {
         const old = prevById.get(n.id)
         if (!old) {
+          // A node in a row that has never been measured (the assessment
+          // landing, the branches prompt arriving) seeds at the sentinel the
+          // place pass leaves one past the last row — BELOW the graph — rather
+          // than at y=0 on top of the framing card.
           const rowY = rowYRef.current[rowIndexById.get(n.id) ?? -1]
-          return { ...n, position: { x: n.position.x, y: rowY ?? 0 } }
+          return { ...n, position: { x: n.position.x, y: rowY ?? rowYRef.current.at(-1) ?? 0 } }
         }
         return { ...old, ...n, position: { x: n.position.x, y: old.position.y } }
       })
       return next
     })
   }, [nodes, rowIndexById])
+
+  // React Flow gives a node handle bounds when it measures the element and
+  // re-measures them only when the element RESIZES, so a handle that appears on
+  // a node already on screen never gets bounds and every edge on it stops
+  // rendering. The node components declare their handles unconditionally so
+  // this cannot happen; this is the guard that keeps it that way, re-measuring
+  // any node whose handle set changed under us anyway.
+  const updateNodeInternals = useUpdateNodeInternals()
+  const handleSigs = useMemo(() => {
+    const sigs = new Map<string, string>()
+    for (const n of nodes) {
+      const d = n.data as { sources?: HandleSpec[]; targets?: HandleSpec[]; source?: HandleSpec }
+      const specs = [...(d.sources ?? []), ...(d.targets ?? []), ...(d.source ? [d.source] : [])]
+      sigs.set(n.id, specs.map((h) => `${h.id}@${h.left}`).join(','))
+    }
+    return sigs
+  }, [nodes])
+  const prevHandleSigs = useRef(handleSigs)
+  useEffect(() => {
+    const changed: string[] = []
+    for (const [id, sig] of handleSigs) {
+      // Only an EXISTING node matters; a new one is measured on mount anyway.
+      const prev = prevHandleSigs.current.get(id)
+      if (prev !== undefined && prev !== sig) changed.push(id)
+    }
+    prevHandleSigs.current = handleSigs
+    if (changed.length > 0) updateNodeInternals(changed)
+  }, [handleSigs, updateNodeInternals])
 
   // While the turn streams, the connectors march (React Flow's built-in
   // animated dashes); a finished turn freezes them solid.
@@ -679,9 +815,24 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   // effect so the provisional positions are never painted, and both updates bail
   // out when nothing moved — that bail-out is what lets this depend on `rfNodes`
   // (re-running as heights settle) without oscillating.
+  //
+  // The heights come off the node ELEMENTS, not off React Flow's `measured`.
+  // Its copy is written by a ResizeObserver, so across a reflow it is a frame
+  // behind — and for a node that ends a reflow at the size it started at, React
+  // Flow emits no dimension change at all. A viewport that widens and snaps back
+  // (an orientation change, a devtools pane, a full-page screenshot) therefore
+  // used to strand this graph in the heights it had MID-reflow: rows overlapping
+  // the next, and nothing left that would ever trigger a correction. Reading the
+  // DOM in a layout effect is always current, and `contentW`/`colW` in the deps
+  // guarantee a pass on both edges of the reflow, so the second one lands on the
+  // real geometry.
   useLayoutEffect(() => {
     if (!initialized) return
-    const measured = new Map(getNodes().map((n) => [n.id, n.measured?.height ?? 0]))
+    const pane = paneRef.current
+    const measured = new Map<string, number>()
+    pane?.querySelectorAll<HTMLElement>('.react-flow__node[data-id]').forEach((el) => {
+      if (el.dataset.id) measured.set(el.dataset.id, el.offsetHeight)
+    })
     const yById = new Map<string, number>()
     const rowY: number[] = []
     let y = 0
@@ -694,6 +845,10 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       }
       y += rowH + ROW_GAP
     })
+    // One past the last row: where a row that does not exist yet would start.
+    // The re-seed above reads it so a node arriving mid-stream never appears on
+    // top of the framing card.
+    rowY[rows.length] = y
     rowYRef.current = rowY
 
     setRfNodes((prev) => {
@@ -708,12 +863,14 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     })
     setHeight(Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD))
     setLaidOut(true)
-    // rows is covered by rowsKey (stable string); getNodes is stable.
+    // rows is covered by rowsKey (a stable string). contentW/colW are the widths
+    // the nodes are sized against, so both edges of a reflow get a pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, rowsKey, rfNodes])
+  }, [initialized, rowsKey, rfNodes, layout.contentW, layout.colW])
 
   return (
     <div
+      ref={paneRef}
       style={{
         height: height ?? undefined,
         minHeight: height ? undefined : 160,
@@ -790,6 +947,50 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
 
   const cards = useMemo(() => deriveTraceSourceCards(steps), [steps])
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
+
+  /**
+   * Card ids that have already played their enter animation.
+   *
+   * Which column NODE a card lives in is a function of the container width and
+   * the card count, and `deriveTraceSourceCards` sorts, so one late source both
+   * re-balances the columns and can land anywhere in the list. React tears the
+   * card's DOM down in its old column and mounts it in the new one, replaying
+   * the CSS entrance — a single new source made the whole fan flash, and every
+   * card flashed again on a resize.
+   *
+   * Keying the entrance on card identity fixes both, and a third thing: the
+   * cascade offset used to be the card's index in the WHOLE fan, so the eighth
+   * source of a turn sat invisible for 420ms before appearing. A late arrival is
+   * now slot 0 of its own batch.
+   *
+   * A card counts as entered only once its animation has had time to run.
+   * Marking it the moment it rendered would be enough to survive a re-pack — but
+   * this map has to go stale for a REASON, and "the card list did not change" is
+   * not one: a resize alone re-packs the columns, and with the batch still
+   * listed here every card would flash again on every resize.
+   */
+  const animatedRef = useRef<Set<string>>(new Set())
+  const [entered, setEntered] = useState(0)
+  const enterOrder = useMemo(() => {
+    const order = new Map<string, number>()
+    let slot = 0
+    for (const c of cards) if (!animatedRef.current.has(c.id)) order.set(c.id, slot++)
+    return order
+    // `entered` is the settle signal, not a value this reads — it invalidates
+    // the memo once the batch below has finished playing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, entered])
+  useEffect(() => {
+    if (enterOrder.size === 0) return
+    const settle = Math.max(...enterOrder.values()) * ENTER_STAGGER_MS + ENTER_MS
+    const timer = setTimeout(() => {
+      for (const id of enterOrder.keys()) animatedRef.current.add(id)
+      setEntered((n) => n + 1)
+    }, settle)
+    // Cards streaming in mid-cascade cancel this and fold into the next batch,
+    // so an entrance is never cut short and no card is left unmarked.
+    return () => clearTimeout(timer)
+  }, [enterOrder])
   // Memoised on the fields that actually shape the graph — NOT on the props
   // object, whose identity changes on every parent render and would rebuild
   // (and re-measure) the whole graph each time.
@@ -812,7 +1013,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
         },
         t,
         layout,
-        cards
+        cards,
+        enterOrder
       ),
     [
       steps,
@@ -828,6 +1030,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       t,
       layout,
       cards,
+      enterOrder,
     ]
   )
 
