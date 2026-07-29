@@ -556,10 +556,11 @@ is configured (see below), `tsc --noEmit` (typed manifests), and two checks on
 the *same commit* the apply runs — `scripts/validate-crs.mjs`
 (schema-validates every CustomResource against the real upstream CRD schemas)
 and the **CrossGuard policy pack** (§7c). The plan is previewed with the same
-imageTag the deploy applies; the apply is then delegated to Pulumi Deployments
-(`pulumi up --remote --remote-git-commit <sha>`), which runs a plain `up` on
-the gated commit — the policy pack does not re-run on the apply (accepted
-residual, see `docs/deployment/pulumi-cloud-feature-audit.md`). Manual
+imageTag the deploy applies; the apply then runs on the same runner
+(`pulumi up --yes`) — the policy pack does not re-run on the apply (accepted
+residual, see `docs/deployment/pulumi-cloud-feature-audit.md`). Because the
+state backend is Pulumi Cloud, the update lands in the console's **Activity**
+tab with full logs and diffs regardless of where the CLI ran. Manual
 `workflow_dispatch` is refused outside `develop`
 (no images exist for other branches) and accepts an optional **`imageTag`
 input** — the supported rollback path, deploying a previous `sha-<40-hex>`
@@ -576,19 +577,16 @@ and resolves the import at open time, so the one-time setup is:
 ESC (kubeconfig must be the **non-expiring ServiceAccount
 token** from §2b, not the ≤2-week Control-Center download) → delete the
 duplicated `secure:` blocks → **commit the updated `Pulumi.dev.yaml` to
-`develop`** → save the stack's **deployment settings** (console → stack →
-Settings → Deploy: GitHub source, branch `develop`, folder `deploy/pulumi`,
-push-to-deploy off) → add the `PULUMI_ACCESS_TOKEN` repo secret.
+`develop`** → add the `PULUMI_ACCESS_TOKEN` repo secret.
 
 Know where each of those is caught, because it is not all the same step. The
 workflow's **preflight** only inspects the committed stack file: placeholder
 values, and that secrets resolve from either a `secure:` entry under `config:`
 or an `environment:` import of `grid-oib/dev` — so an unconfigured or
-uncommitted `Pulumi.dev.yaml` fails there, with instructions. The **deployment
-settings** and **`PULUMI_ACCESS_TOKEN`** are Pulumi Cloud state that the
-preflight cannot see; missing either one fails later, when the gates call
-Pulumi Cloud and when `pulumi up --remote` hands the apply to the managed
-runner. Two more infrastructure
+uncommitted `Pulumi.dev.yaml` fails there, with instructions. The
+**`PULUMI_ACCESS_TOKEN`** is Pulumi Cloud state that the
+preflight cannot see; a missing one fails later, when the gates and the apply
+call Pulumi Cloud. Two more infrastructure
 prerequisites: the `blacksmith-*` runner integration, and the `staging` GitHub
 environment (created on first run; note that adding required reviewers to it
 turns the "automatic" deploy into an approval-gated one).

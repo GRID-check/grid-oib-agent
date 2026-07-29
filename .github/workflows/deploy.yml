@@ -12,9 +12,9 @@ name: Deploy (staging)
 # (committed deploy/pulumi/Pulumi.<stack>.yaml) and ESC-BASED for secrets (the
 # Pulumi Cloud environment `grid-oib/<stack>`, imported via the stack file's
 # `environment:` block — rationale in docs/deployment/pulumi-cloud-feature-audit.md).
-# The apply itself runs on Pulumi Deployments (console → stack → Deployments);
-# this workflow keeps the gates (typecheck, CRD validation, CrossGuard preview)
-# and then runs the apply remotely via `pulumi up --remote`:
+# The apply runs on this runner (`pulumi up`); because the state backend is
+# Pulumi Cloud, every update is recorded in the console (stack → Activity)
+# with full logs/diffs regardless of where the CLI runs:
 #   1. cd deploy/pulumi && pulumi stack init matthiasbigl/grid-oib/dev
 #   2. Edit Pulumi.dev.yaml: real baseDomain/letsEncryptEmail/
 #      workosClientId/storageClass (placeholders make the program fail closed).
@@ -26,11 +26,7 @@ name: Deploy (staging)
 #      in ≤2 weeks) — see docs/deployment/kubernetes.md §2b.
 #   4. COMMIT the updated Pulumi.dev.yaml (plaintext + `environment:` import) —
 #      without it every CI deploy fails its preflight.
-#   5. Save DEPLOYMENT SETTINGS for the stack (Pulumi Cloud → stack dev →
-#      Settings → Deploy): GitHub source GRID-check/grid-oib-agent, branch
-#      develop, Pulumi.yaml folder deploy/pulumi, push-to-deploy OFF (this
-#      workflow orchestrates; Click-to-Deploy stays available).
-#   6. Add repo secret PULUMI_ACCESS_TOKEN (gate previews + the remote apply).
+#   5. Add repo secret PULUMI_ACCESS_TOKEN (gate previews + the apply).
 # The "Preflight" step below verifies step 2/4 happened and fails with
 # instructions if not.
 on:
@@ -265,28 +261,18 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
-      # The apply runs on Pulumi Deployments (`--remote` + the stack's saved
-      # deployment settings) so it is recorded in the Pulumi Cloud console
-      # (Deployments tab, live logs) — this workflow gates, the managed runner
-      # executes. `--remote-git-commit` pins the exact commit the gates above
-      # validated; the pre-run command pins the immutable image tag from
-      # GRID_IMAGE_TAG, and console Click-to-Deploy runs derive sha-<HEAD>
-      # from the checkout instead (the fallback in the command).
-      # The --remote* flags are EXPERIMENTAL: the CLI doesn't register them
-      # unless PULUMI_EXPERIMENTAL is set ("unknown flag: --remote" otherwise).
-      # The repo URL must ALSO be passed positionally: with --remote-git-commit
-      # set, the CLI builds Source.Git from flags only, and the API rejects a
-      # git source without repoUrl even when --remote-inherit-settings is on.
-      - name: Pulumi up (remote, on Pulumi Deployments)
+      # The apply runs on THIS runner, right after the gates, against the same
+      # pinned image tag. Because the state backend is Pulumi Cloud, the update
+      # is recorded in the console (stack → Activity) with full logs and diffs
+      # no matter where the CLI runs — no Pulumi-hosted runner needed. (The
+      # experimental `pulumi up --remote` / Deployments path was tried and
+      # reverted same-day; see docs/deployment/pulumi-cloud-feature-audit.md.)
+      - name: Pulumi up
         working-directory: deploy/pulumi
         run: |
           export PATH="$HOME/.pulumi/bin:$PATH"
-          pulumi up --remote https://github.com/GRID-check/grid-oib-agent --yes \
-            --stack matthiasbigl/grid-oib/dev \
-            --remote-inherit-settings \
-            --remote-git-commit "$DEPLOY_SHA" \
-            --remote-env GRID_IMAGE_TAG="$IMAGE_TAG" \
-            --remote-pre-run-command 'pulumi config set grid-oib:imageTag "${GRID_IMAGE_TAG:-sha-$(git rev-parse HEAD)}"'
+          pulumi stack select matthiasbigl/grid-oib/dev
+          pulumi config set grid-oib:imageTag "$IMAGE_TAG"
+          pulumi up --yes
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          PULUMI_EXPERIMENTAL: "true"

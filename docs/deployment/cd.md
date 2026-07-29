@@ -52,17 +52,9 @@ pulumi env edit grid-oib/dev                        # add under values.pulumiCon
 ```
 Commit the updated `Pulumi.dev.yaml` (plaintext + `environment:` import only).
 
-### 3. Pulumi Deployments (stack → Settings → Deploy)
-Save deployment settings for the stack so the apply runs on Pulumi's managed
-runners (visible in the console's **Deployments** tab): GitHub source
-`GRID-check/grid-oib-agent`, branch `develop`, Pulumi.yaml folder
-`deploy/pulumi`, and **push-to-deploy OFF** — `deploy.yml` orchestrates with
-`pulumi up --remote` after its gates pass; console Click-to-Deploy stays
-available as the manual path.
-
-### 4. GitHub Environments (Settings → Environments)
+### 3. GitHub Environments (Settings → Environments)
 Create **`staging`** (and later `production`). On each, add the secret
-`PULUMI_ACCESS_TOKEN` (used for the gate previews and the remote apply). On **`production`**, add **required reviewers** so a prod deploy
+`PULUMI_ACCESS_TOKEN` (used for the gate previews and the apply). On **`production`**, add **required reviewers** so a prod deploy
 pauses for manual approval.
 
 ### 4. Branch protection (Settings → Branches)
@@ -82,12 +74,15 @@ validation, CrossGuard) run on Blacksmith/GitHub-hosted runners and only need
 Pulumi Cloud — the plan they check is built from stack config, so they pass with
 a kubeconfig pointing at an unreachable API (see
 [`deploy/pulumi/README.md`](../../deploy/pulumi/README.md) → *Validation*). The
-**apply** runs on Pulumi's Deployment runners, which **must reach the cluster
-API endpoint** (public endpoint + credentials in the kubeconfig is fine).
+**apply** runs on the same runner (`pulumi up --yes` right after the gates),
+which therefore **must reach the cluster API endpoint** (public endpoint +
+credentials in the kubeconfig is fine; if it is ever private, the apply needs a
+self-hosted runner inside the cluster network).
 
-If the API is private, that is a Pulumi-Deployments concern only: use a
-**self-hosted Pulumi deployment runner inside the cluster network**. The GHA
-gate job stays on the hosted runners — nothing else changes.
+Every update against the Pulumi Cloud backend is recorded in the console —
+stack → **Activity** — with full logs and diffs, regardless of where the CLI
+ran. (The Pulumi-hosted **Deployments** path was evaluated and reverted; see
+[pulumi-cloud-feature-audit.md](pulumi-cloud-feature-audit.md).)
 
 ## Deploy-time gates
 Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that
@@ -100,12 +95,12 @@ plan twice:
   correctness for moving tags. A `mandatory` violation fails the plan.
   Run it locally with `cd deploy/pulumi && npm run policy`.
 
-The apply itself is then delegated to Pulumi Deployments
-(`pulumi up --remote --remote-git-commit <gated sha>`), so the same commit the
-gates validated is what lands — visible in the Pulumi Cloud console's
-**Deployments** tab. The policy pack does not re-run on the apply (Pulumi's
-runner executes a plain `up`); the GHA preview is the policy checkpoint, and
-drift between gate and apply is the accepted residual (see
+The apply itself then runs on the same runner (`pulumi up --yes`), deploying the
+same commit the gates validated — the image tag was pinned before the preview,
+and the update is recorded in the Pulumi Cloud console's **Activity** tab with
+the full diff and logs. The policy pack does not re-run on the apply; the GHA
+preview is the policy checkpoint, and drift between gate and apply is the
+accepted residual (see
 [pulumi-cloud-feature-audit.md](pulumi-cloud-feature-audit.md)).
 
 ## Rolling back

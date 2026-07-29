@@ -1,8 +1,8 @@
 # Stack configuration for the `dev` (staging) stack.
 #
 # Deployed automatically from the `develop` branch by .github/workflows/deploy.yml
-# once CI + Security are green (the apply itself runs on Pulumi Deployments —
-# the stack's saved deployment settings — via `pulumi up --remote`).
+# once CI + Security are green (the apply runs on the GHA runner; the update is
+# recorded in the Pulumi Cloud console under the stack's Activity tab).
 #
 # Non-secret config lives here, committed. ALL secrets live in the Pulumi ESC
 # environment `grid-oib/dev` (imported via the `environment:` block below).

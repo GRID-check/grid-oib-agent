@@ -197,7 +197,7 @@ npm run policy      # pulumi preview --policy-pack ./policy → CrossGuard
 `validate` and `policy` need a selected stack (its config feeds the plan) but
 work even when the kubeconfig points at an unreachable cluster. The deploy
 workflow runs all three as its gates before the apply; the apply itself is a
-plain `up` on Pulumi Deployments, so the policy pack does **not** re-run there —
+plain `up` on the same runner, so the policy pack does **not** re-run there —
 the gate preview is the policy checkpoint (accepted residual, see
 `docs/deployment/pulumi-cloud-feature-audit.md`).
 
