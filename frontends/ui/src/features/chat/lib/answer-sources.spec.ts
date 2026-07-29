@@ -279,6 +279,32 @@ describe('parseKbLocator', () => {
     expect(parseKbLocator('Some cited sentence without a file')).toBeNull()
     expect(parseKbLocator('')).toBeNull()
   })
+
+  test('reads the shelf out of a qualified key and keeps the filename bare', () => {
+    // Emitted only when one filename was retrieved from two collections in the
+    // same turn — the qualifier is the collection half of the document's
+    // identity, not part of its name.
+    expect(parseKbLocator('Plan.pdf (Projektwissen), p.3')).toEqual({
+      filename: 'Plan.pdf',
+      page: 3,
+      scope: 'projekt',
+    })
+    expect(parseKbLocator('Plan.pdf (Büroarchiv)')).toEqual({
+      filename: 'Plan.pdf',
+      page: undefined,
+      scope: 'buero',
+    })
+  })
+
+  test('a parenthetical that is part of the filename is left alone', () => {
+    // Only the KNOWN qualifiers are stripped; trimming any trailing "(…)" would
+    // rename the document and lose the citation.
+    expect(parseKbLocator('Bescheid (Kopie).pdf, p.2')).toEqual({
+      filename: 'Bescheid (Kopie).pdf',
+      page: 2,
+      scope: undefined,
+    })
+  })
 })
 
 describe('citationSnippet', () => {
@@ -382,6 +408,86 @@ describe('resolveCitationTarget', () => {
     )
 
     expect(target).toMatchObject({ document: { id: 'doc-1' } })
+  })
+
+  describe('a citation names its own shelf', () => {
+    // Ordering ("project first") is a tie-break, not an identity. When the
+    // citation knows which collection it came from, that wins — otherwise a
+    // Büroarchiv citation opens the project's unrelated file of the same name.
+    const scopedDocuments: StoredDocumentRef[] = [
+      { id: 'doc-1', filename: 'Plan.pdf', contentType: 'application/pdf', scope: 'projekt' },
+      { id: 'archiv-9', filename: 'Plan.pdf', contentType: 'application/pdf', scope: 'buero' },
+    ]
+
+    test('the wire collection resolves to the Archiv copy', () => {
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'archiv_org1' },
+        scopedDocuments
+      )
+
+      expect(target).toMatchObject({ document: { id: 'archiv-9' } })
+    })
+
+    test("a key's qualifier resolves it too, with no collection on the wire", () => {
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf (Büroarchiv), p.2' },
+        scopedDocuments
+      )
+
+      expect(target).toMatchObject({ title: 'Plan.pdf', document: { id: 'archiv-9' } })
+    })
+
+    test('the project copy is still reachable', () => {
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'proj_alpha' },
+        scopedDocuments
+      )
+
+      expect(target).toMatchObject({ document: { id: 'doc-1' } })
+    })
+
+    test('a shelf holding no such document falls back rather than failing', () => {
+      // Fail-open, matching the backend: a scope that matches nothing must never
+      // turn a document that opens today into a dead info popover.
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'oib_knowledge' },
+        scopedDocuments
+      )
+
+      expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
+    })
+
+    test('a Basiswissen citation opens the base corpus, not a same-named upload', () => {
+      // The base corpus has no StoredDocumentRef row, so the base-corpus shelf
+      // was the one scope that resolved to the wrong document whenever a project
+      // upload shared the filename.
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' },
+        scopedDocuments,
+        ['Plan.pdf']
+      )
+
+      expect(target).toMatchObject({ document: { type: 'base', fileName: 'Plan.pdf' } })
+    })
+
+    test('a Basiswissen citation with no base-corpus copy still falls back', () => {
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' },
+        scopedDocuments,
+        ['oib-rl_2.pdf']
+      )
+
+      expect(target).toMatchObject({ document: { type: 'stored', id: 'doc-1' } })
+    })
+
+    test('untagged rows still resolve for callers that supply no scope', () => {
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Brandschutzkonzept.pdf', collection: 'proj_alpha' },
+        storedDocuments
+      )
+
+      expect(target).toMatchObject({ document: { id: 'doc-1' } })
+    })
   })
 
   test('project filename matching is case-insensitive', () => {

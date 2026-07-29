@@ -7,11 +7,15 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import _format_registry_reference
+from aiq_agent.common.citation_verification import _is_knowledge_citation
 from aiq_agent.common.citation_verification import _normalize_url
 from aiq_agent.common.citation_verification import _parse_citation_key
+from aiq_agent.common.citation_verification import _parse_citation_ref
+from aiq_agent.common.citation_verification import cited_document_entries
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import register_source_parser
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_lane
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
@@ -2516,3 +2520,219 @@ class TestKnowledgeLayerChunkTextCapture:
 
         hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
         assert hydrated.all_sources()[0].chunk_text == "round trip body"
+
+
+class TestDocumentIdentityIsCollectionAndFilename:
+    """A document is `(collection, filename)` — the PRIMARY KEY of document_metadata.
+
+    One knowledge_search fans out across the base corpus, the session collection
+    and the project collections concurrently, so a project `Plan.pdf` and a
+    Büroarchiv `Plan.pdf` can arrive in the SAME result set. They are different
+    documents, and every stage — dedup, verification, resolution — has to keep
+    them apart.
+    """
+
+    @staticmethod
+    def _two_shelves(*, project_key: str, archiv_key: str) -> SourceRegistry:
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                citation_key=project_key,
+                source_type="knowledge_layer",
+                collection="proj_alpha",
+                chunk_text="Aus dem Projekt.",
+            )
+        )
+        registry.add(
+            SourceEntry(
+                citation_key=archiv_key,
+                source_type="knowledge_layer",
+                collection="archiv_org1",
+                chunk_text="Aus dem Büroarchiv.",
+            )
+        )
+        return registry
+
+    def test_the_same_name_on_two_shelves_stays_two_documents(self):
+        # Same filename AND same page: keying on (filename, page) collapsed these
+        # onto whichever chunk arrived first and discarded the other document's
+        # evidence — including its chunk body, which quote verification needs.
+        registry = self._two_shelves(project_key="Plan.pdf, p.3", archiv_key="Plan.pdf, p.3")
+        assert len(registry._citation_keys) == 2
+        assert {entry.chunk_text for entry in registry._citation_keys} == {
+            "Aus dem Projekt.",
+            "Aus dem Büroarchiv.",
+        }
+
+    def test_chunks_of_one_document_still_merge(self):
+        # The counterpart: within ONE collection, two chunks of the same page are
+        # one document and must still collapse into a single entry whose body
+        # carries both passages.
+        registry = SourceRegistry()
+        for body in ("Erster Absatz.", "Zweiter Absatz."):
+            registry.add(
+                SourceEntry(
+                    citation_key="Plan.pdf, p.3",
+                    source_type="knowledge_layer",
+                    collection="proj_alpha",
+                    chunk_text=body,
+                )
+            )
+        assert len(registry._citation_keys) == 1
+        assert "Erster Absatz." in registry._citation_keys[0].chunk_text
+        assert "Zweiter Absatz." in registry._citation_keys[0].chunk_text
+
+    def test_a_qualified_key_resolves_to_the_shelf_it_names(self):
+        registry = self._two_shelves(
+            project_key="Plan.pdf (Projektwissen), p.3",
+            archiv_key="Plan.pdf (Büroarchiv), p.3",
+        )
+        assert registry.entry_for_citation_key("Plan.pdf (Büroarchiv), p.3").collection == "archiv_org1"
+        assert registry.entry_for_citation_key("Plan.pdf (Projektwissen), p.3").collection == "proj_alpha"
+
+    def test_an_unqualified_key_still_validates(self):
+        # Verification only ever REMOVES, so the scope narrowing must be
+        # fail-open: the bare filename was already proof the document was
+        # retrieved, and an answer must never lose its source over a missing
+        # qualifier.
+        registry = self._two_shelves(
+            project_key="Plan.pdf (Projektwissen), p.3",
+            archiv_key="Plan.pdf (Büroarchiv), p.3",
+        )
+        assert registry.has_citation_key("Plan.pdf, p.3") is True
+        assert registry.entry_for_citation_key("Plan.pdf, p.3") is not None
+
+    def test_a_qualifier_naming_no_retrieved_shelf_is_ignored_not_rejected(self):
+        registry = self._two_shelves(project_key="Plan.pdf, p.3", archiv_key="Plan.pdf, p.9")
+        # Nothing was retrieved from the base corpus, so the qualifier matches no
+        # entry. The citation is still valid — the document WAS retrieved.
+        assert registry.has_citation_key("Plan.pdf (Basiswissen), p.3") is True
+        assert registry.entry_for_citation_key("Plan.pdf (Basiswissen), p.3") is not None
+
+    def test_the_wire_carries_the_bare_filename(self):
+        # The qualifier is part of the KEY, not of the document's name: the UI
+        # opens `file_name` against a real document list, so a name carrying
+        # "(Projektwissen)" would match nothing.
+        entry = SourceEntry(
+            citation_key="Plan.pdf (Projektwissen), p.3",
+            source_type="knowledge_layer",
+            collection="proj_alpha",
+        )
+        wire = source_entry_to_wire(entry)
+        assert wire["file_name"] == "Plan.pdf"
+        assert wire["page"] == 3
+        assert wire["collection"] == "proj_alpha"
+
+    def test_a_parenthetical_that_is_part_of_the_filename_survives(self):
+        # Only the KNOWN qualifiers are stripped, so a real filename keeps its
+        # parenthesis. Trimming any trailing "(…)" would rename the document.
+        assert _parse_citation_ref("Bescheid (Kopie).pdf, p.2") == ("Bescheid (Kopie).pdf", None, 2)
+
+
+class TestQualifiedKeysSurviveVerification:
+    """The qualifier must reach the registry lookup, not be trimmed on the way."""
+
+    @staticmethod
+    def _registry() -> SourceRegistry:
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                citation_key="Plan.pdf (Projektwissen), p.3",
+                source_type="knowledge_layer",
+                collection="proj_alpha",
+            )
+        )
+        registry.add(
+            SourceEntry(
+                citation_key="Plan.pdf (Büroarchiv), p.3",
+                source_type="knowledge_layer",
+                collection="archiv_org1",
+            )
+        )
+        return registry
+
+    def test_both_shelves_verify_from_one_answer(self):
+        report = (
+            "Im Projekt so geplant [1], im Büro so detailliert [2].\n\n"
+            "**Quellen:**\n"
+            "- [1] Plan.pdf (Projektwissen), p.3\n"
+            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+        )
+        result = verify_citations(report, self._registry())
+        assert result.removed_citations == []
+        assert "Plan.pdf (Projektwissen), p.3" in result.verified_report
+        assert "Plan.pdf (Büroarchiv), p.3" in result.verified_report
+
+    def test_the_line_scanner_keeps_the_qualifier_it_finds(self):
+        # `_match_registry_filename` rebuilds a canonical key from the line. It
+        # must carry the qualifier through — dropping it (as trimming a trailing
+        # parenthetical would) makes the whole distinction inert, because every
+        # downstream lookup then sees a bare filename again.
+        is_kl, key = _is_knowledge_citation("Bestandsplan – Plan.pdf (BÜROARCHIV), p.3", self._registry())
+        assert is_kl is True
+        # Canonical spelling, so the key matches regardless of how the LLM cased it.
+        assert key == "Plan.pdf (Büroarchiv), p.3"
+
+    def test_an_annotation_is_still_trimmed(self):
+        # "(Internal)" is not a shelf; it must keep being treated as noise.
+        is_kl, key = _is_knowledge_citation("Plan.pdf (Internal)", self._registry())
+        assert is_kl is True
+        assert key == "Plan.pdf"
+
+
+class TestCitedDocumentsKeepTheirShelf:
+    """Being cited is a per-DOCUMENT claim, and a document is `(collection, filename)`.
+
+    `cited_document_entries` feeds the deep-research `citation_use` events, i.e.
+    the provenance row's "cited" filter. Matching on the bare filename marked
+    whichever same-named entry the registry held first, so a report citing the
+    Büroarchiv `Plan.pdf` credited the project's unrelated file of the same name
+    and dropped the Archiv document the answer actually stood on.
+    """
+
+    @staticmethod
+    def _registry() -> SourceRegistry:
+        registry = SourceRegistry()
+        for collection in ("proj_alpha", "archiv_org1"):
+            registry.add(
+                SourceEntry(
+                    citation_key="Plan.pdf, p.3",
+                    source_type="knowledge_layer",
+                    collection=collection,
+                )
+            )
+        return registry
+
+    def test_the_qualified_shelf_is_the_one_marked_cited(self):
+        report = "Wie im Archivplan [1].\n\n**Quellen:**\n- [1] Plan.pdf (Büroarchiv), p.3\n"
+        entries = cited_document_entries(report, self._registry())
+        assert [entry.collection for entry in entries] == ["archiv_org1"]
+
+    def test_both_shelves_are_cited_when_the_answer_names_both(self):
+        report = (
+            "Projekt [1] gegen Archiv [2].\n\n"
+            "**Quellen:**\n"
+            "- [1] Plan.pdf (Projektwissen), p.3\n"
+            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+        )
+        entries = cited_document_entries(report, self._registry())
+        assert {entry.collection for entry in entries} == {"proj_alpha", "archiv_org1"}
+
+    def test_an_unqualified_line_still_cites_one_document(self):
+        # Fail-open: a bare filename proves the document was cited but not which
+        # copy, so exactly one entry is marked — never zero, never both.
+        report = "Wie im Plan [1].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n"
+        assert len(cited_document_entries(report, self._registry())) == 1
+
+    def test_pages_of_one_document_are_one_cited_document(self):
+        registry = SourceRegistry()
+        for page in (3, 9):
+            registry.add(
+                SourceEntry(
+                    citation_key=f"Plan.pdf, p.{page}",
+                    source_type="knowledge_layer",
+                    collection="proj_alpha",
+                )
+            )
+        report = "Siehe Plan [1][2].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n- [2] Plan.pdf, p.9\n"
+        assert len(cited_document_entries(report, registry)) == 1

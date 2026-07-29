@@ -438,8 +438,10 @@ class TestRisSearchPlanner:
 
 
 class TestSafeDocumentName:
-    def test_prefers_title(self):
-        assert _safe_document_name("NOR1", "Bauordnung für Wien §5") == "RIS_Bauordnung_für_Wien__5.txt"
+    """The name becomes a CITATION KEY the reader sees, so it must be legible AND stable."""
+
+    def test_prefers_title_and_anchors_it_with_the_document_number(self):
+        assert _safe_document_name("NOR1", "Bauordnung für Wien §5") == "RIS_Bauordnung_für_Wien__5_NOR1.txt"
 
     def test_falls_back_to_reference(self):
         assert _safe_document_name("NOR40217157", "") == "RIS_NOR40217157.txt"
@@ -448,6 +450,74 @@ class TestSafeDocumentName:
         name = _safe_document_name("NOR1", "x" * 300)
 
         assert len(name) <= len("RIS_.txt") + 80
+
+    def test_the_ris_title_prefix_is_not_doubled(self):
+        """RIS titles start with "RIS - "; prefixing our own gave "RIS_RIS_-_…"."""
+        name = _safe_document_name("LWI40010002", "RIS - Wiener Garagengesetz 2008")
+
+        assert name.startswith("RIS_Wiener_Garagengesetz")
+        assert "RIS_RIS" not in name
+
+    def test_the_same_law_keeps_ONE_name_across_days(self):
+        """A RIS title carries "Fassung vom <retrieval date>".
+
+        Leaving it in meant the same law ingested as a NEW document every day:
+        a session accumulated near-duplicate snapshots and a citation pointed at
+        whichever day's copy happened to be retrieved.
+        """
+        title = "RIS - Wiener Garagengesetz 2008 - Landesrecht konsolidiert Wien, Fassung vom {date}"
+        monday = _safe_document_name("LWI40010002", title.format(date="28.07.2026"))
+        tuesday = _safe_document_name("LWI40010002", title.format(date="29.07.2026"))
+
+        assert monday == tuesday
+        assert "Fassung" not in monday
+        assert "2026" not in monday
+
+    def test_truncation_never_leaves_a_dot_against_the_extension(self):
+        """Cutting mid-token used to produce "…vom_28..txt"."""
+        name = _safe_document_name("NOR1", "Ein sehr langer Titel " * 10 + "28.07.2026")
+
+        assert ".." not in name
+        assert name.endswith(".txt")
+
+    def test_a_url_and_its_document_number_name_ONE_document(self):
+        """`ris_fetch_document` takes either form for the same document.
+
+        Sanitizing the whole URL made the two forms two documents. The ingest
+        marker is keyed on the fetched URL, so the second form skipped ingestion
+        and told the agent about a filename that was never stored.
+        """
+        by_number = _safe_document_name("NOR40217157", "RIS - Garagengesetz")
+        by_url = _safe_document_name(
+            "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html",
+            "RIS - Garagengesetz",
+        )
+
+        assert by_number == by_url
+        assert "NOR40217157" in by_number
+
+    def test_a_consolidated_law_url_is_anchored_by_its_Gesetzesnummer(self):
+        name = _safe_document_name(
+            "https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10008935",
+            "RIS - Garagengesetz",
+        )
+
+        assert name == "RIS_Garagengesetz_10008935.txt"
+
+    def test_a_url_urlparse_refuses_still_yields_a_name(self):
+        """Naming the document must not fail a fetch that already succeeded."""
+        assert _safe_document_name("http://[", "RIS - Garagengesetz") == "RIS_Garagengesetz.txt"
+
+    def test_an_unreadable_url_contributes_no_anchor(self):
+        """The title alone is stable; a sanitized URL is neither stable nor legible."""
+        name = _safe_document_name("https://www.ris.bka.gv.at/Suche?query=garagen", "RIS - Garagengesetz")
+
+        assert name == "RIS_Garagengesetz.txt"
+
+    def test_two_different_laws_never_collide(self):
+        assert _safe_document_name("LWI40010002", "RIS - Garagengesetz") != _safe_document_name(
+            "LWI40000225", "RIS - Garagengesetz"
+        )
 
 
 class TestRisFetchDocumentTool:
@@ -538,7 +608,7 @@ class TestRisFetchDocumentTool:
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="NOR1")
 
-        assert 'added to the knowledge base as "RIS_Gesetz.txt"' in output
+        assert 'added to the knowledge base as "RIS_Gesetz_NOR1.txt"' in output
         assert "knowledge_search" in output
 
     async def test_ingestion_failure_is_non_fatal(self, fake_client, monkeypatch):

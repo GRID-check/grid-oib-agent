@@ -18,6 +18,15 @@ export const chat = {
     // Bindingness note (how a RIS source binds the project) in the info popover.
     bindingLabel: 'Binding effect',
     openExternal: 'Open in RIS',
+    // Coarse source kind (ADR-0026) shown in the info popover. Preferred
+    // over `origins` because the origin token is kb/ris/web only, so a
+    // knowledge-base copy of a legal text reads as project material.
+    kinds: {
+      baurecht: 'Building law & guidelines',
+      buero: 'Office archive',
+      projekt: 'Project knowledge',
+      web: 'Web source',
+    },
     // Origin line in the info popover (no openable document).
     origins: {
       kb: 'Project knowledge',

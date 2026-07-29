@@ -47,6 +47,7 @@ import {
   type StoredDocumentRef,
 } from '../lib/answer-sources'
 import type { CitationSource } from '../types'
+import type { CollectionScope, SourceKind } from '../lib/source-kinds'
 import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
@@ -56,8 +57,9 @@ import { AuthorityTag } from './AuthorityTag'
 export interface SourcePreviewIndex {
   /**
    * Every DB-backed document the user can open: this project's uploads FIRST,
-   * then the organization's Archiv. Order matters — a filename held in both
-   * resolves to the project's copy, which is the one in view.
+   * then the organization's Archiv. Each row carries the shelf it came from, so
+   * a citation that names its own shelf resolves to the right copy of a filename
+   * held on both; order is only the tie-break for one that does not.
    */
   storedDocuments: StoredDocumentRef[]
   baseCorpusFiles: string[]
@@ -95,19 +97,28 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
     const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
 
-    const toRefs = (rows: unknown): StoredDocumentRef[] =>
+    const toRefs = (rows: unknown, scope: CollectionScope): StoredDocumentRef[] =>
       Array.isArray(rows)
         ? rows
             .filter(
               (doc): doc is { id: string; filename: string; contentType?: string | null } =>
                 !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
             )
-            .map((doc) => ({ id: doc.id, filename: doc.filename, contentType: doc.contentType ?? null }))
+            .map((doc) => ({
+              id: doc.id,
+              filename: doc.filename,
+              contentType: doc.contentType ?? null,
+              scope,
+            }))
         : []
 
-    // Project uploads first: a filename present in both resolves to the copy
-    // belonging to the project the user is looking at.
-    const storedDocuments: StoredDocumentRef[] = [...toRefs(docs), ...toRefs(archivDocs)]
+    // Tagged with the shelf each row came from, so a citation that names its own
+    // shelf resolves to the right copy of a filename held on both. Project
+    // uploads still come first, as the tie-break for a citation that does not.
+    const storedDocuments: StoredDocumentRef[] = [
+      ...toRefs(docs, 'projekt'),
+      ...toRefs(archivDocs, 'buero'),
+    ]
 
     // Only corpus files whose PDF actually exists on this deployment are
     // openable (index-only entries and removed files would 404 the viewer).
@@ -492,6 +503,13 @@ const InfoPreviewChip: FC<{
   tier?: string
   /** Bindingness note ("does this bind me?") from the norm registry. */
   bindingNote?: string
+  /**
+   * Canonical coarse kind (ADR-0026). Preferred over `target.origin` for the
+   * popover's provenance line: origin is only kb/ris/web, so a knowledge-base
+   * copy of a legal text reads as "Project knowledge" while the chip beside it
+   * shows a RIS badge and a Baurecht lane — the same source, contradicted.
+   */
+  kind?: SourceKind
   /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
   url?: string
   className?: string
@@ -519,6 +537,7 @@ const InfoPreviewChip: FC<{
   variant = 'chip',
   citation,
   trailing,
+  kind,
 }) => {
   const t = useTranslations('chat')
   return (
@@ -545,7 +564,7 @@ const InfoPreviewChip: FC<{
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>
-            {t(`sourcePreview.origins.${target.origin}`)}
+            {kind ? t(`sourcePreview.kinds.${kind}`) : t(`sourcePreview.origins.${target.origin}`)}
           </SourceSignalChip>
           {tier && (
             <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
@@ -673,6 +692,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     variant,
     citation: source.citation,
     trailing,
+    kind: source.citation?.kind,
   }
 
   if (target.kind === 'url') {

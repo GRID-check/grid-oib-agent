@@ -601,7 +601,7 @@ def _trace_lanes_json(
         import json
         from collections import OrderedDict
 
-        from aiq_agent.common.norm_registry import lane_for_hit
+        from aiq_agent.common.norm_registry import lane_for_knowledge_hit
         from aiq_agent.common.source_kinds import kind_for_lane
 
         if resolved is None:
@@ -614,7 +614,7 @@ def _trace_lanes_json(
             metadata = chunk.metadata or {}
             collection = metadata.get("collection")
             doc_class = _hit_doc_class(chunk, resolved)
-            key, label = lane_for_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
+            key, label = lane_for_knowledge_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
             bucket = lanes.get(key)
             if bucket is None:
                 bucket = {
@@ -645,6 +645,30 @@ def _trace_lanes_json(
         return '{"lanes":[]}'
 
 
+def _ambiguous_file_names(chunks) -> set[str]:
+    """Filenames this result set holds under MORE THAN ONE collection scope.
+
+    A search fans out across the base corpus, the session collection and the
+    project collections concurrently, so one result set can carry a project
+    `Plan.pdf` and a Büroarchiv `Plan.pdf` — different documents that a bare
+    filename cannot tell apart. Those names (and only those) get a scope
+    qualifier in their citation key, so the common case stays a plain filename.
+
+    Scope, not raw collection, is the grouping: it is all a citation key can
+    express, so two collections on the same shelf are not a distinction the
+    model could act on anyway.
+    """
+    from aiq_agent.common.source_kinds import collection_scope
+
+    scopes_by_name: dict[str, set[str | None]] = {}
+    for chunk in chunks:
+        name = (chunk.file_name or "").strip()
+        if not name:
+            continue
+        scopes_by_name.setdefault(name.lower(), set()).add(collection_scope((chunk.metadata or {}).get("collection")))
+    return {name for name, scopes in scopes_by_name.items() if len(scopes) > 1}
+
+
 def _format_results(retrieval_result, query: str) -> str:
     """
     Format retrieval results for LLM consumption.
@@ -671,15 +695,27 @@ def _format_results(retrieval_result, query: str) -> str:
     # derived default). This becomes the citation chip label so the answer never
     # surfaces a raw corpus filename like "oib-rl_2_ausgabe_mai_2023.pdf".
     resolved_titles = _resolve_display_titles(retrieval_result.chunks)
+    # Names this result set holds on more than one shelf; only these are qualified.
+    ambiguous = _ambiguous_file_names(retrieval_result.chunks)
 
     for i, chunk in enumerate(retrieval_result.chunks, 1):
         # Build citation string: "filename, p.X" or just "filename". The Citation
         # keeps the real filename — it is the document identity used for preview
         # resolution and source dedup; only the human Source label is prettified.
+        # When the same filename arrived from two different shelves in this very
+        # result set, the name alone no longer identifies a document, so it is
+        # qualified: "Plan.pdf (Projektwissen), p.3".
+        name = chunk.file_name
+        if name and name.lower() in ambiguous:
+            from aiq_agent.common.source_kinds import scope_qualifier
+
+            qualifier = scope_qualifier((chunk.metadata or {}).get("collection"))
+            if qualifier:
+                name = f"{name} ({qualifier})"
         if chunk.page_number and chunk.page_number > 0:
-            citation = f"{chunk.file_name}, p.{chunk.page_number}"
+            citation = f"{name}, p.{chunk.page_number}"
         else:
-            citation = chunk.file_name
+            citation = name
 
         # Header with source info. `Source:` carries the user-facing display name
         # (parsed into the citation chip's title); it falls back to the filename

@@ -444,6 +444,24 @@ class TestLaneForHit:
         )
 
 
+class TestLaneForKnowledgeHit:
+    """A retrieved document is something we hold — it can never be Web."""
+
+    def test_the_fail_open_lane_becomes_projektwissen(self):
+        # No doc_class, no recognizable collection prefix, no OIB filename:
+        # lane_for_hit fails open to Web. For a knowledge-layer hit that value
+        # means "no signal matched", not "this came off the internet".
+        assert nr.lane_for_hit(file_name="Bestandsplan.pdf") == ("web", "Web")
+        assert nr.lane_for_knowledge_hit(file_name="Bestandsplan.pdf") == ("projekt", "Projektwissen")
+
+    def test_a_real_classification_is_never_overridden(self):
+        assert nr.lane_for_knowledge_hit(file_name="oib-rl_2_ausgabe_mai_2023.pdf") == (
+            "baurecht_oib",
+            "OIB-Richtlinie",
+        )
+        assert nr.lane_for_knowledge_hit(collection="archiv_org1") == ("buero", "Büroarchiv")
+
+
 # ---------------------------------------------------------------------------
 # guess_doc_class (filename pre-fill for the explicit doc_class vocabulary)
 # ---------------------------------------------------------------------------

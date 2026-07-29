@@ -203,6 +203,27 @@ describe('SourcePreviewChip', () => {
     expect(document.querySelector('iframe')).toBeNull()
   })
 
+  test('the popover names the canonical kind, not the coarser origin token', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        source={sourceRef({
+          label: 'wr_bauordnung.pdf',
+          // `origin` is derived kb/ris/web only, so a knowledge-base copy of a
+          // legal text used to read "Project knowledge" in the popover while
+          // the chip beside it wore a RIS badge and a Baurecht lane.
+          citation: citation({ kind: 'baurecht', content: '[KB] wr_bauordnung.pdf\n§ 119.' }),
+        })}
+        signal="law"
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Preview source: wr_bauordnung.pdf' }))
+
+    expect(await screen.findByText('Building law & guidelines')).toBeInTheDocument()
+    expect(screen.queryByText('Project knowledge')).toBeNull()
+  })
+
   test('card-derived refs without a snippet stay plain, non-interactive chips', () => {
     render(
       <SourcePreviewChip source={sourceRef({ label: 'OIB-Richtlinie 2', kind: 'ris' })} signal="law" />

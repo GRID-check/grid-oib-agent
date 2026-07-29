@@ -948,3 +948,35 @@ def lane_for_hit(
     if collection:  # a named KB collection that is not project/archiv: the base corpus
         return ("baurecht_oib", "OIB-Richtlinie")
     return ("web", "Web")
+
+
+def lane_for_knowledge_hit(
+    *,
+    doc_class: str | None = None,
+    file_name: str | None = None,
+    source_url: str | None = None,
+    collection: str | None = None,
+    registry: NormRegistry | None = None,
+) -> tuple[str, str]:
+    """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
+
+    Identical, except that such a hit can never be Web. A retrieved document is
+    by definition something we hold — a project upload, the Büroarchiv, the base
+    corpus — so ``("web", "Web")`` is not a classification, it is the fail-open
+    value meaning "none of the signals matched" (no doc_class, no recognizable
+    collection prefix, no OIB filename). Those land in Projektwissen.
+
+    This exists so the two consumers of the rule cannot drift: the citation
+    chips (``citation_verification.source_lane``) and the Herleitung fan-out
+    (``knowledge_layer.register._trace_lanes_json``) used to apply it
+    separately, and only the former actually did — so the same document showed
+    as "Projektwissen" on a chip and "Web" in the fan-out of the same answer.
+    """
+    lane = lane_for_hit(
+        doc_class=doc_class,
+        file_name=file_name,
+        source_url=source_url,
+        collection=collection,
+        registry=registry,
+    )
+    return ("projekt", "Projektwissen") if lane == ("web", "Web") else lane
