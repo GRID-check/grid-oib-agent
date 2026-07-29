@@ -7,13 +7,13 @@ Date: 2026-07-29 · Plan: **Individual** (org `matthiasbigl`, $0) · Sources: pu
 | Surface | Our usage |
 |---|---|
 | **Stacks** | Two stacks (`dev`, `prod`) on the Pulumi Cloud backend: state storage, update history, and the stack-level secrets encryption key. Config is **file-based for plaintext, ESC-based for secrets**: `deploy/pulumi/Pulumi.<stack>.yaml` is committed (non-secret values + an `environment:` import) and CI deploys from the checked-out file. |
-| **CI/CD** | Our own GitHub Actions workflow (`.github/workflows/deploy.yml`): typecheck → CrossGuard policy pack + CRD schema validation on the plan → the apply delegated to **Pulumi Deployments** via `pulumi up --remote`. Auth is a **long-lived `PULUMI_ACCESS_TOKEN`** repo secret (OIDC issuer evaluated and declined, 2026-07-29). |
+| **CI/CD** | Our own GitHub Actions workflow (`.github/workflows/deploy.yml`): typecheck → CrossGuard policy pack + CRD schema validation on the plan → the apply (`pulumi up --yes`) on the same runner. Auth is a **long-lived `PULUMI_ACCESS_TOKEN`** repo secret (OIDC issuer evaluated and declined, 2026-07-29). |
 | **CrossGuard** | Policy pack in `deploy/pulumi/policy`, run **client-side** in CI (`--policy-pack ./policy`), not org-managed. |
 | **Environments (ESC)** | `grid-oib/dev` holds the dev stack's secrets (adopted 2026-07-29, see below). |
-| **Deployments** | Saved deployment settings on `dev` (GitHub source, branch `develop`, folder `deploy/pulumi`, push-to-deploy off); applies are triggered from GHA with `pulumi up --remote` and from the console via Click-to-Deploy. |
+| **Deployments** | **Not used for CI applies** (adopted and reverted 2026-07-29, see decision 3). Saved deployment settings remain on `dev` for console Click-to-Deploy as a break-glass manual path. Our applies show in the stack's **Activity** tab — the Cloud backend records every update with full logs/diffs, wherever the CLI ran. |
 | **Resources / Insights** | Whatever the stack state shows by default; no Discovery accounts, no saved searches. |
 
-Why the other tabs were empty before 2026-07-29: **Environments** lists only ESC environments (we never created one); **Deployments** lists only stacks with *deployment settings* configured (we deployed from GHA, so nothing registered); **Resources** populates from stack state plus Insights Discovery accounts (we have the former, not the latter).
+Why the other tabs were empty before 2026-07-29: **Environments** lists only ESC environments (we never created one); **Deployments** lists only Pulumi-hosted runs (we deploy from GHA, so nothing registers there — our updates live in the stack's **Activity** tab); **Resources** populates from stack state plus Insights Discovery accounts (we have the former, not the latter).
 
 ## What each unused surface is
 
@@ -65,39 +65,35 @@ give it its own `grid-oib/prod` environment and factor the ~4 values that are
 genuinely identical across stacks into a shared `grid-oib/common` import to
 stay under the cap (14 + 14 would exceed it).
 
-### 3. Pulumi Deployments — adopted as the apply executor
+### 3. Pulumi Deployments — adopted, then REVERTED the same day
 
-The compromise that keeps our gates: **GHA plans + gates, Pulumi Deployments
-applies.** `deploy.yml` is unchanged through typecheck, CRD-schema validation,
-and the CrossGuard preview; the apply step is
-`pulumi up --remote <repo url> --remote-inherit-settings --remote-git-commit <gated sha>`
-(the positional repo URL is mandatory when `--remote-git-commit` is set: the
-CLI then builds the git source from flags alone, and the API rejects an empty
-`repoUrl` even with `--remote-inherit-settings`),
-which runs the update on Pulumi's managed runner for the exact commit the
-gates validated and is recorded in the console's **Deployments** tab with live
-logs. The immutable image tag travels via `--remote-env GRID_IMAGE_TAG=…` plus
-a `--remote-pre-run-command` that `pulumi config set`s it (console
-Click-to-Deploy runs fall back to `sha-<HEAD>` of the checkout, so the manual
-path stays self-consistent). The `--remote*` flags are experimental: the CLI
-only registers them with `PULUMI_EXPERIMENTAL=true` set (the workflow's apply
-step exports it).
+**Final state: the apply runs on the GHA runner (`pulumi up --yes` right after
+the gates).** The motivating goal — "see deployments in the Pulumi console" —
+turned out not to need Deployments at all: every update against the Pulumi
+Cloud backend is recorded in the stack's **Activity** tab with full logs and
+diffs, regardless of where the CLI ran. The **Deployments** tab lists only
+Pulumi-hosted runs.
 
-Prerequisite (one-time, console): stack `dev` → Settings → Deploy — GitHub
-source `GRID-check/grid-oib-agent`, branch `develop`, Pulumi.yaml folder
-`deploy/pulumi`, **push-to-deploy OFF** (GHA orchestrates; Click-to-Deploy
-stays available).
+History: adopted in the morning (GHA gates, Pulumi Deployments applies via
+`pulumi up --remote <repo url> --remote-inherit-settings --remote-git-commit
+<sha>`, image tag via `--remote-env` + `--remote-pre-run-command`). Three
+consecutive deploy failures traced to the experimental `--remote*` surface:
+flags not registered without `PULUMI_EXPERIMENTAL=true` (docs list them
+unconditionally), the API rejecting an empty `repoUrl` when
+`--remote-git-commit` is set without the positional URL (the settings' repo is
+not inherited into the request), and pre-run commands executing before a stack
+is selected on the managed runner (`pulumi config set` → "no stack selected").
+Each was individually fixable; collectively they said the path is immature, and
+the visibility benefit exists without it. Reverted to the plain local apply.
 
-Accepted residuals:
+The saved deployment settings on `dev` (GitHub source, branch `develop`,
+folder `deploy/pulumi`) are left in place, unused — console Click-to-Deploy
+remains as a break-glass manual path (it deploys the stack file's pinned
+`imageTag`, i.e. `latest`, not the CI flow's immutable `sha-<commit>`).
 
-- The CrossGuard pack no longer re-runs on the apply plan itself (Pulumi's
-  runner executes a plain `up`); the GHA preview is the policy checkpoint.
-  Between gate and apply, only operator-side cluster drift could alter the
-  plan — `--remote-git-commit` removes any code drift.
-- Deploys consume the 500 free workflow minutes/month (ours take several
-  minutes each; ample headroom today).
-- The job-summary resource diff (`pulumi/actions` `comment-on-summary`) is
-  gone; the diff lives in the deployment's console logs instead.
+Accepted residual (unchanged from before the experiment): the CrossGuard pack
+does not re-run on the apply itself; the GHA preview is the policy checkpoint,
+and only operator-side cluster drift can alter the plan between gate and apply.
 
 ### 4. Insights Discovery — not applicable
 
