@@ -272,6 +272,8 @@ jobs:
       # validated; the pre-run command pins the immutable image tag from
       # GRID_IMAGE_TAG, and console Click-to-Deploy runs derive sha-<HEAD>
       # from the checkout instead (the fallback in the command).
+      # The --remote* flags are EXPERIMENTAL: the CLI doesn't register them
+      # unless PULUMI_EXPERIMENTAL is set ("unknown flag: --remote" otherwise).
       - name: Pulumi up (remote, on Pulumi Deployments)
         working-directory: deploy/pulumi
         run: |
@@ -284,3 +286,4 @@ jobs:
             --remote-pre-run-command 'pulumi config set grid-oib:imageTag "${GRID_IMAGE_TAG:-sha-$(git rev-parse HEAD)}"'
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          PULUMI_EXPERIMENTAL: "true"

@@ -76,7 +76,9 @@ gates validated and is recorded in the console's **Deployments** tab with live
 logs. The immutable image tag travels via `--remote-env GRID_IMAGE_TAG=…` plus
 a `--remote-pre-run-command` that `pulumi config set`s it (console
 Click-to-Deploy runs fall back to `sha-<HEAD>` of the checkout, so the manual
-path stays self-consistent).
+path stays self-consistent). The `--remote*` flags are experimental: the CLI
+only registers them with `PULUMI_EXPERIMENTAL=true` set (the workflow's apply
+step exports it).
 
 Prerequisite (one-time, console): stack `dev` → Settings → Deploy — GitHub
 source `GRID-check/grid-oib-agent`, branch `develop`, Pulumi.yaml folder
