@@ -158,6 +158,38 @@ describe('an inline citation marker', () => {
     expect(within(peek).getByText('p. 18')).toBeInTheDocument()
   })
 
+  test('hovering asks the question; the reader never has to commit to it', async () => {
+    // Checking a source mid-sentence is a glance. Charging a click for it — and
+    // then a dismissal — is charging a commitment for a question the reader
+    // wanted answered in passing.
+    const user = userEvent.setup()
+    renderAnswer()
+
+    await user.hover(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+
+    const peek = await screen.findByRole('dialog')
+    expect(within(peek).getByText('Garagen sind mechanisch zu entlüften.')).toBeInTheDocument()
+  })
+
+  test('a hovered peek yields when the pointer leaves; a clicked one stays', async () => {
+    // The two states earn their difference: a peek that vanished on pointer-out
+    // could never hold a button, because reaching for one means leaving.
+    const user = userEvent.setup()
+    renderAnswer()
+    const marker = screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i })
+
+    await user.hover(marker)
+    await screen.findByRole('dialog')
+    await user.unhover(marker)
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await user.click(marker)
+    await screen.findByRole('dialog')
+    await user.unhover(marker)
+    // Still there: the click pinned it.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
   test('an anchor that is not a citation stays an ordinary link', () => {
     render(
       <AgentResponse

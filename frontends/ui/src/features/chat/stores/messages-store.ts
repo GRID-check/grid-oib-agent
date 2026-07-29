@@ -18,6 +18,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { getErrorMeta } from '../lib/error-registry'
+import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
 import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
 
@@ -204,6 +205,30 @@ const updateConversationInList = (
   updatedConversation: Conversation
 ): Conversation[] => {
   return conversations.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
+}
+
+/**
+ * Apply a "Function Complete: X" payload to a step, carrying its retrieval over.
+ *
+ * The step is keyed by function name alone, so every call a ReAct-style agent
+ * makes to the SAME tool within one turn lands on the same step and replaces its
+ * `content` wholesale — which is correct for the visible step text (it shows the
+ * latest output) but silently threw away what the earlier calls had retrieved:
+ * the `## Trace-Lanes` block of call #1 was gone the moment call #2 completed,
+ * and with it the source card the Herleitung had already rendered for it. So
+ * before the overwrite we lift the lanes out of BOTH the outgoing and the
+ * incoming payload and fold them into `traceLanes`, the step's cumulative record
+ * of what the turn has read. `content` is still replaced exactly as before, and
+ * lanes are only attached once there is something to attach, so a step whose
+ * tool ships no structured block (web/RIS) keeps falling through to the URL scan
+ * in `deriveTraceLanes`.
+ */
+const withCompletedPayload = (step: ThinkingStep, content: string, isComplete: boolean): ThinkingStep => {
+  const carried = mergeTraceLaneCards(step.traceLanes, parseTraceLanesBlock(step.content))
+  const merged = mergeTraceLaneCards(carried, parseTraceLanesBlock(content))
+  return merged.length > 0
+    ? { ...step, content, isComplete, traceLanes: merged }
+    : { ...step, content, isComplete }
 }
 
 const createNewConversation = (userId: string): Conversation => ({
@@ -804,7 +829,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const updatedThinkingSteps = thinkingSteps.map((step) =>
       step.functionName === functionName && step.userMessageId === currentUserMessageId
-        ? { ...step, content, isComplete }
+        ? withCompletedPayload(step, content, isComplete)
         : step
     )
 
@@ -820,7 +845,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           return {
             ...msg,
             thinkingSteps: msg.thinkingSteps.map((s) =>
-              s.functionName === functionName ? { ...s, content, isComplete } : s
+              s.functionName === functionName ? withCompletedPayload(s, content, isComplete) : s
             ),
           }
         }

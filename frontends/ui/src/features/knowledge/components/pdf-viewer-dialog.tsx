@@ -51,9 +51,16 @@ export interface PdfViewerDialogProps {
    * (WS-9: the tinted "Fundstelle"/cited-passage box). Purely additive.
    */
   children?: ReactNode
+  /**
+   * Optional panel rendered ALONGSIDE the document frame rather than above it
+   * (the citation passage rail). Content that the reader consults while reading
+   * has to stay on screen while they read — put it in `children` and it becomes
+   * a band they scroll past once and then cannot reach.
+   */
+  aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, headerChip, children }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, headerChip, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   const src = page && !isImage ? `${baseSrc}#page=${page}` : baseSrc
@@ -89,18 +96,24 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
           </DialogDescription>
         </DialogHeader>
         {children}
-        {open &&
-          (isImage ? (
-            <div className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken">
-              <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
-            </div>
-          ) : (
-            <iframe
-              src={src}
-              title={title ?? fileName}
-              className="min-h-0 w-full flex-1 rounded-lg border border-border bg-surface-sunken"
-            />
-          ))}
+        {/* The frame and its aside share the dialog's remaining height. Without
+            an aside this is a single flex child filling the row exactly as it
+            did before, so every caller that passes none is unaffected. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
+          {aside}
+          {open &&
+            (isImage ? (
+              <div className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken">
+                <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
+              </div>
+            ) : (
+              <iframe
+                src={src}
+                title={title ?? fileName}
+                className="min-h-0 w-full flex-1 rounded-lg border border-border bg-surface-sunken"
+              />
+            ))}
+        </div>
       </DialogContent>
     </Dialog>
   )

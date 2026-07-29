@@ -107,12 +107,13 @@ const Block: FC<{ title: string; note: string; children: ReactNode }> = ({
 )
 
 /**
- * Opens a marker's peek before the screenshot harness captures.
+ * Drives a marker to the state the harness should capture.
  *
- * The harness captures a page at rest, so the popover and the document dialog —
- * the two surfaces this work actually adds — never appeared in any committed
+ * The harness captures a page at rest, so the two surfaces this work actually
+ * adds — the peek and the document dialog behind it — appeared in no committed
  * screenshot. `?open=peek` clicks the first marker once the answer has
- * rendered, which is the only way to get those states on film.
+ * rendered; `?open=dialog` goes one step further and presses the peek's "open
+ * at this passage", which is the only way to get the passage rail on film.
  */
 const OpenOnLoad: FC = () => {
   const params = useSearchParams()
@@ -120,14 +121,44 @@ const OpenOnLoad: FC = () => {
 
   useEffect(() => {
     if (!which) return
-    // One frame after paint: the marker exists only once the markdown body and
-    // the citation scope have both rendered.
-    const timer = window.setTimeout(() => {
-      const markers = document.querySelectorAll<HTMLButtonElement>('[data-citation-marker]')
-      const target = which === 'dialog' ? markers[1] : markers[0]
-      target?.click()
-    }, 150)
-    return () => window.clearTimeout(timer)
+    const timers: number[] = []
+
+    /**
+     * Press a control as soon as it exists.
+     *
+     * A fixed delay was the first attempt and it was quietly wrong: the marker
+     * appears only once the markdown body and the citation scope have both
+     * rendered, and how long that takes depends on whether the dev server
+     * compiled this route already. When it lost that race the harness captured
+     * the page at rest and committed it as the "open" baseline — a screenshot
+     * that silently stops showing what it is named for.
+     *
+     * Focus, then click: the click alone is what a reader does, but focusing
+     * first is what keeps the panel up while the capture flips themes.
+     */
+    const press = (selector: string, then?: () => void): void => {
+      let attempts = 0
+      const tick = (): void => {
+        const target = document.querySelector<HTMLButtonElement>(selector)
+        if (target) {
+          target.focus()
+          target.click()
+          then?.()
+          return
+        }
+        if (attempts++ > 60) return
+        timers.push(window.setTimeout(tick, 50))
+      }
+      tick()
+    }
+
+    // The dialog is reachable only from inside the peek — which is exactly the
+    // path a reader walks, so the harness walks it too.
+    press('[data-citation-marker]', () =>
+      which === 'dialog' ? press('[data-citation-open]') : undefined
+    )
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
   }, [which])
 
   return null

@@ -349,6 +349,50 @@ body {
   animation: grid-progress-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
+/* =============================================================================
+   Citation focus — "this one"
+
+   Clicking an inline [3] marks the chip that backs it. A ring was the wrong
+   instrument for that: a ring states a lasting condition (this has focus, this
+   is selected), so a chip wearing one for two seconds and then losing it reads
+   as a state that broke rather than as an answer. It also drew a hard line
+   whose radius argued with the chip's own.
+
+   What the moment wants is an EVENT — a tinted swell that arrives, says which
+   chip, and leaves the chip exactly as it found it. Two beats: the first is the
+   answer, the second is for a reader whose eye reached the row late.
+
+   The colour comes from `--citation-pulse`, set per chip, so the swell is the
+   colour of the source it points at. Under the global prefers-reduced-motion
+   rule above the animation collapses, which is why `--citation-pulse` also
+   paints a static outline — the connection must survive without the motion.
+   ============================================================================= */
+@keyframes grid-citation-pulse {
+  0% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklch, var(--citation-pulse, var(--ring)) 60%, transparent),
+      0 0 0 0 color-mix(in oklch, var(--citation-pulse, var(--ring)) 30%, transparent);
+  }
+  60% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklch, var(--citation-pulse, var(--ring)) 34%, transparent),
+      0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklch, var(--citation-pulse, var(--ring)) 26%, transparent),
+      0 0 0 0 transparent;
+  }
+}
+
+@utility animate-citation-pulse {
+  /* The outline is the floor the animation returns to, so the marked chip stays
+     legible between beats and when motion is off entirely. */
+  outline: 1.5px solid color-mix(in oklch, var(--citation-pulse, var(--ring)) 45%, transparent);
+  outline-offset: 1px;
+  animation: grid-citation-pulse 1.1s cubic-bezier(0.16, 1, 0.3, 1) 2;
+}
+
 @utility min-h-dvh {
   min-height: 100dvh;
 }
