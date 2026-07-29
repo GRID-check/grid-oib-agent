@@ -274,11 +274,14 @@ jobs:
       # from the checkout instead (the fallback in the command).
       # The --remote* flags are EXPERIMENTAL: the CLI doesn't register them
       # unless PULUMI_EXPERIMENTAL is set ("unknown flag: --remote" otherwise).
+      # The repo URL must ALSO be passed positionally: with --remote-git-commit
+      # set, the CLI builds Source.Git from flags only, and the API rejects a
+      # git source without repoUrl even when --remote-inherit-settings is on.
       - name: Pulumi up (remote, on Pulumi Deployments)
         working-directory: deploy/pulumi
         run: |
           export PATH="$HOME/.pulumi/bin:$PATH"
-          pulumi up --remote --yes \
+          pulumi up --remote https://github.com/GRID-check/grid-oib-agent --yes \
             --stack matthiasbigl/grid-oib/dev \
             --remote-inherit-settings \
             --remote-git-commit "$DEPLOY_SHA" \

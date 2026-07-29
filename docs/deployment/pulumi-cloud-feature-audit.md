@@ -70,7 +70,10 @@ stay under the cap (14 + 14 would exceed it).
 The compromise that keeps our gates: **GHA plans + gates, Pulumi Deployments
 applies.** `deploy.yml` is unchanged through typecheck, CRD-schema validation,
 and the CrossGuard preview; the apply step is
-`pulumi up --remote --remote-inherit-settings --remote-git-commit <gated sha>`,
+`pulumi up --remote <repo url> --remote-inherit-settings --remote-git-commit <gated sha>`
+(the positional repo URL is mandatory when `--remote-git-commit` is set: the
+CLI then builds the git source from flags alone, and the API rejects an empty
+`repoUrl` even with `--remote-inherit-settings`),
 which runs the update on Pulumi's managed runner for the exact commit the
 gates validated and is recorded in the console's **Deployments** tab with live
 logs. The immutable image tag travels via `--remote-env GRID_IMAGE_TAG=…` plus
