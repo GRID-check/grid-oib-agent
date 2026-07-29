@@ -34,9 +34,9 @@ config:
 
   # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
   grid-oib:storageClass: single-replica
-  # ── Ingress / TLS ── (staging subdomains; staging ACME CA)
-  grid-oib:appDomain: app.dev.bigls.net
-  grid-oib:s3Domain: s3.dev.bigls.net
+  # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
+  # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
+  grid-oib:baseDomain: dev.piloti.at
   grid-oib:letsEncryptEmail: matthias@bigls.net
   grid-oib:useStagingIssuer: "false" # staging CA verified; prod LE certs now issue
   # Provider ships an unremovable metrics stack — don't install a second one.
@@ -132,7 +132,6 @@ config:
   # designed fail-closed behaviour, not a missing config bug).
   grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
   grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV  # pragma: allowlist secret (public OAuth client id)
-  grid-oib:otelDomain: otel.dev.bigls.net
   grid-oib:otelPrimaryApiKey:
     secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
   grid-oib:loadBalancerIp: 45.144.209.191

@@ -228,7 +228,10 @@ pulumi up
 Then:
 
 1. `kubectl -n envoy-gateway-system get svc` → note the Envoy proxy LoadBalancer external IP.
-2. Point DNS `A`/`AAAA` records for `appDomain` and `s3Domain` at it.
+2. Point DNS `A`/`AAAA` records for `app.<baseDomain>` and `s3.<baseDomain>`
+   (and `otel.<baseDomain>` when observability is on) at it. `appDomain`/
+   `s3Domain`/`otelDomain` exist only as optional per-host overrides —
+   `grid-oib:baseDomain` is the single key a domain move touches.
 3. Leave `useStagingIssuer: true` until the ingress is reachable and a staging
    cert issues (avoids Let's Encrypt rate limits); then set it `false` and
    `pulumi up` for a trusted cert.
@@ -600,9 +603,10 @@ Chroma):
 
 **Gating (flag AND capability):** the tier is deployed only when
 `grid-oib:observabilityEnabled` is on (default `true`) **and** every dependency
-it needs is configured — `otelDomain`, `otelPrimaryApiKey`, plus the dashboard's
+it needs is configured — `otelPrimaryApiKey`, plus the dashboard's
 dedicated WorkOS Connect application (`otelOidcIssuer`/`otelOidcClientId`/
-`otelOidcClientSecret`) behind the edge permission gate. Miss one and `pulumi
+`otelOidcClientSecret`) behind the edge permission gate (the host derives from
+`baseDomain` as `otel.<baseDomain>`). Miss one and `pulumi
 preview` logs a warning naming it
 and skips the whole tier: no collector, no dashboard, no SecurityPolicy, no
 `https-otel` Gateway listener/certificate, and no `OTEL_*` env on any producer
@@ -692,7 +696,7 @@ lacked, and the first thing to run if login breaks:
 ```bash
 ISSUER=$(pulumi config get grid-oib:otelOidcIssuer)
 CID=$(pulumi config get grid-oib:otelOidcClientId)
-OTEL_DOMAIN=$(pulumi config get grid-oib:otelDomain)
+OTEL_DOMAIN=otel.$(pulumi config get grid-oib:baseDomain)
 # Same callback and scopes the SecurityPolicy sends, so this exercises the
 # deployed configuration rather than a laxer variant of it.
 curl -s -o /dev/null -w '%{redirect_url}\n' \

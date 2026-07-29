@@ -15,7 +15,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), (metrics-server only on bare clusters) |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job |
-| Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `appDomain` and `s3Domain` |
+| Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ npm install
 pulumi stack init prod
 
 # Non-secret config is templated in Pulumi.prod.yaml — edit the placeholders
-# (storageClass, appDomain, s3Domain, letsEncryptEmail, imageTag, …).
+# (storageClass, baseDomain, letsEncryptEmail, imageTag, …).
 
 # Secrets (encrypted into the stack):
 pulumi config set --secret grid-oib:kubeconfig           "$(cat ~/.kube/grid-config)"
@@ -57,7 +57,8 @@ pulumi preview
 pulumi up
 ```
 
-Then point DNS for `appDomain` and `s3Domain` at the Envoy Gateway external IP
+Then point DNS for `app.<baseDomain>` and `s3.<baseDomain>` (and `otel.<baseDomain>`
+when observability is on) at the Envoy Gateway external IP
 (`kubectl -n envoy-gateway-system get svc`), and once TLS issues, flip
 `useStagingIssuer` to `false` and `pulumi up` again.
 
@@ -91,7 +92,8 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **Storage** | | |
 | **`storageClass`** | — | Provider class for every PVC: `premium` (3 replicas) / `standard` (2) / `single-replica` (1) |
 | **Ingress / TLS** | | |
-| **`appDomain`** / **`s3Domain`** | — | Public hosts for app and S3 endpoints |
+| **`baseDomain`** | — | Single source for every public host: `app.`/`s3.`/`otel.` subdomains derive from it, so a domain move is a one-key change |
+| `appDomain` / `s3Domain` / `otelDomain` | derived from `baseDomain` | Optional per-host overrides (e.g. an S3 endpoint on a different zone) |
 | **`letsEncryptEmail`** | — | ACME account email (placeholder rejected) |
 | `useStagingIssuer` | `true` | LE staging CA until DNS/TLS verified, then flip false |
 | `installMetricsServer` | `false` | Only for bare clusters; the provider ships metrics already |
@@ -161,8 +163,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `workflowsEnabled` | `false` | Scheduled workflows feature; the `workflow-scheduler` Deployment is only created when `true` |
 | `workflowMinIntervalMinutes` | `15` | Minimum schedule interval |
 | **Observability** (ADR-0029) | | |
-| `observabilityEnabled` | `true` | Feature flag for the tier. Deployed only when the flag is on **AND** the capability holds (`otelDomain`, `otelPrimaryApiKey`, `otelOidcIssuer`, `otelOidcClientId`, `otelOidcClientSecret` all set) — otherwise `preview` warns and nothing is provisioned, including the `https-otel` listener and the producers' OTLP env |
-| **`otelDomain`** | — | Public hostname of the Aspire dashboard UI (`https-otel` Gateway listener) |
+| `observabilityEnabled` | `true` | Feature flag for the tier. Deployed only when the flag is on **AND** the capability holds (`otelPrimaryApiKey`, `otelOidcIssuer`, `otelOidcClientId`, `otelOidcClientSecret` all set) — otherwise `preview` warns and nothing is provisioned, including the `https-otel` listener and the producers' OTLP env |
 | **`otelOidcIssuer`** | — | Issuer of the dashboard's dedicated WorkOS **Connect** application (the environment's AuthKit domain, `https://<tenant>.authkit.app`) |
 | **`otelOidcClientId`** | — | Client id of that Connect application (confidential client) |
 | 🔒 `otelOidcClientSecret` | — | Its client secret. The Gateway SecurityPolicy exchanges the code with `client_secret_basic`, so a public/PKCE-only client cannot be used |

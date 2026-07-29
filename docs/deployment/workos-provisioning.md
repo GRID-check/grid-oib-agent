@@ -57,8 +57,9 @@ only ever attached to platform-org roles, never to tenant roles.
 
 ### 4. AuthKit / environment settings
 
-- CORS web origins: `https://grid-dev.bigls.net`, `https://grid.bigls.net`
-  (required for WorkOS widgets) — pre-existing, verified.
+- CORS web origins: `https://app.dev.piloti.at` (required for WorkOS widgets).
+  Keep in sync with `grid-oib:baseDomain` in `deploy/pulumi/Pulumi.*.yaml` —
+  the app origin is always `https://app.<baseDomain>`.
 - Auth methods: password + Google + GitHub + Microsoft + Apple; email
   verification required; MFA off. No JWT template (default claims carry
   role/permissions per active org — exactly what the app reads).
