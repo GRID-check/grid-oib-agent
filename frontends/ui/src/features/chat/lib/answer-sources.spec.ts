@@ -457,6 +457,29 @@ describe('resolveCitationTarget', () => {
       expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
     })
 
+    test('a Basiswissen citation opens the base corpus, not a same-named upload', () => {
+      // The base corpus has no StoredDocumentRef row, so the base-corpus shelf
+      // was the one scope that resolved to the wrong document whenever a project
+      // upload shared the filename.
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' },
+        scopedDocuments,
+        ['Plan.pdf']
+      )
+
+      expect(target).toMatchObject({ document: { type: 'base', fileName: 'Plan.pdf' } })
+    })
+
+    test('a Basiswissen citation with no base-corpus copy still falls back', () => {
+      const target = resolveCitationTarget(
+        { url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' },
+        scopedDocuments,
+        ['oib-rl_2.pdf']
+      )
+
+      expect(target).toMatchObject({ document: { type: 'stored', id: 'doc-1' } })
+    })
+
     test('untagged rows still resolve for callers that supply no scope', () => {
       const target = resolveCitationTarget(
         { url: '', content: '[KB] Brandschutzkonzept.pdf', collection: 'proj_alpha' },

@@ -475,12 +475,18 @@ export const resolveCitationTarget = (
   if (locator) {
     const wanted = locator.filename.toLowerCase()
     const named = storedDocuments?.filter((doc) => doc.filename.toLowerCase() === wanted) ?? []
+    const baseFile = baseCorpusFiles?.find((fileName) => fileName.toLowerCase() === wanted)
     // Narrow to the shelf the citation names — the same document identity the
     // backend registry keys on. FAIL-OPEN: a scope that matches nothing falls
     // back to the plain filename match, so nothing that opens today stops
     // opening because a scope was missing, stale, or wrong.
     const scoped = locator.scope ? named.filter((doc) => doc.scope === locator.scope) : []
-    const storedDoc = scoped[0] ?? named[0]
+    // `Basiswissen` names the base corpus, which `storedDocuments` cannot hold
+    // (it is project + Archiv rows only). Without this the base-corpus shelf
+    // would be the one scope that resolves to the WRONG document whenever a
+    // project upload shares the filename — the exact confusion the qualifier
+    // exists to prevent. Still fail-open: no base-corpus copy, no override.
+    const storedDoc = locator.scope === 'baurecht' && baseFile ? undefined : (scoped[0] ?? named[0])
     if (storedDoc && isPreviewableContentType(storedDoc.contentType)) {
       return {
         kind: 'document',
@@ -496,7 +502,6 @@ export const resolveCitationTarget = (
         },
       }
     }
-    const baseFile = baseCorpusFiles?.find((fileName) => fileName.toLowerCase() === wanted)
     if (baseFile) {
       return {
         kind: 'document',
