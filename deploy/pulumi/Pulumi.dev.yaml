@@ -1,37 +1,44 @@
 # Stack configuration for the `dev` (staging) stack.
 #
 # Deployed automatically from the `develop` branch by .github/workflows/deploy.yml
-# once CI + Security are green. Secret values are ciphertext, encrypted by the
-# stack's Pulumi-Cloud-managed key (safe to commit; only holders of stack access
-# can decrypt). To re-create a stack from scratch:
+# once CI + Security are green (the apply itself runs on Pulumi Deployments —
+# the stack's saved deployment settings — via `pulumi up --remote`).
+#
+# Non-secret config lives here, committed. ALL secrets live in the Pulumi ESC
+# environment `grid-oib/dev` (imported via the `environment:` block below).
+# Stack-file values win over env values on conflict, so the env holds ONLY the
+# secret keys — this file is the single source of truth for plaintext config.
+# To re-create a stack from scratch:
 #
 #   cd deploy/pulumi
 #   pulumi stack init matthiasbigl/dev          # Pulumi Cloud backend
-#   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
-#   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
-#   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
-#   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
-#   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
-#   pulumi config set --secret grid-oib:openrouterApiKey      "sk-or-..."
-#   pulumi config set --secret grid-oib:tavilyApiKey          "tvly-..."
-#   pulumi config set --secret grid-oib:workosApiKey          "sk_test_..."
-#   pulumi config set --secret grid-oib:workosCookiePassword  "$(openssl rand -hex 32)"
-#   pulumi config set --secret grid-oib:jobPayloadKek         "$(openssl rand -base64 32)"
-#   pulumi config set grid-oib:registryUsername               "<ghcr user>"   # private images only
-#   pulumi config set --secret grid-oib:registryPassword      "<token w/ read:packages>"
+#   esc env init matthiasbigl/grid-oib/dev
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgAppPassword         "$(openssl rand -base64 24)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridAdminToken        "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:openrouterApiKey      "sk-or-..." --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:tavilyApiKey          "tvly-..." --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosApiKey          "sk_test_..." --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosCookiePassword  "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:jobPayloadKek         "$(openssl rand -base64 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:registryPassword      "<token w/ read:packages>" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelPrimaryApiKey     "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelOidcClientSecret  "<WorkOS Connect secret>" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:err2issueGithubToken  "ghp_..." --secret
 #
 # Staging is intentionally lighter than prod (single replicas, smaller volumes).
+environment:
+  - grid-oib/dev
 config:
   grid-oib:namespace: grid
   # ── Images (GHCR) ──
   grid-oib:imageRegistry: ghcr.io/grid-check
   grid-oib:imageTag: latest
   # ── Storage (provider CSI, NVMe/TCP) ──
-
   # Classes: premium (default, 3 replicas) / standard (2) / single-replica (1).
-
   # `lightbits` is the VolumeSnapshotClass, not a StorageClass. All reclaim
-
   # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
   grid-oib:storageClass: single-replica
   # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
@@ -40,7 +47,6 @@ config:
   grid-oib:letsEncryptEmail: matthias@bigls.net
   grid-oib:useStagingIssuer: "false" # staging CA verified; prod LE certs now issue
   # Provider ships an unremovable metrics stack — don't install a second one.
-
   grid-oib:installMetricsServer: "false"
   # ── Postgres ──
   grid-oib:pgInstances: "1"
@@ -81,38 +87,17 @@ config:
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K  # pragma: allowlist secret (public OAuth client id)
+  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "true"
-  grid-oib:kubeconfig:
-    secure: AAABAMkxFoPAJt1ftZUGRK7S0HwvG2C/GqiofwqFu+y65GLQNczGzamx3oH7dcj7O08uRhMuihQKvwy9R6DZloyPqX9bUsn4s2esHy+7Eo3s/WJhrcwFtPo7wfREtd9bR8XuTQB9zxOfDHH7qSZ38FtRzwz9U2phSV7XMRWqmCijJW0wa45Tm5nRP7HkwYCot/DwwhBrGl06UmjQ1yHFLBsQJVW0avaeCqpYtaS9CAp4OBXtxQWJh1gCRXGyX3ccyVu7gHClnTJpEHyhvOtf7M0U2kpbXM+H3ig8ASruKukgU0lgh0QALcidoutBbaC006MoscaZMak99tfl4C2i4LTdlep1rcV9WYgPpT1vaCb6VekaioUxqwJC/bYthLpf6APittxz6GG51JfPfy/9wyqZ1ALlrS6Fcd2HDmaXbq94jKut5652/OkQyFZe3saq5Q7vVfJzpkOT/A/DdRZjaVOn2kiD9ScTdYPXpdZcUGjBwwqV/dlEvrAQJ+ByJqHZrWFmfp+COoUlRxylWNbBPcx+4ubcGXjSJAbBdFfJ7wp6hdADrzLaKPXIRwcs5nSpslPT3rYc/0feTr8hSTWzCdjFcD2qA8SyEHCSDB+awJIbMdB7YF9ylReLWNwvsdXA/nTLKR/wat/8qZvOFsiiymvuXHanxWzF64W9xW5f+PnSX5erpHVbxOl0l0bm0sDMQsZhwb+KE9nj6QkVljo3JgLfS9IjLpraxEM/+7ksIINn9akYNf6MnjZ4debYWI1tw7jET+V1Pp+LbrsZBObxd2Fi2ekrorfbGXfp4AT94CSsc1F8wWq8O/8eyjvqqPOtESTcygwAE41ISdC4uoBA0A6eq/HPAAkt+6kbJqTGh3L4lls3smMgPAooqySu3SCg6VlMBKYQp0B1LMfsMJuPac68WWVBgNaAtKZ6gn6Y1rzKJass+J1GMdmKXIZzwGOiHTLOxcgIuWnZN5JDq1Rz5EHyN535lCmi/L7MeGif9w8W9g35pNmPGF0AVxZdzi3NGFX/Q9E9iQSivNAa8HhYFv9VVpCxP9IdosUdZZKb7F70CKCRyw0jeJhIuI7shHO3XCDTI0HyGgMOYEgzmxt53XodZFSEjl9iwmQg+Da1VRWgNWIKJCs96DTZjtihVwXm0ADiINKOexEGMYyhU5jXJQb3cHH10IvzgDUVncrl8an0FlpZwLR9t6aoAzioFNFb08ln0B47kbwh/+F1ZWAR+V/D/goZDZMuETJuLClWyaeREXEw5ntZ3rTWI4OVjycYPQmpijfMp7634p4zFSkZnSlaV/obR9XYQvdBIFw1Ydb7anE4Zv2uMP3NvP+j8Z3E1F8/ocU+fCqTnGJSjTzF9AUPeOkb0l/KRn35ftFMbquj37j05L569Qkib+yfAjyf4Zs+nanWFnQ88a60ARXCb+EC069hA0czshPpiwZER7kJW1sEQEflYmUYFuUYs+JwrAr7nYveF+Ns7jhkPCew92b+268tq66Hy3rKWgfiL9hSphZvb1m4xJMepXTsdUU1/QJQreEwjpmOH5ixq2OGoaPNb0ysMefvvhRJa/iFJX3H58OAhSdHQHtWsgci99AuCPRwxueGlxjIC7r2/mA6kontWvW2eunbGjV6q3zXQuHsDOKt/zgq72OCZVSVW22tzofMuTjyW3MOTdldCG8C3FN1l829/IiV0k+2pfJwOLkEzUWAf0uLGrCw4tCtWGPH6lcAa10PFPD/z/wntk4LvKkZtI5nnxeC5W3iI1tAfSMFL4qrIJtUNqOBTncOqG/Y2Wv68vZByW6G2okD/sVLpV0mar/+2NlRIucTU156oHv0MlDD7HOFk4FCFzd7iXcOPYuQZOoKEdJ/gqTpu0UouzlSUz1qGhhgcZWHOmdADpilli5cvcLVA7Y3D1kCW72fuoWORf7DgrtJLPqH+lnIYFnWQ+Ll6iTIdHvcT74FzX809d4OjQ6Y2TOaoCqA9/WEcI9nvH1/Nh1rfaan4kG7n1CS8viFTzZHJqMTJRUbf+l9SByT9FnmoTD9tHeXbXW10un2bRCqyhTaY9HjRvQ2zqie1biDYSUZzPqFGdGFT/yvTzL9Q+B9TBlOs3UZQLyocl69gM9EiDaIIdJDRZgRqEGk4aHrXGnEN5yEqS2XTPkV1a7aDr/7NbHm2nns3LvxRDmRF6GX1PLLCa+lZqW4Pt29DcGLph7vAMt2gcUOtID0d4Dj8dAE9Ngdt88kQZOQuqeu6ccWD9uHsxgH16s+tmvvyt9ts4JQkp+Tykgi5jJsNANlDu1MA9U4n25B30h1tSUTDlgVTtV10v2AWpO+KOE5TlvCrrz8KybhHUizNBqt2vAf9ZPvQvCGMkCnwN1Tv9mrmKQ5iSkFHXI6gg5khGOZ0SWnmL6f5VbdZzzdxHx8CVZhJOxinBSzA+ZSow2TT4acpCvWfq3ZgGQLKOWlYe7cLDTJh5yGrONElREw/ol0KNNLRO5mLwUj5jfwD4adGgFO5Rl2sFkvGHjdL6F+W1YDWc/e0LkRpbfHFki7Nh/XiA+HhKupBxeJyJRn7a59V+IUFz4h7ARs7KwuPKgpTGi862i1hmQxSBr6iM9L/Z94s/w02H/D+3dWY6Uemu0YTL8ILcIPZx+0Baag/CeU/hhjvL7pBeB7AVot6YehuFMmGCHSqaeH9b2AQsOfust21ahUzFASU4pSKGNu9w==
-  grid-oib:pgAppPassword:
-    secure: AAABACnXc43NKLd9CCOX6hr+yeu4axn4yeeLe2FPoLF43BTysecDrT7rzupBXbAvLYUcUCEOOexvQHPLpc1CSw==
-  grid-oib:seaweedfsSecretKey:
-    secure: AAABALGn13j5irEYeN/66neWZZ85MnUMGAmLGi3yJzMk70EOOOvRCKLOpLqaFuRvmWIKOejit4BKHa5ncPlVhA==
-  grid-oib:gridInternalApiToken:
-    secure: AAABABl70L+HMbLsX6iglgoS4xCxwhq4MaEQKMX3DYuwsdRmpWGuErOMd9Qk+1rRRWZWWA5qDNWsYHNNlI/4TI488fL2SLYar2i0s5Rzojrfm7mePLqTG/42o/Zf0GEH
-  grid-oib:gridAdminToken:
-    secure: AAABAO4mQhq3mEVIXKAyreW3ml+yh47yXV4HOh1Jp0WoDKBG2yH7sDJ0b3hyxrpx60YJsHDBpeDKvJyeGTTmpWMBAoVam14+odo4uwtnjTZePMAxHrVvcxF6PsZ9O6/a
-  grid-oib:workosCookiePassword:
-    secure: AAABADAdU/gsEdFV3cfdc8bjpnITZwhy6YlliDEOBYw7IACOd3WJQwX5EU1tyYFO8Nnzw8zmPw+JgffDA7AqFbiii02QfrjjBKhrX7ARS4T0gzr9FCHhigR0CqtlJVCK
-  grid-oib:jobPayloadKek:
-    secure: AAABAB1viZx5GZ1+tLUGV2jgKIUJFwq7A/SM+BhsHNSOR9dWJf9zp0z1J3xh9lJmOFUPUros0bEKxAnKRpuDmokhqkXw+HKV16Hr6w==
-  grid-oib:openrouterApiKey:
-    secure: AAABACPq/k+dprw83cIcdo5YyFJEv6gDjZXSiWKuFkjF7g2B27CAIwCB/zdkal8fkdngI1DYH7+Dhnw6pYEcITNNv6DP+RPuHOGugCbrCCAu5hCl2duq1utWG2FGsrBw+bxyX9JIC2g8
-  grid-oib:tavilyApiKey:
-    secure: AAABALPew9AvUie5gTfaLHliKBo2bimRfsyl2xxNP4LDqVxNdwvLTzs+TfghX27e8UfwOd5f+7WMW+HyVV/05nHknNrUKxOnfBYdsaF4F9kkNaB4Yu0WQ7U=
-  grid-oib:workosApiKey:
-    secure: AAABACmqz1I+8hbmC85POLSKtm8XiRkxWoZDuvPyl4UQQWRcNN8saOHmV+ZTkN/T+k88nl+Zz3WQc9ZyYqv4/1UfvLF5xf2F+u5p8n0b8jqc7qVmX2AECo+vOTuBf/ZYplfyiE4oQP6fq9w7vbm647RFYA==
   grid-oib:registryUsername: matthiasbigl
-  grid-oib:registryPassword:
-    secure: AAABAD5rm3t73BC3YkLE7UV36PiM4TlgLOXTTVcE/QiykfIkccjjZTIuAvASwLCufN4HvWPdu+dOmbqBKvLBryxiYLZKzXkc
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
-  # Deployed only when the flag is on AND every dependency below is set;
-  # otherwise `pulumi preview` logs a warning naming what is missing and the
-  # tier (dashboard, collector, `https-otel` listener, producer OTLP env) is
-  # skipped. Rotating the ingestion key:
-  #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
+  # Deployed only when the flag is on AND every dependency is set; otherwise
+  # `pulumi preview` logs a warning naming what is missing and the tier
+  # (dashboard, collector, `https-otel` listener, producer OTLP env) is skipped.
+  # Secrets (otelPrimaryApiKey, otelOidcClientSecret) live in the ESC env —
+  # rotate with:
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)" --secret
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
   # only override here when deliberately upgrading.
   # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
@@ -123,42 +108,28 @@ config:
   #   3. Sign-in callback: https://<otelDomain>/oauth2/callback
   #   4. Scopes -> assign the platform:organizations:view permission.
   # Then:
-  #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
-  #   pulumi config set        grid-oib:otelOidcClientId     client_...
-  #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
-  # NOTE: otelOidcClientSecret is deliberately absent below — it can only be
-  # written by an operator holding the WorkOS secret and the stack's encryption
-  # key. Until it is set, the capability gate skips the whole tier (that is the
-  # designed fail-closed behaviour, not a missing config bug).
+  #   pulumi config set grid-oib:otelOidcIssuer   https://<tenant>.authkit.app
+  #   pulumi config set grid-oib:otelOidcClientId client_...
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelOidcClientSecret <secret> --secret
   grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
-  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV  # pragma: allowlist secret (public OAuth client id)
-  grid-oib:otelPrimaryApiKey:
-    secure: AAABAIqmIh7te791qRGL6edyefwrjdA/NwMN2tOC3JcYbM0o/z9gMxL5VtKRJjbGA2+e61Uhk/S1uu5idjwL+N/utoW+4ulTIXsHJabHggMVH7DIAGLnQ4thfwpyZVsr
+  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV # pragma: allowlist secret (public OAuth client id)
   grid-oib:loadBalancerIp: 45.144.209.191
-  grid-oib:otelOidcClientSecret:
-    secure: AAABANxz0yOpeiXuthqRpt6ISXW2og+EzwOSgcA8tPkdPj8Kejvv6HgyH7qBRceT8+/JE44EgZLXStWSxfylFO7aYHYN2RSsONmyWdMXRPJ0URx3yK95xwKAYhW/RDz6
   # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
   # A second consumer on the collector's logs signal. Requires the
   # observability tier above (it has no receiver of its own).
-  #
-  # `err2issueGithubToken` is set below, so the capability gate passes and the
-  # sink is active on this stack. It stays fail-closed by construction: unset the
-  # token and the gate skips the sink (and `pulumi preview` says so) rather than
-  # erroring. To rotate the PAT:
-  #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
+  # `err2issueGithubToken` lives in the ESC env; it stays fail-closed by
+  # construction: unset the token and the gate skips the sink (and
+  # `pulumi preview` says so) rather than erroring. To rotate the PAT:
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:err2issueGithubToken ghp_... --secret
   # The PAT needs Issues read/write on the destination repo (a fine-grained
   # token scoped to that one repo is enough — it never reads code).
-  #
   # Optional, off by default:
-  #   pulumi config set --secret grid-oib:err2issueAnthropicApiKey sk-ant-...
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:err2issueAnthropicApiKey sk-ant-... --secret
   # buys AI-written issue titles instead of rule-based ones. This is a console
   # API key and bills per token; a Claude subscription does not cover it, and
   # the sink works fine without it.
-  #
   # Caps are deliberately conservative for a first deployment (20 new issues
   # per day, 600s coalescing window — see src/config.ts). Raise
   # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent
-  grid-oib:err2issueGithubToken:
-    secure: AAABAPwDzOzuG0KIFfRWejuPFA4mU9gN6xlYBKB+zDJM08Fe38wgj7Gqco0SvSDZxZnCaJNJ+dM8urnvcEIJFDEtHd8uBnZS

@@ -40,7 +40,19 @@ pulumi stack init prod
 # Non-secret config is templated in Pulumi.prod.yaml — edit the placeholders
 # (storageClass, baseDomain, letsEncryptEmail, imageTag, …).
 
-# Secrets (encrypted into the stack):
+# Secrets: with ESC adopted (see docs/deployment/pulumi-cloud-feature-audit.md),
+# dev secrets live in the `grid-oib/dev` environment. Migrate in three steps —
+# the middle one is not optional, `--keep-config` leaves the values in BOTH
+# places and stack config wins over ESC, so skipping it means the secrets never
+# actually move:
+#   1. pulumi config env init --stack dev --keep-config   # copy into ESC
+#   2. delete every `secure:` block from Pulumi.dev.yaml   # drop the duplicates
+#   3. pulumi preview --stack dev                          # must be a NO-OP:
+#      resolving through ESC yields the same values, so a non-empty diff means
+#      a key did not make it across (restore from git and retry).
+# Edit secrets afterwards via `pulumi env edit grid-oib/dev` (add under
+# values.pulumiConfig as fn::secret). The `pulumi config set --secret` commands
+# below are the file-based alternative (ciphertext in the stack file):
 pulumi config set --secret grid-oib:kubeconfig           "$(cat ~/.kube/grid-config)"
 pulumi config set --secret grid-oib:pgAppPassword        "$(openssl rand -base64 24)"
 pulumi config set --secret grid-oib:seaweedfsSecretKey   "$(openssl rand -base64 24)"
@@ -77,7 +89,7 @@ it is in one of these, in this order:
 ### Configuration reference
 
 All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
-🔒 = set with `pulumi config set --secret`.
+🔒 = secret — lives in the ESC environment (`pulumi env edit grid-oib/<stack>`); `pulumi config set --secret` still works but writes ciphertext into the stack file.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -184,8 +196,10 @@ npm run policy      # pulumi preview --policy-pack ./policy → CrossGuard
 
 `validate` and `policy` need a selected stack (its config feeds the plan) but
 work even when the kubeconfig points at an unreachable cluster. The deploy
-workflow runs all three before `pulumi up`, and re-runs the policy pack on the
-`up` itself.
+workflow runs all three as its gates before the apply; the apply itself is a
+plain `up` on Pulumi Deployments, so the policy pack does **not** re-run there —
+the gate preview is the policy checkpoint (accepted residual, see
+`docs/deployment/pulumi-cloud-feature-audit.md`).
 
 ### Rollout safety
 

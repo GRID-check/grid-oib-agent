@@ -8,21 +8,29 @@ name: Deploy (staging)
 # before anything touches the cluster (Publish Images runs in parallel with
 # them, so chaining alone would deploy untested code).
 #
-# One-time setup (per environment). Pulumi stack CONFIG IS FILE-BASED: the
-# values live in deploy/pulumi/Pulumi.dev.yaml in THIS REPO, not in Pulumi
-# Cloud (which stores only state + the secrets-decryption key). CI reads the
-# checked-out file, so the configured stack file MUST BE COMMITTED:
-#   1. cd deploy/pulumi && pulumi stack init matthiasbigl/dev
+# One-time setup (per environment). Stack config is FILE-BASED for plaintext
+# (committed deploy/pulumi/Pulumi.<stack>.yaml) and ESC-BASED for secrets (the
+# Pulumi Cloud environment `grid-oib/<stack>`, imported via the stack file's
+# `environment:` block — rationale in docs/deployment/pulumi-cloud-feature-audit.md).
+# The apply itself runs on Pulumi Deployments (console → stack → Deployments);
+# this workflow keeps the gates (typecheck, CRD validation, CrossGuard preview)
+# and then runs the apply remotely via `pulumi up --remote`:
+#   1. cd deploy/pulumi && pulumi stack init matthiasbigl/grid-oib/dev
 #   2. Edit Pulumi.dev.yaml: real baseDomain/letsEncryptEmail/
 #      workosClientId/storageClass (placeholders make the program fail closed).
-#   3. Set every secret with `pulumi config set --secret ...` (full list in the
-#      Pulumi.dev.yaml header). For the kubeconfig use a NON-EXPIRING
-#      ServiceAccount token, not the Control-Center download (dies in ≤2 weeks)
-#      — see docs/deployment/kubernetes.md §2b.
-#   4. COMMIT the updated Pulumi.dev.yaml to `develop` — the secrets in it are
-#      ciphertext (encrypted by the stack's Pulumi-Cloud-managed key) and safe
-#      to commit. Without this commit every CI deploy fails its preflight.
-#   5. Add repo secret PULUMI_ACCESS_TOKEN (a Pulumi Cloud access token).
+#   3. Move the secrets into ESC: `pulumi config env init --stack dev
+#      --keep-config` creates the `grid-oib/dev` environment with everything
+#      encrypted; then delete the duplicated `secure:` blocks from
+#      Pulumi.dev.yaml (full list in the file header). For the kubeconfig use a
+#      NON-EXPIRING ServiceAccount token, not the Control-Center download (dies
+#      in ≤2 weeks) — see docs/deployment/kubernetes.md §2b.
+#   4. COMMIT the updated Pulumi.dev.yaml (plaintext + `environment:` import) —
+#      without it every CI deploy fails its preflight.
+#   5. Save DEPLOYMENT SETTINGS for the stack (Pulumi Cloud → stack dev →
+#      Settings → Deploy): GitHub source GRID-check/grid-oib-agent, branch
+#      develop, Pulumi.yaml folder deploy/pulumi, push-to-deploy OFF (this
+#      workflow orchestrates; Click-to-Deploy stays available).
+#   6. Add repo secret PULUMI_ACCESS_TOKEN (gate previews + the remote apply).
 # The "Preflight" step below verifies step 2/4 happened and fails with
 # instructions if not.
 on:
@@ -142,12 +150,63 @@ jobs:
 
       # Fail fast, with instructions, if the committed stack file is still the
       # template — otherwise the failure surfaces as a cryptic preview error.
+      #
+      # The check walks the document structurally rather than grepping for
+      # substrings: the stack file's own header carries `pulumi config set
+      # --secret` examples and placeholder hostnames, so a plain grep matches
+      # documentation, and a bare `environment:` match would accept an import of
+      # the WRONG environment. Requirements, all position-aware:
+      #   * no placeholder values on a real (non-comment) config line;
+      #   * either a `secure:` key nested under `config:` (committed ciphertext)
+      #     or a top-level `environment:` block importing exactly `grid-oib/dev`.
       - name: Preflight - stack file is configured, not the template
         working-directory: deploy/pulumi
         run: |
           bad=0
-          grep -nE "REPLACE_ME|example\.com" Pulumi.dev.yaml && bad=1
-          grep -q "secure:" Pulumi.dev.yaml || { echo "no 'secure:' ciphertext blocks found — secrets were never set/committed"; bad=1; }
+          awk -f - Pulumi.dev.yaml <<'AWK' || bad=1
+          # Documentation and blank lines carry no configuration.
+          /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+
+          # Track the current top-level key (column 0 = document root).
+          /^[^[:space:]]/ { top = $0; sub(/:.*$/, "", top) }
+
+          /REPLACE_ME|example\.com/ {
+            printf "placeholder value still in the stack file: %s\n", $0
+            placeholder = 1
+          }
+
+          # Committed ciphertext: a `secure:` mapping key inside the config tree.
+          top == "config" && /^[[:space:]]+secure:[[:space:]]*[^[:space:]]/ { encrypted = 1 }
+
+          # ESC import: `environment: [grid-oib/dev]` or a `- grid-oib/dev` item
+          # under a top-level `environment:` block. Any other value is a
+          # different environment and must not satisfy the check.
+          top == "environment" {
+            entry = $0
+            sub(/^[[:space:]]*environment:[[:space:]]*/, "", entry)
+            gsub(/[][,"]/, " ", entry)
+            sub(/^[[:space:]]*-[[:space:]]*/, " ", entry)
+            n = split(entry, fields, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+              if (fields[i] == "") continue
+              if (fields[i] == "grid-oib/dev") esc = 1
+              else other = fields[i]
+            }
+          }
+
+          END {
+            if (placeholder) exit 1
+            if (top == "") {
+              print "Pulumi.dev.yaml has no configuration at all."
+              exit 1
+            }
+            if (!encrypted && !esc) {
+              if (other != "") printf "environment: imports %s, not the grid-oib/dev ESC environment\n", other
+              else print "no encrypted config found - neither a committed secure: entry under config: nor an environment: import of grid-oib/dev"
+              exit 1
+            }
+          }
+          AWK
           if [ "$bad" -ne 0 ]; then
             echo "::error::deploy/pulumi/Pulumi.dev.yaml on develop is still the placeholder template."
             echo "::error::Run the one-time setup in this workflow's header (edit values, set --secret config, COMMIT the file), then re-run."
@@ -206,27 +265,22 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
-      - name: Pulumi up
-        uses: pulumi/actions@v6
-        with:
-          command: up
-          stack-name: matthiasbigl/grid-oib/dev
-          work-dir: deploy/pulumi
-          refresh: true
-          # Show the full resource diff in the job log — the audit trail for what
-          # a deploy actually changed in the cluster.
-          diff: true
-          # …and into the run summary, so "what did that deploy change?" is
-          # answerable from the Actions UI without opening the log.
-          comment-on-summary: true
-          # Re-run the guardrails against the real update, not just the preview:
-          # `up` re-plans after the refresh, so this is the plan that lands.
-          policyPacks: policy
-          # Pin this run to an immutable image tag (publish-images tags with
-          # `type=sha,format=long` → `sha-<full-sha>`), overriding the stack's
-          # default `latest` for a reproducible deploy. Rolling back is the same
-          # command with an older tag — see the workflow_dispatch input above.
-          config-map: |
-            { "grid-oib:imageTag": { "value": "${{ env.IMAGE_TAG }}", "secret": false } }
+      # The apply runs on Pulumi Deployments (`--remote` + the stack's saved
+      # deployment settings) so it is recorded in the Pulumi Cloud console
+      # (Deployments tab, live logs) — this workflow gates, the managed runner
+      # executes. `--remote-git-commit` pins the exact commit the gates above
+      # validated; the pre-run command pins the immutable image tag from
+      # GRID_IMAGE_TAG, and console Click-to-Deploy runs derive sha-<HEAD>
+      # from the checkout instead (the fallback in the command).
+      - name: Pulumi up (remote, on Pulumi Deployments)
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi up --remote --yes \
+            --stack matthiasbigl/grid-oib/dev \
+            --remote-inherit-settings \
+            --remote-git-commit "$DEPLOY_SHA" \
+            --remote-env GRID_IMAGE_TAG="$IMAGE_TAG" \
+            --remote-pre-run-command 'pulumi config set grid-oib:imageTag "${GRID_IMAGE_TAG:-sha-$(git rev-parse HEAD)}"'
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
