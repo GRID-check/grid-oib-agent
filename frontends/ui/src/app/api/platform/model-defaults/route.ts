@@ -140,9 +140,11 @@ export async function PUT(request: Request): Promise<Response> {
       // The platform org did not resolve (not provisioned, or a WorkOS miss
       // cached by its own fail-closed TTL). The save stands — refusing a
       // fleet-wide model bump because the audit sink is unreachable is worse
-      // — but an unaudited change of this reach must not pass silently.
+      // — but an unaudited change of this reach must not pass silently. The
+      // actor stays out of the log: it is already persisted on the saved rows
+      // (`updated_by` / `updated_by_email`), so no user identity is needed here.
       console.error(
-        `[Platform Model Defaults] Fleet defaults saved by ${session.email ?? session.userId} were NOT audited: the platform organization did not resolve`,
+        '[Platform Model Defaults] Fleet defaults were saved without an audit event: the platform organization did not resolve',
       )
     }
 
