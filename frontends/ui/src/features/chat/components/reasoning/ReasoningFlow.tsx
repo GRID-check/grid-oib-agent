@@ -197,6 +197,15 @@ type SourceColumnData = {
   /** Single-column (phone) layout — the cards get the grouped container. */
   grouped: boolean
   groupLabel: string
+  /**
+   * The turn is still running.
+   *
+   * "gelesen, nicht verwendet" is a claim about the FINISHED answer, and while
+   * the turn streams there is no answer to make it about — so every retrieved
+   * document briefly reads as discarded, including the ones the answer is about
+   * to cite. The card withholds the verdict until the turn lands.
+   */
+  live: boolean
 }
 type FindingsData = {
   label: string
@@ -281,6 +290,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
                 document={card}
                 hitLabel={data.hitLabel(card.loci.length)}
                 gapLabel={data.gapLabel}
+                live={data.live}
               />
             </div>
           </div>
@@ -692,6 +702,7 @@ export function buildGraph(
       enterOrder,
       grouped,
       groupLabel: t('thinking.sourcesFanOut'),
+      live: Boolean(props.live),
     }
     nodes.push({
       id: columnIds[i]!,

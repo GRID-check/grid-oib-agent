@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest'
 import { deriveLiveActivity } from './live-activity'
+import { getDisplayName } from './intermediate-step-parser'
 import type { ThinkingStep } from '../types'
 
 // Echo translator: returns the key so assertions read the resolved activity key
@@ -66,5 +67,41 @@ describe('deriveLiveActivity', () => {
     // runningNamed template is "{name} …"; the echo translator returns the key,
     // so only the {name} substitution is observable here.
     expect(result).toBe('thinking.activity.runningNamed')
+  })
+
+  test('never names the model in the status bar', () => {
+    // A model id matches no activity rule, so it fell through to the display-name
+    // fallback and the header read "Running Nemotron 3 Nano 30B A3B …". Which
+    // model answers is an implementation detail of the product, not a fact about
+    // the user's question — and an LLM step IS the compose phase, so say that.
+    const models = [
+      'nvidia/nvidia/Nemotron-3-Nano-30B-A3B',
+      'openai/gpt-4o',
+      'deepseek/deepseek-chat',
+      'anthropic/claude-sonnet-4',
+    ]
+    for (const functionName of models) {
+      const result = deriveLiveActivity(
+        [step({ functionName, displayName: getDisplayName(functionName) })],
+        t
+      )
+      expect(result).toBe('thinking.activity.composing')
+    }
+  })
+
+  test('the raw model name never reaches the phrase, whatever the translator does', () => {
+    // Belt and braces: assert on a REAL interpolating translator, so a future
+    // change that reintroduces the fallback cannot pass by returning a key.
+    const interpolate = (key: string) =>
+      key === 'thinking.activity.runningNamed' ? '{name} …' : key
+    const functionName = 'nvidia/nvidia/Nemotron-3-Nano-30B-A3B'
+    const phrase =
+      deriveLiveActivity(
+        [step({ functionName, displayName: getDisplayName(functionName) })],
+        interpolate
+      ) ?? ''
+
+    expect(phrase.toLowerCase()).not.toContain('nemotron')
+    expect(phrase).not.toContain('{name}')
   })
 })

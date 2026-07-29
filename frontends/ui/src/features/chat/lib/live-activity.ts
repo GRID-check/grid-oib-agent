@@ -11,6 +11,7 @@
  */
 
 import type { ThinkingStep } from '../types'
+import { isLLMModel } from './intermediate-step-parser'
 
 /** i18n keys under `chat.thinking.activity.*`, one per recognised activity. */
 export type LiveActivityKey =
@@ -87,6 +88,14 @@ export const deriveLiveActivity = (
 
   const key = classify(step.functionName)
   if (key) return t(`thinking.activity.${key}`)
+
+  // An LLM step IS the compose phase, and its name is the MODEL. Which model
+  // answers is an implementation detail of the product, not a fact about the
+  // user's question — and the fallback below would have put it in the header
+  // verbatim ("Running Nemotron 3 Nano 30B A3B …"), because a model id matches
+  // none of the activity rules. Say what is happening instead of who is doing
+  // it. `executed-steps` already skips these for the same reason.
+  if (isLLMModel(step.functionName)) return t('thinking.activity.composing')
 
   // Unclassified but real: surface the step's own display name so the user
   // still sees a concrete, honest signal rather than a generic placeholder.

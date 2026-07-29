@@ -244,6 +244,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-nav"]',
   },
   {
+    id: 'citation-interaction',
+    mobile: true,
+    path: '/dev/citation-interaction',
+    description:
+      'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells.',
+    waitFor: '[data-testid="citation-interaction-preview"]',
+  },
+  {
+    id: 'citation-peek',
+    mobile: true,
+    path: '/dev/citation-interaction?open=peek',
+    description:
+      'The citation peek OPEN \u2014 the surface a resting screenshot can never show. Clicking an inline marker answers "what is this?" in place: provenance kind, authority tier, document title, the cited page, the passage itself, and the actions (open at this passage, copy link, copy citation).',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'answer-sources',
     mobile: true,
     path: '/dev/answer-sources',
