@@ -350,5 +350,8 @@ describe('a legal_basis card in a mixed answer', () => {
     const docs = buildCitationModel({ citations: [wireLocus(1, 5)], cards: [card] })
     expect(docs).toHaveLength(2)
     expect(answerDocuments(docs).map((doc) => doc.title)).toContain('Bauordnung für Wien § 108')
+    // …and only there: the card was never retrieved, so the Herleitung's
+    // "gelesen, nicht verwendet" half must not claim it as well.
+    expect(unusedDocuments(docs)).toEqual([])
   })
 })
