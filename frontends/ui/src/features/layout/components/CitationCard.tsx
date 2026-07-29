@@ -28,7 +28,7 @@ import { Check } from 'lucide-react'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { SourcePreviewChip } from '@/features/chat/components/SourcePreview'
-import { deriveAnswerSources } from '@/features/chat/lib/answer-sources'
+import { buildCitationModel } from '@/features/chat/lib/citations'
 import type { CitationSource } from '@/features/chat/types'
 
 interface CitationCardProps {
@@ -46,23 +46,30 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
   const { locale } = useLocale()
   const t = useTranslations('chat')
 
-  // Same derivation the answer's provenance row uses, so the tint, the label
-  // and the authority badge cannot disagree between the two surfaces.
-  const ref = useMemo(() => deriveAnswerSources([citation])[0], [citation])
-
-  if (!ref) return null
-
+  // The same model the answer's provenance row is built from, so the tint, the
+  // title and the authority badge cannot disagree between the two surfaces.
+  //
   // This list is ordered by recency and numbers its rows by POSITION, which is
   // what the panel has always shown. That is deliberately not the answer's [N]
   // (the two disagree, and the panel has no prose for an [N] to point at), so
-  // the list position wins whenever the caller supplies one.
-  const source = { ...ref, number: index ?? ref.number }
+  // the list position overwrites the locus's marker when the caller supplies
+  // one.
+  const ref = useMemo(() => {
+    const [document] = buildCitationModel({ citations: [citation] })
+    if (!document) return null
+    const locus = document.loci[0]
+    return {
+      document,
+      locus: locus && index != null ? { ...locus, number: index } : locus,
+    }
+  }, [citation, index])
+
+  if (!ref) return null
 
   return (
     <div className="animate-in fade-in-0">
       <SourcePreviewChip
-        source={source}
-        signal={ref.signal}
+        citation={ref}
         variant="card"
         trailing={
           <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">

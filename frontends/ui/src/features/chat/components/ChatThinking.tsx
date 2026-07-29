@@ -17,7 +17,8 @@ import { motion, AnimatePresence } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
-import { deriveTraceSourceCards } from '../lib/trace-lanes'
+import { deriveTraceLanes } from '../lib/trace-lanes'
+import { buildCitationModel } from '../lib/citations'
 import { deriveLiveActivity } from '../lib/live-activity'
 import { deriveExecutedSteps } from '../lib/executed-steps'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
@@ -107,7 +108,10 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     }
   }, [autoOpen])
 
-  const sourceCards = useMemo(() => deriveTraceSourceCards(steps), [steps])
+  const sourceCards = useMemo(
+    () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
+    [steps, citations]
+  )
   // Unique source cards (hits + gaps) — bar "m Quellen", not sum of Treffer.
   const sourceCount = sourceCards.length
 

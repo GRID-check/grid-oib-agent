@@ -34,19 +34,18 @@ import {
   iconForTint,
   sourceSignalStyle,
 } from '@/features/layout/components/SourceSignalChip'
-import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
-import type { AnswerSourceItem } from '../lib/answer-source-list'
+import type { SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
 import {
-  citationSnippet,
-  parseKbLocator,
+  buildCitationModel,
+  citationNumbers,
   resolveCitationTarget,
-  type AnswerSourceRef,
+  type CitationRef,
   type CitationTarget,
+  type CitedDocument,
   type StoredDocumentRef,
-} from '../lib/answer-sources'
-import type { CitationSource } from '../types'
+} from '../lib/citations'
 import type { CollectionScope, SourceKind } from '../lib/source-kinds'
 import { AuthorityTag } from './AuthorityTag'
 
@@ -197,6 +196,20 @@ const chipButtonClasses =
 export type CitationVariant = 'chip' | 'card'
 
 /**
+ * How much of a citation's chrome the card layout prints.
+ *
+ * `full` is the roomy technical list (the research panel): provenance icon,
+ * authority badge, the `[N]`, and the raw locator as the Fundstelle.
+ *
+ * `name-only` is for a surface that ALREADY states all of that around the
+ * citation — the Herleitung fan-out puts the icon, the badge and the lane on
+ * its folder tab and the markers and pages on its own meta line, so repeating
+ * them inside the card left the document's NAME, the one thing only the card
+ * can say, squeezed into an ellipsis.
+ */
+export type CitationDetail = 'full' | 'name-only'
+
+/**
  * The card is the source list's existing row, unchanged in shape: one bordered
  * card holding everything, hover-highlighted, full-width. Only its CONTENT
  * gained provenance (a tinted icon and an authority badge) and its behaviour
@@ -226,9 +239,14 @@ const faceStyle = (variant: CitationVariant, signal: SourceTint): CSSProperties 
  * currentColor vocabulary (same as AuthorityTag) so it reads as part of the
  * chip rather than as a new element bolted on.
  */
-const CitationIndex: FC<{ index?: number }> = ({ index }) =>
-  index == null ? null : (
-    <span className="shrink-0 text-[10px] font-semibold tabular-nums opacity-60">{index}</span>
+const CitationIndex: FC<{ index?: string }> = ({ index }) =>
+  !index ? null : (
+    // `me-1`, not the parent's flex gap: `SourceSignalChip` collapses ALL its
+    // children into one truncating span, so a gap between them never applies
+    // there and the marker renders flush against the label ("3Attika-Detail").
+    // Carrying its own trailing space makes the marker read correctly in every
+    // chip shape rather than only in the ones that keep it a flex child.
+    <span className="me-1 shrink-0 text-[10px] font-semibold tabular-nums opacity-60">{index}</span>
   )
 
 /** Everything a citation shows before it is clicked, in either layout. */
@@ -237,16 +255,21 @@ interface CitationFaceProps {
   signal: SourceTint
   label: string
   authority?: string
-  /** The `[N]` this source carries in the answer prose, when known. */
-  index?: number
-  /** Backing citation — supplies the card layout's excerpt and locator. */
-  citation?: CitationSource
+  /**
+   * The marker(s) this source carries in the answer prose — "3", or "2, 7" for
+   * a document the answer cites in more than one place.
+   */
+  index?: string
+  /** Backing reference — supplies the card layout's excerpt and locator. */
+  citation?: CitationRef
   /**
    * Card layout only: quiet metadata pinned to the right of the title row
    * (the source list's cited marker + timestamp). Keeps that metadata INSIDE
    * the card, where it reads as part of the row, rather than stranded under it.
    */
   trailing?: ReactNode
+  /** Card layout only — see {@link SourcePreviewChipProps.detail}. */
+  detail?: CitationDetail
 }
 
 /**
@@ -262,6 +285,7 @@ const CitationFace: FC<CitationFaceProps> = ({
   index,
   citation,
   trailing,
+  detail = 'full',
 }) => {
   const Icon = iconForTint(signal)
 
@@ -280,11 +304,12 @@ const CitationFace: FC<CitationFaceProps> = ({
   // NAME. The chip's label is a hostname for links — right when space is one
   // pill, wrong as the headline of a row that can spell out "Bauordnung für
   // Wien § 108".
-  const headline = citation?.title?.trim() || label
-  // The passage the source contributed; a bare locator line ("file.pdf, p.3")
-  // is a reference, not a passage.
-  const excerpt = citation ? citationSnippet(citation) : undefined
-  const locator = citation?.citationKey || citation?.fileName || citation?.url
+  const headline = citation?.document.title.trim() || label
+  // The passage the source contributed. The model already refused to put a bare
+  // locator line ("file.pdf, p.3") in a snippet field, so nothing to strip here.
+  const excerpt = citation?.locus?.snippet ?? citation?.document.snippet
+  const locator =
+    citation?.locus?.citationKey || citation?.document.fileName || citation?.document.url
 
   // Never say the same thing twice. The wire's `content` is built as
   // "<origin token> <citation key | title | url>", so for most sources it
@@ -298,14 +323,15 @@ const CitationFace: FC<CitationFaceProps> = ({
     (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
   const restates = (candidate: string, of: string | undefined): boolean =>
     !!candidate && norm(of).includes(norm(candidate))
+  const full = detail === 'full'
   const showExcerpt = !!excerpt && !restates(excerpt, headline) && !restates(excerpt, locator)
-  const showLocator = !!locator && !restates(locator, headline)
+  const showLocator = full && !!locator && !restates(locator, headline)
 
   return (
     <>
-      {index != null && (
+      {full && index && (
         <span
-          className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border bg-muted font-mono text-xs tabular-nums text-muted-foreground"
+          className="mt-0.5 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border bg-muted px-1 font-mono text-xs tabular-nums text-muted-foreground"
           aria-hidden="true"
         >
           {index}
@@ -313,11 +339,23 @@ const CitationFace: FC<CitationFaceProps> = ({
       )}
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2">
-          <span className="shrink-0" style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}>
-            <Icon className="size-4" aria-hidden="true" />
-          </span>
-          {authority && <AuthorityTag>{authority}</AuthorityTag>}
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {full && (
+            <span className="shrink-0" style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}>
+              <Icon className="size-4" aria-hidden="true" />
+            </span>
+          )}
+          {full && authority && <AuthorityTag>{authority}</AuthorityTag>}
+          <span
+            // Two lines, not one: document names are long ("Erläuterungen zu
+            // OIB-Richtlinie 2.1, Ausgabe Mai 2023") and the distinguishing
+            // part is usually at the END, so a single truncated line makes two
+            // different Richtlinien read identically.
+            className="line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug text-foreground"
+            // Storage identity belongs on the tooltip, never in the reading
+            // line — a user must not have to read `oib-rl_2_….pdf` to know
+            // which document a card stands for.
+            title={locator && locator !== headline ? `${headline}\n${locator}` : headline}
+          >
             {headline}
           </span>
           {trailing}
@@ -372,7 +410,7 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * The dialog only ever opens with a renderable source — a failed presign
  * surfaces as a toast, not a broken viewer.
  */
-const useDocumentPreview = (target: DocumentTarget, item?: AnswerSourceItem) => {
+const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   const t = useTranslations('chat')
   const [isOpen, setIsOpen] = useState(false)
   const [isResolving, setIsResolving] = useState(false)
@@ -408,7 +446,7 @@ const useDocumentPreview = (target: DocumentTarget, item?: AnswerSourceItem) => 
   // kind of source this is. The storage-shape guess is only the fallback for
   // callers that have no source row (the report tab's locator-only chip).
   const headerSignal: SourceTint =
-    item?.ref.signal ?? (target.document.type === 'base' ? 'law' : 'project')
+    citation?.document.tint ?? (target.document.type === 'base' ? 'law' : 'project')
 
   const dialog = (
     <PdfViewerDialog
@@ -433,7 +471,7 @@ const useDocumentPreview = (target: DocumentTarget, item?: AnswerSourceItem) => 
           </SourceSignalChip>
           {/* Same one-click citation the popover offers, for sources that open
               a document instead. */}
-          {item && <CopySourceCitationButton item={item} />}
+          {citation && <CopySourceCitationButton citation={citation} />}
         </span>
       }
     >
@@ -450,16 +488,27 @@ const DocumentPreviewChip: FC<{
   label: string
   authority?: string
   className?: string
-  /** The `[N]` this source carries in the answer prose, when known. */
-  index?: number
-  /** The full source row — powers the dialog's "copy citation" action. */
-  item?: AnswerSourceItem
+  /** The marker(s) this source carries in the answer prose. */
+  index?: string
   variant?: CitationVariant
-  citation?: CitationSource
+  /** The reference this chip stands for — powers the dialog's "copy citation". */
+  citation?: CitationRef
   trailing?: ReactNode
-}> = ({ target, signal, label, authority, className, index, item, variant = 'chip', citation, trailing }) => {
+  detail?: CitationDetail
+}> = ({
+  target,
+  signal,
+  label,
+  authority,
+  className,
+  index,
+  variant = 'chip',
+  citation,
+  trailing,
+  detail,
+}) => {
   const t = useTranslations('chat')
-  const { isResolving, openPreview, dialog } = useDocumentPreview(target, item)
+  const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
   return (
     <>
       <button
@@ -481,6 +530,7 @@ const DocumentPreviewChip: FC<{
           index={index}
           citation={citation}
           trailing={trailing}
+          detail={detail}
         />
       </button>
       {dialog}
@@ -504,24 +554,24 @@ const InfoPreviewChip: FC<{
   /** Bindingness note ("does this bind me?") from the norm registry. */
   bindingNote?: string
   /**
-   * Canonical coarse kind (ADR-0026). Preferred over `target.origin` for the
-   * popover's provenance line: origin is only kb/ris/web, so a knowledge-base
-   * copy of a legal text reads as "Project knowledge" while the chip beside it
-   * shows a RIS badge and a Baurecht lane — the same source, contradicted.
+   * Canonical coarse kind (ADR-0026) — the popover's provenance line. It is the
+   * document's kind, never the kb/ris/web origin token: a knowledge-base copy
+   * of a legal text used to read "Project knowledge" here while the chip beside
+   * it showed a RIS badge and a Baurecht lane — the same source, contradicted.
    */
-  kind?: SourceKind
+  kind: SourceKind
   /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
   url?: string
   className?: string
-  /** The `[N]` this source carries in the answer prose, when known. */
-  index?: number
+  /** The marker(s) this source carries in the answer prose. */
+  index?: string
   /** Cited page / hostname — shown in the popover, not on the chip. */
   meta?: string
-  /** The whole source row, for the popover's "copy citation" action. */
-  item?: AnswerSourceItem
   variant?: CitationVariant
-  citation?: CitationSource
+  /** The reference this chip stands for, for the popover's "copy citation". */
+  citation?: CitationRef
   trailing?: ReactNode
+  detail?: CitationDetail
 }> = ({
   target,
   signal,
@@ -533,11 +583,11 @@ const InfoPreviewChip: FC<{
   className,
   index,
   meta,
-  item,
   variant = 'chip',
   citation,
   trailing,
   kind,
+  detail,
 }) => {
   const t = useTranslations('chat')
   return (
@@ -558,14 +608,13 @@ const InfoPreviewChip: FC<{
             index={index}
             citation={citation}
             trailing={trailing}
+            detail={detail}
           />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          <SourceSignalChip signal={signal}>
-            {kind ? t(`sourcePreview.kinds.${kind}`) : t(`sourcePreview.origins.${target.origin}`)}
-          </SourceSignalChip>
+          <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
           {tier && (
             <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
           )}
@@ -573,9 +622,7 @@ const InfoPreviewChip: FC<{
         {/* The written source list's payload, one click away: the citation
             number, the untruncated title and the locator. */}
         <p className="break-words text-sm font-medium text-foreground">
-          {index != null && (
-            <span className="mr-1 text-muted-foreground">[{index}]</span>
-          )}
+          {index && <span className="mr-1 text-muted-foreground">[{index}]</span>}
           {target.title}
         </p>
         {meta && <p className="text-[11px] text-muted-foreground">{meta}</p>}
@@ -612,7 +659,7 @@ const InfoPreviewChip: FC<{
           ) : (
             <span />
           )}
-          {item && <CopySourceCitationButton item={item} />}
+          {citation && <CopySourceCitationButton citation={citation} />}
         </div>
       </PopoverContent>
     </Popover>
@@ -624,17 +671,15 @@ const InfoPreviewChip: FC<{
 // ---------------------------------------------------------------------------
 
 export interface SourcePreviewChipProps {
-  source: AnswerSourceRef
-  /** Provenance tint for chip/icon (mapped by the caller from source.kind + lane). */
-  signal: SourceTint
   /**
-   * The full source row this chip stands for. Everything the answer's written
-   * source list used to spell out — the citation number, the untruncated title,
-   * the cited page or host, and a copyable citation — travels in here and is
-   * shown BEHIND THE CLICK (popover / document dialog) instead of as a second
-   * list under the answer. Optional: without it the chip behaves exactly as before.
+   * What this chip stands for: a document, optionally narrowed to one locus.
+   *
+   * Everything the chip renders — label, tint, authority badge, `[N]`, preview
+   * target — comes from here. It is deliberately the ONLY source prop: the
+   * component used to take a ref, a signal and a row object that each carried
+   * part of the answer, and keeping them in step was left to every call site.
    */
-  item?: AnswerSourceItem
+  citation: CitationRef
   /**
    * Cited page / host, localized by the caller — shown in the popover, never on
    * the chip (which stays the compact pill it always was).
@@ -653,46 +698,58 @@ export interface SourcePreviewChipProps {
    * list's cited marker + timestamp), rendered inside the card.
    */
   trailing?: ReactNode
+  /**
+   * Card layout only: how much chrome to print around the name. Defaults to
+   * `full`; see {@link CitationDetail}.
+   */
+  detail?: CitationDetail
 }
 
 /**
- * One "Belegt durch" chip with its preview affordance. Web/RIS chips link out
- * (unchanged); KB chips open a document dialog when the citation resolves to a
- * project upload or base-corpus PDF, an info popover when it only carries
- * text, and stay plain when there is nothing beyond the label.
+ * One citation with its preview affordance. Web/RIS chips link out; document
+ * chips open the viewer at the locus's page when the document resolves to a
+ * project upload, an Archiv document or a base-corpus PDF; anything
+ * unresolvable degrades to an info popover, never a broken viewer.
  */
 export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
-  source,
-  signal,
+  citation,
   className,
-  item,
   meta,
   variant = 'chip',
   trailing,
+  detail = 'full',
 }) => {
   const projectId = useChatStore((s) => s.projectId)
-  // Only citation-backed refs without an outbound link can resolve to a
-  // document — the index fetch is skipped entirely for link/card-only rows.
-  const needsIndex = !!source.citation && !source.url
+  const { document: doc, locus } = citation
+  // Only a document with a filename and no outbound link can resolve to a
+  // stored file, so the index fetch is skipped entirely for link sources AND
+  // for card-derived documents, which name a law but no document at all.
+  const needsIndex = !doc.url && !!doc.fileName
   const previewIndex = useSourcePreviewIndex(projectId, needsIndex)
 
-  const target: CitationTarget = source.citation
-    ? resolveCitationTarget(source.citation, previewIndex?.storedDocuments, previewIndex?.baseCorpusFiles)
-    : { kind: 'info', origin: source.kind, title: source.label, snippet: source.snippet }
+  const target = resolveCitationTarget(doc, {
+    locus,
+    storedDocuments: previewIndex?.storedDocuments,
+    baseCorpusFiles: previewIndex?.baseCorpusFiles,
+  })
 
-  const tier = source.citation?.laneLabel
-  const bindingNote = source.citation?.bindingNote
+  const label = doc.title
+  // A chip stands for a DOCUMENT, so it names every marker that document
+  // carries — "2, 7", not an arbitrary one of them. A chip narrowed to a locus
+  // names only that locus's marker.
+  const numbers = locus ? [locus.number].filter((n): n is number => n != null) : citationNumbers(doc)
+  const index = numbers.length > 0 ? numbers.join(', ') : undefined
   const shared = {
-    signal,
-    label: source.label,
-    authority: source.authority,
+    signal: doc.tint,
+    label,
+    authority: doc.authority,
     className,
-    index: source.number,
-    item,
+    index,
     variant,
-    citation: source.citation,
+    citation,
     trailing,
-    kind: source.citation?.kind,
+    detail,
+    kind: doc.kind,
   }
 
   if (target.kind === 'url') {
@@ -700,13 +757,13 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     // done and what makes it feel like a link. It only opens the popover when
     // the click genuinely adds something the link cannot: the "does this bind
     // me?" note or the authority tier of a legal source.
-    if (bindingNote || tier) {
+    if (doc.bindingNote || doc.laneLabel) {
       return (
         <InfoPreviewChip
           {...shared}
-          target={{ kind: 'info', origin: source.kind, title: item?.ref.label ?? source.label }}
-          tier={tier}
-          bindingNote={bindingNote}
+          target={{ kind: 'info', title: label }}
+          tier={doc.laneLabel}
+          bindingNote={doc.bindingNote}
           url={target.url}
           meta={meta}
         />
@@ -719,18 +776,22 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
           target="_blank"
           rel="noopener noreferrer"
           className={cn(faceClasses(variant), className)}
-          style={faceStyle(variant, signal)}
+          style={faceStyle(variant, doc.tint)}
           title={target.url}
         >
-          <CitationFace {...shared} citation={source.citation} />
+          <CitationFace {...shared} />
         </a>
       )
     }
     return (
-      <SourceSignalChipLink signal={signal} href={target.url} className={cn('max-w-56', className)}>
-        <CitationIndex index={source.number} />
-        {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
-        {source.label}
+      <SourceSignalChipLink
+        signal={doc.tint}
+        href={target.url}
+        className={cn('max-w-56', className)}
+      >
+        <CitationIndex index={index} />
+        {doc.authority && <AuthorityTag>{doc.authority}</AuthorityTag>}
+        {label}
       </SourceSignalChipLink>
     )
   }
@@ -739,28 +800,46 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     return <DocumentPreviewChip {...shared} target={target} />
   }
 
+  // Resolution is still in flight: this document MAY yet turn out to be
+  // openable, so committing to the info popover now would settle the chip into
+  // the weaker affordance and never upgrade it. Render the inert chip until the
+  // index answers.
+  const resolving = needsIndex && !previewIndex
+
   // Info target: interactive when the popover adds something beyond the chip
-  // label (snippet, an untruncated title, the authority tier, or a citation to
-  // copy). Gap/unknown sources with nothing to show stay plain — no fake preview.
+  // label. A real source always does — at minimum it offers a citation to copy,
+  // which is the whole reason the popover exists. A card-derived document (a law
+  // name with no document, no link and no retrieved passage) has nothing more to
+  // show and stays a plain chip rather than promising a preview it cannot give.
+  const canCite = !!doc.fileName || !!doc.url || doc.loci.length > 0
   const hasPopoverContent =
-    !!target.snippet || target.title !== source.label || !!tier || !!bindingNote || !!item
+    !resolving &&
+    (canCite || !!target.snippet || !!doc.laneLabel || !!doc.bindingNote || !!meta || !!index)
   if (hasPopoverContent) {
-    return <InfoPreviewChip {...shared} target={target} tier={tier} bindingNote={bindingNote} meta={meta} />
+    return (
+      <InfoPreviewChip
+        {...shared}
+        target={target}
+        tier={doc.laneLabel}
+        bindingNote={doc.bindingNote}
+        meta={meta}
+      />
+    )
   }
 
   if (variant === 'card') {
     return (
-      <div className={cn(faceClasses(variant), 'cursor-default')} style={faceStyle(variant, signal)}>
-        <CitationFace {...shared} citation={source.citation} />
+      <div className={cn(faceClasses(variant), 'cursor-default')} style={faceStyle(variant, doc.tint)}>
+        <CitationFace {...shared} />
       </div>
     )
   }
 
   return (
-    <SourceSignalChip signal={signal} className={cn('max-w-56', className)}>
-      <CitationIndex index={source.number} />
-      {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
-      {source.label}
+    <SourceSignalChip signal={doc.tint} className={cn('max-w-56', className)}>
+      <CitationIndex index={index} />
+      {doc.authority && <AuthorityTag>{doc.authority}</AuthorityTag>}
+      {label}
     </SourceSignalChip>
   )
 }
@@ -769,13 +848,6 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
 // Report sources list affordance (ReportTab) — KB entries become openable
 // ---------------------------------------------------------------------------
 
-/**
- * Markdown emphasis/code markers a source line may carry. Underscores are NOT
- * stripped — they are ordinary filename characters (oib-rl_2_….pdf), and
- * mid-word underscores don't render as emphasis anyway.
- */
-const MD_MARKERS_RE = /[*`]/g
-
 export interface ReportSourcePreviewChipProps {
   /** The source entry's text (origin token already stripped by the parser). */
   locatorText: string
@@ -783,30 +855,37 @@ export interface ReportSourcePreviewChipProps {
 
 /**
  * Small "Ansehen"/"View" affordance next to a [KB] entry in the report's
- * sources list. Renders only when the entry's locator resolves to an actually
- * openable document (project upload or base-corpus PDF) — unresolvable
- * entries stay plain text.
+ * sources list. Renders only when the entry resolves to an actually openable
+ * document — unresolvable entries stay plain text.
+ *
+ * The entry goes through `buildCitationModel` rather than being parsed here, so
+ * this affordance resolves a document by exactly the rules the chips use. It is
+ * the same producer the answer's provenance row feeds on (a written source
+ * entry), just with one entry in it.
  */
 export const ReportSourcePreviewChip: FC<ReportSourcePreviewChipProps> = ({ locatorText }) => {
   const projectId = useChatStore((s) => s.projectId)
-  const plainText = locatorText.replace(MD_MARKERS_RE, '')
-  const locator = parseKbLocator(plainText)
-  const index = useSourcePreviewIndex(projectId, locator != null)
+  const [doc] = buildCitationModel({
+    entries: [{ number: 0, markdown: locatorText }],
+  })
+  const index = useSourcePreviewIndex(projectId, !!doc?.fileName)
 
-  if (!locator || !index) return null
-  const target = resolveCitationTarget(
-    { url: '', content: plainText },
-    index.storedDocuments,
-    index.baseCorpusFiles
-  )
+  if (!doc || !index) return null
+  const target = resolveCitationTarget(doc, {
+    storedDocuments: index.storedDocuments,
+    baseCorpusFiles: index.baseCorpusFiles,
+  })
   if (target.kind !== 'document') return null
-  return <ReportSourceDocumentButton target={target} />
+  return <ReportSourceDocumentButton target={target} document={doc} />
 }
 
-const ReportSourceDocumentButton: FC<{ target: DocumentTarget }> = ({ target }) => {
+const ReportSourceDocumentButton: FC<{ target: DocumentTarget; document: CitedDocument }> = ({
+  target,
+  document: doc,
+}) => {
   const t = useTranslations('chat')
-  const { isResolving, openPreview, dialog } = useDocumentPreview(target)
-  const signal: SourceSignal = target.document.type === 'base' ? 'law' : 'project'
+  const { isResolving, openPreview, dialog } = useDocumentPreview(target, { document: doc })
+  const signal: SourceTint = doc.tint
   return (
     <>
       <button

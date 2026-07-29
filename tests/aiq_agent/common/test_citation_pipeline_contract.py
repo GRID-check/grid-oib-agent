@@ -28,7 +28,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import document_key
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_entry_to_wire
@@ -395,6 +397,57 @@ class TestGoldenPathToWire:
         """Chips claim the answer USED a source; the Büroarchiv detail was only found."""
         _, _, _, wire = run_golden_path()
         assert "detail_attika.pdf" not in {source["file_name"] for source in wire}
+
+    def test_every_chip_names_the_document_it_is_a_passage_of(self):
+        """The grouping key, shipped so the frontend never re-derives one.
+
+        A wire source is a LOCUS — one passage at one page — and every surface
+        groups them by DOCUMENT: one chip per Richtlinie, one Herleitung card per
+        file, one bibliography row per passage. The frontend used to infer that
+        grouping from the filename, which is a second identity derivation living
+        a repository away from the registry's own.
+        """
+        _, _, _, wire = run_golden_path()
+        assert [source["document_id"] for source in wire] == [
+            "doc:oib_knowledge:oib-rl_2_ausgabe_mai_2023.pdf",
+            "doc:proj_abc:einreichplan_og.pdf",
+        ]
+
+
+class TestDocumentKey:
+    """``document_key`` is the registry's own identity, minus the page."""
+
+    def test_pages_of_one_document_share_one_key(self):
+        pages = [
+            SourceEntry(
+                citation_key=f"oib-rl_2_ausgabe_mai_2023.pdf, p.{page}",
+                collection="oib_knowledge",
+                source_type="knowledge_layer",
+            )
+            for page in (5, 12, 18)
+        ]
+        assert len({document_key(entry) for entry in pages}) == 1
+
+    def test_one_filename_on_two_shelves_is_two_documents(self):
+        """The collision the collection half of the key exists to prevent.
+
+        One search fans out across the base corpus, the session collection and
+        the project collections at once, so a project ``Plan.pdf`` and an Archiv
+        ``Plan.pdf`` arrive in the SAME result set as different documents.
+        """
+        project = SourceEntry(citation_key="Plan.pdf, p.1", collection="proj_a")
+        archiv = SourceEntry(citation_key="Plan.pdf, p.1", collection="archiv_b")
+        assert document_key(project) != document_key(archiv)
+
+    def test_a_web_source_is_identified_by_its_normalized_url(self):
+        entry = SourceEntry(url="https://Example.com/Article/", source_type="generic")
+        other = SourceEntry(url="https://example.com/Article", source_type="generic")
+        assert document_key(entry) == document_key(other)
+
+    def test_a_source_with_neither_document_nor_url_still_gets_a_key(self):
+        """Never identity-less: an unkeyed source would silently merge with any other."""
+        entry = SourceEntry(title="Ein Werkzeugergebnis", tool_name="some_tool")
+        assert document_key(entry).startswith("label:")
 
 
 # ---------------------------------------------------------------------------

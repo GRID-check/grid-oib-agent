@@ -18,7 +18,12 @@
  * short one.
  */
 
-import type { AnswerSourceItem } from './answer-source-list'
+import {
+  refHost,
+  refNumber,
+  refPage,
+  type CitationRef,
+} from './citations'
 
 /** The publisher of the OIB-Richtlinien — a fact about the document class. */
 const OIB_PUBLISHER = 'Österreichisches Institut für Bautechnik'
@@ -98,23 +103,24 @@ const parseEdition = (text: string): { edition?: string; issued?: CslDate } => {
   return year ? { issued: cslDate(Number(year[0])) } : {}
 }
 
-/** Human title for a source: its label, with a filename cleaned up if that is all we have. */
-const displayTitle = (item: AnswerSourceItem): string => {
-  const label = item.ref.label.trim()
-  const citationTitle = item.ref.citation?.title?.trim()
-  if (citationTitle && citationTitle !== label) return citationTitle
-  return label
-}
+/**
+ * The document's own name. The model already resolved it (stored display title
+ * → OIB derivation → humanized filename), so there is nothing left to choose
+ * between here — which is the point: a citation pasted into a Befund and the
+ * chip it came from now say the same words.
+ */
+const displayTitle = (ref: CitationRef): string => ref.document.title.trim()
 
-const isOib = (item: AnswerSourceItem): boolean =>
-  item.ref.authority === 'OIB' ||
-  item.ref.signal === 'oib' ||
-  (item.ref.citation?.lane ?? '').toLowerCase().startsWith('baurecht_oib')
+const isOib = (ref: CitationRef): boolean =>
+  ref.document.authority === 'OIB' ||
+  ref.document.tint === 'oib' ||
+  (ref.document.lane ?? '').toLowerCase().startsWith('baurecht_oib')
 
-const isNorm = (item: AnswerSourceItem): boolean => item.ref.authority === 'ÖNORM'
+const isNorm = (ref: CitationRef): boolean => ref.document.authority === 'ÖNORM'
 
-const isLaw = (item: AnswerSourceItem): boolean =>
-  item.ref.kind === 'ris' || (item.ref.citation?.lane ?? '').toLowerCase().startsWith('baurecht')
+const isLaw = (ref: CitationRef): boolean =>
+  (ref.document.lane ?? '').toLowerCase().startsWith('baurecht') ||
+  ref.document.origin === 'ris'
 
 /**
  * Map one source row onto a CSL-JSON item.
@@ -122,21 +128,24 @@ const isLaw = (item: AnswerSourceItem): boolean =>
  * `now` is passed in (never read from the clock here) so the mapping stays pure
  * and the `accessed` date is testable.
  */
-export const toCslItem = (item: AnswerSourceItem, now: Date): CslItem => {
-  const title = displayTitle(item)
-  const fileName = item.ref.citation?.fileName ?? ''
+export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
+  const title = displayTitle(ref)
+  const fileName = ref.document.fileName ?? ''
   const { edition, issued } = parseEdition(`${title} ${fileName}`)
-  const page = item.page != null ? String(item.page) : undefined
-  const url = item.ref.url
-  const id = `source-${item.number ?? item.ref.key}`
+  // The page of THIS reference: the locus's when the citation names one,
+  // otherwise only a page the whole document unambiguously sits at.
+  const pageNumber = refPage(ref)
+  const page = pageNumber != null ? String(pageNumber) : undefined
+  const url = ref.document.url
+  const id = `source-${refNumber(ref) ?? ref.document.id}`
 
-  if (isOib(item) || isNorm(item)) {
+  if (isOib(ref) || isNorm(ref)) {
     // A technical guideline / standard — CSL `standard` is exactly this type.
     return {
       id,
       type: 'standard',
       title,
-      ...(isOib(item)
+      ...(isOib(ref)
         ? { publisher: OIB_PUBLISHER, 'publisher-place': OIB_PLACE, authority: OIB_PUBLISHER }
         : {}),
       ...(edition ? { edition } : {}),
@@ -146,12 +155,12 @@ export const toCslItem = (item: AnswerSourceItem, now: Date): CslItem => {
     }
   }
 
-  if (isLaw(item)) {
+  if (isLaw(ref)) {
     return {
       id,
       type: 'legislation',
       title,
-      ...(item.ref.citation?.laneLabel ? { authority: item.ref.citation.laneLabel } : {}),
+      ...(ref.document.laneLabel ? { authority: ref.document.laneLabel } : {}),
       'container-title': RIS_CONTAINER,
       ...(issued ? { issued } : {}),
       ...(page ? { page } : {}),
@@ -159,12 +168,13 @@ export const toCslItem = (item: AnswerSourceItem, now: Date): CslItem => {
     }
   }
 
-  if (item.ref.kind === 'web') {
+  if (ref.document.kind === 'web') {
+    const host = refHost(ref)
     return {
       id,
       type: 'webpage',
       title,
-      ...(item.host ? { 'container-title': item.host } : {}),
+      ...(host ? { 'container-title': host } : {}),
       ...(issued ? { issued } : {}),
       ...(url ? { URL: url, accessed: accessedDate(now) } : {}),
     }
@@ -191,8 +201,8 @@ const formatAustrianDate = (now: Date): string =>
  * documents use: the OIB's own "OIB-Richtlinie N, Ausgabe …, S. x" form, and a
  * legal source cited with its Fundstelle plus the RIS retrieval note.
  */
-export const toFachtext = (item: AnswerSourceItem, now: Date): string => {
-  const csl = toCslItem(item, now)
+export const toFachtext = (ref: CitationRef, now: Date): string => {
+  const csl = toCslItem(ref, now)
   const parts: string[] = [csl.title]
 
   // The edition is often already part of the title ("OIB-Richtlinie 2 – Brand-
@@ -220,15 +230,15 @@ export const toFachtext = (item: AnswerSourceItem, now: Date): string => {
 }
 
 /** The numbered Fachtext bibliography for a whole answer. */
-export const toFachtextList = (items: AnswerSourceItem[], now: Date): string =>
-  items
-    .map((item, index) => `[${item.number ?? index + 1}] ${toFachtext(item, now)}`)
+export const toFachtextList = (refs: CitationRef[], now: Date): string =>
+  refs
+    .map((ref, index) => `[${refNumber(ref) ?? index + 1}] ${toFachtext(ref, now)}`)
     .join('\n')
 
 /** CSL-JSON for a whole answer, ready for Zotero / Word / pandoc import. */
-export const toCslJson = (items: AnswerSourceItem[], now: Date): string =>
+export const toCslJson = (refs: CitationRef[], now: Date): string =>
   JSON.stringify(
-    items.map((item) => toCslItem(item, now)),
+    refs.map((ref) => toCslItem(ref, now)),
     null,
     2
   )

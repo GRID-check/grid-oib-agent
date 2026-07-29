@@ -25,7 +25,7 @@ import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
 import { ReportSourcePreviewChip, SourcePreviewChip } from '@/features/chat/components/SourcePreview'
-import { answerSourceItems } from '@/features/chat/lib/answer-source-list'
+import { buildCitationModel, refKey, type CitationRef } from '@/features/chat/lib/citations'
 import { GridCards } from '@/features/grid-cards'
 import { useTranslations } from '@/i18n'
 import {
@@ -167,14 +167,20 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
   // Built with the SAME derivation the answer's provenance row uses, so these
   // rows carry a real label, tint, authority badge and preview target instead
   // of a bare URL (which a document source does not even have).
-  const citedFallbackSources = useMemo(() => {
+  const citedFallbackSources = useMemo((): CitationRef[] => {
     if (isResearchNotes || sourceEntries.length > 0 || isGeneratingReport) return []
     const cited = (deepResearchCitations ?? []).filter((citation) => citation.isCited)
-    // Uncapped: this is the report's BIBLIOGRAPHY, not the answer's summary
-    // chip row. Applying the chip row's 8-source cap here would silently show
-    // 8 of 12 sources on the one surface whose whole job is to account for all
-    // of them.
-    return cited.length > 0 ? answerSourceItems(undefined, cited, undefined, Infinity) : []
+    if (cited.length === 0) return []
+    // A bibliography is the LOCUS-level projection: one row per place the
+    // report cites, uncapped. The answer's chip row is the document-level
+    // projection of the same model — a summary — and applying its 8-source cap
+    // here would silently show 8 of 12 on the one surface whose whole job is to
+    // account for all of them.
+    return buildCitationModel({ citations: cited }).flatMap((document) =>
+      document.loci.length > 0
+        ? document.loci.map((locus) => ({ document, locus }))
+        : [{ document }]
+    )
   }, [isResearchNotes, sourceEntries.length, isGeneratingReport, deepResearchCitations])
 
   return (
@@ -250,9 +256,9 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
                     `[N]` is what an inline marker points at, so the card keeps
                     it and the list drops its own. */}
                 <ol className="list-none space-y-2 pl-0">
-                  {citedFallbackSources.map((item) => (
-                    <li key={item.key} className="text-sm text-foreground">
-                      <SourcePreviewChip source={item.ref} signal={item.ref.signal} item={item} variant="card" />
+                  {citedFallbackSources.map((ref) => (
+                    <li key={refKey(ref)} className="text-sm text-foreground">
+                      <SourcePreviewChip citation={ref} variant="card" />
                     </li>
                   ))}
                 </ol>

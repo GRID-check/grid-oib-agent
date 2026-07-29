@@ -1,7 +1,7 @@
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
-import type { AnswerSourceRef } from '../lib/answer-sources'
+import { buildCitationModel, type CitationRef } from '../lib/citations'
 import type { CitationSource } from '../types'
 import {
   ReportSourcePreviewChip,
@@ -58,13 +58,16 @@ const citation = (overrides: Partial<CitationSource>): CitationSource => ({
   ...overrides,
 })
 
-const sourceRef = (overrides: Partial<AnswerSourceRef>): AnswerSourceRef => ({
-  key: 'k-1',
-  label: 'label',
-  kind: 'kb',
-  signal: 'project',
-  ...overrides,
-})
+/**
+ * Build the reference a chip renders through the REAL model, so these tests
+ * exercise the same identity/title/tint resolution production does rather than
+ * a hand-shaped object no producer would ever emit.
+ */
+const ref = (overrides: Partial<CitationSource>): CitationRef => {
+  const [document] = buildCitationModel({ citations: [citation(overrides)] })
+  if (!document) throw new Error('fixture produced no document')
+  return { document, locus: document.loci[0] }
+}
 
 describe('SourcePreviewChip', () => {
   beforeEach(() => {
@@ -80,13 +83,7 @@ describe('SourcePreviewChip', () => {
   test('web/RIS citations keep linking out and trigger no index fetch', () => {
     render(
       <SourcePreviewChip
-        source={sourceRef({
-          label: 'example.com',
-          kind: 'web',
-          url: 'https://example.com/article',
-          citation: citation({ url: 'https://example.com/article' }),
-        })}
-        signal="auto"
+        citation={ref({ kind: 'web', origin: 'web', url: 'https://example.com/article' })}
       />
     )
 
@@ -99,18 +96,15 @@ describe('SourcePreviewChip', () => {
     const user = userEvent.setup()
     render(
       <SourcePreviewChip
-        source={sourceRef({
-          label: 'WBTV',
-          kind: 'ris',
-          authority: 'RIS',
+        citation={ref({
+          title: 'WBTV',
+          kind: 'baurecht',
+          lane: 'baurecht_land',
+          origin: 'ris',
           url: 'https://www.ris.bka.gv.at/x',
-          citation: citation({
-            url: 'https://www.ris.bka.gv.at/x',
-            laneLabel: 'Landesrecht',
-            bindingNote: 'Macht die OIB-Richtlinien in Wien verbindlich.',
-          }),
+          laneLabel: 'Landesrecht',
+          bindingNote: 'Macht die OIB-Richtlinien in Wien verbindlich.',
         })}
-        signal="law"
       />
     )
 
@@ -132,22 +126,26 @@ describe('SourcePreviewChip', () => {
     const user = userEvent.setup()
     render(
       <SourcePreviewChip
-        source={sourceRef({
-          label: 'Brandschutzkonzept.pdf',
-          citation: citation({ content: '[KB] Brandschutzkonzept.pdf, p.3' }),
+        citation={ref({
+          content: '[KB] Brandschutzkonzept.pdf, p.3',
+          citationKey: 'Brandschutzkonzept.pdf, p.3',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 3,
         })}
-        signal="project"
       />
     )
 
     // The chip upgrades to a button once the resolution index has loaded.
+    // The chip names the document, not its storage filename.
     const chip = await screen.findByRole('button', {
-      name: 'Preview source: Brandschutzkonzept.pdf',
+      name: 'Preview source: Brandschutzkonzept',
     })
     await user.click(chip)
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Brandschutzkonzept.pdf')).toBeInTheDocument()
+    expect(within(dialog).getByText('Brandschutzkonzept')).toBeInTheDocument()
     expect(within(dialog).getByText('Project document')).toBeInTheDocument()
     // The presigned preview URL was fetched for the project document.
     expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview')
@@ -160,21 +158,20 @@ describe('SourcePreviewChip', () => {
     const user = userEvent.setup()
     render(
       <SourcePreviewChip
-        source={sourceRef({
-          label: 'Bueroe_Detail_Attika.pdf',
-          signal: 'office',
-          citation: citation({
-            content: '[KB] Bueroe_Detail_Attika.pdf, p.2',
-            kind: 'buero',
-            lane: 'buero',
-          }),
+        citation={ref({
+          content: '[KB] Bueroe_Detail_Attika.pdf, p.2',
+          citationKey: 'Bueroe_Detail_Attika.pdf, p.2',
+          fileName: 'Bueroe_Detail_Attika.pdf',
+          collection: 'archiv_1',
+          kind: 'buero',
+          lane: 'buero',
+          page: 2,
         })}
-        signal="office"
       />
     )
 
     const chip = await screen.findByRole('button', {
-      name: 'Preview source: Bueroe_Detail_Attika.pdf',
+      name: 'Preview source: Bueroe Detail Attika',
     })
     await user.click(chip)
 
@@ -186,15 +183,18 @@ describe('SourcePreviewChip', () => {
     const user = userEvent.setup()
     render(
       <SourcePreviewChip
-        source={sourceRef({
-          label: 'unbekannt.pdf',
-          citation: citation({ content: '[KB] unbekannt.pdf\nZitierter Absatz.' }),
+        citation={ref({
+          content: '[KB] unbekannt.pdf\nZitierter Absatz.',
+          citationKey: 'unbekannt.pdf',
+          fileName: 'unbekannt.pdf',
+          kind: 'projekt',
         })}
-        signal="project"
       />
     )
 
-    await user.click(screen.getByRole('button', { name: 'Preview source: unbekannt.pdf' }))
+    // The chip stays inert until the resolution index answers, then upgrades to
+    // the info popover — it never settles into the weaker affordance early.
+    await user.click(await screen.findByRole('button', { name: 'Preview source: Unbekannt' }))
 
     expect(await screen.findByText('Cited passage')).toBeInTheDocument()
     expect(screen.getByText('Zitierter Absatz.')).toBeInTheDocument()
@@ -207,27 +207,29 @@ describe('SourcePreviewChip', () => {
     const user = userEvent.setup()
     render(
       <SourcePreviewChip
-        source={sourceRef({
-          label: 'wr_bauordnung.pdf',
-          // `origin` is derived kb/ris/web only, so a knowledge-base copy of a
-          // legal text used to read "Project knowledge" in the popover while
-          // the chip beside it wore a RIS badge and a Baurecht lane.
-          citation: citation({ kind: 'baurecht', content: '[KB] wr_bauordnung.pdf\n§ 119.' }),
+        // `origin` is derived kb/ris/web only, so a knowledge-base copy of a
+        // legal text used to read "Project knowledge" in the popover while the
+        // chip beside it wore a RIS badge and a Baurecht lane.
+        citation={ref({
+          kind: 'baurecht',
+          content: '[KB] wr_bauordnung.pdf\n§ 119.',
+          citationKey: 'wr_bauordnung.pdf',
+          fileName: 'wr_bauordnung.pdf',
         })}
-        signal="law"
       />
     )
 
-    await user.click(screen.getByRole('button', { name: 'Preview source: wr_bauordnung.pdf' }))
+    await user.click(await screen.findByRole('button', { name: 'Preview source: Wr bauordnung' }))
 
     expect(await screen.findByText('Building law & guidelines')).toBeInTheDocument()
     expect(screen.queryByText('Project knowledge')).toBeNull()
   })
 
-  test('card-derived refs without a snippet stay plain, non-interactive chips', () => {
-    render(
-      <SourcePreviewChip source={sourceRef({ label: 'OIB-Richtlinie 2', kind: 'ris' })} signal="law" />
-    )
+  test('a source with nothing beyond its name stays a plain, non-interactive chip', () => {
+    const [document] = buildCitationModel({
+      cards: [{ type: 'legal_basis', law: 'OIB-Richtlinie 2' } as never],
+    })
+    render(<SourcePreviewChip citation={{ document: document! }} />)
 
     expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
@@ -250,7 +252,7 @@ describe('ReportSourcePreviewChip', () => {
     render(<ReportSourcePreviewChip locatorText="oib-rl_2.pdf, p.12" />)
 
     expect(
-      await screen.findByRole('button', { name: 'Preview source: oib-rl_2.pdf' })
+      await screen.findByRole('button', { name: 'Preview source: OIB-Richtlinie 2' })
     ).toHaveTextContent('View')
   })
 

@@ -93,11 +93,13 @@ describe('CitationCard', () => {
     })
 
     test('handles invalid URLs gracefully', () => {
+      // A value that is neither a link nor a document locator identifies
+      // nothing openable. The row must still name the source from what it does
+      // have rather than echoing an unusable string as if it were a link.
       render(<CitationCard citation={createCitation({ url: 'not-a-valid-url' })} />)
 
-      // Should show truncated URL as fallback - it appears in both domain and URL spots
-      const urlTexts = screen.getAllByText('not-a-valid-url')
-      expect(urlTexts.length).toBeGreaterThan(0)
+      expect(screen.getByText('Citation content')).toBeInTheDocument()
+      expect(screen.queryByRole('link')).toBeNull()
     })
   })
 
@@ -121,11 +123,11 @@ describe('CitationCard', () => {
         ...overrides,
       })
 
-    test('a knowledge-base citation is interactive, not dead text', () => {
+    test('a knowledge-base citation is interactive, not dead text', async () => {
       render(<CitationCard citation={kbCitation()} />)
 
       expect(
-        screen.getByRole('button', { name: /OIB-Richtlinie 2/i })
+        await screen.findByRole('button', { name: /OIB-Richtlinie 2/i })
       ).toBeInTheDocument()
     })
 

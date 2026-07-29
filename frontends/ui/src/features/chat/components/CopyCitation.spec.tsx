@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { CopyCitationsMenu, CopySourceCitationButton } from './CopyCitation'
-import type { AnswerSourceItem } from '../lib/answer-source-list'
+import { buildCitationModel, type CitationRef } from '../lib/citations'
 
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: (s: unknown) => unknown) => {
@@ -11,27 +11,26 @@ vi.mock('../store', () => ({
   }),
 }))
 
-const item: AnswerSourceItem = {
-  key: 'c1',
-  number: 1,
-  page: 18,
-  ref: {
-    key: 'c1',
-    label: 'OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023',
-    kind: 'kb',
-    signal: 'oib',
-    authority: 'OIB',
-    number: 1,
-    citation: {
+const [document] = buildCitationModel({
+  citations: [
+    {
       id: 'c1',
       content: '',
       timestamp: new Date('2026-07-28T12:00:00Z'),
+      title: 'OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023',
       fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+      citationKey: 'oib-rl_2_ausgabe_mai_2023.pdf, p.18',
+      collection: 'oib_knowledge',
+      kind: 'baurecht',
       lane: 'baurecht_oib',
+      origin: 'kb',
       page: 18,
+      number: 1,
+      isCited: true,
     },
-  },
-}
+  ],
+})
+const citation: CitationRef = { document: document!, locus: document!.loci[0] }
 
 describe('citation copy', () => {
   let writeText: ReturnType<typeof vi.fn>
@@ -50,7 +49,7 @@ describe('citation copy', () => {
 
   test('the per-source button copies a usable Fachtext citation, not a URL', async () => {
     const user = userEvent.setup()
-    render(<CopySourceCitationButton item={item} />)
+    render(<CopySourceCitationButton citation={citation} />)
     installClipboard()
 
     await user.click(screen.getByRole('button', { name: /copy citation for/i }))
@@ -64,7 +63,7 @@ describe('citation copy', () => {
 
   test('the block menu offers the interchange formats external tools read', async () => {
     const user = userEvent.setup()
-    render(<CopyCitationsMenu items={[item]} />)
+    render(<CopyCitationsMenu citations={[citation]} />)
 
     await user.click(screen.getByRole('button', { name: /cite/i }))
 
@@ -79,7 +78,7 @@ describe('citation copy', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: '@standard{oib, …}' }) })
     )
-    render(<CopyCitationsMenu items={[item]} />)
+    render(<CopyCitationsMenu citations={[citation]} />)
     installClipboard()
 
     await user.click(screen.getByRole('button', { name: /cite/i }))

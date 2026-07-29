@@ -74,22 +74,43 @@ const step: ThinkingStep = {
   ],
 }
 
+/**
+ * What the ANSWER cited, as opposed to what retrieval merely returned.
+ *
+ * These name the same documents the lanes above hold, so the fan-out can mark
+ * which cards became `[1]` and `[2]` and leave the rest reading "gelesen, nicht
+ * verwendet" — the distinction the trace could not draw while it was built from
+ * the retrieval half alone.
+ */
 const citations: CitationSource[] = [
   {
     id: 'c1',
-    content: '',
+    content: '[KB] OIB-RL_2_Brandschutz.pdf, p.18',
+    citationKey: 'OIB-RL_2_Brandschutz.pdf, p.18',
+    fileName: 'OIB-RL_2_Brandschutz.pdf',
+    collection: 'oib_knowledge',
+    title: 'OIB-Richtlinie 2 – Brandschutz',
+    origin: 'kb',
     timestamp: new Date('2024-01-15T14:30:00'),
     kind: 'baurecht',
     lane: 'baurecht_oib',
     laneLabel: 'OIB-Richtlinie',
+    page: 18,
+    number: 1,
+    isCited: true,
   },
   {
     id: 'c2',
-    content: '',
+    content: '[RIS] Bauordnung für Wien § 108',
+    url: 'https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000006',
+    title: 'Bauordnung für Wien',
+    origin: 'ris',
     timestamp: new Date('2024-01-15T14:30:00'),
     kind: 'baurecht',
     lane: 'baurecht_ris',
     laneLabel: 'Bundesrecht',
+    number: 2,
+    isCited: true,
   },
 ]
 

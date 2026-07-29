@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { CITATION_FORMATS, renderCitations, type CitationFormat } from '../lib/citation-export'
 import { toFachtext } from '../lib/source-citation'
-import type { AnswerSourceItem } from '../lib/answer-source-list'
+import type { CitationRef } from '../lib/citations'
 
 /** Write to the clipboard, reporting failure instead of swallowing it. */
 const copyText = async (text: string, onDone: () => void, failedMessage: string): Promise<void> => {
@@ -46,13 +46,13 @@ const copyText = async (text: string, onDone: () => void, failedMessage: string)
 }
 
 /** Per-row copy: the Fachtext citation of one source. */
-export const CopySourceCitationButton: FC<{ item: AnswerSourceItem }> = ({ item }) => {
+export const CopySourceCitationButton: FC<{ citation: CitationRef }> = ({ citation }) => {
   const t = useTranslations('chat')
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (): Promise<void> => {
     await copyText(
-      toFachtext(item, new Date()),
+      toFachtext(citation, new Date()),
       () => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 1500)
@@ -65,7 +65,7 @@ export const CopySourceCitationButton: FC<{ item: AnswerSourceItem }> = ({ item 
     <button
       type="button"
       onClick={() => void handleCopy()}
-      aria-label={t('answerSources.copyCitationAria', { label: item.ref.label })}
+      aria-label={t('answerSources.copyCitationAria', { label: citation.document.title })}
       className={cn(
         'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium',
         'text-muted-foreground transition-colors hover:text-foreground',
@@ -83,12 +83,12 @@ export const CopySourceCitationButton: FC<{ item: AnswerSourceItem }> = ({ item 
 }
 
 /** Block-level copy: every source of the answer, in a chosen citation format. */
-export const CopyCitationsMenu: FC<{ items: AnswerSourceItem[] }> = ({ items }) => {
+export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations }) => {
   const t = useTranslations('chat')
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (format: CitationFormat): Promise<void> => {
-    const text = await renderCitations(items, format, new Date())
+    const text = await renderCitations(citations, format, new Date())
     await copyText(
       text,
       () => {

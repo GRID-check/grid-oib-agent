@@ -411,6 +411,13 @@ export interface CitationSource {
    * persisted messages, which fall back to origin/URL heuristics.
    */
   kind?: SourceKind
+  /**
+   * Identity of the DOCUMENT this source is a passage of, as the backend
+   * registry groups it (`citation_verification.document_key`). Absent on
+   * messages persisted before the wire carried it, where the client derives an
+   * equivalent key from filename/collection instead.
+   */
+  documentId?: string
   /** Fine lane stratum-key (baurecht_oib, baurecht_ris, …) — drives the authority badge. */
   lane?: string
   /** Human lane label ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
@@ -435,6 +442,8 @@ export interface WireCitationSource {
   origin?: string | null
   /** Citation label ([N]) this source carries in the answer prose. */
   number?: number | null
+  /** Backend identity of the document this source is a passage of. */
+  document_id?: string | null
   file_name?: string | null
   page?: number | null
   kind?: string | null

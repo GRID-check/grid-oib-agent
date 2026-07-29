@@ -128,8 +128,8 @@ import { cn } from '@/lib/utils'
 import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
-import { deriveTraceSourceCards, totalSourceCardHits } from '../../lib/trace-lanes'
-import type { TraceSourceCard } from '../../lib/trace-lanes'
+import { deriveTraceLanes } from '../../lib/trace-lanes'
+import { buildCitationModel, totalHits, type CitedDocument } from '../../lib/citations'
 import { SourceCard } from './SourceCard'
 import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
@@ -184,7 +184,7 @@ type FramingData = {
  * collapsing the whole graph into a vertical chain.
  */
 type SourceColumnData = {
-  cards: TraceSourceCard[]
+  cards: CitedDocument[]
   hitLabel: (count: number) => string
   gapLabel: string
   /**
@@ -277,7 +277,11 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
                   : undefined
               }
             >
-              <SourceCard card={card} hitLabel={data.hitLabel(card.hitCount)} gapLabel={data.gapLabel} />
+              <SourceCard
+                document={card}
+                hitLabel={data.hitLabel(card.loci.length)}
+                gapLabel={data.gapLabel}
+              />
             </div>
           </div>
         )
@@ -566,7 +570,7 @@ export function buildGraph(
   props: ReasoningFlowProps,
   t: Translator,
   layout: FanLayout,
-  cards: TraceSourceCard[],
+  cards: CitedDocument[],
   /**
    * Cascade slot for each card that has not played its entrance yet. Empty by
    * default: a graph built without it animates nothing, which is the right
@@ -635,8 +639,9 @@ export function buildGraph(
   // converges, ahead of the lane list, because "9 hits across 5 documents" is
   // the claim a reader checks first — the strata answer "from where", not
   // "how much". Gap cards contribute documents but no hits, so they are counted
-  // as sources and excluded from the hit total (totalSourceCardHits).
-  const hitTotal = totalSourceCardHits(cards)
+  // A document read but never cited contributes to the document count and to
+  // the hit total alike — it WAS read, which is what the tally claims.
+  const hitTotal = totalHits(cards)
   const tally =
     hasSources && hitTotal > 0
       ? t(cards.length === 1 ? 'thinking.node.findingsTallyOne' : 'thinking.node.findingsTally', {
@@ -945,14 +950,23 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     return () => ro.disconnect()
   }, [])
 
-  const cards = useMemo(() => deriveTraceSourceCards(steps), [steps])
+  /**
+   * The turn's documents — retrieval fan-out AND the answer's own citations,
+   * folded into one model. Feeding both in is what lets a card in this fan say
+   * which `[N]` it became; before, the trace was built from the retrieval half
+   * alone and had no way to reach the other.
+   */
+  const cards = useMemo(
+    () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
+    [steps, citations]
+  )
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
 
   /**
    * Card ids that have already played their enter animation.
    *
    * Which column NODE a card lives in is a function of the container width and
-   * the card count, and `deriveTraceSourceCards` sorts, so one late source both
+   * the card count, and `buildCitationModel` sorts, so one late source both
    * re-balances the columns and can land anywhere in the list. React tears the
    * card's DOM down in its old column and mounts it in the new one, replaying
    * the CSS entrance — a single new source made the whole fan flash, and every
