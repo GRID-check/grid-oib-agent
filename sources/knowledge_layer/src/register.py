@@ -601,7 +601,7 @@ def _trace_lanes_json(
         import json
         from collections import OrderedDict
 
-        from aiq_agent.common.norm_registry import lane_for_hit
+        from aiq_agent.common.norm_registry import lane_for_knowledge_hit
         from aiq_agent.common.source_kinds import kind_for_lane
 
         if resolved is None:
@@ -614,7 +614,7 @@ def _trace_lanes_json(
             metadata = chunk.metadata or {}
             collection = metadata.get("collection")
             doc_class = _hit_doc_class(chunk, resolved)
-            key, label = lane_for_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
+            key, label = lane_for_knowledge_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
             bucket = lanes.get(key)
             if bucket is None:
                 bucket = {

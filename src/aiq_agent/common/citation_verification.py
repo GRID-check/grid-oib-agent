@@ -1236,6 +1236,7 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     richer label from the structured source payloads instead.
     """
     from aiq_agent.common.norm_registry import lane_for_hit
+    from aiq_agent.common.norm_registry import lane_for_knowledge_hit
     from aiq_agent.common.norm_registry import load_registry
 
     file_name = None
@@ -1246,20 +1247,14 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     # only for RIS URLs, so non-RIS entries still skip the load entirely.
     if registry is None:
         registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
-    lane = lane_for_hit(
+    classify = lane_for_knowledge_hit if entry.source_type == "knowledge_layer" else lane_for_hit
+    return classify(
         doc_class=entry.doc_class,
         file_name=file_name,
         source_url=entry.url,
         collection=entry.collection,
         registry=registry,
     )
-    if lane == ("web", "Web") and entry.source_type == "knowledge_layer":
-        # A knowledge-base hit without collection metadata (output produced
-        # before the `Collection:` field was threaded) is project/org
-        # material — the capture path carries the collection now, so this is
-        # only the legacy fallback.
-        return ("projekt", "Projektwissen")
-    return lane
 
 
 def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = None) -> str | None:
