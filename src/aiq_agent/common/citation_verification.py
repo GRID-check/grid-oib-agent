@@ -36,8 +36,11 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
+from aiq_agent.common.source_kinds import collection_scope
 from aiq_agent.common.source_kinds import kind_for_lane
+from aiq_agent.common.source_kinds import scope_for_qualifier
 
 if TYPE_CHECKING:
     from aiq_agent.common.norm_registry import NormRegistry
@@ -146,11 +149,27 @@ def _normalize_url(url: str) -> str:
 _PAGE_RE = re.compile(r"[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))", re.IGNORECASE)
 
 
-def _parse_citation_key(key: str) -> tuple[str, int | None]:
-    """Extract (filename, page_number) from a citation key.
+# Optional scope qualifier a citation key carries when one filename was retrieved
+# from more than one collection in the same turn: `Plan.pdf (Projektwissen), p.3`.
+# Only the known qualifiers match, so a parenthetical that is part of a real
+# filename ("Bescheid (Kopie).pdf") is never mistaken for one.
+_SCOPE_QUALIFIER_ALTERNATION = "|".join(re.escape(label) for label in SCOPE_QUALIFIERS.values())
+#: The qualifier at the END of a key's filename part (parsing a whole key).
+_SCOPE_QUALIFIER_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)\s*$", re.IGNORECASE)
+#: The qualifier at the START of the text FOLLOWING a filename (scanning a line).
+_SCOPE_QUALIFIER_TOKEN_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)", re.IGNORECASE)
+
+
+def _parse_citation_ref(key: str) -> tuple[str, str | None, int | None]:
+    """Extract (filename, scope, page_number) from a citation key.
 
     Handles: "report.pdf, p.15", "report.pdf, page 15", "report.pdf",
-    "report.pdf, p.15, Table 1"
+    "report.pdf, p.15, Table 1", "Plan.pdf (Projektwissen), p.3"
+
+    ``scope`` is the coarse kind the key names (see
+    ``source_kinds.collection_scope``) or None when the key is unqualified —
+    which is the common case, because a filename is only qualified when the same
+    name was retrieved from two different collections in one turn.
     """
     page_match = _PAGE_RE.search(key)
     page = int(page_match.group(1)) if page_match else None
@@ -159,6 +178,21 @@ def _parse_citation_key(key: str) -> tuple[str, int | None]:
         filename = key[: page_match.start()].rstrip(", ").strip()
     else:
         filename = key.strip()
+    scope = None
+    qualifier_match = _SCOPE_QUALIFIER_RE.search(filename)
+    if qualifier_match:
+        scope = scope_for_qualifier(qualifier_match.group(1))
+        filename = filename[: qualifier_match.start()].rstrip(", ").strip()
+    return filename, scope, page
+
+
+def _parse_citation_key(key: str) -> tuple[str, int | None]:
+    """(filename, page) from a citation key — :func:`_parse_citation_ref` without the scope.
+
+    Kept as the narrow form for the many call sites that only ever needed the
+    document's name and page (wire serialization, chunk merging, display).
+    """
+    filename, _scope, page = _parse_citation_ref(key)
     return filename, page
 
 
@@ -192,12 +226,34 @@ class SourceRegistry:
         self._urls: dict[str, SourceEntry] = {}
         self._parsed_urls: dict[str, _ParsedURL] = {}
         self._citation_keys: list[SourceEntry] = []
-        # Dedup key is (filename, page): two chunks from the SAME document at
-        # DIFFERENT pages are distinct evidence and must both become chips.
-        # Keying on filename alone silently dropped every page after the first
-        # (and mismatched the page-aware Trace-Lanes fan-out — see ADR-0026).
-        self._citation_key_files: set[tuple[str, int | None]] = set()
+        # Dedup key is (collection, filename, page).
+        #
+        # `page`: two chunks from the SAME document at DIFFERENT pages are
+        # distinct evidence and must both become chips. Keying on filename alone
+        # silently dropped every page after the first (and mismatched the
+        # page-aware Trace-Lanes fan-out — see ADR-0026).
+        #
+        # `collection`: a document is `(collection, filename)` — the PRIMARY KEY
+        # of `document_metadata`, and the only pair that is unique. One search
+        # fans out across the base corpus, the session collection and the project
+        # collections at once, so a project `Plan.pdf` and an Archiv `Plan.pdf`
+        # can land in the same result set. Keying on the filename alone collapsed
+        # them onto whichever chunk arrived first and discarded the other
+        # document's evidence entirely.
+        self._citation_key_files: set[tuple[str | None, str, int | None]] = set()
         self._all: list[SourceEntry] = []
+
+    @staticmethod
+    def _identity(entry: SourceEntry) -> tuple[str | None, str, int | None]:
+        """The `(collection, filename, page)` a document entry is unique under.
+
+        The collection is kept RAW (not reduced to its scope): two projects'
+        `Plan.pdf` really are two documents, and dedup must never merge them even
+        though a citation key can only ever name the coarser scope.
+        """
+        filename, page = _parse_citation_key(entry.citation_key or "")
+        collection = (entry.collection or "").strip().lower() or None
+        return (collection, filename.lower(), page)
 
     def add(self, entry: SourceEntry) -> None:
         """Register a source entry. One entry per logical URL (dedup by normalized form).
@@ -225,8 +281,7 @@ class SourceRegistry:
             if raw != normalized:
                 self._urls[raw] = self._urls[normalized]
         if entry.citation_key:
-            filename, page = _parse_citation_key(entry.citation_key)
-            dedup_key = (filename.lower(), page)
+            dedup_key = self._identity(entry)
             if dedup_key not in self._citation_key_files:
                 self._citation_key_files.add(dedup_key)
                 self._citation_keys.append(entry)
@@ -234,13 +289,12 @@ class SourceRegistry:
                     added = True
             elif entry.chunk_text:
                 # A single page may hold >1 retrieved chunk; dedup collapses them
-                # onto one (filename, page) entry, but each chunk's body is
-                # distinct evidence for quote verification. Append the new body to
-                # the surviving entry so the whole-registry fuzzy match sees every
-                # chunk of the page rather than only the first.
+                # onto one (collection, filename, page) entry, but each chunk's
+                # body is distinct evidence for quote verification. Append the new
+                # body to the surviving entry so the whole-registry fuzzy match
+                # sees every chunk of the page rather than only the first.
                 for existing in self._citation_keys:
-                    existing_file, existing_page = _parse_citation_key(existing.citation_key)
-                    if (existing_file.lower(), existing_page) == dedup_key:
+                    if self._identity(existing) == dedup_key:
                         if not existing.chunk_text:
                             existing.chunk_text = entry.chunk_text
                         elif entry.chunk_text not in existing.chunk_text:
@@ -348,6 +402,31 @@ class SourceRegistry:
 
         return None
 
+    def _entries_for_key(self, key: str) -> tuple[list[SourceEntry], int | None]:
+        """Registry entries a citation key names, plus the page it asked for.
+
+        Filename (case-insensitive) is the match. A key that carries a scope
+        qualifier — `Plan.pdf (Projektwissen), p.3`, emitted only when one
+        filename was retrieved from several collections in the same turn —
+        narrows to the entries actually on that shelf.
+
+        The narrowing is FAIL-OPEN: a qualifier that matches no entry is
+        ignored rather than rejecting the key. Verification only ever removes
+        citations, so a stricter reading here would silently cost an answer its
+        source over a qualifier the model mistyped, and the unqualified filename
+        was already proof enough that the document was retrieved.
+        """
+        target_file, target_scope, target_page = _parse_citation_ref(key)
+        target_lower = target_file.lower()
+        matches = [
+            entry for entry in self._citation_keys if _parse_citation_key(entry.citation_key)[0].lower() == target_lower
+        ]
+        if target_scope:
+            scoped = [entry for entry in matches if collection_scope(entry.collection) == target_scope]
+            if scoped:
+                return scoped, target_page
+        return matches, target_page
+
     def has_citation_key(self, key: str) -> bool:
         """Lenient match of a citation key against registry entries.
 
@@ -356,13 +435,7 @@ class SourceRegistry:
         page than what the knowledge layer returned, and that's acceptable
         since the document itself was verified as a real source.
         """
-        target_file, _ = _parse_citation_key(key)
-        target_lower = target_file.lower()
-        for entry in self._citation_keys:
-            entry_file, _ = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() == target_lower:
-                return True
-        return False
+        return bool(self._entries_for_key(key)[0])
 
     def entry_for_url(self, url: str) -> SourceEntry | None:
         """Return the registry entry for a URL already resolved via ``resolve_url``.
@@ -379,28 +452,22 @@ class SourceRegistry:
     def entry_for_citation_key(self, key: str) -> SourceEntry | None:
         """Return the registry entry best matching ``key`` (lenient on the page).
 
-        Identity still matches :meth:`has_citation_key` — filename-only and
-        case-insensitive — but when the SAME document was retrieved at several
-        pages, the entry whose page the citation actually names wins. The entry
-        this returns is what supplies the wire's ``page``, and therefore the page
-        the UI opens the PDF at; returning "whichever chunk landed in the
-        registry first" made a citation to p.30 open at p.12 whenever both were
-        retrieved. Falls back to the first filename match (so a page the
-        retrieval never returned still resolves to a real, retrieved page rather
-        than to nothing).
+        Identity matches :meth:`has_citation_key` — same filename match, same
+        fail-open scope narrowing — but when the SAME document was retrieved at
+        several pages, the entry whose page the citation actually names wins.
+        The entry this returns is what supplies the wire's ``page``, and
+        therefore the page the UI opens the PDF at; returning "whichever chunk
+        landed in the registry first" made a citation to p.30 open at p.12
+        whenever both were retrieved. Falls back to the first match (so a page
+        the retrieval never returned still resolves to a real, retrieved page
+        rather than to nothing).
         """
-        target_file, target_page = _parse_citation_key(key)
-        target_lower = target_file.lower()
-        fallback: SourceEntry | None = None
-        for entry in self._citation_keys:
-            entry_file, entry_page = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() != target_lower:
-                continue
-            if target_page is not None and entry_page == target_page:
-                return entry
-            if fallback is None:
-                fallback = entry
-        return fallback
+        matches, target_page = self._entries_for_key(key)
+        if target_page is not None:
+            for entry in matches:
+                if _parse_citation_key(entry.citation_key)[1] == target_page:
+                    return entry
+        return matches[0] if matches else None
 
     def all_sources(self) -> list[SourceEntry]:
         """Return all registered sources."""
@@ -1098,8 +1165,10 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
 
     Scans the line for any filename the registry actually holds and rebuilds a
     canonical ``filename, p.N`` key from it: the registry's spelling of the
-    filename (so it always matches) plus the page THE LINE states (so a document
-    retrieved at several pages resolves to the one the answer is citing).
+    filename (so it always matches), the scope qualifier the line states (so two
+    same-named documents on different shelves stay apart), plus the page THE LINE
+    states (so a document retrieved at several pages resolves to the one the
+    answer is citing).
 
     The longest match wins, so `bestandsplan.pdf` is never resolved to a
     registered `plan.pdf`. ``None`` when the line names no registered document.
@@ -1126,9 +1195,22 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
     if best_name is None:
         return None
 
-    # The page stated immediately after the filename, when there is one.
-    page_match = _PAGE_RE.search(ref_text[best_end:])
-    return f"{best_name}, p.{page_match.group(1)}" if page_match else best_name
+    tail = ref_text[best_end:]
+    # A scope qualifier stated right after the filename is part of the document's
+    # IDENTITY, not an annotation to trim: it is the only thing separating two
+    # same-named documents on different shelves. Canonicalize its spelling so the
+    # rebuilt key matches the registry regardless of how the line cased it.
+    qualifier = ""
+    qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(tail)
+    if qualifier_match:
+        scope = scope_for_qualifier(qualifier_match.group(1))
+        if scope:
+            qualifier = f" ({SCOPE_QUALIFIERS[scope]})"
+            tail = tail[qualifier_match.end() :]
+    # The page stated after the filename (and its qualifier), when there is one.
+    page_match = _PAGE_RE.search(tail)
+    name = f"{best_name}{qualifier}"
+    return f"{name}, p.{page_match.group(1)}" if page_match else name
 
 
 def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
