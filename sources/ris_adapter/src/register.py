@@ -681,11 +681,41 @@ class RisFetchDocumentToolConfig(FunctionBaseConfig, name="ris_fetch_document"):
     cache_ttl_seconds: float = Field(default=3600.0, description="How long fetched documents are cached in memory")
 
 
+# A RIS page title routinely reads
+# "RIS - Wiener Garagengesetz 2008 - Landesrecht konsolidiert Wien, Fassung vom 28.07.2026".
+# Two parts of that must not reach the document name:
+#
+#  * the leading "RIS - ", which doubled up under our own "RIS_" prefix and
+#    produced "RIS_RIS_-_…";
+#  * the trailing "Fassung vom <date>" stamp, which is the RETRIEVAL date. It
+#    made the same law ingest as a NEW document on every new day, so a session
+#    accumulated near-duplicate snapshots and a citation pointed at whichever
+#    day's copy happened to be retrieved.
+_RIS_TITLE_PREFIX_RE = re.compile(r"^\s*RIS\s*[-–—:]+\s*", re.IGNORECASE)
+_RIS_TITLE_FASSUNG_RE = re.compile(r"[,;]?\s*Fassung\s+vom\s+[\d.]+\s*$", re.IGNORECASE)
+
+#: Room for the readable part of the name, leaving space for the document
+#: number that anchors it.
+_RIS_NAME_TITLE_CHARS = 60
+
+
 def _safe_document_name(reference: str, title: str) -> str:
-    """Build a stable, filesystem- and citation-friendly name for an ingested document."""
-    base = title or reference
+    """Build a stable, filesystem- and citation-friendly name for an ingested document.
+
+    The name becomes a CITATION KEY the reader sees, so it has to be both
+    human-legible and stable across fetches. The document number anchors it:
+    two fetches of the same law converge on one document instead of piling up
+    date-stamped copies, and the reader can still tell which law it is.
+    """
+    base = _RIS_TITLE_FASSUNG_RE.sub("", _RIS_TITLE_PREFIX_RE.sub("", title or ""))
     base = re.sub(r"[^\w.\- ]+", "_", base).strip("_ ").replace(" ", "_")
-    return f"RIS_{base[:80] or 'Dokument'}.txt"
+    # Trim on the truncation boundary too: cutting mid-token used to leave a
+    # trailing "." that collided with the extension ("…vom_28..txt").
+    base = re.sub(r"[._\-]+$", "", base[:_RIS_NAME_TITLE_CHARS])
+
+    document_number = re.sub(r"[^\w.\-]+", "", reference or "")
+    parts = [part for part in (base, document_number) if part]
+    return f"RIS_{'_'.join(parts) or 'Dokument'}.txt"
 
 
 def _resolve_session_collection() -> str | None:
