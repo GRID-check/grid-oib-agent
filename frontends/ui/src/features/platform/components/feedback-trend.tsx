@@ -80,6 +80,16 @@ function fillWindow(points: readonly FeedbackTrendPoint[], windowDays: number, m
   return out
 }
 
+/**
+ * A `day` key is a UTC calendar date, and it has to be formatted as one.
+ * `new Date('2026-07-30')` parses to midnight UTC, so a reader west of Greenwich
+ * would otherwise see every label a day early — the axis and the hover would
+ * disagree with the data by one day, invisibly.
+ */
+function formatDay(day: string, locale: string): string {
+  return new Date(day).toLocaleDateString(locale, { timeZone: 'UTC' })
+}
+
 export function FeedbackTrend({
   points,
   windowDays,
@@ -286,10 +296,10 @@ export function FeedbackTrend({
         {/* Dates on the axis they belong to, alone — the legend below explains the
             marks, and mixing the two put four unrelated facts on one line. */}
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>{days[0] ? new Date(days[0].day).toLocaleDateString(locale) : ''}</span>
+          <span>{days[0] ? formatDay(days[0].day, locale) : ''}</span>
           {hovered && (
             <span className="font-medium text-foreground" data-testid="feedback-trend-hover">
-              {new Date(hovered.day).toLocaleDateString(locale)} ·{' '}
+              {formatDay(hovered.day, locale)} ·{' '}
               {hovered.rate === null
                 ? t('answerFeedback.trendPointUnreadable', { votes: hovered.total })
                 : t('answerFeedback.trendPoint', {
@@ -298,7 +308,7 @@ export function FeedbackTrend({
                   })}
             </span>
           )}
-          <span>{days.at(-1) ? new Date(days.at(-1)!.day).toLocaleDateString(locale) : ''}</span>
+          <span>{days.at(-1) ? formatDay(days.at(-1)!.day, locale) : ''}</span>
         </div>
 
         {/*

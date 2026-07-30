@@ -20,6 +20,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   answerFeedback,
+  conversations,
   messages,
   type AnswerFeedback,
   type AnswerFeedbackReason,
@@ -269,11 +270,20 @@ export async function getFeedbackHealth(
   const orgScope = organizationId ? [eq(answerFeedback.organizationId, organizationId)] : []
   const inWindow = gte(answerFeedback.createdAt, sql`${since}::timestamptz`)
 
+  // The denominator has to obey the org filter too, or a tenant's negative rate
+  // is computed over the whole platform's answers and reads far lower than it is.
+  // `messages` carries no organization: its conversation does, and the column is
+  // NOT NULL with an FK, so the join drops nothing when nothing is filtered.
   const [answersRow] = await db
     .select({ count: sql<string>`count(*)` })
     .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
     .where(
-      and(eq(messages.role, 'assistant'), gte(messages.createdAt, sql`${since}::timestamptz`)),
+      and(
+        eq(messages.role, 'assistant'),
+        gte(messages.createdAt, sql`${since}::timestamptz`),
+        ...(organizationId ? [eq(conversations.organizationId, organizationId)] : []),
+      ),
     )
 
   const [totalsRow] = await db
@@ -297,14 +307,17 @@ export async function getFeedbackHealth(
 
   const daily = await db
     .select({
-      day: sql<string>`to_char(date_trunc('day', ${answerFeedback.createdAt}), 'YYYY-MM-DD')`,
+      // UTC-pinned, like every other day bucket in the BFF: `date_trunc` on a
+      // timestamptz follows the SESSION timezone, so without this the day
+      // boundaries move with whatever the connection happens to be set to.
+      day: sql<string>`to_char(date_trunc('day', ${answerFeedback.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
       up: sql<string>`count(*) filter (where ${answerFeedback.verdict} = 'up')`,
       down: sql<string>`count(*) filter (where ${answerFeedback.verdict} = 'down')`,
     })
     .from(answerFeedback)
     .where(and(inWindow, ...orgScope))
-    .groupBy(sql`date_trunc('day', ${answerFeedback.createdAt})`)
-    .orderBy(sql`date_trunc('day', ${answerFeedback.createdAt})`)
+    .groupBy(sql`date_trunc('day', ${answerFeedback.createdAt} at time zone 'UTC')`)
+    .orderBy(sql`date_trunc('day', ${answerFeedback.createdAt} at time zone 'UTC')`)
 
   const organizations = await db
     .select({
