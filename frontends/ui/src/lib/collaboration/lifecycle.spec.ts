@@ -573,12 +573,56 @@ describe('changing a role (matrix B11–B13, spec MN-9.4)', () => {
   it('voids nothing when a role is upgraded', async () => {
     for (const role of ['collaborator', 'owner'] as const) {
       vi.mocked(voidOpenRequestsForSubject).mockClear()
+      vi.mocked(upsertGrant).mockClear()
+      // Anna starts BELOW the target every time, so each iteration is a genuine
+      // upgrade. Starting at `collaborator` made the first pass a no-op, which now
+      // returns early — and a no-op does not exercise "an upgrade voids nothing".
+      stubGrants([
+        { subjectUserId: session.userId, role: 'owner' },
+        { subjectUserId: ANNA, role: 'viewer' },
+      ])
 
       await changeResourceRole(session, 'conversation', CONVERSATION_ID, { subjectUserId: ANNA, role })
 
       expect(upsertGrant).toHaveBeenCalledWith(expect.objectContaining({ subjectUserId: ANNA, role }))
       expect(voidOpenRequestsForSubject).not.toHaveBeenCalled()
     }
+  })
+
+  it('does nothing at all when the role is already what was asked for', async () => {
+    stubGrants([
+      { subjectUserId: session.userId, role: 'owner' },
+      { subjectUserId: ANNA, role: 'collaborator' },
+    ])
+
+    await changeResourceRole(session, 'conversation', CONVERSATION_ID, {
+      subjectUserId: ANNA,
+      role: 'collaborator',
+    })
+
+    // A repeated click is not a change, so it reaches neither the audit log nor the
+    // subject's event channel.
+    expect(upsertGrant).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('tells the subject their role changed, so their UI stops offering the composer', async () => {
+    // Without this a downgraded participant keeps a composer they may no longer use
+    // until their next full reload — and an upgrade goes unnoticed just as long.
+    stubGrants([
+      { subjectUserId: session.userId, role: 'owner' },
+      { subjectUserId: ANNA, role: 'collaborator' },
+    ])
+
+    await changeResourceRole(session, 'conversation', CONVERSATION_ID, {
+      subjectUserId: ANNA,
+      role: 'viewer',
+    })
+
+    expect(publishToUsers).toHaveBeenCalledWith(
+      [ANNA],
+      expect.objectContaining({ kind: 'resource.access.changed', change: 'role_changed' }),
+    )
   })
 
   it('refuses a rename from a collaborator — naming a shared thread is an owner call', async () => {

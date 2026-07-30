@@ -50,7 +50,14 @@ export type CollaborationEvent =
       kind: 'resource.access.changed'
       resourceType: ShareableResourceType
       resourceId: string
-      change: 'granted' | 'revoked' | 'visibility'
+      /**
+       * `role_changed` is distinct from `granted` on purpose: the subject already
+       * had access, so a client must re-read what it may DO rather than announce an
+       * arrival. A downgrade to `viewer` takes the composer away, and a UI that
+       * only learns on its next full reload lets somebody keep typing into a thread
+       * they may no longer contribute to.
+       */
+      change: 'granted' | 'revoked' | 'visibility' | 'role_changed'
     }
 
 export interface EventEnvelope {

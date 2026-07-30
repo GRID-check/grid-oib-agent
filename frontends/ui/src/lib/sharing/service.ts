@@ -314,9 +314,17 @@ export async function changeResourceRole(
   // ownership is not a grant row, yet the roster offers their role like any
   // other (a no-op in effect, since resolution always re-adds `owner`).
   const grants = await listGrantsForResource(session.organizationId, resourceType, resourceId)
-  if (!grants.some((grant) => grant.subjectUserId === input.subjectUserId)) {
+  const currentRole = grants.find((grant) => grant.subjectUserId === input.subjectUserId)?.role
+  if (!currentRole) {
     const probe = await describeResource(resourceType).probe(resourceId)
     if (probe?.createdBy !== input.subjectUserId) throw new NotFoundError()
+  }
+
+  // Already what was asked for. Returning here keeps a repeated click out of the
+  // audit log and off the subject's event channel: a no-op is not a change, and a
+  // change is what both of those record.
+  if (currentRole === input.role) {
+    return getSharingState(session, resourceType, resourceId)
   }
 
   await assertNotLastOwner(session, resourceType, resourceId, input.subjectUserId, input.role === 'owner')
@@ -345,8 +353,20 @@ export async function changeResourceRole(
     action: 'resource.share.role_changed',
     targetType: resourceType,
     targetId: resourceId,
-    metadata: { subject: input.subjectUserId, role: input.role },
+    metadata: { subject: input.subjectUserId, from: currentRole ?? null, role: input.role },
     request,
+  })
+
+  // The subject's own clients have to learn. A downgrade to `viewer` takes the
+  // composer away, and a UI that only finds out on its next full reload lets
+  // somebody keep typing into a thread they may no longer contribute to — and lets
+  // an upgrade go unnoticed until then too. `role_changed` rather than `granted`
+  // because they already had access; what changed is what they may DO.
+  await publishToUsers([input.subjectUserId], {
+    kind: 'resource.access.changed',
+    resourceType,
+    resourceId,
+    change: 'role_changed',
   })
 
   return getSharingState(session, resourceType, resourceId)
