@@ -47,7 +47,7 @@ import { useChatStore } from '@/features/chat/store'
 import type { ChatMessage } from '@/features/chat/types'
 import type { MessagesSlice } from '@/features/chat/stores/messages-store'
 import { mapServerMessagesToChatMessages } from '@/features/chat/lib/server-message-mapper'
-import type { Message } from '@/lib/db/schema'
+import type { ConversationEngagement, Message } from '@/lib/db/schema'
 import { publishThreadSharing } from '@/shared/collaboration/thread-sharing'
 import { useLiveEvents } from './use-live-events'
 
@@ -72,6 +72,8 @@ interface ConversationAccessFacts {
   shared?: boolean
   myRole?: ResourceRole | null
   myReadState?: { lastReadMessageId: string | null } | null
+  /** When the agent answers a message that tags nobody (ADR-0036). */
+  engagementMode?: ConversationEngagement
 }
 
 /** Who the agent is currently working for (spec CC-13). */
@@ -127,11 +129,21 @@ export interface UseSharedThreadResult {
   unreadAfterMessageId: string | null
   /** The most recent message from someone else, for an `aria-live` announcement. */
   lastArrival: SharedThreadArrival | null
+  /**
+   * The routing rule for a message that tags nobody (ADR-0036): `ask` means it
+   * goes to Piloti, `mention` means it goes to the chat.
+   *
+   * Server-resolved, never derived here — the composer's statement of who receives
+   * the next message and the routing that delivers it must come from one answer.
+   */
+  engagement: ConversationEngagement
+  /** Change the rule. Resolves false when the server refused. */
+  setEngagement: (mode: ConversationEngagement) => Promise<boolean>
   /** Force a re-read. Same path the focus/poll fallbacks use. */
   refresh: () => void
 }
 
-const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf'> = {
+const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf' | 'setEngagement'> = {
   shared: false,
   myRole: null,
   loading: false,
@@ -140,6 +152,9 @@ const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf'> = {
   participants: [],
   unreadAfterMessageId: null,
   lastArrival: null,
+  // A gated or private thread answers everything, which is what it has always
+  // done — the mode can only ever narrow a SHARED thread.
+  engagement: 'ask',
 }
 
 /**
@@ -159,7 +174,10 @@ function withAuthorIdentity(
     if (!message.authorUserId) return message
     const person = directory.get(message.authorUserId)
     if (!person) return message
-    if (message.authorName === person.name && message.authorAvatarUrl === person.profilePictureUrl) {
+    if (
+      message.authorName === person.name &&
+      message.authorAvatarUrl === person.profilePictureUrl
+    ) {
       return message
     }
     return { ...message, authorName: person.name, authorAvatarUrl: person.profilePictureUrl }
@@ -171,6 +189,9 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
   const [shared, setShared] = useState(false)
   const [myRole, setMyRole] = useState<ResourceRole | null>(null)
+  // `ask` until the server says otherwise: it is the behaviour every thread had
+  // before this existed, so a load that has not landed yet cannot change routing.
+  const [engagement, setEngagementState] = useState<ConversationEngagement>('ask')
   const [loading, setLoading] = useState(false)
   const [participants, setParticipants] = useState<DirectoryPerson[]>([])
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
@@ -211,10 +232,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    */
   const applyMessages = useCallback(
     (targetConversationId: string, rows: Message[], replace: boolean) => {
-      const mapped = withAuthorIdentity(
-        mapServerMessagesToChatMessages(rows),
-        directoryRef.current
-      )
+      const mapped = withAuthorIdentity(mapServerMessagesToChatMessages(rows), directoryRef.current)
 
       // `insertRemoteMessages` is declared on the messages slice; `ChatActions`
       // (features/chat/types.ts) is shared surface this task may not extend, so
@@ -233,7 +251,9 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       const me = currentUserIdRef.current
       const foreign = replace
         ? undefined
-        : [...mapped].reverse().find((message) => message.authorUserId && message.authorUserId !== me)
+        : [...mapped]
+            .reverse()
+            .find((message) => message.authorUserId && message.authorUserId !== me)
       if (foreign) {
         setLastArrival((previous) =>
           previous?.messageId === foreign.id
@@ -332,6 +352,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         sharedRef.current = isShared
         setShared(isShared)
         setMyRole(facts.myRole ?? null)
+        setEngagementState(facts.engagementMode ?? 'ask')
         // Hand the answer to the agent-socket gate (`useWebSocketChat`). This read
         // is the ONLY place sharedness is learned, and the composer lives in a
         // sibling component — publishing it here is what keeps the composer from
@@ -443,7 +464,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const refresh = useCallback(() => {
     // Expire a turn banner whose `ended` never arrived, so the fallback path
     // heals it exactly like every other piece of state here.
-    if (turnStartedAtRef.current > 0 && Date.now() - turnStartedAtRef.current > TURN_BANNER_MAX_AGE_MS) {
+    if (
+      turnStartedAtRef.current > 0 &&
+      Date.now() - turnStartedAtRef.current > TURN_BANNER_MAX_AGE_MS
+    ) {
       setTurnInFlight(null)
     }
     if (!sharedRef.current) {
@@ -505,6 +529,40 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     [directory]
   )
 
+  /**
+   * Change when the agent answers here (ADR-0036).
+   *
+   * Optimistic, then reconciled from the server's answer: the notice that carries
+   * this control also states the current rule, and a control whose label lags a
+   * round-trip behind reads as broken. A refusal restores the truth by returning
+   * false, which the caller surfaces.
+   */
+  const setEngagement = useCallback(
+    async (mode: ConversationEngagement): Promise<boolean> => {
+      if (!base) return false
+      const previous = engagement
+      setEngagementState(mode)
+      try {
+        const response = await fetch(base, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ engagement: mode }),
+        })
+        if (!response.ok) {
+          setEngagementState(previous)
+          return false
+        }
+        const facts = (await response.json()) as ConversationAccessFacts
+        setEngagementState(facts.engagementMode ?? mode)
+        return true
+      } catch {
+        setEngagementState(previous)
+        return false
+      }
+    },
+    [base, engagement]
+  )
+
   const result = useMemo<UseSharedThreadResult>(
     () => ({
       shared,
@@ -516,6 +574,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       authorOf,
       unreadAfterMessageId,
       lastArrival,
+      engagement,
+      setEngagement,
       refresh,
     }),
     [
@@ -528,11 +588,13 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       authorOf,
       unreadAfterMessageId,
       lastArrival,
+      engagement,
+      setEngagement,
       refresh,
     ]
   )
 
   // The disabled case is a distinct, deliberately inert object: no state a caller
   // could act on, so a gated org cannot render a collaboration affordance.
-  return enabled && conversationId ? result : { ...INERT, authorOf, refresh }
+  return enabled && conversationId ? result : { ...INERT, authorOf, refresh, setEngagement }
 }

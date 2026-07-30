@@ -128,6 +128,14 @@ export const collaboration: typeof en.collaboration = {
       notInConversation: 'Nicht in diesem Chat',
     },
     notePlaceholder: 'Worum soll sich die Person kümmern? (optional)',
+    engagement: {
+      mentionLabel: 'Piloti antwortet, wenn er erwähnt wird',
+      mentionHint: 'Hier sprechen zwei Personen — eine Nachricht ohne Erwähnung geht an den Chat.',
+      switchToAsk: 'Piloti immer antworten lassen',
+      askLabel: 'Piloti antwortet hier auf alles',
+      switchToMention: 'Nur wenn erwähnt',
+      failed: 'Die Änderung war nicht möglich.',
+    },
     awaiting: {
       one: 'Warten auf {name}',
       many: 'Warten auf {names}',

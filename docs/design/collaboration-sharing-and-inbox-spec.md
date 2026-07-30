@@ -569,11 +569,25 @@ what it is doing.
 ### 7.1 Addressing
 
 - **MN-1 (MUST).** Every message has an **addressee set**, derived from its mentions:
-  - no mentions → **the agent** (today's behaviour, unchanged);
   - one or more human mentions → **those humans**, and the agent is **not**
     addressed;
   - an explicit mention of the agent (`@Piloti`) → **the agent**, alongside any humans
-    mentioned.
+    mentioned;
+  - no mentions → decided by the thread's **engagement mode** (ADR-0036): `ask` →
+    the agent, `mention` → the thread, and nobody in particular. A solo thread is
+    always `ask`, so single-person behaviour is unchanged. A thread explicitly
+    waiting on a named person is addressed to the thread regardless of mode.
+
+  The first two rules are absolute — no mode, setting or model output may override
+  them, because a tag that might not do what it says is not worth typing.
+
+  **Amended 2026-07-30.** As originally written, a message with no mentions always
+  addressed the agent. In a thread where two people are talking that is wrong in a
+  way users reported: a wait clears the moment the colleague replies, so the very
+  next message — most likely one human answering another — woke the agent.
+  ADR-0036 records the fix, and why the alternative (letting the model judge
+  whether it was addressed) is rejected on measured capability rather than on
+  taste.
 
   This is the whole rule, and it is deliberately memorable: *if you tag a person, you
   are asking the person; if you want the agent too, tag it as well.*

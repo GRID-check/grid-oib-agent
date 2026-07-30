@@ -32,6 +32,7 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type {
   Conversation,
+  ConversationEngagement,
   ConversationRead,
   Message,
   ResourceRole,
@@ -52,7 +53,9 @@ import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 import {
   persistDerivedEngagement,
+  resolveEngagement,
   resolveEngagementFor,
+  setEngagement,
   type EngagementState,
 } from './engagement'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
@@ -133,6 +136,16 @@ export interface ConversationWithAccess extends Conversation {
   visibility: ResourceVisibility
   /** The caller's own read high-water mark, for the unread separator (CC-19). */
   myReadState: { lastReadAt: Date; lastReadMessageId: string | null } | null
+  /**
+   * The mode in force for a message that tags nobody (ADR-0036), already resolved
+   * — the client is told the answer rather than deriving it, so the composer's
+   * statement of who receives the next message cannot disagree with the routing.
+   *
+   * `engagementStored` is null while the mode is derived rather than chosen, which
+   * is what lets the UI say "this is the rule" instead of "this is your setting".
+   */
+  engagementMode: ConversationEngagement
+  engagementStored: ConversationEngagement | null
 }
 
 export interface ListConversationsFilter {
@@ -186,15 +199,43 @@ export async function getConversation(
   ])
   if (!conversation) throw new NotFoundError()
 
+  const shared = isShared(access.visibility, grantCount)
+  // Derived only for a shared thread, and only on open. A solo thread is always
+  // `ask` by definition — one author — so it pays for no aggregate.
+  const engagement = shared
+    ? await resolveEngagement(conversationId, conversation.engagement)
+    : { mode: 'ask' as const, stored: conversation.engagement }
+
   return {
     ...conversation,
-    shared: isShared(access.visibility, grantCount),
+    shared,
     myRole: access.role,
     visibility: access.visibility,
     myReadState: readMark
       ? { lastReadAt: readMark.lastReadAt, lastReadMessageId: readMark.lastReadMessageId }
       : null,
+    engagementMode: engagement.mode,
+    engagementStored: engagement.stored,
   }
+}
+
+/**
+ * Change when the agent answers a message that tags nobody (ADR-0036).
+ *
+ * `collaborator`, not `owner`: the mode governs how the thread behaves for
+ * everyone in it, and a discussion stuck answering the wrong person must be
+ * fixable by whoever is in the room — the same reasoning as releasing a wait
+ * (spec MN-9.2). It cannot leak anything: the value is two words, and the caller
+ * already has to be able to write here.
+ */
+export async function updateConversationEngagement(
+  session: AuthorizedSession,
+  conversationId: string,
+  mode: ConversationEngagement,
+): Promise<ConversationWithAccess> {
+  await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
+  await setEngagement(conversationId, session.organizationId, mode)
+  return getConversation(session, conversationId)
 }
 
 /**

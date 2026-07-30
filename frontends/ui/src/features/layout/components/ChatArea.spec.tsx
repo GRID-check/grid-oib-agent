@@ -73,7 +73,7 @@ vi.mock('@/features/chat', () => ({
 // result, which is what every pre-collaboration test in this file relies on.
 const INERT_SHARED_THREAD = {
   shared: false,
-  myRole: null,
+  myRole: null as 'viewer' | 'collaborator' | 'owner' | null,
   loading: false,
   connected: false,
   turnInFlight: null as { actorUserId: string | null } | null,
@@ -81,6 +81,8 @@ const INERT_SHARED_THREAD = {
   unreadAfterMessageId: null as string | null,
   lastArrival: null as { messageId: string; authorUserId: string | null; authorName: string | null } | null,
   authorOf: (_userId?: string | null) => null as { userId: string; name: string } | null,
+  engagement: 'ask' as 'ask' | 'mention',
+  setEngagement: async (_mode: 'ask' | 'mention') => true,
   refresh: () => {},
 }
 let mockSharedThread = { ...INERT_SHARED_THREAD }
@@ -1054,5 +1056,86 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The engagement notice, asserted where it has to appear.
+ *
+ * Same lesson as the awaiting banner: a component that explains the product's
+ * routing is worth nothing if the product does not render it. In `mention` mode a
+ * plain message goes to the chat rather than to Piloti, and a reader with no
+ * explanation on screen concludes the assistant is broken.
+ */
+describe('ChatArea — the engagement notice is reachable', () => {
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  const thread = () => [
+    { id: 'm1', role: 'user', messageType: 'user', content: 'm1', authorUserId: 'user-1' },
+  ]
+
+  beforeEach(() => {
+    mockAwaitingPending = []
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, engagement: 'mention' }
+  })
+
+  test('a mention-mode shared thread explains the rule', () => {
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
+      'Piloti answers when mentioned',
+    )
+  })
+
+  test('an ask-mode thread stays quiet about it', () => {
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, engagement: 'ask' }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('engagement-notice')).not.toBeInTheDocument()
+  })
+
+  test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {
+    mockSharedThread = { ...INERT_SHARED_THREAD, engagement: 'mention' }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate={false} />)
+
+    expect(screen.queryByTestId('engagement-notice')).not.toBeInTheDocument()
+  })
+
+  test('a viewer gets the explanation without the control', () => {
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      engagement: 'mention',
+      myRole: 'viewer',
+    }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('engagement-notice')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Let Piloti answer everything' }),
+    ).not.toBeInTheDocument()
   })
 })

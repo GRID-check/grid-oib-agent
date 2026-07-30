@@ -42,6 +42,7 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
+import { EngagementNotice } from '@/features/collaboration/components/EngagementNotice'
 import { useMessageAnchor } from '@/features/collaboration/hooks/use-message-anchor'
 import { MentionPeopleProvider } from '@/features/collaboration/context/mention-people'
 import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
@@ -125,12 +126,21 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // One hook owns "is this thread shared, load it from the server, keep it
   // reconciled". With `canCollaborate` false — the default — it does nothing at
   // all, so the local-first path below is byte-identical to today's.
-  const { shared, turnInFlight, unreadAfterMessageId, lastArrival, participants, authorOf } =
-    useSharedThread({
-      conversationId: currentConversation?.id ?? null,
-      enabled: canCollaborate,
-      currentUserId,
-    })
+  const {
+    shared,
+    myRole,
+    turnInFlight,
+    unreadAfterMessageId,
+    lastArrival,
+    participants,
+    engagement,
+    setEngagement,
+    authorOf,
+  } = useSharedThread({
+    conversationId: currentConversation?.id ?? null,
+    enabled: canCollaborate,
+    currentUserId,
+  })
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
   // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
@@ -729,6 +739,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   )
                 })}
               </AnimatePresence>
+
+              {/* The standing routing rule for a message that tags nobody
+              (ADR-0036), stated where the question occurs — "why didn't Piloti
+              answer that?" — and changeable by whoever is reading it. Renders
+              nothing in `ask` mode, where the composer's "Geht an Piloti" already
+              says everything true. Above the banner because this is the rule while
+              the banner is a transient state. */}
+              {shared && (
+                <EngagementNotice
+                  mode={engagement}
+                  onChange={setEngagement}
+                  canChange={myRole !== 'viewer'}
+                />
+              )}
 
               {/* The thread is WAITING on a named person (spec MN-8). Without this
               mounted, the agent's silence has no explanation on screen, and

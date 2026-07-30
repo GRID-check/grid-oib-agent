@@ -67,8 +67,10 @@ vi.mock('@/lib/mentions/service', () => ({
 // suite asserts is that the RULING obeys it, while how the mode is stored and
 // derived has its own tests in engagement.spec.ts.
 vi.mock('./engagement', () => ({
+  resolveEngagement: vi.fn(),
   resolveEngagementFor: vi.fn(),
   persistDerivedEngagement: vi.fn(),
+  setEngagement: vi.fn(),
 }))
 
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -81,7 +83,7 @@ import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
 import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
-import { persistDerivedEngagement, resolveEngagementFor } from './engagement'
+import { persistDerivedEngagement, resolveEngagement, resolveEngagementFor } from './engagement'
 import {
   deleteConversationInOrg,
   findConversationInOrg,
@@ -186,6 +188,7 @@ beforeEach(() => {
   // reason as `threadIsAwaitingHuman` above — `clearAllMocks` does not clear a
   // `mockResolvedValue`, so a test opting into `mention` would leak.
   vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null })
+  vi.mocked(resolveEngagement).mockResolvedValue({ mode: 'ask', stored: null })
   vi.mocked(persistDerivedEngagement).mockResolvedValue(true)
   vi.mocked(findConversationRead).mockResolvedValue(null)
   vi.mocked(resolveParticipants).mockResolvedValue([])

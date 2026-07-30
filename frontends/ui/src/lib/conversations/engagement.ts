@@ -61,8 +61,8 @@ export async function countDistinctHumanAuthors(conversationId: string): Promise
         // Legacy rows carry no author (authorship arrived with migration 0027).
         // Counting them as one anonymous person would flip a solo thread the
         // first time its owner wrote again.
-        sql`${messages.authorUserId} is not null`,
-      ),
+        sql`${messages.authorUserId} is not null`
+      )
     )
   return row?.count ?? 0
 }
@@ -79,7 +79,7 @@ export interface EngagementState {
 
 export async function resolveEngagement(
   conversationId: string,
-  stored: ConversationEngagement | null,
+  stored: ConversationEngagement | null
 ): Promise<EngagementState> {
   if (stored) return { mode: stored, stored }
   return { mode: deriveEngagement(await countDistinctHumanAuthors(conversationId)), stored: null }
@@ -87,7 +87,7 @@ export async function resolveEngagement(
 
 /** The stored mode alone — a primary-key lookup, no derivation. */
 export async function findStoredEngagement(
-  conversationId: string,
+  conversationId: string
 ): Promise<ConversationEngagement | null> {
   const db = getDb()
   const [row] = await db
@@ -124,7 +124,7 @@ export async function resolveEngagementFor(conversationId: string): Promise<Enga
  */
 export async function persistDerivedEngagement(
   conversationId: string,
-  mode: ConversationEngagement,
+  mode: ConversationEngagement
 ): Promise<boolean> {
   const db = getDb()
   const updated = await db
@@ -139,7 +139,7 @@ export async function persistDerivedEngagement(
 export async function setEngagement(
   conversationId: string,
   organizationId: string,
-  mode: ConversationEngagement,
+  mode: ConversationEngagement
 ): Promise<boolean> {
   const db = getDb()
   const updated = await db
@@ -151,8 +151,8 @@ export async function setEngagement(
         eq(conversations.organizationId, organizationId),
         // Nothing to do when it already says that — keeps a double-click from
         // counting as a change worth publishing.
-        ne(sql`coalesce(${conversations.engagement}, '')`, mode),
-      ),
+        ne(sql`coalesce(${conversations.engagement}, '')`, mode)
+      )
     )
     .returning({ id: conversations.id })
   return updated.length > 0

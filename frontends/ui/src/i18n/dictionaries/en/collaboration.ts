@@ -173,6 +173,22 @@ export const collaboration = {
       notInConversation: 'Not in this conversation',
     },
     notePlaceholder: 'What would you like them to look at? (optional)',
+    /**
+     * When the agent answers a message that tags nobody (ADR-0036).
+     *
+     * This is a permanent one-liner rather than a dismissible notice, because it
+     * is simultaneously the explanation ("why didn't Piloti answer that?") and the
+     * control. A routing rule the reader cannot see is a rule they will be
+     * surprised by, and the surprise arrives long after any banner was dismissed.
+     */
+    engagement: {
+      mentionLabel: 'Piloti answers when mentioned',
+      mentionHint: 'Two of you are talking here, so a plain message goes to the chat.',
+      switchToAsk: 'Let Piloti answer everything',
+      askLabel: 'Piloti answers everything here',
+      switchToMention: 'Only when mentioned',
+      failed: 'That could not be changed.',
+    },
     /** The banner every participant sees while the thread waits (spec MN-8). */
     awaiting: {
       one: 'Waiting for {name}',
