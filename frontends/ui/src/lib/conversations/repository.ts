@@ -12,12 +12,15 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
+  conversationReads,
   conversations,
   messages,
+  resourceShares,
   type Conversation,
+  type ConversationRead,
   type Message,
   type NewMessage,
   type ResourceVisibility,
@@ -30,33 +33,90 @@ export const CONVERSATION_LIST_LIMIT = 200
 export const MESSAGE_LIST_LIMIT = 1000
 
 /**
- * List an organization's conversations, optionally scoped to a project.
+ * "A grant on this conversation names the caller" — as a CORRELATED subquery, so
+ * the whole visibility rule is one round trip (ADR-0032).
  *
- * Project scoping is deliberately fail-open for legacy rows: conversations
- * with a NULL `project_id` (created before project stamping) are included in
- * every project-scoped list so users never lose sight of their history.
- * Rows stamped with a DIFFERENT project are always excluded.
+ * The alternative — resolving effective access per row — would be N calls to
+ * WorkOS FGA on a list render, which is exactly the cost ADR-0032 exists to
+ * avoid. Kept org-scoped as well as resource-scoped: a grant row is tenant data
+ * like any other.
  */
-export async function listConversationsInOrg(
+function grantNamesCaller(organizationId: string, userId: string) {
+  const db = getDb()
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(resourceShares)
+      .where(
+        and(
+          eq(resourceShares.organizationId, organizationId),
+          eq(resourceShares.resourceType, 'conversation'),
+          eq(resourceShares.resourceId, conversations.id),
+          eq(resourceShares.subjectUserId, userId),
+        ),
+      ),
+  )
+}
+
+/**
+ * List the conversations one caller may actually see — the visibility-aware
+ * replacement for the old org-scoped list (spec SH-4, ADR-0032).
+ *
+ * The old query returned EVERY conversation in the organization, which is the
+ * defect §3 of the collaboration spec calls out: "private chat" did not exist,
+ * the project-scoped UI merely masked it. Filtering happens in SQL because the
+ * alternative is one authorization round trip per row.
+ *
+ * Two shapes, because the caller's provable reach differs:
+ *
+ *   - **With `projectId`** (the normal case): the service has already proved the
+ *     caller reaches that project (`requireProjectAccess`), so every
+ *     `project`-visible row inside it is visible to them by definition. Only
+ *     `private` rows need narrowing, to creator-or-grantee. Legacy rows with a
+ *     NULL `project_id` stay fail-open exactly as before, so nobody loses sight
+ *     of history created before project stamping.
+ *
+ *   - **Without `projectId`**: there is no proven container, and we will NOT do
+ *     an FGA probe per row. The unscoped list is therefore narrowed to what the
+ *     caller reaches without any project claim at all: rows they created, rows
+ *     granted to them, and `organization`-visible rows. This is a DELIBERATE
+ *     tightening of previous behaviour (spec MG-1) — the unscoped list used to
+ *     return the whole organization — and it is the safe direction: a
+ *     project-visible thread is still listed by the project-scoped call the UI
+ *     actually makes.
+ */
+export async function listVisibleConversations(
   organizationId: string,
+  userId: string,
   options: { projectId?: string; limit?: number } = {},
 ): Promise<Conversation[]> {
   const { projectId, limit = CONVERSATION_LIST_LIMIT } = options
-  const orgScope = eq(conversations.organizationId, organizationId)
   const db = getDb()
-  return db
-    .select()
-    .from(conversations)
-    .where(
-      projectId
-        ? and(orgScope, or(eq(conversations.projectId, projectId), isNull(conversations.projectId)))
-        : orgScope,
-    )
-    .orderBy(desc(conversations.updatedAt))
-    .limit(limit)
+  const orgScope = eq(conversations.organizationId, organizationId)
+  const mine = eq(conversations.createdBy, userId)
+  const granted = grantNamesCaller(organizationId, userId)
+
+  const scope = projectId
+    ? and(
+        orgScope,
+        or(eq(conversations.projectId, projectId), isNull(conversations.projectId)),
+        // Inside a project the caller can reach, only `private` needs narrowing.
+        or(ne(conversations.visibility, 'private'), mine, granted),
+      )
+    : and(orgScope, or(mine, granted, eq(conversations.visibility, 'organization')))
+
+  return db.select().from(conversations).where(scope).orderBy(desc(conversations.updatedAt)).limit(limit)
 }
 
-/** Load a conversation by id scoped to an organization. */
+/**
+ * Load a conversation by id scoped to an organization.
+ *
+ * **Not an authorization check.** Org scope alone is what made every chat
+ * readable by every colleague (ADR-0032). Session-carrying callers MUST resolve
+ * access through `requireResourceAccess(session, 'conversation', …)` first; this
+ * query then serves the row, and is the ONLY tenancy gate on the session-less
+ * internal (service-token) path, which has no session to resolve access for.
+ */
 export async function findConversationInOrg(
   conversationId: string,
   organizationId: string,
@@ -200,6 +260,28 @@ export async function listMessagesForConversation(
 }
 
 /**
+ * Load one message inside a conversation. Scoped by BOTH ids so a guessed
+ * message id from another conversation reads as absent.
+ *
+ * Used by the persist path to recognise a replayed client-generated id before it
+ * re-runs the side effects that id already caused (mention requests, inbox
+ * items): the addressee ruling is read back off the stored row instead of being
+ * computed a second time (spec MN-2).
+ */
+export async function findMessageInConversation(
+  conversationId: string,
+  messageId: string,
+): Promise<Message | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
+    .limit(1)
+  return row ?? null
+}
+
+/**
  * Insert messages, skipping ids that already exist (client retries replay the
  * same client-generated id; a duplicate must not fail the whole batch).
  */
@@ -267,3 +349,58 @@ export async function mergeMessageMetadata(
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * Move one person's read high-water mark on a conversation (spec CC-18).
+ *
+ * Upsert on the composite PK `(conversation_id, user_id)`: reading is a repeated
+ * act, and "how far have I read" is one row per person per thread — never a
+ * per-message receipt.
+ *
+ * `lastReadMessageId` is only overwritten when the caller supplies one, so a
+ * plain "I looked at this thread" mark cannot erase the anchor a previous, more
+ * precise mark stored (which is what the unread separator renders from, CC-19).
+ */
+export async function upsertConversationRead(values: {
+  conversationId: string
+  userId: string
+  lastReadAt?: Date
+  lastReadMessageId?: string | null
+}): Promise<ConversationRead> {
+  const db = getDb()
+  const at = values.lastReadAt ?? new Date()
+  const [row] = await db
+    .insert(conversationReads)
+    .values({
+      conversationId: values.conversationId,
+      userId: values.userId,
+      lastReadAt: at,
+      lastReadMessageId: values.lastReadMessageId ?? null,
+      updatedAt: at,
+    })
+    .onConflictDoUpdate({
+      target: [conversationReads.conversationId, conversationReads.userId],
+      set: {
+        lastReadAt: at,
+        lastReadMessageId:
+          values.lastReadMessageId ?? sql`${conversationReads.lastReadMessageId}`,
+        updatedAt: at,
+      },
+    })
+    .returning()
+  return row
+}
+
+/** One person's read mark on one conversation, or null when they never read it. */
+export async function findConversationRead(
+  conversationId: string,
+  userId: string,
+): Promise<ConversationRead | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(conversationReads)
+    .where(and(eq(conversationReads.conversationId, conversationId), eq(conversationReads.userId, userId)))
+    .limit(1)
+  return row ?? null
+}

@@ -46,9 +46,9 @@ export async function pruneExpiredInboxItems(now = new Date()): Promise<Retentio
   )
   const cutoff = new Date(now.getTime() - longestDays * 24 * 60 * 60 * 1000)
   const deleted = await pruneInboxItemsOlderThan(cutoff, PRUNE_BATCH)
-  if (deleted > 0) {
-    console.info(`[retention] pruned ${deleted} inbox items older than ${cutoff.toISOString()}`)
-  }
+  // Deliberately silent on success: this runs on a scheduler, and a per-tick log
+  // line for routine housekeeping is noise. The caller gets the count back and
+  // the endpoint returns it, which is where an operator would look.
   return { deleted, cutoff: cutoff.toISOString() }
 }
 
