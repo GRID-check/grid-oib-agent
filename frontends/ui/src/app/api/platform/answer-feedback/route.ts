@@ -11,11 +11,13 @@ import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { getAnswerFeedbackHealth } from '@/lib/feedback/service'
+import { parseFeedbackFilters } from '@/lib/feedback/query'
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
     const session = await getGridSession()
-    const health = await getAnswerFeedbackHealth(session)
+    const filters = parseFeedbackFilters(new URL(request.url).searchParams)
+    const health = await getAnswerFeedbackHealth(session, filters)
     return NextResponse.json(health)
   } catch (error) {
     if (error instanceof PlatformAccessDeniedError) {

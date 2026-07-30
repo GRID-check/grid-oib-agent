@@ -30,6 +30,7 @@ import {
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
   type FeedbackHealth,
+  type FeedbackHealthFilters,
 } from './repository'
 
 /** Upsert the caller's vote on one assistant answer. */
@@ -108,8 +109,8 @@ function toView(row: AnswerFeedback): AnswerFeedbackView {
  */
 export async function getAnswerFeedbackHealth(
   session: GridSession | null,
-  windowDays?: number,
+  filters: FeedbackHealthFilters = {},
 ): Promise<FeedbackHealth> {
   await requirePlatformOwner(session)
-  return getFeedbackHealth(windowDays)
+  return getFeedbackHealth(filters)
 }

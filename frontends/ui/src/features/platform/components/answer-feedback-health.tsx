@@ -33,13 +33,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MessageSquareWarning, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Download, MessageSquareWarning, RefreshCw, Search, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
+import { FeedbackTrend } from './feedback-trend'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -54,6 +56,9 @@ type Reason = (typeof REASONS)[number]
 
 /** Below this many votes a percentage is noise, not a rate — see `MIN_RATE_VOTES`. */
 const MIN_RATE_VOTES = 5
+
+/** Windows offered. Mirrors `FEEDBACK_WINDOW_OPTIONS`; the server coerces anyway. */
+const WINDOWS = [7, 30, 90] as const
 
 interface FeedbackHealthResponse {
   windowDays: number
@@ -105,11 +110,38 @@ export function AnswerFeedbackHealth(): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
 
+  const [days, setDays] = useState<number>(30)
+  const [reason, setReason] = useState<Reason | null>(null)
+  const [org, setOrg] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  /** The value actually sent — debounced, so typing does not fire a query a keystroke. */
+  const [committedQuery, setCommittedQuery] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setCommittedQuery(query.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  /**
+   * Filters live in the URL the component fetches, NOT in a `.filter()` over the
+   * response. The drill-in is capped server-side, so filtering the arrived rows
+   * would search the last 50 defects and confidently report nothing beyond them.
+   */
+  const search = useMemo(() => {
+    const params = new URLSearchParams({ days: String(days) })
+    if (reason) params.set('reason', reason)
+    if (org) params.set('org', org)
+    if (committedQuery) params.set('q', committedQuery)
+    return params.toString()
+  }, [days, reason, org, committedQuery])
+
+  const filtered = Boolean(reason || org || committedQuery)
+
   const load = useCallback(async () => {
     setLoading(true)
     setFailed(false)
     try {
-      const res = await fetch('/api/platform/answer-feedback')
+      const res = await fetch(`/api/platform/answer-feedback?${search}`)
       if (!res.ok) throw new Error(String(res.status))
       setData((await res.json()) as FeedbackHealthResponse)
     } catch {
@@ -117,11 +149,21 @@ export function AnswerFeedbackHealth(): JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [])
+    // `search` IS a dependency. Without it this callback closes over the query
+    // string it was built with, the effect below never re-runs, and every filter
+    // on the page silently does nothing while looking like it worked.
+  }, [search])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const clearFilters = (): void => {
+    setReason(null)
+    setOrg(null)
+    setQuery('')
+    setCommittedQuery('')
+  }
 
   const total = (data?.totals.up ?? 0) + (data?.totals.down ?? 0)
   const downRate = total > 0 ? (data!.totals.down / total) * 100 : 0
@@ -155,15 +197,65 @@ export function AnswerFeedbackHealth(): JSX.Element {
         <CardDescription>
           {t('answerFeedback.subtitle', { days: data?.windowDays ?? 30 })}
         </CardDescription>
-        <CardAction>
+        <CardAction className="flex items-center gap-1.5">
           <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
             <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} aria-hidden />
             {t('answerFeedback.refresh')}
+          </Button>
+          {/* A plain link, not a fetch: the route sets Content-Disposition, so the
+              browser downloads without buffering a CSV in the bundle. It carries
+              the SAME query string, so the file matches what is on screen. */}
+          <Button asChild variant="outline" size="sm">
+            <a href={`/api/platform/answer-feedback/export?${search}`} download>
+              <Download className="size-3.5" aria-hidden />
+              {t('answerFeedback.export')}
+            </a>
           </Button>
         </CardAction>
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {/* ---- Filters. One row above the content, always present — a control
+             that appears only once there is data is a control nobody finds. ---- */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1" role="group" aria-label={t('answerFeedback.windowLabel')}>
+            {WINDOWS.map((option) => (
+              <Button
+                key={option}
+                variant={option === days ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-pressed={option === days}
+                onClick={() => setDays(option)}
+              >
+                {t('answerFeedback.windowDays', { count: option })}
+              </Button>
+            ))}
+          </div>
+
+          <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('answerFeedback.searchPlaceholder')}
+              aria-label={t('answerFeedback.searchPlaceholder')}
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+
+          {/* Active filters as removable chips rather than a form that has to be
+              read to know what is applied — the state IS the affordance. */}
+          {filtered && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters">
+              <X className="size-3.5" aria-hidden />
+              {t('answerFeedback.clearFilters')}
+            </Button>
+          )}
+        </div>
+
         {loading && !data ? (
           <div className="space-y-3">
             <Skeleton className="h-16 w-full" />
@@ -198,6 +290,14 @@ export function AnswerFeedbackHealth(): JSX.Element {
                     the people who chose to vote — raters self-select and skew
                     negative — so without the coverage beside it the big number
                     gets quoted as a quality figure it is not. */}
+                {/* When a filter is on, the headline is a claim about the SELECTION,
+                    not the platform — and a big percentage with no such note is
+                    exactly how a filtered figure ends up in a slide. */}
+                {filtered && (
+                  <p className="mt-0.5 text-xs font-medium text-warning">
+                    {t('answerFeedback.filteredNote')}
+                  </p>
+                )}
                 <p className="mt-0.5 text-xs text-muted-foreground/80">
                   {t('answerFeedback.coverage', {
                     votes: num(total, locale),
@@ -223,6 +323,15 @@ export function AnswerFeedbackHealth(): JSX.Element {
               </div>
             </div>
 
+            {/* ---- Direction. Sits right under the headline because "are we
+                 improving?" is the question the headline provokes and cannot
+                 answer. ---- */}
+            <FeedbackTrend
+              points={data!.daily}
+              windowDays={data!.windowDays}
+              minVotes={MIN_RATE_VOTES}
+            />
+
             {/* ---- Why. Four categories, so direct labels are mandatory and the
                  value never lives in the colour alone. ---- */}
             {data!.totals.down > 0 && (
@@ -231,11 +340,27 @@ export function AnswerFeedbackHealth(): JSX.Element {
                   {t('answerFeedback.reasonsHeading')}
                 </h4>
                 <ul className="space-y-1.5" data-testid="feedback-reason-bars">
-                  {reasonBars.map(({ reason, count, pct }) => (
-                    <li key={reason} className="flex items-center gap-3">
-                      <span className="w-32 shrink-0 truncate text-xs text-muted-foreground">
-                        {t(`answerFeedback.reasons.${reason}`)}
-                      </span>
+                  {reasonBars.map(({ reason: reasonKey, count, pct }) => (
+                    <li key={reasonKey} className="flex items-center gap-3">
+                      {/* The breakdown doubles as the filter: seeing "inaccurate
+                          is most of it" and then having to find a separate
+                          control to look at those is a step that does not need
+                          to exist. */}
+                      <button
+                        type="button"
+                        onClick={() => setReason(reason === reasonKey ? null : reasonKey)}
+                        aria-pressed={reason === reasonKey}
+                        className={cn(
+                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors',
+                          'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                          reason === reasonKey
+                            ? 'font-medium text-foreground decoration-solid'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {t(`answerFeedback.reasons.${reasonKey}`)}
+                      </button>
                       {/* The track is the surface; the fill is the mark. 4px
                           rounded data-end, anchored to a zero baseline. */}
                       {/* ONE hue for all four. The job here is comparing
@@ -270,18 +395,31 @@ export function AnswerFeedbackHealth(): JSX.Element {
                   {t('answerFeedback.orgsHeading')}
                 </h4>
                 <ul className="divide-y rounded-lg border" data-testid="feedback-orgs">
-                  {data!.organizations.map((org) => {
-                    const orgTotal = org.up + org.down
-                    const orgRate = orgTotal > 0 ? (org.down / orgTotal) * 100 : 0
+                  {data!.organizations.map((o) => {
+                    const orgTotal = o.up + o.down
+                    const orgRate = orgTotal > 0 ? (o.down / orgTotal) * 100 : 0
                     return (
                       <li
-                        key={org.organizationId}
+                        key={o.organizationId}
                         data-testid="feedback-org"
-                        className="flex items-center gap-3 px-3 py-2 text-xs"
+                        data-selected={org === o.organizationId || undefined}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors',
+                          org === o.organizationId && 'bg-accent/40',
+                        )}
                       >
-                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
-                          {org.organizationId}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setOrg(org === o.organizationId ? null : o.organizationId)}
+                          aria-pressed={org === o.organizationId}
+                          className={cn(
+                            'min-w-0 flex-1 truncate rounded text-left font-mono text-[11px] text-foreground',
+                            'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+                            'hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                          )}
+                        >
+                          {o.organizationId}
+                        </button>
                         <span className="shrink-0 tabular-nums text-muted-foreground">
                           {t('answerFeedback.orgVotes', { votes: num(orgTotal, locale) })}
                         </span>

@@ -210,6 +210,35 @@ export interface FeedbackHealth {
   defects: FeedbackDefect[]
 }
 
+/**
+ * What the reader has narrowed the view to.
+ *
+ * Applied in SQL, not in the browser: the drill-in is capped at
+ * `FEEDBACK_HEALTH_RECENT_LIMIT` rows, so a client-side filter would search only
+ * the 50 rows that happened to arrive and quietly claim there was nothing else.
+ * Filtering has to happen where the whole table is.
+ */
+export interface FeedbackHealthFilters {
+  windowDays?: number
+  /** Restrict the drill-in to one reason. */
+  reason?: AnswerFeedbackReason | null
+  /** Restrict everything to one organization. */
+  organizationId?: string | null
+  /** Free text across the question and the answer. */
+  query?: string | null
+  limit?: number
+}
+
+/** Allowed windows. Anything else is coerced, never trusted from a query string. */
+export const FEEDBACK_WINDOW_OPTIONS = [7, 30, 90] as const
+
+export function parseFeedbackWindowDays(raw: string | null): number {
+  const parsed = Number(raw)
+  return (FEEDBACK_WINDOW_OPTIONS as readonly number[]).includes(parsed)
+    ? parsed
+    : FEEDBACK_HEALTH_WINDOW_DAYS
+}
+
 /** Start of the health window, as an ISO instant. */
 function windowStart(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
@@ -222,11 +251,23 @@ function windowStart(days: number): string {
  * `getAnswerFeedbackHealth` is the only caller.
  */
 export async function getFeedbackHealth(
-  windowDays = FEEDBACK_HEALTH_WINDOW_DAYS,
-  recentLimit = FEEDBACK_HEALTH_RECENT_LIMIT,
+  filters: FeedbackHealthFilters = {},
 ): Promise<FeedbackHealth> {
+  const {
+    windowDays = FEEDBACK_HEALTH_WINDOW_DAYS,
+    reason = null,
+    organizationId = null,
+    query = null,
+    limit: recentLimit = FEEDBACK_HEALTH_RECENT_LIMIT,
+  } = filters
   const db = getDb()
   const since = windowStart(windowDays)
+
+  // The org filter narrows the aggregates too — asking "how is this tenant
+  // doing?" and getting a platform-wide headline over a filtered list would be
+  // two different questions answered in one card.
+  const orgScope = organizationId ? [eq(answerFeedback.organizationId, organizationId)] : []
+  const inWindow = gte(answerFeedback.createdAt, sql`${since}::timestamptz`)
 
   const [answersRow] = await db
     .select({ count: sql<string>`count(*)` })
@@ -243,7 +284,7 @@ export async function getFeedbackHealth(
       downVoters: sql<string>`count(distinct ${answerFeedback.userId}) filter (where ${answerFeedback.verdict} = 'down')`,
     })
     .from(answerFeedback)
-    .where(gte(answerFeedback.createdAt, sql`${since}::timestamptz`))
+    .where(and(inWindow, ...orgScope))
 
   const reasons = await db
     .select({
@@ -251,12 +292,7 @@ export async function getFeedbackHealth(
       count: sql<string>`count(*)`,
     })
     .from(answerFeedback)
-    .where(
-      and(
-        eq(answerFeedback.verdict, 'down'),
-        gte(answerFeedback.createdAt, sql`${since}::timestamptz`),
-      ),
-    )
+    .where(and(eq(answerFeedback.verdict, 'down'), inWindow, ...orgScope))
     .groupBy(answerFeedback.reason)
 
   const daily = await db
@@ -266,7 +302,7 @@ export async function getFeedbackHealth(
       down: sql<string>`count(*) filter (where ${answerFeedback.verdict} = 'down')`,
     })
     .from(answerFeedback)
-    .where(gte(answerFeedback.createdAt, sql`${since}::timestamptz`))
+    .where(and(inWindow, ...orgScope))
     .groupBy(sql`date_trunc('day', ${answerFeedback.createdAt})`)
     .orderBy(sql`date_trunc('day', ${answerFeedback.createdAt})`)
 
@@ -278,7 +314,7 @@ export async function getFeedbackHealth(
       voters: sql<string>`count(distinct ${answerFeedback.userId})`,
     })
     .from(answerFeedback)
-    .where(gte(answerFeedback.createdAt, sql`${since}::timestamptz`))
+    .where(and(inWindow, ...orgScope))
     .groupBy(answerFeedback.organizationId)
     .orderBy(desc(sql`count(*) filter (where ${answerFeedback.verdict} = 'down')`))
 
@@ -312,6 +348,13 @@ export async function getFeedbackHealth(
     ) q on true
     where f.verdict = 'down'
       and f.created_at >= ${since}::timestamptz
+      ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+      ${reason ? sql`and f.reason = ${reason}` : sql``}
+      ${
+        query
+          ? sql`and (m.content ilike ${'%' + query + '%'} or q.content ilike ${'%' + query + '%'})`
+          : sql``
+      }
     order by f.created_at desc
     limit ${recentLimit}
   `)

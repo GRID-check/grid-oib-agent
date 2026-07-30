@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { render, screen, waitFor, within } from '@/test-utils'
 
 import { AnswerFeedbackHealth } from './answer-feedback-health'
@@ -170,5 +171,67 @@ describe('AnswerFeedbackHealth — what the rate does not say', () => {
     expect(within(rows[1]).queryByText('50%')).toBeNull()
     // The counts stay, so the row is still evidence — just not a rate.
     expect(within(rows[1]).getByText('2 votes')).toBeInTheDocument()
+  })
+})
+
+/**
+ * Filters go to the SERVER. The drill-in is capped server-side, so a client-side
+ * `.filter()` would search the 50 rows that happened to arrive and then report,
+ * confidently, that there was nothing else.
+ */
+describe('AnswerFeedbackHealth — filtering and export', () => {
+  const lastUrl = (): string => {
+    const mock = vi.mocked(globalThis.fetch)
+    return String(mock.mock.calls.at(-1)?.[0] ?? '')
+  }
+
+  it('asks the server for the window, rather than trimming what arrived', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<AnswerFeedbackHealth />)
+
+    await waitFor(() => expect(lastUrl()).toContain('days=30'))
+    await user.click(screen.getByRole('button', { name: 'Last 7 days' }))
+    await waitFor(() => expect(lastUrl()).toContain('days=7'))
+  })
+
+  it('turns the reason breakdown into the filter for it', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<AnswerFeedbackHealth />)
+
+    await user.click(await screen.findByRole('button', { name: 'Inaccurate' }))
+    await waitFor(() => expect(lastUrl()).toContain('reason=inaccurate'))
+
+    // …and pressing it again is how you get back, rather than hunting for a reset.
+    await user.click(screen.getByRole('button', { name: 'Inaccurate' }))
+    await waitFor(() => expect(lastUrl()).not.toContain('reason='))
+  })
+
+  it('says the headline is about the selection once anything is filtered', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<AnswerFeedbackHealth />)
+
+    expect(screen.queryByText(/describe the current selection/)).toBeNull()
+    await user.click(await screen.findByRole('button', { name: 'Inaccurate' }))
+    await waitFor(() =>
+      expect(screen.getByText(/describe the current selection/)).toBeInTheDocument(),
+    )
+  })
+
+  it('exports exactly what is on screen, filters and all', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<AnswerFeedbackHealth />)
+
+    await user.click(await screen.findByRole('button', { name: 'Inaccurate' }))
+
+    // Same query string as the read — an export that disagreed with the view it
+    // was taken from would be worse than no export.
+    const link = screen.getByRole('link', { name: /Export CSV/ })
+    await waitFor(() => expect(link).toHaveAttribute('href', expect.stringContaining('reason=inaccurate')))
+    expect(link).toHaveAttribute('href', expect.stringContaining('/export?'))
+    expect(link).toHaveAttribute('download')
   })
 })

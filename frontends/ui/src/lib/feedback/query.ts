@@ -1,0 +1,31 @@
+/**
+ * One parser for the health filters, shared by the read route and the export.
+ *
+ * Two parsers would be a bug waiting: an export whose filters drift from the
+ * table above it hands somebody a CSV that does not match what they were looking
+ * at, and nothing on screen would say so. Everything here is coerced — a query
+ * string is user input, and `reason` in particular reaches a SQL comparison.
+ */
+
+import { ANSWER_FEEDBACK_REASONS, type AnswerFeedbackReason } from '@/lib/db/schema'
+import { parseFeedbackWindowDays, type FeedbackHealthFilters } from './repository'
+
+/** Free-text search is bounded: it becomes an ILIKE, not a novel. */
+const MAX_QUERY_CHARS = 120
+
+export function parseFeedbackFilters(params: URLSearchParams): FeedbackHealthFilters {
+  const rawReason = params.get('reason')
+  const reason = (ANSWER_FEEDBACK_REASONS as readonly string[]).includes(rawReason ?? '')
+    ? (rawReason as AnswerFeedbackReason)
+    : null
+
+  const organizationId = params.get('org')?.trim() || null
+  const query = params.get('q')?.trim().slice(0, MAX_QUERY_CHARS) || null
+
+  return {
+    windowDays: parseFeedbackWindowDays(params.get('days')),
+    reason,
+    organizationId,
+    query,
+  }
+}
