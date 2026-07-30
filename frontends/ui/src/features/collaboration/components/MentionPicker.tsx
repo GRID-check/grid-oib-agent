@@ -356,7 +356,14 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
           onValueChange={handleValueChange}
           className="min-h-0 flex-1 bg-transparent"
         >
-          <CommandList label={resultsAria} className="max-h-none min-h-0 flex-1 p-1.5">
+          {/* `scroll-fade-bottom`: with more candidates than fit, the panel used to
+              cut the next row through its own text, which reads as a rendering bug
+              rather than as an invitation to scroll. The footer below stays sharp —
+              it is outside this scroll region. */}
+          <CommandList
+            label={resultsAria}
+            className="scroll-fade-bottom max-h-none min-h-0 flex-1 p-1.5"
+          >
             {loading ? (
               // Skeletons shaped like the real rows (avatar + two lines), never a
               // spinner: the panel keeps its height and does not jump on arrival.

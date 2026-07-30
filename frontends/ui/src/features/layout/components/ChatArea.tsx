@@ -39,7 +39,10 @@ import type { ChatMessage, StatusType } from '@/features/chat'
 // Imported from its own module rather than the `@/features/chat` barrel so the
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
+import { AGENT_MENTION_ID } from '@/lib/mentions/types'
+import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
 import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
+import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
@@ -105,6 +108,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
@@ -240,6 +244,90 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     }
     return null
   }, [shared, unreadAfterMessageId, displayableMessages, authorship])
+
+  // ── The hand-back offer (ADR-0034 addendum, the last transition) ────────────
+  // The state machine is: asking Piloti → tag a human → waiting → they answer →
+  // **hand back?** → asking Piloti. Every transition but the last one had a visible
+  // affordance; this is the last one. The wait itself is read from the server, never
+  // computed here, so this offer and the banner cannot disagree.
+  const { awaiting } = useAwaitingState(
+    currentConversation?.id ?? null,
+    canCollaborate && shared,
+  )
+  const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
+
+  // Dismissal is per resolution point, so a later answer offers again.
+  const [handbackDismissedFor, setHandbackDismissedFor] = useState<string | null>(null)
+
+  /**
+   * Whether the thread is sitting at a resolution point — and who answered.
+   *
+   * Derived from the thread itself rather than from a live transition, on purpose:
+   * the asker usually arrives *after* the colleague answered (hours later, from
+   * another device), and an offer that only existed in the browser that watched the
+   * message land would be missing in exactly that case.
+   */
+  const handback = useMemo((): { anchorId: string; people: Array<{ userId: string; name: string }> } | null => {
+    if (!shared || threadAwaitsHuman) return null
+
+    // Who this thread has actually ASKED. A message whose server-computed addressee
+    // set names people and NOT the agent is the hand-off (MN-1/MN-2); the structured
+    // mentions are the fallback for a message stored before that ruling was kept.
+    const asked = new Set<string>()
+    for (const message of displayableMessages) {
+      if (message.addressees) {
+        if (!message.addressees.agent) {
+          for (const userId of message.addressees.users) asked.add(userId)
+        }
+        continue
+      }
+      const mentions = message.mentions ?? []
+      if (mentions.length === 0) continue
+      if (mentions.some((mention) => mention.targetId === AGENT_MENTION_ID)) continue
+      for (const mention of mentions) asked.add(mention.targetId)
+    }
+    if (asked.size === 0) return null
+
+    // The trailing run of messages by people who were asked. Anything else ends it:
+    // the agent has already answered (nothing to hand back), or the reader had the
+    // last word (they are mid-thought, and it is not their own answer to offer on).
+    const answerers: Array<{ userId: string; name: string }> = []
+    let anchorId: string | null = null
+    for (let index = displayableMessages.length - 1; index >= 0; index -= 1) {
+      const message = displayableMessages[index]
+      const isUserMessage = message.messageType === 'user' || message.role === 'user'
+      if (!isUserMessage) break
+      const userId = message.authorUserId ?? null
+      if (!userId || userId === currentUserId || !asked.has(userId)) break
+      anchorId ??= message.id
+      if (answerers.some((person) => person.userId === userId)) continue
+      answerers.unshift({
+        userId,
+        name:
+          authorOf(userId)?.name ??
+          message.authorName ??
+          tCollaboration('inbox.unknownActor'),
+      })
+    }
+    if (!anchorId || answerers.length === 0) return null
+    return { anchorId, people: answerers }
+  }, [shared, threadAwaitsHuman, displayableMessages, currentUserId, authorOf, tCollaboration])
+
+  const showHandback = handback !== null && handbackDismissedFor !== handback.anchorId
+
+  /**
+   * Accepting PRE-FILLS the composer and focuses it — it never sends. The message
+   * has to stay honestly authored: a button that fired a turn would either put words
+   * under the user's name that they did not write, or produce an answer to a question
+   * nobody can see, in a thread several people read as a shared record.
+   */
+  const handleHandback = useCallback(() => {
+    if (!handback) return
+    setComposerPrefill(
+      `@${tCollaboration('mentions.picker.agentName')} ${tCollaboration('mentions.handback.prefill')}`,
+    )
+    setHandbackDismissedFor(handback.anchorId)
+  }, [handback, setComposerPrefill, tCollaboration])
 
   // Entrance-animation bookkeeping: messages already present when a conversation
   // renders (hydration / session switch) must NOT animate in — only messages
@@ -579,6 +667,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               )
             })}
           </AnimatePresence>
+
+          {/* The colleague has answered and Piloti is out of the loop — the one
+              moment the thread is worth handing on, and until now the only
+              transition with no affordance on screen (see HandbackOffer). Anchored
+              here, directly under the answer it is about. */}
+          {showHandback && handback && (
+            <HandbackOffer
+              people={handback.people}
+              onAccept={handleHandback}
+              onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
+            />
+          )}
 
           {/* Latency-gap typing indicator (before the first token arrives) */}
           {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}

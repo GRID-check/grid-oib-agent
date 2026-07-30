@@ -19,13 +19,31 @@
  *   - the **turn-in-flight banner**: the agent is answering Anna's question, which
  *     is what stops the wait reading as nothing happening.
  *
+ * Variants via `?variant=`:
+ *   - default     — the above.
+ *   - `handback`  — the resolution point of a hand-off (ADR-0034 addendum): the
+ *                   reader asked Anna, Anna has answered, the wait is closed, and
+ *                   the thread offers to let Piloti carry on. The one transition
+ *                   that used to have no affordance at all, because the awaiting
+ *                   banner disappears the moment it becomes relevant. Its action
+ *                   pre-fills the composer — which this preview does not mount — so
+ *                   here it only steps aside; the composer end is at
+ *                   `/dev/composer-addressee`.
+ *
  * The shim is installed at module scope — before any effect can fire — so the
  * hook's first fetch already sees the fixture. Browser + development only, and
  * idempotent, matching `dev/document-grid/page.tsx`.
+ *
+ * Pinned to German (`I18nProvider initialLocale="de"`): German is the product's
+ * primary language, so the committed evidence must carry the copy most users
+ * actually see — and the scaffolding around these previews is German already, so
+ * without the pin a screenshot mixes both languages and the primary-language copy
+ * cannot be reviewed at all.
  */
 
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
+import { I18nProvider } from '@/i18n'
 import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { ChatArea } from '@/features/layout/components'
@@ -111,6 +129,44 @@ const MESSAGE_ROWS = [
   },
 ]
 
+/**
+ * The hand-back variant's thread: the reader asked Anna (a hand-off — the server
+ * ruled `{ agent: false, users: [Anna] }`, so no turn was started), and Anna has
+ * now answered. The wait is therefore closed, Piloti is out of the loop, and the
+ * thread sits at the moment where the way on has to be offered.
+ */
+const HANDBACK_ROWS = [
+  MESSAGE_ROWS[0],
+  MESSAGE_ROWS[1],
+  {
+    id: 'h1',
+    conversationId: CONVERSATION_ID,
+    role: 'user',
+    authorUserId: ME,
+    content:
+      '@Anna Berger stimmt das für den Bestand? Der Durchgang zum Innenhof ist laut Plan verschlossen.',
+    metadata: {
+      messageType: 'user',
+      mentions: [{ targetId: ANNA, display: 'Anna Berger' }],
+      // The hand-off ruling: people, and deliberately NOT the agent (MN-1/MN-7).
+      addressees: { agent: false, users: [ANNA] },
+    },
+    createdAt: at(9),
+  },
+  {
+    id: 'h2',
+    conversationId: CONVERSATION_ID,
+    role: 'user',
+    authorUserId: ANNA,
+    content:
+      'Ja, verschlossen — im Bestandsplan von 2019 als Fluchtweg gestrichen. Der Innenhof zählt nicht.',
+    // A plain message while the thread awaited her: a remark to the thread, which
+    // is exactly what resolves her request.
+    metadata: { messageType: 'user', addressees: { agent: false, users: [] } },
+    createdAt: at(14),
+  },
+]
+
 const SHARING_STATE = {
   resourceType: 'conversation',
   resourceId: CONVERSATION_ID,
@@ -126,6 +182,11 @@ const SHARING_STATE = {
     { person: PEOPLE[TOBIAS], role: 'collaborator', reason: 'visibility-project', grantedBy: null },
   ],
 }
+
+/** Read from the URL on every call, so the shim needs no React state. */
+const isHandbackVariant = (): boolean =>
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('variant') === 'handback'
 
 // Module scope, so the very first fetch of the hook is already served (idempotent,
 // browser + dev only).
@@ -153,7 +214,13 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         })
       }
       if (url === `/api/conversations/${CONVERSATION_ID}/messages`) {
-        return Response.json(MESSAGE_ROWS)
+        return Response.json(isHandbackVariant() ? HANDBACK_ROWS : MESSAGE_ROWS)
+      }
+      // The derived hand-off state. Empty in both variants — in the hand-back one
+      // that emptiness IS the fixture: Anna's answer closed her request, which is
+      // why the banner is gone and the offer has to take over.
+      if (url === `/api/conversations/${CONVERSATION_ID}/awaiting`) {
+        return Response.json({ pending: [], awaitingMe: false })
       }
       if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) {
         return Response.json(SHARING_STATE)
@@ -180,6 +247,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       constructor() {
         setTimeout(() => {
           this.onopen?.()
+          // A turn in flight would contradict the hand-back variant (Piloti is
+          // precisely NOT working there), so that variant only opens the channel.
+          if (isHandbackVariant()) return
           this.onmessage?.({
             data: JSON.stringify({
               id: 'preview-1',
@@ -241,10 +311,12 @@ export default function SharedThreadPreviewPage(): JSX.Element {
   }, [])
 
   return (
-    <AppConfigProvider config={config}>
-      <main className="bg-background flex h-dvh flex-col" data-testid="shared-thread-preview">
-        {ready && <ChatArea isAuthenticated canCollaborate />}
-      </main>
-    </AppConfigProvider>
+    <I18nProvider initialLocale="de">
+      <AppConfigProvider config={config}>
+        <main className="bg-background flex h-dvh flex-col" data-testid="shared-thread-preview">
+          {ready && <ChatArea isAuthenticated canCollaborate />}
+        </main>
+      </AppConfigProvider>
+    </I18nProvider>
   )
 }

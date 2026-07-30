@@ -29,6 +29,16 @@
  *      a colleague reads as a bug — so the block is taught, not hidden.
  *   6. **Leaving is not managing.** Self-removal needs only `viewer`, so the Leave
  *      action is outside the `canManage` gate.
+ *   7. **A person appears in exactly ONE list.** The roster is where a person's
+ *      access lives — their reason, their role, their removal — so the invite list is
+ *      only ever "who else could be added". Anyone already on the roster is filtered
+ *      out of it. Without that rule a grant holder got a role control in the roster
+ *      *and* a second one beside their invite row: two controls for one person's role
+ *      in one dialog, which reads as a bug because it is one. It also means nobody is
+ *      offered an "invite" that would grant access they already have. The trade-off
+ *      is deliberate: giving a derived member (a project member under `project`
+ *      visibility) a *named* role is no longer reachable from here — consistent with
+ *      rule 4, where derived access is changed by changing the rule above it.
  */
 
 import { useMemo, useState } from 'react'
@@ -150,19 +160,33 @@ export function ShareDialog({
     [state],
   )
 
+  /**
+   * The people the roster already accounts for — by grant, by creation, or by the
+   * visibility rule. They are on screen once already, so the invite list leaves
+   * them out (rule 7). `alreadyHasAccess` is checked too: it is the server's own
+   * word for "creator or grant holder", and it must not depend on the roster
+   * having loaded.
+   */
+  const rosterUserIds = useMemo(
+    () => new Set((state?.entries ?? []).map((entry) => entry.person.userId)),
+    [state],
+  )
+
   const filteredCandidates = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    const matches = candidates.filter((candidate) =>
-      `${candidate.person.name} ${candidate.person.email ?? ''}`.toLowerCase().includes(needle),
+    const matches = candidates.filter(
+      (candidate) =>
+        !candidate.alreadyHasAccess &&
+        !rosterUserIds.has(candidate.person.userId) &&
+        `${candidate.person.name} ${candidate.person.email ?? ''}`.toLowerCase().includes(needle),
     )
-    // Invitable first, then people who are already in, and blocked colleagues
-    // last — visible, but never in the way of the action that works (SH-19).
-    const weight = (candidate: ShareCandidate): number =>
-      candidate.needsProjectAccess ? 2 : candidate.alreadyHasAccess ? 1 : 0
+    // Invitable first, blocked colleagues last — visible, but never in the way of
+    // the action that works (SH-19).
+    const weight = (candidate: ShareCandidate): number => (candidate.needsProjectAccess ? 1 : 0)
     return matches
       .sort((a, b) => weight(a) - weight(b) || a.person.name.localeCompare(b.person.name))
       .slice(0, MAX_CANDIDATES)
-  }, [candidates, query])
+  }, [candidates, query, rosterUserIds])
 
   if (!resourceId) return null
 
@@ -324,7 +348,10 @@ export function ShareDialog({
           // out from under the footer's own background. Scrolling the body instead
           // keeps the header and the footer where the reader left them, and keeps
           // the count of scroll wells at one: no bounded list inside a bounded list.
-          <div className="max-h-[min(72vh,42rem)] space-y-5 overflow-y-auto pr-1">
+          // `scroll-fade-bottom` makes the boundary of that scroll well legible:
+          // a roster row sliced through its text by the footer edge reads as a
+          // clipping bug, a dissolve reads as "more below".
+          <div className="scroll-fade-bottom max-h-[min(72vh,42rem)] space-y-5 overflow-y-auto pr-1">
             {/* A refused mutation must never look like it worked. */}
             {failure && (
               <Alert variant="destructive" data-testid="share-failure">
@@ -447,47 +474,25 @@ export function ShareDialog({
                                 : (candidate.person.email ?? '')}
                             </p>
                           </div>
-                          {candidate.alreadyHasAccess && !candidate.needsProjectAccess ? (
-                            // Already in — offer the change that makes sense, not a
-                            // second invitation.
-                            <Select
-                              disabled={saving}
-                              onValueChange={(value) =>
-                                void sharing.changeRole(candidate.person.userId, value as ResourceRole)
-                              }
-                            >
-                              <SelectTrigger
-                                className="h-8 w-[150px] shrink-0 text-xs"
-                                aria-label={candidate.person.name}
-                              >
-                                <SelectValue placeholder={roleLabel('collaborator')} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ROLE_OPTIONS.map((role) => (
-                                  <SelectItem key={role} value={role}>
-                                    {roleLabel(role)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="shrink-0 gap-1.5"
-                              disabled={saving || candidate.needsProjectAccess}
-                              title={
-                                candidate.needsProjectAccess
-                                  ? t('sharing.invite.needsProjectAccessHint')
-                                  : undefined
-                              }
-                              aria-label={`${t('sharing.invite.submit')}: ${candidate.person.name}`}
-                              onClick={() => void sharing.grant(candidate.person.userId)}
-                            >
-                              <UserPlus className="size-3.5" aria-hidden />
-                              {t('sharing.invite.submit')}
-                            </Button>
-                          )}
+                          {/* One control per row, and it is the one this list is
+                              for. Nobody here already has access (rule 7), so there
+                              is no role to change — that lives in the roster. */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 gap-1.5"
+                            disabled={saving || candidate.needsProjectAccess}
+                            title={
+                              candidate.needsProjectAccess
+                                ? t('sharing.invite.needsProjectAccessHint')
+                                : undefined
+                            }
+                            aria-label={`${t('sharing.invite.submit')}: ${candidate.person.name}`}
+                            onClick={() => void sharing.grant(candidate.person.userId)}
+                          >
+                            <UserPlus className="size-3.5" aria-hidden />
+                            {t('sharing.invite.submit')}
+                          </Button>
                         </li>
                       ))}
                     </ul>

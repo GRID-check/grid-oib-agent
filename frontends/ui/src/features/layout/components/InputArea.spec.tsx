@@ -224,8 +224,20 @@ let mockMentionData: unknown = {
 }
 let mockMentionsLoading = false
 
+// The thread-level hand-off state behind the composer's addressee line. Mocked at
+// the hook boundary for the same reason: its own fetching/refresh behaviour is the
+// hook's business, and the composer only ever reads the derived answer.
+let mockAwaitingPending: Array<{ id: string }> = []
+
 vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
   useMentionCandidates: vi.fn(() => ({ data: mockMentionData, loading: mockMentionsLoading })),
+  useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
+    // A gated org never gets an answer — which is what keeps the composer
+    // byte-identical to today with the flag off (spec NF-8).
+    awaiting: enabled ? { pending: mockAwaitingPending, awaitingMe: false } : null,
+    refresh: vi.fn(),
+    release: vi.fn(),
+  })),
 }))
 
 // FileSourcesTab is imported by InputArea for the "manage files" dialog; it
@@ -265,6 +277,7 @@ describe('InputArea', () => {
       canInvite: true,
     }
     mockMentionsLoading = false
+    mockAwaitingPending = []
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
@@ -1380,6 +1393,101 @@ describe('InputArea', () => {
 
       expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
       expect(screen.getByText('Loading people…')).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * The composer's statement of who receives the message (ADR-0034 addendum).
+   *
+   * The behaviour was already right server-side and completely invisible, which is
+   * the defect these tests pin: the line must be there in EVERY state (an absence
+   * teaches nothing), and it must change as the state changes — that transition is
+   * what teaches the two-state model.
+   */
+  describe('addressee indicator', () => {
+    const composer = () => screen.getByPlaceholderText('Ask Piloti about this project …')
+    const addressee = () => screen.getByTestId('composer-addressee')
+
+    test('states that a plain message goes to Piloti, before anything happens', () => {
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(addressee()).toHaveTextContent('Goes to Piloti')
+      expect(addressee()).toHaveAttribute('data-mode', 'agent')
+    })
+
+    test('switches to the tagged person as the mention is inserted', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(addressee()).toHaveTextContent('Goes to Piloti')
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+
+      expect(addressee()).toHaveTextContent('Goes to Anna Weber')
+      expect(addressee()).toHaveAttribute('data-mode', 'people')
+      // …and back again when the token is edited away (MN-3).
+      await user.clear(composer())
+      expect(addressee()).toHaveTextContent('Goes to Piloti')
+    })
+
+    test('says the message goes to the CHAT while the thread awaits a person, and how to reach Piloti', () => {
+      mockAwaitingPending = [{ id: 'r-1' }]
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(addressee()).toHaveTextContent('Goes to the chat')
+      expect(screen.getByTestId('composer-agent-hint')).toHaveTextContent(
+        'Type @Piloti to ask Piloti',
+      )
+    })
+
+    test('typing @Piloti while awaiting flips the line back to the agent', async () => {
+      const user = userEvent.setup()
+      mockAwaitingPending = [{ id: 'r-1' }]
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@pil')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+
+      expect(addressee()).toHaveTextContent('Goes to Piloti')
+      // The "type @Piloti" hint has done its job and steps aside.
+      expect(screen.queryByTestId('composer-agent-hint')).not.toBeInTheDocument()
+    })
+
+    test('tagging a person AND Piloti names both and drops the "stays quiet" claim', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      await user.keyboard('@pil')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+
+      expect(addressee()).toHaveTextContent('Goes to Anna Weber, Piloti')
+      expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    })
+
+    test('with collaboration off the composer is exactly today’s — no line, no hint (NF-8)', async () => {
+      const user = userEvent.setup()
+      // Even with a wait outstanding server-side, a gated org must see nothing.
+      mockAwaitingPending = [{ id: 'r-1' }]
+      render(<InputArea isAuthenticated connectionMode="sse" />)
+
+      expect(screen.queryByTestId('composer-addressee')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('composer-agent-hint')).not.toBeInTheDocument()
+
+      // And the composer still sends exactly as it always did.
+      await user.click(composer())
+      await user.keyboard('Frage')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+      expect(mockSendMessage).toHaveBeenCalledWith('Frage')
     })
   })
 })

@@ -71,12 +71,13 @@ import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
   MentionPicker,
   type MentionPickerAria,
   type MentionPickerHandle,
 } from '@/features/collaboration/components/MentionPicker'
-import { useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
+import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
 import {
   findMentionQuery,
   humanMentions,
@@ -407,6 +408,16 @@ interface InputAreaProps {
   connectionMode?: ConnectionMode
   /** Name of the active project, shown in the composer scope chip */
   projectName?: string
+  /**
+   * Whether the collaboration surfaces are reachable for this org (ADR-0032…0035,
+   * dark-launched behind the per-org `collaboration` flag).
+   *
+   * **Defaults to false, and false means "exactly today"** (spec NF-8): no
+   * addressee statement, no hand-off read, no extra request. The `@` picker is
+   * gated differently — by whether the candidates endpoint answers at all — so a
+   * gated org cannot notice either of them.
+   */
+  canCollaborate?: boolean
 }
 
 /**
@@ -426,6 +437,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   isAuthenticated = false,
   connectionMode = 'websocket',
   projectName,
+  canCollaborate = false,
 }) {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
@@ -769,6 +781,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // what gets sent, what the hint says, and whether the agent will stay quiet.
   const activeMentions = useMemo(() => reconcileMentions(message, mentions), [message, mentions])
   const taggedHumans = useMemo(() => humanMentions(activeMentions), [activeMentions])
+  // `@Piloti` alongside a person addresses BOTH (spec MN-1), so the "Piloti stays
+  // quiet" hint below would be a false statement — the addressee line names them
+  // both instead.
+  const agentTagged = activeMentions.length > taggedHumans.length
+
+  /*
+    The thread's hand-off state, read from the server (never computed here — the
+    banner, the inbox and this composer read the same rows, ADR-0034). It is what
+    turns the default "Geht an Piloti" into "Geht an den Chat": while a named person
+    is awaited, a plain message is a remark and the agent stays out.
+
+    Off entirely without the flag, so a gated org opens no request (spec NF-8).
+  */
+  const { awaiting } = useAwaitingState(
+    canCollaborate ? (currentSessionId ?? null) : null,
+    canCollaborate,
+  )
+  const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
 
   /**
    * The picker is open only once the candidate list has actually answered.
@@ -1308,6 +1338,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
           </button>
 
+          {/* Who this message goes to — ALWAYS, whenever collaboration exists at
+              all. The point of it being unconditional: if it only appeared in the
+              unusual case, "Piloti is next" would remain something the user has to
+              infer from an absence. Borderless on purpose — it is a statement
+              standing among buttons, and must not read as one. */}
+          {canCollaborate && (
+            <AddresseeIndicator
+              mentions={activeMentions}
+              awaitingHuman={threadAwaitsHuman}
+              className="ml-0.5"
+            />
+          )}
+
           {/* Right Actions: manage-files, attach, submit — pushed right */}
           <div className="ml-auto flex items-center gap-1">
             {/* Manage files — opens a Dialog hosting the full FileSourcesTab
@@ -1486,8 +1529,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
         {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
             person is tagged the agent will stay quiet, and the user has to know
-            that while they can still change their mind. */}
-        {taggedHumans.length > 0 && (
+            that while they can still change their mind. Suppressed when `@Piloti`
+            is tagged too — then the agent DOES answer (MN-1) and this sentence
+            would be false; the addressee line above names both. */}
+        {taggedHumans.length > 0 && !agentTagged && (
           <p
             data-testid="composer-mention-hint"
             className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
@@ -1499,6 +1544,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 name: taggedHumans.map((mention) => mention.display).join(', '),
               })}
             </span>
+          </p>
+        )}
+
+        {/* The way BACK, exactly where it is needed: while the thread waits on a
+            person, a plain message is a remark, so the composer says how to reach
+            Piloti instead of leaving that to be discovered. */}
+        {canCollaborate && threadAwaitsHuman && activeMentions.length === 0 && (
+          <p
+            data-testid="composer-agent-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>{tCollab('mentions.addressee.agentHint')}</span>
           </p>
         )}
 

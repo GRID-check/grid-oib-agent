@@ -318,22 +318,69 @@ describe('ShareDialog — invite', () => {
     expect(screen.getByRole('button', { name: 'Invite: Eva Ritter' })).toBeDisabled()
   })
 
-  test('someone who already has access is offered a role change, not a duplicate invite', async () => {
+  /**
+   * One person, one place (rule 7).
+   *
+   * A grant holder used to get a role control in the roster AND a second one beside
+   * their invite row: two controls for one person's role in one dialog, which reads
+   * as a bug because it is one. The roster is the home — role and removal live there
+   * — so the invite list is only ever "who else could be added".
+   */
+  test('a person who already has access is not repeated in the invite list', () => {
     useShareCandidatesMock.mockReturnValue({
-      candidates: [candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true })],
+      candidates: [
+        candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true }),
+        candidate('u-sabine', 'Sabine Gruber'),
+      ],
       loading: false,
     })
-    const user = userEvent.setup()
     renderDialog()
 
+    // Only the person who is NOT on the roster is offered.
+    const rows = screen.getAllByTestId('share-candidate')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('Sabine Gruber')
+
+    // Anna is on screen exactly once, with exactly one role control: her roster row.
+    expect(screen.getAllByRole('combobox', { name: 'Anna Weber' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: 'Invite: Anna Weber' })).toBeNull()
+  })
 
-    // Two controls now carry Anna's name — the roster row and the picker row.
-    const pickerRow = screen.getByTestId('share-candidate')
-    await user.click(within(pickerRow).getByRole('combobox', { name: 'Anna Weber' }))
-    await user.click(screen.getByRole('option', { name: 'Owner' }))
+  test('no person appears in both the roster and the invite list', () => {
+    // Includes the harder case: a project member whose access is DERIVED, so the
+    // server does not flag them `alreadyHasAccess` — the roster is still where they
+    // are accounted for.
+    useShareCandidatesMock.mockReturnValue({
+      candidates: [
+        candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true }),
+        candidate('u-klaus', 'Klaus Berger'),
+        candidate('u-sabine', 'Sabine Gruber'),
+        candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true }),
+      ],
+      loading: false,
+    })
+    renderDialog({
+      state: sharingState({
+        visibility: 'project',
+        entries: [
+          entry(ME, 'Matthias Bigl', 'owner', 'creator'),
+          entry('u-anna', 'Anna Weber', 'collaborator', 'grant', ME),
+          entry('u-klaus', 'Klaus Berger', 'collaborator', 'visibility-project'),
+        ],
+      }),
+    })
 
-    expect(changeRole).toHaveBeenCalledWith('u-anna', 'owner')
+    const rosterText = screen.getAllByTestId('access-row').map((row) => row.textContent ?? '')
+    const inviteText = screen.getAllByTestId('share-candidate').map((row) => row.textContent ?? '')
+
+    for (const name of ['Matthias Bigl', 'Anna Weber', 'Klaus Berger', 'Sabine Gruber', 'Eva Ritter']) {
+      const inRoster = rosterText.some((text) => text.includes(name))
+      const inInvites = inviteText.some((text) => text.includes(name))
+      expect(inRoster && inInvites, `${name} appears in both lists`).toBe(false)
+    }
+
+    // …and the deliberate SH-19 row is still there, visible and disabled.
+    expect(screen.getByRole('button', { name: 'Invite: Eva Ritter' })).toBeDisabled()
   })
 
   test('an empty candidate set says so', () => {

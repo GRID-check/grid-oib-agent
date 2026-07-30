@@ -291,6 +291,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
               isAuthenticated={isAuthenticated}
               connectionMode="websocket"
               projectName={projectName ?? undefined}
+              // Gates the composer's addressee statement (and the hand-off read
+              // behind it). False — the default — is byte-for-byte today's
+              // composer (spec NF-8).
+              canCollaborate={canCollaborate}
             />
           </div>
         </div>

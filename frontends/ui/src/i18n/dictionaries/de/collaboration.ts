@@ -133,6 +133,13 @@ export const collaboration: typeof en.collaboration = {
       released: 'Das Warten wurde aufgehoben.',
       askAgent: 'Stattdessen Piloti fragen',
     },
+    handback: {
+      offer: '{name} hat geantwortet — Piloti weiterarbeiten lassen?',
+      offerMany: '{names} haben geantwortet — Piloti weiterarbeiten lassen?',
+      action: 'Piloti weiterarbeiten lassen',
+      dismiss: 'Nicht jetzt',
+      prefill: 'bitte auf dieser Grundlage weiterarbeiten.',
+    },
     errors: {
       inviteRequiresOwner:
         'Sie können nur Personen erwähnen, die bereits in diesem Chat sind. Bitten Sie einen Eigentümer, {name} einzuladen.',

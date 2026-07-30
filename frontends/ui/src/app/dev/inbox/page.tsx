@@ -16,12 +16,19 @@
  * mention request, a resolved one, a grouped activity row (`count: 3`), a
  * shared-with-you row, and an INERT row whose target is gone — the last one is a
  * security-visible state (IB-13), so it must be in the evidence.
+ *
+ * Pinned to German (`I18nProvider initialLocale="de"`): German is the product's
+ * primary language, so the committed evidence must carry the copy most users
+ * actually see — and the scaffolding around these previews is German already, so
+ * without the pin a screenshot mixes both languages and the primary-language copy
+ * cannot be reviewed at all.
  */
 
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { Inbox as InboxIcon } from 'lucide-react'
 
+import { I18nProvider } from '@/i18n'
 import { InboxBadge, InboxList } from '@/features/collaboration/components'
 import type { InboxItemView } from '@/lib/inbox/types'
 
@@ -194,38 +201,40 @@ export default function InboxDevPage(): JSX.Element {
   // without it this preview's own headings inherit the browser default and go
   // black in dark mode (product pages set it on their shell wrapper).
   return (
-    <main
-      data-testid="inbox-preview"
-      className="mx-auto flex max-w-3xl flex-col gap-10 p-8 text-foreground"
-    >
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Postfach</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Anfragen und Neuigkeiten aus Ihrem Team.</p>
-      </div>
+    <I18nProvider initialLocale="de">
+      <main
+        data-testid="inbox-preview"
+        className="mx-auto flex max-w-3xl flex-col gap-10 p-8 text-foreground"
+      >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Postfach</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Anfragen und Neuigkeiten aus Ihrem Team.</p>
+        </div>
 
-      {/* One list, so a single screenshot carries every row treatment. */}
-      {ready && <InboxList initialFilter={empty ? 'needsMe' : 'all'} />}
+        {/* One list, so a single screenshot carries every row treatment. */}
+        {ready && <InboxList initialFilter={empty ? 'needsMe' : 'all'} />}
 
-      {!empty && (
-        <section className="space-y-3">
-          <h2 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-            Badge
-          </h2>
-          <div className="flex flex-wrap items-center gap-6">
-            {[1, 4, 128].map((count) => (
-              <div key={count} className="flex items-center gap-2">
-                <span className="text-[13px] text-muted-foreground">Postfach</span>
-                <InboxBadge pending={count} />
+        {!empty && (
+          <section className="space-y-3">
+            <h2 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+              Badge
+            </h2>
+            <div className="flex flex-wrap items-center gap-6">
+              {[1, 4, 128].map((count) => (
+                <div key={count} className="flex items-center gap-2">
+                  <span className="text-[13px] text-muted-foreground">Postfach</span>
+                  <InboxBadge pending={count} />
+                </div>
+              ))}
+              {/* Collapsed-rail case: icon tile with the pill in the corner. */}
+              <div className="relative flex size-9 items-center justify-center rounded-[10px] border border-border bg-card shadow-xs">
+                <InboxIcon className="size-4 text-muted-foreground" aria-hidden />
+                <InboxBadge pending={7} className="absolute -top-1 -right-1 shadow-xs" />
               </div>
-            ))}
-            {/* Collapsed-rail case: icon tile with the pill in the corner. */}
-            <div className="relative flex size-9 items-center justify-center rounded-[10px] border border-border bg-card shadow-xs">
-              <InboxIcon className="size-4 text-muted-foreground" aria-hidden />
-              <InboxBadge pending={7} className="absolute -top-1 -right-1 shadow-xs" />
             </div>
-          </div>
-        </section>
-      )}
-    </main>
+          </section>
+        )}
+      </main>
+    </I18nProvider>
   )
 }

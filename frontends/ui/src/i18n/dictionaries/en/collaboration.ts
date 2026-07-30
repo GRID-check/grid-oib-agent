@@ -162,6 +162,24 @@ export const collaboration = {
       released: 'The wait was released.',
       askAgent: 'Ask Piloti instead',
     },
+    /**
+     * The hand-BACK offer, shown in the thread at the moment a wait resolves.
+     *
+     * `awaiting.askAgent` above lives inside the banner, which vanishes the instant
+     * the colleague answers — so exactly when the thread holds its most valuable
+     * context there was no affordance at all, and the user had to already know that
+     * typing `@Piloti` is the way on. This is that affordance, and it PRE-FILLS the
+     * composer rather than firing a turn: every message in a shared thread stays
+     * honestly authored, and a turn with no question of its own produces mush.
+     */
+    handback: {
+      offer: '{name} answered — let Piloti carry on?',
+      offerMany: '{names} answered — let Piloti carry on?',
+      action: 'Let Piloti carry on',
+      dismiss: 'Not now',
+      /** Inserted after `@Piloti ` into the composer, for the user to edit or send. */
+      prefill: 'please carry on from here.',
+    },
     errors: {
       inviteRequiresOwner:
         'You can only mention people who are already in this conversation. Ask an owner to invite {name}.',

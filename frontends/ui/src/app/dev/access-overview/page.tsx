@@ -19,10 +19,17 @@
  *   - a `project`-wide thread, where the blanket rule is the headline and the named
  *     people are the exception;
  *   - a solo thread, which must render no strip at all.
+ *
+ * Pinned to German (`I18nProvider initialLocale="de"`): German is the product's
+ * primary language, so the committed evidence must carry the copy most users
+ * actually see — and the scaffolding around these previews is German already, so
+ * without the pin a screenshot mixes both languages and the primary-language copy
+ * cannot be reviewed at all.
  */
 
 import { notFound } from 'next/navigation'
 
+import { I18nProvider } from '@/i18n'
 import { AccessChip } from '@/features/collaboration/components/AccessChip'
 import { AccessOverview } from '@/features/collaboration/components/AccessOverview'
 import { ParticipantStrip } from '@/features/collaboration/components/ParticipantStrip'
@@ -108,76 +115,78 @@ export default function AccessOverviewDevPage(): JSX.Element {
   // without it this preview's own headings inherit the browser default and go
   // black in dark mode (product pages set it on their shell wrapper).
   return (
-    <main
-      data-testid="access-overview-preview"
-      className="mx-auto flex max-w-3xl flex-col gap-10 p-8 text-foreground"
-    >
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Wer Zugriff hat</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Chip, Teilnehmerleiste und Übersicht — die Antwort auf „wer liest das mit?“.
-        </p>
-      </div>
-
-      <section className="space-y-3">
-        <Eyebrow>Zugriffs-Chip</Eyebrow>
-        <div className="flex flex-wrap items-center gap-3">
-          <AccessChip visibility="private" />
-          <AccessChip visibility="private" sharedWith={1} />
-          <AccessChip visibility="private" sharedWith={3} />
-          <AccessChip visibility="project" />
-          <AccessChip visibility="organization" />
+    <I18nProvider initialLocale="de">
+      <main
+        data-testid="access-overview-preview"
+        className="mx-auto flex max-w-3xl flex-col gap-10 p-8 text-foreground"
+      >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Wer Zugriff hat</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Chip, Teilnehmerleiste und Übersicht — die Antwort auf „wer liest das mit?“.
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <AccessChip visibility="private" size="md" />
-          <AccessChip visibility="private" sharedWith={3} size="md" />
-          <AccessChip visibility="project" size="md" />
-        </div>
-      </section>
 
-      <section className="space-y-3">
-        <Eyebrow>Teilnehmerleiste</Eyebrow>
-        <div className="flex flex-wrap items-center gap-8">
-          <ParticipantStrip entries={SHARED_ENTRIES.slice(0, 2)} currentUserId={ME} onOpen={() => {}} />
-          <ParticipantStrip entries={SHARED_ENTRIES} currentUserId={ME} onOpen={() => {}} />
-          <ParticipantStrip entries={PROJECT_ENTRIES} currentUserId={ME} onOpen={() => {}} />
-          {/* Solo: renders nothing at all — a single-participant private chat shows
-              no collaboration furniture. The caption is the evidence. */}
-          <div className="flex items-center gap-2">
-            <ParticipantStrip entries={[SHARED_ENTRIES[0]]} currentUserId={ME} onOpen={() => {}} />
-            <span className="text-xs text-muted-foreground">
-              (allein im Chat — keine Leiste)
-            </span>
+        <section className="space-y-3">
+          <Eyebrow>Zugriffs-Chip</Eyebrow>
+          <div className="flex flex-wrap items-center gap-3">
+            <AccessChip visibility="private" />
+            <AccessChip visibility="private" sharedWith={1} />
+            <AccessChip visibility="private" sharedWith={3} />
+            <AccessChip visibility="project" />
+            <AccessChip visibility="organization" />
           </div>
-        </div>
-      </section>
+          <div className="flex flex-wrap items-center gap-3">
+            <AccessChip visibility="private" size="md" />
+            <AccessChip visibility="private" sharedWith={3} size="md" />
+            <AccessChip visibility="project" size="md" />
+          </div>
+        </section>
 
-      {/* Toolbar context: the strip and the chip as they appear beside a thread
-          title in the chat toolbar's left pill. */}
-      <section className="space-y-3">
-        <Eyebrow>Im Chat-Header</Eyebrow>
-        <div className="flex w-fit items-center gap-1.5 rounded-lg border border-base bg-card/70 p-1.5 shadow-xs">
-          <span className="text-sm text-muted-foreground">Wohnbau Nord</span>
-          <span className="text-muted-foreground/60" aria-hidden>
-            /
-          </span>
-          <span className="text-sm font-medium">Atrium – Rauchabschnitte GK 4</span>
-          <ParticipantStrip entries={SHARED_ENTRIES} currentUserId={ME} onOpen={() => {}} />
-          <AccessChip visibility="private" sharedWith={3} className="ml-1" />
-        </div>
-      </section>
+        <section className="space-y-3">
+          <Eyebrow>Teilnehmerleiste</Eyebrow>
+          <div className="flex flex-wrap items-center gap-8">
+            <ParticipantStrip entries={SHARED_ENTRIES.slice(0, 2)} currentUserId={ME} onOpen={() => {}} />
+            <ParticipantStrip entries={SHARED_ENTRIES} currentUserId={ME} onOpen={() => {}} />
+            <ParticipantStrip entries={PROJECT_ENTRIES} currentUserId={ME} onOpen={() => {}} />
+            {/* Solo: renders nothing at all — a single-participant private chat shows
+                no collaboration furniture. The caption is the evidence. */}
+            <div className="flex items-center gap-2">
+              <ParticipantStrip entries={[SHARED_ENTRIES[0]]} currentUserId={ME} onOpen={() => {}} />
+              <span className="text-xs text-muted-foreground">
+                (allein im Chat — keine Leiste)
+              </span>
+            </div>
+          </div>
+        </section>
 
-      <Panel title="Übersicht — privat, mit drei Personen geteilt">
-        <AccessOverview state={state('private', SHARED_ENTRIES)} currentUserId={ME} />
-      </Panel>
+        {/* Toolbar context: the strip and the chip as they appear beside a thread
+            title in the chat toolbar's left pill. */}
+        <section className="space-y-3">
+          <Eyebrow>Im Chat-Header</Eyebrow>
+          <div className="flex w-fit items-center gap-1.5 rounded-lg border border-base bg-card/70 p-1.5 shadow-xs">
+            <span className="text-sm text-muted-foreground">Wohnbau Nord</span>
+            <span className="text-muted-foreground/60" aria-hidden>
+              /
+            </span>
+            <span className="text-sm font-medium">Atrium – Rauchabschnitte GK 4</span>
+            <ParticipantStrip entries={SHARED_ENTRIES} currentUserId={ME} onOpen={() => {}} />
+            <AccessChip visibility="private" sharedWith={3} className="ml-1" />
+          </div>
+        </section>
 
-      <Panel title="Übersicht — projektweit sichtbar">
-        <AccessOverview state={state('project', PROJECT_ENTRIES)} currentUserId={ME} />
-      </Panel>
+        <Panel title="Übersicht — privat, mit drei Personen geteilt">
+          <AccessOverview state={state('private', SHARED_ENTRIES)} currentUserId={ME} />
+        </Panel>
 
-      <Panel title="Übersicht — nur ich">
-        <AccessOverview state={state('private', [SHARED_ENTRIES[0]])} currentUserId={ME} />
-      </Panel>
-    </main>
+        <Panel title="Übersicht — projektweit sichtbar">
+          <AccessOverview state={state('project', PROJECT_ENTRIES)} currentUserId={ME} />
+        </Panel>
+
+        <Panel title="Übersicht — nur ich">
+          <AccessOverview state={state('private', [SHARED_ENTRIES[0]])} currentUserId={ME} />
+        </Panel>
+      </main>
+    </I18nProvider>
   )
 }

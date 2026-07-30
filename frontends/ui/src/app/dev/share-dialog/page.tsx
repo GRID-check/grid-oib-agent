@@ -28,11 +28,18 @@
  *   - `?variant=failure` — a refused mutation (the last-owner invariant), because
  *                          "the change did not happen" must be visible.
  *   - `?variant=loading` — the skeleton.
+ *
+ * Pinned to German (`I18nProvider initialLocale="de"`): German is the product's
+ * primary language, so the committed evidence must carry the copy most users
+ * actually see — and the scaffolding around these previews is German already, so
+ * without the pin a screenshot mixes both languages and the primary-language copy
+ * cannot be reviewed at all.
  */
 
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 
+import { I18nProvider } from '@/i18n'
 import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
 import { useSharing } from '@/features/collaboration/hooks/use-sharing'
 import type {
@@ -211,18 +218,20 @@ export default function ShareDialogDevPage(): JSX.Element {
   }, [])
 
   return (
-    <main
-      data-testid="share-dialog-preview"
-      className="mx-auto flex max-w-3xl flex-col gap-6 p-8 text-foreground"
-    >
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Teilen</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Die eine Freigabe-Oberfläche: Sichtbarkeit, Personen mit Zugriff und Einladen.
-        </p>
-      </div>
+    <I18nProvider initialLocale="de">
+      <main
+        data-testid="share-dialog-preview"
+        className="mx-auto flex max-w-3xl flex-col gap-6 p-8 text-foreground"
+      >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Teilen</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Die eine Freigabe-Oberfläche: Sichtbarkeit, Personen mit Zugriff und Einladen.
+          </p>
+        </div>
 
-      {variant && <Preview variant={variant} />}
-    </main>
+        {variant && <Preview variant={variant} />}
+      </main>
+    </I18nProvider>
   )
 }
