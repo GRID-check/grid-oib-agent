@@ -216,7 +216,8 @@ a message was for.**
   gate, because "there is an answerable question in this message" is not the same as "this
   message was for me" — Matthias asking Anna a question satisfies the first and fails the
   second. Kept in reserve as a possible confidence floor *inside* an explicitly opted-in
-  proactive routine (§8), where the user has already said they want to be interrupted.
+  proactive routine (Decision 9), where the user has already said they want to be
+  interrupted.
 - **Flip the mode automatically on the second human author.** Built first, and reverted
   before it shipped. It fixes the reported bug without anyone acting, which is genuinely
   attractive — but it imports the default of products where the agent is a guest into one

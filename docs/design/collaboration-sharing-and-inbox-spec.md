@@ -651,13 +651,16 @@ stateDiagram-v2
   server-side, exactly as the product already requires for interactive card decisions.
 
 - **MN-9 (MUST).** The state clears when **any** of the following happens, and each
-  MUST be possible from the UI:
-  1. a mentioned person posts a message in the thread;
-  2. any participant explicitly **releases** the wait ("ohne Anna weitermachen");
-  3. anyone addresses the agent explicitly (`@Piloti …`), which both clears the wait
-     and starts an agent turn;
-  4. the mention becomes void — the mentioned person loses access, or the message is
-     withdrawn.
+  MUST be possible from the UI. The four are labelled because code, ADRs and the route
+  contract cite them individually — a clearing condition is the unit that gets
+  implemented, so it is the unit that needs a name:
+  1. **MN-9.1** — a mentioned person posts a message in the thread;
+  2. **MN-9.2** — any participant explicitly **releases** the wait ("ohne Anna
+     weitermachen");
+  3. **MN-9.3** — anyone addresses the agent explicitly (`@Piloti …`), which both
+     clears the wait and starts an agent turn;
+  4. **MN-9.4** — the mention becomes void: the mentioned person loses access, or the
+     message is withdrawn.
 
 - **MN-10 (MUST).** Multiple outstanding mentions are supported: the thread may await
   several people, and the state resolves per person. Whether the thread stays in
