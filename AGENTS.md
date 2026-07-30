@@ -240,7 +240,8 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   `@/test-utils/store-fixtures` (`DeepPartial<TState>` + `asStoreState` for
   zustand selector mocks — the fixture stays partial but every field is still
   checked against the real store) and `@/test-utils/db-fixtures`
-  (`makeProject` / `makeDocument` / `makeMemoryItem` for whole repository rows).
+  (`makeProject` / `makeDocument` / `makeMemoryItem` for whole repository rows,
+  `asDb` for the one drizzle query-builder-stub boundary).
   `any` in a test double is how fixtures silently drift from the code they
   stand in for. `no-console` allows `warn`/`error`/`debug`; `console.debug` is
   the dev-only diagnostic channel and its call sites are `NODE_ENV`-gated.

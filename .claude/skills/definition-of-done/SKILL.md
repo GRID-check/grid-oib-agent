@@ -24,7 +24,7 @@ breakage is not attributed to your change (and your change cannot hide behind it
 
 ```bash
 source .venv/bin/activate && python3 -m pytest tests/ -q | tail -5
-cd frontends/ui && npx vitest run --reporter=dot 2>&1 | tail -5
+cd frontends/ui && npx --no-install vitest run --reporter=dot 2>&1 | tail -5
 cd frontends/ui && npm run type-check 2>&1 | tail -20
 ```
 
@@ -36,7 +36,7 @@ baseline failure caused by a genuine product bug should be reported, not ignored
 | You changed… | You must run and show output of… |
 |---|---|
 | Python backend (`src/`, `sources/`, `frontends/aiq_api/`) | targeted pytest for the touched area, then the full `python3 -m pytest tests/ -q`; `ruff check` and `ruff format --check` on touched files |
-| Frontend (`frontends/ui/`) | targeted `npx vitest run <specs>`, then the full suite; `npm run type-check` (no new errors vs. baseline); **`npm run lint` must exit clean — zero problems, not "no new ones"** (see §2a) |
+| Frontend (`frontends/ui/`) | targeted `npx --no-install vitest run <specs>`, then the full suite; `npm run type-check` (no new errors vs. baseline); **`npm run lint` must exit clean — zero problems, not "no new ones"** (see §2a) |
 | WS/SSE protocol or any message schema | both sides: backend emitter tests AND frontend Zod/parser tests for the same field names |
 | LLM behavior (prompts, models, structured output) | a live smoke call against the configured provider (OpenRouter key in env) proving the contract parses — or an explicit note that live validation was not possible and why |
 | User-visible UI | a screenshot from the screenshot harness (`cd frontends/ui && npm run screenshots [-- <id>]`, output in `frontends/ui/visual/screenshots/`) — add a `/dev/*` preview route + a `visual/registry.mjs` target for the new surface; see `docs/ux/visual-screenshots.md`. **A NEW component without that evidence is not done** (the `visual-coverage` workflow nudges on the PR); opt genuinely non-visual components out with a `// no-visual: <reason>` marker. Quote the exact user-visible copy in the summary too. |
@@ -81,7 +81,9 @@ For spec fixtures, use the shared helpers rather than inventing a cast:
   `StoreSelector<TState>` types the mock with the hook's real signature.
 - `@/test-utils/db-fixtures` — `makeProject` / `makeDocument` /
   `makeMemoryItem` return complete repository rows, so a repository mock
-  resolves to something the service can actually read.
+  resolves to something the service can actually read; `asDb()` is the single
+  boundary where a partial drizzle query-builder stub widens to the `getDb`
+  handle, so that cast is not re-derived per spec.
 
 When typing a fixture surfaces an error, that is the point of the exercise:
 **fix the fixture, do not widen the type back.** If the fixture was wrong, the

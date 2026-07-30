@@ -17,6 +17,7 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+import { asDb } from '@/test-utils/db-fixtures'
 import { GET } from './route'
 
 describe('GET /api/projects/[id]/overview', () => {
@@ -61,9 +62,7 @@ describe('GET /api/projects/[id]/overview', () => {
     const mockFrom = vi.fn().mockImplementation(() => ({ where: mockWhere }))
     const mockSelect = vi.fn().mockImplementation(() => ({ from: mockFrom }))
 
-    vi.mocked(getDb).mockReturnValue({
-      select: mockSelect,
-    } as unknown as ReturnType<typeof getDb>)
+    vi.mocked(getDb).mockReturnValue(asDb({ select: mockSelect }))
 
     const response = await GET(
       new Request('https://grid.test/api/projects/proj-1/overview'),

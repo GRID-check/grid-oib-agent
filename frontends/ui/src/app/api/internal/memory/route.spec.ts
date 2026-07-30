@@ -167,7 +167,12 @@ describe('POST /api/internal/memory', () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
     vi.mocked(organizationExists).mockResolvedValue(true)
-    vi.mocked(createProjectMemoryItem).mockResolvedValue(makeMemoryItem({ id: 'item-2' }))
+    // The row the route echoes back must be org-scoped like the write itself —
+    // `makeMemoryItem` defaults to a project row, which would let the fixture
+    // contradict the operation under test.
+    vi.mocked(createProjectMemoryItem).mockResolvedValue(
+      makeMemoryItem({ id: 'item-2', scope: 'organization', projectId: null }),
+    )
 
     const response = await POST(
       makeRequest(

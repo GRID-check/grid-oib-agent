@@ -5,13 +5,14 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { getDb } from '@/lib/db'
+import { asDb } from '@/test-utils/db-fixtures'
 import { reconcileDocumentStatuses, extractIngestJobId, clearCollectionFilesCache } from './reconcile-status'
 
 const makeDbMock = () => {
   const where = vi.fn().mockResolvedValue(undefined)
   const set = vi.fn().mockReturnValue({ where })
   const update = vi.fn().mockReturnValue({ set })
-  vi.mocked(getDb).mockReturnValue({ update } as unknown as ReturnType<typeof getDb>)
+  vi.mocked(getDb).mockReturnValue(asDb({ update }))
   return { update, set, where }
 }
 

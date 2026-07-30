@@ -40,6 +40,7 @@ vi.mock('@/lib/db/schema', () => ({
 }))
 
 import { getDb } from '@/lib/db'
+import { asDb } from '@/test-utils/db-fixtures'
 import {
   buildProjectMemoryDigest,
   createProjectMemoryItem,
@@ -50,16 +51,6 @@ import {
   updateProjectMemoryItem,
   type DigestItem,
 } from './memory-service'
-
-/**
- * A drizzle query-builder stand-in. These specs assert on which chain the
- * service walks (`select().from().where()`, `update().set().where()`, …) and on
- * the conditions it builds, not on drizzle's own types — so each stub
- * implements only the links its test traverses. The assertion is confined here
- * rather than repeated at every `mockReturnValue`.
- */
-const asDb = (stub: Record<string, unknown>): ReturnType<typeof getDb> =>
-  stub as unknown as ReturnType<typeof getDb>
 
 const eq = (col: unknown, val: unknown) => ({ op: 'eq', col, val })
 const and = (...conditions: unknown[]) => ({ op: 'and', conditions })

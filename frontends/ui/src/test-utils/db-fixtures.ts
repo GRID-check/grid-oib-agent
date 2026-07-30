@@ -9,7 +9,22 @@
  * the one or two fields it is actually about.
  */
 
+import type { getDb } from '@/lib/db'
 import type { Document, Project, ProjectMemoryItem } from '@/lib/db/schema'
+
+/**
+ * The one place a hand-built drizzle query-builder stub widens to the real
+ * database handle.
+ *
+ * A spec that mocks `getDb` asserts on which chain the code under test walks
+ * (`select().from().where()`, `update().set().where()`, …) and on the conditions
+ * it builds, so each stub implements only the links its test traverses — no
+ * partial stub can satisfy drizzle's own type. Keeping the assertion here rather
+ * than re-deriving it per spec means the escape hatch stays a single audited
+ * boundary instead of drifting into a different shape in every file.
+ */
+export const asDb = (stub: Record<string, unknown>): ReturnType<typeof getDb> =>
+  stub as unknown as ReturnType<typeof getDb>
 
 /** A `projects` row as `findProjectInOrg` returns it. */
 export const makeProject = (overrides: Partial<Project> = {}): Project => ({
