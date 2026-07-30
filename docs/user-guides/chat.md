@@ -30,9 +30,11 @@ After the line is *action*. **New chat** is the only one kept in the open. The r
 
 | Menu entry | Appears when |
 |---|---|
-| **Rename chat** | there is a chat to rename — it opens the title for editing in place; Enter or clicking away commits, Escape cancels (the same rename action as the sessions panel) |
+| **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the sessions panel |
 | **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners |
 | **Research report** | this thread already has a report, one is running, or the panel is open |
+
+Everything in this pill comes and goes during a conversation — the participants resolve a moment after the chat opens, research starts and finishes, the menu appears with the first thing worth listing — so arrivals animate: the pill grows into its new width and the buttons slide rather than jumping. If your system is set to reduce motion, they simply appear.
 
 If none of them applies, there is no menu button either. The main way into a report is still the "view report" action on the answer that produced it — the menu entry is for coming back after you have closed the panel and scrolled on — and the panel closes with its own ✕ or Escape.
 

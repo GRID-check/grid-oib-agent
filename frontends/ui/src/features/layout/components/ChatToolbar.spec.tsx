@@ -107,6 +107,24 @@ async function openThreadMenu(user: ReturnType<typeof userEvent.setup>): Promise
   await screen.findByRole('menu')
 }
 
+/**
+ * Pick an item out of the open thread menu.
+ *
+ * The hover is load-bearing, not decoration: a menu item is selected while it is
+ * the *focused* item, and it becomes focused on pointer movement. `user.click`
+ * dispatches no `pointermove`, so clicking an item that was never hovered fires
+ * `onSelect` only sometimes — which showed up as a rename test that failed about
+ * one run in four.
+ */
+async function selectMenuItem(
+  user: ReturnType<typeof userEvent.setup>,
+  testId: string,
+): Promise<void> {
+  const item = screen.getByTestId(testId)
+  await user.hover(item)
+  await user.click(item)
+}
+
 describe('ChatToolbar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -179,7 +197,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar />)
       await openThreadMenu(user)
 
-      await user.click(screen.getByTestId('research-panel-toggle'))
+      await selectMenuItem(user, 'research-panel-toggle')
 
       expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
     })
@@ -191,7 +209,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar />)
       await openThreadMenu(user)
 
-      await user.click(screen.getByTestId('research-panel-toggle'))
+      await selectMenuItem(user, 'research-panel-toggle')
 
       expect(mockCloseRightPanel).toHaveBeenCalled()
       expect(mockOpenRightPanel).not.toHaveBeenCalled()
@@ -206,7 +224,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar />)
       await openThreadMenu(user)
 
-      await user.click(screen.getByTestId('research-panel-toggle'))
+      await selectMenuItem(user, 'research-panel-toggle')
 
       expect(mockLoadResearchPanelTab).toHaveBeenCalledWith('job-123', 'thinking')
     })
@@ -220,7 +238,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar />)
       await openThreadMenu(user)
 
-      await user.click(screen.getByTestId('research-panel-toggle'))
+      await selectMenuItem(user, 'research-panel-toggle')
 
       expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
       expect(mockLoadResearchPanelTab).not.toHaveBeenCalled()
@@ -374,13 +392,23 @@ describe('ChatToolbar', () => {
       expect(screen.getByText('Wohnbau Favoriten')).toHaveClass('shrink-0')
     })
 
-    test('the title is text, not a disguised button', () => {
+    test('clicking the title opens the editor — the shortcut, alongside the menu', async () => {
+      const user = userEvent.setup()
       render(<ChatToolbar sessionTitle="My Session" />)
 
-      // It used to be a `<button>` styled exactly like the label it also was — the
-      // header's least honest element, and the one interaction in it nobody could
-      // discover. Renaming is an action and now lives with the other actions.
-      expect(screen.getByText('My Session').tagName).toBe('SPAN')
+      // Two ways in, on purpose: the menu entry is how anyone DISCOVERS renaming,
+      // this is the fast path once you know it. Unlike the menu route it needs no
+      // deferral — no menu is closing, so nothing is about to reclaim focus.
+      await user.click(screen.getByRole('button', { name: /rename session/i }))
+
+      expect(screen.getByRole('textbox', { name: /session title/i })).toHaveValue('My Session')
+    })
+
+    test('the title cannot be renamed without an active session', () => {
+      mockCurrentSessionId = null
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      expect(screen.getByRole('button', { name: /rename session/i })).toBeDisabled()
     })
 
     test('the menu opens the inline editor; Enter commits via the store rename action', async () => {
@@ -388,7 +416,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar sessionTitle="My Session" />)
 
       await openThreadMenu(user)
-      await user.click(screen.getByTestId('rename-session'))
+      await selectMenuItem(user, 'rename-session')
 
       const input = await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       expect(input).toHaveValue('My Session')
@@ -405,7 +433,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar sessionTitle="My Session" />)
 
       await openThreadMenu(user)
-      await user.click(screen.getByTestId('rename-session'))
+      await selectMenuItem(user, 'rename-session')
       const input = await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       await user.clear(input)
       await user.type(input, 'discarded{Escape}')
@@ -419,7 +447,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar sessionTitle="My Session" />)
 
       await openThreadMenu(user)
-      await user.click(screen.getByTestId('rename-session'))
+      await selectMenuItem(user, 'rename-session')
       const input = await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       await user.clear(input)
       await user.type(input, 'Renamed on blur')
@@ -433,7 +461,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar sessionTitle="My Session" />)
 
       await openThreadMenu(user)
-      await user.click(screen.getByTestId('rename-session'))
+      await selectMenuItem(user, 'rename-session')
       await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       await user.keyboard('{Enter}')
 
@@ -616,7 +644,7 @@ describe('ChatToolbar — sharing surfaces', () => {
     expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
 
     await openThreadMenu(user)
-    await user.click(screen.getByTestId('share-button'))
+    await selectMenuItem(user, 'share-button')
 
     expect(await screen.findByTestId('share-dialog')).toBeInTheDocument()
   })

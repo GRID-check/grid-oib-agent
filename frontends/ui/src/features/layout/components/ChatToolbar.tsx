@@ -18,6 +18,7 @@ import {
   Sparkles,
   SquarePen,
 } from 'lucide-react'
+import { AnimatePresence, motion, springSnappy } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -34,6 +35,13 @@ import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
 import { useSharing } from '@/features/collaboration/hooks/use-sharing'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
+
+/**
+ * How long after opening the editor from the menu a blur is treated as the menu
+ * handing focus back rather than the user leaving the field. Also closed by the
+ * first keystroke, since `commitTitle`/`cancelTitleEdit` resolve the edit.
+ */
+const MENU_FOCUS_GUARD_MS = 250
 
 interface ChatToolbarProps {
   sessionTitle?: string
@@ -166,16 +174,28 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   }, [canRename, sessionTitle])
 
   /**
-   * Open the inline editor from the menu — one frame later, deliberately.
+   * Open the inline editor from the menu.
    *
-   * Closing a menu returns focus to its trigger. Mounting the editor in the same
-   * frame therefore puts it on screen just in time to be blurred, and blur
-   * commits: the editor opened and closed again before anyone could type in it.
-   * Waiting a frame lets the menu finish its focus restoration first, so the
-   * `isEditingTitle` effect's `focus()` is the last word.
+   * Closing a menu returns focus to its trigger, which lands on the editor we just
+   * opened as a blur — and blur commits, so the editor opened and closed again
+   * before anyone could type in it.
+   *
+   * Two orderings were tried and both were wrong, because ordering is the wrong
+   * tool: deferring the open by a frame put it at the mercy of whatever else owns
+   * the frame loop (the pill animates), and deferring by a task still raced the
+   * menu's own restoration, so the editor opened *usually*. What is actually true
+   * here is simpler — a blur arriving in the first moments after the menu closed
+   * is the menu handing focus back, not the user leaving the field. So the editor
+   * ignores exactly that blur and takes focus back, and is correct whichever
+   * order the two land in. The window is short enough that no real departure can
+   * fall inside it (nobody clicks away in a quarter second) and it is closed by
+   * the first keystroke regardless.
    */
+  const focusGuardUntilRef = useRef(0)
+
   const startEditingTitleFromMenu = useCallback(() => {
-    requestAnimationFrame(startEditingTitle)
+    focusGuardUntilRef.current = Date.now() + MENU_FOCUS_GUARD_MS
+    startEditingTitle()
   }, [startEditingTitle])
 
   const commitTitle = useCallback(() => {
@@ -187,6 +207,19 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
       updateConversationTitle(currentSessionId, trimmed)
     }
   }, [editedTitle, sessionTitle, currentSessionId, updateConversationTitle])
+
+  const handleTitleBlur = useCallback(() => {
+    // Time-boxed, not once-only: the menu's teardown can reach for focus more than
+    // once, so disarming after the first blur just loses the second one.
+    if (Date.now() < focusGuardUntilRef.current) {
+      // Take focus back on a LATER task. Calling `focus()` from inside the blur
+      // dispatch re-enters it, and the two bounce off each other until the stack
+      // gives out.
+      setTimeout(() => titleInputRef.current?.focus(), 0)
+      return
+    }
+    commitTitle()
+  }, [commitTitle])
 
   const cancelTitleEdit = useCallback(() => {
     editResolvedRef.current = true
@@ -281,7 +314,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-11 shrink-0 rounded-md md:hidden"
+          className="size-11 shrink-0 rounded-md sm:size-9 md:hidden"
           onClick={handleNavClick}
           aria-label={tNav('openNavigation')}
           title={tNav('openNavigation')}
@@ -294,7 +327,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-11 shrink-0 rounded-md"
+          className="size-11 shrink-0 rounded-md sm:size-9"
           onClick={handleMenuClick}
           disabled={!isAuthenticated}
           aria-label={t('chatToolbar.toggleSessions')}
@@ -353,26 +386,35 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   <input
                     ref={titleInputRef}
                     value={editedTitle}
-                    onChange={(e) => setEditedTitle(e.target.value)}
+                    onChange={(e) => {
+                      // The first keystroke ends the menu-handover guard: once the
+                      // user is typing, every blur after it is genuinely theirs.
+                      focusGuardUntilRef.current = 0
+                      setEditedTitle(e.target.value)
+                    }}
                     onKeyDown={handleTitleKeyDown}
-                    onBlur={commitTitle}
+                    onBlur={handleTitleBlur}
                     aria-label={tChat('breadcrumb.renameInputAria')}
                     className="h-7 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   />
                 ) : (
-                  // Plain text, not a button. The title is what this thread IS;
-                  // renaming is an action and lives with the other actions, in the
-                  // menu. As a button it was the header's least honest element —
-                  // styled exactly like the label it also was, with no affordance
-                  // to find, so the only people who ever renamed a chat inline were
-                  // the ones who clicked it by accident. `title` carries the full
-                  // name for the truncated case.
-                  <span
-                    title={sessionTitle}
-                    className="max-w-[420px] truncate px-1 py-0.5 text-sm font-medium text-foreground"
+                  // Click-to-rename, kept as the SHORTCUT rather than as the only
+                  // way in. On its own it was the header's least honest element:
+                  // styled exactly like the label it also was, so nobody could
+                  // discover it. The menu entry is now the discoverable path and
+                  // this is the fast one for people who know it — which is why it
+                  // carries a hover fill and a text cursor, the two hints that make
+                  // the click findable for anyone who happens to pass over it.
+                  <button
+                    type="button"
+                    onClick={startEditingTitle}
+                    disabled={!canRename}
+                    aria-label={tChat('breadcrumb.renameAria')}
+                    title={canRename ? tChat('breadcrumb.renameAria') : sessionTitle}
+                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     {sessionTitle}
-                  </span>
+                  </button>
                 )
               ) : null}
           </nav>
@@ -397,9 +439,22 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           The second rule is that only the most frequent control stays in the open.
           New chat earns that. Share, rename and the research report are occasional
           and go in the one menu — progressive disclosure rather than three more
-          permanent buttons in a 768px row that also has to carry a thread title. */}
+          permanent buttons in a 768px row that also has to carry a thread title.
+
+          `layout` on the pill is what makes the arrivals bearable. Everything in
+          here comes and goes DURING a conversation — the roster resolves a moment
+          after the thread opens, research starts and finishes, the menu appears
+          with the first thing worth listing — and each one changes the pill's
+          width. Without it the pill snaps to its new size and shoves New chat
+          sideways mid-sentence; with it the pill grows into the new width and the
+          buttons slide. Reduced motion is handled globally by the app's
+          <MotionConfig reducedMotion="user">, so this degrades to no movement. */}
       {isChatStarted && (
-      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60">
+      <motion.div
+        layout
+        transition={springSnappy}
+        className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
+      >
         {/* ── STATUS ────────────────────────────────────────────────────────────
             Who can reach this thread, stated ONCE, in whichever of the two forms is
             true of the audience (see `showFaces` / `showAccessChip` above), and
@@ -412,9 +467,23 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
 
             The group renders only when it has something to SAY — a hairline with
             nothing in front of it is the same empty claim as the button that
-            pointed at an empty report. */}
+            pointed at an empty report.
+
+            It arrives late by nature (the roster is a fetch), so it fades and
+            settles in rather than blinking into place. `initial={false}` on the
+            presence keeps that for CHANGES only: a thread you open with the roster
+            already known must not replay the animation. */}
+        <AnimatePresence initial={false}>
         {hasStatus && (
-          <div className="hidden items-center gap-1 pl-1 pr-1.5 sm:flex">
+          <motion.div
+            key="status"
+            layout
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={springSnappy}
+            className="hidden items-center gap-1 pl-1 pr-1.5 sm:flex"
+          >
             {/* No `onOpen`: the strip is deliberately inert here. Sharing has ONE
                 door in this header and it is the menu item, so the faces can be
                 read as what they are. */}
@@ -429,25 +498,39 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                 then the only persistent "still working" signal. It states, it does
                 not act — the report is in the menu. Independent of sharing: a solo
                 thread researches just as often as a shared one. */}
-            {isDeepResearchStreaming && (
-              <span
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
-                data-testid="research-running"
-              >
-                <Spinner size="sm" label={t('researchPanel.researching')} />
-                <span className="hidden lg:inline">{t('researchPanel.researching')}</span>
-              </span>
-            )}
+            <AnimatePresence initial={false}>
+              {isDeepResearchStreaming && (
+                <motion.span
+                  key="running"
+                  layout
+                  // Widens from nothing rather than fading in on top of the
+                  // neighbours: this arrives mid-turn, next to marks that are
+                  // already there, so it has to make room for itself instead of
+                  // displacing them in one frame. `overflow-hidden` keeps the label
+                  // clipped while the width is still growing.
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
+                  transition={springSnappy}
+                  className="inline-flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm text-muted-foreground"
+                  data-testid="research-running"
+                >
+                  <Spinner size="sm" label={t('researchPanel.researching')} />
+                  <span className="hidden lg:inline">{t('researchPanel.researching')}</span>
+                </motion.span>
+              )}
+            </AnimatePresence>
             <div aria-hidden="true" className="ml-1 h-5 w-px bg-border" />
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
         {/* ── CONTROLS ─────────────────────────────────────────────────────────
             New chat: the one action frequent enough to stay in the open. */}
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 rounded-md"
+          className="h-11 gap-1.5 rounded-md px-3 sm:h-9"
           onClick={handleNewSessionClick}
           disabled={!isAuthenticated || isNewSessionDisabled}
           aria-label={t('chatToolbar.createNewSession')}
@@ -464,16 +547,27 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         </Button>
 
         {/* Everything else this thread can do. Each item is here because it is
-            occasional, and each still appears only when it is real. */}
+            occasional, and each still appears only when it is real.
+
+            Its own hairline: the same mark that separates what is TRUE from what
+            you can DO now also separates the one action kept in the open from the
+            drawer holding the rest, so the pill reads as three plain groups
+            instead of a run of controls. Drawn only with the menu it precedes —
+            a divider with nothing after it is a promise of something missing. */}
         {(canRename || sharingState || hasResearchReport) && (
+          <>
+          <div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                // `sm` (not `icon`) so the trigger keeps the exact height of the
-                // labelled button beside it; `w-8 px-0` squares it off.
+                // Square, and the SAME height as every other control in both
+                // pills — 44px where a finger has to land it, 36px on a pointer
+                // device. The two pills are only as tall as their tallest control,
+                // so any control that opts out of this pair makes one pill taller
+                // than the other and the row stops lining up.
                 size="sm"
-                className="w-8 rounded-md px-0"
+                className="size-11 rounded-md px-0 sm:size-9"
                 aria-label={t('chatToolbar.moreActions')}
                 title={t('chatToolbar.moreActions')}
                 data-testid="thread-menu"
@@ -482,9 +576,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              {/* Rename — the same inline editor as before, but reachable. It used
-                  to be a click on the title with no affordance whatsoever: the one
-                  interaction in this header that nobody could discover. */}
+              {/* Rename — the discoverable path to the same inline editor the
+                  title's own click opens. The click stays as the shortcut; this is
+                  how anyone finds out it exists. */}
               {canRename && (
                 <DropdownMenuItem
                   onSelect={startEditingTitleFromMenu}
@@ -528,8 +622,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          </>
         )}
-      </div>
+      </motion.div>
       )}
       </div>
 
