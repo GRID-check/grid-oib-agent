@@ -62,7 +62,7 @@ const TOBIAS = 'user_tobias'
 const CONVERSATION_ID = 'dev-shared-conv'
 
 const PEOPLE = {
-  [ME]: { userId: ME, name: 'Default User', email: 'me@example.com', profilePictureUrl: null },
+  [ME]: { userId: ME, name: 'Matthias Bigl', email: 'matthias@example.com', profilePictureUrl: null },
   [ANNA]: { userId: ANNA, name: 'Anna Berger', email: 'anna@example.com', profilePictureUrl: null },
   [TOBIAS]: { userId: TOBIAS, name: 'Tobias Kern', email: 'tobias@example.com', profilePictureUrl: null },
 }

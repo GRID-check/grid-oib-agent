@@ -112,6 +112,7 @@ export const collaboration: typeof en.collaboration = {
       chipRemove: 'Erwähnung von {name} entfernen',
     },
     composerHint: 'Piloti antwortet nicht — {name} wird gefragt.',
+    composerHintMany: 'Piloti antwortet nicht — {names} werden gefragt.',
     addressee: {
       toAgent: 'Geht an Piloti',
       toPerson: 'Geht an {name}',

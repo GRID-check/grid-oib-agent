@@ -124,7 +124,7 @@ function Previews(): JSX.Element {
       <section className="space-y-3">
         <Eyebrow>Standard — der Chat fragt Piloti</Eyebrow>
         <MockComposer text="Gilt die 40-m-Grenze auch für das nördliche Treppenhaus?">
-          <AddresseeIndicator mentions={[]} awaitingHuman={false} className="ml-0.5" />
+          <AddresseeIndicator mentions={[]} awaitingHuman={false} />
         </MockComposer>
       </section>
 
@@ -137,7 +137,7 @@ function Previews(): JSX.Element {
             body: t('mentions.composerHint', { name: ANNA.display }),
           }}
         >
-          <AddresseeIndicator mentions={[ANNA]} awaitingHuman={false} className="ml-0.5" />
+          <AddresseeIndicator mentions={[ANNA]} awaitingHuman={false} />
         </MockComposer>
       </section>
 
@@ -147,12 +147,16 @@ function Previews(): JSX.Element {
           text="@Anna Berger @Tobias Kern könnt ihr den Bestandsplan bestätigen?"
           hint={{
             icon: 'at',
-            body: t('mentions.composerHint', {
-              name: `${ANNA.display}, ${TOBIAS.display}`,
+            // The PLURAL key: German inflects the verb, so the singular string
+            // rendered "Anna Berger, Tobias Kern wird gefragt" — wrong grammar,
+            // and this preview reproduced it because it copies the real
+            // composer's hint rather than sharing it.
+            body: t('mentions.composerHintMany', {
+              names: `${ANNA.display}, ${TOBIAS.display}`,
             }),
           }}
         >
-          <AddresseeIndicator mentions={[ANNA, TOBIAS]} awaitingHuman={false} className="ml-0.5" />
+          <AddresseeIndicator mentions={[ANNA, TOBIAS]} awaitingHuman={false} />
         </MockComposer>
       </section>
 
@@ -162,14 +166,14 @@ function Previews(): JSX.Element {
           text="Danke, lass dir Zeit."
           hint={{ icon: 'agent', body: t('mentions.addressee.agentHint') }}
         >
-          <AddresseeIndicator mentions={[]} awaitingHuman className="ml-0.5" />
+          <AddresseeIndicator mentions={[]} awaitingHuman />
         </MockComposer>
       </section>
 
       <section className="space-y-3">
         <Eyebrow>Person und Piloti erwähnt — beide werden adressiert</Eyebrow>
         <MockComposer text="@Anna Berger @Piloti bitte gemeinsam prüfen.">
-          <AddresseeIndicator mentions={[ANNA, PILOTI]} awaitingHuman className="ml-0.5" />
+          <AddresseeIndicator mentions={[ANNA, PILOTI]} awaitingHuman />
         </MockComposer>
       </section>
     </>

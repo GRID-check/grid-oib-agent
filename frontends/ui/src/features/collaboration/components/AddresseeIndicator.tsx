@@ -101,6 +101,16 @@ export function AddresseeIndicator({
       aria-label={t('mentions.addressee.ariaLabel', { label })}
       className={cn(
         'inline-flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground',
+        // Placement belongs HERE, not at each call site. In the composer's
+        // wrapping chip row this element sat inline when its label was short
+        // ("Geht an Piloti") and wrapped when it was long ("Geht an Anna Berger,
+        // Tobias Kern"), so it moved between states, the row height jumped, and on
+        // a narrow viewport the send button was orphaned on a line of its own. A
+        // statement about who receives the message must not change position with
+        // the length of a recipient's name. `order-last basis-full` pins it to its
+        // own line beneath the row — and owning it here means the dev preview,
+        // which builds its own composer facsimile, cannot drift from the real one.
+        'order-last basis-full pt-0.5',
         className,
       )}
     >

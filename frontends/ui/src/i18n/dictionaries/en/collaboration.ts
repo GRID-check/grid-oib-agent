@@ -122,8 +122,15 @@ export const collaboration = {
       /** The inserted token in the composer. */
       chipRemove: 'Remove mention of {name}',
     },
-    /** The composer's state once a human is tagged. */
+    /**
+     * The composer's state once a human is tagged. Two keys because this i18n
+     * layer has interpolation but NO plural rules: German inflects the verb
+     * ("wird gefragt" / "werden gefragt"), so joining names into the singular
+     * string produced "Anna Berger, Tobias Kern wird gefragt" — wrong grammar in
+     * the primary product language.
+     */
     composerHint: 'Piloti will stay quiet — {name} is being asked.',
+    composerHintMany: 'Piloti will stay quiet — {names} are being asked.',
     /**
      * The composer's always-visible statement of WHO receives this message.
      *

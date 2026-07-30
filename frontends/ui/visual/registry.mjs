@@ -340,6 +340,46 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="access-overview-preview"]',
   },
   {
+    id: 'composer-addressee',
+    mobile: true,
+    path: '/dev/composer-addressee',
+    description:
+      'The composer\'s always-present statement of WHO receives this message (ADR-0034 addendum). Every rendering in one still: "Geht an Piloti" by default, "Geht an <Name>" the moment a colleague is tagged, both names when a person AND @Piloti are tagged, and "Geht an den Chat" + "@Piloti eingeben, um Piloti zu fragen" while the thread waits on a human. Always present on purpose — if it only appeared in the unusual case, "Piloti is next" would stay an inference.',
+    waitFor: '[data-testid="composer-addressee-preview"]',
+  },
+  {
+    id: 'shared-thread-handback',
+    mobile: true,
+    path: '/dev/shared-thread?variant=handback',
+    description:
+      'The hand-back offer at the point a wait resolves: the colleague answered, the wait closed, and the thread offers "Piloti weiterarbeiten lassen?". Its action PRE-FILLS the composer rather than firing a turn, so every message stays honestly authored. Derived from the thread rather than a live transition, because the asker usually arrives after the answer landed.',
+    waitFor: '[data-testid="shared-thread-preview"]',
+  },
+  {
+    id: 'share-dialog-invite',
+    mobile: true,
+    path: '/dev/share-dialog?variant=invite',
+    description:
+      'The invite half of the share dialog. Anyone already on the roster is filtered OUT (they carry their role control there, not here — one person, one control). Org members who cannot reach the container project stay VISIBLE but disabled with the reason, because silently omitting a colleague reads as a bug (spec SH-19).',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'share-dialog-project',
+    mobile: true,
+    path: '/dev/share-dialog?variant=project',
+    description:
+      'The dialog for a project-wide chat: the blanket rule stated in plain words ("Alle im Projekt koennen mitlesen und mitschreiben") ALONGSIDE the named exceptions, which is the hard part of answering "who can read this".',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'mention-picker-restricted',
+    mobile: true,
+    path: '/dev/mention-picker?variant=restricted',
+    description:
+      'The picker as a collaborator who may not invite (spec MN-5/OQ-3): people who would need an invitation are shown DISABLED with "Nur Eigentuemer koennen neue Personen in diesen Chat holen" rather than hidden, so the restriction is explicable instead of looking like a missing colleague.',
+    waitFor: '[data-testid="mention-picker-preview"]',
+  },
+  {
     id: 'shared-thread',
     mobile: true,
     path: '/dev/shared-thread',
