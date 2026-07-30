@@ -21,7 +21,7 @@ import {
   useState,
   useMemo,
 } from 'react'
-import { ArrowDown, FileText, Lock } from 'lucide-react'
+import { ArrowDown, FileText, Lock, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
@@ -860,14 +860,20 @@ MessageRenderer.displayName = 'MessageRenderer'
  * CC-19). A rule with a centred label rather than a coloured band: it has to be
  * findable when scrolling a long thread without competing with the messages, and
  * it must not read as an error state.
+ *
+ * Deliberately the house eyebrow (hairline border + uppercase muted label), not
+ * full-strength ink: this is a *reading-position* marker, and at ink weight it was
+ * the loudest thing in the column — out-shouting the agent's answer, which is the
+ * one element that must stay dominant. The two full-width rules are what make it
+ * findable; the label does not have to shout to be one.
  */
 const UnreadDivider: FC<{ label: string }> = ({ label }) => (
   <div className="flex items-center gap-3" role="separator" aria-label={label} data-testid="unread-divider">
-    <span className="h-px flex-1 bg-brand/35" aria-hidden="true" />
-    <span className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-brand">
+    <span className="h-px flex-1 bg-border" aria-hidden="true" />
+    <span className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
       {label}
     </span>
-    <span className="h-px flex-1 bg-brand/35" aria-hidden="true" />
+    <span className="h-px flex-1 bg-border" aria-hidden="true" />
   </div>
 )
 
@@ -881,19 +887,22 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
  * second participant sees a thread where nothing is happening and a composer that
  * will not take their question, which reads as a broken product rather than a busy
  * one.
+ *
+ * It says *the assistant is working*, not *somebody is typing*: the Piloti glyph
+ * plus the shimmering label — this app's own vocabulary for a turn in progress
+ * (`TypingIndicator`, the Herleitung spine) — rather than the three bouncing dots
+ * of a messenger, which describe a human at a keyboard and would frame Piloti as
+ * one more participant in a group chat. A status strip at the house radius, not a
+ * chat bubble.
  */
 const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
   <div
-    className="flex w-fit items-center gap-2 rounded-2xl border border-brand/25 bg-brand/5 px-3.5 py-2.5"
+    className="flex w-fit items-center gap-2 rounded-lg border bg-card px-3.5 py-2 shadow-xs"
     role="status"
     data-testid="turn-in-flight"
   >
-    <span className="flex items-center gap-1" aria-hidden="true">
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70 [animation-delay:-0.3s]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70 [animation-delay:-0.15s]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70" />
-    </span>
-    <span className="text-xs font-medium text-foreground">{label}</span>
+    <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+    <span className="animate-text-shimmer text-xs font-medium text-foreground">{label}</span>
   </div>
 )
 

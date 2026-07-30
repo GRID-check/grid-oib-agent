@@ -463,6 +463,19 @@ flowchart TB
   requesting user's own* messages. A reader must be able to tell at a glance who is
   talking to whom.
 
+  **Not by moving the bubble across the column** (ruling, 2026-07-30). The first
+  implementation gave a colleague's message the messenger left/right treatment —
+  left-aligned, muted, mirrored corner. That imports the grammar of a group chat
+  *between people* and quietly demotes Piloti to one participant in it, when the
+  surface is several people consulting an assistant. So **every human message keeps
+  the one right-hand card bubble a solo thread already teaches, whoever wrote it**,
+  and the distinctions are carried on other axes: a human is a narrow right-hand
+  bubble, the agent's answer is the full-width dominant card, its status output is
+  the Herleitung spine, and *who* the human is comes from the CC-4 avatar + name
+  header (plus tighter spacing inside one author's run than between two speakers).
+  Explicitly ruled out: side-switching, a second bubble surface, and per-person
+  bubble colour.
+
 - **CC-6 (SHOULD).** The thread SHOULD carry a lightweight **participant strip**
   (avatars of everyone with access) at its head, doubling as the entry point to the
   sharing surface (SH-17).

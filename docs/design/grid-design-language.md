@@ -112,6 +112,10 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 
 **Error** — `Alert variant="destructive"` for load failures with a helpful message + retry; `sonner` toast for transient action failures; inline field errors for forms (already handled by the TanStack Form FieldShell). Error red (`--signal-error`) is for errors only — never for emphasis.
 
+**Counts** — `CountPill` (`components/ui/count-pill.tsx`) is the one rounded-full numeric pill. `tone="muted"` (default) for a quiet number beside a heading or tab label; `tone="attention"` — near-black action ink — only when the count *is* the signal that something waits for the reader (the inbox badge). Never hand-roll a third shape; never reach for chroma here (ink, because chroma belongs to provenance).
+
+**People** — a group of people is `AvatarStack` (`components/ui/avatar-stack.tsx`): overlapping `Avatar` discs in the order given (it never re-sorts — ordering is the caller's information), ring-separated, tail collapsed into a neutral `+N`. `sm` is 28px, not 24px: below that the overlap plus the ring clips the second initial. A single disc is `PersonAvatar` from the same module. Identity colour and initials come from `components/ui/avatar-identity.ts` — keyed on the **user id** so one colleague is one colour on every surface, and generated as a hue only: lightness comes from `color-mix()` against `--card`/`--foreground`, so dark mode needs no second palette. **Identity is not signal**: these tints carry no meaning, always ride with initials or a photo, and are deliberately off the provenance hues.
+
 **Status badges** — Badge variants: `success` (ready/completed — project green family), `info` (in-progress/running — law blue family), `warning` (needs attention — office gold family), `destructive` (failed — signal red), `secondary` (neutral/cancelled). Project status chips: "Aktiv" = `--status-active(-tint)` (green), "Abgeschlossen" = `--status-done(-tint)` (warm gray) — always dot/icon + label, never a bare color dot.
 
 ## Motion vocabulary
