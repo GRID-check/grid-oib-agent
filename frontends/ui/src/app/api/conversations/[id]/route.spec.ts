@@ -25,7 +25,13 @@ vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({
   findGrantForSubject: vi.fn(),
   countGrantsForResource: vi.fn(),
+  // Deleting a conversation purges the collaboration rows that no foreign key
+  // can cascade into (grants/requests/items address their target
+  // polymorphically). Stubbed here so the purge is observable, not incidental.
+  deleteAllGrantsForResource: vi.fn(),
 }))
+vi.mock('@/lib/mentions/repository', () => ({ deleteRequestsForResource: vi.fn() }))
+vi.mock('@/lib/inbox/repository', () => ({ deleteItemsForResource: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn(),
   findConversationInOrg: vi.fn(),
@@ -44,7 +50,9 @@ vi.mock('@/lib/conversations/repository', () => ({
 
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { deleteConversationInOrg, findConversationTenancy } from '@/lib/conversations/repository'
-import { findGrantForSubject } from '@/lib/sharing/repository'
+import { deleteAllGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
+import { deleteRequestsForResource } from '@/lib/mentions/repository'
+import { deleteItemsForResource } from '@/lib/inbox/repository'
 import { DELETE } from './route'
 
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
@@ -66,6 +74,9 @@ describe('DELETE /api/conversations/[id]', () => {
       createdBy: 'user_1',
       deletedAt: null,
     })
+    vi.mocked(deleteAllGrantsForResource).mockResolvedValue(0)
+    vi.mocked(deleteRequestsForResource).mockResolvedValue(0)
+    vi.mocked(deleteItemsForResource).mockResolvedValue(0)
   })
 
   it('deletes an owned conversation, scoped to the caller organization', async () => {
@@ -75,6 +86,18 @@ describe('DELETE /api/conversations/[id]', () => {
     // Tenant isolation stays in the WHERE clause too: deleting by id alone let
     // any signed-in user delete another org's conversation.
     expect(deleteConversationInOrg).toHaveBeenCalledWith('conv_1', 'org_1')
+  })
+
+  it('purges the collaboration rows no foreign key can cascade into', async () => {
+    // `resource_shares`, `mention_requests` and `inbox_items` address their
+    // target as a polymorphic (resource_type, resource_id) pair, so Postgres
+    // cannot cascade them. Forgetting this leaves permanently redacted rows in
+    // people's inboxes (spec SH-13, IB-15).
+    await del()
+
+    expect(deleteAllGrantsForResource).toHaveBeenCalledWith('conversation', 'conv_1')
+    expect(deleteRequestsForResource).toHaveBeenCalledWith('conversation', 'conv_1')
+    expect(deleteItemsForResource).toHaveBeenCalledWith('conversation', 'conv_1')
   })
 
   it('404s a conversation the caller does not own, and never deletes it', async () => {

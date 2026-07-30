@@ -308,6 +308,46 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="inbox-list"]',
   },
   {
+    id: 'mention-picker',
+    mobile: true,
+    path: '/dev/mention-picker',
+    description:
+      'The @-mention popover, open (spec MN-3/MN-4/MN-5). Anchored above the composer like Slack/Linear rather than caret-tracked. Avatars with a deterministic per-user hue, the matched substring emphasised, grouped agent -> in this chat -> elsewhere in project, "Wird eingeladen" on someone who will be invited by being tagged, and the keyboard hint strip.',
+    waitFor: '[data-testid="mention-picker-preview"]',
+  },
+  {
+    id: 'awaiting-banner',
+    mobile: true,
+    path: '/dev/awaiting-banner',
+    description:
+      'The hand-off state every participant sees while the agent deliberately stays silent (spec MN-7/MN-8): "Warten auf Anna Berger", the reason it is quiet, who asked, and the release action so a thread can never be permanently stuck.',
+    waitFor: '[data-testid="awaiting-banner-preview"]',
+  },
+  {
+    id: 'share-dialog',
+    mobile: true,
+    path: '/dev/share-dialog',
+    description:
+      'The sharing surface (spec SH-17/SH-19): visibility with its plain-words consequence, the roster with WHY each person has access, and an invite picker where someone outside the project appears DISABLED with the reason rather than hidden — sharing a chat never grants project access.',
+    waitFor: '[data-testid="share-dialog-preview"]',
+  },
+  {
+    id: 'access-overview',
+    mobile: true,
+    path: '/dev/access-overview',
+    description:
+      'The "who has access" answer (spec SH-18): the blanket visibility rule and the named exceptions together, grouped by role, each row carrying the reason for its access.',
+    waitFor: '[data-testid="access-overview-preview"]',
+  },
+  {
+    id: 'shared-thread',
+    mobile: true,
+    path: '/dev/shared-thread',
+    description:
+      'A shared thread with three people plus the agent (spec CC-4/CC-5/CC-13/CC-19): every human message attributed, one author\'s consecutive messages GROUPED under a single header, the unread separator, an @Piloti mention chip, and the turn-in-flight banner telling an observer whose question the agent is answering. All four voices distinguishable — colleague, you, the agent\'s answer, the agent\'s status.',
+    waitFor: '[data-testid="shared-thread-preview"]',
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:
