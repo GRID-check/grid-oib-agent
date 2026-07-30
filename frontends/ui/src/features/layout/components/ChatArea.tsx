@@ -40,6 +40,7 @@ import type { ChatMessage, StatusType } from '@/features/chat'
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
+import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
 import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
 import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
@@ -250,7 +251,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // **hand back?** → asking Piloti. Every transition but the last one had a visible
   // affordance; this is the last one. The wait itself is read from the server, never
   // computed here, so this offer and the banner cannot disagree.
-  const { awaiting } = useAwaitingState(
+  const { awaiting, release } = useAwaitingState(
     currentConversation?.id ?? null,
     canCollaborate && shared,
   )
@@ -328,6 +329,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     )
     setHandbackDismissedFor(handback.anchorId)
   }, [handback, setComposerPrefill, tCollaboration])
+
+  /**
+   * "Stattdessen Piloti fragen" from inside the wait (spec MN-9.3).
+   *
+   * Pre-fills rather than sending, for the same reason the hand-back offer does:
+   * the message stays honestly authored, and a turn with no user-authored question
+   * produces "Based on the discussion above…". `@Piloti` is what releases the wait
+   * server-side, so no separate release call is needed — the ruling does it.
+   */
+  const handleAskAgent = useCallback(() => {
+    setComposerPrefill(`@${tCollaboration('mentions.picker.agentName')} `)
+  }, [setComposerPrefill, tCollaboration])
 
   // Entrance-animation bookkeeping: messages already present when a conversation
   // renders (hydration / session switch) must NOT animate in — only messages
@@ -667,6 +680,25 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               )
             })}
           </AnimatePresence>
+
+          {/* The thread is WAITING on a named person (spec MN-8). Without this
+              mounted, the agent's silence has no explanation on screen, and
+              "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
+              mitigation for its own worst risk, a wait nobody ever answers — has no
+              affordance at all. The component existed, was tested and was
+              screenshotted for a while before anything rendered it; unit-green is
+              not reachable.
+
+              Mutually exclusive with the hand-back offer by construction: this
+              returns null once `pending` is empty, which is exactly when the offer
+              becomes eligible. */}
+          {shared && (
+            <AwaitingBanner
+              awaiting={awaiting}
+              onRelease={release}
+              onAskAgent={handleAskAgent}
+            />
+          )}
 
           {/* The colleague has answered and Piloti is out of the loop — the one
               moment the thread is worth handing on, and until now the only

@@ -92,7 +92,27 @@ vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
 // The derived hand-off state behind the hand-back offer. Mocked at the hook
 // boundary: the offer must never compute a wait locally (ADR-0034), so what it
 // reads is the server's answer and nothing else.
-let mockAwaitingPending: Array<{ id: string }> = []
+// Full rows, not `{ id }` stubs: the banner RENDERS these (name, avatar, who
+// asked, since when), so a thin fixture makes the mount untestable — which is
+// how the banner stayed unmounted with the suite green.
+let mockAwaitingPending: Array<{
+  id: string
+  person: { userId: string; name: string }
+  requestedBy: { userId: string; name: string } | null
+  createdAt: string
+  note?: string | null
+}> = []
+
+const pendingRequest = (
+  overrides: Partial<(typeof mockAwaitingPending)[number]> = {},
+): (typeof mockAwaitingPending)[number] => ({
+  id: 'r-1',
+  person: { userId: 'user_anna', name: 'Anna Berger' },
+  requestedBy: { userId: 'user-1', name: 'Max Mustermann' },
+  createdAt: '2026-07-29T09:00:00.000Z',
+  note: null,
+  ...overrides,
+})
 
 vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
   useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
@@ -740,6 +760,121 @@ describe('ChatArea — shared thread', () => {
 })
 
 /**
+ * The waiting banner, asserted where it actually has to appear.
+ *
+ * The banner was built, unit-tested and screenshotted while NOTHING in the product
+ * rendered it — its only consumer was the dev preview page. So the feature's central
+ * promise (the thread visibly waits for Anna, and any participant can release the
+ * wait) was absent from the shipped UI while every unit test around it stayed green.
+ * These tests assert REACHABILITY, which coverage of the component cannot.
+ */
+describe('ChatArea — the awaiting banner is reachable', () => {
+  const ME = 'user-1'
+  const ANNA = 'user_anna'
+
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  /** Max asked Anna and nobody has answered yet — the state the banner is for. */
+  const waitingThread = () => [
+    {
+      id: 'm1',
+      role: 'user',
+      messageType: 'user',
+      content: 'm1',
+      authorUserId: ME,
+      addressees: { agent: false, users: [ANNA] },
+    },
+  ]
+
+  beforeEach(() => {
+    mockAwaitingPending = []
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      participants: [
+        { userId: ME, name: 'Max Mustermann' },
+        { userId: ANNA, name: 'Anna Berger' },
+      ],
+      authorOf: (userId?: string | null) =>
+        userId === ANNA
+          ? { userId: ANNA, name: 'Anna Berger' }
+          : userId === ME
+            ? { userId: ME, name: 'Max Mustermann' }
+            : null,
+    }
+  })
+
+  test('a waiting shared thread renders the banner, naming who holds it', () => {
+    mockAwaitingPending = [pendingRequest()]
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('awaiting-banner')).toHaveTextContent('Waiting for Anna Berger')
+  })
+
+  test('the release action — the way out of a wait — is present', () => {
+    mockAwaitingPending = [pendingRequest()]
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    // MN-9.2. Without this on screen a thread is stuck whenever the person who
+    // was asked goes on holiday, and ADR-0034's own mitigation for its worst
+    // risk does not exist.
+    expect(
+      screen.getByRole('button', { name: 'Continue without Anna Berger' }),
+    ).toBeInTheDocument()
+  })
+
+  test('no banner when nothing is outstanding', () => {
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('awaiting-banner')).not.toBeInTheDocument()
+  })
+
+  test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {
+    mockAwaitingPending = [pendingRequest()]
+    mockSharedThread = { ...INERT_SHARED_THREAD }
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate={false} />)
+
+    expect(screen.queryByTestId('awaiting-banner')).not.toBeInTheDocument()
+  })
+
+  test('"ask Piloti instead" pre-fills rather than sending, like every other hand-off action', async () => {
+    const user = userEvent.setup()
+    mockAwaitingPending = [pendingRequest()]
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+    await user.click(screen.getByRole('button', { name: 'Ask Piloti instead' }))
+
+    // `@Piloti` is what releases the wait server-side, so the ruling does it —
+    // no separate release call, and the message stays honestly authored.
+    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti ')
+  })
+})
+
+/**
  * The hand-back offer (ADR-0034 addendum) — the last transition of the state
  * machine: asking Piloti → tag a human → waiting → they answer → **hand back?**
  *
@@ -863,13 +998,18 @@ describe('ChatArea — the hand-back offer', () => {
     expect(mockSetComposerPrefill).not.toHaveBeenCalled()
   })
 
-  test('stays away while the thread is still waiting on someone — the banner owns that state', () => {
-    mockAwaitingPending = [{ id: 'r-1' }]
+  test('stays away while the thread is still waiting on someone — and the BANNER is what owns that state', () => {
+    mockAwaitingPending = [pendingRequest()]
     setThread(resolvedThread())
 
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+    // This assertion is the point. The old version of this test named the banner
+    // in its title and never checked it, so the banner could be — and was —
+    // completely unmounted while the suite stayed green. The agent's silence had
+    // no explanation on screen and the release action had no affordance.
+    expect(screen.getByTestId('awaiting-banner')).toBeInTheDocument()
   })
 
   test('stays away once the agent has already answered — there is nothing to hand back', () => {
