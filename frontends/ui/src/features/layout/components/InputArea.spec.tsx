@@ -1490,4 +1490,53 @@ describe('InputArea', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('Frage')
     })
   })
+
+  /**
+   * The send has to agree with what the addressee line just told the user
+   * (ADR-0034 addendum). While the thread waits on a named person, a plain message
+   * is a remark — so it goes through the server's ruling and reaches the agent as
+   * CONTEXT, not as a question. The line says "Goes to the chat"; this is the wiring
+   * that makes that true.
+   */
+  describe('the send agrees with the addressee line', () => {
+    const composer = () => screen.getByPlaceholderText('Ask Piloti about this project …')
+
+    const send = async (text: string) => {
+      const user = userEvent.setup()
+      await user.click(composer())
+      await user.keyboard(text)
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+    }
+
+    test('a plain message while a person is awaited asks the server to rule', async () => {
+      mockAwaitingPending = [{ id: 'r-1' }]
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await send('Ja, eigener Abschnitt.')
+
+      expect(mockSendMessage).toHaveBeenCalledWith('Ja, eigener Abschnitt.', {
+        awaitingHuman: true,
+      })
+    })
+
+    test('a plain message in the normal state stays the one-argument fast path', async () => {
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await send('Wie breit muss der Fluchtweg sein?')
+
+      expect(mockSendMessage).toHaveBeenCalledWith('Wie breit muss der Fluchtweg sein?')
+    })
+
+    test('a gated org never takes the ruled path, wait or no wait (NF-8)', async () => {
+      mockAwaitingPending = [{ id: 'r-1' }]
+      render(<InputArea isAuthenticated connectionMode="sse" />)
+
+      const user = userEvent.setup()
+      await user.click(screen.getByRole('textbox'))
+      await user.keyboard('Frage')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      expect(mockSendMessage).toHaveBeenCalledWith('Frage')
+    })
+  })
 })

@@ -71,7 +71,10 @@ outside the agent tier.**
 
 6. **No Python change.** The mention hand-off lives wholly in the BFF, hanging off
    message persistence, which the BFF already owns on both the session and internal
-   paths.
+   paths. — **Superseded: see the 2026-07-30 addendum.** The *hand-off state* does
+   live wholly in the BFF, but "the agent is suppressed by not being invoked" also
+   kept the message out of the agent's checkpoint, i.e. out of its memory. Delivering
+   it as context needed a change in the agent tier.
 
 ## Addendum (2026-07-30): a plain message while awaiting a human is a remark, not a question
 
@@ -108,6 +111,95 @@ UI said who the next message would reach. The composer now states its addressee 
 every state ("Geht an Piloti" / "Geht an {name}" / "Geht an den Chat" with
 "@Piloti eingeben, um Piloti zu fragen"), because a correct rule the user has to
 infer is still an unclear product.
+
+## Addendum (2026-07-30): the agent tier needed a change after all — "always send, never always judge"
+
+Decision 6 above said **"No Python change."** That was wrong, and the way it was wrong
+is worth recording, because the framing concealed the gap rather than closing it.
+
+The BFF owns *who a message is for*. It does not own *what the agent remembers*. The
+agent's conversation history **is** its LangGraph checkpoint (`thread_id ==
+conversation_id`), and the client sends only `{ query, data_sources }` — so the
+checkpoint contains exactly what passed through the agent, and nothing else:
+
+1. Matthias asks Piloti → in the checkpoint ✓
+2. Matthias tags Anna → **no agent turn** → not in the checkpoint
+3. Anna answers → **no agent turn** → not in the checkpoint
+4. Matthias types `@Piloti given that, recheck` → the agent's context is his original
+   question, its own answer, and "given that" — **"that" refers to nothing.**
+
+Anna's answer existed only in `grid_app.messages`. Decision 4 ("suppress the agent by
+not invoking it") was right about tokens and silently wrong about memory, which
+defeats the feature's stated core value (spec OQ-8: *"yes — it is exactly the context
+that makes this valuable"*).
+
+**The decision: every human message reaches the agent, tagged with whether it is
+addressed to it.**
+
+| The server's ruling | What the client sends | What the agent does |
+|---|---|---|
+| `addressees.agent = true` | today's `user_message`, unchanged | answers — exactly as before |
+| `addressees.agent = false` | the same frame plus `context_only: true` + `author_name` | appends the turn to its conversation state and **generates nothing** |
+
+So there is no third state and no new concept: not answering stays a routing decision
+the server makes deterministically, and only *delivery* changed. When Piloti is next
+addressed, Anna's answer is already in its history — no transcript field to bound, no
+prompt stuffing, and no product-authored text masquerading as a user's message (the
+ingested turn is the human's own words with their name in front).
+
+Ingestion is genuinely free, which is what keeps Decision 4's economics intact:
+LangGraph's `aupdate_state` writes a checkpoint through the `messages` reducer and
+executes no node, so no LLM is called, no `system_response_message` is emitted, and no
+status or intermediate frame is streamed. It is also bounded (4000 chars, the same cap
+`normalize_project_context` uses) and fail-soft: a lost context frame degrades the
+agent's memory and must never break the thread, because the message itself is already
+persisted where the humans read it.
+
+The addendum above (a plain message during a hand-off) gets the same treatment. Its
+ruling is `{ agent: false, users: [] }`, so the composer now routes such a message
+through the awaited-persist path too — the client decides only whether to *ask* for
+the ruling, never what it is, so a stale hand-off read costs one round trip and
+nothing more.
+
+### Why the clarifier-as-classifier alternative was rejected for routing
+
+The obvious-looking alternative is to make the agent an always-on listener: send it
+everything with no tag, and let a cheap clarifier decide per message whether it was
+addressed. Rejected, and not on cost grounds:
+
+- It makes **"does Piloti answer?" probabilistic.** The composer's whole reason for
+  existing in this feature is that it can state the recipient truthfully *before* send
+  ("Geht an Piloti" / "Geht an {name}" / "Geht an den Chat"). A statement about a
+  classifier's future guess is not a statement.
+- It makes **mentions advisory rather than binding.** `@Piloti` is the documented way
+  back out of an open wait (spec MN-9.3). A model that may read it differently turns a
+  gesture the user was taught into a suggestion.
+- Its **failure mode is silent nothing.** A misjudgement produces no answer and no
+  explanation, which is indistinguishable from the deliberate quiet of a hand-off —
+  precisely the "the thread simply stops waiting and nobody is told why" failure this
+  ADR was written to avoid.
+- The server **already has the answer**, deterministically, from structured mentions
+  and the open-request rows. Replacing a decided fact with an inference is a downgrade
+  regardless of how good the inference is.
+
+Delivery, unlike routing, is a fine place for tolerance: the worst outcome of a context
+frame going missing is a slightly forgetful agent.
+
+### Consequences of the addendum
+
+- The agent tier now has a second, deliberately tiny entry point
+  (`ChatResearcherAgent.append_context_message`) that writes history without running
+  the graph. It touches `messages` only — never turn-scoped state (`shallow_result`,
+  confidence, routing extras) — so it cannot leak a previous turn's signals forward.
+- `aiq_api` reaches it through a registered appender rather than an import, keeping the
+  socket tier free of the graph. A process without a chat agent logs and no-ops.
+- A version skew (new client, old backend) degrades to *pre-change* behaviour: the old
+  backend ignores the unknown JSON key and answers the message. One unwanted answer in
+  a thread the sender can already read — never a dropped frame. See
+  `docs/api/websocket-protocol.md`.
+- Ingested context is bounded per message but **not** bounded in aggregate: a very
+  chatty shared thread grows the checkpoint like any long conversation does, and is
+  trimmed by the same `max_history_tokens` window at turn time.
 
 ## Consequences
 

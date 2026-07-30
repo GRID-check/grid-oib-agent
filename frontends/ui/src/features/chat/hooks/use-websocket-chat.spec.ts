@@ -204,7 +204,16 @@ const mockWsClient = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   rotate: vi.fn(),
-  sendMessage: vi.fn(() => 'mock-outbound-message-id'),
+  // Typed with the real 3-arg signature (content, dataSources, wire options) so
+  // specs can assert on the ingest-only options object and simulate a refused
+  // frame with a `null` return.
+  sendMessage: vi.fn(
+    (
+      _content: string,
+      _dataSources?: string[],
+      _options?: { contextOnly?: boolean; authorName?: string | null }
+    ): string | null => 'mock-outbound-message-id'
+  ),
   sendInteractionResponse: vi.fn(() => 'mock-outbound-interaction-id'),
   isConnected: vi.fn(() => false),
   updateConversationId: vi.fn(),
@@ -2790,10 +2799,17 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('/api/conversations/conv-1/messages')
     expect(outcome).toEqual({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
 
-    // Nothing started: no tokens, no thinking bubble, nothing on the wire.
-    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+    // Nothing STARTED: no tokens, no thinking bubble, no turn.
     expect(mockSetCurrentStatus).not.toHaveBeenCalledWith('thinking')
     expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+    // The one thing that DOES go out is the context-only frame — suppression is
+    // about not answering, not about the agent forgetting the conversation
+    // happened (ADR-0034 addendum). Asserted in full in the context-only suite.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      '@Anna Weber passt das?',
+      expect.any(Array),
+      expect.objectContaining({ contextOnly: true }),
+    )
   })
 
   test('the mention path does NOT use addUserMessage — one persist, with the mentions', async () => {
@@ -2931,5 +2947,219 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
 
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockAddUserMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * THE AGENT SEES WHAT A HUMAN WROTE — "always send, never always judge".
+ *
+ * The hand-off suppressed the agent by not invoking it (ADR-0034 §4), which was
+ * right about tokens and wrong about MEMORY: the agent's history is its LangGraph
+ * checkpoint, so a turn that never reached it left a hole. Matthias tags Anna, Anna
+ * answers, Matthias types "@Piloti given that, recheck" — and "that" refers to
+ * nothing.
+ *
+ * The fix keeps routing deterministic and server-decided, and only changes DELIVERY:
+ * every human message reaches the agent, tagged with whether it is addressed to it.
+ * Not addressed → delivered as context only: appended to the agent's history, and
+ * nothing is generated, streamed or shown.
+ *
+ * These tests assert on WHAT IS SENT, not on internal state.
+ */
+describe('useWebSocketChat — context-only delivery (the agent sees the whole thread)', () => {
+  const mockFetch = vi.fn()
+  const mockSetState = vi.fn()
+  const realFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    vi.useRealTimers()
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-1',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      error: null,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
+    mockWsClient.isConnected.mockReturnValue(true)
+    globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch
+  })
+
+  const respondWith = (addressees: unknown) => {
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees, createdRequests: 1 }],
+      }
+    })
+  }
+
+  /** The options object the hook handed the WS client on its Nth send. */
+  const sendOptions = (index = 0): unknown => mockWsClient.sendMessage.mock.calls[index][2]
+
+  test('THE GAP: a message the agent is not addressed in is still delivered to it as context', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber ist das Atrium ein eigener Abschnitt?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    // It went to the agent — as context, never as a question.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      '@Anna Weber ist das Atrium ein eigener Abschnitt?',
+      expect.any(Array),
+      { contextOnly: true, authorName: 'test@example.com' },
+    )
+  })
+
+  test("a colleague's plain reply during an open hand-off is also delivered as context", async () => {
+    // Anna answers Matthias. No mentions. The SERVER rules `{agent:false, users:[]}`
+    // (ADR-0034 addendum), so the agent must not answer — but it must still see it.
+    respondWith({ agent: false, users: [] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('Ja, das Atrium ist ein eigener Abschnitt.', {
+        awaitingHuman: true,
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: true, addressees: { agent: false, users: [] } })
+    // The ruling was asked for, not assumed.
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Ja, das Atrium ist ein eigener Abschnitt.',
+      expect.any(Array),
+      { contextOnly: true, authorName: 'test@example.com' },
+    )
+  })
+
+  test('a message addressed to the agent is sent exactly as today — no context_only', async () => {
+    respondWith({ agent: true, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Piloti @Anna Weber bitte prüfen', {
+        mentions: [
+          { targetId: 'agent:piloti', display: 'Piloti' },
+          { targetId: 'u-anna', display: 'Anna Weber' },
+        ],
+      })
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendOptions()).toBeUndefined()
+    expect(mockSetCurrentStatus).toHaveBeenCalledWith('thinking')
+  })
+
+  test('the free fast path never asks the server and never sends context', () => {
+    const { result } = renderWebSocketHook()
+
+    act(() => {
+      result.current.sendMessage('Wie breit muss der Fluchtweg sein?')
+    })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendOptions()).toBeUndefined()
+  })
+
+  test('a context-only delivery starts no turn and shows no progress at all', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber schau bitte', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+    expect(mockSetLoading).not.toHaveBeenCalledWith(true)
+    expect(mockSetCurrentStatus).not.toHaveBeenCalledWith('thinking')
+    expect(mockAddThinkingStep).not.toHaveBeenCalled()
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+  })
+
+  test('no answer ever comes back, and that must not look like a lost message', async () => {
+    // An ordinary send is watched by a 7s delivery-ack timeout whose expiry shows
+    // "No response received from the server." A context-only frame is answered by
+    // DESIGN, so it must not be tracked at all.
+    vi.useFakeTimers()
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber schau bitte', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(200_000)
+    })
+
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    expect(mockWsClient.rotate).not.toHaveBeenCalled()
+  })
+
+  test('a context delivery that cannot go out never breaks the thread', async () => {
+    // Postgres already holds the human's message; a dropped context frame only
+    // degrades the agent's history. It must not fail the send or raise a banner.
+    mockWsClient.isConnected.mockReturnValue(false)
+    mockWsClient.sendMessage.mockReturnValueOnce(null)
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber schau bitte', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    // The message still reached the thread locally.
+    expect(mockSetState).toHaveBeenCalled()
+  })
+
+  test('awaitingHuman is ignored once the server says the agent is addressed again', async () => {
+    // The client's hand-off read can be stale (the wait was just released, or the
+    // text carries `@Piloti`). The SERVER decides; the client only decides whether
+    // to ask. A ruling of `agent: true` opens a normal turn.
+    respondWith({ agent: true, users: [] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Piloti passt das jetzt?', { awaitingHuman: true })
+    })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendOptions()).toBeUndefined()
+    expect(mockSetStreaming).toHaveBeenCalledWith(true)
   })
 })

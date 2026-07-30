@@ -53,6 +53,31 @@ export interface ResponseTransparency {
   retryAfterSeconds?: number
 }
 
+/**
+ * Per-send options on the `user_message` frame (ADR-0034 addendum).
+ *
+ * THE INGEST-ONLY CONTRACT. The agent's history is its LangGraph checkpoint, so a
+ * message that never reaches the agent is a message the agent can never refer back
+ * to. Every human message is therefore sent, tagged with whether the agent is
+ * addressed — the server decides that, deterministically, at persist time. A frame
+ * marked `contextOnly` is appended to the agent's conversation state and answered
+ * with nothing: no generation, no stream, no status.
+ *
+ * Compatibility is by ABSENCE, in both directions:
+ *   - a NEW backend reading no flag runs the turn exactly as it always did;
+ *   - an OLD backend reading the flag ignores an unknown JSON key (it reads only
+ *     `query` / `text` / `data_sources`) and simply answers the message — the
+ *     behaviour that exists today. The frame stays a valid `user_message`, so
+ *     nothing throws, nothing closes the socket, and nothing is lost (the human's
+ *     message is persisted by the BFF regardless).
+ */
+export interface SendMessageWireOptions {
+  /** Deliver as context for the agent's history; it must generate nothing. */
+  contextOnly?: boolean
+  /** Display name of the human who wrote it, so the agent can attribute the turn. */
+  authorName?: string | null
+}
+
 /** Context passed with connection status changes */
 export interface ConnectionChangeContext {
   /** Whether the disconnect was intentional (e.g. session switch, cleanup) */
@@ -310,12 +335,21 @@ export class NATWebSocketClient {
    * Send a user chat message
    * @param content - The message text content (query)
    * @param enabledDataSources - Optional array of enabled data source IDs to include in the query
+   * @param options - Ingest-only signal + author attribution (see `SendMessageWireOptions`)
    */
-  sendMessage = (content: string, enabledDataSources?: string[]): string | null => {
-    // Format the text content as JSON with query and data_sources
+  sendMessage = (
+    content: string,
+    enabledDataSources?: string[],
+    options?: SendMessageWireOptions
+  ): string | null => {
+    // Format the text content as JSON with query and data_sources. The ingest-only
+    // fields are spread in ONLY when set, never as `false`/`null` — a backend must
+    // be able to tell "not addressed to the agent" from "nothing said about it".
     const textContent = JSON.stringify({
       query: content,
       data_sources: enabledDataSources ?? [],
+      ...(options?.contextOnly ? { context_only: true } : {}),
+      ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })
 
     const messageId = this.generateMessageId()
@@ -337,7 +371,12 @@ export class NATWebSocketClient {
 
     if (!this.send(message)) return null
 
-    this.activeParentId = messageId
+    // An ingest-only frame is answered by NOTHING, so it must not become the
+    // `activeParentId` the stale-response guard measures inbound answers against —
+    // that would make the next real turn's frames look stale and drop the answer.
+    if (!options?.contextOnly) {
+      this.activeParentId = messageId
+    }
     return messageId
   }
 

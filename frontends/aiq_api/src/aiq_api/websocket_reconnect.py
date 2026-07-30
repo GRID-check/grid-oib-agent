@@ -16,6 +16,10 @@ from pydantic import ValidationError
 from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
 
+from aiq_agent.conversation_context import ContextOnlyMessage
+from aiq_agent.conversation_context import append_conversation_context
+from aiq_agent.conversation_context import format_context_turn
+from aiq_agent.conversation_context import parse_context_only_payload
 from aiq_api.auth.errors import AuthError
 from aiq_api.auth.middleware import build_request_trace_tags
 from aiq_api.auth.middleware import detect_internal_caller
@@ -335,6 +339,35 @@ _TRANSPARENCY_EXTRA_FIELDS = (
 )
 
 
+def latest_user_text(message: WebSocketUserMessage) -> str | None:
+    """The last non-empty text part of a ``user_message`` frame, or ``None``.
+
+    The Grid client puts a JSON string there (``{"query": ..., "data_sources":
+    [...]}``); this returns it verbatim so the caller can decide what it means.
+    Tolerant by construction — a shape we do not recognise reads as "no text",
+    which routes the frame down the unchanged default path.
+    """
+    try:
+        entries = message.content.messages
+    except AttributeError:
+        return None
+    for entry in reversed(list(entries or [])):
+        for part in reversed(list(getattr(entry, "content", None) or [])):
+            text = getattr(part, "text", None)
+            if isinstance(text, str) and text.strip():
+                return text
+    return None
+
+
+def context_only_directive(message: WebSocketUserMessage) -> ContextOnlyMessage | None:
+    """Read the ingest-only directive off a ``user_message``, if it carries one.
+
+    ``None`` for every ordinary message, which is what keeps the default path free:
+    one JSON parse of a payload the workflow would parse anyway.
+    """
+    return parse_context_only_payload(latest_user_text(message))
+
+
 def _pull_response_extra(data_model: Any, name: str) -> Any:
     """Read an extra field off the workflow response (attr or pydantic model_extra)."""
     value = getattr(data_model, name, None)
@@ -590,6 +623,51 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         except Exception as exc:  # pragma: no cover - socket may already be closed
             logger.warning("Failed to send auth_expired: %s", exc)
 
+    def _authenticated_display_name(self) -> str | None:
+        """Display name of the human holding this socket, from the VERIFIED claims.
+
+        Preferred over the client-supplied ``author_name`` so a caller cannot
+        attribute text to a colleague inside the agent's own history. Internal and
+        anonymous callers carry no name; then the client's value is all there is.
+        """
+        user = self._authenticated_user
+        if not isinstance(user, dict):
+            return None
+        for key in ("name", "email"):
+            value = user.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    async def _ingest_context_only_message(
+        self,
+        message: WebSocketUserMessage,
+        directive: ContextOnlyMessage,
+    ) -> None:
+        """Put a colleague's message into the agent's history and generate NOTHING.
+
+        The whole contract is in what this does *not* do: no workflow, no LLM, no
+        ``system_response_message``, no intermediate or status frame, and the socket
+        is not even registered for relay — nothing will ever be sent back for it. The
+        turn is appended to the conversation's checkpoint so the next time the agent
+        IS addressed, "given that" refers to something.
+
+        Failures are logged, never raised and never surfaced: the human's message is
+        already persisted by the BFF, so the worst case is an agent with a gap in its
+        memory, which must not cost anyone their socket.
+        """
+        conversation_id = message.conversation_id
+        if not conversation_id:
+            logger.warning("Dropping ingest-only message without a conversation id")
+            return
+        text = format_context_turn(directive, author=self._authenticated_display_name())
+        stored = await append_conversation_context(conversation_id, text)
+        if not stored:
+            logger.warning(
+                "Ingest-only message not stored for conversation %s; the agent's history is incomplete",
+                conversation_id,
+            )
+
     async def run(self) -> None:
         """Process websocket messages and allow reconnect HITL responses."""
         if self._authenticated_user is None:
@@ -613,6 +691,15 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                             validated_message.conversation_id,
                         )
                         await self._send_auth_expired_error(validated_message.conversation_id)
+                        continue
+
+                    # Ingest-only (ADR-0034 addendum): a human turn the agent must
+                    # SEE but must not answer. Checked AFTER the re-auth gate — an
+                    # expired token buys no write into the checkpoint either — and
+                    # BEFORE the workflow, because the point is that nothing runs.
+                    directive = context_only_directive(validated_message)
+                    if directive is not None:
+                        await self._ingest_context_only_message(validated_message, directive)
                         continue
 
                     await self.process_workflow_request(validated_message)

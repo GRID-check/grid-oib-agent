@@ -766,6 +766,29 @@ class ChatResearcherAgent:
 
         return result
 
+    async def append_context_message(self, thread_id: str, text: str) -> None:
+        """Append a human turn to *thread_id*'s history WITHOUT running the graph.
+
+        This is the agent-tier half of ingest-only context (ADR-0034 addendum): a
+        colleague's message that the server ruled is NOT addressed to the agent still
+        has to be in the agent's memory, or a later "given that, recheck" refers to
+        nothing.
+
+        ``aupdate_state`` writes a checkpoint through the ``messages`` reducer
+        (``add_messages`` appends) and schedules no task, so **no node runs and no
+        token is spent** — the whole point is that suppression stays free. The next
+        real turn's ``ainvoke`` then sees this turn in history like any other.
+
+        Deliberately not a ``run()`` variant: nothing here may touch turn-scoped
+        state (``shallow_result``, confidence, routing extras). Only ``messages``
+        grows.
+        """
+        if not thread_id or not text:
+            return
+        graph_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        await self._graph.aupdate_state(graph_config, {"messages": [HumanMessage(content=text)]})
+        logger.info("ChatResearcherAgent: ingested %d chars of context (thread %s)", len(text), thread_id)
+
     @property
     def graph(self) -> CompiledStateGraph:
         """Get the compiled LangGraph for direct access."""

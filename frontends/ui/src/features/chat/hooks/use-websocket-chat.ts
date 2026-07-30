@@ -80,6 +80,16 @@ export interface SendMessageOptions {
   mentions?: readonly SendMessageMention[]
   /** The asker's question, carried into the recipient's inbox item (spec MN-12). */
   mentionNote?: string | null
+  /**
+   * The thread is visibly waiting on a named person (an `open` mention request).
+   *
+   * A plain message in that state is a remark to the people in the thread, not a
+   * question for the agent (ADR-0034 addendum) — so it must go down the same
+   * awaited-persist path as a mention and let the SERVER rule on it. This flag only
+   * decides whether the ruling is ASKED FOR; it never decides what the ruling is,
+   * so a stale read costs a round trip and nothing else.
+   */
+  awaitingHuman?: boolean
 }
 
 /** A refusal the composer can localise from `details.reason`. */
@@ -301,12 +311,14 @@ interface UseWebSocketChatReturn {
   /**
    * Send a message via WebSocket.
    *
-   * Without mentions this is the unchanged fast path and returns `false` when the
-   * message could not be sent or queued (so the caller can preserve the user's
-   * input). WITH mentions it returns a promise carrying the server's addressee
-   * ruling — the agent answers only if that ruling says so (ADR-0034 §4) — plus a
-   * localisable `failure` when the send was refused. Use `sendSucceeded` when all
-   * the caller needs is "did it go".
+   * With nothing tagged and no hand-off open this is the unchanged fast path and
+   * returns `false` when the message could not be sent or queued (so the caller can
+   * preserve the user's input). With mentions — or with `awaitingHuman`, a plain
+   * message while the thread waits on a person — it returns a promise carrying the
+   * server's addressee ruling. The agent answers only if that ruling says so
+   * (ADR-0034 §4); either way it is DELIVERED the message, as context when it is not
+   * the addressee. Plus a localisable `failure` when the send was refused. Use
+   * `sendSucceeded` when all the caller needs is "did it go".
    */
   sendMessage: (
     content: string,
@@ -1604,6 +1616,55 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [projectId])
 
   /**
+   * Deliver a human message to the agent as CONTEXT ONLY — "always send, never
+   * always judge" (ADR-0034 addendum).
+   *
+   * The hand-off suppresses the agent by not invoking it, which is right about
+   * tokens and was wrong about MEMORY: the agent's history is its LangGraph
+   * checkpoint, so a turn that never reached it leaves a hole, and `@Piloti given
+   * that, recheck` then refers to nothing. This closes the hole without making
+   * routing probabilistic — the server already ruled that the agent is not
+   * addressed; only DELIVERY changes.
+   *
+   * Deliberately NOT `sendOutgoingPayload`:
+   *   - no turn state (no streaming, no loading, no thinking step, no watchdog) —
+   *     there is nothing to wait for;
+   *   - no delivery-ack tracking. An ordinary send is watched by a 7s ack timeout
+   *     whose expiry rotates the socket and shows "No response received from the
+   *     server."; a frame that is answered by design would trip it every time;
+   *   - no rotation buffer. The single-slot buffer belongs to a real turn, and
+   *     context must never displace one.
+   *
+   * Best effort by design: the human's message is already persisted in Postgres, so
+   * a frame that cannot go out costs the agent a line of memory and costs the thread
+   * nothing. Never throws, never surfaces anything.
+   */
+  const deliverAsContext = useCallback(
+    (content: string, dataSourcesForMessage: string[]): boolean => {
+      const client = wsClientRef.current
+      if (!client?.isConnected()) {
+        console.warn('[WS] Context-only message not delivered (socket not connected)')
+        return false
+      }
+      try {
+        const delivered =
+          client.sendMessage(content, dataSourcesForMessage, {
+            contextOnly: true,
+            authorName: user?.name ?? user?.email ?? null,
+          }) !== null
+        if (!delivered) {
+          console.warn('[WS] Context-only message not delivered (socket refused the frame)')
+        }
+        return delivered
+      } catch (err) {
+        console.warn('[WS] Context-only message not delivered', err)
+        return false
+      }
+    },
+    [user?.name, user?.email],
+  )
+
+  /**
    * The send metadata both paths need: which sources are live, and which of this
    * session's files are attached.
    */
@@ -1735,20 +1796,25 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   )
 
   /**
-   * Send a message that carries mentions — THE ADDRESSEE CONTRACT (ADR-0034 §4).
+   * Send a message the SERVER rules on — THE ADDRESSEE CONTRACT (ADR-0034 §4).
    *
-   * Everything that makes this path different from the fast one follows from a
-   * single rule: **the server decides who answers.** So persistence is awaited, the
-   * `addressees` ruling is read off the response, and an agent turn is opened only
-   * when `addressees.agent` is true. When it is false nothing at all is started —
-   * no status, no thinking bubble, no tokens (spec MN-7) — and the thread's
+   * Taken by a message that carries mentions, and by a plain message sent while the
+   * thread waits on a named person (the addendum's second state, where a remark is
+   * not a question). Everything that makes this path different from the fast one
+   * follows from one rule: **the server decides who answers.** So persistence is
+   * awaited, the `addressees` ruling is read off the response, and an agent turn is
+   * opened only when `addressees.agent` is true. When it is false nothing is STARTED
+   * — no status, no thinking bubble, no tokens (spec MN-7) — and the thread's
    * awaiting-state explains the silence instead.
+   *
+   * The message still reaches the agent, as context only (see `deliverAsContext`).
+   * Not answering is a routing decision; not remembering was a bug.
    *
    * It also means a refusal (a collaborator tagging a non-participant, a target
    * outside the project, a rate limit) refuses the WHOLE send: nothing is echoed
    * into the thread, so the composer can keep the user's text and say why.
    */
-  const sendMentionMessage = useCallback(
+  const sendRuledMessage = useCallback(
     async (content: string, options: SendMessageOptions): Promise<SendMessageOutcome> => {
       const mentions = options.mentions ?? []
       const store = useChatStore.getState()
@@ -1818,32 +1884,38 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       })
 
       if (!ruling.agent) {
-        // The thread now waits for a human. Nothing is started (MN-7).
+        // The thread now waits for a human. Nothing is STARTED (MN-7) — but the
+        // agent still has to see what was written, or the next `@Piloti given
+        // that…` has nothing to refer to. Free, silent, best-effort.
+        deliverAsContext(content, dataSourcesForMessage)
         return { ok: true, addressees: ruling }
       }
 
       const started = openAgentTurn(content, dataSourcesForMessage, conversationId)
       return { ok: started, addressees: ruling }
     },
-    [addErrorCard, collectSendMetadata, openAgentTurn],
+    [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn],
   )
 
   /**
    * Send a message via WebSocket.
    *
    * Two paths, deliberately asymmetric:
-   *   - **no mentions** — today's fast path, unchanged: the message is echoed and
-   *     persisted fire-and-forget and the turn opens immediately. This is the 99%
-   *     case and it must not pay for the feature (returns a plain boolean).
-   *   - **with mentions** — the addressee contract: persistence is awaited and the
-   *     server decides whether a turn opens at all (returns an outcome).
+   *   - **a thread in its normal state, with nothing tagged** — today's fast path,
+   *     unchanged: the message is echoed and persisted fire-and-forget and the turn
+   *     opens immediately. This is the 99% case and it must not pay for the feature
+   *     (returns a plain boolean).
+   *   - **mentions, or a plain message while the thread waits on a person** — the
+   *     addressee contract: persistence is awaited and the server decides whether a
+   *     turn opens at all (returns an outcome). Both cases need the ruling for the
+   *     same reason: the answer is not "the agent, obviously".
    */
   const sendMessage = useCallback(
     (content: string, options?: SendMessageOptions): boolean | Promise<SendMessageOutcome> => {
       if (!content.trim()) return false
 
-      if (options?.mentions && options.mentions.length > 0) {
-        return sendMentionMessage(content, options)
+      if ((options?.mentions && options.mentions.length > 0) || options?.awaitingHuman) {
+        return sendRuledMessage(content, options ?? {})
       }
 
       const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
@@ -1859,7 +1931,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
       return openAgentTurn(content, dataSourcesForMessage, conversationId)
     },
-    [addUserMessage, collectSendMetadata, openAgentTurn, sendMentionMessage],
+    [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage],
   )
 
   /**

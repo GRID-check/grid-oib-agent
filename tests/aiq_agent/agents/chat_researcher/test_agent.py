@@ -606,3 +606,113 @@ class TestRoutingBoundary:
         assert calls["deep"] is True
         assert calls["shallow"] is False
         assert result is not None
+
+
+class TestAppendContextMessage:
+    """Ingest-only context (ADR-0034 addendum): the agent SEES it, without answering.
+
+    The gap this closes: suppressing the agent by not invoking it left its history —
+    the LangGraph checkpoint — with a hole where the colleague's turn should be, so
+    "@Piloti given that, recheck" referred to nothing.
+    """
+
+    @pytest.fixture
+    def trackers(self):
+        """Fake agent fns that record whether they were ever reached."""
+        calls: list[str] = []
+
+        async def classifier(state):
+            calls.append("intent")
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
+            }
+
+        async def shallow(state_input):
+            calls.append("shallow")
+            messages = state_input.messages if hasattr(state_input, "messages") else state_input
+            result = MagicMock()
+            result.messages = list(messages) + [AIMessage(content="Quick answer.")]
+            return result
+
+        async def deep(state):
+            calls.append("deep")
+            result = MagicMock()
+            result.messages = list(state.messages)
+            return result
+
+        return calls, classifier, shallow, deep
+
+    def _agent(self, trackers) -> ChatResearcherAgent:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        _calls, classifier, shallow, deep = trackers
+        return ChatResearcherAgent(
+            intent_classifier_fn=classifier,
+            shallow_research_fn=shallow,
+            deep_research_fn=deep,
+            clarifier_fn=None,
+            enable_clarifier=False,
+            checkpointer=InMemorySaver(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_appends_to_the_checkpoint_without_running_a_node(self, trackers):
+        """No node, therefore no LLM, therefore no token — suppression stays free."""
+        calls, *_ = trackers
+        agent = self._agent(trackers)
+
+        await agent.append_context_message("conv-1", "Anna Weber: Ja, eigener Abschnitt.")
+
+        snapshot = await agent.graph.aget_state({"configurable": {"thread_id": "conv-1"}})
+        assert [m.content for m in snapshot.values["messages"]] == ["Anna Weber: Ja, eigener Abschnitt."]
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_the_next_real_turn_sees_the_ingested_context(self, trackers):
+        """THE POINT: "given that" now refers to something."""
+        calls, *_ = trackers
+        agent = self._agent(trackers)
+
+        # 1. Matthias asks Piloti.
+        await agent.run(
+            ChatResearcherState(messages=[HumanMessage(content="Ist das Atrium ein eigener Abschnitt?")]),
+            thread_id="conv-1",
+        )
+        # 2/3. Matthias tags Anna, Anna answers — neither is an agent turn. Measured
+        # as a DELTA over turn 1's calls: what matters is that ingestion adds none.
+        after_turn_one = list(calls)
+        await agent.append_context_message("conv-1", "Matthias Bigl: @Anna Weber weißt du das?")
+        await agent.append_context_message("conv-1", "Anna Weber: Ja, laut Einreichplan eigener Abschnitt.")
+        assert calls == after_turn_one, "ingestion must not have run a single node"
+
+        # 4. Matthias asks Piloti to recheck.
+        seen: list[str] = []
+
+        async def capture_shallow(state_input):
+            messages = state_input.messages if hasattr(state_input, "messages") else state_input
+            seen.extend(str(m.content) for m in messages)
+            result = MagicMock()
+            result.messages = list(messages) + [AIMessage(content="Neu geprüft.")]
+            return result
+
+        agent.shallow_research_fn = capture_shallow
+        await agent.run(
+            ChatResearcherState(messages=[HumanMessage(content="@Piloti given that, recheck")]),
+            thread_id="conv-1",
+        )
+
+        assert "Anna Weber: Ja, laut Einreichplan eigener Abschnitt." in seen
+        assert "Matthias Bigl: @Anna Weber weißt du das?" in seen
+
+    @pytest.mark.asyncio
+    async def test_a_missing_thread_or_text_is_a_no_op(self, trackers):
+        calls, *_ = trackers
+        agent = self._agent(trackers)
+
+        await agent.append_context_message("", "Anna: ja")
+        await agent.append_context_message("conv-1", "")
+
+        snapshot = await agent.graph.aget_state({"configurable": {"thread_id": "conv-1"}})
+        assert snapshot.values == {} or not snapshot.values.get("messages")
+        assert calls == []

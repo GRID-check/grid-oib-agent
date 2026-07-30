@@ -133,6 +133,62 @@ Sent when the user submits a chat message.
 
 The `content.text` field is a JSON-encoded string containing both the query text and the list of enabled data source IDs.
 
+##### Ingest-only messages (`context_only`)
+
+Two **additive** fields inside that JSON payload deliver a human message to the agent
+*as context* rather than as a question (ADR-0034 addendum). The agent's history is its
+LangGraph checkpoint, so a message that never reaches it can never be referred back to
+— a hand-off (`@Anna Weber …`, or a colleague's reply while a wait is open) has to be
+in the agent's memory even though the agent must not answer it.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `context_only` | `true` | Append this turn to the conversation's state and **generate nothing**: no LLM call, no `system_response_message`, no `system_intermediate_message`, no status frame. Only the literal `true` counts. |
+| `author_name` | `string` | Display name of the human who wrote it, so the agent can attribute the turn in its own history. Advisory: the backend prefers the **verified** principal's name from the handshake JWT, so a client cannot attribute text to a colleague. |
+
+```typescript
+text: JSON.stringify({
+  query: "Ja, das Atrium ist ein eigener Brandabschnitt.",
+  data_sources: [],
+  context_only: true,          // omitted entirely for an ordinary message
+  author_name: "Anna Weber"    // omitted when the display name is unknown
+})
+```
+
+The frame is an ordinary `user_message` in every other respect — same `type`, same
+`schema_type`, same envelope, same per-message re-auth gate. Who a message is
+addressed to is decided by the **server** at persist time (`addressees`, ADR-0034 §4);
+this flag only carries that ruling to the agent tier, so routing never becomes a
+model's judgement.
+
+**Client-side:** `contextOnly` / `authorName` on
+`NATWebSocketClient.sendMessage(content, dataSources, options)`. An ingest-only frame
+deliberately does **not** become `activeParentId` (nothing will ever be answered
+against it) and is not tracked by the delivery-ack timeout — a frame that is answered
+by design would otherwise trip the "no response received" banner. Delivery is
+best-effort: the message is already persisted by the BFF, so a dropped context frame
+costs the agent a line of memory and the thread nothing.
+
+**Backend-side:** `websocket_reconnect.py` (`context_only_directive` →
+`_ingest_context_only_message`) and `aiq_agent/conversation_context.py`. The stored
+text is capped at 4000 chars (the same bound `normalize_project_context` uses) so a
+pathological paste cannot bloat the checkpoint every later turn reads.
+
+**Compatibility, both directions:**
+
+- **New backend, old client (no field).** `context_only` is absent, which is falsy, so
+  the message runs the workflow exactly as it always did. Nothing about the default
+  path changed — the flag is spread into the payload only when set, never emitted as
+  `context_only: false`.
+- **New client, old backend (unknown field).** The frame stays a valid `user_message`,
+  so nothing throws, no validation error is raised, and the socket is not closed. The
+  old query parser (`_extract_query_and_sources` → `_extract_query_from_text`) reads
+  only `query` / `text` / `data_sources` and ignores unknown keys, so the backend
+  simply answers the message — i.e. it degrades to the behaviour that existed *before*
+  this field, not to anything worse, and the human's message is persisted by the BFF
+  either way. The observable cost of a version skew is one unwanted answer in a thread
+  the sender can already read; the cost is never a dropped frame or a lost message.
+
 #### user_interaction_message
 
 Sent when the user responds to a human prompt (clarification, approval, choice).

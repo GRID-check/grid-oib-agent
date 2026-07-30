@@ -453,3 +453,98 @@ describe('NATWebSocketClient URL construction', () => {
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 })
+
+/**
+ * THE INGEST-ONLY WIRE CONTRACT (ADR-0034 addendum).
+ *
+ * A human message that is NOT addressed to the agent still has to reach the agent's
+ * conversation history, or `@Piloti given that, recheck` refers to nothing. It rides
+ * the ordinary `user_message` frame with two additive fields inside the JSON text
+ * payload: `context_only: true` and `author_name`.
+ *
+ * These tests assert on the BYTES that leave the socket, because the wire is the
+ * contract — a backend on the other side of it cannot see our internal state.
+ */
+describe('NATWebSocketClient — the ingest-only user_message payload', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** Open a client and hand back the parsed JSON text payload of the Nth frame. */
+  const sentPayload = (ws: MockWebSocket, index = 0): Record<string, unknown> => {
+    const frame = JSON.parse(ws.send.mock.calls[index][0] as string)
+    return JSON.parse(frame.content.messages[0].content[0].text) as Record<string, unknown>
+  }
+
+  const openClient = async () => {
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: {},
+    })
+    await client.connect()
+    return { client, ws: MockWebSocket.instances[0] }
+  }
+
+  test('a context-only send carries context_only + author_name alongside the query', async () => {
+    const { client, ws } = await openClient()
+
+    const id = client.sendMessage('Das Atrium zählt als eigener Brandabschnitt.', ['source-1'], {
+      contextOnly: true,
+      authorName: 'Anna Weber',
+    })
+
+    expect(id).toEqual(expect.any(String))
+    expect(sentPayload(ws)).toEqual({
+      query: 'Das Atrium zählt als eigener Brandabschnitt.',
+      data_sources: ['source-1'],
+      context_only: true,
+      author_name: 'Anna Weber',
+    })
+  })
+
+  test('an ordinary send is byte-for-byte what it always was — no new keys', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Wie breit muss der Fluchtweg sein?', ['source-1'])
+
+    // A NEW backend receiving no field must behave exactly as today, which is only
+    // guaranteed if the field is genuinely absent (not `context_only: false`).
+    expect(sentPayload(ws)).toEqual({
+      query: 'Wie breit muss der Fluchtweg sein?',
+      data_sources: ['source-1'],
+    })
+  })
+
+  test('a context-only send does NOT become the active parent id', async () => {
+    // `activeParentId` is what the stale-response guard measures inbound answer
+    // frames against. An ingest-only frame is never answered, so claiming it would
+    // make the NEXT real turn's frames look stale and silently drop the answer.
+    const { client, ws } = await openClient()
+
+    const realId = client.sendMessage('Erste Frage', [])
+    expect(client.activeParentId).toBe(realId)
+
+    client.sendMessage('Annas Bemerkung', [], { contextOnly: true, authorName: 'Anna' })
+    expect(client.activeParentId).toBe(realId)
+    expect(ws.send).toHaveBeenCalledTimes(2)
+  })
+
+  test('author_name is omitted when the display name is unknown', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Bemerkung', [], { contextOnly: true, authorName: null })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Bemerkung',
+      data_sources: [],
+      context_only: true,
+    })
+  })
+})

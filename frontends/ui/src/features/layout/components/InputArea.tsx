@@ -844,11 +844,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // via a false return rather than throwing. A message WITH mentions resolves
       // to the server's addressee ruling instead, and may be refused outright.
       const { ok, outcome } = normalizeSendResult(
-        // Called with ONE argument when there is nothing to mention — the fast
-        // path stays exactly the call it always was.
+        // Called with ONE argument when there is nothing to mention AND the thread
+        // is in its normal state — the fast path stays exactly the call it always
+        // was, free of the feature.
+        //
+        // `awaitingHuman` is what makes a plain message go through the server's
+        // ruling too: while a named person is awaited it is a remark to the thread,
+        // not a question for Piloti (ADR-0034 addendum), and the agent must be given
+        // it as context rather than as a turn. It reads the SAME hand-off state the
+        // addressee line above states to the user, so what they were told and what
+        // happens cannot disagree.
         sentMentions.length > 0
           ? await sendMessage(currentMessage, { mentions: sentMentions })
-          : await sendMessage(currentMessage),
+          : threadAwaitsHuman
+            ? await sendMessage(currentMessage, { awaitingHuman: true })
+            : await sendMessage(currentMessage),
       )
       if (!ok) {
         // Restore the text so nothing the user wrote is lost, and keep the picked
@@ -881,6 +891,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     isResponseMode,
     respondToInteraction,
     sendMessage,
+    threadAwaitsHuman,
     currentConversation,
     clearComposerDraft,
     t,
