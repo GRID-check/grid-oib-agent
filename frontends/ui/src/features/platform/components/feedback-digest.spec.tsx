@@ -86,6 +86,40 @@ describe('FeedbackDigest', () => {
 
     await waitFor(() => expect(lastUrl()).toContain('locale=en'))
   })
+
+  /**
+   * Filters change faster than a model answers. Without a guard, the slower of
+   * two in-flight digests wins simply by finishing last, and the card ends up
+   * describing a window nobody is looking at any more.
+   */
+  it('ignores a stale response that a newer request has already replaced', async () => {
+    const answer: Array<(body: unknown) => void> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answer.push((body) => resolve(new Response(JSON.stringify(body), { status: 200 })))
+          }),
+      ),
+    )
+
+    const { rerender } = render(<FeedbackDigest search="days=30" />)
+    await waitFor(() => expect(answer).toHaveLength(1))
+
+    rerender(<FeedbackDigest search="days=7" />)
+    await waitFor(() => expect(answer).toHaveLength(2))
+
+    // The newer request answers first; the abandoned one lands afterwards.
+    answer[1](digest({ headline: 'The last seven days went well.' }))
+    expect(await screen.findByText('The last seven days went well.')).toBeInTheDocument()
+
+    answer[0](digest({ headline: 'The last thirty days went well.' }))
+    await waitFor(() =>
+      expect(screen.getByText('The last seven days went well.')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('The last thirty days went well.')).not.toBeInTheDocument()
+  })
 })
 
 /**

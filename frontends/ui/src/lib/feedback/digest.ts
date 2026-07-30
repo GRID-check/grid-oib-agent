@@ -104,10 +104,15 @@ export interface FeedbackDigestOptions {
  * `verdict`, `reason` and `query` are deliberately absent: they narrow the
  * drill-in, not the window, and the digest describes the window. Keying on them
  * would buy four copies of the same paragraph.
+ *
+ * The window comes in as `windowDays` rather than off `filters`, because that is
+ * the value the payload is labelled with (`health.windowDays`). Re-deriving it
+ * from the filters would put a second default in the code, and a cached digest
+ * keyed on a different window than it describes is a mislabelled digest.
  */
-function digestKey(filters: FeedbackHealthFilters, locale: string): string {
+function digestKey(windowDays: number, filters: FeedbackHealthFilters, locale: string): string {
   const parts = [
-    filters.windowDays ?? 30,
+    windowDays,
     filters.organizationId ?? '*',
     filters.topic ?? '*',
     locale.slice(0, 5),
@@ -152,7 +157,7 @@ export async function getFeedbackDigest(
 ): Promise<FeedbackDigestResult> {
   const locale = options.locale?.toLowerCase().startsWith('en') ? 'en' : 'de'
   const votes = health.totals.up + health.totals.down
-  const key = digestKey(filters, locale)
+  const key = digestKey(health.windowDays, filters, locale)
 
   if (votes === 0) return { digest: null, error: 'no_feedback' }
   if (votes < FEEDBACK_DIGEST_MIN_VOTES) {

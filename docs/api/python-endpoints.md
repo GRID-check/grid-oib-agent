@@ -72,6 +72,8 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 
 **What the caller sends, and what it does not.** Counts and questions only. No answer text, no user/conversation/message identifiers, and — deliberately — **no organization identifiers**: the digest needs the shape of the distribution ("one tenant accounts for most of the negative votes"), never the identity, and the per-organization table renders directly beneath it on the same screen. The BFF strips these at its own boundary (`lib/feedback/digest.ts`), so this route never receives them.
 
+**The sampled questions are treated as data, not instructions.** They are the one piece of raw, user-authored text that reaches the model here, so each is fenced in `<question>…</question>` markers (with any closing marker inside the text neutralised) and the system prompt declares everything between those markers as data to summarise. A user who anticipates being sampled cannot steer the digest a platform owner reads by writing instructions into their question.
+
 **Best-effort by design**: always returns HTTP `200`. `no_feedback` (nothing was rated — the model is never called), `llm_not_configured`, `llm_request_failed` and `llm_response_malformed` all come back with an empty digest so the page, which works without it, keeps working. LLM settings resolve through the shared summary chain (`SUMMARY_LLM_*` → `LLM_*` → OpenRouter/OpenAI defaults, plus BYOK). Proxied by the BFF `GET /api/platform/answer-feedback/digest`, which adds the platform-owner gate and a 6-hour shared cache.
 
 ## Chat / Generation

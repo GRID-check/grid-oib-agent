@@ -24,7 +24,7 @@
  * confident paragraph about nine votes.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -72,9 +72,17 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
   const { locale } = useLocale()
   const [data, setData] = useState<DigestResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  /**
+   * The request this card is still waiting on. Filters change faster than a
+   * model answers — switch direction, then topic — and without this the slower
+   * of two in-flight digests wins by finishing last, leaving sentences that
+   * describe a window nobody is looking at any more.
+   */
+  const latestRequest = useRef(0)
 
   const load = useCallback(
     async (refresh = false) => {
+      const requestId = ++latestRequest.current
       setLoading(true)
       try {
         const params = new URLSearchParams(search)
@@ -82,11 +90,12 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
         if (refresh) params.set('refresh', '1')
         const res = await fetch(`/api/platform/answer-feedback/digest?${params.toString()}`)
         if (!res.ok) throw new Error(String(res.status))
-        setData((await res.json()) as DigestResponse)
+        const body = (await res.json()) as DigestResponse
+        if (requestId === latestRequest.current) setData(body)
       } catch {
-        setData({ digest: null, error: 'digest_unavailable' })
+        if (requestId === latestRequest.current) setData({ digest: null, error: 'digest_unavailable' })
       } finally {
-        setLoading(false)
+        if (requestId === latestRequest.current) setLoading(false)
       }
     },
     [search, locale],
