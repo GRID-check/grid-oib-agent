@@ -1,8 +1,21 @@
 /**
  * SessionsPanel Component
  *
- * Left panel displaying session history with new session and delete all buttons.
- * Docked aside that slides in from the left.
+ * The chat-history panel: a docked aside listing this project's chats, newest
+ * first, grouped by day. Opened from the chat toolbar's history door.
+ *
+ * Anatomy, top to bottom — the order is the panel's argument about what it is
+ * for:
+ *
+ *   heading      "Chat history · N chats" — the panel names itself and its size.
+ *   pinned block New chat, then the search field. Both stay put while the list
+ *                scrolls: a search field that scrolls away is unusable exactly
+ *                when the list is long enough to need it.
+ *   list         the ONLY scrolling region, with sticky day headings.
+ *   footer       what "saved" means here, a storage warning when one is due,
+ *                and delete-all — the destructive bulk action, parked at the
+ *                far end of the panel rather than one row above the list it
+ *                destroys.
  */
 
 'use client'
@@ -32,13 +45,15 @@ import {
   Plus,
   Search,
   Trash2,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Spinner } from '@/components/ui/spinner'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { formatAbsoluteTime, formatRelativeTime, formatTimeOfDay } from '@/lib/format'
 import { motion } from '@/components/motion'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
 import { useLayoutStore } from '../store'
@@ -47,6 +62,13 @@ import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
 import { DeleteSessionConfirmationModal } from './DeleteSessionConfirmationModal'
 import { DeleteAllSessionsConfirmationModal } from './DeleteAllSessionsConfirmationModal'
 import { DockedPanel } from './DockedPanel'
+
+/**
+ * Percentage of the browser storage quota above which the panel says so. Below
+ * this the line is pure noise — "Using 0% of browser storage quota" on every
+ * open told nobody anything they could act on.
+ */
+const STORAGE_WARNING_PERCENT = 60
 
 interface Session {
   id: string
@@ -85,7 +107,7 @@ interface SessionsPanelProps {
 }
 
 /**
- * Sessions panel with history grouped by date.
+ * Chat-history panel with the project's chats grouped by day.
  * Opens from the left side of the screen.
  */
 export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel({
@@ -102,6 +124,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 }) {
   const t = useTranslations('research')
   const { locale } = useLocale()
+  const isMobile = useIsMobile()
   const isSessionsPanelOpen = useLayoutStore((s) => s.isSessionsPanelOpen)
   const setSessionsPanelOpen = useLayoutStore((s) => s.setSessionsPanelOpen)
 
@@ -125,6 +148,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const [deleteAllModalOpen, setDeleteAllModalOpen] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
   const refreshStatusesInFlightRef = useRef(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // FB-10: server-truth deep-research runs for the collapsed "Deep Research"
   // section. Fetched on panel open (like the status refresh above) so the list
@@ -153,6 +177,12 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       }
     }
   }, [isSessionsPanelOpen, refreshDeepResearchSessionStatuses])
+
+  // A query left behind from last time is a filtered list the user did not ask
+  // for — and one that can hide the chat they came back for. Reset on close.
+  useEffect(() => {
+    if (!isSessionsPanelOpen) setSearchQuery('')
+  }, [isSessionsPanelOpen])
 
   // FB-10: load the project's research runs when the panel opens (flag on).
   // Fail-soft: any error yields an empty section rather than a broken panel.
@@ -224,28 +254,42 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [onSelectSession, handleClose]
   )
 
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('')
+    searchInputRef.current?.focus()
+  }, [])
+
+  const untitledLabel = t('sessionsPanel.untitledSession')
+  const trimmedQuery = searchQuery.trim()
+  const isSearching = trimmedQuery !== ''
+
   const filteredSessions = useMemo(() => {
     // Show ALL sessions, including brand-new ones with an empty title — they
-    // render with a "Neuer Chat" placeholder in the row so they stay findable.
-    // Search still filters by the stored title (untitled sessions carry no
-    // searchable text, so a non-empty query naturally excludes them).
-    if (!searchQuery.trim()) return sessions
-    const query = searchQuery.toLowerCase()
-    return sessions.filter((s) => s.title.toLowerCase().includes(query))
-  }, [sessions, searchQuery])
+    // render with the "untitled" placeholder in the row so they stay findable.
+    // A query matches the stored title, and for untitled chats the placeholder
+    // the user actually SEES, so what is on screen is what is searchable.
+    if (!trimmedQuery) return sessions
+    const query = trimmedQuery.toLowerCase()
+    return sessions.filter((s) => {
+      const title = s.title.trim() || untitledLabel
+      return title.toLowerCase().includes(query)
+    })
+  }, [sessions, trimmedQuery, untitledLabel])
 
+  const todayLabel = t('sessionsPanel.today')
   const groupedSessions = useMemo(
     () =>
       groupSessionsByDate(
         filteredSessions,
         {
-          today: t('sessionsPanel.today'),
+          today: todayLabel,
           yesterday: t('sessionsPanel.yesterday'),
         },
         locale
       ),
-    [filteredSessions, t, locale]
+    [filteredSessions, t, todayLabel, locale]
   )
+  const hasSessions = sessions.length > 0
   const isEmptyState = filteredSessions.length === 0
 
   // FB-10: map a run's originating conversation to the local session title so a
@@ -289,149 +333,249 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       onClose={handleClose}
       forceMount
       aria-label={t('sessionsPanel.title')}
-      className="w-full max-w-[406px]"
+      // Finding a past chat is why this panel gets opened, so the search field
+      // is where focus belongs — except on mobile, where it would throw up the
+      // on-screen keyboard over the very list the user came to read.
+      initialFocusRef={isMobile ? undefined : searchInputRef}
       heading={
         <>
-          <MessageSquareText className="h-4 w-4" aria-hidden="true" />
-          <span>{t('sessionsPanel.title')}</span>
+          <MessageSquareText className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">{t('sessionsPanel.title')}</span>
+          {/* The panel states its own size, so "is this all of them?" is
+              answered before it is asked. */}
+          {hasSessions && (
+            <span className="text-muted-foreground shrink-0 font-normal">
+              {sessions.length === 1
+                ? t('sessionsPanel.countLabelOne')
+                : t('sessionsPanel.countLabel', { count: sessions.length })}
+            </span>
+          )}
         </>
       }
       footer={
-        <div className="flex flex-col gap-1">
-          <p className="text-muted-foreground text-xs">
-            {t('sessionsPanel.storageQuota', { percent: storagePercent })}
-          </p>
+        <div className="flex flex-col gap-2">
+          {/* Only shown once the quota is close enough to act on, and then it
+              says what to do about it. */}
+          {storagePercent >= STORAGE_WARNING_PERCENT && (
+            <p className="text-warning text-xs font-medium">
+              {t('sessionsPanel.storageQuota', { percent: storagePercent })}
+            </p>
+          )}
           <p className="text-muted-foreground text-xs">{t('sessionsPanel.storageNote')}</p>
+          {/* Delete-all lives HERE, not above the list. It used to sit in the
+              top row with equal weight to New chat — the loudest thing in the
+              panel was the one action that destroys everything in it, one row
+              above the rows it deletes. */}
+          {hasSessions && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive -ml-2 h-8 w-fit justify-start px-2"
+              onClick={handleDeleteAllClick}
+              disabled={anySessionBusy}
+              aria-label={
+                anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')
+              }
+              title={
+                anySessionBusy ? t('sessionsPanel.cannotDeleteBusy') : t('sessionsPanel.deleteAll')
+              }
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <span>{t('sessionsPanel.deleteAllButton')}</span>
+            </Button>
+          )}
         </div>
       }
     >
-      {/* Delete All + New Session */}
-      {!isEmptyState && searchQuery.trim() === '' && (
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={handleDeleteAllClick}
-            disabled={anySessionBusy}
-            aria-label={
-              anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')
-            }
-            title={
-              anySessionBusy ? t('sessionsPanel.cannotDeleteBusy') : t('sessionsPanel.deleteAll')
-            }
+      {/* ---- Pinned block: the two controls that must never scroll away ---- */}
+      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-4">
+        {/* New chat is disabled and every row is dimmed while a turn is in
+            flight. Say why, ABOVE the controls it explains, rather than leaving
+            the user to test them one by one. The spinner carries "temporary"
+            without spending a word on it. */}
+        {isNavigationBlocked && (
+          <p
+            className="border-border/70 bg-muted/40 text-muted-foreground flex items-start gap-2 rounded-lg border px-3 py-2 text-xs"
+            role="status"
           >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-            <span className="text-sm">{t('sessionsPanel.deleteAllButton')}</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleNewSession}
-            disabled={isNavigationBlocked}
-            aria-label={
-              isNavigationBlocked
-                ? t('sessionsPanel.newSessionDisabled')
-                : t('sessionsPanel.startNewSession')
-            }
-            title={
-              isNavigationBlocked
-                ? t('sessionsPanel.cannotCreateActive')
-                : t('sessionsPanel.startNewSession')
-            }
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            <span className="text-sm font-semibold">{t('sessionsPanel.newSessionButton')}</span>
-          </Button>
-        </div>
-      )}
-      {/* Search */}
-      <div className="relative mb-4">
-        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t('sessionsPanel.searchPlaceholder')}
-          className="border-input bg-input-background placeholder:text-muted-foreground focus-visible:ring-ring/50 h-9 w-full rounded-lg border pl-8 pr-3 text-base outline-none focus-visible:ring-2 md:text-sm"
-          aria-label={t('sessionsPanel.searchAria')}
-        />
+            <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+            <span>{t('sessionsPanel.navigationBlocked')}</span>
+          </p>
+        )}
+
+        <Button
+          variant="outline"
+          className="h-9 w-full justify-start gap-2"
+          onClick={handleNewSession}
+          disabled={isNavigationBlocked}
+          aria-label={
+            isNavigationBlocked
+              ? t('sessionsPanel.newSessionDisabled')
+              : t('sessionsPanel.startNewSession')
+          }
+          title={
+            isNavigationBlocked
+              ? t('sessionsPanel.cannotCreateActive')
+              : t('sessionsPanel.startNewSession')
+          }
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          <span className="text-sm font-medium">{t('sessionsPanel.newSessionButton')}</span>
+        </Button>
+
+        {/* No list, nothing to search — the field would be a control that can
+            only ever return nothing. */}
+        {hasSessions && (
+          <div className="flex flex-col gap-1.5">
+            {/* Same anatomy as every other search in the product (see
+                `DataToolbar`): leading magnifier, trailing clear. */}
+            <div className="relative">
+              <Search
+                className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2"
+                aria-hidden
+              />
+              <Input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('sessionsPanel.searchPlaceholder')}
+                className="h-9 pl-8 pr-8"
+                aria-label={t('sessionsPanel.searchAria')}
+              />
+              {/* A filter you cannot see how to switch off is a trap: once a
+                  query is in, the way back to the full list must be visible. */}
+              {isSearching && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground absolute right-0.5 top-1/2 size-8 -translate-y-1/2"
+                  onClick={handleClearSearch}
+                  aria-label={t('sessionsPanel.clearSearch')}
+                  title={t('sessionsPanel.clearSearch')}
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
+              )}
+            </div>
+            {/* Says how much of the list the query is hiding — announced, so a
+                screen-reader user learns it without scanning the list. */}
+            {isSearching && (
+              <p className="text-muted-foreground px-0.5 text-xs" aria-live="polite">
+                {t('sessionsPanel.searchResults', {
+                  count: filteredSessions.length,
+                  total: sessions.length,
+                })}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Deep Research (FB-10) — server-truth runs for this project, collapsed
-          by default with a count badge. Includes headless/CLI jobs that have no
-          local session. Hidden entirely when there are no runs. */}
-      {showDeepResearch && (
-        <div className="mb-4 shrink-0 pb-2">
-          <button
-            type="button"
-            onClick={() => setIsDeepResearchOpen((open) => !open)}
-            aria-expanded={isDeepResearchOpen}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2"
-          >
-            <ChevronRight
-              className={cn(
-                'h-4 w-4 shrink-0 transition-transform duration-200',
-                isDeepResearchOpen && 'rotate-90'
-              )}
-              aria-hidden="true"
-            />
-            <FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>
-              {t('sessionsPanel.deepResearchHeading', { count: deepResearchRuns?.length ?? 0 })}
-            </span>
-          </button>
+      {/* ---- The one scrolling region ----
+          It used to be nested inside a second scroller (the panel body), and
+          being `flex-1` without `min-h-0` it could not shrink — so a full list
+          overflowed the panel and painted straight through the footer.
 
-          {isDeepResearchOpen && (
-            <div className="mt-2 flex flex-col gap-1">
-              {(deepResearchRuns ?? []).map((run) => (
-                <Link
-                  key={run.job_id}
-                  href={runHref(run)}
-                  onClick={handleClose}
-                  className="hover:bg-accent focus-visible:ring-ring/50 flex items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset"
-                  aria-label={t('sessionsPanel.deepResearchRunLabel', { label: runLabel(run) })}
-                >
-                  <RunStatusIcon status={run.status} />
-                  <span className="min-w-0 flex-1 truncate text-sm" title={runLabel(run)}>
-                    {runLabel(run)}
-                  </span>
-                  <span
-                    className="text-muted-foreground shrink-0 text-xs"
-                    title={formatAbsoluteTime(run.created_at, locale)}
-                  >
-                    {formatRelativeTime(run.created_at, locale)}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Session List — the list fades in as ONE surface, driven by the open
-          state rather than by mounting (forceMount keeps the panel in the DOM).
-          It used to stagger every row through `fadeRise` (`opacity: 0, y: 8`)
-          with an uncapped `staggerChildren: 0.05`, so row N only began animating
-          after 0.05 + N×0.05s — with a couple of dozen sessions the lower rows
-          sat invisible AND pushed 8px down for over a second, which reads as a
-          stray top margin on a half-broken list. A history panel is also the
-          wrong place for a cascade: the user opened it to reach a specific row,
-          and staggering delays precisely the row they are reaching for. */}
+          The list fades in as ONE surface, driven by the open state rather than
+          by mounting (forceMount keeps the panel in the DOM). It used to stagger
+          every row through `fadeRise` (`opacity: 0, y: 8`) with an uncapped
+          `staggerChildren: 0.05`, so row N only began animating after
+          0.05 + N×0.05s — with a couple of dozen sessions the lower rows sat
+          invisible AND pushed 8px down for over a second. A history panel is
+          also the wrong place for a cascade: the user opened it to reach a
+          specific row, and staggering delays precisely the row they are
+          reaching for. */}
       <motion.div
-        className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-4"
         initial={false}
         animate={{ opacity: isSessionsPanelOpen ? 1 : 0 }}
         transition={{ duration: 0.15, ease: 'easeOut' }}
       >
+        {/* Deep Research (FB-10) — server-truth runs for this project, collapsed
+            by default with a count badge. Includes headless/CLI jobs that have
+            no local session. Hidden entirely when there are no runs. */}
+        {showDeepResearch && (
+          <div className="border-border/60 mb-3 shrink-0 border-b pb-3">
+            <button
+              type="button"
+              onClick={() => setIsDeepResearchOpen((open) => !open)}
+              aria-expanded={isDeepResearchOpen}
+              data-testid="deep-research-toggle"
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2"
+            >
+              <ChevronRight
+                className={cn(
+                  'h-4 w-4 shrink-0 transition-transform duration-200',
+                  isDeepResearchOpen && 'rotate-90'
+                )}
+                aria-hidden="true"
+              />
+              <FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                {t('sessionsPanel.deepResearchHeading', { count: deepResearchRuns?.length ?? 0 })}
+              </span>
+            </button>
+
+            {isDeepResearchOpen && (
+              <div className="mt-1 flex flex-col gap-1">
+                {(deepResearchRuns ?? []).map((run) => (
+                  <Link
+                    key={run.job_id}
+                    href={runHref(run)}
+                    onClick={handleClose}
+                    // Same geometry and hover weight as a chat row (including the
+                    // transparent border), so the two lists share one left edge.
+                    className="hover:bg-accent/60 focus-visible:ring-ring/50 flex min-h-11 items-start gap-2.5 rounded-lg border border-transparent py-2.5 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset"
+                    aria-label={t('sessionsPanel.deepResearchRunLabel', {
+                      label: runLabel(run),
+                      status: t(runStatusKey(run.status)),
+                    })}
+                  >
+                    <RunStatusIcon status={run.status} className="mt-0.5" />
+                    {/* Same two-line anatomy as a chat row, for the same reason:
+                        the state goes on its own line instead of competing with
+                        the title for width. Stating it in WORDS is the point —
+                        a failed run and a finished one differed only by icon. */}
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm" title={runLabel(run)}>
+                          {runLabel(run)}
+                        </span>
+                        <span
+                          className="text-muted-foreground shrink-0 text-xs"
+                          title={formatAbsoluteTime(run.created_at, locale)}
+                        >
+                          {formatRelativeTime(run.created_at, locale)}
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          'w-fit rounded-full px-2 py-0.5 text-xs font-medium',
+                          run.status === 'failed'
+                            ? 'bg-destructive/10 text-destructive'
+                            : 'bg-secondary text-muted-foreground'
+                        )}
+                      >
+                        {t(runStatusKey(run.status))}
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {groupedSessions.map(([dateLabel, dateSessions]) => (
           // `last:mb-0` — the trailing group used to add 16px of dead scroll
           // below the final row.
-          <div key={dateLabel} className="mb-4 flex flex-col gap-2 last:mb-0">
-            {/* Sticky so the day you are scrolling through stays named. The
-                panel body is the scroll container, hence `top-0` + a solid
-                background to cover rows passing underneath. */}
-            <span className="bg-background text-muted-foreground sticky top-0 z-10 py-1 text-xs font-semibold uppercase tracking-[0.04em]">
+          <div key={dateLabel} className="mb-4 flex flex-col gap-1 last:mb-0">
+            {/* Sticky so the day you are scrolling through stays named. This
+                element is the scroll container, hence `top-0`; `-mx-4 px-4`
+                widens the opaque backing to the panel's full width so rows
+                pass UNDER it rather than beside it. */}
+            <span className="bg-background text-muted-foreground sticky top-0 z-10 -mx-4 px-4 pb-1.5 pt-1 text-xs font-semibold uppercase tracking-[0.04em]">
               {dateLabel}
             </span>
             {dateSessions.map((session) => (
@@ -442,6 +586,10 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 isBusy={isNavigationBlocked}
                 isSessionActive={isSessionBusy(session.id)}
                 showResearchLabel={showDeepResearchSection}
+                // The day is already on the group heading, so the row carries
+                // the part it does not: the time. Except under "Today", where
+                // "12 minutes ago" is the more useful reading of recency.
+                showRelativeTime={dateLabel === todayLabel}
                 onSelect={handleSessionClick}
                 onDelete={handleDeleteClick}
                 onRename={onRenameSession}
@@ -452,24 +600,27 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
         {isEmptyState && (
           <div className="flex flex-1 flex-col items-center justify-center py-8">
-            {searchQuery.trim() ? (
+            {isSearching ? (
               <EmptyState
                 variant="bare"
-                icon={MessageSquare}
+                icon={Search}
                 title={t('sessionsPanel.noMatching')}
-                description={t('sessionsPanel.noMatchingDescription')}
+                description={t('sessionsPanel.noMatchingDescription', { query: trimmedQuery })}
+                action={
+                  <Button variant="outline" size="sm" onClick={handleClearSearch}>
+                    {t('sessionsPanel.clearSearch')}
+                  </Button>
+                }
               />
             ) : (
+              // No CTA here: "New chat" is pinned two rows above and never
+              // scrolls away, so a second identical button would only make the
+              // reader decide which of the two to press.
               <EmptyState
                 variant="bare"
                 icon={MessageSquare}
                 title={t('sessionsPanel.noSessions')}
                 description={t('sessionsPanel.noSessionsDescription')}
-                action={
-                  <Button variant="outline" size="sm" onClick={handleNewSession}>
-                    {t('sessionsPanel.startNewSessionButton')}
-                  </Button>
-                }
               />
             )}
           </div>
@@ -496,7 +647,13 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 /**
  * SessionItem Component
  *
- * Individual session item with hover-reveal edit/delete icons and inline rename.
+ * One chat row: status icon, title, timestamp, and hover/focus-revealed
+ * rename + delete actions.
+ *
+ * The row IS the button, and the two actions are its SIBLINGS overlaid on top —
+ * not children. They used to be nested inside a `role="button"` div, which is
+ * invalid (interactive content inside a widget role) and left assistive tech to
+ * guess at a control containing two other controls.
  */
 interface SessionItemProps {
   session: Session
@@ -508,6 +665,8 @@ interface SessionItemProps {
   isSessionActive?: boolean
   /** FB-10: show a "Deep Research" chip when this session carries research status. */
   showResearchLabel?: boolean
+  /** Relative ("3 hours ago") vs. clock time ("14:32") — see the call site. */
+  showRelativeTime?: boolean
   onSelect?: (sessionId: string) => void
   onDelete?: (sessionId: string) => void
   onRename?: (sessionId: string, newTitle: string) => void
@@ -519,6 +678,7 @@ const SessionItem: FC<SessionItemProps> = ({
   isBusy = false,
   isSessionActive = false,
   showResearchLabel = false,
+  showRelativeTime = false,
   onSelect,
   onDelete,
   onRename,
@@ -535,8 +695,7 @@ const SessionItem: FC<SessionItemProps> = ({
   // stays legible and the session remains findable in the history.
   const displayTitle = session.title.trim() || t('sessionsPanel.untitledSession')
 
-  // Persistent relative timestamp from the session's date (reuses the same
-  // formatter the Deep Research runs list uses). Guard against unparseable
+  // Persistent timestamp from the session's date. Guard against unparseable
   // dates so a bad value never throws.
   const sessionDate = session.date instanceof Date ? session.date : new Date(session.date)
   const sessionIso = Number.isNaN(sessionDate.getTime()) ? '' : sessionDate.toISOString()
@@ -617,68 +776,88 @@ const SessionItem: FC<SessionItemProps> = ({
     setEditValue(e.target.value)
   }, [])
 
+  const showActions = (isHovered || isFocused) && !isEditing
+
+  // One control, one name — the row's label carries the title AND the state its
+  // icon depicts, so nothing on the row is visual-only.
+  const statusKey = statusKeyFor(session, isSessionActive)
+  const rowLabel = isBusy
+    ? t('sessionsPanel.sessionLabelBusy', { title: displayTitle })
+    : statusKey
+      ? t('sessionsPanel.sessionLabelWithStatus', { title: displayTitle, status: t(statusKey) })
+      : t('sessionsPanel.sessionLabel', { title: displayTitle })
+
   return (
     <div
-      role="button"
-      tabIndex={isBusy ? -1 : 0}
-      onClick={handleClick}
-      onKeyDown={(e) => e.key === 'Enter' && !isEditing && !isBusy && handleClick()}
+      className="relative"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       // Keyboard parity with hover: reveal the rename/delete actions while
-      // focus is anywhere inside the item (focus/blur bubble in React).
+      // focus is anywhere inside the row (focus/blur bubble in React).
       onFocus={() => setIsFocused(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           setIsFocused(false)
         }
       }}
-      className={cn(
-        'focus-visible:ring-ring/50 group relative flex min-h-[3.25rem] w-full items-center gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
-        isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-        // Selected reads as a raised card (border + fill + subtle shadow) rather
-        // than the near-identical bg-accent/60 hover tint used for the rest.
-        isSelected
-          ? 'border-border bg-accent text-foreground shadow-sm'
-          : 'hover:bg-accent/60 border-transparent'
-      )}
-      aria-label={
-        isBusy
-          ? t('sessionsPanel.sessionLabelBusy', { title: displayTitle })
-          : t('sessionsPanel.sessionLabel', { title: displayTitle })
-      }
-      aria-disabled={isBusy}
     >
       {isEditing ? (
-        <input
-          ref={inputRef}
-          type="text"
-          value={editValue}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          onBlur={handleInputBlur}
-          onClick={(e) => e.stopPropagation()}
-          className="border-input bg-input-background h-8 min-w-0 flex-1 rounded-md border px-2 py-1 text-base outline-none md:text-sm"
-          aria-label={t('sessionsPanel.editTitle')}
-        />
+        <div className="flex min-h-11 w-full items-center py-2 pl-2.5 pr-2">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={editValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onBlur={handleInputBlur}
+            className="h-8 min-w-0 flex-1 px-2.5"
+            aria-label={t('sessionsPanel.editTitle')}
+          />
+        </div>
       ) : (
-        <>
-          <SessionStatusIcon session={session} isSessionActive={isSessionActive} />
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={isBusy}
+          aria-current={isSelected ? 'true' : undefined}
+          className={cn(
+            'focus-visible:ring-ring/50 flex min-h-11 w-full gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
+            // A one-line row centres; a row with the research chip must align
+            // its icon to the TITLE, not float to the middle of two lines.
+            showResearchChip ? 'items-start py-2.5' : 'items-center',
+            isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+            // Selected reads as a raised card (border + fill + subtle shadow) rather
+            // than the near-identical bg-accent/60 hover tint used for the rest.
+            isSelected
+              ? 'border-border bg-accent text-foreground shadow-sm'
+              : 'hover:bg-accent/60 border-transparent'
+          )}
+          aria-label={rowLabel}
+        >
+          <SessionStatusIcon
+            session={session}
+            isSessionActive={isSessionActive}
+            className={showResearchChip ? 'mt-0.5' : undefined}
+          />
 
           {/* Two-line content block: title + persistent time on line 1, the
               calm Deep Research chip on line 2. */}
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm">{displayTitle}</span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm" title={displayTitle}>
+                {displayTitle}
+              </span>
               {sessionIso && (
                 <span
-                  className="text-muted-foreground shrink-0 text-xs"
+                  className="text-muted-foreground shrink-0 text-xs tabular-nums"
                   title={formatAbsoluteTime(sessionIso, locale)}
                 >
-                  {formatRelativeTime(sessionIso, locale)}
+                  {showRelativeTime
+                    ? formatRelativeTime(sessionIso, locale)
+                    : formatTimeOfDay(sessionIso, locale)}
                 </span>
               )}
-            </div>
+            </span>
 
             {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
                 research run. It lives on its own line so it never swaps with
@@ -688,63 +867,63 @@ const SessionItem: FC<SessionItemProps> = ({
                 {t('sessionsPanel.deepResearchChip')}
               </span>
             )}
-          </div>
+          </span>
+        </button>
+      )}
 
-          {/* The actions OVERLAY the row on hover/focus instead of holding a
-              permanent 64px column. Reserving that column did buy a reflow-free
-              hover, but it charged every row a quarter of its width for controls
-              that are almost never on screen — and the title, the only thing a
-              user scans this list by, paid for it by truncating. Overlaying is
-              still reflow-free (the row never resizes) and the resting row now
-              spends its full width on the title. */}
-          {(isHovered || isFocused) && (
-            <div
-              // Fade the row out beneath the buttons so a long title slides
-              // under them instead of colliding with them. Both the hovered and
-              // the selected row sit on --accent, so one ramp covers both.
-              className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)]"
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={handleEditClick}
-                disabled={isBusy || isSessionActive}
-                aria-label={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.renameDisabled')
-                    : t('sessionsPanel.rename')
-                }
-                title={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.cannotRenameBusy')
-                    : t('sessionsPanel.rename')
-                }
-              >
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive hover:text-destructive size-7"
-                onClick={handleDeleteClick}
-                disabled={isBusy || isSessionActive}
-                aria-label={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.deleteDisabled')
-                    : t('sessionsPanel.deleteSession')
-                }
-                title={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.cannotDeleteBusy')
-                    : t('sessionsPanel.deleteSession')
-                }
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          )}
-        </>
+      {/* The actions OVERLAY the row on hover/focus instead of holding a
+          permanent 64px column. Reserving that column did buy a reflow-free
+          hover, but it charged every row a quarter of its width for controls
+          that are almost never on screen — and the title, the only thing a user
+          scans this list by, paid for it by truncating. Overlaying is still
+          reflow-free (the row never resizes) and the resting row now spends its
+          full width on the title. */}
+      {showActions && (
+        <div
+          // Fade the row out beneath the buttons so a long title slides under
+          // them instead of colliding with them. Both the hovered and the
+          // selected row sit on --accent, so one ramp covers both.
+          className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)]"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={handleEditClick}
+            disabled={isBusy || isSessionActive}
+            aria-label={
+              isBusy || isSessionActive
+                ? t('sessionsPanel.renameDisabled')
+                : t('sessionsPanel.rename')
+            }
+            title={
+              isBusy || isSessionActive
+                ? t('sessionsPanel.cannotRenameBusy')
+                : t('sessionsPanel.rename')
+            }
+          >
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive hover:text-destructive size-7"
+            onClick={handleDeleteClick}
+            disabled={isBusy || isSessionActive}
+            aria-label={
+              isBusy || isSessionActive
+                ? t('sessionsPanel.deleteDisabled')
+                : t('sessionsPanel.deleteSession')
+            }
+            title={
+              isBusy || isSessionActive
+                ? t('sessionsPanel.cannotDeleteBusy')
+                : t('sessionsPanel.deleteSession')
+            }
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
       )}
     </div>
   )
@@ -756,59 +935,70 @@ const SessionItem: FC<SessionItemProps> = ({
  * still in flight = a quiet spinner. The row's Link carries the accessible name,
  * so the icon itself is decorative.
  */
-const RunStatusIcon: FC<{ status: string }> = ({ status }) => {
-  if (status === 'completed') {
-    return <FileCheck2 className="text-success h-4 w-4 shrink-0" aria-hidden="true" />
-  }
-  if (status === 'failed' || status === 'cancelled') {
-    return <AlertCircle className="text-muted-foreground h-4 w-4 shrink-0" aria-hidden="true" />
-  }
-  return (
-    <Loader2 className="text-accent-primary h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-  )
+/**
+ * A run's status as a translation key. The backend's `submitted`/`running` (and
+ * anything unrecognised) are all "still working" from the reader's side.
+ */
+const runStatusKey = (status: string): string => {
+  if (status === 'completed') return 'sessionsPanel.runStatus.completed'
+  if (status === 'failed') return 'sessionsPanel.runStatus.failed'
+  if (status === 'cancelled') return 'sessionsPanel.runStatus.cancelled'
+  return 'sessionsPanel.runStatus.running'
 }
 
-const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
-  session,
-  isSessionActive,
-}) => {
-  const t = useTranslations('research')
+const RunStatusIcon: FC<{ status: string; className?: string }> = ({ status, className }) => {
+  const base = cn('h-4 w-4 shrink-0', className)
+  if (status === 'completed') {
+    return <FileCheck2 className={cn(base, 'text-success')} aria-hidden="true" />
+  }
+  if (status === 'failed') {
+    return <AlertCircle className={cn(base, 'text-destructive')} aria-hidden="true" />
+  }
+  if (status === 'cancelled') {
+    return <AlertCircle className={cn(base, 'text-muted-foreground')} aria-hidden="true" />
+  }
+  return <Loader2 className={cn(base, 'text-accent-primary animate-spin')} aria-hidden="true" />
+}
+
+/**
+ * The row's leading icon. Purely DECORATIVE: the row is a single button whose
+ * `aria-label` already carries the same state in words (see `statusKeyFor`), so
+ * labelling the icon too would either be ignored (the button's explicit label
+ * wins) or announced twice. It also may not nest a live region inside a button.
+ */
+const SessionStatusIcon: FC<{
+  session: Session
+  isSessionActive: boolean
+  className?: string
+}> = ({ session, isSessionActive, className }) => {
+  const base = cn('h-4 w-4 shrink-0', className)
   const isActive = isSessionActive || session.hasActiveDeepResearch
 
   if (isActive) {
-    return (
-      <Spinner
-        size="sm"
-        label={t('sessionsPanel.sessionActive')}
-        className="text-accent-primary shrink-0"
-      />
-    )
+    return <Loader2 className={cn(base, 'text-accent-primary animate-spin')} aria-hidden="true" />
   }
 
   if (session.hasExpiredReport) {
-    return (
-      <CircleEllipsis
-        className="text-muted-foreground h-4 w-4 shrink-0"
-        aria-label={t('sessionsPanel.reportExpired')}
-      />
-    )
+    return <CircleEllipsis className={cn(base, 'text-muted-foreground')} aria-hidden="true" />
   }
 
   if (session.hasCompletedReport) {
-    return (
-      <FileCheck2
-        className="text-success h-4 w-4 shrink-0"
-        aria-label={t('sessionsPanel.reportCompleted')}
-      />
-    )
+    return <FileCheck2 className={cn(base, 'text-success')} aria-hidden="true" />
   }
 
-  return (
-    <MessageSquare
-      className="text-muted-foreground h-4 w-4 shrink-0"
-      aria-label={t('sessionsPanel.chatSession')}
-    />
-  )
+  return <MessageSquare className={cn(base, 'text-muted-foreground')} aria-hidden="true" />
+}
+
+/**
+ * The one piece of row state the icon conveys, as a translation key — so the
+ * row's accessible name says in words what the icon says in colour and shape.
+ * Null for an ordinary chat, which needs no qualifier.
+ */
+const statusKeyFor = (session: Session, isSessionActive: boolean): string | null => {
+  if (isSessionActive || session.hasActiveDeepResearch) return 'sessionsPanel.sessionActive'
+  if (session.hasExpiredReport) return 'sessionsPanel.reportExpired'
+  if (session.hasCompletedReport) return 'sessionsPanel.reportCompleted'
+  return null
 }
 
 /**

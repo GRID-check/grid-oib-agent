@@ -1,25 +1,56 @@
 'use client'
 
 /**
- * Sessions dev preview: renders the REAL SessionsPanel with fixture sessions,
- * so the history list can be reviewed and screenshotted (visual/registry.mjs →
- * `sessions`). Not linked anywhere and 404s outside development.
+ * Sessions dev preview: renders the REAL SessionsPanel inside the REAL app
+ * shell (`AppSidebar` rail + a chat-plane stand-in), so the chat-history panel
+ * can be reviewed and screenshotted exactly as it sits in the product
+ * (visual/registry.mjs → `sessions*`). Not linked anywhere and 404s outside
+ * development.
  *
- * The fixture deliberately spans several day-groups and overflows the panel
- * height — the two things the list gets wrong are only visible at length:
- * the group headers scrolling away, and the old per-row entrance stagger
- * leaving the lower rows offset and invisible while they waited their turn.
+ * Why the real rail. The panel is a `fixed left-0` overlay that lands ON TOP of
+ * the sidebar, so how it meets the rail's top edge is only visible with the rail
+ * actually there. A previous version of this preview rendered a *fake* top bar
+ * instead, to "explain" the panel's top offset — which hid a real bug: the panel
+ * started below a header that does not exist on the chat route, leaving the
+ * rail's "Piloti" wordmark and collapse chevron stranded in a sliver above it.
+ * Preview chrome must be the product's chrome, never a stand-in that argues the
+ * layout is fine.
  *
- * The page renders a stand-in nav bar because DockedPanel docks BELOW the app
- * header (`top-[var(--header-height)]`). A preview without that chrome shows the
- * offset as an unexplained gap above the panel — a screenshot that invents a
- * layout bug. Keep any preview of a docked/overlaid surface host-accurate.
+ * The rail is wrapped in `hidden md:contents` because the chat route (the only
+ * host of this panel) hides the mobile top bar and has no rail below `md` — its
+ * navigation lives in the chat toolbar's hamburger. `contents` keeps the rail a
+ * direct flex child of the shell row on desktop.
+ *
+ * Variants via `?variant=`:
+ *   - default    — a long history. Deliberately spans several day-groups and
+ *                  overflows the panel, because the things this list gets wrong
+ *                  are only visible at length: day headings that scroll away, a
+ *                  list that overflows its own footer.
+ *   - `search`   — a live query: the trailing clear button, the "n of N" count,
+ *                  and a filtered list.
+ *   - `no-match` — the same query matching nothing: the search-specific empty
+ *                  state, quoting the query, with the way back out.
+ *   - `empty`    — a project with no chats at all: no search field, no
+ *                  delete-all, one CTA rather than two.
+ *   - `busy`     — a turn in flight. Every row is dimmed and unclickable, so the
+ *                  panel says why instead of leaving the user to test rows.
+ *   - `research` — the Deep Research section, expanded, plus the per-row chips
+ *                  (FB-10). Runs come from a module-scope fetch shim.
+ *
+ * The fetch shim is installed at MODULE SCOPE (browser + development only,
+ * idempotent) so it is in place before any effect can fire — the panel fetches
+ * its runs from an effect on open.
  */
 
 import { useEffect } from 'react'
-import { notFound } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+// Imported from the module, not the `@/components/shell` barrel: the barrel also
+// re-exports `org-topbar`, which pulls in `i18n/server` (`server-only` +
+// `next/headers`) and fails to compile into a client preview.
+import { AppSidebar } from '@/components/shell/app-sidebar'
 import { SessionsPanel } from '@/features/layout/components/SessionsPanel'
 import { useLayoutStore } from '@/features/layout/store'
+import { useChatStore } from '@/features/chat'
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)
 const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000)
@@ -39,44 +70,142 @@ const SESSIONS = [
   { id: 's-12', title: 'Bauklasse und Gebäudehöhe Parzelle 1042', date: daysAgo(18) },
 ]
 
-export default function SessionsPreviewPage() {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
+const PROJECTS = [
+  { id: 'p-1', name: 'Wohnbau Seestadt Baufeld D12' },
+  { id: 'p-2', name: 'Sanierung Amtshaus Favoriten' },
+]
 
+const RESEARCH_RUNS = {
+  total: 3,
+  jobs: [
+    {
+      job_id: 'job-a',
+      status: 'running',
+      created_at: minutesAgo(12).toISOString(),
+      conversation_id: 's-6',
+      project_collection: 'preview',
+    },
+    {
+      job_id: 'job-b',
+      status: 'completed',
+      created_at: minutesAgo(240).toISOString(),
+      conversation_id: 's-3',
+      project_collection: 'preview',
+    },
+    {
+      job_id: 'job-c',
+      status: 'failed',
+      created_at: daysAgo(11).toISOString(),
+      conversation_id: null,
+      project_collection: 'preview',
+    },
+  ],
+}
+
+// Module scope, browser + dev only, idempotent — see the header comment.
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  const w = window as Window & { __sessionsPreviewFetchShim?: boolean }
+  if (!w.__sessionsPreviewFetchShim) {
+    w.__sessionsPreviewFetchShim = true
+    const real = window.fetch.bind(window)
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.includes('/jobs/async/jobs')) {
+        return new Response(JSON.stringify(RESEARCH_RUNS), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return real(input, init)
+    }
+  }
+}
+
+export default function SessionsPreviewPage() {
+  const variant = useSearchParams()?.get('variant') ?? 'default'
   const setSessionsPanelOpen = useLayoutStore((s) => s.setSessionsPanelOpen)
+
   useEffect(() => {
     // The panel renders its list against the open state (it is force-mounted),
     // so the preview has to open it explicitly.
     setSessionsPanelOpen(true)
   }, [setSessionsPanelOpen])
 
+  // `busy` reproduces a turn in flight by setting the one store field the panel
+  // reads for it, rather than by faking the panel's own props.
+  useEffect(() => {
+    useChatStore.setState({ isStreaming: variant === 'busy' })
+  }, [variant])
+
+  // The search states are driven through the real field, so what is captured is
+  // the component's own behaviour and not a prop that bypasses it.
+  useEffect(() => {
+    if (variant !== 'search' && variant !== 'no-match') return
+    const input = document.querySelector<HTMLInputElement>('input[type="text"]')
+    if (!input) return
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    setValue?.call(input, variant === 'search' ? 'brand' : 'zzzz')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }, [variant])
+
+  // The Deep Research section is collapsed by default in the product (the chat
+  // list stays primary). Open it here so the shot is evidence of its CONTENT —
+  // the run rows — and not just of a closed disclosure. Polled because the runs
+  // arrive from the shimmed fetch a tick after mount.
+  useEffect(() => {
+    if (variant !== 'research') return
+    let frame = 0
+    const tryOpen = () => {
+      const toggle = document.querySelector<HTMLButtonElement>(
+        '[data-testid="deep-research-toggle"][aria-expanded="false"]'
+      )
+      if (toggle) toggle.click()
+      else frame = requestAnimationFrame(tryOpen)
+    }
+    frame = requestAnimationFrame(tryOpen)
+    return () => cancelAnimationFrame(frame)
+  }, [variant])
+
+  const sessions = variant === 'empty' ? [] : SESSIONS
+
   return (
-    <div className="min-h-dvh bg-background" data-testid="sessions-preview">
-      {/* A stand-in for the app nav bar.
-          DockedPanel is `fixed top-[var(--header-height)] … md:top-12`, i.e. it
-          deliberately starts BELOW the header. Without a header in the preview
-          that offset floats over an empty page and reads as a stray top margin
-          on the panel — evidence that would send someone hunting a layout bug
-          that does not exist in the product. The bar is inert; it exists only so
-          the screenshot occupies the same space the real chrome does. */}
-      <header
-        className="bg-background sticky top-0 z-50 flex h-[var(--header-height)] items-center gap-2 border-b px-4 md:h-12"
-        aria-hidden="true"
-      >
-        <span className="font-mono text-xs text-muted-foreground">
-          /dev/sessions — nav bar stand-in (the panel docks beneath it)
-        </span>
-      </header>
+    <div
+      className="bg-background text-foreground flex h-dvh flex-col overflow-hidden md:flex-row"
+      data-testid="sessions-preview"
+    >
+      {/* The real rail — the surface the panel overlays. `md:contents` so it
+          stays a direct flex child on desktop; hidden below `md`, matching the
+          chat route where the standalone mobile bar is suppressed. */}
+      <div className="hidden md:contents">
+        <AppSidebar
+          projectId="p-1"
+          projects={PROJECTS}
+          user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}
+          authRequired={false}
+        />
+      </div>
+
+      {/* Chat-plane stand-in: the panel docks over the left of this surface. */}
+      <main className="min-w-0 flex-1 overflow-hidden">
+        <p className="text-muted-foreground p-6 pl-[26rem] font-mono text-xs">
+          /dev/sessions — chat plane stand-in (the panel docks over the rail)
+        </p>
+      </main>
 
       <SessionsPanel
-        sessions={SESSIONS}
+        sessions={sessions}
         selectedSessionId="s-2"
         onSelectSession={() => {}}
         onNewSession={() => {}}
         onDeleteSession={() => {}}
         onDeleteAllSessions={() => {}}
         onRenameSession={() => {}}
+        showDeepResearchSection={variant === 'research'}
+        projectId="p-1"
+        projectCollection={variant === 'research' ? 'preview' : undefined}
       />
     </div>
   )

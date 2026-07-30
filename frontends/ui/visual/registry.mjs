@@ -48,8 +48,44 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/sessions',
     description:
-      'Session history panel — day-grouped list with sticky day headers, the selected row, and the hover-only rename/delete overlay. Fixture spans today/yesterday/older and overflows the panel so the grouping and scroll behaviour are visible.',
+      'Chat-history panel over the real app rail — flush with the viewport top (it replaces the rail rather than starting below a header that the chat route does not have), pinned New chat + search, day-grouped list with sticky day headings, and a footer that owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the panel so grouping and scroll behaviour are visible.',
     waitFor: '[data-testid="sessions-preview"]',
+  },
+  {
+    id: 'sessions-search',
+    mobile: true,
+    path: '/dev/sessions?variant=search',
+    description:
+      'Chat history with a live query — trailing clear button, the "n of N chats" count, and the filtered list.',
+    waitFor: '[data-testid="sessions-preview"]',
+  },
+  {
+    id: 'sessions-no-match',
+    path: '/dev/sessions?variant=no-match',
+    description:
+      'Chat history with a query that matches nothing — the search-specific empty state quotes the query and offers the way back out, instead of leaving a blank panel.',
+    waitFor: '[data-testid="sessions-preview"]',
+  },
+  {
+    id: 'sessions-empty',
+    path: '/dev/sessions?variant=empty',
+    description:
+      'Chat history for a project with no chats — no search field and no delete-all (both could only ever act on nothing), and exactly one new-chat CTA.',
+    waitFor: '[data-testid="sessions-preview"]',
+  },
+  {
+    id: 'sessions-busy',
+    path: '/dev/sessions?variant=busy',
+    description:
+      'Chat history while a turn is in flight — every row dimmed and unclickable, with the panel saying why rather than leaving the user to discover it row by row.',
+    waitFor: '[data-testid="sessions-preview"]',
+  },
+  {
+    id: 'sessions-research',
+    path: '/dev/sessions?variant=research',
+    description:
+      'Chat history with the FB-10 Deep Research section expanded — server-truth runs (running / completed / failed) above the day groups, and the per-row Deep Research chips.',
+    waitFor: '[data-testid="deep-research-toggle"]',
   },
   {
     id: 'chat-turn',
