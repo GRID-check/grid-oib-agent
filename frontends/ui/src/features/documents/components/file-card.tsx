@@ -104,6 +104,10 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
 
   if (state === 'ready' && imgUrl) {
     return (
+      // A runtime object URL from the scope-aware thumbnail route, with no
+      // intrinsic dimensions known at build time — next/image cannot optimize
+      // a blob: source.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={imgUrl}
         alt=""

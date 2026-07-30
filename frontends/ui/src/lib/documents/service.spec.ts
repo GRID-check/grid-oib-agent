@@ -68,16 +68,28 @@ import {
   deriveSearchTopK,
   INGEST_DISPATCH_FAILED_MESSAGE,
 } from './service'
-import { reconcileDocumentStatuses } from './reconcile-status'
+import {
+  reconcileDocumentStatuses,
+  type DocumentMetadata,
+  type ReconcilableDocument,
+} from './reconcile-status'
+import type { DocumentListRow } from './repository'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
+import type { AuthorizedSession } from '@/lib/auth/types'
 
-const session = {
+const session: AuthorizedSession = {
   userId: 'user-1',
   email: 'user@example.com',
+  name: 'Test User',
+  accessToken: 'test-access-token',
   organizationId: 'org-1',
+  organizationMembershipId: 'om-1',
+  role: 'member',
+  permissions: [],
   featureFlags: null,
-} as any
+}
 
 const makeInput = (
   overrides: { name?: string; type?: string } = {},
@@ -101,7 +113,7 @@ beforeEach(() => {
     vi.stubGlobal('crypto', { ...globalThis.crypto, randomUUID: () => 'doc-uuid' })
   }
   mockFetch.mockReset()
-  vi.mocked(findProjectInOrg).mockResolvedValue({ collectionName: 'proj_abc' } as any)
+  vi.mocked(findProjectInOrg).mockResolvedValue(makeProject())
 })
 
 afterEach(() => {
@@ -258,10 +270,12 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
 
 describe('listDocuments', () => {
   it('carries the curated metadata subset through and strips the internal metadata column', async () => {
-    vi.mocked(listProjectDocuments).mockResolvedValue([] as any)
+    vi.mocked(listProjectDocuments).mockResolvedValue([])
     // reconcile returns rows with the internal `metadata` jsonb (ingestJobId)
     // plus the curated read-only fields layered on top.
-    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+    // The production instantiation of `reconcileDocumentStatuses`: repository
+    // rows with the curated backend metadata layered on top.
+    const reconciled: Array<DocumentListRow & DocumentMetadata> = [
       {
         id: 'doc-1',
         filename: 'plan.pdf',
@@ -280,7 +294,8 @@ describe('listDocuments', () => {
         contentTypes: ['text', 'table'],
         tags: ['Grundriss', 'Brandschutz'],
       },
-    ] as any)
+    ]
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(reconciled)
 
     const [row] = await listDocuments(session, 'proj-1')
 
@@ -356,28 +371,32 @@ describe('deriveSearchTopK', () => {
 })
 
 describe('searchProjectDocuments', () => {
-  const fileRows = [
+  const fileRows: Array<ReconcilableDocument & { createdAt: Date }> = [
     {
       id: 'doc-a',
       filename: 'plan.pdf',
       createdAt: new Date('2026-01-01T00:00:00Z'),
       status: 'completed',
+      collectionName: 'proj_abc',
+      errorMessage: null,
     },
     {
       id: 'doc-b',
       filename: 'permit.pdf',
       createdAt: new Date('2026-01-02T00:00:00Z'),
       status: 'completed',
+      collectionName: 'proj_abc',
+      errorMessage: null,
     },
   ]
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
-    vi.mocked(listProjectDocuments).mockResolvedValue([] as any)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(listProjectDocuments).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
-      fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } })) as any,
+      fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } })),
     )
-    vi.mocked(findProjectInOrg).mockResolvedValue({ collectionName: 'proj_abc' } as any)
+    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject())
   })
 
   it('enforces project:view, POSTs to the collection search, and joins hits reordered by score', async () => {
@@ -432,21 +451,18 @@ describe('searchProjectDocuments', () => {
   })
 
   it('404s when the project is not in the org (no backend call)', async () => {
-    vi.mocked(findProjectInOrg).mockResolvedValue(null as any)
+    vi.mocked(findProjectInOrg).mockResolvedValue(null)
     await expect(searchProjectDocuments(session, 'proj-1', 'q')).rejects.toBeInstanceOf(NotFoundError)
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })
 
 describe('reingestDocument', () => {
-  const failedDoc = {
+  const failedDoc = makeDocument({
     id: 'doc-99',
-    projectId: 'proj-1',
-    organizationId: 'org-1',
     status: 'failed',
-    collectionName: 'proj_abc',
     storageKey: 'org/proj/doc/file.pdf',
-  } as any
+  })
 
   it('happy path: failed -> pending with a fresh job id', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc)
@@ -485,15 +501,7 @@ describe('reingestDocument', () => {
 })
 
 describe('deleteDocument', () => {
-  const projectDoc = {
-    id: 'doc-1',
-    projectId: 'proj-1',
-    organizationId: 'org-1',
-    scope: 'project',
-    filename: 'plan.pdf',
-    collectionName: 'proj_abc',
-    storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
-  } as any
+  const projectDoc = makeDocument()
 
   it('404s when the document is not in the org', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(null)
@@ -521,7 +529,7 @@ describe('deleteDocument', () => {
 
   it('purges chunks, deletes the object + row, and audits', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
     mockFetch.mockResolvedValue({ ok: true })
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -540,7 +548,7 @@ describe('deleteDocument', () => {
 
   it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
     mockFetch.mockRejectedValue(new Error('backend down'))
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))

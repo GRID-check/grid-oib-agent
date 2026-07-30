@@ -23,9 +23,17 @@ export default [
           caughtErrorsIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // `any` is not a type we accept anywhere in this codebase — not in
+      // production code and not in test doubles. Reach for the real type, a
+      // `Partial<T>`/`Pick<T, …>` of it, `unknown`, or an explicit
+      // `as unknown as T` assertion when a fixture is deliberately incomplete.
+      '@typescript-eslint/no-explicit-any': 'error',
       'prefer-const': 'error',
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // `debug` joins the allow-list because it is this repo's deliberate
+      // dev-only diagnostic channel (every call site is NODE_ENV-gated and
+      // asserted on in storage-logger.spec.ts). Stray `console.log` stays
+      // blocked — that is what this rule is here to catch.
+      'no-console': ['warn', { allow: ['warn', 'error', 'debug'] }],
     },
   },
 ]

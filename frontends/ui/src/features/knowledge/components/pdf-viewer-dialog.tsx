@@ -104,6 +104,9 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
           {open &&
             (isImage ? (
               <div className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken">
+                {/* Streamed from the knowledge-base document route at arbitrary
+                    intrinsic size — next/image cannot optimize it. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
               </div>
             ) : (

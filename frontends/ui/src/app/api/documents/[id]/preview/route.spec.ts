@@ -30,16 +30,25 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 }))
 
 import { GET } from './route'
+import type { getDb as getDbType } from '@/lib/db'
+
+/**
+ * A drizzle query-builder stand-in: this route only walks
+ * `select().from().where().limit()`, so the stub implements that chain and the
+ * assertion stays confined here.
+ */
+const asDb = (stub: Record<string, unknown>): ReturnType<typeof getDbType> =>
+  stub as unknown as ReturnType<typeof getDbType>
 
 describe('GET /api/documents/[id]/preview', () => {
   it('returns 404 for non-existent document', async () => {
     const { getDb } = await import('@/lib/db')
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([]),
-    } as any)
+    }))
 
     const response = await GET(
       new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
@@ -50,7 +59,7 @@ describe('GET /api/documents/[id]/preview', () => {
 
   it('returns presigned URL for PDF documents', async () => {
     const { getDb } = await import('@/lib/db')
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
@@ -63,7 +72,7 @@ describe('GET /api/documents/[id]/preview', () => {
           projectId: 'proj-1',
         },
       ]),
-    } as any)
+    }))
 
     const response = await GET(
       new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
@@ -77,7 +86,7 @@ describe('GET /api/documents/[id]/preview', () => {
 
   it('returns 415 for unsupported content types', async () => {
     const { getDb } = await import('@/lib/db')
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
@@ -90,7 +99,7 @@ describe('GET /api/documents/[id]/preview', () => {
           projectId: 'proj-1',
         },
       ]),
-    } as any)
+    }))
 
     const response = await GET(
       new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,

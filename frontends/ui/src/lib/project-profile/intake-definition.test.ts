@@ -116,7 +116,7 @@ describe('buildIntakeProfile', () => {
 
   it('derives country=at from an AT bundesland for legacy profiles', () => {
     const profile = buildIntakeProfile(
-      { A2_country: 'at', A2_land: 'wien', A2_adr: 'Test', A5: ['neubau'] } as any,
+      { A2_country: 'at', A2_land: 'wien', A2_adr: 'Test', A5: ['neubau'] },
       definition,
       { projectName: 'Test' },
     )
@@ -126,7 +126,7 @@ describe('buildIntakeProfile', () => {
 
   it('leaves bundesland unset when country is de and standort_details provided', () => {
     const profile = buildIntakeProfile(
-      { A2_country: 'de', standort_details: 'Bayern, Deutschland' } as any,
+      { A2_country: 'de', standort_details: 'Bayern, Deutschland' },
       definition,
       { projectName: 'Test' },
     )

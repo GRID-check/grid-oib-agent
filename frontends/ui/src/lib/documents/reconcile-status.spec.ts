@@ -11,7 +11,7 @@ const makeDbMock = () => {
   const where = vi.fn().mockResolvedValue(undefined)
   const set = vi.fn().mockReturnValue({ where })
   const update = vi.fn().mockReturnValue({ set })
-  vi.mocked(getDb).mockReturnValue({ update } as any)
+  vi.mocked(getDb).mockReturnValue({ update } as unknown as ReturnType<typeof getDb>)
   return { update, set, where }
 }
 

@@ -104,7 +104,7 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
     const bv = normalized.facts.bundesland.value
     if (typeof bv === 'string' && bv !== 'ausserhalb_oesterreichs' && isValidBundeslandToken(bv)) {
       factKeys.unshift('country')
-      normalized.facts.country = { value: 'at', confidence: 'confirmed', source: 'onboarding', updatedAt: '' } as any
+      normalized.facts.country = { value: 'at', confidence: 'confirmed', source: 'onboarding', updatedAt: '' }
     }
   }
 

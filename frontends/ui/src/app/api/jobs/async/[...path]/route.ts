@@ -107,6 +107,17 @@ async function resolveGridContextHeaders(
 }
 
 const LOG_LABEL = 'Deep Research API'
+
+/**
+ * Per-request proxy tracing. Dev-only: these fire on every deep-research
+ * request (including each SSE reconnect), so at production volume they are
+ * pure noise in the service log while telling an operator nothing an error
+ * path does not already report.
+ */
+const traceRequest = (...args: unknown[]): void => {
+  if (process.env.NODE_ENV !== 'development') return
+  console.debug(`[${LOG_LABEL}]`, ...args)
+}
 const JOBS_BASE_PATH = '/v1/jobs/async'
 
 /**
@@ -138,11 +149,11 @@ export async function GET(
         : path
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath)
 
-    console.log('[Deep Research API] GET:', backendUrl, isStreamRequest ? '(SSE)' : '')
+    traceRequest('GET:', backendUrl, isStreamRequest ? '(SSE)' : '')
 
     const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
-    console.log('[Deep Research API] WorkOS access token present:', !!authHeaders.Authorization)
+    traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
 
@@ -206,7 +217,7 @@ export async function POST(
     const { path } = await params
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
 
-    console.log('[Deep Research API] POST:', backendUrl)
+    traceRequest('POST:', backendUrl)
 
     // Get the request body (may be empty for cancel)
     let parsedBody: Record<string, unknown> | undefined
@@ -222,7 +233,7 @@ export async function POST(
 
     const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
-    console.log('[Deep Research API] POST WorkOS access token present:', !!authHeaders.Authorization)
+    traceRequest('POST WorkOS access token present:', !!authHeaders.Authorization)
 
     // Deep research is flag-gated (expensive workflow). Only the submit
     // entry point is gated — cancel/stream on running jobs stay available.
@@ -291,11 +302,11 @@ export async function DELETE(
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
     const { searchParams } = new URL(req.url)
 
-    console.log('[Deep Research API] DELETE:', backendUrl)
+    traceRequest('DELETE:', backendUrl)
 
     const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
-    console.log('[Deep Research API] DELETE WorkOS access token present:', !!authHeaders.Authorization)
+    traceRequest('DELETE WorkOS access token present:', !!authHeaders.Authorization)
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
 

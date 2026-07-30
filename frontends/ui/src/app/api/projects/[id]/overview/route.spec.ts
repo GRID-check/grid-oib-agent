@@ -63,7 +63,7 @@ describe('GET /api/projects/[id]/overview', () => {
 
     vi.mocked(getDb).mockReturnValue({
       select: mockSelect,
-    } as any)
+    } as unknown as ReturnType<typeof getDb>)
 
     const response = await GET(
       new Request('https://grid.test/api/projects/proj-1/overview'),

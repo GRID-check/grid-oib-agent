@@ -51,6 +51,16 @@ import {
   type DigestItem,
 } from './memory-service'
 
+/**
+ * A drizzle query-builder stand-in. These specs assert on which chain the
+ * service walks (`select().from().where()`, `update().set().where()`, …) and on
+ * the conditions it builds, not on drizzle's own types — so each stub
+ * implements only the links its test traverses. The assertion is confined here
+ * rather than repeated at every `mockReturnValue`.
+ */
+const asDb = (stub: Record<string, unknown>): ReturnType<typeof getDb> =>
+  stub as unknown as ReturnType<typeof getDb>
+
 const eq = (col: unknown, val: unknown) => ({ op: 'eq', col, val })
 const and = (...conditions: unknown[]) => ({ op: 'and', conditions })
 const or = (...conditions: unknown[]) => ({ op: 'or', conditions })
@@ -74,7 +84,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     const returning = vi.fn().mockResolvedValue(rows)
     const where = vi.fn().mockReturnValue({ returning })
     const set = vi.fn().mockReturnValue({ where })
-    vi.mocked(getDb).mockReturnValue({ update: vi.fn().mockReturnValue({ set }) } as any)
+    vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
     return { where }
   }
 
@@ -114,7 +124,7 @@ describe('deleteProjectMemoryItem tenancy guard', () => {
   const mockDeleteChain = (rows: unknown[]) => {
     const returning = vi.fn().mockResolvedValue(rows)
     const where = vi.fn().mockReturnValue({ returning })
-    vi.mocked(getDb).mockReturnValue({ delete: vi.fn().mockReturnValue({ where }) } as any)
+    vi.mocked(getDb).mockReturnValue(asDb({ delete: vi.fn().mockReturnValue({ where }) }))
     return { where }
   }
 
@@ -153,7 +163,7 @@ const mockSelectChain = (rows: unknown[]) => {
     Object.assign(Promise.resolve(rows), { orderBy, limit }),
   )
   const from = vi.fn().mockReturnValue({ where })
-  vi.mocked(getDb).mockReturnValue({ select: vi.fn().mockReturnValue({ from }) } as any)
+  vi.mocked(getDb).mockReturnValue(asDb({ select: vi.fn().mockReturnValue({ from }) }))
   return { where, orderBy, limit }
 }
 
@@ -310,11 +320,11 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     const values = vi.fn().mockReturnValue({ returning: insertReturning })
     const insert = vi.fn().mockReturnValue({ values })
 
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnValue({ from }),
       update,
       insert,
-    } as any)
+    }))
     return { set, values, insert, update }
   }
 
@@ -327,7 +337,7 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       organizationId: 'org-1',
       kind: 'derived_fact',
       content: 'The roof load is 2 kN/m².',
-    } as any)
+    })
 
     expect(result).toEqual({ id: 'new-1' })
     expect(values).toHaveBeenCalledTimes(1)
@@ -355,7 +365,7 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       kind: 'derived_fact',
       content: 'The roof load is 2 kN/m².',
       confidence: 'high',
-    } as any)
+    })
 
     // The existing row, updated — not a new one.
     expect(values).not.toHaveBeenCalled()
@@ -377,10 +387,10 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     const from = vi.fn().mockReturnValue({ where: selectWhere })
     const insertReturning = vi.fn().mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }))
     const values = vi.fn().mockReturnValue({ returning: insertReturning })
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnValue({ from }),
       insert: vi.fn().mockReturnValue({ values }),
-    } as any)
+    }))
 
     const result = await createProjectMemoryItem({
       scope: 'project',
@@ -388,7 +398,7 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       organizationId: 'org-1',
       kind: 'derived_fact',
       content: 'Racy content.',
-    } as any)
+    })
 
     expect(result).toEqual({ id: 'winner-1' })
   })
@@ -403,7 +413,7 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       kind: 'derived_fact',
       content: 'the ROOF load is  2 kN/m2!',
       confidence: 'high',
-    } as any)
+    })
 
     expect(update).toHaveBeenCalledTimes(1)
     expect(values).not.toHaveBeenCalled()

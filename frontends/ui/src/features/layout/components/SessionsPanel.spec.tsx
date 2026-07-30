@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
 import type { ResearchRun } from '@/adapters/api/research-runs-client'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { LayoutStore } from '../types'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
 
 // Mock the layout store
 const mockSetSessionsPanelOpen = vi.fn()
@@ -23,12 +26,12 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('../store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       isSessionsPanelOpen: true,
       setSessionsPanelOpen: mockSetSessionsPanelOpen,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 
@@ -81,9 +84,9 @@ const createMockChatState = (
 
 const setupChatStoreMock = (overrides: Parameters<typeof createMockChatState>[0] = {}) => {
   const state = createMockChatState(overrides)
-  vi.mocked(useChatStore).mockImplementation((selector: (s: any) => any) => {
+  vi.mocked(useChatStore).mockImplementation((selector: StoreSelector<ChatStoreWithHydration>) => {
     if (typeof selector === 'function') {
-      return selector(state)
+      return selector(asStoreState<ChatStoreWithHydration>(state))
     }
     return undefined
   })
@@ -104,12 +107,12 @@ describe('SessionsPanel', () => {
     setupChatStoreMock()
 
     // Reset mock to default open state
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -219,12 +222,12 @@ describe('SessionsPanel', () => {
         })
     )
     setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: isPanelOpen,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { rerender } = render(<SessionsPanel sessions={mockSessions} />)
@@ -255,12 +258,12 @@ describe('SessionsPanel', () => {
   })
 
   test('does not show session content when panel is closed', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     render(<SessionsPanel sessions={mockSessions} />)
@@ -275,12 +278,12 @@ describe('SessionsPanel', () => {
   test('does not refresh deep research job state when panel is closed', () => {
     const refreshDeepResearchSessionStatuses = vi.fn().mockResolvedValue(undefined)
     setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     render(<SessionsPanel sessions={mockSessions} />)
@@ -355,12 +358,12 @@ describe('SessionsPanel - Session Switching', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -476,12 +479,12 @@ describe('SessionsPanel - New Session Button', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -543,12 +546,12 @@ describe('SessionsPanel - Delete Button States', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -682,12 +685,12 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     vi.clearAllMocks()
     setupChatStoreMock()
     mockListResearchRuns.mockResolvedValue({ jobs: [], total: 0 })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -782,12 +785,12 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
         resolveRuns = resolve
       })
     )
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: isPanelOpen,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { rerender } = render(

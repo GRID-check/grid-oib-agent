@@ -1,6 +1,8 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useSessionUrl } from './use-session-url'
+import { type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
 
 // Mock Next.js navigation hooks
 const mockRouter = {
@@ -30,8 +32,11 @@ const mockChatStore = {
 }
 
 vi.mock('@/features/chat', () => ({
-  useChatStore: vi.fn((selector?: (s: any) => any) =>
-    selector ? selector(mockChatStore) : mockChatStore
+  // `mockChatStore` doubles as the mock holder these tests reconfigure
+  // (`getUserConversations.mockReturnValue(...)`), so it keeps its inferred
+  // mock types and widens to the store only at this boundary.
+  useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) =>
+    selector ? selector(mockChatStore as unknown as ChatStoreWithHydration) : mockChatStore
   ),
 }))
 

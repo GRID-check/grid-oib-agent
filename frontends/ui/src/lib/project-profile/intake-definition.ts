@@ -1330,12 +1330,19 @@ export function buildIntakeProfile(
 
   const bundeslandPath = '/facts/bundesland'
 
+  // A patch value is either a bare primitive or a fact envelope
+  // (`{ value, confidence, source, updatedAt }`) depending on which producer
+  // emitted it; both forms have to yield the same token here.
+  const unwrapFactValue = (value: unknown): unknown =>
+    typeof value === 'object' && value !== null && 'value' in value
+      ? (value as { value: unknown }).value
+      : value
+
   // Derive country from bundesland for legacy profiles.
   const hasCountry = ctx.patch.some(p => p.path === '/facts/country')
   const bundeslandPatch = ctx.patch.find(p => p.path === bundeslandPath)
   if (!hasCountry && bundeslandPatch) {
-    const bValue = bundeslandPatch.value
-    const bToken = typeof bValue === 'object' && bValue ? (bValue as any).value : bValue
+    const bToken = unwrapFactValue(bundeslandPatch.value)
     if (typeof bToken === 'string' && bToken !== 'ausserhalb_oesterreichs' && (BUNDESLAND_TOKENS as readonly string[]).includes(bToken)) {
       ctx.patch.push({
         op: 'add',
@@ -1348,7 +1355,7 @@ export function buildIntakeProfile(
   // Derive bundesland for non-AT country.
   const countryFact = ctx.patch.find(p => p.path === '/facts/country')
   const hasBundesland = ctx.patch.some(p => p.path === bundeslandPath)
-  const countryValue = countryFact?.value && typeof countryFact.value === 'object' ? (countryFact.value as any).value : countryFact?.value
+  const countryValue = unwrapFactValue(countryFact?.value)
   if (countryFact && typeof countryValue === 'string' && countryValue !== 'at' && !hasBundesland) {
     ctx.patch.push({
       op: 'add',

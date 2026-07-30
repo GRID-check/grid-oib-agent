@@ -1,16 +1,18 @@
 import { render, screen } from '@/test-utils'
 import { vi, describe, test, expect } from 'vitest'
 import { ReportTab } from './ReportTab'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
 
 // Mock the chat store
 vi.mock('@/features/chat', () => ({
-  useChatStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
+    const state: DeepPartial<ChatStoreWithHydration> = {
       reportContent: '',
       isStreaming: false,
       currentStatus: null,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
 }))
 
@@ -41,14 +43,14 @@ describe('ReportTab', () => {
   })
 
   test('renders report content via MarkdownRenderer', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: '# Report Title\n\nReport content here',
         isStreaming: false,
         currentStatus: null,
         deepResearchCards: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -57,14 +59,14 @@ describe('ReportTab', () => {
   })
 
   test('renders title when provided', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: 'Some content',
         isStreaming: false,
         currentStatus: null,
         deepResearchCards: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -73,14 +75,14 @@ describe('ReportTab', () => {
   })
 
   test('shows generating indicator when streaming and writing', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: 'Partial content...',
         isStreaming: true,
         currentStatus: 'writing',
         deepResearchCards: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -108,8 +110,8 @@ describe('ReportTab', () => {
   })
 
   test('extracts a markdown sources section into an anchored list and linkifies [N] markers', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent:
           '# Report\n\nDuties differ [1].\n\n## Quellen\n1. OIB Richtlinie 2 — https://oib.or.at',
         reportContentCategory: 'final_report',
@@ -118,7 +120,7 @@ describe('ReportTab', () => {
         deepResearchCards: [],
         deepResearchCitations: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -132,8 +134,8 @@ describe('ReportTab', () => {
   })
 
   test('appends a sources list from run citations when the markdown has none', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: '# Report\n\nBody without a sources section.',
         reportContentCategory: 'final_report',
         isStreaming: false,
@@ -144,7 +146,7 @@ describe('ReportTab', () => {
           { id: 'c2', url: 'https://example.com/uncited', content: '', isCited: false },
         ],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -159,8 +161,8 @@ describe('ReportTab', () => {
     // This list printed `citation.url` as its whole content. A document source
     // has no URL, so it rendered an empty anchor — harmless only while KB
     // sources could never be marked cited at all.
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: '# Report\n\nBody without a sources section.',
         reportContentCategory: 'final_report',
         isStreaming: false,
@@ -181,7 +183,7 @@ describe('ReportTab', () => {
           },
         ],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -192,8 +194,8 @@ describe('ReportTab', () => {
   })
 
   test('renders an origin badge per source from the parsed token', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: [
           '# Report',
           '',
@@ -210,7 +212,7 @@ describe('ReportTab', () => {
         deepResearchCards: [],
         deepResearchCitations: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
@@ -226,8 +228,8 @@ describe('ReportTab', () => {
   })
 
   test('hides origin badges when the source-origin-badges flag is off, keeping plain token-stripped text', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent: [
           '# Report',
           '',
@@ -244,7 +246,7 @@ describe('ReportTab', () => {
         deepResearchCards: [],
         deepResearchCitations: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab showSourceBadges={false} />)
@@ -264,8 +266,8 @@ describe('ReportTab', () => {
   })
 
   test('renders no origin badge for sources without a token (backward compatible)', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent:
           '# Report\n\nDuties differ [1].\n\n## Quellen\n1. OIB Richtlinie 2 — https://oib.or.at',
         reportContentCategory: 'final_report',
@@ -274,7 +276,7 @@ describe('ReportTab', () => {
         deepResearchCards: [],
         deepResearchCitations: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<ReportTab />)
