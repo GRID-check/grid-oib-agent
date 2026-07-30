@@ -16,7 +16,8 @@
 import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { BadRequestError } from '@/lib/api/errors'
-import type { AuthorizedSession } from '@/lib/auth/types'
+import { requirePlatformOwner } from '@/lib/authz/platform'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import {
   ANSWER_FEEDBACK_REASONS,
   ANSWER_FEEDBACK_VERDICTS,
@@ -25,8 +26,10 @@ import {
 import type { AnswerFeedbackView, UpsertAnswerFeedbackInput } from './types'
 import {
   deleteAnswerFeedbackForUser,
+  getFeedbackHealth,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
+  type FeedbackHealth,
 } from './repository'
 
 /** Upsert the caller's vote on one assistant answer. */
@@ -86,4 +89,27 @@ export async function getOwnConversationFeedback(
 
 function toView(row: AnswerFeedback): AnswerFeedbackView {
   return { messageId: row.messageId, verdict: row.verdict, reason: row.reason ?? null }
+}
+
+/**
+ * The platform owner's cross-organization view of answer feedback.
+ *
+ * This is the one function in this service that is NOT tenant-scoped, and the
+ * gate is therefore the whole of its authorization: `requirePlatformOwner`
+ * throws `PlatformAccessDeniedError` for everyone else, and the repository read
+ * it wraps takes no `organizationId` at all. Keeping the guard here rather than
+ * in the route means a second caller cannot reach the data by forgetting it.
+ *
+ * Why a platform surface and not an org one: thumbs are collected everywhere and
+ * were, until now, readable nowhere — the product asked users for a signal and
+ * then had no way to look at it. The reader is whoever is answerable for answer
+ * quality across tenants, which is the same person the citation-health and
+ * profiler surfaces on this page already serve.
+ */
+export async function getAnswerFeedbackHealth(
+  session: GridSession | null,
+  windowDays?: number,
+): Promise<FeedbackHealth> {
+  await requirePlatformOwner(session)
+  return getFeedbackHealth(windowDays)
 }

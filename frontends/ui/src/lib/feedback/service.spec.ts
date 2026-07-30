@@ -8,17 +8,26 @@ vi.mock('./repository', () => ({
   upsertAnswerFeedback: vi.fn(),
   deleteAnswerFeedbackForUser: vi.fn(),
   listAnswerFeedbackForConversation: vi.fn(),
+  getFeedbackHealth: vi.fn(),
+}))
+
+vi.mock('@/lib/authz/platform', () => ({
+  requirePlatformOwner: vi.fn(),
+  PlatformAccessDeniedError: class PlatformAccessDeniedError extends Error {},
 }))
 
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
 import {
   deleteAnswerFeedbackForUser,
+  getFeedbackHealth,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
 } from './repository'
 import {
+  getAnswerFeedbackHealth,
   getOwnConversationFeedback,
   retractAnswerFeedback,
   submitAnswerFeedback,
@@ -169,5 +178,46 @@ describe('getOwnConversationFeedback', () => {
       { messageId: 'msg_1', verdict: 'up', reason: null },
       { messageId: 'msg_2', verdict: 'down', reason: 'too_slow' },
     ])
+  })
+})
+
+/**
+ * The cross-tenant read. Every other query in this domain is scoped by
+ * organizationId in SQL; this one is not scoped at all, so `requirePlatformOwner`
+ * IS its tenancy boundary — these two tests are the whole of what stops one
+ * organization's feedback reaching another.
+ */
+describe('getAnswerFeedbackHealth', () => {
+  beforeEach(() => {
+    vi.mocked(requirePlatformOwner).mockReset()
+    vi.mocked(getFeedbackHealth).mockReset()
+  })
+
+  it('refuses anyone who is not a platform owner, and does not read first', async () => {
+    vi.mocked(requirePlatformOwner).mockRejectedValue(new PlatformAccessDeniedError())
+
+    await expect(getAnswerFeedbackHealth({} as never)).rejects.toBeInstanceOf(
+      PlatformAccessDeniedError,
+    )
+    // The guard runs BEFORE the unscoped query — a refusal must not still have
+    // touched every tenant's rows.
+    expect(getFeedbackHealth).not.toHaveBeenCalled()
+  })
+
+  it('reads for a platform owner', async () => {
+    vi.mocked(requirePlatformOwner).mockResolvedValue(undefined)
+    vi.mocked(getFeedbackHealth).mockResolvedValue({
+      windowDays: 30,
+      totals: { up: 4, down: 1 },
+      reasons: [],
+      daily: [],
+      organizations: [],
+      defects: [],
+    } as never)
+
+    const health = await getAnswerFeedbackHealth({} as never)
+
+    expect(health.totals).toEqual({ up: 4, down: 1 })
+    expect(requirePlatformOwner).toHaveBeenCalledOnce()
   })
 })

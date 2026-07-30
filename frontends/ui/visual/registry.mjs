@@ -316,6 +316,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="mention-picker-preview"]',
   },
   {
+    id: 'answer-feedback',
+    mobile: true,
+    path: '/dev/answer-feedback',
+    description:
+      'Platform \u2192 answer quality: the thumbs users leave on answers, across every organization, and the questions behind the ones that missed. Written to since WS-7 and read by nobody until now. The numbers orient (negative rate, then a four-bar breakdown of why \u2014 zero-filled, so a reason nobody picked still shows and the bars keep their colours between loads); the defect list is the point. Includes the honest edge case: a down-vote whose turn was never persisted has no question to show, and says so rather than being dropped.',
+    waitFor: '[data-testid="answer-feedback-preview"]',
+  },
+  {
     id: 'engagement-notice',
     mobile: true,
     path: '/dev/engagement-notice',
