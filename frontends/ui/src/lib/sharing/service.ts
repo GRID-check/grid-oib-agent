@@ -291,6 +291,15 @@ async function assertInviteeCanReachContainer(
 /**
  * Change an existing person's role, enforcing the last-owner invariant
  * (spec SH-11).
+ *
+ * "Existing" is a precondition, not a description: `upsertGrant` is
+ * create-or-update, so without the check below a `role_changed` call naming an
+ * arbitrary user id would be a second, unchecked GRANT path — one that skips
+ * every invitee precondition `grantResourceAccess` enforces (the container check
+ * of spec SH-5, organization membership, the roster cap, the rate limit) and
+ * publishes no `resource.access.changed`, so the subject would gain access their
+ * clients never hear about. Access is only ever created by
+ * `grantResourceAccess`.
  */
 export async function changeResourceRole(
   session: AuthorizedSession,
@@ -300,6 +309,16 @@ export async function changeResourceRole(
   request?: Request,
 ): Promise<ResourceSharingState> {
   await requireResourceAccess(session, resourceType, resourceId, 'owner')
+
+  // Party to the resource by grant, or by having created it — the creator's
+  // ownership is not a grant row, yet the roster offers their role like any
+  // other (a no-op in effect, since resolution always re-adds `owner`).
+  const grants = await listGrantsForResource(session.organizationId, resourceType, resourceId)
+  if (!grants.some((grant) => grant.subjectUserId === input.subjectUserId)) {
+    const probe = await describeResource(resourceType).probe(resourceId)
+    if (probe?.createdBy !== input.subjectUserId) throw new NotFoundError()
+  }
+
   await assertNotLastOwner(session, resourceType, resourceId, input.subjectUserId, input.role === 'owner')
 
   await upsertGrant({

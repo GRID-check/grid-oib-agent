@@ -542,6 +542,11 @@ describe('changing visibility (matrix B8–B10, spec SH-2, SH-13, SH-14)', () =>
 })
 
 describe('changing a role (matrix B11–B13, spec MN-9.4)', () => {
+  // A role change edits an existing grant, so every case here starts from one.
+  beforeEach(() => {
+    stubGrants([{ subjectUserId: ANNA, role: 'collaborator' }])
+  })
+
   it('voids the open requests of someone downgraded to viewer', async () => {
     // A viewer has no composer, so a request waiting on them could never be
     // answered and the hand-off banner would wait forever.

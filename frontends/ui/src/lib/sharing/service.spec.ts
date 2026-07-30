@@ -63,7 +63,7 @@ vi.mock('./repository', () => ({
   SHARE_ROSTER_LIMIT: 200,
 }))
 
-import { BadRequestError, ConflictError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
@@ -271,6 +271,24 @@ describe('the container precondition (spec SH-5)', () => {
     )
     // No project, so no project question is asked.
     expect(canUserAccessProject).not.toHaveBeenCalled()
+  })
+
+  it('refuses a role change for someone who holds no grant — it is not a second grant path', async () => {
+    // `upsertGrant` is create-or-update, so a `role_changed` call naming an
+    // arbitrary user id would otherwise write a brand-new grant while skipping
+    // the container check, the roster cap and the rate limit above.
+    stubConversation('user_creator')
+    stubGrants([{ subjectUserId: 'user_owner', role: 'owner' }])
+
+    await expect(
+      changeResourceRole(session, 'conversation', 'conv_1', {
+        subjectUserId: 'user_outsider',
+        role: 'collaborator',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError)
+
+    expect(upsertGrant).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
   it('grants access to someone who can reach the project', async () => {
