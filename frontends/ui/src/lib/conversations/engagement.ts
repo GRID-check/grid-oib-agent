@@ -22,30 +22,36 @@ import 'server-only'
  * through a named, listable, human-authored standing instruction.
  *
  * So the mode is a fact about the thread:
- *   - `ask`     — a plain message goes to the assistant (today's behaviour, and
- *                 right for the single-author thread, which is nearly all of them);
+ *   - `ask`     — a plain message goes to the assistant;
  *   - `mention` — a plain message goes to the chat.
  *
- * And the transition between them is a *structural* signal, not an inference: the
- * moment a second human contributes, the thread is a conversation between people
- * and the assistant stops assuming every sentence is for it.
+ * **`ask` is the default and stays the default.** Piloti is the point of this
+ * product, not a guest in someone else's chat app: Slack and Teams default to
+ * mention-only because there the agent is the visitor and the human conversation is
+ * the ground truth. Importing that default here would invert what the product is
+ * for. A thread never changes its own routing.
+ *
+ * What the structural signal does instead is *offer*. Two or more people having
+ * written is a good reason to ASK whether the assistant should step back, and a bad
+ * reason to decide it for them — a colleague typing "danke" must not silently
+ * rewire who answers next. So the count produces a suggestion, and a human turns it
+ * into a mode.
  */
 
-import { eq, isNull, and, ne, sql } from 'drizzle-orm'
+import { eq, and, ne, sql } from 'drizzle-orm'
 
 import { getDb } from '@/lib/db'
 import { conversations, messages, type ConversationEngagement } from '@/lib/db/schema'
 
 /**
- * The mode a thread has when nothing is stored: `mention` once two or more
- * distinct people have written in it, `ask` otherwise.
+ * Whether it is worth OFFERING `mention` for a thread nobody has set a mode on.
  *
- * Coarse on purpose. A colleague saying "danke" flips it, and that is the
- * accepted cost of not judging what their message meant — which is the thing this
- * module declines to do. Any participant can set the mode back in one click.
+ * Not "what mode is this thread in" — that is always `ask` until somebody says
+ * otherwise. This is the suggestion, and the signal behind it is structural (how
+ * many people have written), never a judgement about what they wrote.
  */
-export function deriveEngagement(distinctHumanAuthors: number): ConversationEngagement {
-  return distinctHumanAuthors >= 2 ? 'mention' : 'ask'
+export function suggestEngagement(distinctHumanAuthors: number): ConversationEngagement | null {
+  return distinctHumanAuthors >= 2 ? 'mention' : null
 }
 
 /** How many distinct people have written a message in this thread. */
@@ -68,21 +74,38 @@ export async function countDistinctHumanAuthors(conversationId: string): Promise
 }
 
 /**
- * The mode in force for this thread, and whether it had to be derived.
+ * The mode in force, whether anybody chose it, and whether another is worth
+ * offering.
  *
- * `stored` is what a UI should offer to change; `mode` is what routing obeys.
+ * `mode` is what routing obeys. `stored` is null while nobody has chosen, which is
+ * what lets a UI say "you can change this" rather than "you changed this".
+ * `suggestion` is a mode worth offering, or null when the current one is fine.
  */
 export interface EngagementState {
   mode: ConversationEngagement
   stored: ConversationEngagement | null
+  suggestion: ConversationEngagement | null
 }
 
+/**
+ * Resolve the mode, and optionally the suggestion alongside it.
+ *
+ * `withSuggestion` is false on the message-write path: routing does not care
+ * whether a different mode would suit, and the author count is an aggregate not
+ * worth running per message. True on read, once per opened thread.
+ */
 export async function resolveEngagement(
   conversationId: string,
-  stored: ConversationEngagement | null
+  stored: ConversationEngagement | null,
+  options: { withSuggestion?: boolean } = {}
 ): Promise<EngagementState> {
-  if (stored) return { mode: stored, stored }
-  return { mode: deriveEngagement(await countDistinctHumanAuthors(conversationId)), stored: null }
+  const mode = stored ?? 'ask'
+  if (!options.withSuggestion) return { mode, stored, suggestion: null }
+  // A thread that has chosen is not nagged about the alternative.
+  const suggestion = stored
+    ? null
+    : suggestEngagement(await countDistinctHumanAuthors(conversationId))
+  return { mode, stored, suggestion }
 }
 
 /** The stored mode alone — a primary-key lookup, no derivation. */
@@ -99,40 +122,13 @@ export async function findStoredEngagement(
 }
 
 /**
- * The mode for a thread, reading the stored value itself.
+ * The mode for a thread on the WRITE path — one primary-key lookup, no aggregate.
  *
- * Lazy on purpose: called from the message-persist path only for a plain message
- * in a shared thread that is not already waiting on someone — so a solo thread
- * (nearly all of them) pays nothing, and once the mode is stored this is a single
- * primary-key lookup rather than the author-count aggregate.
+ * Called only for a plain message in a shared thread that is not already waiting on
+ * someone, so a solo thread (nearly all of them) pays nothing at all.
  */
 export async function resolveEngagementFor(conversationId: string): Promise<EngagementState> {
   return resolveEngagement(conversationId, await findStoredEngagement(conversationId))
-}
-
-/**
- * Persist the derived flip, once.
- *
- * Called after a human message lands in a shared thread. Guarded on
- * `engagement IS NULL`, so it can never overwrite a mode a participant set by
- * hand, and it is a no-op on every message after the first flip — which is the
- * point: without it, `countDistinctHumanAuthors` would run on every plain message
- * for the life of the thread.
- *
- * Returns true when THIS call performed the flip, so the caller can announce it
- * exactly once.
- */
-export async function persistDerivedEngagement(
-  conversationId: string,
-  mode: ConversationEngagement
-): Promise<boolean> {
-  const db = getDb()
-  const updated = await db
-    .update(conversations)
-    .set({ engagement: mode })
-    .where(and(eq(conversations.id, conversationId), isNull(conversations.engagement)))
-    .returning({ id: conversations.id })
-  return updated.length > 0
 }
 
 /** Set the mode explicitly. Any participant may; it is not an owner-only setting. */

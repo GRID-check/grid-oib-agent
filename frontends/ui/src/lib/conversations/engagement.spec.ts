@@ -17,10 +17,10 @@ vi.mock('@/lib/db', () => ({ getDb: () => mockDb }))
 
 import {
   countDistinctHumanAuthors,
-  deriveEngagement,
   findStoredEngagement,
-  persistDerivedEngagement,
   resolveEngagement,
+  setEngagement,
+  suggestEngagement,
 } from './engagement'
 
 /** `select().from().where()` resolving to `rows`, and `.limit()` where used. */
@@ -47,18 +47,19 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('deriveEngagement', () => {
-  it('is ask for a thread one person has written in', () => {
-    expect(deriveEngagement(0)).toBe('ask')
-    expect(deriveEngagement(1)).toBe('ask')
+describe('suggestEngagement', () => {
+  it('suggests nothing for a thread one person has written in', () => {
+    expect(suggestEngagement(0)).toBeNull()
+    expect(suggestEngagement(1)).toBeNull()
   })
 
-  it('is mention once a second person has written', () => {
-    // The structural signal, and the whole rule: a thread two people write in is
-    // a conversation between people, so a plain sentence stops being assumed to
-    // be a question for the assistant.
-    expect(deriveEngagement(2)).toBe('mention')
-    expect(deriveEngagement(7)).toBe('mention')
+  it('suggests mention once a second person has written', () => {
+    // A suggestion, emphatically not a mode. `ask` is what the thread still IS —
+    // Piloti is the point of this product, not a guest in someone else's chat app,
+    // so a second person writing is a reason to ask the humans, never to decide
+    // for them.
+    expect(suggestEngagement(2)).toBe('mention')
+    expect(suggestEngagement(7)).toBe('mention')
   })
 })
 
@@ -75,29 +76,42 @@ describe('countDistinctHumanAuthors', () => {
 })
 
 describe('resolveEngagement', () => {
-  it('obeys a stored mode without counting anything', async () => {
-    await expect(resolveEngagement('conv_1', 'mention')).resolves.toEqual({
-      mode: 'mention',
-      stored: 'mention',
+  it('is ask when nobody has chosen, however many people are talking', async () => {
+    // THE rule. A five-person thread still answers to Piloti until a human says
+    // otherwise; what the count buys is the suggestion beside it.
+    stubSelect([{ count: 5 }])
+    await expect(resolveEngagement('conv_1', null, { withSuggestion: true })).resolves.toEqual({
+      mode: 'ask',
+      stored: null,
+      suggestion: 'mention',
     })
+  })
+
+  it('suggests nothing while one person is talking', async () => {
+    stubSelect([{ count: 1 }])
+    await expect(resolveEngagement('conv_1', null, { withSuggestion: true })).resolves.toEqual({
+      mode: 'ask',
+      stored: null,
+      suggestion: null,
+    })
+  })
+
+  it('obeys a stored mode, and stops suggesting once somebody has chosen', async () => {
+    // A thread that has chosen is not nagged about the alternative — and the
+    // aggregate is not run to tell it something it already decided.
+    await expect(resolveEngagement('conv_1', 'mention', { withSuggestion: true })).resolves.toEqual(
+      { mode: 'mention', stored: 'mention', suggestion: null },
+    )
     expect(mockDb.select).not.toHaveBeenCalled()
   })
 
-  it('derives when nothing is stored, and says that it derived', async () => {
-    // `stored: null` is what tells a UI "this is not a choice anyone made yet",
-    // and what stops the settle step from overwriting a real choice.
-    stubSelect([{ count: 2 }])
+  it('counts nothing on the write path, where the suggestion is irrelevant', async () => {
+    // Routing does not care whether another mode would suit, and this runs per
+    // message — so the aggregate must not.
     await expect(resolveEngagement('conv_1', null)).resolves.toEqual({
-      mode: 'mention',
-      stored: null,
-    })
-  })
-
-  it('a stored ask survives a thread full of people — a choice outranks the rule', async () => {
-    stubSelect([{ count: 5 }])
-    await expect(resolveEngagement('conv_1', 'ask')).resolves.toEqual({
       mode: 'ask',
-      stored: 'ask',
+      stored: null,
+      suggestion: null,
     })
     expect(mockDb.select).not.toHaveBeenCalled()
   })
@@ -116,17 +130,14 @@ describe('findStoredEngagement', () => {
   })
 })
 
-describe('persistDerivedEngagement', () => {
-  it('reports whether THIS call performed the flip', async () => {
-    // The caller announces the transition, so "did I do it?" has to be the return
-    // value rather than something inferred — two participants writing at once
-    // must not announce it twice.
+describe('setEngagement', () => {
+  it('reports whether the row actually changed', async () => {
+    // Scoped by organization in SQL as well as by the caller's resolved access, and
+    // a no-op when it already says that — so a double-click is not a change.
     stubUpdate([{ id: 'conv_1' }])
-    await expect(persistDerivedEngagement('conv_1', 'mention')).resolves.toBe(true)
+    await expect(setEngagement('conv_1', 'org_1', 'mention')).resolves.toBe(true)
 
-    // The guard is `engagement IS NULL` in SQL, so a row that already has a mode
-    // updates nothing and the second caller learns it lost the race.
     stubUpdate([])
-    await expect(persistDerivedEngagement('conv_1', 'mention')).resolves.toBe(false)
+    await expect(setEngagement('conv_1', 'org_1', 'mention')).resolves.toBe(false)
   })
 })

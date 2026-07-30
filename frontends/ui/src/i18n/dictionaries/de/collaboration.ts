@@ -132,7 +132,7 @@ export const collaboration: typeof en.collaboration = {
       mentionLabel: 'Piloti antwortet, wenn er erwähnt wird',
       mentionHint: 'Hier sprechen zwei Personen — eine Nachricht ohne Erwähnung geht an den Chat.',
       switchToAsk: 'Piloti immer antworten lassen',
-      askLabel: 'Piloti antwortet hier auf alles',
+      offerHint: 'Hier schreiben mehrere Personen. Soll Piloti warten, bis er erwähnt wird?',
       switchToMention: 'Nur wenn erwähnt',
       failed: 'Die Änderung war nicht möglich.',
     },

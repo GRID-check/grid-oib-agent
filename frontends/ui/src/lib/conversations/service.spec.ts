@@ -69,7 +69,6 @@ vi.mock('@/lib/mentions/service', () => ({
 vi.mock('./engagement', () => ({
   resolveEngagement: vi.fn(),
   resolveEngagementFor: vi.fn(),
-  persistDerivedEngagement: vi.fn(),
   setEngagement: vi.fn(),
 }))
 
@@ -83,7 +82,7 @@ import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
 import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
-import { persistDerivedEngagement, resolveEngagement, resolveEngagementFor } from './engagement'
+import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
   deleteConversationInOrg,
   findConversationInOrg,
@@ -187,9 +186,8 @@ beforeEach(() => {
   // Default: `ask`, so a plain message asks Piloti. Set explicitly for the same
   // reason as `threadIsAwaitingHuman` above — `clearAllMocks` does not clear a
   // `mockResolvedValue`, so a test opting into `mention` would leak.
-  vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null })
-  vi.mocked(resolveEngagement).mockResolvedValue({ mode: 'ask', stored: null })
-  vi.mocked(persistDerivedEngagement).mockResolvedValue(true)
+  vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null, suggestion: null })
+  vi.mocked(resolveEngagement).mockResolvedValue({ mode: 'ask', stored: null, suggestion: null })
   vi.mocked(findConversationRead).mockResolvedValue(null)
   vi.mocked(resolveParticipants).mockResolvedValue([])
   vi.mocked(emitInboxItems).mockResolvedValue(0)
@@ -425,7 +423,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
    * never for it.
    */
   it('sends a plain message to the chat, not to Piloti, in a mention-mode thread', async () => {
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: 'mention' })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: 'mention', suggestion: null })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Danke Anna, dann nehmen wir 1,20 m.' },
@@ -435,7 +433,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   })
 
   it('still answers a plain message in an ask-mode thread — the default is unchanged', async () => {
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null, suggestion: null })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
@@ -449,7 +447,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     // thread explicitly waiting on Anna never pays for the mode lookup and can
     // never be overridden by an `ask` mode into waking the agent.
     vi.mocked(threadIsAwaitingHuman).mockResolvedValue(true)
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: 'ask' })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: 'ask', suggestion: null })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Kein Stress, wann du dazu kommst.' },
@@ -464,7 +462,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   it('resolves the mode at most once for a batch, however many messages it carries', async () => {
     // The ruling and the settle-the-flip step both need the mode. Resolving it
     // twice was a duplicate query on every plain message in every shared thread.
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: null })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: null, suggestion: null })
 
     await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Erstens…' },
@@ -474,27 +472,24 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     expect(resolveEngagementFor).toHaveBeenCalledTimes(1)
   })
 
-  it('settles the derived mode once, and never overwrites a chosen one', async () => {
-    // The second human has written, so the thread is now a conversation between
-    // people. Persisted so the author-count aggregate does not run on every plain
-    // message for the life of the thread.
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: null })
+  it('writing a message never changes the thread\u2019s own mode', async () => {
+    // The load-bearing constraint. Piloti is the point of this product, not a guest
+    // in someone else\u2019s chat app, so `ask` stays the default however many people
+    // are talking — a colleague typing "danke" must not silently rewire who answers
+    // next. A second person writing produces an OFFER on read, never a write here.
+    vi.mocked(resolveEngagementFor).mockResolvedValue({
+      mode: 'ask',
+      stored: null,
+      suggestion: 'mention',
+    })
 
-    await createConversationMessages(session, CONVERSATION_ID, [
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Passt.' },
     ])
 
-    expect(persistDerivedEngagement).toHaveBeenCalledWith(CONVERSATION_ID, 'mention')
-  })
-
-  it('writes nothing when the mode was already chosen by a participant', async () => {
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: 'mention' })
-
-    await createConversationMessages(session, CONVERSATION_ID, [
-      { id: 'msg_1', role: 'user', content: 'Passt.' },
-    ])
-
-    expect(persistDerivedEngagement).not.toHaveBeenCalled()
+    // Still answered by Piloti, and nothing was persisted about the mode.
+    expect(persisted.addressees).toEqual({ agent: true, users: [] })
+    expect(setEngagement).not.toHaveBeenCalled()
   })
 
   it('never pays for the awaiting lookup on a solo thread', async () => {

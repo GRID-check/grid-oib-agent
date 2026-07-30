@@ -16,9 +16,15 @@
  *   - the control, because the person who wants the rule different is exactly the
  *     person reading the explanation.
  *
- * Shown only in `mention` mode. In `ask` mode the composer's "Geht an Piloti"
- * already says everything true, and a second line saying the same thing would be
- * furniture (spec NF-8).
+ * Two shapes, and the difference matters:
+ *
+ *   - in `mention` mode it STATES the rule and offers the way back;
+ *   - in `ask` mode it is silent unless the server suggests otherwise, in which
+ *     case it OFFERS `mention` — it never announces a change, because no change
+ *     happened. `ask` is the default and stays the default however many people are
+ *     in the thread: Piloti is the point of this product, not a guest in someone
+ *     else's chat app, and a thread must not rewire who answers next because a
+ *     colleague typed "danke".
  */
 
 import { useState } from 'react'
@@ -33,6 +39,12 @@ export interface EngagementNoticeProps {
   /** The mode in force, already resolved server-side. */
   mode: ConversationEngagement
   /**
+   * A mode worth offering, or null. Server-derived from a structural fact (how
+   * many people have written here), never from a judgement about what they wrote —
+   * and never applied on its own.
+   */
+  suggestion?: ConversationEngagement | null
+  /**
    * Change it. Resolves false when the server refused, which must be visible —
    * a control that silently does nothing is worse than no control.
    */
@@ -44,6 +56,7 @@ export interface EngagementNoticeProps {
 
 export function EngagementNotice({
   mode,
+  suggestion = null,
   onChange,
   canChange = true,
   className,
@@ -52,13 +65,17 @@ export function EngagementNotice({
   const [saving, setSaving] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  if (mode !== 'mention') return null
+  const offering = mode === 'ask' ? suggestion : 'ask'
+  // `ask` with nothing to offer is the ordinary case: the composer's "Geht an
+  // Piloti" already says everything true, and a line repeating it is furniture
+  // (spec NF-8). An offer nobody may accept is not worth stating either.
+  if (mode === 'ask' && (!suggestion || !canChange)) return null
 
-  const change = async (): Promise<void> => {
+  const change = async (next: ConversationEngagement): Promise<void> => {
     setSaving(true)
     setFailed(false)
     try {
-      if ((await onChange('ask')) === false) setFailed(true)
+      if ((await onChange(next)) === false) setFailed(true)
     } catch {
       setFailed(true)
     } finally {
@@ -76,21 +93,29 @@ export function EngagementNotice({
       )}
     >
       <AtSign className="size-3.5 shrink-0" aria-hidden />
-      <span className="text-foreground/80 font-medium">
-        {t('mentions.engagement.mentionLabel')}
-      </span>
-      <span className="min-w-0">{t('mentions.engagement.mentionHint')}</span>
+      {mode === 'mention' ? (
+        <>
+          <span className="text-foreground/80 font-medium">
+            {t('mentions.engagement.mentionLabel')}
+          </span>
+          <span className="min-w-0">{t('mentions.engagement.mentionHint')}</span>
+        </>
+      ) : (
+        <span className="min-w-0">{t('mentions.engagement.offerHint')}</span>
+      )}
 
-      {canChange && (
+      {canChange && offering && (
         <Button
           variant="ghost"
           size="sm"
           className="h-6 px-1.5 text-xs underline-offset-2 hover:underline"
           disabled={saving}
-          onClick={() => void change()}
+          onClick={() => void change(offering)}
         >
           {saving && <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />}
-          {t('mentions.engagement.switchToAsk')}
+          {offering === 'ask'
+            ? t('mentions.engagement.switchToAsk')
+            : t('mentions.engagement.switchToMention')}
         </Button>
       )}
 

@@ -185,7 +185,13 @@ export const collaboration = {
       mentionLabel: 'Piloti answers when mentioned',
       mentionHint: 'Two of you are talking here, so a plain message goes to the chat.',
       switchToAsk: 'Let Piloti answer everything',
-      askLabel: 'Piloti answers everything here',
+      /**
+       * The OFFER, shown while the thread is still in `ask`. Phrased as a
+       * question about the future, never as a report of a change — because no
+       * change happened, and `ask` remains the default however many people are
+       * here.
+       */
+      offerHint: 'Several of you are talking here. Should Piloti wait to be mentioned?',
       switchToMention: 'Only when mentioned',
       failed: 'That could not be changed.',
     },

@@ -74,6 +74,8 @@ interface ConversationAccessFacts {
   myReadState?: { lastReadMessageId: string | null } | null
   /** When the agent answers a message that tags nobody (ADR-0036). */
   engagementMode?: ConversationEngagement
+  /** A mode worth offering, never one that has been applied. */
+  engagementSuggestion?: ConversationEngagement | null
 }
 
 /** Who the agent is currently working for (spec CC-13). */
@@ -137,6 +139,11 @@ export interface UseSharedThreadResult {
    * the next message and the routing that delivers it must come from one answer.
    */
   engagement: ConversationEngagement
+  /**
+   * A mode worth offering the reader, or null. `ask` stays the default however
+   * many people are in the thread — this is a suggestion, not a change.
+   */
+  engagementSuggestion: ConversationEngagement | null
   /** Change the rule. Resolves false when the server refused. */
   setEngagement: (mode: ConversationEngagement) => Promise<boolean>
   /** Force a re-read. Same path the focus/poll fallbacks use. */
@@ -155,6 +162,7 @@ const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf' | 'setEngagement
   // A gated or private thread answers everything, which is what it has always
   // done — the mode can only ever narrow a SHARED thread.
   engagement: 'ask',
+  engagementSuggestion: null,
 }
 
 /**
@@ -192,6 +200,9 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   // `ask` until the server says otherwise: it is the behaviour every thread had
   // before this existed, so a load that has not landed yet cannot change routing.
   const [engagement, setEngagementState] = useState<ConversationEngagement>('ask')
+  const [engagementSuggestion, setEngagementSuggestion] = useState<ConversationEngagement | null>(
+    null
+  )
   const [loading, setLoading] = useState(false)
   const [participants, setParticipants] = useState<DirectoryPerson[]>([])
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
@@ -353,6 +364,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         setShared(isShared)
         setMyRole(facts.myRole ?? null)
         setEngagementState(facts.engagementMode ?? 'ask')
+        setEngagementSuggestion(facts.engagementSuggestion ?? null)
         // Hand the answer to the agent-socket gate (`useWebSocketChat`). This read
         // is the ONLY place sharedness is learned, and the composer lives in a
         // sibling component — publishing it here is what keeps the composer from
@@ -554,6 +566,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         }
         const facts = (await response.json()) as ConversationAccessFacts
         setEngagementState(facts.engagementMode ?? mode)
+        // A mode that has been chosen is not nagged about the alternative.
+        setEngagementSuggestion(facts.engagementSuggestion ?? null)
         return true
       } catch {
         setEngagementState(previous)
@@ -575,6 +589,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       unreadAfterMessageId,
       lastArrival,
       engagement,
+      engagementSuggestion,
       setEngagement,
       refresh,
     }),
@@ -589,6 +604,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       unreadAfterMessageId,
       lastArrival,
       engagement,
+      engagementSuggestion,
       setEngagement,
       refresh,
     ]

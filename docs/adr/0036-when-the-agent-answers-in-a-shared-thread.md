@@ -35,17 +35,26 @@ field to its JSON is nearly free.
 
 Two bodies of evidence say do not do it that way.
 
-### 1. Nobody ships this, and the ones who don't have thought about it
+### 1. Nobody makes this the default, and the ones who don't have thought about it
 
-- **Claude in Slack (Claude Tag).** Engagement is deterministic: `@`-mention, or a DM.
-  There is no documented "was this addressed to me?" inference anywhere in the product.
-  What it *does* have is **routines** — standing work a human writes in the channel in
-  plain language ("watch #eng-announce and post here once a day if anything is relevant
-  to user education"). A routine is created by a person, scoped to a channel, listed on
-  demand (`@Claude !routines`), edited by describing the change, disabled by name, and
+- **Claude in Slack (Claude Tag).** Reactive by default: `@`-mention, or a DM. Two
+  paths exist beyond that, and both are opt-in rather than inferred.
+  **Routines** are standing work a human writes in the channel in plain language
+  ("watch #eng-announce and post here once a day if anything is relevant to user
+  education") — created by a person, scoped to a channel, listed on demand
+  (`@Claude !routines`), edited by describing the change, disabled by name, and
   documented to post *only when something changed*. Even the automatic-triage recipe
-  keeps the mention as the trigger — "when someone tags you on a request, …" — and only
-  changes what happens afterwards.
+  keeps the mention as the trigger — "when someone tags you on a request, …".
+  **Ambient mode** goes further: once an admin enables it *per channel*, Claude
+  "acts on its own" and decides what is worth surfacing. It is off by default, the
+  docs describe no noise controls (no frequency cap, confidence floor or
+  only-on-change rule), the named risks are cross-channel context bleed, compliance
+  exposure, faster token burn and a maturing audit trail, and it is explicitly
+  recommended off for quiet channels where "an agent volunteering opinions
+  unprompted" would annoy people. So the accurate reading is not "proactivity is
+  unavailable" — it is that proactivity is a deliberate, container-scoped switch
+  with acknowledged costs, and never a general inference about whether a particular
+  message was addressed to the agent.
 - **Microsoft Teams.** "By default, agents in group chats and channels only receive
   messages when they're directly @mentioned." Receiving everything requires
   resource-specific consent — an explicit, admin-granted capability on the installed app.
@@ -58,6 +67,17 @@ Two bodies of evidence say do not do it that way.
 
 The convergence is not timidity. It is that a deterministic trigger is the only version
 where the interface can promise something before the user presses send.
+
+**But the comparison has a limit, and it bounds how much of this transfers.** Slack and
+Teams are *human chat applications where the agent is a guest*: the human conversation is
+the ground truth and an agent that speaks unbidden is intruding, so mention-only is the
+correct default there. Piloti is the inverse — an *assistant product where the humans are
+the guests*. Chatting to Piloti is the point of the product; a colleague joining a thread
+is the addition. Importing Slack's default here would invert what the product is for, and
+would be the "turning this into a chat app" failure the product owner named explicitly.
+Linear is the sounder comparison, because it is agent-native rather than a chat app, and
+its transferable principle is about *accountability* — delegation, disclosure, visible
+state — not about who speaks first.
 
 ### 2. The model is bad at precisely this question
 
@@ -96,34 +116,41 @@ a message was for.**
 2. **Row four is governed by a per-thread `engagement` mode**, stored on the conversation,
    with two values:
 
-   - **`ask`** — a plain message goes to Piloti. Today's behaviour, and the right one for
-     the overwhelming majority of threads, which have one human in them.
+   - **`ask`** — a plain message goes to Piloti.
    - **`mention`** — a plain message goes to the chat; Piloti answers only when tagged.
-     The Slack/Teams/Linear default, and what a genuine multi-person discussion wants.
 
-3. **The mode flips on a structural signal, not a judgement.** A thread starts in `ask`.
-   The first time a *second human* contributes, it moves to `mention` and says so once,
-   inline, in the thread. Participant count and message authorship are facts we hold;
-   this costs nothing and is explainable in one sentence.
+3. **`ask` is the default and stays the default.** A thread never changes its own routing,
+   however many people are in it. This is the point at which this ADR departs from the
+   Slack/Teams default, and it departs deliberately: see the limit of the comparison
+   above. Concretely, a colleague typing "danke" must not silently rewire who answers the
+   next message.
 
-4. **Any participant can set the mode explicitly, and see it.** The composer's addressee
-   line states the current mode in every state, and is the control that changes it. A mode
-   the user cannot see is a mode they will be surprised by.
+4. **The structural signal produces an OFFER, not a change.** Two or more distinct people
+   having written is a good reason to *ask* whether the assistant should step back, and a
+   bad reason to decide it for them. So the author count yields a suggestion, a human
+   turns it into a mode, and the offer stops once anybody has chosen. Participant count
+   and message authorship are facts we hold; the suggestion costs one aggregate per
+   opened thread and nothing per message.
 
-5. **The composer keeps a hard promise in both modes.** Before sending, the user is told
+5. **The mode is visible wherever it has consequences, and it is the control.** In
+   `mention` mode a permanent one-liner states the rule and offers the way back — present
+   at the moment the reader asks "why didn't Piloti answer that?", which is not the moment
+   the mode was set. In `ask` mode it is silent unless there is something to offer.
+
+6. **The composer keeps a hard promise in both modes.** Before sending, the user is told
    who receives the message, and that statement is always true. This is the property the
    listener design cannot have, and it is not negotiable.
 
-6. **A non-addressed human message still reaches the agent as context, not as a turn.**
+7. **A non-addressed human message still reaches the agent as context, not as a turn.**
    Unchanged from the current `context_only` path: `aupdate_state` into the checkpoint, no
    LLM call, no frames, no tokens. The agent stays current without answering.
 
-7. **The classifier's extra job is content, never structure.** When the agent *is*
+8. **The classifier's extra job is content, never structure.** When the agent *is*
    addressed in a multi-person thread it receives the participant roster and per-message
    author attribution, so its answer can be addressed to the right person. It is never
    asked whether it was addressed.
 
-8. **Standing instructions are the future path for proactivity, and they are explicit.**
+9. **Standing instructions are the future path for proactivity, and they are explicit.**
    If Piloti should ever speak unbidden, it will be because a human wrote a named,
    listable, disableable rule for this thread ("watch this thread and flag anything that
    contradicts the OIB guideline"), evaluated on an event or a schedule and posting only on
@@ -134,9 +161,12 @@ a message was for.**
 
 ### Positive
 
-- The reported bug is fixed by construction rather than mitigated: in a thread where two
-  humans are talking, a plain message goes to the chat, so Piloti cannot answer a message
-  meant for Anna.
+- The reported bug becomes fixable in one click, by whoever is in the room, with the
+  thread's behaviour stated on screen — rather than being traded for a different surprise
+  in the other direction.
+- The product's own premise survives: Piloti remains the default recipient, so the
+  single-author thread (the overwhelming majority of use) is byte-identical to today and
+  a shared thread does not quietly become a chat app.
 - Zero added LLM calls. Row four costs what it costs today.
 - Every routing outcome is explainable to a user in one sentence, and reproducible.
 - The composer's promise survives, which is what users actually complained about not
@@ -148,20 +178,26 @@ a message was for.**
 
 - **A user in `mention` mode must tag Piloti to get an answer.** That is one extra
   gesture, in exactly the situation where the gesture carries meaning. Mitigated by the
-  mode being visible and switchable, and by the transition being announced.
+  mode being stated on screen and switchable by anyone in the thread.
+- **The reported bug is not fixed until somebody accepts the offer.** A multi-person
+  thread that ignores the suggestion keeps sending plain messages to Piloti, and can still
+  produce the "Piloti answered a message meant for Anna" moment. Accepted knowingly: the
+  alternative is a product that changes its own behaviour behind the user's back, and the
+  offer sits directly above the composer where the problem occurs.
 - **A new piece of per-thread state**, which is a thing that can be wrong. Mitigated by
   making it derivable: with no stored value, the mode is computed from the participant
   count, so an absent value is never a broken thread.
-- **The mode transition can surprise someone mid-thread** — a plain message that would
-  have gone to Piloti now goes to the chat. This is why the flip is announced inline and
-  the composer's line changes at the same moment.
+- **Accepting the offer changes behaviour for everyone in the thread**, including people
+  who did not accept it. This is why the `mention`-mode line is permanent rather than
+  dismissible: whoever wonders why Piloti went quiet finds the reason, and the way back,
+  in the same place.
 
 ### Risks
 
-- **The flip fires on a colleague merely saying "danke".** A second human contributing at
-  all is a coarse signal. Accepted deliberately: the alternative is judging what their
-  message meant, which is the thing this ADR declines to do. Any participant can set the
-  mode back in one click.
+- **The offer appears when a colleague merely says "danke".** A second human contributing
+  at all is a coarse signal, so the suggestion will sometimes be premature. Accepted
+  deliberately, and much cheaper than it was when the same signal *changed* the routing:
+  a premature offer is a line of text somebody ignores.
 - **Two threads, two behaviours** — the same criticism ADR-0033 accepts for its own seam.
   Mitigated by the composer stating the current behaviour rather than expecting the user
   to infer it.
@@ -181,6 +217,11 @@ a message was for.**
   message was for me" — Matthias asking Anna a question satisfies the first and fails the
   second. Kept in reserve as a possible confidence floor *inside* an explicitly opted-in
   proactive routine (§8), where the user has already said they want to be interrupted.
+- **Flip the mode automatically on the second human author.** Built first, and reverted
+  before it shipped. It fixes the reported bug without anyone acting, which is genuinely
+  attractive — but it imports the default of products where the agent is a guest into one
+  where the agent is the point, and it means a thread rewires who answers next without a
+  person deciding. The offer keeps the whole mechanism and moves the decision to a human.
 - **Keep row four as "always Piloti unless waiting".** Rejected: this is the shipped
   behaviour and it is the reported bug. A wait clears the moment the colleague replies, so
   the very next message — the one most likely to be a human reply to a human — goes to the
@@ -194,9 +235,10 @@ a message was for.**
 
 - ../design/collaboration-sharing-and-inbox-spec.md — MN-1, MN-7
 - ADR-0034 (and its 2026-07-30 addendum on the two-state routing model)
-- Claude in Slack: engagement triggers and routines —
+- Claude in Slack: engagement triggers, routines and ambient mode —
   https://support.claude.com/en/articles/12461605-use-claude-in-slack,
-  https://claude.com/docs/claude-tag/users/proactivity
+  https://claude.com/docs/claude-tag/users/proactivity,
+  https://claude.com/docs/claude-tag/users/use-cases/watch-monitors
 - Microsoft Teams, agents in channel and group conversations —
   https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations
 - Linear, approach to the Agent Interaction SDK —

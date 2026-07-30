@@ -12,9 +12,45 @@ import userEvent from '@testing-library/user-event'
 import { EngagementNotice } from './EngagementNotice'
 
 describe('EngagementNotice', () => {
-  test('renders nothing in ask mode — the composer already says everything true', () => {
-    // A second line repeating "Geht an Piloti" would be furniture (NF-8).
+  test('renders nothing in ask mode with nothing to offer — the composer already says it (NF-8)', () => {
     const { container } = render(<EngagementNotice mode="ask" onChange={vi.fn()} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  /**
+   * The load-bearing distinction. `ask` is the default and stays the default
+   * however many people are in the thread — Piloti is the point of this product,
+   * not a guest in someone else's chat app. So a multi-person thread gets a
+   * QUESTION about the future, never a report of a change that already happened
+   * behind the reader's back.
+   */
+  test('offers mention in ask mode, phrased as a question and not as a change', () => {
+    render(<EngagementNotice mode="ask" suggestion="mention" onChange={vi.fn()} />)
+
+    const notice = screen.getByTestId('engagement-notice')
+    expect(notice).toHaveTextContent(
+      'Several of you are talking here. Should Piloti wait to be mentioned?',
+    )
+    // Nothing that claims the rule already changed.
+    expect(notice).not.toHaveTextContent('Piloti answers when mentioned')
+  })
+
+  test('accepting the offer sets mention', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn().mockResolvedValue(true)
+    render(<EngagementNotice mode="ask" suggestion="mention" onChange={onChange} />)
+
+    await user.click(screen.getByRole('button', { name: 'Only when mentioned' }))
+
+    expect(onChange).toHaveBeenCalledWith('mention')
+  })
+
+  test('an offer nobody may accept is not shown at all', () => {
+    // A viewer cannot change the rule, and an un-actionable suggestion is noise —
+    // unlike the `mention`-mode line, which explains behaviour they can see.
+    const { container } = render(
+      <EngagementNotice mode="ask" suggestion="mention" onChange={vi.fn()} canChange={false} />,
+    )
     expect(container).toBeEmptyDOMElement()
   })
 

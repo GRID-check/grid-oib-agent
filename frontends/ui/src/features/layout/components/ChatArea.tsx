@@ -134,6 +134,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     lastArrival,
     participants,
     engagement,
+    engagementSuggestion,
     setEngagement,
     authorOf,
   } = useSharedThread({
@@ -740,15 +741,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 })}
               </AnimatePresence>
 
-              {/* The standing routing rule for a message that tags nobody
-              (ADR-0036), stated where the question occurs — "why didn't Piloti
-              answer that?" — and changeable by whoever is reading it. Renders
-              nothing in `ask` mode, where the composer's "Geht an Piloti" already
-              says everything true. Above the banner because this is the rule while
-              the banner is a transient state. */}
+              {/* The routing rule for a message that tags nobody (ADR-0036).
+              In `mention` mode it states the rule where the question occurs —
+              "why didn't Piloti answer that?" — and offers the way back. In `ask`
+              mode, which is the default and stays the default, it is silent unless
+              the server suggests otherwise, and then it OFFERS rather than
+              announces: a thread must not rewire who answers next on its own.
+              Above the banner because this is the standing rule while the banner
+              is a transient state. */}
               {shared && (
                 <EngagementNotice
                   mode={engagement}
+                  suggestion={engagementSuggestion}
                   onChange={setEngagement}
                   canChange={myRole !== 'viewer'}
                 />

@@ -82,6 +82,7 @@ const INERT_SHARED_THREAD = {
   lastArrival: null as { messageId: string; authorUserId: string | null; authorName: string | null } | null,
   authorOf: (_userId?: string | null) => null as { userId: string; name: string } | null,
   engagement: 'ask' as 'ask' | 'mention',
+  engagementSuggestion: null as 'ask' | 'mention' | null,
   setEngagement: async (_mode: 'ask' | 'mention') => true,
   refresh: () => {},
 }
@@ -1104,13 +1105,32 @@ describe('ChatArea — the engagement notice is reachable', () => {
     )
   })
 
-  test('an ask-mode thread stays quiet about it', () => {
+  test('an ask-mode thread with nothing to offer stays quiet about it', () => {
     mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, engagement: 'ask' }
     setThread(thread())
 
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.queryByTestId('engagement-notice')).not.toBeInTheDocument()
+  })
+
+  test('a multi-person ask-mode thread is OFFERED mention, and still answers to Piloti', () => {
+    // The correction that matters: `ask` stays the default however many people are
+    // here. A second person writing produces a question for the humans, never a
+    // change the thread made to itself.
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      engagement: 'ask',
+      engagementSuggestion: 'mention',
+    }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
+      'Should Piloti wait to be mentioned?',
+    )
   })
 
   test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {

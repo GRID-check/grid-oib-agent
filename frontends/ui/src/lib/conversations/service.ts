@@ -52,7 +52,6 @@ import { isShared, requireResourceAccess } from '@/lib/sharing/access'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 import {
-  persistDerivedEngagement,
   resolveEngagement,
   resolveEngagementFor,
   setEngagement,
@@ -146,6 +145,13 @@ export interface ConversationWithAccess extends Conversation {
    */
   engagementMode: ConversationEngagement
   engagementStored: ConversationEngagement | null
+  /**
+   * A mode worth OFFERING, or null. Never applied on its own: `ask` stays the
+   * default however many people are in the thread, because Piloti is the point of
+   * the product rather than a guest in it, and a thread must not rewire who
+   * answers next because a colleague typed "danke".
+   */
+  engagementSuggestion: ConversationEngagement | null
 }
 
 export interface ListConversationsFilter {
@@ -203,8 +209,8 @@ export async function getConversation(
   // Derived only for a shared thread, and only on open. A solo thread is always
   // `ask` by definition — one author — so it pays for no aggregate.
   const engagement = shared
-    ? await resolveEngagement(conversationId, conversation.engagement)
-    : { mode: 'ask' as const, stored: conversation.engagement }
+    ? await resolveEngagement(conversationId, conversation.engagement, { withSuggestion: true })
+    : { mode: 'ask' as const, stored: conversation.engagement, suggestion: null }
 
   return {
     ...conversation,
@@ -216,6 +222,7 @@ export async function getConversation(
       : null,
     engagementMode: engagement.mode,
     engagementStored: engagement.stored,
+    engagementSuggestion: engagement.suggestion,
   }
 }
 
@@ -685,29 +692,6 @@ export async function createConversationMessages(
   })
 
   const humanMessages = persisted.filter((message) => message.role === 'user')
-
-  // The thread just became a conversation between PEOPLE (ADR-0036). Structural,
-  // not a judgement: a second distinct human has now written here, so a plain
-  // message stops being assumed to be a question for the assistant. Persisted
-  // once — guarded on `engagement IS NULL`, so it can never overwrite a mode a
-  // participant chose, and every later message reads the stored value instead of
-  // recounting authors. Best-effort: the message is already stored, and the mode
-  // derives to the same answer on the next read if this write is lost.
-  // Settled only when the ruling above actually resolved the mode, so this costs
-  // no query of its own — ever. Skipping it on the other paths is safe because
-  // the stored value is nothing but a cache of the derivation: a thread whose
-  // messages all tag someone, or that is waiting on a named person, is not asking
-  // the mode question, and the next plain message derives the same answer.
-  if (shared && humanMessages.length > 0 && engagementState) {
-    const { mode, stored } = engagementState
-    if (!stored && mode === 'mention') {
-      try {
-        await persistDerivedEngagement(conversationId, mode)
-      } catch (error) {
-        console.warn('[conversations] settling the engagement mode failed (non-fatal):', error)
-      }
-    }
-  }
 
   // A contribution from a human closes whatever that person was asked in this
   // thread (spec MN-9.1, MN-16). Best-effort: the message is already stored, and
