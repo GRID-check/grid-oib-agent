@@ -1,6 +1,7 @@
 """Request and response models for knowledge API endpoints."""
 
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -122,6 +123,113 @@ class GenerateConversationTitleResponse(BaseModel):
             "Failure code when naming could not complete "
             "(e.g. llm_not_configured, llm_request_failed, llm_response_malformed); "
             "None on success"
+        ),
+    )
+
+
+#: Ceiling on the sampled questions a digest request may carry. Enforced on the
+#: schema so an oversized list is refused at parse time; the route slices to the
+#: same bound for callers that are within it.
+MAX_DIGEST_SAMPLES = 60
+
+
+class FeedbackDigestTopic(BaseModel):
+    """Votes on one OIB topic tag, for the digest's per-topic reading."""
+
+    topic: str = Field(..., description="Conversation topic tag key (e.g. 'brandschutz')")
+    up: int = Field(0, ge=0, description="Helpful votes on conversations carrying this tag")
+    down: int = Field(0, ge=0, description="Unhelpful votes on conversations carrying this tag")
+
+
+class FeedbackDigestOrgShare(BaseModel):
+    """One organization's vote counts, DELIBERATELY without its identifier.
+
+    The digest needs to know whether a problem is spread across tenants or is
+    one tenant's, which is a question about the shape of the distribution, not
+    about who is in it. Sending the ids would put tenant identities in a
+    third-party model's request log to buy a naming the reader already has: the
+    per-organization table sits directly under the digest on the same screen.
+    """
+
+    up: int = Field(0, ge=0)
+    down: int = Field(0, ge=0)
+
+
+class FeedbackDigestSample(BaseModel):
+    """One rated question, as the digest's only free-text evidence.
+
+    The QUESTION only — never the answer. Naming themes needs what people asked;
+    it does not need the generated text back, and answers are the long half.
+    """
+
+    verdict: Literal["up", "down"] = Field(..., description="'up' or 'down'")
+    reason: str | None = Field(None, description="Down-vote reason key, when the vote carried one")
+    topics: list[str] = Field(default_factory=list, description="Topic tag keys of the conversation")
+    question: str = Field(..., description="The user's question, truncated by the caller")
+
+
+class FeedbackDigestRequest(BaseModel):
+    """Request body for the plain-language answer-feedback digest.
+
+    An aggregate plus a bounded sample of questions. Everything identifying —
+    organization ids, user ids, conversation ids — is stripped by the caller;
+    what arrives is counts and questions.
+    """
+
+    window_days: int = Field(30, ge=1, le=365, description="Days of history the aggregate covers")
+    answers: int = Field(0, ge=0, description="Assistant answers produced in the window (the denominator)")
+    up: int = Field(0, ge=0, description="Helpful votes")
+    down: int = Field(0, ge=0, description="Unhelpful votes")
+    voters: int = Field(0, ge=0, description="Distinct people who voted")
+    down_voters: int = Field(0, ge=0, description="Distinct people behind the unhelpful votes")
+    reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description="Down-vote reason key → count",
+    )
+    topics: list[FeedbackDigestTopic] = Field(default_factory=list, description="Per-topic vote counts")
+    organizations: list[FeedbackDigestOrgShare] = Field(
+        default_factory=list,
+        description="Per-organization vote counts, anonymised (see FeedbackDigestOrgShare)",
+    )
+    trend_delta_points: float | None = Field(
+        None,
+        description=(
+            "Change in the helpful rate in percentage points, last third of the window "
+            "against the first third. Positive = improving. None when too sparse to read."
+        ),
+    )
+    samples: list[FeedbackDigestSample] = Field(
+        default_factory=list,
+        description="Bounded sample of rated questions, both directions",
+        # Bounded at the schema, not only by the route's slice: an unknown
+        # verdict would otherwise fall silently into the "disliked" bucket, and
+        # an oversized list would be fully parsed before being truncated.
+        max_length=MAX_DIGEST_SAMPLES,
+    )
+    locale: str = Field("de", description="UI locale ('de' or 'en') — the language the digest is written in")
+
+
+class FeedbackDigestResponse(BaseModel):
+    """The digest: a headline plus what is working and what is not.
+
+    ``strengths`` and ``concerns`` are separate REQUIRED fields rather than one
+    list of observations, because that is the whole point of the endpoint: a
+    summary free to return only problems will return only problems, and the
+    surface this backs was already too good at that.
+    """
+
+    headline: str = Field("", description="Two or three plain sentences summarising the window")
+    strengths: list[str] = Field(default_factory=list, description="What the data says is working (0–3)")
+    concerns: list[str] = Field(default_factory=list, description="What the data says needs attention (0–3)")
+    recommendation: str | None = Field(
+        None,
+        description="One concrete next step, when the data supports one",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when the digest could not be produced "
+            "(llm_not_configured, llm_request_failed, llm_response_malformed); None on success"
         ),
     )
 

@@ -157,6 +157,12 @@ Users only ever read/write their **own** votes; when a vote carries a
 | `DELETE` | `/api/feedback/answers?messageId=` | Required | Retract (toggle off) the caller's vote. Idempotent. | — | `204 No Content` |
 | `GET` | `/api/feedback/answers?conversationId=` | Required | The caller's own votes in one conversation (bounded to 200), for client hydration. | — | `{ feedback: [{ messageId, verdict, reason }] }` |
 
+These three routes are the whole of the tenant-facing surface — nobody in an
+organization can read anyone else's votes. The collected feedback is read back
+cross-organization by the platform owner only, through
+`/api/platform/answer-feedback` (and its `/export` and `/digest` siblings) in the
+platform-tier table below.
+
 Source: `frontends/ui/src/app/api/feedback/answers/route.ts`; `frontends/ui/src/lib/feedback/*`.
 
 ## Knowledge base
@@ -267,6 +273,9 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 | `PUT` | `/api/platform/model-defaults` | Platform owner | Replace the fleet defaults. Every model is revalidated against the live OpenRouter catalog + the group's capability requirements; groups omitted from `defaults` are cleared back to the YAML. 422 = validation errors, 503 = catalog down. Audited as `platform.model_defaults.updated`. | `{ defaults }` |
 | `GET` | `/api/platform/model-defaults/models?group&q` | Platform owner | Platform OpenRouter catalog search filtered to models appropriate for the group, each annotated with `zdrSafe`. | `{ group, models }` |
 | `POST` | `/api/platform/audit-portal` | Platform owner | Admin Portal audit-logs link for the GRID Platform org (platform trail incl. break-glass events). 404 = platform org not provisioned. | `{ link }` |
+| `GET` | `/api/platform/answer-feedback?days=&verdict=&reason=&org=&topic=&q=` | Platform owner | Cross-org rollup of the per-answer thumbs (`answer_feedback`), which were written since WS-7 and read by nobody until this surface: helpful/unhelpful totals with the DISTINCT voters behind them, the assistant-answer count in the window as a denominator, the down-vote reason mix, a per-day series, per-organization and per-topic rollups, and a drill-in of rated turns joined back to the question that produced them. `verdict` (`down` default, `up`) picks which half the drill-in lists; `reason`/`q` narrow the drill-in only, `org`/`topic` narrow the aggregates too. `days` coerces to 7/30/90 (default 30); the drill-in is capped at 50 rows. | `{ windowDays, answers, totals, reasons, daily, organizations, topics, turns }` |
+| `GET` | `/api/platform/answer-feedback/export?…` | Platform owner | The same drill-in, same filters and same gate, as a downloadable UTF-8 CSV with a BOM (`Content-Disposition: attachment`, `Cache-Control: no-store`). Carries `verdict` as both a column and part of the filename, so a praise export and a defect export are distinguishable once the file leaves the browser. | `text/csv` |
+| `GET` | `/api/platform/answer-feedback/digest?…&locale=&refresh=1` | Platform owner | The same window in sentences: an LLM-written headline plus separate `strengths`/`concerns` lists and one suggested next step (backend `POST /v1/feedback-digest`). Cached for 6 hours through the shared cache (`@/lib/cache`, Dragonfly when `REDIS_URL` is set), keyed by window + `org` + `topic` + locale — never by the drill-in filters, which do not change the sentences. `refresh=1` bypasses the cached value. Answers `200` with `digest: null` and a reason (`no_feedback`, `too_few_votes`, or a failure code) rather than an error status: a young window is an ordinary state. | `{ digest: { headline, strengths, concerns, recommendation, generatedAt, windowDays, votes } \| null, error }` |
 | `GET` | `/api/widgets/token?org=platform&scope=…` | Platform owner | Widget token minted against the GRID Platform organization (platform dashboard widgets). | `{ token }` |
 
 `POST /api/organizations` now returns stable error codes (`self-serve-disabled` 403 when `GRID_DISABLE_SELF_SERVE_ORGS=true`, `create-failed` 500) — never raw provider messages. Org routes are permission-gated per area (`org:models:manage`, `org:budgets:manage`, `org:compliance:manage`; see `lib/authz/permissions.ts`).

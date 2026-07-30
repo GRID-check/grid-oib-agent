@@ -47,6 +47,7 @@ from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
 from .routes.document_search import add_document_search_routes
 from .routes.documents import add_document_routes
+from .routes.feedback_digest import add_feedback_digest_routes
 from .routes.generate_conversation_title import add_generate_conversation_title_routes
 from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
@@ -209,6 +210,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_generate_summary_routes(knowledge_router)
         add_generate_conversation_title_routes(knowledge_router)
         add_consistency_check_routes(knowledge_router)
+        add_feedback_digest_routes(knowledge_router)
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_norm_routes(knowledge_router)
