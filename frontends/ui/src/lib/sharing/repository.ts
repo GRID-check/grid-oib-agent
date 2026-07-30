@@ -16,9 +16,10 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, notExists, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
+  conversations,
   resourceShares,
   type NewResourceShare,
   type ResourceRole,
@@ -187,6 +188,44 @@ export async function deleteGrant(
     )
     .returning({ id: resourceShares.id })
   return deleted.length > 0
+}
+
+/**
+ * Delete grants whose target conversation no longer exists (orphan sweep).
+ *
+ * No FK is possible on a polymorphic target, so a hard delete of a conversation —
+ * including the cascade from purging its project — cannot take these with it.
+ * A stale grant is not an access hole (resolution 404s on a missing resource) but
+ * it inflates the roster count and the "shared with me" list forever.
+ */
+export async function deleteOrphanedGrants(limit = 500): Promise<number> {
+  const db = getDb()
+  const orphans = await db
+    .select({ id: resourceShares.id })
+    .from(resourceShares)
+    .where(
+      and(
+        eq(resourceShares.resourceType, 'conversation'),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(conversations)
+            .where(eq(conversations.id, resourceShares.resourceId)),
+        ),
+      ),
+    )
+    .limit(limit)
+  if (orphans.length === 0) return 0
+  const rows = await db
+    .delete(resourceShares)
+    .where(
+      inArray(
+        resourceShares.id,
+        orphans.map((row) => row.id),
+      ),
+    )
+    .returning({ id: resourceShares.id })
+  return rows.length
 }
 
 /**

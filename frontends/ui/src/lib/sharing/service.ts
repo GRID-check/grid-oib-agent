@@ -290,6 +290,15 @@ export async function changeResourceRole(
     grantedBy: session.userId,
   })
 
+  // Downgrading to `viewer` removes the ability to CONTRIBUTE, so any request
+  // waiting on this person can no longer be answered by them — the thread would
+  // wait forever on someone the product has just silenced. Void it, exactly as a
+  // revocation does (spec MN-9.4). Upgrades need no cleanup.
+  if (input.role === 'viewer') {
+    const { voidRequestsForSubject } = await import('@/lib/mentions/service')
+    await voidRequestsForSubject(resourceType, resourceId, input.subjectUserId)
+  }
+
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

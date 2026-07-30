@@ -131,6 +131,29 @@ export async function findConversationInOrg(
 }
 
 /**
+ * Every conversation id in a project — the cascade fan-out for project-level
+ * cleanup (spec SH-13).
+ *
+ * Ids only: the caller is settling collaboration state per conversation and needs
+ * nothing else. Bounded, like every list here; a project with more conversations
+ * than the cap would leave a remainder for the orphan sweep to reconcile, which is
+ * the safe direction to fail in.
+ */
+export async function listConversationIdsForProject(
+  projectId: string,
+  organizationId: string,
+  limit = 5_000,
+): Promise<string[]> {
+  const db = getDb()
+  const rows = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(eq(conversations.organizationId, organizationId), eq(conversations.projectId, projectId)))
+    .limit(limit)
+  return rows.map((row) => row.id)
+}
+
+/**
  * Tenancy probe for authorization: the fields `@/lib/sharing` needs to decide
  * access, and nothing else.
  *

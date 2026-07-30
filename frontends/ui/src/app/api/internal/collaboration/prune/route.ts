@@ -14,9 +14,23 @@
  */
 
 import { internalApiRoute } from '@/lib/api/handler'
+import { sweepOrphanedCollaborationRows } from '@/lib/collaboration/cleanup'
 import { pruneExpiredInboxItems } from '@/lib/collaboration/retention'
 
 export const POST = internalApiRoute('CollaborationPrune', async () => {
-  const result = await pruneExpiredInboxItems()
-  return { pruned: result.deleted, cutoff: result.cutoff }
+  const [retention, orphans] = await Promise.all([
+    pruneExpiredInboxItems(),
+    // Grants, requests and inbox items address their target as a polymorphic
+    // (resource_type, resource_id) pair, so no foreign key can cascade into them.
+    // A conversation hard-deleted outside this tier — notably the cascade when a
+    // project is purged — therefore leaves them behind. Reconciling here is
+    // cheaper and more robust than hooking every purge path, some of which do not
+    // live in the BFF at all.
+    sweepOrphanedCollaborationRows(),
+  ])
+  return {
+    pruned: retention.deleted,
+    cutoff: retention.cutoff,
+    orphansRemoved: orphans,
+  }
 })

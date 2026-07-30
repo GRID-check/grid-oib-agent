@@ -10,9 +10,10 @@
  */
 
 import 'server-only'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, notExists, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
+  conversations,
   mentionRequests,
   type MentionRequest,
   type MentionResolution,
@@ -175,6 +176,80 @@ export async function findRequestById(requestId: string): Promise<MentionRequest
   const db = getDb()
   const [row] = await db.select().from(mentionRequests).where(eq(mentionRequests.id, requestId)).limit(1)
   return row ?? null
+}
+
+/**
+ * Void one person's open requests across every conversation in a project — the
+ * cleanup for losing PROJECT membership (spec SH-13, MN-9.4).
+ *
+ * Without this, removing someone from a project leaves every thread that was
+ * waiting on them **waiting forever**: they can no longer read the conversation,
+ * so they can never answer, and the hand-off banner has no way to clear itself.
+ * Scoped to the project, because the same person may still hold legitimate open
+ * requests in another one.
+ */
+export async function voidOpenRequestsForSubjectInProject(
+  organizationId: string,
+  projectId: string,
+  requestedOf: string,
+): Promise<MentionRequest[]> {
+  const db = getDb()
+  return db
+    .update(mentionRequests)
+    .set({ status: 'void', resolution: 'void', resolvedAt: new Date() })
+    .where(
+      and(
+        eq(mentionRequests.organizationId, organizationId),
+        eq(mentionRequests.requestedOf, requestedOf),
+        eq(mentionRequests.resourceType, 'conversation'),
+        eq(mentionRequests.status, 'open'),
+        inArray(
+          mentionRequests.resourceId,
+          db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(
+              and(eq(conversations.organizationId, organizationId), eq(conversations.projectId, projectId)),
+            ),
+        ),
+      ),
+    )
+    .returning()
+}
+
+/**
+ * Delete requests whose target conversation no longer exists (orphan sweep).
+ * Same rationale as `deleteOrphanedInboxItems`: no FK is possible on a
+ * polymorphic target, so a hard delete cannot cascade here.
+ */
+export async function deleteOrphanedMentionRequests(limit = 500): Promise<number> {
+  const db = getDb()
+  const orphans = await db
+    .select({ id: mentionRequests.id })
+    .from(mentionRequests)
+    .where(
+      and(
+        eq(mentionRequests.resourceType, 'conversation'),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(conversations)
+            .where(eq(conversations.id, mentionRequests.resourceId)),
+        ),
+      ),
+    )
+    .limit(limit)
+  if (orphans.length === 0) return 0
+  const rows = await db
+    .delete(mentionRequests)
+    .where(
+      inArray(
+        mentionRequests.id,
+        orphans.map((row) => row.id),
+      ),
+    )
+    .returning({ id: mentionRequests.id })
+  return rows.length
 }
 
 /** Hard-delete requests for a resource — the purge path. */

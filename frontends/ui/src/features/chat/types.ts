@@ -239,6 +239,32 @@ export interface ChatMessage {
    */
   cardInteractions?: CardInteractions
   /**
+   * WHICH person wrote this message (collaboration, ADR-0032/CC-3).
+   *
+   * `role` only ever said what KIND of author wrote a message, which was free
+   * while a thread had one human in it. With two it is a defect: the reader must
+   * be able to tell colleagues apart, and apart from the agent. Absent/null for
+   * assistant, status and system messages, and for solo threads where the UI
+   * deliberately renders no attribution at all.
+   */
+  authorUserId?: string | null
+  /** Resolved display name + avatar, so a bubble needs no directory lookup. */
+  authorName?: string | null
+  authorAvatarUrl?: string | null
+  /**
+   * Structured mentions carried by this message, in the order they appear.
+   * Deliberately NOT derived from the text: typing the characters "@Anna"
+   * without choosing her from the picker is not a mention and must not notify
+   * her (spec MN-3).
+   */
+  mentions?: Array<{ targetId: string; display: string }>
+  /**
+   * Who the message was addressed to, as ruled by the SERVER at persist time
+   * (spec MN-1/MN-2). The client stores it for rendering only — the decision of
+   * whether to open an agent turn was already made from this value.
+   */
+  addressees?: { agent: boolean; users: string[] }
+  /**
    * The assistant's own guarded self-assessment of how well this answer is
    * grounded in its sources (shallow answers only). Absent on error, escalation,
    * deep-research, and historical turns — nothing renders when undefined.

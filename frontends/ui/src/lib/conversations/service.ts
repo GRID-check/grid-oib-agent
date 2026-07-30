@@ -36,6 +36,7 @@ import type {
   ResourceRole,
   ResourceVisibility,
 } from '@/lib/db/schema'
+import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
@@ -335,6 +336,13 @@ export async function deleteConversation(session: AuthorizedSession, conversatio
 
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
   await deleteConversationInOrg(conversationId, session.organizationId)
+
+  // `messages` and `conversation_reads` cascade through their foreign keys;
+  // grants, mention requests and inbox items CANNOT, because they address their
+  // target as a polymorphic (resource_type, resource_id) pair with no FK. Purge
+  // them explicitly or they orphan (spec SH-13, IB-15) — harmless for access, but
+  // they leave permanently redacted rows in people's inboxes.
+  await purgeConversationCollaboration(conversationId)
 }
 
 /**

@@ -77,6 +77,24 @@ export const collaboration = {
     resourceTypes: {
       conversation: 'Conversation',
     },
+    /**
+     * The "who can reach this chat" overview — the answer to the question the
+     * participant strip raises when you click it.
+     */
+    overview: {
+      title: 'Who has access',
+      openLabel: 'View who has access',
+      countOne: '1 person',
+      countMany: '{count} people',
+      ownersHeading: 'Owners',
+      collaboratorsHeading: 'Can contribute',
+      viewersHeading: 'Can view',
+      you: 'you',
+      /** Sits under the heading, restating the blanket rule in plain words. */
+      viaVisibilityProject: 'Everyone in this project can also read and contribute.',
+      viaVisibilityOrganization: 'Everyone in your organization can also read and contribute.',
+      viaVisibilityPrivate: 'Only the people listed here.',
+    },
   },
 
   mentions: {
@@ -85,6 +103,8 @@ export const collaboration = {
       label: 'Mention someone',
       placeholder: 'Mention a colleague…',
       empty: 'Nobody to mention here.',
+      noResults: 'No match for “{query}”',
+      loading: 'Loading people…',
       participantsHeading: 'In this conversation',
       othersHeading: 'Elsewhere in this project',
       /** The agent as a mention target — how you bring it back into a waiting thread. */
@@ -93,6 +113,13 @@ export const collaboration = {
       needsInvite: 'Will be invited',
       needsInviteHint: '{name} is not in this conversation yet and will be invited.',
       cannotInvite: 'Only an owner can bring new people into this conversation.',
+      /** Screen-reader + footer affordances for the combobox. */
+      resultsAria: 'People you can mention',
+      keyboardHint: '↑↓ to choose · ↵ to insert · esc to close',
+      badgeInChat: 'In this chat',
+      badgeAgent: 'Assistant',
+      /** The inserted token in the composer. */
+      chipRemove: 'Remove mention of {name}',
     },
     /** The composer's state once a human is tagged. */
     composerHint: 'Piloti will stay quiet — {name} is being asked.',
@@ -184,6 +211,11 @@ export const collaboration = {
   thread: {
     participantsAria: 'People in this conversation',
     participantsMore: '+{count}',
+    /** A mention rendered inside message text. */
+    mentionAria: 'Mention of {name}',
+    mentionedYouAria: 'You were mentioned',
+    /** Consecutive messages from one author collapse under a single header. */
+    groupedAria: 'Continued from {name}',
     /** Observers see who the agent is working for (spec CC-13). */
     turnInFlight: 'Piloti is answering {name}’s question…',
     turnInFlightYou: 'Piloti is answering…',

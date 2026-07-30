@@ -12,9 +12,10 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
+  conversations,
   inboxItems,
   type InboxItem,
   type InboxItemType,
@@ -291,6 +292,85 @@ export async function markItemsInertForResource(
         eq(inboxItems.resourceType, resourceType),
         eq(inboxItems.resourceId, resourceId),
         isNull(inboxItems.inertAt),
+      ),
+    )
+    .returning({ id: inboxItems.id })
+  return rows.length
+}
+
+/**
+ * Neutralise one person's items across every conversation in a project — the
+ * cleanup for losing PROJECT membership (spec SH-13).
+ *
+ * Losing container access ends effective access to every resource inside it, so
+ * items pointing into that project must stop being live links. Scoped to the
+ * project rather than the whole organization, because the same person may still
+ * legitimately hold access in another project.
+ */
+export async function markItemsInertForSubjectInProject(
+  organizationId: string,
+  projectId: string,
+  recipientUserId: string,
+): Promise<number> {
+  const db = getDb()
+  const rows = await db
+    .update(inboxItems)
+    .set({ inertAt: new Date(), payload: {} })
+    .where(
+      and(
+        eq(inboxItems.organizationId, organizationId),
+        eq(inboxItems.recipientUserId, recipientUserId),
+        eq(inboxItems.resourceType, 'conversation'),
+        isNull(inboxItems.inertAt),
+        inArray(
+          inboxItems.resourceId,
+          db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(
+              and(eq(conversations.organizationId, organizationId), eq(conversations.projectId, projectId)),
+            ),
+        ),
+      ),
+    )
+    .returning({ id: inboxItems.id })
+  return rows.length
+}
+
+/**
+ * Delete items whose target conversation no longer exists — the self-healing
+ * sweep for orphans.
+ *
+ * These rows address their target as `(resource_type, resource_id)` with no
+ * foreign key (ids are heterogeneous across shareable types, and Postgres has no
+ * polymorphic FK), so a hard delete of a conversation — including the cascade
+ * from purging its project — cannot take them with it. Orphans are harmless for
+ * access (resolution 404s on a missing resource, and the inbox re-authorizes at
+ * read time) but they accumulate and leave permanently redacted rows in someone's
+ * inbox, which reads as a bug. Bounded per call so a backlog is worked off across
+ * ticks rather than locking a table on the render path.
+ */
+export async function deleteOrphanedInboxItems(limit = 500): Promise<number> {
+  const db = getDb()
+  const orphans = await db
+    .select({ id: inboxItems.id })
+    .from(inboxItems)
+    .where(
+      and(
+        eq(inboxItems.resourceType, 'conversation'),
+        notExists(
+          db.select({ one: sql`1` }).from(conversations).where(eq(conversations.id, inboxItems.resourceId)),
+        ),
+      ),
+    )
+    .limit(limit)
+  if (orphans.length === 0) return 0
+  const rows = await db
+    .delete(inboxItems)
+    .where(
+      inArray(
+        inboxItems.id,
+        orphans.map((row) => row.id),
       ),
     )
     .returning({ id: inboxItems.id })

@@ -26,9 +26,21 @@
  */
 
 import 'server-only'
-import { deleteItemsForResource, markItemsInertForResource } from '@/lib/inbox/repository'
-import { deleteRequestsForResource, voidOpenRequestsForResource } from '@/lib/mentions/repository'
-import { deleteAllGrantsForResource } from '@/lib/sharing/repository'
+import {
+  deleteItemsForResource,
+  deleteOrphanedInboxItems,
+  markItemsInertForResource,
+  markItemsInertForSubjectInProject,
+} from '@/lib/inbox/repository'
+import { inboxGroupKey } from '@/lib/inbox/registry'
+import { resolveInboxItemsFor } from '@/lib/inbox/service'
+import {
+  deleteOrphanedMentionRequests,
+  deleteRequestsForResource,
+  voidOpenRequestsForResource,
+  voidOpenRequestsForSubjectInProject,
+} from '@/lib/mentions/repository'
+import { deleteAllGrantsForResource, deleteOrphanedGrants } from '@/lib/sharing/repository'
 
 export interface CollaborationCleanupResult {
   grants: number
@@ -82,6 +94,112 @@ export async function purgeConversationCollaboration(
     }),
     deleteItemsForResource('conversation', conversationId).catch((error) => {
       console.warn(`[collaboration-cleanup] inbox purge failed for ${conversationId}:`, error)
+      return 0
+    }),
+  ])
+  return { grants, requests, inboxItems }
+}
+
+/**
+ * Someone lost access to an entire PROJECT — clean up their collaboration state
+ * inside it (spec SH-13).
+ *
+ * The bug this closes: removing a person from a project ends their effective
+ * access to every conversation in it, but any thread that was **waiting on them**
+ * would wait forever — they can no longer read it, so they can never answer, and
+ * the hand-off banner has no way to clear. Their inbox items would likewise stay
+ * live (redacted at read time, but never resolved).
+ *
+ * Grants are deliberately left intact, exactly as for a container-access loss
+ * (spec SH-13): they are inert while the container is unreachable, so keeping them
+ * means re-adding the person to the project restores their previous sharing state
+ * instead of silently losing it.
+ *
+ * Best-effort and non-throwing: a project-membership change must not fail because
+ * notification bookkeeping did.
+ */
+export async function revokeCollaborationForProjectMember(
+  organizationId: string,
+  projectId: string,
+  userId: string,
+): Promise<{ requests: number; inboxItems: number }> {
+  const [requests, inboxItems] = await Promise.all([
+    voidOpenRequestsForSubjectInProject(organizationId, projectId, userId)
+      .then(async (voided) => {
+        if (voided.length > 0) {
+          // Resolve the matching inbox items so the request does not sit in their
+          // list pointing at something they can no longer open.
+          await resolveInboxItemsFor(
+            voided.map((request) =>
+              inboxGroupKey('mention.requested', 'conversation', request.resourceId, request.anchorId),
+            ),
+            voided.map((request) => request.requestedOf),
+          )
+        }
+        return voided.length
+      })
+      .catch((error) => {
+        console.warn(`[collaboration-cleanup] request void failed for ${userId} in ${projectId}:`, error)
+        return 0
+      }),
+    markItemsInertForSubjectInProject(organizationId, projectId, userId).catch((error) => {
+      console.warn(`[collaboration-cleanup] inbox inert failed for ${userId} in ${projectId}:`, error)
+      return 0
+    }),
+  ])
+  return { requests, inboxItems }
+}
+
+/**
+ * A project was soft-deleted — neutralise collaboration state for every
+ * conversation inside it.
+ *
+ * Soft delete means "may come back", so nothing is destroyed: open requests are
+ * voided (the thread is unreachable, so no request in it can be answered) and
+ * inbox items go inert with their payloads wiped. Grants survive, so a restore
+ * returns the project's threads with their sharing intact.
+ */
+export async function neutralizeCollaborationForProject(
+  organizationId: string,
+  projectId: string,
+  conversationIds: readonly string[],
+): Promise<CollaborationCleanupResult> {
+  const total: CollaborationCleanupResult = { grants: 0, requests: 0, inboxItems: 0 }
+  for (const conversationId of conversationIds) {
+    try {
+      const result = await neutralizeConversationCollaboration(conversationId)
+      total.requests += result.requests
+      total.inboxItems += result.inboxItems
+    } catch (error) {
+      console.warn(`[collaboration-cleanup] neutralize failed for ${conversationId}:`, error)
+    }
+  }
+  return total
+}
+
+/**
+ * Self-healing sweep for rows whose target conversation is gone.
+ *
+ * A hard delete of a conversation — including the cascade from purging its
+ * project, which happens outside this tier — cannot cascade into these tables,
+ * because `resource_id` is a polymorphic `text` column with no foreign key. Rather
+ * than hook every possible purge path (some of which are not in the BFF at all),
+ * housekeeping reconciles. Idempotent and bounded, so it is safe to run often.
+ */
+export async function sweepOrphanedCollaborationRows(
+  limit = 500,
+): Promise<CollaborationCleanupResult> {
+  const [grants, requests, inboxItems] = await Promise.all([
+    deleteOrphanedGrants(limit).catch((error) => {
+      console.warn('[collaboration-cleanup] orphan grant sweep failed:', error)
+      return 0
+    }),
+    deleteOrphanedMentionRequests(limit).catch((error) => {
+      console.warn('[collaboration-cleanup] orphan request sweep failed:', error)
+      return 0
+    }),
+    deleteOrphanedInboxItems(limit).catch((error) => {
+      console.warn('[collaboration-cleanup] orphan inbox sweep failed:', error)
       return 0
     }),
   ])

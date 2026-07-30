@@ -74,6 +74,20 @@ export const collaboration: typeof en.collaboration = {
     resourceTypes: {
       conversation: 'Chat',
     },
+    overview: {
+      title: 'Wer Zugriff hat',
+      openLabel: 'Anzeigen, wer Zugriff hat',
+      countOne: '1 Person',
+      countMany: '{count} Personen',
+      ownersHeading: 'Eigentümer',
+      collaboratorsHeading: 'Können mitschreiben',
+      viewersHeading: 'Können lesen',
+      you: 'Sie',
+      viaVisibilityProject: 'Alle im Projekt können ebenfalls mitlesen und mitschreiben.',
+      viaVisibilityOrganization:
+        'Alle in Ihrer Organisation können ebenfalls mitlesen und mitschreiben.',
+      viaVisibilityPrivate: 'Nur die hier aufgeführten Personen.',
+    },
   },
 
   mentions: {
@@ -81,6 +95,8 @@ export const collaboration: typeof en.collaboration = {
       label: 'Person erwähnen',
       placeholder: 'Kollegin oder Kollegen erwähnen…',
       empty: 'Hier gibt es niemanden zu erwähnen.',
+      noResults: 'Keine Treffer für „{query}“',
+      loading: 'Personen werden geladen…',
       participantsHeading: 'In diesem Chat',
       othersHeading: 'Weitere im Projekt',
       agentName: 'Piloti',
@@ -88,6 +104,11 @@ export const collaboration: typeof en.collaboration = {
       needsInvite: 'Wird eingeladen',
       needsInviteHint: '{name} ist noch nicht in diesem Chat und wird eingeladen.',
       cannotInvite: 'Nur Eigentümer können neue Personen in diesen Chat holen.',
+      resultsAria: 'Personen, die Sie erwähnen können',
+      keyboardHint: '↑↓ auswählen · ↵ einfügen · esc schließen',
+      badgeInChat: 'In diesem Chat',
+      badgeAgent: 'Assistent',
+      chipRemove: 'Erwähnung von {name} entfernen',
     },
     composerHint: 'Piloti antwortet nicht — {name} wird gefragt.',
     notePlaceholder: 'Worum soll sich die Person kümmern? (optional)',
@@ -168,6 +189,9 @@ export const collaboration: typeof en.collaboration = {
   thread: {
     participantsAria: 'Personen in diesem Chat',
     participantsMore: '+{count}',
+    mentionAria: 'Erwähnung von {name}',
+    mentionedYouAria: 'Sie wurden erwähnt',
+    groupedAria: 'Fortsetzung von {name}',
     turnInFlight: 'Piloti beantwortet die Frage von {name}…',
     turnInFlightYou: 'Piloti antwortet…',
     composerBusy:
