@@ -60,6 +60,10 @@ export const research: typeof en.research = {
     signInToManage: 'Melden Sie sich an, um Datenquellen zu verwalten',
     sources: 'Quellen',
     research: 'Recherche',
+    /** Trigger for the thread menu that holds every non-primary header action. */
+    moreActions: 'Weitere Aktionen',
+    renameSession: 'Chat umbenennen',
+    researchReport: 'Recherchebericht',
   },
 
   dataSources: {

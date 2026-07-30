@@ -10,7 +10,35 @@ Click **New Session** in the sessions panel (left sidebar) or the quiet **New ch
 
 ## Thread header
 
-The header shows a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels. This uses the same rename action as the sessions panel. The header also hosts the sessions-panel toggle and the Research/Sources panel buttons.
+The header is two floating pills, split by what they are for.
+
+**Left — where you are.** The sessions-panel toggle (the door to past chats) and a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels; this uses the same rename action as the sessions panel. The project name truncates before the session title does, because the project is already named by the composer's scope chip and the navigation rail, while the session title is the only place this thread is named at all. On a phone the project segment is dropped entirely.
+
+**Right — what is true about this chat, then what you can do to it,** separated by a hairline.
+
+Before the line is *status*, and none of it is clickable. Who can read the chat is answered in **one** of two forms, never both, depending on what kind of audience it has:
+
+- **shared with named people** → their **faces**. The audience was listed person by person, so the faces are the whole answer.
+- **shared with the whole project or organization** → an **access chip** (`Projekt`, `Organisation`) and *no* faces. That audience is a rule, not a list — it changes as people join the project — so avatars would show a handful of people and imply only they can read it.
+- **private, just you** → neither. There is nothing to report.
+
+Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the thread's own progress banner.
+
+Either way the full picture (the rule *and* anyone individually invited) is in the sharing surface, one click away in the menu.
+
+After the line is *action*. **New chat** is the only one kept in the open. The rest live in the **…** menu, and each appears only when it is real:
+
+| Menu entry | Appears when |
+|---|---|
+| **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the sessions panel |
+| **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners |
+| **Research report** | this thread already has a report, one is running, or the panel is open |
+
+Everything in this pill comes and goes during a conversation — the participants resolve a moment after the chat opens, research starts and finishes, the menu appears with the first thing worth listing — so arrivals animate: the pill grows into its new width and the buttons slide rather than jumping. If your system is set to reduce motion, they simply appear.
+
+If none of them applies, there is no menu button either. The main way into a report is still the "view report" action on the answer that produced it — the menu entry is for coming back after you have closed the panel and scrolled on — and the panel closes with its own ✕ or Escape.
+
+The whole header is hidden on an empty chat that has not started yet, apart from the sessions and navigation doors.
 
 ## The composer
 
