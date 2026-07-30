@@ -9,7 +9,7 @@ import 'server-only'
 import type { GridSession } from '@/lib/auth/types'
 import { isOrgAdmin } from './organizations'
 import { isPlatformOwner } from './platform'
-import { FEATURE_FLAGS, isFeatureEnabled } from './feature-flags'
+import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from './feature-flags'
 
 export interface NavFlags {
   canManageOrganization: boolean
@@ -29,6 +29,12 @@ export interface NavFlags {
    * `org:archiv:manage`, enforced on the page and its routes.
    */
   canAccessArchiv: boolean
+  /**
+   * Whether the collaboration surfaces are reachable (ADR-0032…0035): the inbox
+   * nav entry + badge, share controls, and the mention picker. Dark-launched, so
+   * this is false for every org until the flag (or the env opt-in) is set.
+   */
+  canCollaborate: boolean
 }
 
 export async function getNavFlags(session: GridSession | null): Promise<NavFlags> {
@@ -38,6 +44,7 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
       canViewOrganization: false,
       canManagePlatform: false,
       canAccessArchiv: false,
+      canCollaborate: false,
     }
   }
   return {
@@ -45,5 +52,6 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
     canViewOrganization: true,
     canManagePlatform: await isPlatformOwner(session),
     canAccessArchiv: isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv),
+    canCollaborate: isCollaborationEnabled(session),
   }
 }

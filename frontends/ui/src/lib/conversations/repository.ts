@@ -14,7 +14,14 @@
 import 'server-only'
 import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { conversations, messages, type Conversation, type Message, type NewMessage } from '@/lib/db/schema'
+import {
+  conversations,
+  messages,
+  type Conversation,
+  type Message,
+  type NewMessage,
+  type ResourceVisibility,
+} from '@/lib/db/schema'
 
 /** Hard cap for unpaginated org-wide conversation lists. */
 export const CONVERSATION_LIST_LIMIT = 200
@@ -60,6 +67,50 @@ export async function findConversationInOrg(
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
     .limit(1)
+  return row ?? null
+}
+
+/**
+ * Tenancy probe for authorization: the fields `@/lib/sharing` needs to decide
+ * access, and nothing else.
+ *
+ * Unscoped by design — the caller decides whether an organization mismatch is a
+ * 404. Mirrors `findProjectTenancy`; the sharing registry's `resolveContainer`
+ * and `readVisibility` both go through here.
+ */
+export async function findConversationTenancy(
+  conversationId: string,
+): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({
+      organizationId: conversations.organizationId,
+      projectId: conversations.projectId,
+      visibility: conversations.visibility,
+      createdBy: conversations.createdBy,
+      deletedAt: conversations.deletedAt,
+    })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * Set a conversation's blanket visibility, scoped to the organization in SQL.
+ * Returns null when the row does not exist in this org (caller maps to 404).
+ */
+export async function updateConversationVisibilityInOrg(
+  conversationId: string,
+  organizationId: string,
+  visibility: ResourceVisibility,
+): Promise<Conversation | null> {
+  const db = getDb()
+  const [row] = await db
+    .update(conversations)
+    .set({ visibility, updatedAt: new Date() })
+    .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+    .returning()
   return row ?? null
 }
 
