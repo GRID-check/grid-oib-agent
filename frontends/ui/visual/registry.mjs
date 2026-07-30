@@ -292,6 +292,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="citation-health"]',
   },
   {
+    id: 'inbox',
+    mobile: true,
+    path: '/dev/inbox',
+    description:
+      'The inbox list (spec IB-18…IB-21) — registry-driven rows carrying who/what/where/when: an unread actionable mention request with its quoted question, a grouped activity row (3 new messages), a shared-with-you row, an answered request, an unknown actor / untitled chat, and an INERT row whose target is gone (plain text, no link, no excerpt — IB-13). Plus the needs-me/all filter, mark-all-read, and the count badge including the collapsed-rail placement.',
+    waitFor: '[data-testid="inbox-item"]',
+  },
+  {
+    id: 'inbox-empty',
+    mobile: true,
+    path: '/dev/inbox?variant=empty',
+    description:
+      'The inbox with nothing in it — the crafted per-filter empty state ("Nichts zu tun" under Für mich), with mark-all-read correctly disabled.',
+    waitFor: '[data-testid="inbox-list"]',
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:

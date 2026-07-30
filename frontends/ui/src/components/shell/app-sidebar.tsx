@@ -30,6 +30,8 @@ import { Logo } from '@/components/brand/logo'
 import { useTranslations } from '@/i18n'
 import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { useLayoutStore } from '@/features/layout/store'
+import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
+import { InboxBadge } from '@/features/collaboration/components'
 import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
@@ -67,6 +69,12 @@ export interface AppSidebarProps {
   canAccessArchiv?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
   showWorkflows?: boolean
+  /**
+   * Whether the collaboration surfaces are reachable (ADR-0032…0035, dark-launched).
+   * Gates the Inbox nav entry — and with it the badge subscription, so a gated org
+   * opens no live connection and issues no request (spec NF-8).
+   */
+  canCollaborate?: boolean
 }
 
 export function AppSidebar({
@@ -79,11 +87,20 @@ export function AppSidebar({
   canManagePlatform = false,
   canAccessArchiv = false,
   showWorkflows = false,
+  canCollaborate = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
   const t = useTranslations('nav')
+  // The inbox entry's label lives with its own feature rather than in the nav
+  // dictionary (see `ProjectSection.label`), so the rail holds both translators.
+  const tCollaboration = useTranslations('collaboration')
   const [collapsed, setCollapsed] = React.useState(false)
+
+  // The "needs you" count for the Inbox entry (spec IB-18/IB-19). One request on
+  // mount, then it rides the live event channel; disabled for an org without the
+  // flag, in which case the hook does nothing at all.
+  const { pending: inboxPending } = useInboxBadge(canCollaborate)
 
   // The mobile nav drawer's open state lives in the layout store so the chat's
   // floating toolbar can open it: on the chat route the standalone mobile top
@@ -218,7 +235,7 @@ export function AppSidebar({
   // Workflows is feature-flagged (default off); Archiv shows for any member of
   // an org with the `organization-archiv` flag — the same gate the user menu's
   // Archiv entry uses (the layout passes both from getNavFlags).
-  const navItems = railSections({ showWorkflows, canAccessArchiv })
+  const navItems = railSections({ showWorkflows, canAccessArchiv, canCollaborate })
 
   const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)
 
@@ -230,7 +247,10 @@ export function AppSidebar({
     const active = isActive(item)
     const Icon = item.icon
     const iconOnly = variant === 'desktop' && collapsed
-    const label = t(`sections.${item.i18nKey}`)
+    const label = item.label ? tCollaboration(item.label.key) : t(`sections.${item.i18nKey}`)
+    // Only the inbox carries a count today; keep the badge data-driven so a
+    // second badged destination is a prop away, not a rewrite.
+    const badgeCount = item.key === 'inbox' ? inboxPending : 0
     return (
       <Link
         key={item.key}
@@ -238,7 +258,7 @@ export function AppSidebar({
         aria-current={active ? 'page' : undefined}
         title={iconOnly ? label : undefined}
         className={cn(
-          'flex shrink-0 items-center rounded-[10px] transition-colors duration-200 ease-out',
+          'relative flex shrink-0 items-center rounded-[10px] transition-colors duration-200 ease-out',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
           iconOnly ? 'h-9 w-10 justify-center' : 'gap-[11px] px-3',
           variant === 'mobile' ? 'h-11 text-sm' : 'h-9 text-[13px]',
@@ -252,6 +272,13 @@ export function AppSidebar({
           className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
         />
         {!iconOnly && <span className="truncate">{label}</span>}
+        {/* Collapsed rail: the label is gone, so the count must still be
+            perceivable — it tucks against the icon tile's top-right corner.
+            Expanded: it sits at the end of the row, after the label. */}
+        <InboxBadge
+          pending={badgeCount}
+          className={iconOnly ? 'absolute -top-1 -right-1 shadow-xs' : 'ml-auto'}
+        />
       </Link>
     )
   }
