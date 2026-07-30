@@ -43,7 +43,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Search, ShieldCheck, UserMinus, UserPlus } from 'lucide-react'
+import { AlertTriangle, Info, Search, ShieldCheck, UserMinus, UserPlus } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PersonAvatar } from '@/components/ui/avatar-stack'
@@ -354,7 +354,14 @@ export function ShareDialog({
           // `scroll-fade-bottom` makes the boundary of that scroll well legible:
           // a roster row sliced through its text by the footer edge reads as a
           // clipping bug, a dissolve reads as "more below".
-          <div className="scroll-fade-bottom max-h-[min(72vh,42rem)] space-y-5 overflow-y-auto pr-1">
+          //
+          // `pb-6` is that mask's runway. The fade is an unconditional 24px mask on
+          // the container, so without padding the LAST line of the last element sits
+          // under it permanently — a dissolve that says "more below" when there is
+          // nothing below, on the sentence the reader most needs. With a 24px
+          // runway the content can always scroll clear of the mask, and when
+          // nothing overflows the mask simply lands on empty padding.
+          <div className="scroll-fade-bottom max-h-[min(72vh,42rem)] space-y-5 overflow-y-auto pr-1 pb-6">
             {/* A refused mutation must never look like it worked. */}
             {failure && (
               <Alert variant="destructive" data-testid="share-failure">
@@ -445,60 +452,79 @@ export function ShareDialog({
                           key={candidate.person.userId}
                           data-testid="share-candidate"
                           data-blocked={candidate.needsProjectAccess || undefined}
-                          className={cn(
-                            'flex items-center gap-3 rounded-lg px-2 py-2',
-                            candidate.needsProjectAccess && 'opacity-70',
-                          )}
+                          className="flex items-center gap-3 rounded-lg px-2 py-2"
                         >
                           <PersonAvatar person={candidate.person} size="md" />
+                          {/* Identity is a COLUMN, and the right-hand slot is its
+                              sibling — never inline with the name. With the badge
+                              inside the name's line (`truncate` name beside a
+                              `shrink-0` chip) the chip won every contest for width
+                              and a narrow dialog rendered "E…" where a colleague's
+                              name should be. The one thing this row exists to show
+                              is who the person is. */}
                           <div className="min-w-0 flex-1">
-                            <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                              <span className="truncate">{candidate.person.name}</span>
-                              {candidate.needsProjectAccess && (
-                                <Chip variant="muted" size="sm" className="shrink-0 font-normal">
-                                  {t('sharing.invite.needsProjectAccess')}
-                                </Chip>
-                              )}
-                            </p>
-                            {/* The teaching moment: why this colleague is here but
-                                not invitable. It wraps rather than truncates —
-                                an ellipsised "Sharing a chat never grants access
-                                to t…" teaches nothing, which is the whole reason
-                                the row is on screen. An email, by contrast, is
-                                fine to clip. */}
                             <p
                               className={cn(
-                                'text-xs text-muted-foreground',
-                                candidate.needsProjectAccess ? 'leading-snug' : 'truncate',
+                                'truncate text-sm font-medium',
+                                candidate.needsProjectAccess
+                                  ? 'text-foreground/70'
+                                  : 'text-foreground',
                               )}
                             >
-                              {candidate.needsProjectAccess
-                                ? t('sharing.invite.needsProjectAccessHint')
-                                : (candidate.person.email ?? '')}
+                              {candidate.person.name}
+                            </p>
+                            {/* Always the email, on every row. It is what tells two
+                                same-named colleagues apart, so dropping it on the
+                                blocked row removed the identifying detail exactly
+                                where the reader has to make a decision. The reason
+                                the row is blocked is stated once below the list
+                                instead of once per row — same sentence, and it no
+                                longer turns a list item into a paragraph. */}
+                            <p className="truncate text-xs text-muted-foreground">
+                              {candidate.person.email ?? ''}
                             </p>
                           </div>
-                          {/* One control per row, and it is the one this list is
-                              for. Nobody here already has access (rule 7), so there
-                              is no role to change — that lives in the roster. */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0 gap-1.5"
-                            disabled={saving || candidate.needsProjectAccess}
-                            title={
-                              candidate.needsProjectAccess
-                                ? t('sharing.invite.needsProjectAccessHint')
-                                : undefined
-                            }
-                            aria-label={`${t('sharing.invite.submit')}: ${candidate.person.name}`}
-                            onClick={() => void sharing.grant(candidate.person.userId)}
-                          >
-                            <UserPlus className="size-3.5" aria-hidden />
-                            {t('sharing.invite.submit')}
-                          </Button>
+                          {/* One slot on the right: the action, or the reason there
+                              isn't one. A disabled "Einladen" was a control that
+                              could never work no matter how often it was pressed —
+                              the badge says what to fix instead. */}
+                          {candidate.needsProjectAccess ? (
+                            <Chip variant="muted" size="sm" className="shrink-0 font-normal">
+                              {t('sharing.invite.needsProjectAccess')}
+                            </Chip>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 gap-1.5"
+                              disabled={saving}
+                              aria-label={`${t('sharing.invite.submit')}: ${candidate.person.name}`}
+                              onClick={() => void sharing.grant(candidate.person.userId)}
+                            >
+                              <UserPlus className="size-3.5" aria-hidden />
+                              {t('sharing.invite.submit')}
+                            </Button>
+                          )}
                         </li>
                       ))}
                     </ul>
+                  )}
+
+                  {/* The rule behind every "Noch nicht im Projekt" badge above,
+                      stated ONCE. Per row it was a two-sentence paragraph repeated
+                      for each blocked colleague, which made list items different
+                      heights and buried the names it sat under. It is the same
+                      sentence — it just belongs to the list, not to a row. */}
+                  {filteredCandidates.some((candidate) => candidate.needsProjectAccess) && (
+                    <p
+                      data-testid="share-blocked-note"
+                      className="flex items-start gap-1.5 pt-0.5 text-xs leading-snug text-muted-foreground"
+                    >
+                      <Info className="mt-px size-3.5 shrink-0 opacity-70" aria-hidden />
+                      <span className="min-w-0">
+                        {t('sharing.invite.needsProjectAccessHint')}
+                      </span>
+                    </p>
                   )}
                 </section>
               </>

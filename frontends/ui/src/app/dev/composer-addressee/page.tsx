@@ -123,8 +123,16 @@ function Previews(): JSX.Element {
     <>
       <section className="space-y-3">
         <Eyebrow>Standard — der Chat fragt Piloti</Eyebrow>
+        {/* `onMentionSomeone` is passed because the real composer passes it, and
+            without it this preview quietly captured a state the product never
+            shows: the affordance renders only when a handler exists, so every
+            screenshot taken here was evidence for a variant nobody sees. */}
         <MockComposer text="Gilt die 40-m-Grenze auch für das nördliche Treppenhaus?">
-          <AddresseeIndicator mentions={[]} awaitingHuman={false} />
+          <AddresseeIndicator
+            mentions={[]}
+            awaitingHuman={false}
+            onMentionSomeone={() => undefined}
+          />
         </MockComposer>
       </section>
 

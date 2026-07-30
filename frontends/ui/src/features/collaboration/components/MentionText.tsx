@@ -59,8 +59,17 @@ const pillClasses = (isMe: boolean, isAgent: boolean, interactive: boolean): str
     // inline mention pills has it); this is the tightest that still reads as a
     // pill rather than a highlight.
     'inline-flex items-baseline rounded-md px-[3px] py-px align-baseline text-[0.9375em] font-medium',
+    // A mention of YOU is the only signal that a message wants something from the
+    // reader — no row treatment carries it — so it has to survive a scan. It does
+    // NOT have to win the page. At `bg-primary` it was a solid ink block in light
+    // and a solid white one in dark: the highest-contrast element on screen,
+    // louder than the sentence it annotates and reading as a redaction rather than
+    // a person. The tint/text pair is the one the `warning` Chip and Badge already
+    // use for "this concerns you" (the picker's "Wird eingeladen", the peek card's
+    // "Nicht in diesem Chat"), so this borrows an established meaning instead of
+    // minting a louder one.
     isMe
-      ? 'bg-primary text-primary-foreground'
+      ? 'bg-warning-subtle text-warning'
       : isAgent
         ? 'bg-foreground/[0.08] text-foreground/85'
         : 'bg-muted text-foreground/80',

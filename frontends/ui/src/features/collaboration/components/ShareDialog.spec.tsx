@@ -310,12 +310,44 @@ describe('ShareDialog — invite', () => {
     // Never hidden: an invite picker that silently omits a colleague reads as a bug.
     expect(screen.getByText('Eva Ritter')).toBeInTheDocument()
     expect(screen.getByText('Not in this project yet')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Add them to the project first. Sharing a chat never grants access to the project itself.',
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Invite: Eva Ritter' })).toBeDisabled()
+    // The reason is still stated — once, below the list, rather than as a
+    // paragraph inside the row.
+    expect(within(screen.getByTestId('share-blocked-note')).getByText(
+      'Add them to the project first. Sharing a chat never grants access to the project itself.',
+    )).toBeInTheDocument()
+    // Stronger than "disabled": there is no invite control on this row at all. A
+    // greyed-out button is a promise that pressing it might one day work here,
+    // and it never will until someone adds Eva to the project elsewhere.
+    expect(screen.queryByRole('button', { name: 'Invite: Eva Ritter' })).toBeNull()
+
+    // The identifying detail survives. It used to be replaced by the explanation,
+    // which is precisely the row where the reader most needs to be sure WHO this is.
+    const row = screen.getByText('Eva Ritter').closest('[data-testid="share-candidate"]')
+    expect(within(row as HTMLElement).getByText('u-eva@example.com')).toBeInTheDocument()
+  })
+
+  test('the blocked-row reason is stated once, however many rows are blocked', () => {
+    useShareCandidatesMock.mockReturnValue({
+      candidates: [
+        candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true }),
+        candidate('u-tom', 'Tom Fischer', { needsProjectAccess: true }),
+      ],
+      loading: false,
+    })
+    renderDialog()
+
+    expect(screen.getAllByTestId('share-candidate')).toHaveLength(2)
+    expect(screen.getAllByTestId('share-blocked-note')).toHaveLength(1)
+  })
+
+  test('no note when nothing is blocked — it explains a state that is not on screen', () => {
+    useShareCandidatesMock.mockReturnValue({
+      candidates: [candidate('u-sabine', 'Sabine Gruber')],
+      loading: false,
+    })
+    renderDialog()
+
+    expect(screen.queryByTestId('share-blocked-note')).toBeNull()
   })
 
   /**
@@ -379,8 +411,10 @@ describe('ShareDialog — invite', () => {
       expect(inRoster && inInvites, `${name} appears in both lists`).toBe(false)
     }
 
-    // …and the deliberate SH-19 row is still there, visible and disabled.
-    expect(screen.getByRole('button', { name: 'Invite: Eva Ritter' })).toBeDisabled()
+    // …and the deliberate SH-19 row is still there: visible, named, not invitable.
+    expect(inviteText.some((text) => text.includes('Eva Ritter'))).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Invite: Eva Ritter' })).toBeNull()
+    expect(screen.getByTestId('share-blocked-note')).toBeInTheDocument()
   })
 
   test('an empty candidate set says so', () => {

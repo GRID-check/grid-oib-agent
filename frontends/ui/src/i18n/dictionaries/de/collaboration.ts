@@ -108,7 +108,6 @@ export const collaboration: typeof en.collaboration = {
       cannotInvite: 'Nur Eigentümer können neue Personen in diesen Chat holen.',
       resultsAria: 'Personen, die Sie erwähnen können',
       keyboardHint: '↑↓ auswählen · ↵ einfügen · esc schließen',
-      badgeInChat: 'In diesem Chat',
       badgeAgent: 'Assistent',
       chipRemove: 'Erwähnung von {name} entfernen',
     },

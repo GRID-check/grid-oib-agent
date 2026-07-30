@@ -87,12 +87,15 @@ export function EngagementNotice({
     <div
       data-testid="engagement-notice"
       data-engagement={mode}
-      className={cn(
-        'text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs',
-        className
-      )}
+      // `items-start`, and the icon is a sibling of a text COLUMN rather than one
+      // more item in a single wrapping row. As one flat `flex-wrap` row every line
+      // after the first fell back to the container's left edge, so the explanation
+      // hung ~14px OUTSIDE the label it belongs to; and `items-center` floated the
+      // icon to the middle of a two-line block instead of sitting on its first line.
+      className={cn('text-muted-foreground flex items-start gap-2 text-xs', className)}
     >
-      <AtSign className="size-3.5 shrink-0" aria-hidden />
+      <AtSign className="mt-[0.15rem] size-3.5 shrink-0" aria-hidden />
+      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
       {mode === 'mention' ? (
         <>
           <span className="text-foreground/80 font-medium">
@@ -132,6 +135,7 @@ export function EngagementNotice({
           {t('mentions.engagement.failed')}
         </span>
       )}
+      </span>
     </div>
   )
 }

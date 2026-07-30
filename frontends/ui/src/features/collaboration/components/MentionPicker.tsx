@@ -333,11 +333,15 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
                 <UserPlus aria-hidden />
                 {t('mentions.picker.needsInvite')}
               </Badge>
-            ) : candidate.isParticipant ? (
-              <Badge variant="outline" className="shrink-0 text-muted-foreground">
-                {t('mentions.picker.badgeInChat')}
-              </Badge>
             ) : null}
+            {/* No badge for an ordinary participant. `badgeInChat` said "In diesem
+                Chat" on every row of the group headed "IN DIESEM CHAT" — the
+                participants group is the only place those rows are ever rendered,
+                so the badge restated its own heading once per row and could never
+                say anything else. Worse, it competed for attention with the two
+                badges that DO carry information: "Assistent", and "Wird
+                eingeladen", which warns that picking this row also invites someone.
+                A badge now means the row is not ordinary. */}
           </div>
         </CommandItem>
       )

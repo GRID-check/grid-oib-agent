@@ -29,7 +29,11 @@ describe('MentionText', () => {
     const chip = screen.getByTestId('mention-chip')
     expect(chip).toHaveAttribute('aria-label', 'You were mentioned')
     expect(chip).toHaveAttribute('data-mention-me', 'true')
-    expect(chip.className).toContain('bg-primary')
+    // The semantic pair the `warning` Chip and Badge already use for "this
+    // concerns you" — not `bg-primary`, which made a solid ink block in light and
+    // a solid white one in dark, out-shouting the sentence it annotates.
+    expect(chip.className).toContain('bg-warning-subtle')
+    expect(chip.className).not.toContain('bg-primary')
   })
 
   test('a mention of someone else stays a quiet reference', () => {
@@ -38,7 +42,25 @@ describe('MentionText', () => {
     )
     const chip = screen.getByTestId('mention-chip')
     expect(chip).toHaveAttribute('data-mention-me', 'false')
-    expect(chip.className).not.toContain('bg-primary ')
+    expect(chip.className).not.toContain('bg-warning-subtle')
+  })
+
+  /**
+   * The property that actually matters, pinned independently of which tokens are
+   * in play: a mention of you must not LOOK like a mention of a colleague. Both
+   * previous assertions could pass while the two rendered identically.
+   */
+  test('the two are visually distinguishable', () => {
+    const { unmount } = render(
+      <MentionText content="@Anna Weber bitte" mentions={[anna]} currentUserId="u-anna" />,
+    )
+    const mine = screen.getByTestId('mention-chip').className
+    unmount()
+
+    render(
+      <MentionText content="@Anna Weber bitte" mentions={[anna]} currentUserId="u-markus" />,
+    )
+    expect(screen.getByTestId('mention-chip').className).not.toBe(mine)
   })
 
   test('the assistant is chipped distinctly from a person', () => {

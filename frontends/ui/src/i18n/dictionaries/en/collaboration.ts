@@ -124,7 +124,6 @@ export const collaboration = {
       /** Screen-reader + footer affordances for the combobox. */
       resultsAria: 'People you can mention',
       keyboardHint: '↑↓ to choose · ↵ to insert · esc to close',
-      badgeInChat: 'In this chat',
       badgeAgent: 'Assistant',
       /** The inserted token in the composer. */
       chipRemove: 'Remove mention of {name}',

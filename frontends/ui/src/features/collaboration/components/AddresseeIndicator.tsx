@@ -116,7 +116,14 @@ export function AddresseeIndicator({
       role="status"
       aria-label={t('mentions.addressee.ariaLabel', { label })}
       className={cn(
-        'inline-flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground',
+        // `flex-wrap` so the OFFER yields, never the statement. Without it the
+        // affordance was `shrink-0` beside a `truncate` label, so a narrow composer
+        // rendered "Geht a… · @ Kollegin oder Kollegen erwähnen" — the optional
+        // teaching hint at full width and the promise about who receives this
+        // message cut in half. That promise is the one thing this element exists to
+        // make (ADR-0036 decision 6) and it is not the part that may be abbreviated.
+        // Wrapping puts the offer on its own line instead, where it costs nothing.
+        'inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] text-muted-foreground',
         // Placement belongs HERE, not at each call site. In the composer's
         // wrapping chip row this element sat inline when its label was short
         // ("Geht an Piloti") and wrapped when it was long ("Geht an Anna Berger,
@@ -139,7 +146,14 @@ export function AddresseeIndicator({
 
       {/* The teaching affordance. A quiet trailing action rather than a button in
           the row above: it must not compete with Send, and it must not look like a
-          warning about the statement it follows. */}
+          warning about the statement it follows.
+
+          Underlined AT REST — the same treatment, for the same reason, as the
+          engagement notice's control. Both are quiet inline actions sitting in
+          running prose at prose weight and prose colour, and an affordance that
+          only appears on hover is invisible to the person deciding whether there
+          is anything here to press (and never appears at all on touch). Dotted
+          keeps it an offer rather than a call to action. */}
       {mode === 'agent' && !agentTagged && onMentionSomeone && (
         <button
           type="button"
@@ -147,12 +161,17 @@ export function AddresseeIndicator({
           onClick={onMentionSomeone}
           className={cn(
             'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px]',
-            'text-muted-foreground/80 underline-offset-2 transition-colors duration-200 ease-out',
-            'hover:text-foreground hover:underline',
+            'text-muted-foreground/80 transition-colors duration-200 ease-out',
+            'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+            'hover:text-foreground hover:decoration-solid',
             'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
           )}
         >
-          <span aria-hidden>·</span>
+          {/* No leading separator. A "·" reads as a divider only while the offer
+              sits on the SAME line as the statement; once it wraps to its own line
+              the dot leads the line and reads as a stray bullet. The at-rest
+              underline and the `@` glyph already mark this as a separate control,
+              so the dot was carrying no meaning the reader was missing. */}
           <AtSign className="size-3.5 shrink-0" aria-hidden />
           {t('mentions.addressee.mentionSomeone')}
         </button>

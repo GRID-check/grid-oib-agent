@@ -94,11 +94,17 @@ describe('MentionPicker — the rows', () => {
     expect(options[0]).toContain('Assistant')
   })
 
-  test('a participant carries name, email and the in-chat badge', () => {
+  test('a participant carries name and email, and no badge restating its heading', () => {
     renderPicker()
     const row = screen.getByText('Anna Weber').closest('[role="option"]') as HTMLElement
     expect(within(row).getByText('u-anna@example.com')).toBeInTheDocument()
-    expect(within(row).getByText('In this chat')).toBeInTheDocument()
+    // An ordinary participant gets NO badge. These rows only ever render inside
+    // the group headed "In this chat", so a per-row "In this chat" badge could
+    // never say anything the heading above it had not already said — and it
+    // competed with the badges that do carry information. A badge here now means
+    // the row is not ordinary.
+    expect(within(row).queryByText(/In this (chat|conversation)/)).toBeNull()
+    expect(screen.getByText('In this conversation')).toBeInTheDocument() // …the heading
   })
 
   test('someone who is not in the chat yet is offered WITH the consequence spelled out', () => {
