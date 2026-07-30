@@ -8,6 +8,7 @@
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { I18nProvider, useLocale } from './index'
@@ -59,5 +60,70 @@ describe('I18nProvider locale reconciliation', () => {
 
     await waitFor(() => expect(screen.getByTestId('locale')).toHaveTextContent('de'))
     expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Reconciliation is a GUESS at the language the user would have wanted. An
+ * explicit choice is the answer, and once the answer exists the guess has to be
+ * abandoned — including mid-flight, which is the case that actually bites.
+ *
+ * The failing sequence: the page opens in `en` (Accept-Language, no cookie) while
+ * the saved preference is `de`. The read is issued. Before it returns the user
+ * picks English themselves. The read then resolves with the pre-choice `de` and,
+ * comparing against the MOUNT-time locale rather than the current one, applied it —
+ * flipping the UI to German and rewriting the cookie moments after an explicit
+ * choice of English.
+ */
+describe('an explicit choice outranks an in-flight reconciliation', () => {
+  const Switcher = ({ to }: { to: 'de' | 'en' }) => {
+    const { locale, setLocale } = useLocale()
+    return (
+      <>
+        <span data-testid="locale">{locale}</span>
+        <button onClick={() => setLocale(to)}>switch</button>
+      </>
+    )
+  }
+
+  it('does not overwrite a locale the user picked while the read was pending', async () => {
+    let releasePrefs = (): void => {}
+    const prefsPending = new Promise<void>((resolve) => {
+      releasePrefs = () => resolve()
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes('/api/user/preferences')) {
+          // The PATCH from `setLocale` must not be held up by the pending GET.
+          if (init?.method === 'PATCH') return new Response('{}', { status: 200 })
+          await prefsPending
+          // Deliberately the PRE-choice value: this GET was issued first.
+          return new Response(JSON.stringify({ prefs: { locale: 'de' } }), { status: 200 })
+        }
+        return new Response('{}', { status: 404 })
+      })
+    )
+
+    const user = userEvent.setup()
+    render(
+      <I18nProvider initialLocale="en">
+        <Switcher to="en" />
+      </I18nProvider>
+    )
+
+    // The user answers the question while the guess is still in flight…
+    await user.click(screen.getByRole('button', { name: 'switch' }))
+    expect(screen.getByTestId('locale')).toHaveTextContent('en')
+
+    // …and the stale answer lands afterwards.
+    releasePrefs()
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+
+    // Their choice stands.
+    await waitFor(() => expect(screen.getByTestId('locale')).toHaveTextContent('en'))
+    expect(document.cookie).not.toContain('locale=de')
   })
 })
