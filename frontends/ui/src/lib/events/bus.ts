@@ -26,60 +26,17 @@
  */
 
 import 'server-only'
-import type { InboxItemType, ShareableResourceType } from '@/lib/db/schema'
+import type { CollaborationEvent, EventEnvelope } from './types'
 
 /** Channel a single user's live updates flow on. */
 export function userChannel(userId: string): string {
   return `user:${userId}:events`
 }
 
-/**
- * Event kinds. Each is a HINT — it names what changed and where, never the
- * authoritative content. A receiver that trusts a payload instead of re-reading
- * is a bug, because a dropped or stale event must not be able to corrupt state.
- */
-export type CollaborationEvent =
-  | {
-      kind: 'inbox.changed'
-      /** Cheap badge refresh without a fetch; the list itself is still re-read. */
-      pending: number
-      itemType?: InboxItemType
-    }
-  | {
-      kind: 'conversation.message'
-      conversationId: string
-      /** So a client can ignore the echo of its own write. */
-      authorUserId: string | null
-      messageId: string
-    }
-  | {
-      kind: 'conversation.turn'
-      conversationId: string
-      /** `started` shows "Piloti is answering X's question"; `ended` clears it. */
-      phase: 'started' | 'ended'
-      /** Who asked — the observer's banner names them. */
-      actorUserId: string | null
-    }
-  | {
-      kind: 'conversation.awaiting'
-      conversationId: string
-      /** WorkOS user ids the thread is waiting on; empty means the wait cleared. */
-      awaitingUserIds: string[]
-    }
-  | {
-      kind: 'resource.access.changed'
-      resourceType: ShareableResourceType
-      resourceId: string
-      /** `revoked` tells a client to drop the resource from view immediately. */
-      change: 'granted' | 'revoked' | 'visibility'
-    }
-
-export interface EventEnvelope {
-  /** Monotonic-ish id for debugging; NOT a resume cursor (Postgres is the truth). */
-  id: string
-  at: string
-  event: CollaborationEvent
-}
+// Event kinds and the envelope live in `./types` (no `server-only`), because the
+// browser hub needs them to interpret an SSE frame and must not import this
+// module's transport. Re-exported here so server callers have one import.
+export type { CollaborationEvent, EventEnvelope } from './types'
 
 /** The pluggable transport, so the protocol is testable without Redis. */
 export interface EventTransport {
