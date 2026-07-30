@@ -70,7 +70,7 @@ interface StubbedFetch {
   posts: Array<{ url: string; body: unknown }>
 }
 
-function stubFetch(postStatus = 200): StubbedFetch {
+function stubFetch(postStatus = 200, postBody?: unknown): StubbedFetch {
   const posts: Array<{ url: string; body: unknown }> = []
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
@@ -78,7 +78,7 @@ function stubFetch(postStatus = 200): StubbedFetch {
       return Promise.resolve({
         ok: postStatus < 400,
         status: postStatus,
-        json: async () => (postStatus < 400 ? {} : { error: 'Conflict' }),
+        json: async () => postBody ?? (postStatus < 400 ? {} : { error: 'Conflict' }),
       })
     }
     return Promise.resolve({
@@ -174,15 +174,17 @@ describe('ProjectProfilePatchCard', () => {
 
   /**
    * The concurrent-accept case, which only exists once a thread is shared
-   * (ADR-0032): two collaborators press Accept, `updateProjectProfileIfVersion`
-   * compares `profileVersion`, and the loser gets a 409.
+   * (ADR-0032): two collaborators press Accept and `updateProjectProfileIfVersion`
+   * compares `profileVersion`, so the loser's write is refused.
    *
-   * Showing that as an error left the card PENDING with a live Accept — a button
-   * whose work is already done, offering to apply the same patch again. Settling as
-   * accepted is the truthful outcome: the brief does hold this change.
+   * Deciding that on the STATUS is what this guards against. A 409 is a generic
+   * optimistic-lock failure — it also fires when a colleague saved the wizard or
+   * applied a different patch, in which case these operations were dropped. The
+   * server tells the two apart (`isPatchAlreadyApplied`) and answers 200 with
+   * `alreadyApplied` only for the idempotent one; the card just trusts the status.
    */
-  it('settles as accepted when a colleague applied the same patch first (409)', async () => {
-    const { posts } = stubFetch(409)
+  it('settles as accepted when the server reports the patch was already applied', async () => {
+    const { posts } = stubFetch(200, { alreadyApplied: true })
     const user = userEvent.setup()
     render(<ProjectProfilePatchCard {...ownedProps} />)
 
@@ -194,9 +196,20 @@ describe('ProjectProfilePatchCard', () => {
     expect(setCardDecision).toHaveBeenCalledWith('msg-1', 'project_profile_patch-0', 'accepted')
   })
 
+  it('keeps a lost race retryable instead of claiming success', async () => {
+    // A 409 the server did NOT declare idempotent: this patch is not in the brief,
+    // so the user has to see it and the Accept button has to stay live.
+    stubFetch(409)
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    expect(await screen.findByRole('button', { name: 'Accept' })).toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
   it('still surfaces a genuine failure rather than claiming success', async () => {
-    // Only 409 means "already done". A 500 is a failure the user has to see, and the
-    // card must stay actionable.
     stubFetch(500)
     const user = userEvent.setup()
     render(<ProjectProfilePatchCard {...ownedProps} />)

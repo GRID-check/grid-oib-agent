@@ -75,6 +75,9 @@ restored from it.**
    card with no actions and no explanation reads as broken rather than as somebody
    else's turn. `isPromptResponded` is derived from the stored answer rather than
    stored beside it: two fields that can disagree about one fact is one field too many.
+   The answer's **instant is the server's**: `sanitizePromptState` stamps
+   `respondedAt` at the persistence boundary instead of copying the client's, because
+   a participant who can backdate a decision can reorder a shared transcript.
 
 7. **Restored flat, onto the fields the renderers already read.** `ChatThinking`, the
    confidence chip and the routing line each take their own prop, and none of them should

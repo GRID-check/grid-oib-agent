@@ -98,6 +98,60 @@ function applyArrayOperation(parent: unknown[], key: string, operation: ProjectP
 }
 
 /**
+ * Would applying `patch` still change anything that matters?
+ *
+ * This is what tells the two kinds of optimistic-lock conflict apart. A
+ * collaborator who accepted the SAME patch card a moment earlier leaves the
+ * profile already holding the change — the work is done, and refusing the loser
+ * would re-offer a button whose job is finished. Any OTHER concurrent write (a
+ * wizard save, a different patch) means these operations never landed, and the
+ * caller must be told so it can retry.
+ *
+ * Provenance instants are ignored: {@link normalizeProfilePatchOperations}
+ * stamps `updatedAt` at apply time, so the same value re-applied is a different
+ * object yet semantically a no-op.
+ */
+export function isPatchAlreadyApplied(
+  profile: ProjectProfile,
+  patch: ProjectProfilePatchOperation[],
+): boolean {
+  const settle = (value: ProjectProfile) => pruneResolvedAssumptions(pruneResolvedUnknowns(value))
+  return equalIgnoringInstants(
+    settle(applyProjectProfilePatch(profile, patch)),
+    // Through the same engine with no operations, so both sides are compared in
+    // the schema's canonical shape rather than raw jsonb against parsed output.
+    settle(applyProjectProfilePatch(profile, [])),
+  )
+}
+
+function equalIgnoringInstants(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => equalIgnoringInstants(item, b[index]))
+    )
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keysOf = (value: Record<string, unknown>) =>
+      Object.keys(value).filter((key) => key !== 'updatedAt').sort()
+    const keys = keysOf(a)
+    const otherKeys = keysOf(b)
+    return (
+      keys.length === otherKeys.length &&
+      keys.every((key, index) => key === otherKeys[index]) &&
+      keys.every((key) => equalIgnoringInstants(a[key], b[key]))
+    )
+  }
+  return a === b
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
  * Normalize agent/user-friendly patch operations into schema-valid ones.
  *
  * The agent's ProjectProfilePatchCard proposes bare values ("GK4") because the

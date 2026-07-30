@@ -90,6 +90,9 @@ export function sanitizePromptState(input: unknown): StoredPromptState | null {
   // nothing to show, which is worse than still asking.
   const response = cap(input.response, MAX_RESPONSE_CHARS)
   if (response === undefined) return null
-  const respondedAt = cap(input.respondedAt, 40)
-  return { response, respondedAt: respondedAt ?? new Date().toISOString() }
+  // The instant is the SERVER'S, never the client's: a copied `respondedAt` lets
+  // a participant backdate or future-date a persisted decision, and the ordering
+  // of a shared transcript is exactly the thing that must not be forgeable. The
+  // clock here is the same one that stamped the row, so the two agree.
+  return { response, respondedAt: new Date().toISOString() }
 }

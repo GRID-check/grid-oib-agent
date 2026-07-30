@@ -1420,10 +1420,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!currentConversation) return
     try {
       const conversationsClient = await getConversationsClient()
-      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, {
-        response,
-        respondedAt: new Date().toISOString(),
-      })
+      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, { response })
     } catch (err) {
       // Best-effort, like the other mirrors: the answer already reached the agent
       // over the socket and is rendered from the store. Losing this costs the

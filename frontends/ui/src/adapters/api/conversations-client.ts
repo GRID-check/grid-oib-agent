@@ -179,11 +179,14 @@ export const conversationsClient = {
   /**
    * Record the answer to a human-in-the-loop prompt on its message row, so the
    * transcript says what was DECIDED rather than only that something was asked.
+   *
+   * Only the answer travels: the instant is stamped at the server persistence
+   * boundary so a participant cannot backdate a decision.
    */
   async updateMessagePromptState(
     conversationId: string,
     messageId: string,
-    promptState: { response: string; respondedAt: string },
+    promptState: { response: string },
   ): Promise<Message> {
     const res = await fetch(
       `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,

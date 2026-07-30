@@ -147,6 +147,20 @@ Prefer designing a new card to be presentational. If it must be interactive,
 prefer making its endpoint idempotent as well — persistence stops the UI from
 *offering* the duplicate, it does not stop a determined double-POST.
 
+### Two collaborators, one card
+
+Once a thread is shared (ADR-0032) both can press Accept, and the loser's write
+is refused. **Only the endpoint may declare that refusal a success.** A
+`project_profile_patch` loses on `profileVersion`, and that check knows nothing
+about *whose* change won: the same 409 fires when a colleague saved the wizard or
+applied a different patch, in which case these operations were dropped. So
+`patchProjectProfile` re-reads the winner's profile and asks whether it already
+contains this patch (`isPatchAlreadyApplied`, provenance instants ignored). Only
+then does it answer 200 with `alreadyApplied` and the card settle as accepted;
+every other conflict stays a 409 the user sees, with the button live. A card that
+reads success off the status alone reports a change that never landed and then
+retires the only button that could have retried it.
+
 ## Consequences
 
 ### Positive
