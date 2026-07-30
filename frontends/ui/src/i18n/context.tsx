@@ -20,13 +20,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import {
-  defaultLocale,
-  isLocale,
-  LOCALE_COOKIE,
-  localeNames,
-  type Locale,
-} from './config'
+import { defaultLocale, isLocale, LOCALE_COOKIE, localeNames, type Locale } from './config'
 import { getDictionary, type Dictionary } from './dictionaries'
 import { createTranslator, type Translator } from './translate'
 import { fetchUserPreferences, patchUserPreferences } from '@/lib/user-preferences/client'
@@ -52,10 +46,23 @@ function writeLocaleCookie(locale: Locale): void {
 
 export interface I18nProviderProps {
   initialLocale: Locale
+  /**
+   * Pin the locale to {@link initialLocale}: skip the first-mount reconciliation
+   * against the user's saved preference and their organization's default.
+   *
+   * For the `/dev/*` preview routes only. Those pages exist to produce screenshot
+   * evidence, so the copy they render must be the same on every machine rather
+   * than whatever language the developer's own account happens to prefer.
+   */
+  fixedLocale?: boolean
   children: ReactNode
 }
 
-export function I18nProvider({ initialLocale, children }: I18nProviderProps): ReactNode {
+export function I18nProvider({
+  initialLocale,
+  fixedLocale = false,
+  children,
+}: I18nProviderProps): ReactNode {
   const [locale, setLocaleState] = useState<Locale>(initialLocale)
   const hydratedRef = useRef(false)
 
@@ -73,7 +80,7 @@ export function I18nProvider({ initialLocale, children }: I18nProviderProps): Re
       // Persist against the user for cross-device continuity. Fails soft.
       void patchUserPreferences({ locale: next })
     },
-    [applyLocale],
+    [applyLocale]
   )
 
   // On first mount, reconcile the active locale with the user's context:
@@ -82,8 +89,11 @@ export function I18nProvider({ initialLocale, children }: I18nProviderProps): Re
   //      org's configured language until they pick their own).
   // This covers a fresh device where the cookie was never set and the server
   // fell back to the Accept-Language header.
+  //
+  // `fixedLocale` opts out: a preview route asked for one specific language and
+  // must keep it, whoever is looking at it.
   useEffect(() => {
-    if (hydratedRef.current) return
+    if (fixedLocale || hydratedRef.current) return
     hydratedRef.current = true
 
     let cancelled = false
@@ -117,7 +127,7 @@ export function I18nProvider({ initialLocale, children }: I18nProviderProps): Re
 
   const value = useMemo<I18nContextValue>(
     () => ({ locale, dictionary, localeNames, setLocale, t }),
-    [locale, dictionary, setLocale, t],
+    [locale, dictionary, setLocale, t]
   )
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>

@@ -17,23 +17,56 @@
  * no control, because it is not their rule to change. (In `ask` mode a viewer sees
  * nothing at all — an offer nobody may accept is noise.)
  *
- * Not linked from anywhere; 404s outside development. Pinned to German, the primary
- * product language, so the evidence carries the copy that ships.
+ * The first two rows hold the mode in local state, so pressing the control actually
+ * performs the transition it promises — the way back from `mention` to `ask` is part
+ * of what this preview is here to show. The third is static on purpose: a viewer has
+ * no control to press.
+ *
+ * Not linked from anywhere; 404s outside development. Pinned to German (`fixedLocale`,
+ * which also skips the provider's reconciliation against the viewer's own preference)
+ * so the evidence carries the copy that ships whoever captures it.
  */
 
+import { useState } from 'react'
 import { notFound } from 'next/navigation'
 
 import { EngagementNotice } from '@/features/collaboration/components/EngagementNotice'
 import { I18nProvider } from '@/i18n'
+import type { ConversationEngagement } from '@/lib/db/schema'
 
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <section className="flex flex-col gap-2">
-    <h2 className="text-muted-foreground text-[10.5px] font-medium tracking-wider uppercase">
+    <h2 className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
       {label}
     </h2>
     <div className="bg-card rounded-lg border px-4 py-3">{children}</div>
   </section>
 )
+
+/** A row whose control works: the accepted mode becomes the mode in force. */
+const LiveRow = ({
+  label,
+  initialMode,
+  suggestion = null,
+}: {
+  label: string
+  initialMode: ConversationEngagement
+  suggestion?: ConversationEngagement | null
+}) => {
+  const [mode, setMode] = useState<ConversationEngagement>(initialMode)
+  return (
+    <Row label={label}>
+      <EngagementNotice
+        mode={mode}
+        suggestion={suggestion}
+        onChange={(next) => {
+          setMode(next)
+          return true
+        }}
+      />
+    </Row>
+  )
+}
 
 export default function EngagementNoticePreviewPage() {
   if (process.env.NODE_ENV !== 'development') {
@@ -41,7 +74,7 @@ export default function EngagementNoticePreviewPage() {
   }
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <main
         data-testid="engagement-notice-preview"
         className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 md:p-8"
@@ -53,14 +86,15 @@ export default function EngagementNoticePreviewPage() {
           </p>
         </header>
 
-        <Row label="Mehrere Personen — das Angebot, nicht die Änderung">
-          <EngagementNotice mode="ask" suggestion="mention" onChange={() => true} />
-        </Row>
+        <LiveRow
+          label="Mehrere Personen — das Angebot, nicht die Änderung"
+          initialMode="ask"
+          suggestion="mention"
+        />
 
-        <Row label="Nur auf Erwähnung — die Regel, mit dem Weg zurück">
-          <EngagementNotice mode="mention" onChange={() => true} />
-        </Row>
+        <LiveRow label="Nur auf Erwähnung — die Regel, mit dem Weg zurück" initialMode="mention" />
 
+        {/* Static by design: no control, so nothing to transition. */}
         <Row label="Als Mitlesende — Erklärung ohne Schalter">
           <EngagementNotice mode="mention" onChange={() => true} canChange={false} />
         </Row>

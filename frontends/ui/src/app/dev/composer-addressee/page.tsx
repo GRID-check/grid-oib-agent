@@ -194,7 +194,7 @@ export default function ComposerAddresseePreviewPage(): JSX.Element {
   }
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <main
         data-testid="composer-addressee-preview"
         className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-8 text-foreground"

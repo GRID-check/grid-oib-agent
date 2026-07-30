@@ -34,7 +34,7 @@
  * hook's first fetch already sees the fixture. Browser + development only, and
  * idempotent, matching `dev/document-grid/page.tsx`.
  *
- * Pinned to German (`I18nProvider initialLocale="de"`): German is the product's
+ * Pinned to German (`I18nProvider initialLocale="de" fixedLocale`): German is the product's
  * primary language, so the committed evidence must carry the copy most users
  * actually see — and the scaffolding around these previews is German already, so
  * without the pin a screenshot mixes both languages and the primary-language copy
@@ -311,7 +311,7 @@ export default function SharedThreadPreviewPage(): JSX.Element {
   }, [])
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <AppConfigProvider config={config}>
         <main className="bg-background flex h-dvh flex-col" data-testid="shared-thread-preview">
           {ready && <ChatArea isAuthenticated canCollaborate />}

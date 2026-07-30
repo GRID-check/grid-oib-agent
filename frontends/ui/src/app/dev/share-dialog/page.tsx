@@ -29,7 +29,7 @@
  *                          "the change did not happen" must be visible.
  *   - `?variant=loading` — the skeleton.
  *
- * Pinned to German (`I18nProvider initialLocale="de"`): German is the product's
+ * Pinned to German (`I18nProvider initialLocale="de" fixedLocale`): German is the product's
  * primary language, so the committed evidence must carry the copy most users
  * actually see — and the scaffolding around these previews is German already, so
  * without the pin a screenshot mixes both languages and the primary-language copy
@@ -218,7 +218,7 @@ export default function ShareDialogDevPage(): JSX.Element {
   }, [])
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <main
         data-testid="share-dialog-preview"
         className="mx-auto flex max-w-3xl flex-col gap-6 p-8 text-foreground"

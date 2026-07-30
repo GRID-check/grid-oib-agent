@@ -57,7 +57,7 @@ export default function MentionPillPreviewPage() {
   }
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <MentionPeopleProvider participants={ROSTER} currentUserId={ME.userId} agentName="Piloti">
         <main
           data-testid="mention-pill-preview"

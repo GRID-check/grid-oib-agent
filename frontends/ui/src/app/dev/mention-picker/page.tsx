@@ -84,7 +84,7 @@ export default function MentionPickerPreviewPage() {
   )
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
     <main
       data-testid="mention-picker-preview"
       className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-6"

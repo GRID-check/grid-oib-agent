@@ -116,7 +116,7 @@ export default function AwaitingBannerPreviewPage() {
   }
 
   return (
-    <I18nProvider initialLocale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
     <main
       data-testid="awaiting-banner-preview"
       className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 md:p-8"
