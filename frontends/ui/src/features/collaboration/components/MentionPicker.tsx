@@ -279,7 +279,7 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
         : blocked
           ? t('mentions.picker.cannotInvite')
           : candidate.needsInvite
-            ? t('mentions.picker.needsInviteHint', { name: candidate.person.name })
+            ? t('mentions.picker.needsInviteHintShort')
             : (candidate.person.email ?? '')
 
       return (

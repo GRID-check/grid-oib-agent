@@ -104,6 +104,7 @@ export const collaboration: typeof en.collaboration = {
       agentHint: 'Den Assistenten fragen',
       needsInvite: 'Wird eingeladen',
       needsInviteHint: '{name} ist noch nicht in diesem Chat und wird eingeladen.',
+      needsInviteHintShort: 'Noch nicht in diesem Chat — wird eingeladen.',
       cannotInvite: 'Nur Eigentümer können neue Personen in diesen Chat holen.',
       resultsAria: 'Personen, die Sie erwähnen können',
       keyboardHint: '↑↓ auswählen · ↵ einfügen · esc schließen',

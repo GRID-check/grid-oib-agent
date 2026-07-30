@@ -113,6 +113,13 @@ export const collaboration = {
       agentHint: 'Ask the assistant',
       needsInvite: 'Will be invited',
       needsInviteHint: '{name} is not in this conversation yet and will be invited.',
+      /**
+       * The same fact WITHOUT the name, for the picker row — which prints the
+       * person's name on the line directly above, so interpolating it again read
+       * "Sabine Gruber / Sabine Gruber ist noch nicht in diesem Chat…". Keep the
+       * named variant for surfaces that mention someone out of context.
+       */
+      needsInviteHintShort: 'Not in this conversation yet — will be invited.',
       cannotInvite: 'Only an owner can bring new people into this conversation.',
       /** Screen-reader + footer affordances for the combobox. */
       resultsAria: 'People you can mention',

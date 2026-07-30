@@ -105,9 +105,11 @@ describe('MentionPicker — the rows', () => {
     renderPicker()
     const row = screen.getByText('Sabine Gruber').closest('[role="option"]') as HTMLElement
     expect(within(row).getByText('Will be invited')).toBeInTheDocument()
-    expect(
-      within(row).getByText('Sabine Gruber is not in this conversation yet and will be invited.'),
-    ).toBeInTheDocument()
+    // The consequence is stated WITHOUT repeating her name: the row already
+    // prints it on the line above, and interpolating it again read
+    // "Sabine Gruber / Sabine Gruber is not in this conversation yet…".
+    expect(within(row).getByText('Not in this conversation yet — will be invited.')).toBeInTheDocument()
+    expect(within(row).queryByText(/Sabine Gruber is not in this conversation/)).toBeNull()
     expect(row).toHaveAttribute('aria-disabled', 'false')
   })
 
