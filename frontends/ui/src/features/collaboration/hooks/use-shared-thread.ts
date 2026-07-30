@@ -48,6 +48,7 @@ import type { ChatMessage } from '@/features/chat/types'
 import type { MessagesSlice } from '@/features/chat/stores/messages-store'
 import { mapServerMessagesToChatMessages } from '@/features/chat/lib/server-message-mapper'
 import type { Message } from '@/lib/db/schema'
+import { publishThreadSharing } from '@/shared/collaboration/thread-sharing'
 import { useLiveEvents } from './use-live-events'
 
 /**
@@ -318,6 +319,9 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
             sharedRef.current = false
             setShared(false)
             setLoading(false)
+            // Same fallback for the composer's socket: a thread with no shared
+            // behaviour behaves like a private one, connect-on-mount included.
+            publishThreadSharing(conversationId, false)
           }
           return
         }
@@ -328,6 +332,11 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         sharedRef.current = isShared
         setShared(isShared)
         setMyRole(facts.myRole ?? null)
+        // Hand the answer to the agent-socket gate (`useWebSocketChat`). This read
+        // is the ONLY place sharedness is learned, and the composer lives in a
+        // sibling component — publishing it here is what keeps the composer from
+        // paying for the same request twice.
+        publishThreadSharing(conversationId, isShared)
 
         // Freeze the unread separator at the mark the reader arrived with (CC-19).
         if (isShared && unreadAnchoredRef.current === null) {
@@ -365,6 +374,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         if (current === seq.current) {
           sharedRef.current = false
           setShared(false)
+          // Deliberately NOT published: a network failure is not evidence that the
+          // thread is private, and telling the socket gate "private" on a guess is
+          // how the two-participant collision comes back. Left `unknown`, so the
+          // composer opens its socket on intent instead of on mount.
         }
       } finally {
         if (current === seq.current) setLoading(false)

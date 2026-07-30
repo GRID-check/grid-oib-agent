@@ -484,8 +484,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Check if current session is busy with operations
   const isBusy = useIsCurrentSessionBusy()
 
-  // WebSocket chat hook for full HITL support
-  const wsChat = useWebSocketChat({ autoConnect: connectionMode === 'websocket' })
+  /*
+    WebSocket chat hook for full HITL support.
+
+    `canCollaborate` decides WHEN the agent socket opens, not whether. With the flag
+    off (the default) it opens on mount exactly as it always has. With the flag on it
+    opens on mount for a private thread too — but in a SHARED thread it waits for the
+    user to show they mean to write, because the Python socket registry is keyed by
+    conversation id, so a reader who merely opened the thread would take the asker's
+    registration away from him. See the socket-gate block in `use-websocket-chat`.
+  */
+  const wsChat = useWebSocketChat({
+    autoConnect: connectionMode === 'websocket',
+    canCollaborate,
+  })
 
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
@@ -598,7 +610,35 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
 
-  const { sendMessage, isLoading, respondToInteraction, pendingInteraction } = wsChat
+  const { sendMessage, isLoading, respondToInteraction, pendingInteraction, noteSendIntent } =
+    wsChat
+
+  /*
+    THE CONNECTION TRIGGER: composer focus.
+
+    Three candidates, and this is the trade we picked.
+
+      - **The send itself** is the latest possible moment and the cheapest for a
+        reader, but it puts a full WebSocket handshake in front of the first
+        message of every shared thread — the user waits for it, and it is the one
+        latency this fix must not add.
+      - **The first keystroke** is nearly as good and strictly worse: it connects
+        no earlier than focus and only saves a socket for the user who focuses the
+        composer and then types nothing at all, which is rare and harmless.
+      - **Focus** connects on the click or Tab that precedes the typing. By the
+        time a sentence has been written the socket is warm, so the send is as fast
+        as it is today, while a participant who is only READING never focuses the
+        composer and never connects. That is the case the defect is about.
+
+    Focus is not proof of intent to send, so the cost of being wrong matters: a
+    reader who idly clicks the composer opens a socket they will not use. That
+    costs one connection slot and, in a shared thread, can still displace the
+    asker's registration — which is why the frontend fix mitigates rather than
+    closes the collision (the registry has to become per-socket to close it).
+
+    `handleSubmit` calls it again as a backstop, for the paths that send without a
+    focus event ever reaching the textarea (composer prefill, deep links).
+  */
 
   // Register respondToInteraction in the store so sibling components (e.g. AgentPrompt) can use it
   const setRespondToInteractionFn = useChatStore((state) => state.setRespondToInteractionFn)
@@ -815,6 +855,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleSubmit = useCallback(async () => {
     if (!message.trim() || disabled) return
+    // Backstop for a send that never saw a focus event (prefill, deep link). A no-op
+    // when focus already declared it.
+    noteSendIntent()
     const currentMessage = message.trim()
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
@@ -891,6 +934,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     isResponseMode,
     respondToInteraction,
     sendMessage,
+    noteSendIntent,
     threadAwaitsHuman,
     currentConversation,
     clearComposerDraft,
@@ -1177,6 +1221,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           value={message}
           onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
+          // Intent to send. In a shared thread this is what opens the agent socket
+          // (see the note next to `noteSendIntent` above); everywhere else the
+          // socket is already up and this is a no-op.
+          onFocus={noteSendIntent}
           // The caret can move without the text changing (arrows, a click); the
           // trigger has to follow it, or the picker outlives its own fragment.
           onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
@@ -1358,7 +1406,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <AddresseeIndicator
               mentions={activeMentions}
               awaitingHuman={threadAwaitsHuman}
-              className="ml-0.5"
             />
           )}
 
@@ -1551,9 +1598,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           >
             <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
             <span>
-              {tCollab('mentions.composerHint', {
-                name: taggedHumans.map((mention) => mention.display).join(', '),
-              })}
+              {/* German inflects the verb, so joining names into the singular
+                  string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
+                  grammar in the primary product language. This i18n layer has no
+                  plural rules, hence two keys. */}
+              {taggedHumans.length === 1
+                ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
+                : tCollab('mentions.composerHintMany', {
+                    names: taggedHumans.map((mention) => mention.display).join(', '),
+                  })}
             </span>
           </p>
         )}

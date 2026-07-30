@@ -34,6 +34,7 @@ import {
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
 import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/use-backend-health'
+import { useThreadSharing } from '@/shared/collaboration/thread-sharing'
 import type { AddresseeSet } from '@/lib/mentions/types'
 import { useChatStore } from '../store'
 import { registerStopStreamingHandler } from '../stores/messages-store'
@@ -192,6 +193,18 @@ type PendingOutgoing =
   | { kind: 'message'; content: string; dataSources: string[]; deliveryRetryCount?: number }
   | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
 
+/**
+ * A human message the agent must SEE but was not asked to answer (ADR-0034
+ * addendum), held until there is a socket to put it on. `authorName` is captured
+ * at enqueue time so a drain that happens later still attributes it correctly.
+ */
+type PendingContext = { content: string; dataSources: string[]; authorName: string | null }
+
+/** How many context frames may wait for one handshake before the oldest is
+ * dropped. Context is best-effort by design (the message is already persisted in
+ * Postgres), so a bound is cheaper than unbounded memory. */
+const MAX_PENDING_CONTEXT = 8
+
 type UnacknowledgedOutgoing = {
   payload: PendingOutgoing
   outboundId: string
@@ -302,9 +315,27 @@ const mapNATErrorToErrorCode = (natErrorCode: string): ErrorCode => {
   }
 }
 
+/**
+ * Message kinds that count as "part of the conversation" when deciding whether a
+ * turn is still open. Mirrors `restoreSessionState`'s own `meaningfulTypes` set
+ * (sessions-store) on purpose: the two are answering the same question — "is the
+ * last thing in this thread an unfinished turn?" — and they must not disagree.
+ */
+const MEANINGFUL_MESSAGE_TYPES = new Set(['user', 'assistant', 'agent_response', 'error', 'prompt'])
+
 interface UseWebSocketChatOptions {
   /** Auto-connect on mount (default: true) */
   autoConnect?: boolean
+  /**
+   * Whether collaboration is reachable for this org (the dark-launch flag).
+   *
+   * **Defaults to false, and false means "exactly today"** (spec NF-8): the socket
+   * opens on mount, before the user has done anything, with no request in front of
+   * it. Only with the flag ON does the socket wait to learn whether the thread is
+   * shared — see `socketPermitted` below for why that is not a latency cost for
+   * private threads either.
+   */
+  canCollaborate?: boolean
 }
 
 interface UseWebSocketChatReturn {
@@ -330,6 +361,16 @@ interface UseWebSocketChatReturn {
   disconnect: () => void
   /** Reconnect the WebSocket */
   connect: () => void
+  /**
+   * Declare that the user means to write something (composer focus, or a send).
+   *
+   * In a **shared** thread this is what opens the agent socket, because merely
+   * opening the thread must not (ADR-0033 §7: a participant who did not start a
+   * turn observes it over the SSE channel and needs no socket). Idempotent, and a
+   * no-op wherever the socket is already permitted — so a private thread and a
+   * gated org never reach it.
+   */
+  noteSendIntent: () => void
   /** Whether WebSocket is connected */
   isConnected: boolean
   /** Whether a response is currently being received */
@@ -390,7 +431,7 @@ export const mapHumanPromptType = (natType: string): PromptType => {
  * and approval flows.
  */
 export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebSocketChatReturn => {
-  const { autoConnect = true } = options
+  const { autoConnect = true, canCollaborate = false } = options
 
   // WebSocket client ref
   const wsClientRef = useRef<NATWebSocketClient | null>(null)
@@ -424,6 +465,22 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * routine soft rotation doesn't replay an already-completed payload.
    */
   const lastSentOutgoingRef = useRef<PendingOutgoing | null>(null)
+
+  /**
+   * Context-only frames waiting for a socket (see `deliverAsContext`).
+   *
+   * Deliberately a SEPARATE queue from `pendingOutgoingRef`: that single slot
+   * belongs to a real turn, and a remark must never displace one. Deliberately a
+   * small list rather than a slot: a burst of remarks during one handshake is
+   * ordinary in a shared thread, and the agent's memory of the thread should not
+   * depend on which one arrived last.
+   *
+   * Why it exists at all: with the connection driven by intent, a user who focuses
+   * and sends fast can hit a socket that is still handshaking, where before this
+   * change the socket had been warm since mount. That window is real, so the frame
+   * is queued and drained on `connected` instead of being dropped with a warning.
+   */
+  const pendingContextRef = useRef<PendingContext[]>([])
 
   /**
    * Payload that has been written to a WebSocket but has not yet produced any
@@ -627,6 +684,111 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     const userId = user?.id ?? null
     setCurrentUser(userId)
   }, [user?.id, setCurrentUser])
+
+  /* ────────────────────────────────────────────────────────────────────────────
+   * MAY THIS BROWSER HOLD AN AGENT SOCKET FOR THIS CONVERSATION?
+   *
+   * The Python registry keys live sockets by conversation_id
+   * (`websocket_reconnect.py`, `WebSocketSessionRegistry._sockets`), so a second
+   * socket on the same conversation REPLACES the first. For one user reconnecting
+   * that is the feature. For two participants in a shared thread it is a defect:
+   * a reader who merely OPENS the thread takes over the asker's registration, so
+   * his answer streams into her connection and disappears from his — and because
+   * `clear_socket` is identity-guarded, her leaving unregisters the conversation
+   * outright rather than handing it back.
+   *
+   * The frontend cause is that this hook auto-connected on MOUNT. ADR-0033 §7
+   * already decided the shape of the fix: an observer sees turn *state* over the
+   * SSE channel ("Piloti is answering Anna's question", then the answer), not
+   * token streaming. So a participant who is only reading has no reason to hold a
+   * socket, and the connection can follow **intent to send** instead of mounting.
+   *
+   * Four things open the gate, and the order matters:
+   *
+   *   1. `!canCollaborate` — the flag is off. Byte-identical to today, evaluated
+   *      synchronously on the first render, with no request in front of it (NF-8).
+   *      This is the overwhelming majority of usage and it pays nothing.
+   *   2. `sharing === 'private'` — the server has said this thread is solo. Also
+   *      connect-on-mount. The access read this reads from is the one
+   *      `useSharedThread` already issues on open (ADR-0033 §1), so it costs no
+   *      extra round trip and it resolves while the thread is still painting —
+   *      long before anyone can focus a composer. A private thread therefore
+   *      keeps today's first-message latency.
+   *   3. `intent` — composer focus (or a send). See `noteSendIntent`.
+   *   4. `ownsUnansweredTurn` — this browser is the one waiting on an answer, so
+   *      it must reconnect WITHOUT being touched: reattachment happens in
+   *      `_restore_execution_state` on the new handshake, and a refresh mid-answer
+   *      would otherwise sit there until the user clicked the composer.
+   *
+   * `'unknown'` (collaboration on, access read not yet answered) deliberately does
+   * NOT open the gate: guessing "private" there would re-open the collision, while
+   * guessing "unknown" only defers a connect that (1)-(4) will make anyway.
+   *
+   * The result is LATCHED per conversation. Once a socket is permitted it stays
+   * permitted until the conversation changes, because every input above is
+   * transient — `ownsUnansweredTurn` flips false the moment the answer starts
+   * arriving, and re-evaluating the gate then would tear down the very socket the
+   * answer is streaming on.
+   * ──────────────────────────────────────────────────────────────────────────── */
+  const threadSharing = useThreadSharing(currentConversationId)
+
+  const socketGateRef = useRef<{
+    conversationId: string | undefined
+    intent: boolean
+    open: boolean
+  }>({ conversationId: undefined, intent: false, open: false })
+
+  // Re-render trigger for `noteSendIntent`. The intent itself lives in the ref, not
+  // in state, so that switching conversations resets it in the SAME render that
+  // resets the latch — a state reset lands one render late, which would let the
+  // previous thread's intent open the gate on the new one.
+  const [, bumpSocketGate] = useState(0)
+
+  if (socketGateRef.current.conversationId !== currentConversationId) {
+    socketGateRef.current = { conversationId: currentConversationId, intent: false, open: false }
+  }
+
+  const noteSendIntent = useCallback(() => {
+    if (socketGateRef.current.intent) return
+    socketGateRef.current.intent = true
+    bumpSocketGate((n) => n + 1)
+  }, [])
+
+  /**
+   * Is the newest thing in this thread an unfinished turn that belongs to ME?
+   *
+   * "Mine" is `authorUserId === currentUserId`, or absent — a solo thread renders
+   * no attribution and writes no author, so absent means "there is only me".
+   * An unresponded HITL prompt counts: the thread is paused on an answer only this
+   * browser can give. So does a still-`isStreaming` assistant message, which is
+   * what a mid-stream refresh leaves behind locally.
+   */
+  const ownsUnansweredTurn = useMemo(() => {
+    const messages = currentConversation?.messages
+    if (!messages?.length) return false
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index]
+      if (!MEANINGFUL_MESSAGE_TYPES.has(message.messageType ?? '')) continue
+      if (message.messageType === 'prompt') return !message.isPromptResponded
+      if (message.messageType === 'user') {
+        return !message.authorUserId || message.authorUserId === currentUserId
+      }
+      // An assistant/error message closes the turn — unless it is the partial
+      // bubble a refresh interrupted, which is exactly a turn to reattach to.
+      return message.isStreaming === true
+    }
+    return false
+  }, [currentConversation?.messages, currentUserId])
+
+  if (
+    !canCollaborate ||
+    threadSharing === 'private' ||
+    socketGateRef.current.intent ||
+    ownsUnansweredTurn
+  ) {
+    socketGateRef.current.open = true
+  }
+  const socketPermitted = socketGateRef.current.open
 
   /**
    * Classify a transport failure as auth-related or generic connection error.
@@ -1383,6 +1545,28 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             }
           }
 
+          // Drain context-only frames that were written while there was no socket
+          // (see `deliverAsContext`). AFTER the turn drain, because a turn is what
+          // the user is waiting for and context is not. No streaming state, no
+          // watchdog, no ack tracking: a frame that is answered by design must not
+          // look like a turn to any of that machinery.
+          if (client && pendingContextRef.current.length > 0) {
+            const contextFrames = pendingContextRef.current
+            pendingContextRef.current = []
+            for (const frame of contextFrames) {
+              try {
+                client.sendMessage(frame.content, frame.dataSources, {
+                  contextOnly: true,
+                  authorName: frame.authorName,
+                })
+              } catch (err) {
+                // Best effort, exactly as at the call site: the message is already
+                // in Postgres, so a lost frame costs the agent one line of memory.
+                console.warn('[WS] Context-only message not delivered on drain', err)
+              }
+            }
+          }
+
           // FIX 2: on a RECONNECT (not the first connect of a fresh mount),
           // re-run the interrupted-answer recovery for the current conversation.
           // A mid-turn drop is persisted server-side; without a remount nothing
@@ -1537,10 +1721,15 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [])
 
   /**
-   * Initialize WebSocket client when conversation changes
+   * Initialize WebSocket client when conversation changes.
+   *
+   * Gated on `socketPermitted` as well as `autoConnect`: see the socket-gate block
+   * above. `socketPermitted` is latched, so within one conversation it only ever
+   * goes false → true and this effect cannot tear down a live socket behind the
+   * user's back.
    */
   useEffect(() => {
-    if (!currentConversationId || !autoConnect) return
+    if (!currentConversationId || !autoConnect || !socketPermitted) return
 
     // Create new client if needed. Seed projectId from the store at creation
     // time; subsequent changes are pushed by the dedicated projectId effect
@@ -1582,6 +1771,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
       pendingOutgoingRef.current = null
       lastSentOutgoingRef.current = null
+      // Context frames are conversation-scoped for the same reason a turn is:
+      // draining one into the NEXT conversation's socket would leak a message
+      // across a conversation boundary.
+      pendingContextRef.current = []
       clearUnacknowledgedOutgoing()
       clearStreamingWatchdog()
       consecutiveAuthExpiredRef.current = 0
@@ -1593,6 +1786,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [
     currentConversationId,
     autoConnect,
+    socketPermitted,
     buildWsClient,
     clearUnacknowledgedOutgoing,
     clearStreamingWatchdog,
@@ -1638,30 +1832,62 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * Best effort by design: the human's message is already persisted in Postgres, so
    * a frame that cannot go out costs the agent a line of memory and costs the thread
    * nothing. Never throws, never surfaces anything.
+   *
+   * **No socket yet?** It is QUEUED, not dropped. Connecting on intent rather than
+   * on mount widens the window in which a fast "focus, paste, Enter" arrives while
+   * the handshake is still in flight, so the frame waits in `pendingContextRef` and
+   * goes out on `connected`. If no socket ever comes up (the user never focused the
+   * composer, the handshake fails, they navigate away) the frame is discarded with
+   * the conversation, silently — which is the same outcome as before, for the same
+   * reason: the message itself is already safe in Postgres.
    */
   const deliverAsContext = useCallback(
     (content: string, dataSourcesForMessage: string[]): boolean => {
+      const authorName = user?.name ?? user?.email ?? null
       const client = wsClientRef.current
-      if (!client?.isConnected()) {
-        console.warn('[WS] Context-only message not delivered (socket not connected)')
+
+      const queue = (): boolean => {
+        pendingContextRef.current.push({ content, dataSources: dataSourcesForMessage, authorName })
+        if (pendingContextRef.current.length > MAX_PENDING_CONTEXT) {
+          pendingContextRef.current.shift()
+        }
         return false
       }
+
+      if (!client?.isConnected()) {
+        queue()
+        // Bring a socket up for it. The user just wrote in this thread, so they are
+        // not an observer any more — the same intent a composer focus declares. The
+        // latch is set too, so the lifecycle effect and the ref agree about whether
+        // this conversation is allowed a socket.
+        noteSendIntent()
+        const conversationId = useChatStore.getState().currentConversation?.id
+        if (!wsClientRef.current && conversationId) {
+          wsClientRef.current = buildWsClient(conversationId)
+        }
+        void wsClientRef.current?.connect()
+        return false
+      }
+
       try {
         const delivered =
           client.sendMessage(content, dataSourcesForMessage, {
             contextOnly: true,
-            authorName: user?.name ?? user?.email ?? null,
+            authorName,
           }) !== null
         if (!delivered) {
-          console.warn('[WS] Context-only message not delivered (socket refused the frame)')
+          // The socket refused the frame (rotating, closing). Same window, same
+          // answer: hold it for the next `connected`.
+          console.warn('[WS] Context-only message deferred (socket refused the frame)')
+          return queue()
         }
         return delivered
       } catch (err) {
-        console.warn('[WS] Context-only message not delivered', err)
-        return false
+        console.warn('[WS] Context-only message deferred', err)
+        return queue()
       }
     },
-    [user?.name, user?.email],
+    [user?.name, user?.email, buildWsClient, noteSendIntent],
   )
 
   /**
@@ -2152,6 +2378,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     respondToInteraction,
     disconnect,
     connect,
+    noteSendIntent,
     isConnected,
     isStreaming,
     isLoading,

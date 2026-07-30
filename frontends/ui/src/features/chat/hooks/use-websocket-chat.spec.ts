@@ -265,6 +265,10 @@ vi.mock('@/adapters/api/websocket-client', () => ({
 }))
 
 import { useChatStore } from '../store'
+// NOT mocked: the real registry is the point. `useSharedThread` publishes into it
+// after its access read, and the socket layer reads it to decide whether opening a
+// connection on mount could collide with another participant's.
+import { publishThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
 
 /**
  * Helper to render hook with autoConnect enabled (default behavior)
@@ -3161,5 +3165,295 @@ describe('useWebSocketChat — context-only delivery (the agent sees the whole t
     expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
     expect(sendOptions()).toBeUndefined()
     expect(mockSetStreaming).toHaveBeenCalledWith(true)
+  })
+})
+
+/**
+ * THE MULTI-USER DEFECT, at the layer where it is caused.
+ *
+ * The Python registry keys live sockets by conversation_id
+ * (`websocket_reconnect.py`, `WebSocketSessionRegistry._sockets`), so a second
+ * socket on the same conversation REPLACES the first. That is right for one user
+ * reconnecting and wrong for two people in a shared thread: the reader's socket
+ * takes over the asker's registration, so his answer streams into her connection
+ * and vanishes from his — and because `clear_socket` is identity-guarded, her
+ * leaving unregisters the conversation outright.
+ *
+ * The frontend cause is that the composer auto-connects on MOUNT. ADR-0033 §7
+ * already decided that a participant who did not start a turn sees turn *state*
+ * over the SSE channel, not token streaming — so a reader has no reason to hold an
+ * agent socket at all. These tests pin the connection to intent instead.
+ */
+describe('useWebSocketChat — the agent socket follows intent to send, not mounting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    resetThreadSharing()
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-matthias',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-matthias' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      error: null,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    mockWsClient.isConnected.mockReturnValue(false)
+  })
+
+  test('THE DEFECT: opening a SHARED thread as a reader opens no agent socket', () => {
+    // Anna opens a thread Matthias already has open. Nothing about opening it is
+    // a reason to take his socket registration away from him.
+    publishThreadSharing('conv-1', true)
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).not.toHaveBeenCalled()
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+  })
+
+  test('a SOLO thread is unchanged: the socket opens on mount, before anything is typed (NF-8)', () => {
+    // The non-negotiable one. A private conversation pays nothing for a
+    // shared-conversation bug: same connect, same first-message latency.
+    publishThreadSharing('conv-1', false)
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('with collaboration off the socket opens on mount even before sharedness is known', () => {
+    // No access read happens at all in a gated org, so `unknown` must not be able
+    // to withhold the socket. This is the byte-identical path (spec NF-8).
+    renderHook(() => useWebSocketChat())
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('a reader who focuses the composer does connect', () => {
+    publishThreadSharing('conv-1', true)
+
+    const { result } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+
+    act(() => {
+      result.current.noteSendIntent()
+    })
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('the socket stays open once intent was shown, even while the turn streams', () => {
+    publishThreadSharing('conv-1', true)
+
+    const { result, rerender } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+    act(() => {
+      result.current.noteSendIntent()
+    })
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+
+    // An answer arriving must not re-evaluate the gate and tear the socket down.
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [
+        { id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' },
+        { id: 'm2', role: 'assistant', messageType: 'agent_response' },
+      ],
+      userId: 'user-matthias',
+    }
+    mockStoreState.isStreaming = true
+    rerender()
+
+    expect(mockWsClient.disconnect).not.toHaveBeenCalled()
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('reattach after a refresh: my own unanswered turn opens the socket on mount', () => {
+    // Requirement 3. The asker refreshes mid-answer. The running turn is
+    // reattached by `_restore_execution_state` on the new HANDSHAKE, so the socket
+    // has to be opened without waiting for them to touch the composer.
+    publishThreadSharing('conv-1', true)
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [{ id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' }],
+      userId: 'user-matthias',
+    }
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test("a colleague's unanswered turn does NOT open my socket", () => {
+    // The inverse, and the actual collision: Anna opens the thread while Piloti is
+    // answering Matthias. She observes the turn over SSE (ADR-0033 §7); taking his
+    // socket is precisely the defect.
+    publishThreadSharing('conv-1', true)
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [{ id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' }],
+      userId: 'user-anna',
+    }
+    mockStoreState.currentUserId = 'user-anna'
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).not.toHaveBeenCalled()
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+  })
+
+  test('an answered thread opens no socket for anybody until they mean to write', () => {
+    publishThreadSharing('conv-1', true)
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [
+        { id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' },
+        { id: 'm2', role: 'assistant', messageType: 'agent_response' },
+      ],
+      userId: 'user-matthias',
+    }
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+  })
+
+  test('sharedness arriving late withdraws nothing that was already opened', () => {
+    // A private thread that is shared WHILE open keeps its socket: the user may be
+    // mid-turn, and closing it would drop their own answer. The collision it could
+    // still cause is bounded to that one already-open thread.
+    publishThreadSharing('conv-1', false)
+    const { rerender } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      publishThreadSharing('conv-1', true)
+    })
+    rerender()
+
+    expect(mockWsClient.disconnect).not.toHaveBeenCalled()
+  })
+})
+
+describe('useWebSocketChat — a context-only send with no socket yet', () => {
+  const mockFetch = vi.fn()
+  const mockSetState = vi.fn()
+  const realFetch = globalThis.fetch
+
+  // NOTE: sharedness is reset in `beforeEach`, not here. Resetting it in an
+  // afterEach notifies subscribers while the hook is still mounted (RTL's cleanup
+  // runs after ours), which is a state update outside `act`.
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    resetThreadSharing()
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-anna',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-anna' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      error: null,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
+    // The socket is NOT up: this is the window intent-driven connection widens.
+    mockWsClient.isConnected.mockReturnValue(false)
+    globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees: { agent: false, users: [] }, createdRequests: 0 }],
+      }
+    })
+  })
+
+  test('the frame is queued and delivered on the handshake instead of being dropped', async () => {
+    publishThreadSharing('conv-1', true)
+    const { result } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    // She focuses and sends fast: the socket is still handshaking.
+    act(() => {
+      result.current.noteSendIntent()
+    })
+    await act(async () => {
+      await result.current.sendMessage('Ja, das Atrium ist ein eigener Abschnitt.', {
+        awaitingHuman: true,
+      })
+    })
+
+    // Nothing on the wire yet — but nothing lost either.
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+
+    mockWsClient.isConnected.mockReturnValue(true)
+    act(() => {
+      capturedCallbacks.onConnectionChange?.('connected')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Ja, das Atrium ist ein eigener Abschnitt.',
+      expect.any(Array),
+      { contextOnly: true, authorName: 'test@example.com' },
+    )
+    // Context is never a turn: no streaming state, no watchdog, no spinner.
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+  })
+
+  test('a queued context frame does not displace a real turn buffered by a rotation', async () => {
+    publishThreadSharing('conv-1', false)
+    const { result } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    await act(async () => {
+      await result.current.sendMessage('Kurz dazu.', { awaitingHuman: true })
+    })
+
+    // A normal turn now queues behind the same handshake.
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees: { agent: true, users: [] }, createdRequests: 0 }],
+      }
+    })
+    await act(async () => {
+      await result.current.sendMessage('@Piloti und jetzt?', { awaitingHuman: true })
+    })
+
+    mockWsClient.isConnected.mockReturnValue(true)
+    act(() => {
+      capturedCallbacks.onConnectionChange?.('connected')
+    })
+
+    // The turn goes out as a turn, the remark as context. Both survive.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('@Piloti und jetzt?', expect.any(Array))
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Kurz dazu.', expect.any(Array), {
+      contextOnly: true,
+      authorName: 'test@example.com',
+    })
   })
 })

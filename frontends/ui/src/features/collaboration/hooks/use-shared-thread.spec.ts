@@ -49,6 +49,7 @@ vi.mock('../lib/event-hub', () => ({
 }))
 
 import { useChatStore } from '@/features/chat/store'
+import { getThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
 import { useSharedThread } from './use-shared-thread'
 
 const CONVERSATION_ID = 's_conv_shared'
@@ -562,5 +563,71 @@ describe('useSharedThread — read state', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+/**
+ * The seam publishes sharedness for the composer's agent socket.
+ *
+ * `useWebSocketChat` has to know whether opening a socket on mount could collide
+ * with another participant's, and this access read is the only place that fact is
+ * learned (ADR-0033 §1). It lives in a sibling component, so the answer is handed
+ * over through the registry rather than re-fetched.
+ */
+describe('useSharedThread — sharedness is published for the agent-socket gate', () => {
+  beforeEach(() => {
+    resetThreadSharing()
+  })
+
+  test('a shared thread is published as shared', async () => {
+    routes.shared = true
+
+    renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+
+    await waitFor(() => expect(getThreadSharing(CONVERSATION_ID)).toBe('shared'))
+  })
+
+  test('a private thread is published as private, so its socket still opens on mount', async () => {
+    routes.shared = false
+
+    renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+
+    await waitFor(() => expect(getThreadSharing(CONVERSATION_ID)).toBe('private'))
+  })
+
+  test('collaboration disabled publishes nothing — the gate must not need this hook at all', async () => {
+    renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: false, currentUserId: ME })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // `unknown`, and the gate treats a gated org as connect-on-mount on its own.
+    expect(getThreadSharing(CONVERSATION_ID)).toBe('unknown')
+  })
+
+  test('a failed access read publishes nothing rather than guessing "private"', async () => {
+    // Guessing private here would re-open the two-participant socket collision.
+    // Staying `unknown` only defers the connect to composer focus.
+    fetchMock.mockImplementation(async () => {
+      throw new Error('offline')
+    })
+
+    renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getThreadSharing(CONVERSATION_ID)).toBe('unknown')
   })
 })

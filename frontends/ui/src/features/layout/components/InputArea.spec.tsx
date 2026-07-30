@@ -12,6 +12,9 @@ vi.mock('sonner', () => ({
 // Mock the chat hooks
 const mockSendMessage = vi.fn()
 const mockRespondToInteraction = vi.fn()
+// Intent to send (composer focus / submit) — what opens the agent socket in a
+// shared thread. Part of the hook's surface, so every stubbed return needs it.
+const mockNoteSendIntent = vi.fn()
 
 let mockIsDeepResearchStreaming = false
 let mockDeepResearchStatus: string | null = null
@@ -39,6 +42,7 @@ vi.mock('@/features/chat', () => ({
     isStreaming: false,
     isLoading: false,
     respondToInteraction: mockRespondToInteraction,
+    noteSendIntent: mockNoteSendIntent,
     pendingInteraction: null,
   })),
   useChatStore: vi.fn((selector) => {
@@ -285,6 +289,7 @@ describe('InputArea', () => {
       isStreaming: false,
       isLoading: false,
       respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
       pendingInteraction: null,
     } as unknown as ReturnType<typeof useWebSocketChat>)
   })
@@ -485,6 +490,7 @@ describe('InputArea', () => {
       isStreaming: false,
       isLoading: false,
       respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
       pendingInteraction: { id: 'prompt-1', type: 'input', content: 'Please provide more details' },
     } as unknown as ReturnType<typeof useWebSocketChat>)
 
@@ -501,6 +507,7 @@ describe('InputArea', () => {
       isStreaming: false,
       isLoading: false,
       respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
       pendingInteraction: { id: 'prompt-1', type: 'input', content: 'Please provide more details' },
     } as unknown as ReturnType<typeof useWebSocketChat>)
 
@@ -827,6 +834,7 @@ describe('InputArea', () => {
       isStreaming: false,
       isLoading: false,
       respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
       pendingInteraction: { id: 'prompt-1', type: 'input', content: 'Approve plan?' },
     } as unknown as ReturnType<typeof useWebSocketChat>)
 
@@ -846,6 +854,7 @@ describe('InputArea', () => {
       isStreaming: false,
       isLoading: false,
       respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
       pendingInteraction: {
         id: 'prompt-1',
         parentId: 'agent-1',
@@ -872,6 +881,7 @@ describe('InputArea', () => {
       isStreaming: false,
       isLoading: false,
       respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
       pendingInteraction: { id: 'prompt-1', type: 'input', content: 'Approve report plan?' },
     } as unknown as ReturnType<typeof useWebSocketChat>)
 
@@ -1538,5 +1548,85 @@ describe('InputArea', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith('Frage')
     })
+  })
+})
+
+/**
+ * The composer's half of the intent-driven agent socket.
+ *
+ * The decision of WHETHER a socket may be opened lives in `useWebSocketChat` (and
+ * is tested there against the real WS client). What belongs here is the wiring: the
+ * flag is handed to the hook, and focus is what declares intent.
+ */
+describe('InputArea — intent to send opens the agent socket', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCurrentSessionId = 'session-1'
+    mockConversationMessages = []
+    mockDrafts = {}
+    mockComposerPrefill = null
+    mockAwaitingPending = []
+    mockIsStreaming = false
+    mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]
+    vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
+    vi.mocked(useWebSocketChat).mockReturnValue({
+      sendMessage: mockSendMessage,
+      isStreaming: false,
+      isLoading: false,
+      respondToInteraction: mockRespondToInteraction,
+      noteSendIntent: mockNoteSendIntent,
+      pendingInteraction: null,
+    } as unknown as ReturnType<typeof useWebSocketChat>)
+  })
+
+  test('the collaboration flag reaches the socket layer, which is what defers the connect', () => {
+    render(<InputArea isAuthenticated canCollaborate />)
+
+    expect(vi.mocked(useWebSocketChat)).toHaveBeenCalledWith({
+      autoConnect: true,
+      canCollaborate: true,
+    })
+  })
+
+  test('a gated org passes canCollaborate: false, so the socket opens on mount as today', () => {
+    render(<InputArea isAuthenticated />)
+
+    expect(vi.mocked(useWebSocketChat)).toHaveBeenCalledWith({
+      autoConnect: true,
+      canCollaborate: false,
+    })
+  })
+
+  test('nothing is declared by merely rendering the composer', () => {
+    render(<InputArea isAuthenticated canCollaborate />)
+
+    expect(mockNoteSendIntent).not.toHaveBeenCalled()
+  })
+
+  test('focusing the composer declares it', async () => {
+    render(<InputArea isAuthenticated canCollaborate />)
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('textbox'))
+
+    expect(mockNoteSendIntent).toHaveBeenCalled()
+  })
+
+  test('a send declares it too, for the paths that never fire a focus event', async () => {
+    // A restored draft puts text in the composer without anyone focusing it, so the
+    // send button is reachable with no focus event on the textarea.
+    mockDrafts = { 'session-1': 'Wie breit muss der Fluchtweg sein?' }
+    render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('textbox')).toHaveValue('Wie breit muss der Fluchtweg sein?')
+    )
+    expect(mockNoteSendIntent).not.toHaveBeenCalled()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    expect(mockNoteSendIntent).toHaveBeenCalled()
+    expect(mockSendMessage).toHaveBeenCalled()
   })
 })

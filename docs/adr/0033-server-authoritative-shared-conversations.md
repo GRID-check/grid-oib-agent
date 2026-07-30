@@ -81,6 +81,14 @@ existing local-first path for private ones, with one explicit seam between them.
   correct, where a private one renders from cache instantly.
 - Observers get a coarser live experience than the asker in phase 1 (turn state, not
   streaming text).
+- **The agent WebSocket follows intent to send, not mounting, in a shared thread.**
+  §7 says an observer needs no agent socket, and the Python socket registry
+  (`websocket_reconnect.py`) is keyed by conversation id, so a second socket on one
+  conversation replaces the first. Opening a shared thread therefore must not open a
+  socket, or a reader silently takes over the asker's registration. `useWebSocketChat`
+  connects on composer focus instead, and on mount only when the flag is off, when the
+  server has said the thread is private, or when this browser owns an unanswered turn
+  (so a refresh mid-answer still reattaches). A private thread is unchanged.
 
 ### Risks
 
@@ -115,6 +123,15 @@ existing local-first path for private ones, with one explicit seam between them.
 
 ## Open Questions / Follow-ups
 
+- **The conversation-keyed socket registry is only mitigated, not fixed.** Driving the
+  connection from intent removes the case that actually happens (a reader opening a
+  thread someone else is using), but two participants who are both composing legitimately
+  hold sockets on the same conversation id, and the last one to connect still wins. Fully
+  closing it requires the Python tier to key `WebSocketSessionRegistry._sockets` per
+  socket — `dict[str, set[WebSocket]]` — with `send`/`has_socket` fanning out to every
+  socket of a conversation, `clear_socket` discarding one member instead of popping the
+  entry, and the HITL/relay bookkeeping following the same shape. Deliberately not
+  half-built here.
 - Token-level streaming to observers (phase 2) — decide then whether the relay lives
   in the BFF (subscribing to `conv:<id>:events`) or the Python tier publishes a
   participant-addressed frame.
