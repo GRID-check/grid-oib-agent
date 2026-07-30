@@ -157,7 +157,12 @@ export function AddresseeIndicator({
       {mode === 'agent' && !agentTagged && onMentionSomeone && (
         <button
           type="button"
-          data-testid="composer-mention-hint"
+          // `…-offer`, not `…-hint`: the composer's own "Piloti antwortet nicht"
+          // note already owns `composer-mention-hint`, and while the two never
+          // render together (this appears only with nobody tagged, that one only
+          // with somebody tagged) a shared id made "no hint is showing" quietly
+          // unassertable — a query for one matched the other.
+          data-testid="composer-mention-offer"
           onClick={onMentionSomeone}
           className={cn(
             'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px]',

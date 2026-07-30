@@ -232,6 +232,11 @@ services:
       # ── Workflows (ADR-0023): dark-launch gate + save-time cron validation ──
       - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
       - GRID_WORKFLOW_MIN_INTERVAL_MINUTES=${GRID_WORKFLOW_MIN_INTERVAL_MINUTES:-15}
+      # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
+      # Dark-launch gate, default-deny: with it off the inbox nav entry, the
+      # share surfaces and the mention picker do not exist and the
+      # /api/inbox|sharing|mentions|stream routes 403.
+      - GRID_COLLABORATION_ENABLED=${GRID_COLLABORATION_ENABLED:-false}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:
