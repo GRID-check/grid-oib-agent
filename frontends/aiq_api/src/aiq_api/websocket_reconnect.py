@@ -93,12 +93,56 @@ async def authenticate_websocket_connection(socket: WebSocket) -> tuple[dict[str
     return None, WS_POLICY_VIOLATION
 
 
+#: How long a human-in-the-loop prompt stays open before the turn gives up.
+#:
+#: Generous on purpose — a clarifying question can legitimately sit while somebody
+#: checks a drawing — but finite, because the alternative is what shipped: an
+#: unanswered prompt pinning a turn and its checkpoint forever. Overridable so an
+#: operator can tune it without a deploy.
+HITL_RESPONSE_TIMEOUT_SECONDS = float(os.getenv("GRID_HITL_RESPONSE_TIMEOUT_SECONDS", "1800"))
+
+#: Sentinel for an answer whose authorization was already established elsewhere —
+#: today only a bus relay, where the accepting replica checked the sender before
+#: publishing and the subject is not carried on the wire.
+_ANY_SUBJECT = "*"
+
+
+def _may_answer_interaction(awaited_subject: str | None, answered_by: str | None) -> bool:
+    """Whether ``answered_by`` is allowed to resolve a prompt addressed to ``awaited_subject``.
+
+    Deliberately permissive in exactly two cases, both of which would otherwise
+    break a working path rather than close a hole:
+
+    * ``awaited_subject is None`` — no verified human was asked (an internal or
+      service-token caller). There is no identity to match, and requiring one would
+      make every internal HITL turn unanswerable.
+    * ``answered_by is _ANY_SUBJECT`` — a bus relay, already authorized upstream.
+
+    Everything else must match exactly. A colleague in a shared conversation
+    (ADR-0032) is a different subject, so their answer is refused: the assistant
+    asked one person, and only that person's answer is theirs to give.
+    """
+    if awaited_subject is None:
+        return True
+    if answered_by == _ANY_SUBJECT:
+        return True
+    return answered_by is not None and answered_by == awaited_subject
+
+
 class WebSocketSessionRegistry:
     """Keep track of active sockets, pending HITL responses, and running workflow tasks."""
 
     def __init__(self) -> None:
         self._sockets: dict[str, WebSocket] = {}
-        self._pending_interactions: dict[str, asyncio.Future[TextContent]] = {}
+        # conversation id -> (future, subject the prompt was addressed to).
+        #
+        # The subject is what makes an answer authorized rather than merely
+        # well-formed. Keyed by conversation alone, this map let ANY socket
+        # registered for the conversation resolve the future — which in a shared
+        # conversation (ADR-0032) means a colleague answering a question the
+        # assistant asked somebody else. `None` means "no verified human", which
+        # is the internal/service-token case and stays open by design.
+        self._pending_interactions: dict[str, tuple[asyncio.Future[TextContent], str | None]] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
         # Multi-replica bus (ADR-0028): background subscribers that relay bus
@@ -193,16 +237,24 @@ class WebSocketSessionRegistry:
             logger.warning("Failed to send websocket message after reconnect: %s", exc)
             return False
 
-    async def submit_hitl_answer(self, conversation_id: str | None, user_content: TextContent) -> bool:
+    async def submit_hitl_answer(
+        self,
+        conversation_id: str | None,
+        user_content: TextContent,
+        answered_by: str | None = None,
+    ) -> bool:
         """Deliver a HITL answer to the awaiting turn.
 
         Resolves a locally-held future first (co-located owner==relay). If none is
         local and the bus spans replicas, publish the answer so the owning replica
         (subscribed via ``_start_owner_input``) resolves its future.
+
+        ``answered_by`` is the verified subject of whoever sent the answer; it must
+        match the subject the prompt was addressed to.
         """
         if not conversation_id:
             return False
-        if await self.resolve_pending_interaction(conversation_id, user_content):
+        if await self.resolve_pending_interaction(conversation_id, user_content, answered_by):
             return True
         if is_multi_replica_bus():
             try:
@@ -216,12 +268,13 @@ class WebSocketSessionRegistry:
         self,
         conversation_id: str | None,
         future: asyncio.Future[TextContent],
+        awaited_subject: str | None = None,
     ) -> None:
-        """Store the pending HITL future for a conversation."""
+        """Store the pending HITL future for a conversation, and who may answer it."""
         if not conversation_id:
             return
         async with self._lock:
-            self._pending_interactions[conversation_id] = future
+            self._pending_interactions[conversation_id] = (future, awaited_subject)
         # Owner side: while awaiting the answer, subscribe to the input channel so
         # an answer published by a relay on another replica resolves this future.
         if is_multi_replica_bus():
@@ -242,7 +295,10 @@ class WebSocketSessionRegistry:
                     except Exception:
                         logger.warning("Malformed bus HITL answer for %s", conversation_id, exc_info=True)
                         continue
-                    if await self.resolve_pending_interaction(conversation_id, content):
+                    # A bus answer has already been authorized by the replica that
+                    # accepted it from a socket; re-checking here would need the
+                    # subject on the wire and would reject every legitimate relay.
+                    if await self.resolve_pending_interaction(conversation_id, content, _ANY_SUBJECT):
                         return  # answer delivered; stop listening
             except asyncio.CancelledError:
                 raise
@@ -255,13 +311,29 @@ class WebSocketSessionRegistry:
         self,
         conversation_id: str | None,
         user_content: TextContent,
+        answered_by: str | None = None,
     ) -> bool:
-        """Resolve a pending HITL future if it exists."""
+        """Resolve a pending HITL future if one exists AND this answerer may.
+
+        Returns False both when there is nothing pending and when the answerer is
+        not the person who was asked — the caller logs and the prompt stays open for
+        whoever it was for. Refusing rather than raising keeps a stray answer from
+        tearing down a socket.
+        """
         if not conversation_id:
             return False
         async with self._lock:
-            future = self._pending_interactions.get(conversation_id)
-            if future is None or future.done():
+            entry = self._pending_interactions.get(conversation_id)
+            if entry is None:
+                return False
+            future, awaited_subject = entry
+            if future.done():
+                return False
+            if not _may_answer_interaction(awaited_subject, answered_by):
+                logger.warning(
+                    "Refusing HITL answer for conversation %s: addressed to another participant",
+                    conversation_id,
+                )
                 return False
             future.set_result(user_content)
             self._pending_interactions.pop(conversation_id, None)
@@ -623,6 +695,30 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         except Exception as exc:  # pragma: no cover - socket may already be closed
             logger.warning("Failed to send auth_expired: %s", exc)
 
+    def _authenticated_subject(self) -> str | None:
+        """Stable identity of the human holding this socket, from VERIFIED claims.
+
+        This is what a pending HITL prompt is bound to. Without it the prompt was
+        bound to nothing: ``_pending_interactions`` is keyed by conversation id
+        alone, so ANY socket registered for that conversation could resolve the
+        future, and in a shared conversation (ADR-0032) that means a colleague
+        could answer a question the assistant asked somebody else. Nothing on the
+        server prevented it — the only thing that did was the answering browser
+        having no local prompt to render, which is a UI accident and not a rule.
+
+        Internal and anonymous callers carry no subject. They are trusted by other
+        means (a service token, not a user), so a null subject must not lock them
+        out — see ``_may_answer_interaction``.
+        """
+        user = self._authenticated_user
+        if not isinstance(user, dict):
+            return None
+        for key in ("sub", "user_id", "id"):
+            value = user.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
     def _authenticated_display_name(self) -> str | None:
         """Display name of the human holding this socket, from the VERIFIED claims.
 
@@ -728,6 +824,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     user_content = await self._process_websocket_user_interaction_response_message(validated_message)
                     await _registry.set_socket(validated_message.conversation_id, self._socket)
                     if self._user_interaction_response is not None:
+                        # This handler's OWN future, so the answerer is by
+                        # definition the socket the prompt was sent to — the
+                        # identity check below is what stops a DIFFERENT socket on
+                        # the same conversation resolving it through the registry.
+                        #
                         # Guard against a double-submitted answer (client retry
                         # or double-click): a second set_result would raise
                         # InvalidStateError and tear down the whole handler.
@@ -742,10 +843,17 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         # No local future on THIS handler. Resolve a locally-held
                         # registry future, or (multi-replica) publish the answer so
                         # the owning replica resolves it over the bus.
-                        resolved = await _registry.submit_hitl_answer(validated_message.conversation_id, user_content)
+                        resolved = await _registry.submit_hitl_answer(
+                            validated_message.conversation_id,
+                            user_content,
+                            self._authenticated_subject(),
+                        )
                         if not resolved:
+                            # Either nothing is pending, or this participant is not
+                            # the one who was asked. Both are refusals rather than
+                            # errors: the prompt stays open for whoever it is for.
                             logger.warning(
-                                "No pending HITL interaction to resume for conversation %s",
+                                "No answerable HITL interaction for conversation %s from this participant",
                                 validated_message.conversation_id,
                             )
             except (asyncio.CancelledError, WebSocketDisconnect):
@@ -1025,7 +1133,9 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         """
         human_response_future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
         self._user_interaction_response = human_response_future
-        await _registry.register_pending_interaction(self._conversation_id, human_response_future)
+        # Bound to the person the assistant is asking, so only they can answer it.
+        awaited_subject = self._authenticated_subject()
+        await _registry.register_pending_interaction(self._conversation_id, human_response_future, awaited_subject)
 
         try:
             await self.create_websocket_message(
@@ -1037,7 +1147,26 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if isinstance(prompt.content, HumanPromptNotification):
                 return HumanResponseNotification()
 
-            text_content: TextContent = await human_response_future
+            # Bounded, because an unanswered prompt used to hang the turn — and its
+            # langgraph checkpoint — indefinitely: the only thing that ever released
+            # it was a NEW turn on the same conversation cancelling the stale task.
+            # A shared conversation makes that worse rather than better, since the
+            # asker may simply have closed the tab while colleagues keep reading.
+            #
+            # On expiry the prompt is abandoned rather than answered: raising
+            # TimeoutError propagates as a turn failure, which is a state the client
+            # already renders, instead of fabricating a response the user never gave.
+            try:
+                text_content: TextContent = await asyncio.wait_for(
+                    human_response_future, timeout=HITL_RESPONSE_TIMEOUT_SECONDS
+                )
+            except TimeoutError:
+                logger.warning(
+                    "HITL prompt expired unanswered after %ss (conversation %s)",
+                    HITL_RESPONSE_TIMEOUT_SECONDS,
+                    self._conversation_id,
+                )
+                raise
             interaction_response: HumanResponse = await self._message_validator.convert_text_content_to_human_response(
                 text_content, prompt.content
             )

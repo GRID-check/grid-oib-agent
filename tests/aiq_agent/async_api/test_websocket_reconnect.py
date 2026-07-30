@@ -181,6 +181,83 @@ async def test_registry_pending_interaction_resolve() -> None:
 
 
 @pytest.mark.asyncio
+async def test_only_the_person_who_was_asked_may_answer() -> None:
+    """A colleague in a shared conversation must not answer a prompt asked of someone else.
+
+    ``_pending_interactions`` is keyed by conversation id, so before this every
+    socket registered for the conversation could resolve the future. In a shared
+    conversation (ADR-0032) that is a second participant answering a question the
+    assistant asked the first — and nothing on the server stopped it. The only thing
+    that did was the colleague's browser having no prompt to render, which is a UI
+    accident, not an authorization rule.
+    """
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+    response = TextContent(text="ja, passt")
+
+    # A colleague: refused, and the prompt stays open for the person it is for.
+    assert await registry.resolve_pending_interaction("conv-1", response, "user_anna") is False
+    assert not future.done()
+
+    # An unauthenticated answer cannot stand in for a named one either.
+    assert await registry.resolve_pending_interaction("conv-1", response, None) is False
+    assert not future.done()
+
+    # The person who was asked: accepted.
+    assert await registry.resolve_pending_interaction("conv-1", response, "user_matthias") is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
+async def test_an_unauthenticated_prompt_stays_answerable() -> None:
+    """No verified human was asked, so there is no identity to match.
+
+    Internal and service-token callers are trusted by other means. Requiring a
+    subject here would make every internal HITL turn permanently unanswerable —
+    closing a hole by breaking a working path.
+    """
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, None)
+
+    response = TextContent(text="ok")
+    assert await registry.resolve_pending_interaction("conv-1", response, None) is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
+async def test_a_bus_relayed_answer_is_not_re_authorized() -> None:
+    """A multi-replica relay carries no subject, and was authorized upstream.
+
+    The replica that accepted the answer from a socket already checked the sender;
+    the subject is not on the bus wire. Re-checking here would reject every
+    legitimate cross-replica answer.
+    """
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+    response = TextContent(text="ja")
+    assert await registry.resolve_pending_interaction("conv-1", response, websocket_reconnect._ANY_SUBJECT) is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
+async def test_submit_hitl_answer_carries_the_answerer_through() -> None:
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+    response = TextContent(text="ja")
+    assert await registry.submit_hitl_answer("conv-1", response, "user_anna") is False
+    assert not future.done()
+    assert await registry.submit_hitl_answer("conv-1", response, "user_matthias") is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
 async def test_handler_create_websocket_message_uses_registry_send(
     monkeypatch,
     dummy_socket: DummySocket,
@@ -507,7 +584,7 @@ async def test_handler_run_uses_registry_when_no_future(
     async def fake_set_socket(_conversation_id, _socket):
         return None
 
-    async def fake_resolve_pending(_conversation_id, _user_content):
+    async def fake_resolve_pending(_conversation_id, _user_content, _answered_by=None):
         return True
 
     monkeypatch.setattr(
@@ -1227,3 +1304,47 @@ def test_latest_user_text_reads_the_last_text_part() -> None:
 
     assert raw is not None
     assert json.loads(raw)["query"] == "die Bemerkung"
+
+
+@pytest.mark.asyncio
+async def test_an_unanswered_hitl_prompt_expires_instead_of_hanging(
+    monkeypatch,
+    dummy_socket: DummySocket,
+) -> None:
+    """An abandoned prompt must not pin the turn — or its checkpoint — forever.
+
+    Before this the await had no deadline, and the only thing that ever released it
+    was a NEW turn on the same conversation cancelling the stale task. A shared
+    conversation makes that worse: the asker can close the tab while colleagues keep
+    reading, and nothing ever starts a new turn.
+    """
+    handler = ReconnectableWebSocketMessageHandler(
+        socket=dummy_socket,
+        session_manager=DummySessionManager(),
+        step_adaptor=DummyStepAdaptor(),
+        worker=DummyWorker(),
+    )
+    handler._conversation_id = "conv-expiry"
+
+    monkeypatch.setattr(websocket_reconnect, "HITL_RESPONSE_TIMEOUT_SECONDS", 0.01)
+
+    sent: list[dict] = []
+
+    async def fake_create_websocket_message(**kwargs):
+        sent.append(kwargs)
+
+    monkeypatch.setattr(handler, "create_websocket_message", fake_create_websocket_message)
+
+    class _Prompt:
+        content = DummyMessage()
+
+    with pytest.raises(TimeoutError):
+        await handler.human_interaction_callback(_Prompt())
+
+    # The prompt WAS delivered; it simply went unanswered.
+    assert sent, "the prompt should still have been sent before the wait"
+    # And the registry is left clean, so the next turn is not blocked by a stale entry.
+    assert (
+        await websocket_reconnect._registry.resolve_pending_interaction("conv-expiry", TextContent(text="late"), None)
+        is False
+    )

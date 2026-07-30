@@ -123,6 +123,19 @@ existing local-first path for private ones, with one explicit seam between them.
 
 ## Open Questions / Follow-ups
 
+- **A pending HITL prompt is now bound to the person it was asked of** (2026-07-30).
+  `_pending_interactions` was keyed by conversation id alone, so any socket registered for
+  that conversation could resolve the future — in a shared conversation, a colleague
+  answering a question the assistant asked somebody else. The only thing preventing it was
+  the answering browser having no prompt to render, which is a UI accident and not a rule.
+  The registry now stores the awaited subject beside the future and refuses a mismatch
+  (bus relays and unauthenticated/service callers stay open by design, for the reasons
+  given in `_may_answer_interaction`). The await is also bounded now
+  (`GRID_HITL_RESPONSE_TIMEOUT_SECONDS`, default 30 min): an unanswered prompt used to pin
+  the turn and its checkpoint indefinitely, released only by a *new* turn cancelling the
+  stale task — and a shared thread makes that worse, since the asker can close the tab
+  while colleagues keep reading. **Still open:** the prompt itself is not persisted, so an
+  observer sees no card at all and the thread merely looks frozen.
 - **The conversation-keyed socket registry is only mitigated, not fixed.** Driving the
   connection from intent removes the case that actually happens (a reader opening a
   thread someone else is using), but two participants who are both composing legitimately
