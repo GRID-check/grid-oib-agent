@@ -323,7 +323,12 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
                 <Sparkles aria-hidden />
                 {t('mentions.picker.badgeAgent')}
               </Badge>
-            ) : candidate.needsInvite ? (
+            ) : candidate.needsInvite && !blocked ? (
+              // Only when the caller CAN invite. On a blocked row the badge said
+              // "Wird eingeladen" while the subtitle directly beneath it said only an
+              // owner may bring people in — two statements about one row that
+              // contradict each other. The subtitle is the true one, so the badge
+              // steps aside.
               <Badge variant="warning" className="shrink-0 gap-1">
                 <UserPlus aria-hidden />
                 {t('mentions.picker.needsInvite')}

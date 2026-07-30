@@ -48,6 +48,10 @@ const request = (overrides: Partial<PendingMentionView> = {}): PendingMentionVie
 
 const ONE: AwaitingStateResponse = {
   pending: [
+    // The note is the asker's own message text now (spec MN-12): nothing in the UI
+    // ever set an explicit note, so the field was permanently null and this block
+    // was unreachable. It defaults to the message server-side, which is what makes
+    // the quoted question real rather than a fixture.
     request({
       note: 'Ist die Annahme richtig, dass das Atrium als eigener Brandabschnitt geführt wird?',
     }),

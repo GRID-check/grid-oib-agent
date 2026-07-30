@@ -48,6 +48,7 @@ export default async function InboxPage(): Promise<JSX.Element> {
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
         canAccessArchiv={navFlags.canAccessArchiv}
+        canCollaborate={navFlags.canCollaborate}
       />
       <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
         <PageHeader title={t('inbox.title')} subtitle={t('inbox.subtitle')} />

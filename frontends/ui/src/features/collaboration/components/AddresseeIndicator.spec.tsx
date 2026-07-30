@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { render, screen } from '@/test-utils'
 
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
@@ -57,5 +58,66 @@ describe('AddresseeIndicator — the composer says where the message goes', () =
   test('is not interactive — it is a statement standing among buttons', () => {
     render(<AddresseeIndicator mentions={[]} awaitingHuman={false} />)
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The `@` affordance (spec MN-3's missing discovery story).
+ *
+ * Nothing in the product taught that you can tag a colleague — no button, no icon,
+ * no tooltip, no onboarding. A user had to already know to type `@`, which means the
+ * feature this whole slice is built around was reachable only by people who had been
+ * told about it. It sits on the line that already states the routing, because "this
+ * goes to Piloti" is exactly the moment somebody might want it to go to a person.
+ */
+describe('AddresseeIndicator — teaching that @ exists', () => {
+  test('offers it in the default state', async () => {
+    const user = userEvent.setup()
+    const onMentionSomeone = vi.fn()
+    render(
+      <AddresseeIndicator mentions={[]} awaitingHuman={false} onMentionSomeone={onMentionSomeone} />,
+    )
+
+    const hint = screen.getByTestId('composer-mention-hint')
+    expect(hint).toHaveTextContent('mention a colleague')
+
+    await user.click(hint)
+    expect(onMentionSomeone).toHaveBeenCalled()
+  })
+
+  test('is absent without the callback — a solo thread grows no furniture (NF-8)', () => {
+    render(<AddresseeIndicator mentions={[]} awaitingHuman={false} />)
+    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+  })
+
+  test('steps aside once somebody is already tagged', () => {
+    // The line has something more important to say, and the picker is one keystroke
+    // away regardless.
+    render(
+      <AddresseeIndicator
+        mentions={[{ targetId: 'u-anna', display: 'Anna Weber' }]}
+        awaitingHuman={false}
+        onMentionSomeone={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+  })
+
+  test('steps aside while the thread waits on someone', () => {
+    render(
+      <AddresseeIndicator mentions={[]} awaitingHuman onMentionSomeone={vi.fn()} />,
+    )
+    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+  })
+
+  test('steps aside when Piloti is explicitly tagged', () => {
+    render(
+      <AddresseeIndicator
+        mentions={[{ targetId: AGENT_MENTION_ID, display: 'Piloti' }]}
+        awaitingHuman={false}
+        onMentionSomeone={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
   })
 })

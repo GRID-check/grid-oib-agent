@@ -78,6 +78,7 @@ import {
   type MentionPickerHandle,
 } from '@/features/collaboration/components/MentionPicker'
 import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
+import { useTurnActorName } from '@/shared/collaboration/thread-sharing'
 import {
   findMentionQuery,
   humanMentions,
@@ -799,6 +800,30 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setMentionDismissed(false)
   }, [])
 
+  /**
+   * Start a mention from the composer's addressee line — the only affordance that
+   * teaches `@` exists (spec MN-3 had no discovery story at all).
+   *
+   * Types the character rather than opening the picker directly: `syncMentionQuery`
+   * already owns "the caret sits in an `@…` fragment", so going through the text is
+   * the one path that cannot drift from what typing `@` by hand does. It also leaves
+   * the user somewhere sensible if they change their mind — one backspace.
+   */
+  const handleMentionSomeone = useCallback(() => {
+    const el = textareaRef.current
+    const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
+    const next = `${base}@`
+    setMessage(next)
+    setMentionDismissed(false)
+    syncMentionQuery(next, next.length)
+    // Focus AFTER the value lands, so the caret is at the end of the fragment the
+    // picker is filtering on.
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(next.length, next.length)
+    })
+  }, [message, syncMentionQuery])
+
   const syncMentionQueryFromElement = useCallback(
     (element: HTMLTextAreaElement) => {
       syncMentionQuery(element.value, element.selectionStart)
@@ -839,6 +864,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate,
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
+
+  // Whose question Piloti is answering, when it is not this reader's — published by
+  // the ADR-0033 seam so the composer does not pay for a second roster read.
+  const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
 
   /**
    * The picker is open only once the candidate list has actually answered.
@@ -1406,6 +1435,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <AddresseeIndicator
               mentions={activeMentions}
               awaitingHuman={threadAwaitsHuman}
+              // Only where there is somebody to mention: a solo thread grows no
+              // collaboration furniture (spec NF-8).
+              // Offered wherever collaboration is available — including a PRIVATE
+              // thread, because mentioning somebody is how a thread starts being
+              // shared (the picker offers "Wird eingeladen"). This is the discovery
+              // path into the feature, not a reward for already having used it.
+              onMentionSomeone={handleMentionSomeone}
             />
           )}
 
@@ -1622,6 +1658,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           >
             <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
             <span>{tCollab('mentions.addressee.agentHint')}</span>
+          </p>
+        )}
+
+        {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
+            already locked by `isBusy`, and without a line here that lock is
+            unexplained — a colleague sees a dead input and no reason for it. The
+            string existed for exactly this and nothing rendered it. Only when the
+            turn belongs to someone else: the asker has their own typing indicator
+            and Herleitung, so telling them "Piloti is answering your question"
+            would be noise. */}
+        {canCollaborate && isBusy && otherPersonsTurnName && (
+          <p
+            data-testid="composer-busy-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
           </p>
         )}
 

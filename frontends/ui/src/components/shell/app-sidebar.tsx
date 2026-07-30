@@ -326,11 +326,23 @@ export function AppSidebar({
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            aria-label={t('openNavigation')}
+            aria-label={
+              inboxPending > 0
+                ? `${t('openNavigation')} — ${tCollaboration('inbox.badgeAria', { count: inboxPending })}`
+                : t('openNavigation')
+            }
             aria-expanded={mobileOpen}
-            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="relative flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <Menu className="size-5" aria-hidden />
+            {/* On mobile the nav is BEHIND this button, so an unopened drawer hid
+                the inbox count completely — the one signal a tagged person has.
+                The pill hugs the icon here for the same reason it does on the
+                collapsed rail. */}
+            <InboxBadge
+              pending={inboxPending}
+              className="absolute top-1 right-1 translate-x-1/3 -translate-y-1/3"
+            />
           </button>
           <Link
             href="/app/projects"

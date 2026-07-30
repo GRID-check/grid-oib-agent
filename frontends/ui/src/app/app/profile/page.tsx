@@ -83,6 +83,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
         canAccessArchiv={navFlags.canAccessArchiv}
+        canCollaborate={navFlags.canCollaborate}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">

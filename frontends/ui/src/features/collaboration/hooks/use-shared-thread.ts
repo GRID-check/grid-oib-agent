@@ -48,7 +48,7 @@ import type { ChatMessage } from '@/features/chat/types'
 import type { MessagesSlice } from '@/features/chat/stores/messages-store'
 import { mapServerMessagesToChatMessages } from '@/features/chat/lib/server-message-mapper'
 import type { ConversationEngagement, Message } from '@/lib/db/schema'
-import { publishThreadSharing } from '@/shared/collaboration/thread-sharing'
+import { publishThreadSharing, publishTurnActor } from '@/shared/collaboration/thread-sharing'
 import { useLiveEvents } from './use-live-events'
 
 /**
@@ -576,6 +576,23 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     },
     [base, engagement]
   )
+
+  /**
+   * Tell the composer whose question Piloti is answering, when it is not the
+   * reader's own (spec CC-13). The composer is locked by `isBusy` while any turn
+   * runs, and in a shared thread that turn may belong to a colleague — an
+   * unexplained dead input. The name lives here (the roster is here) and the
+   * composer is a sibling component, so it travels the same channel sharedness does.
+   */
+  useEffect(() => {
+    if (!conversationId) return
+    const actorId = turnInFlight?.actorUserId ?? null
+    const isSomeoneElse = actorId !== null && actorId !== currentUserId
+    publishTurnActor(
+      conversationId,
+      isSomeoneElse ? (directory.get(actorId)?.name ?? null) : null,
+    )
+  }, [conversationId, turnInFlight, currentUserId, directory])
 
   const result = useMemo<UseSharedThreadResult>(
     () => ({

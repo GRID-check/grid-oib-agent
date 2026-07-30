@@ -159,6 +159,12 @@ export const collaboration = {
       toThread: 'Goes to the chat',
       /** How to get back to the agent from the waiting state. */
       agentHint: 'Type @Piloti to ask Piloti',
+      /**
+       * The only thing that teaches `@` exists. Sits on the line that already
+       * states the routing, because "this goes to Piloti" is exactly when somebody
+       * might want it to go to a colleague instead.
+       */
+      mentionSomeone: 'mention a colleague',
       ariaLabel: 'Recipient of this message: {label}',
     },
     /**
@@ -266,6 +272,12 @@ export const collaboration = {
     resolved: 'Answered',
     /** An item whose target the recipient can no longer reach (spec IB-13). */
     inert: 'No longer available',
+    /**
+     * The BODY of a redacted row — a complete sentence, because the templated
+     * "in {subject}" needs a real title and the placeholder read as nonsense inside
+     * it. Says the same thing the chip does, in the position the body occupies.
+     */
+    bodyUnavailable: 'This conversation is no longer available to you.',
     inertHint: 'You no longer have access to this.',
     empty: {
       needsMeTitle: 'Nothing needs you',

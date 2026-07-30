@@ -129,7 +129,12 @@ describe('InboxItemRow — inert items are never links (IB-13)', () => {
     // it. `href: null` is the server's signal that the row is redacted.
     render(<InboxItemRow item={item({ href: null, subject: null, excerpt: null })} />)
 
-    expect(screen.getByText('in No longer available')).toBeInTheDocument()
+    // A complete sentence rather than the templated "in {subject}": that template
+    // needs a real title, and the placeholder inside it produced nonsense in the
+    // primary product language ("… in Nicht mehr verfügbar").
+    expect(
+      screen.getByText('This conversation is no longer available to you.'),
+    ).toBeInTheDocument()
     expect(screen.queryByText('in Untitled conversation')).not.toBeInTheDocument()
   })
 

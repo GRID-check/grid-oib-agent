@@ -34,6 +34,19 @@ import { useSyncExternalStore } from 'react'
 export type ThreadSharing = 'unknown' | 'private' | 'shared'
 
 const facts = new Map<string, 'private' | 'shared'>()
+/**
+ * Who Piloti is currently answering for, when it is somebody OTHER than the reader.
+ *
+ * Published by the same seam and for the same reason as sharedness: the composer is
+ * locked by `isBusy` while a turn runs, and in a shared thread that turn may belong
+ * to a colleague — leaving an observer looking at a dead input with no explanation.
+ * `thread.composerBusy` existed for exactly this and nothing rendered it, because the
+ * name lives in the seam and the composer is a sibling. One request, two readers.
+ *
+ * Null means "no turn, or the turn is the reader's own" — the asker already has a
+ * typing indicator and the Herleitung, so naming them would be noise.
+ */
+const turnActors = new Map<string, string>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -58,6 +71,18 @@ export function publishThreadSharing(conversationId: string, shared: boolean): v
   emit()
 }
 
+/**
+ * Record whose question Piloti is answering, or clear it. Idempotent, so the seam's
+ * repeated renders are free.
+ */
+export function publishTurnActor(conversationId: string, name: string | null): void {
+  const current = turnActors.get(conversationId) ?? null
+  if (current === name) return
+  if (name === null) turnActors.delete(conversationId)
+  else turnActors.set(conversationId, name)
+  emit()
+}
+
 /** Imperative read, for code that is not in a render (effects, callbacks). */
 export function getThreadSharing(conversationId: string | null | undefined): ThreadSharing {
   if (!conversationId) return 'unknown'
@@ -69,9 +94,22 @@ export function getThreadSharing(conversationId: string | null | undefined): Thr
  * case's sharedness into the next.
  */
 export function resetThreadSharing(): void {
-  if (facts.size === 0) return
+  if (facts.size === 0 && turnActors.size === 0) return
   facts.clear()
+  turnActors.clear()
   emit()
+}
+
+/**
+ * Whose question Piloti is answering in this conversation, when it is not the
+ * reader's own. Null otherwise.
+ */
+export function useTurnActorName(conversationId: string | null | undefined): string | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => (conversationId ? (turnActors.get(conversationId) ?? null) : null),
+    () => null
+  )
 }
 
 /** Subscribe to one conversation's sharedness. Returns a primitive, so a render

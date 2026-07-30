@@ -17,7 +17,7 @@ import type {
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
-import { getErrorMeta } from '../lib/error-registry'
+import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
 import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
 import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
@@ -1661,6 +1661,17 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'addErrorCard'
     )
+
+    // A failed turn is part of the thread's history (ADR-0037). Without this an
+    // observer in a shared conversation sees a thread that simply stops, with no way
+    // to tell "still working" from "gave up" once the turn banner ages out.
+    //
+    // Only errors that concern the CONVERSATION: a dropped socket or an expired
+    // token describes this browser's session, and publishing it would tell a
+    // colleague their connection failed when it did not.
+    if (errorConcernsTheThread(code)) {
+      void get()._appendMessage(errorMessage)
+    }
   },
 
   dismissErrorCard: (messageId: string) => {

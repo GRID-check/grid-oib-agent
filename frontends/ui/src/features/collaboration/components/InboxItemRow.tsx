@@ -113,7 +113,23 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
     'title'
   const title = t(`inbox.types.${presentation.i18nKey}.${titleLeaf}`, vars)
   const bodyLeaf = pickKey(dictionary, presentation.i18nKey, ['body'])
-  const body = bodyLeaf ? t(`inbox.types.${presentation.i18nKey}.${bodyLeaf}`, vars) : null
+  /*
+    A REDACTED row gets a complete sentence of its own rather than the templated
+    "in {subject}".
+
+    The template needs a real title to read as a phrase, and interpolating the
+    withheld-target placeholder into it produced German nonsense — "2 neue
+    Nachrichten in Nicht mehr verfügbar" — because one string was being asked to
+    work in two grammatical positions: standalone (`conversationShared`'s body is a
+    bare `{subject}`) and inside a preposition. The distinction the placeholder
+    exists to make is still made, and now it is a sentence: the thread HAS a name,
+    this reader is simply no longer entitled to it (IB-13).
+  */
+  const body = redacted
+    ? t('inbox.bodyUnavailable')
+    : bodyLeaf
+      ? t(`inbox.types.${presentation.i18nKey}.${bodyLeaf}`, vars)
+      : null
 
   return (
     <li

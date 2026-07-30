@@ -108,7 +108,15 @@ export function EngagementNotice({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 px-1.5 text-xs underline-offset-2 hover:underline"
+          // Underlined AT REST, not only on hover. Without it the action was prose
+          // weight and prose colour sitting directly beside the sentence it belongs
+          // to — indistinguishable from the explanation, and therefore a control
+          // nobody presses. Dotted keeps it quiet: this is an offer, not a CTA.
+          className={cn(
+            'h-6 px-1.5 text-xs font-medium',
+            'text-foreground/90 underline decoration-dotted decoration-from-font underline-offset-[3px]',
+            'hover:decoration-solid hover:text-foreground',
+          )}
           disabled={saving}
           onClick={() => void change(offering)}
         >

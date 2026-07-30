@@ -316,6 +316,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="mention-picker-preview"]',
   },
   {
+    id: 'engagement-notice',
+    mobile: true,
+    path: '/dev/engagement-notice',
+    description:
+      'When Piloti answers a message that tags nobody (ADR-0036), stated where the question arises and doubling as the control. Three rows: a multi-person thread being OFFERED mention mode as a question about the future (never switched quietly — `ask` stays the default because Piloti is the point of the product, not a guest in a chat app), the rule stated in mention mode with the way back, and a viewer who gets the explanation without a control.',
+    waitFor: '[data-testid="engagement-notice-preview"]',
+  },
+  {
     id: 'mention-pill',
     mobile: true,
     path: '/dev/mention-pill',

@@ -120,6 +120,7 @@ export const collaboration: typeof en.collaboration = {
       toPeople: 'Geht an {names}',
       toThread: 'Geht an den Chat',
       agentHint: '@Piloti eingeben, um Piloti zu fragen',
+      mentionSomeone: 'Kollegin oder Kollegen erwähnen',
       ariaLabel: 'Empfänger dieser Nachricht: {label}',
     },
     peek: {
@@ -183,6 +184,7 @@ export const collaboration: typeof en.collaboration = {
     archived: 'Archiviert',
     resolved: 'Beantwortet',
     inert: 'Nicht mehr verfügbar',
+    bodyUnavailable: 'Dieser Chat ist für Sie nicht mehr verfügbar.',
     inertHint: 'Sie haben keinen Zugriff mehr darauf.',
     empty: {
       needsMeTitle: 'Nichts zu tun',

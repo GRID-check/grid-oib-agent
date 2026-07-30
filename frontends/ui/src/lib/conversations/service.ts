@@ -676,7 +676,18 @@ async function prepareMessage(
     resourceId: conversationId,
     anchorId: input.id,
     mentions,
-    note: input.mentionNote ?? null,
+    /*
+      The question the recipient is shown (spec MN-12) — "Ist die Annahme richtig,
+      dass das Atrium ein eigener Brandabschnitt ist?" is far more actionable than
+      "you were mentioned".
+
+      It defaults to the message text because nothing in the UI ever set an explicit
+      note, which left the field wired end to end and permanently null: the awaiting
+      banner's note block was unreachable and the "they replied" inbox row had no
+      body. Defaulting here rather than in a client means a second client cannot
+      forget it, and an explicit note (should a surface ever offer one) still wins.
+    */
+    note: input.mentionNote ?? input.content.slice(0, MENTION_EXCERPT_MAX) ?? null,
     excerpt: input.content.slice(0, MENTION_EXCERPT_MAX),
   })
   return { input, addressees: applied.addressees, createdRequests: applied.createdRequests }

@@ -27,7 +27,7 @@
  * is announced rather than only drawn.
  */
 
-import { Sparkles, Users } from 'lucide-react'
+import { AtSign, Sparkles, Users } from 'lucide-react'
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'
 import { useTranslations } from '@/i18n'
@@ -48,6 +48,21 @@ export interface AddresseeIndicatorProps {
    * this line all read the same rows so they cannot disagree (ADR-0034).
    */
   awaitingHuman: boolean
+  /**
+   * Start a mention — the ONLY thing in the product that teaches `@` exists.
+   *
+   * There was no button, no icon, no tooltip and no onboarding for the feature this
+   * whole slice is built around: a user had to already know to type `@`. So the
+   * affordance sits on the line that already states the routing, because "this goes
+   * to Piloti" is exactly the moment somebody might want it to go to a colleague
+   * instead.
+   *
+   * Offered only in the default `agent` state: while people are already tagged, or
+   * while the thread waits on someone, the line has something more important to say
+   * and the picker is one keystroke away regardless. Omit to hide (a solo thread has
+   * nobody to mention — spec NF-8).
+   */
+  onMentionSomeone?: () => void
   className?: string
 }
 
@@ -57,6 +72,7 @@ export type AddresseeMode = 'agent' | 'people' | 'thread'
 export function AddresseeIndicator({
   mentions,
   awaitingHuman,
+  onMentionSomeone,
   className,
 }: AddresseeIndicatorProps): JSX.Element {
   const t = useTranslations('collaboration')
@@ -120,6 +136,27 @@ export function AddresseeIndicator({
         <Sparkles className="size-3.5 shrink-0 opacity-70" aria-hidden />
       )}
       <span className="min-w-0 truncate">{label}</span>
+
+      {/* The teaching affordance. A quiet trailing action rather than a button in
+          the row above: it must not compete with Send, and it must not look like a
+          warning about the statement it follows. */}
+      {mode === 'agent' && !agentTagged && onMentionSomeone && (
+        <button
+          type="button"
+          data-testid="composer-mention-hint"
+          onClick={onMentionSomeone}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px]',
+            'text-muted-foreground/80 underline-offset-2 transition-colors duration-200 ease-out',
+            'hover:text-foreground hover:underline',
+            'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
+          )}
+        >
+          <span aria-hidden>·</span>
+          <AtSign className="size-3.5 shrink-0" aria-hidden />
+          {t('mentions.addressee.mentionSomeone')}
+        </button>
+      )}
     </p>
   )
 }
