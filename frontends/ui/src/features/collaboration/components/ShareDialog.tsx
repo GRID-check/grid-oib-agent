@@ -36,6 +36,7 @@ import type { ReactNode } from 'react'
 import { AlertTriangle, Search, ShieldCheck, UserMinus, UserPlus } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { PersonAvatar } from '@/components/ui/avatar-stack'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -64,7 +65,6 @@ import { cn } from '@/lib/utils'
 import type { SharingFailure, UseSharingResult } from '../hooks/use-sharing'
 import { useShareCandidates } from '../hooks/use-sharing'
 import { AccessOverview } from './AccessOverview'
-import { PersonAvatar } from './ParticipantStrip'
 
 /**
  * The role ladder and the visibility ranking, weakest first.
@@ -278,7 +278,16 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl" data-testid="share-dialog">
+      {/* `grid-cols-[minmax(0,1fr)]`: DialogContent is a grid, and a grid's implicit
+          `auto` column is floored at its widest item's min-content — so one row
+          with a nowrap chip or a 150px select pushed the whole column past the
+          dialog's own width and the controls were clipped off the right edge.
+          Pinning the column to a zero-minimum 1fr makes the children shrink (they
+          already carry `min-w-0` + `truncate`) instead of overflowing. */}
+      <DialogContent
+        className="grid-cols-[minmax(0,1fr)] sm:max-w-xl"
+        data-testid="share-dialog"
+      >
         <DialogHeader>
           <DialogTitle>{t('sharing.title')}</DialogTitle>
           <DialogDescription>{t('sharing.overview.title')}</DialogDescription>
@@ -306,7 +315,16 @@ export function ShareDialog({
             </AlertDescription>
           </Alert>
         ) : state ? (
-          <div className="space-y-6">
+          // ONE scroll region, and it is the body — not the dialog.
+          //
+          // A roster (up to `SHARE_ROSTER_LIMIT`) plus an invite picker outgrows a
+          // 900px laptop viewport, so something has to scroll. Letting the *dialog*
+          // do it takes Close — and, for a participant, Leave — off screen with it,
+          // and a sticky footer inside a padded, scrolling grid leaves rows peeking
+          // out from under the footer's own background. Scrolling the body instead
+          // keeps the header and the footer where the reader left them, and keeps
+          // the count of scroll wells at one: no bounded list inside a bounded list.
+          <div className="max-h-[min(72vh,42rem)] space-y-5 overflow-y-auto pr-1">
             {/* A refused mutation must never look like it worked. */}
             {failure && (
               <Alert variant="destructive" data-testid="share-failure">
@@ -412,9 +430,18 @@ export function ShareDialog({
                                 </Chip>
                               )}
                             </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {/* The teaching moment: why this colleague is here
-                                  but not invitable. */}
+                            {/* The teaching moment: why this colleague is here but
+                                not invitable. It wraps rather than truncates —
+                                an ellipsised "Sharing a chat never grants access
+                                to t…" teaches nothing, which is the whole reason
+                                the row is on screen. An email, by contrast, is
+                                fine to clip. */}
+                            <p
+                              className={cn(
+                                'text-xs text-muted-foreground',
+                                candidate.needsProjectAccess ? 'leading-snug' : 'truncate',
+                              )}
+                            >
                               {candidate.needsProjectAccess
                                 ? t('sharing.invite.needsProjectAccessHint')
                                 : (candidate.person.email ?? '')}

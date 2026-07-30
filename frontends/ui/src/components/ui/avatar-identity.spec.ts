@@ -6,7 +6,7 @@ import {
   avatarHue,
   avatarPaletteIndex,
   personInitials,
-} from './avatar-color'
+} from './avatar-identity'
 
 describe('avatarHue', () => {
   test('is deterministic — the same id is always the same colour', () => {

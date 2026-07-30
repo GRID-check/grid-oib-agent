@@ -1,5 +1,5 @@
 /**
- * Deterministic identity colour for a person's avatar.
+ * Deterministic identity colour and initials for a person's avatar.
  *
  * Why this exists: a participant strip is only readable at a glance if the same
  * colleague is always the same colour. Colouring by *position in the list* (the
@@ -8,6 +8,12 @@
  * is derived from the **user id** — stable across sessions, surfaces, and reorders
  * — and this module is the single place that derivation happens, because the
  * mention picker needs the same answer as the roster.
+ *
+ * It lives beside `avatar.tsx` / `avatar-stack.tsx` rather than inside a feature
+ * because it is an *avatar* concern, not a collaboration one: five surfaces
+ * across three features (participant strip, awaiting banner, access overview,
+ * mention picker, message bubbles) draw the same discs, and a second copy of this
+ * derivation would make one colleague two colours.
  *
  * How it stays inside the design language, which reserves chroma for the
  * provenance signal system (`docs/design/grid-design-language.md` §2):

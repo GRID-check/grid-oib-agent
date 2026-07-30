@@ -16,10 +16,18 @@
  *
  *  1. **A private thread is untouched.** With the collaboration flag off, or once
  *     the server says the conversation is not shared, this hook opens no
- *     subscription, issues no message request and never writes to the store
- *     (spec NF-8). The only request it can make in that case is the single cheap
- *     access read that decides which path applies — sharedness is a server-computed
- *     fact and there is no other way to learn it (ADR-0033 §1).
+ *     subscription, issues no message request, runs no poll and never writes to
+ *     the store (spec NF-8). The only request it can make in that case is the
+ *     single cheap access read that decides which path applies — sharedness is a
+ *     server-computed fact and there is no other way to learn it (ADR-0033 §1).
+ *
+ *     The deliberate cost of that strictness: a thread that becomes shared *while
+ *     the reader has it open* switches paths on the next open (or conversation
+ *     switch), not instantly, because nothing is listening on the private path. The
+ *     sharing surfaces that DO hold a subscription — the participant strip and the
+ *     share dialog — are what make the change visible in the meantime, and the
+ *     inverse case (losing access) is a server-side authorization decision, so it
+ *     cannot be missed by a client that is not listening.
  *  2. **The server is authoritative** for a shared thread's message list: the
  *     history load replaces the store's copy for that conversation.
  *  3. **Deduplicated by message id.** Your own write comes back over the push
@@ -167,14 +175,18 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
   const [unreadAfterMessageId, setUnreadAfterMessageId] = useState<string | null>(null)
   const [lastArrival, setLastArrival] = useState<SharedThreadArrival | null>(null)
+  /**
+   * Newest message id the SERVER has told us about. State rather than a ref
+   * because the read receipt is an effect keyed on it — a ref would move without
+   * waking the effect that has to report it.
+   */
+  const [newestMessageId, setNewestMessageId] = useState<string | null>(null)
 
   // `shared` is read inside callbacks that must not be re-created when it flips
   // (re-creating them would re-run the load effect), so it is mirrored in a ref.
   const sharedRef = useRef(false)
   const currentUserIdRef = useRef(currentUserId)
   currentUserIdRef.current = currentUserId
-  const activeRef = useRef(active)
-  activeRef.current = active
   // Directory of participants, for resolving author names during a load that may
   // race the roster fetch.
   const directoryRef = useRef<Map<string, DirectoryPerson>>(new Map())
@@ -183,9 +195,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const seq = useRef(0)
   // The unread anchor is captured once per conversation and then left alone.
   const unreadAnchoredRef = useRef<string | null>(null)
-  // Read receipt bookkeeping: the newest message id the server has told us about,
-  // the id we last reported, and the pending debounce timer.
-  const newestMessageIdRef = useRef<string | null>(null)
+  // Read receipt bookkeeping: the id we last reported, and the pending debounce
+  // timer.
   const reportedReadIdRef = useRef<string | null>(null)
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const turnStartedAtRef = useRef<number>(0)
@@ -211,15 +222,17 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       store.insertRemoteMessages(targetConversationId, mapped, { replace })
 
       const newest = mapped[mapped.length - 1] ?? null
-      newestMessageIdRef.current = newest?.id ?? null
+      setNewestMessageId(newest?.id ?? null)
 
-      // Announce the newest message written by somebody ELSE. Our own messages
-      // are already on screen (optimistic echo) and announcing them would read
-      // the user their own words back.
+      // Announce the newest message written by somebody ELSE. Two exclusions, both
+      // about not talking over the reader: our own messages are already on screen
+      // as an optimistic echo, and the initial load is history — announcing it
+      // would read out a colleague's name every time a thread is opened, when the
+      // announcement's whole job is to report what arrived WHILE reading.
       const me = currentUserIdRef.current
-      const foreign = [...mapped]
-        .reverse()
-        .find((message) => message.authorUserId && message.authorUserId !== me)
+      const foreign = replace
+        ? undefined
+        : [...mapped].reverse().find((message) => message.authorUserId && message.authorUserId !== me)
       if (foreign) {
         setLastArrival((previous) =>
           previous?.messageId === foreign.id
@@ -232,11 +245,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         )
       }
 
-      // An agent answer landing is the end of the turn, whether or not the
-      // `ended` event reached us.
-      if (mapped.some((message) => message.id === newest?.id && message.role === 'assistant')) {
-        setTurnInFlight(null)
-      }
+      // An agent answer landing IS the end of the turn, whether or not the
+      // `ended` event reached us — this is what makes the observer's banner
+      // correct on a fetch alone (spec CC-10).
+      if (newest?.role === 'assistant') setTurnInFlight(null)
     },
     []
   )
@@ -295,6 +307,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       }
 
       const current = ++seq.current
+      if (replace) setLoading(true)
       try {
         const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`)
         if (!response.ok) {
@@ -330,7 +343,6 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
           return
         }
 
-        if (replace) setLoading(true)
         await Promise.all([
           loadRoster(conversationId, current),
           loadMessages(conversationId, current, replace),
@@ -362,14 +374,17 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   )
 
   // Open / switch conversation: reset every per-conversation fact, then load.
+  // Every setter here is written so that resetting an ALREADY-empty hook is a
+  // no-op — `setParticipants([])` with a fresh array would otherwise re-render
+  // every mount, including the disabled one that is supposed to cost nothing.
   useEffect(() => {
     unreadAnchoredRef.current = null
-    newestMessageIdRef.current = null
     reportedReadIdRef.current = null
+    setNewestMessageId(null)
     setUnreadAfterMessageId(null)
     setLastArrival(null)
     setTurnInFlight(null)
-    setParticipants([])
+    setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
     void load(true)
   }, [load])
@@ -437,14 +452,13 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   })
 
   // ── Read receipt (spec CC-18) ───────────────────────────────────────────────
-  // Debounced and keyed on the newest message id, so a burst of arrivals is one
-  // POST and a re-render is none. Only while the thread is actually being looked
-  // at: marking a backgrounded tab read would clear a colleague's inbox item for
-  // a thread nobody read.
-  const newestSeenId = newestMessageIdRef.current
+  // Debounced and keyed on the newest message id, so a burst of arrivals is ONE
+  // POST rather than one per message. Only while the thread is actually being
+  // looked at: marking a backgrounded tab read would clear a colleague's inbox
+  // item for a thread nobody read.
   useEffect(() => {
     if (!enabled || !shared || !base || !active) return
-    const newest = newestSeenId
+    const newest = newestMessageId
     if (!newest || newest === reportedReadIdRef.current) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
@@ -465,14 +479,17 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
       markReadTimerRef.current = null
     }
-  }, [enabled, shared, base, active, newestSeenId, lastArrival])
+  }, [enabled, shared, base, active, newestMessageId])
+
+  const directory = useMemo(
+    () => new Map(participants.map((person) => [person.userId, person])),
+    [participants]
+  )
 
   const authorOf = useCallback(
     (userId: string | null | undefined): DirectoryPerson | null =>
-      userId ? (directoryRef.current.get(userId) ?? null) : null,
-    // Rebuilt when the roster does, so a consumer memoising on this callback
-    // re-renders once names resolve.
-    [participants]
+      userId ? (directory.get(userId) ?? null) : null,
+    [directory]
   )
 
   const result = useMemo<UseSharedThreadResult>(

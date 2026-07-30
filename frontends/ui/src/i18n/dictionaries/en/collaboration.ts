@@ -210,7 +210,6 @@ export const collaboration = {
   /** Chat-thread additions that only appear once a conversation is shared. */
   thread: {
     participantsAria: 'People in this conversation',
-    participantsMore: '+{count}',
     /** A mention rendered inside message text. */
     mentionAria: 'Mention of {name}',
     mentionedYouAria: 'You were mentioned',

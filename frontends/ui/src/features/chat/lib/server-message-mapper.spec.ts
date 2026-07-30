@@ -107,6 +107,63 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.cardInteractions).toBeUndefined()
   })
 
+  it('carries the author through, so a colleague’s message stays attributable (spec CC-3)', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'user', authorUserId: 'user_anna' })
+    )
+
+    // A colleague's contribution arrives as role `user` — the same role as our own
+    // messages — so authorship is the ONLY thing that tells them apart.
+    expect(mapped).not.toBeNull()
+    expect(mapped!.messageType).toBe('user')
+    expect(mapped!.authorUserId).toBe('user_anna')
+  })
+
+  it('leaves the author absent on an unattributed row rather than inventing one', () => {
+    expect(mapServerMessageToChatMessage(serverMessage({ authorUserId: null }))!.authorUserId).toBeUndefined()
+    // NULL on an assistant row is correct: the agent wrote it.
+    expect(
+      mapServerMessageToChatMessage(serverMessage({ role: 'assistant', authorUserId: null }))!.authorUserId
+    ).toBeUndefined()
+  })
+
+  it('restores structured mentions and the server’s addressee ruling', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        metadata: {
+          messageType: 'user',
+          mentions: [{ targetId: 'user_anna', display: 'Anna Berger' }],
+          addressees: { agent: false, users: ['user_anna'] },
+        },
+      })
+    )
+
+    expect(mapped!.mentions).toEqual([{ targetId: 'user_anna', display: 'Anna Berger' }])
+    expect(mapped!.addressees).toEqual({ agent: false, users: ['user_anna'] })
+  })
+
+  it('drops malformed mentions and a malformed addressee set', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        metadata: {
+          mentions: [{ display: 'no target' }, 'nonsense', null],
+          addressees: { agent: 'yes', users: 'anna' },
+        },
+      })
+    )
+
+    expect(mapped!.mentions).toBeUndefined()
+    expect(mapped!.addressees).toBeUndefined()
+  })
+
+  it('defaults a mention display to its target id rather than rendering "undefined"', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ metadata: { mentions: [{ targetId: 'user_anna' }] } })
+    )
+
+    expect(mapped!.mentions).toEqual([{ targetId: 'user_anna', display: 'user_anna' }])
+  })
+
   it('tolerates a null metadata column', () => {
     const mapped = mapServerMessageToChatMessage(serverMessage({ metadata: null }))
 
@@ -124,5 +181,24 @@ describe('mapServerMessagesToChatMessages', () => {
     ])
 
     expect(mapped.map((m) => m.id)).toEqual(['m1', 'm3'])
+  })
+
+  it('keeps every human author in a multi-author history', () => {
+    // The regression this guards: the role filter above drops anything that is not
+    // user/assistant, and a colleague's message arrives as `user`. If that ever
+    // narrowed to "the session owner", a shared thread would render half of itself.
+    const mapped = mapServerMessagesToChatMessages([
+      serverMessage({ id: 'm1', role: 'user', authorUserId: 'user_me' }),
+      serverMessage({ id: 'm2', role: 'user', authorUserId: 'user_anna' }),
+      serverMessage({ id: 'm3', role: 'assistant', authorUserId: null }),
+      serverMessage({ id: 'm4', role: 'user', authorUserId: 'user_tobias' }),
+    ])
+
+    expect(mapped.map((m) => m.authorUserId)).toEqual([
+      'user_me',
+      'user_anna',
+      undefined,
+      'user_tobias',
+    ])
   })
 })

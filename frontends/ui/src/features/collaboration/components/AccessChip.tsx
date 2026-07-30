@@ -31,8 +31,28 @@ import type { LucideIcon } from 'lucide-react'
 
 import { Chip } from '@/components/ui/chip'
 import { useTranslations } from '@/i18n'
-import type { ResourceVisibility } from '@/lib/sharing/types'
+import type { ResourceAccessEntry, ResourceVisibility } from '@/lib/sharing/types'
 import { cn } from '@/lib/utils'
+
+/**
+ * How many people hold access *by name* besides the reader — the number the
+ * "Geteilt mit N" state reports.
+ *
+ * Counts only the explicit grants (`creator`, `grant`); visibility-derived rows are
+ * the blanket rule, which the chip states as `Projekt` / `Organisation` instead.
+ * Lives here, with the chip that renders it, so the toolbar chip and the overview
+ * cannot disagree about the number.
+ */
+export function namedAudienceCount(
+  entries: readonly ResourceAccessEntry[],
+  viewerUserId?: string | null,
+): number {
+  return entries.filter(
+    (entry) =>
+      entry.person.userId !== viewerUserId &&
+      (entry.reason === 'grant' || entry.reason === 'creator'),
+  ).length
+}
 
 export interface AccessChipProps {
   visibility: ResourceVisibility

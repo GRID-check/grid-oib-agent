@@ -30,6 +30,7 @@
 import type { ReactNode } from 'react'
 import { Users } from 'lucide-react'
 
+import { PersonAvatar } from '@/components/ui/avatar-stack'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useTranslations } from '@/i18n'
 import type {
@@ -38,8 +39,8 @@ import type {
   ResourceSharingState,
 } from '@/lib/sharing/types'
 import { cn } from '@/lib/utils'
-import { AccessChip } from './AccessChip'
-import { PersonAvatar, sortByRoleThenName } from './ParticipantStrip'
+import { AccessChip, namedAudienceCount } from './AccessChip'
+import { sortByRoleThenName } from './ParticipantStrip'
 
 /** Strongest first: owners, then contributors, then readers. */
 const GROUPS: ReadonlyArray<{ role: ResourceRole; headingKey: string }> = [
@@ -88,11 +89,7 @@ export function AccessOverview({
 
   // Grants are the named exceptions; under `private` their number is what the
   // access chip reports ("Mit 3 Personen geteilt").
-  const namedOthers = ordered.filter(
-    (entry) =>
-      entry.person.userId !== currentUserId &&
-      (entry.reason === 'grant' || entry.reason === 'creator'),
-  ).length
+  const namedOthers = namedAudienceCount(ordered, currentUserId)
 
   // `grantedBy` is a user id; the granter is usually on the roster themselves, so
   // resolve names from it and fall back to the anonymous variant rather than

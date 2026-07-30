@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { useWebSocketChat } from './use-websocket-chat'
+import { useWebSocketChat, type SendMessageOutcome } from './use-websocket-chat'
 import { useAuth } from '@/adapters/auth'
 import { getTokenExpiration } from '@/adapters/auth/token'
 import { createNATWebSocketClient } from '@/adapters/api/websocket-client'
@@ -2711,5 +2711,225 @@ describe('useWebSocketChat -- token rotation', () => {
     )
     expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
     expect(mockSetLoading).toHaveBeenCalledWith(true)
+  })
+})
+
+/**
+ * THE ADDRESSEE CONTRACT (spec MN-1/MN-2/MN-7, ADR-0034 §4).
+ *
+ * A message that carries mentions is persisted through an AWAITED request, and the
+ * `addressees` ruling on the response decides whether an agent turn opens at all.
+ * The fast path (no mentions) must keep its exact old behaviour — fire-and-forget
+ * persist inside `addUserMessage`, turn opened immediately.
+ */
+describe('useWebSocketChat — mentions and the addressee ruling', () => {
+  const mockFetch = vi.fn()
+  const mockSetState = vi.fn()
+  const realFetch = globalThis.fetch
+
+  // The mention path is the only send that talks HTTP; put the global back so a
+  // later suite in this file cannot inherit the stub.
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-1',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      error: null,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    // The mention path writes its own echo (it must not let the store persist a
+    // second, mention-free copy of the same message), so the store's setState is
+    // what proves the message reached the thread.
+    ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
+    mockWsClient.isConnected.mockReturnValue(true)
+    globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch
+  })
+
+  /** The body the hook POSTed, parsed. */
+  const sentBody = (): Record<string, unknown> =>
+    JSON.parse(mockFetch.mock.calls[0][1].body as string) as Record<string, unknown>
+
+  const respondWith = (addressees: unknown, overrides: Record<string, unknown> = {}) => {
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees, createdRequests: 1, ...overrides }],
+      }
+    })
+  }
+
+  test('a human mention: persistence is awaited, and NO turn is started (MN-7)', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber passt das?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/conversations/conv-1/messages')
+    expect(outcome).toEqual({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
+
+    // Nothing started: no tokens, no thinking bubble, nothing on the wire.
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+    expect(mockSetCurrentStatus).not.toHaveBeenCalledWith('thinking')
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+  })
+
+  test('the mention path does NOT use addUserMessage — one persist, with the mentions', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber passt das?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+        mentionNote: 'Ist das Atrium ein eigener Abschnitt?',
+      })
+    })
+
+    expect(mockAddUserMessage).not.toHaveBeenCalled()
+    const body = sentBody()
+    expect(body.role).toBe('user')
+    expect(body.content).toBe('@Anna Weber passt das?')
+    expect(body.mentions).toEqual([{ targetId: 'u-anna' }])
+    expect(body.mentionNote).toBe('Ist das Atrium ein eigener Abschnitt?')
+    expect(body.id).toEqual(expect.any(String))
+
+    // The echo lands in the thread, carrying the structured mentions and the ruling.
+    const echoed = mockSetState.mock.calls[0][0].currentConversation.messages[0]
+    expect(echoed).toMatchObject({
+      id: body.id,
+      role: 'user',
+      content: '@Anna Weber passt das?',
+      mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      addressees: { agent: false, users: ['u-anna'] },
+    })
+  })
+
+  test('@Piloti alongside a human: the agent IS addressed, so the turn opens', async () => {
+    respondWith({ agent: true, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Piloti @Anna Weber bitte prüfen', {
+        mentions: [
+          { targetId: 'agent:piloti', display: 'Piloti' },
+          { targetId: 'u-anna', display: 'Anna Weber' },
+        ],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: true })
+    expect(mockSetCurrentStatus).toHaveBeenCalledWith('thinking')
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      '@Piloti @Anna Weber bitte prüfen',
+      expect.any(Array)
+    )
+  })
+
+  test('a refusal keeps the reason, echoes nothing and starts nothing', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: 'mention refused',
+        details: { reason: 'mention-invite-requires-owner' },
+      }),
+    })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Sabine Gruber schau bitte', {
+        mentions: [{ targetId: 'u-sabine', display: 'Sabine Gruber' }],
+      })
+    })
+
+    expect(outcome).toEqual({
+      ok: false,
+      failure: { reason: 'mention-invite-requires-owner', message: 'mention refused' },
+    })
+    expect(mockSetState).not.toHaveBeenCalled()
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+  })
+
+  test('a persist failure is surfaced and never opens a turn', async () => {
+    mockFetch.mockRejectedValue(new Error('offline'))
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: false })
+    expect(mockSetState).not.toHaveBeenCalled()
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('a response without OUR row carries no ruling to act on', async () => {
+    // The insert conflicted: someone else already wrote this id, so the ruling in
+    // hand is not ours and no turn may be opened off it.
+    mockFetch.mockResolvedValue({ ok: true, status: 201, json: async () => [] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: false })
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('no mentions: the fast path is untouched — no awaited persist, turn opens at once', () => {
+    const { result } = renderWebSocketHook()
+
+    let sent: unknown
+    act(() => {
+      sent = result.current.sendMessage('Wie breit muss der Fluchtweg sein?')
+    })
+
+    expect(sent).toBe(true)
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockAddUserMessage).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test('an empty mention list stays on the fast path', () => {
+    const { result } = renderWebSocketHook()
+
+    act(() => {
+      result.current.sendMessage('kein Tag', { mentions: [] })
+    })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockAddUserMessage).toHaveBeenCalledTimes(1)
   })
 })

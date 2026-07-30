@@ -26,6 +26,7 @@ import {
 } from 'react'
 import {
   ArrowUp,
+  AtSign,
   Check,
   ChevronDown,
   FileText,
@@ -48,7 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -70,6 +71,22 @@ import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import {
+  MentionPicker,
+  type MentionPickerAria,
+  type MentionPickerHandle,
+} from '@/features/collaboration/components/MentionPicker'
+import { useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
+import {
+  findMentionQuery,
+  humanMentions,
+  insertMention,
+  reconcileMentions,
+  type DraftMention,
+  type MentionQuery,
+} from '@/features/collaboration/lib/mention-text'
+import { MENTION_ERROR_REASONS, type MentionCandidate } from '@/lib/mentions/types'
+import type { SendMessageOutcome } from '@/features/chat/hooks/use-websocket-chat'
 
 /** Preset chip order + their provenance signals (spec §4 --source-* family). */
 const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
@@ -80,6 +97,48 @@ const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
 
 /** Connection mode for the chat */
 export type ConnectionMode = 'sse' | 'websocket'
+
+/**
+ * Normalise whatever `sendMessage` returned.
+ *
+ * The fast path answers synchronously with a boolean (and legacy/mocked callers
+ * answer with nothing at all), the mention path with the server's ruling. Only an
+ * explicit `false` or `ok: false` counts as "not sent" — exactly the contract the
+ * composer had before mentions existed.
+ */
+function normalizeSendResult(result: unknown): { ok: boolean; outcome?: SendMessageOutcome } {
+  if (result === false) return { ok: false }
+  if (result && typeof result === 'object' && 'ok' in result) {
+    const outcome = result as SendMessageOutcome
+    return { ok: outcome.ok, outcome }
+  }
+  return { ok: true }
+}
+
+/**
+ * The copy for a refused mention. The server names the reason machine-readably in
+ * `details.reason` precisely so the composer can say something useful instead of
+ * "something went wrong" — and the user's text is kept either way.
+ */
+function mentionRefusalMessage(
+  outcome: SendMessageOutcome | undefined,
+  taggedHumans: readonly DraftMention[],
+  tCollab: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
+  const reason = outcome?.failure?.reason
+  if (!reason) return null
+  const name = taggedHumans[0]?.display ?? ''
+  switch (reason) {
+    case MENTION_ERROR_REASONS.inviteRequiresOwner:
+      return tCollab('mentions.errors.inviteRequiresOwner', { name })
+    case MENTION_ERROR_REASONS.containerAccessRequired:
+      return tCollab('mentions.errors.containerAccessRequired', { name })
+    case MENTION_ERROR_REASONS.rateLimited:
+      return tCollab('mentions.errors.rateLimited')
+    default:
+      return null
+  }
+}
 
 /** Maximum height of the auto-sizing textarea in pixels */
 const TEXTAREA_MAX_HEIGHT_PX = 200
@@ -370,7 +429,28 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 }) {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
+  const tCollab = useTranslations('collaboration')
   const [message, setMessage] = useState('')
+
+  // ——— @-mentions (spec MN-3, MN-4) ————————————————————————————————————————
+  // The mentions the user actually PICKED, as structured references. Never derived
+  // from the text; reconciled against it right before sending.
+  const [mentions, setMentions] = useState<DraftMention[]>([])
+  // The `@…` fragment under the caret; its presence is what opens the picker.
+  const [mentionQuery, setMentionQuery] = useState<MentionQuery | null>(null)
+  // Esc (or clicking away) closes the picker for THIS fragment; a fresh `@`
+  // reopens it, however many times the user types one.
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  // Candidates are fetched lazily — a composer that never sees an `@` never asks.
+  const [mentionRequested, setMentionRequested] = useState(false)
+  const [mentionAria, setMentionAria] = useState<MentionPickerAria>({
+    listboxId: null,
+    activeOptionId: null,
+  })
+  const mentionPickerRef = useRef<MentionPickerHandle>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  // Caret to restore after a programmatic text change (mention insertion).
+  const pendingCaretRef = useRef<number | null>(null)
 
   // Attached-file preview (read-only): a successful chip opens the shared
   // FilePreviewDialog for its file. Also the primary file-access path on mobile.
@@ -643,6 +723,66 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     return placeholder ?? tChat('composer.placeholder')
   }
 
+  // Mention candidates for this conversation — the agent, the participants, and the
+  // colleagues who would have to be invited (spec MN-4/MN-5).
+  const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
+    currentSessionId ?? null,
+    mentionRequested,
+  )
+
+  /**
+   * Re-evaluate whether the caret sits in an `@…` fragment. Called on every text
+   * change and on every caret move, which is what makes the trigger feel native:
+   * typing `@` opens the picker, deleting the `@` closes it, and clicking back into
+   * an unfinished fragment picks it up again.
+   */
+  const syncMentionQuery = useCallback((value: string, caret: number | null) => {
+    const range = caret === null ? null : findMentionQuery(value, caret)
+    setMentionQuery(range)
+    if (range) {
+      setMentionRequested(true)
+      return
+    }
+    // No fragment → nothing to dismiss; the next `@` starts clean.
+    setMentionDismissed(false)
+  }, [])
+
+  const syncMentionQueryFromElement = useCallback(
+    (element: HTMLTextAreaElement) => {
+      syncMentionQuery(element.value, element.selectionStart)
+    },
+    [syncMentionQuery],
+  )
+
+  // Restore the caret after a mention insertion rewrote the text.
+  useEffect(() => {
+    const caret = pendingCaretRef.current
+    if (caret === null) return
+    pendingCaretRef.current = null
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(caret, caret)
+  }, [message])
+
+  // Mentions that survive the current text, in text order — the single source for
+  // what gets sent, what the hint says, and whether the agent will stay quiet.
+  const activeMentions = useMemo(() => reconcileMentions(message, mentions), [message, mentions])
+  const taggedHumans = useMemo(() => humanMentions(activeMentions), [activeMentions])
+
+  /**
+   * The picker is open only once the candidate list has actually answered.
+   *
+   * That is deliberate: where collaboration is off the endpoint never answers, so
+   * typing `@` behaves exactly as it did before this feature existed. A user who
+   * shares nothing must not be able to notice it is there (spec NF-8).
+   */
+  const mentionPickerOpen =
+    mentionQuery !== null &&
+    !mentionDismissed &&
+    !disabled &&
+    (mentionsLoading || mentionData !== null)
+
   const handleSubmit = useCallback(async () => {
     if (!message.trim() || disabled) return
     const currentMessage = message.trim()
@@ -658,19 +798,43 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       return
     }
 
+    // Mentions are structured, and reconciled against the text at the last
+    // possible moment: whatever token the user deleted while editing is not sent
+    // (spec MN-3).
+    const sentMentions = reconcileMentions(currentMessage, mentions)
+    const sentHumans = humanMentions(sentMentions)
+
     // Files may still be uploading/ingesting — we no longer gate the send behind
     // a double-submit banner. The send button surfaces a subtle inline hint
     // (see title below) but the user is always free to send.
     setMessage('')
+    setMentionQuery(null)
     try {
       // sendMessage reports immediate failures (dead socket, no conversation)
-      // via a false return rather than throwing.
-      const sent = await sendMessage(currentMessage)
-      if (sent === false) throw new Error('Message could not be sent or queued')
+      // via a false return rather than throwing. A message WITH mentions resolves
+      // to the server's addressee ruling instead, and may be refused outright.
+      const { ok, outcome } = normalizeSendResult(
+        // Called with ONE argument when there is nothing to mention — the fast
+        // path stays exactly the call it always was.
+        sentMentions.length > 0
+          ? await sendMessage(currentMessage, { mentions: sentMentions })
+          : await sendMessage(currentMessage),
+      )
+      if (!ok) {
+        // Restore the text so nothing the user wrote is lost, and keep the picked
+        // mentions with it — the message is meant to be sent again, not retyped.
+        setMessage(currentMessage)
+        const refusal = mentionRefusalMessage(outcome, sentHumans, tCollab)
+        toast.error(refusal ?? t('inputArea.messageNotSent'), {
+          description: refusal ? undefined : t('inputArea.messageNotSentDesc'),
+        })
+        return
+      }
       // Sent successfully — drop this session's saved draft so it can't
       // resurface on the next visit. Only on success: a failed send keeps the
       // draft so nothing the user typed is lost.
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
+      setMentions([])
     } catch (error) {
       console.error('Failed to send message:', error)
       // Restore the message so the user doesn't lose what they typed. The
@@ -682,6 +846,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     }
   }, [
     message,
+    mentions,
     disabled,
     isResponseMode,
     respondToInteraction,
@@ -689,6 +854,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     currentConversation,
     clearComposerDraft,
     t,
+    tCollab,
   ])
 
   // Post-research forward action: start a fresh session draft (the real
@@ -701,6 +867,39 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // While the picker is open it owns the navigation keys. The single most
+      // important detail: Enter must INSERT, never submit — a message sent because
+      // the user confirmed a name is the worst possible outcome here.
+      if (mentionPickerOpen) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          mentionPickerRef.current?.move(1)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          mentionPickerRef.current?.move(-1)
+          return
+        }
+        if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+          e.preventDefault()
+          if (mentionPickerRef.current?.selectActive()) return
+          // Nothing to insert (no match for what was typed): close the picker. An
+          // Enter then still means what it usually means — send.
+          setMentionDismissed(true)
+          if (e.key === 'Enter') handleSubmit()
+          return
+        }
+        if (e.key === 'Escape') {
+          // Stop here: an Escape that bubbles would close the surrounding surface.
+          e.preventDefault()
+          e.stopPropagation()
+          setMentionDismissed(true)
+          textareaRef.current?.focus()
+          return
+        }
+      }
+
       if (e.key !== 'Enter') return
       // Shift+Enter inserts a newline — let the textarea handle it natively.
       if (e.shiftKey) return
@@ -710,11 +909,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       e.preventDefault()
       handleSubmit()
     },
-    [handleSubmit]
+    [handleSubmit, mentionPickerOpen]
   )
 
   const handleValueChange = useCallback(
-    (value: string) => {
+    (value: string, caret: number | null = value.length) => {
       if (isDisabledByAuth) return // Don't allow typing when not authenticated
 
       // Persist a session as soon as the user starts interacting via typed input.
@@ -731,8 +930,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // Persist the draft under the active session (once one exists) so it
       // survives navigating away/back and a reload.
       if (sessionId) setComposerDraft(sessionId, value)
+      syncMentionQuery(value, caret)
     },
-    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft]
+    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
+  )
+
+  /**
+   * Insert the picked candidate: the `@fragment` becomes `@Display `, and the
+   * STRUCTURED reference is recorded alongside it. The text is a rendering of the
+   * mention, never its definition (spec MN-3).
+   */
+  const handleMentionSelect = useCallback(
+    (candidate: MentionCandidate) => {
+      const range = mentionQuery
+      if (!range) return
+      const display = candidate.isAgent
+        ? tCollab('mentions.picker.agentName')
+        : candidate.person.name
+      const { text, caret } = insertMention(message, range, display)
+
+      pendingCaretRef.current = caret
+      handleValueChange(text, caret)
+      setMentions((current) => [...current, { targetId: candidate.targetId, display }])
+      setMentionQuery(null)
+      setMentionDismissed(false)
+    },
+    [handleValueChange, message, mentionQuery, tCollab]
   )
 
   // Handle attach button click
@@ -806,7 +1029,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
+      {/* The mention picker is anchored to the composer CARD and opens above it,
+          spanning its full width — the Slack/Linear placement. Caret-pixel tracking
+          inside a textarea is fragile and buys nothing here. */}
+      <Popover
+        open={mentionPickerOpen}
+        onOpenChange={(open) => {
+          if (!open) setMentionDismissed(true)
+        }}
+      >
+      <PopoverAnchor asChild>
       <div
+        ref={composerRef}
         className={cn(
           // Composer card: white card grounded by a soft CARD-tier shadow (not
           // the modal shadow-lg, which detached it as a floating object over the
@@ -900,14 +1134,30 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // focus is drawn twice: a nested box inside the card's ring.
           className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 md:text-[14.5px]"
           value={message}
-          onChange={(e) => handleValueChange(e.target.value)}
+          onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
+          // The caret can move without the text changing (arrows, a click); the
+          // trigger has to follow it, or the picker outlives its own fragment.
+          onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
+          onClick={(e) => syncMentionQueryFromElement(e.currentTarget)}
           onPaste={handlePaste}
           placeholder={getPlaceholder()}
           disabled={disabled}
           rows={1}
           aria-label={
             isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')
+          }
+          // Combobox semantics only while the picker is live: the listbox
+          // `aria-controls` points at exists only then, and a chat composer that
+          // announces itself as a combobox at all times is worse for a screen
+          // reader than one that announces the popup when it appears.
+          role={mentionPickerOpen ? 'combobox' : undefined}
+          aria-expanded={mentionPickerOpen ? true : undefined}
+          aria-haspopup={mentionPickerOpen ? 'listbox' : undefined}
+          aria-autocomplete={mentionPickerOpen ? 'list' : undefined}
+          aria-controls={mentionPickerOpen ? (mentionAria.listboxId ?? undefined) : undefined}
+          aria-activedescendant={
+            mentionPickerOpen ? (mentionAria.activeOptionId ?? undefined) : undefined
           }
         />
 
@@ -1234,6 +1484,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         </div>
 
+        {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
+            person is tagged the agent will stay quiet, and the user has to know
+            that while they can still change their mind. */}
+        {taggedHumans.length > 0 && (
+          <p
+            data-testid="composer-mention-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>
+              {tCollab('mentions.composerHint', {
+                name: taggedHumans.map((mention) => mention.display).join(', '),
+              })}
+            </span>
+          </p>
+        )}
+
         {/* Honest Deep-Research hint: the pill records intent; escalation
             stays automatic. Never promises a forced deep-research run. */}
         {deepResearchIntent && (
@@ -1251,6 +1519,37 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </p>
         )}
       </div>
+      </PopoverAnchor>
+
+        {/* The panel itself supplies the surface, so the popover contributes
+            nothing but placement and width. Focus must NOT move here: the user is
+            typing, and the textarea forwards the navigation keys. */}
+        <PopoverContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-[var(--radix-popover-trigger-width)] border-0 bg-transparent p-0 shadow-none"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          onFocusOutside={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            // Clicking inside the composer (e.g. moving the caret) is not
+            // "clicking away" — only a click outside it dismisses the picker.
+            const target = event.target as Node | null
+            if (target && composerRef.current?.contains(target)) event.preventDefault()
+          }}
+        >
+          <MentionPicker
+            ref={mentionPickerRef}
+            query={mentionQuery?.query ?? ''}
+            candidates={mentionData?.candidates ?? []}
+            canInvite={mentionData?.canInvite ?? false}
+            loading={mentionsLoading}
+            onSelect={handleMentionSelect}
+            onAriaChange={setMentionAria}
+          />
+        </PopoverContent>
+      </Popover>
 
       {/* Mobile scope cue: on phones the scope / Datengrundlage / Deep-Research
           labels collapse to bare icons (to keep the action row one compact

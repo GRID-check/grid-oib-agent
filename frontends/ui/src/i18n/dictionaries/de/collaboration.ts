@@ -188,7 +188,6 @@ export const collaboration: typeof en.collaboration = {
 
   thread: {
     participantsAria: 'Personen in diesem Chat',
-    participantsMore: '+{count}',
     mentionAria: 'Erwähnung von {name}',
     mentionedYouAria: 'Sie wurden erwähnt',
     groupedAria: 'Fortsetzung von {name}',

@@ -17,6 +17,7 @@
 'use client'
 
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslations } from '@/i18n'
 import { useAuth } from '@/adapters/auth'
@@ -33,6 +34,7 @@ import {
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
 import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/use-backend-health'
+import type { AddresseeSet } from '@/lib/mentions/types'
 import { useChatStore } from '../store'
 import { registerStopStreamingHandler } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
@@ -62,6 +64,112 @@ import {
 
 const EMPTY_MESSAGES: ChatMessage[] = []
 const EMPTY_CONVERSATIONS: Conversation[] = []
+
+/** A mention as the composer holds it: the structured target plus its text token. */
+export interface SendMessageMention {
+  targetId: string
+  display: string
+}
+
+export interface SendMessageOptions {
+  /**
+   * Mentions chosen from the `@` picker (spec MN-3). Their presence switches the
+   * send onto the addressee path: persistence is awaited and the SERVER decides
+   * whether the agent answers.
+   */
+  mentions?: readonly SendMessageMention[]
+  /** The asker's question, carried into the recipient's inbox item (spec MN-12). */
+  mentionNote?: string | null
+}
+
+/** A refusal the composer can localise from `details.reason`. */
+export interface SendMessageFailure {
+  reason: string | null
+  message: string | null
+}
+
+/** What a mention send resolves to — the server's ruling, or why it was refused. */
+export interface SendMessageOutcome {
+  ok: boolean
+  /** The server's addressee ruling (spec MN-1/MN-2), when it answered. */
+  addressees?: AddresseeSet
+  failure?: SendMessageFailure
+}
+
+/** Normalise either send path's result for a caller that just wants "did it go". */
+export function sendSucceeded(result: boolean | SendMessageOutcome): boolean {
+  return typeof result === 'boolean' ? result : result.ok
+}
+
+/** Read the standard error envelope so the composer can name the reason. */
+async function readSendFailure(response: Response): Promise<SendMessageFailure> {
+  try {
+    const body = (await response.json()) as { error?: string; details?: { reason?: string } | null }
+    return { reason: body.details?.reason ?? null, message: body.error ?? null }
+  } catch {
+    return { reason: null, message: null }
+  }
+}
+
+/**
+ * Pull this message's addressee ruling out of the persist response.
+ *
+ * `POST /api/conversations/:id/messages` answers with the persisted rows (an array,
+ * even for one message), each carrying `addressees`. A row that is missing means the
+ * insert conflicted — i.e. something else already wrote this id — and the ruling is
+ * then NOT ours to act on, so it comes back null and no turn is opened.
+ */
+function readAddresseeRuling(body: unknown, messageId: string): AddresseeSet | null {
+  const rows = (Array.isArray(body) ? body : [body]) as Array<{
+    id?: string
+    addressees?: AddresseeSet
+  } | null>
+  const row = rows.find((entry) => entry?.id === messageId) ?? null
+  const addressees = row?.addressees
+  if (!addressees || typeof addressees.agent !== 'boolean' || !Array.isArray(addressees.users)) {
+    return null
+  }
+  return addressees
+}
+
+/**
+ * Append a user message to the thread WITHOUT persisting it.
+ *
+ * Deliberately not `addUserMessage`, and this is the one subtle thing about the
+ * mention path. `addUserMessage` persists fire-and-forget, WITHOUT the mentions —
+ * and the server's ruling only comes back on the request that CREATES the row: a
+ * second POST for the same id reads the first ruling back and drops the mentions
+ * (`prepareMessage`, `lib/conversations/service.ts`). Letting the store's POST race
+ * ours would therefore, whenever it won, store the message as "addressed to the
+ * agent", create no request, notify nobody — and silently swallow the mention. So
+ * the mention path owns the persist (awaited, with the mentions, with the id it
+ * generated) and writes the echo straight into the thread here.
+ *
+ * `setState` is guarded because suites that mock the store wholesale do not supply
+ * it; the send then still resolves, it simply renders nothing locally.
+ */
+function appendLocalUserMessage(message: ChatMessage): void {
+  const store = useChatStore as unknown as {
+    getState: () => { currentConversation: Conversation | null; conversations: Conversation[] }
+    setState?: (partial: Partial<{ currentConversation: Conversation | null; conversations: Conversation[] }>) => void
+  }
+  const { currentConversation, conversations } = store.getState()
+  if (!currentConversation || typeof store.setState !== 'function') return
+
+  const updated: Conversation = {
+    ...currentConversation,
+    // First message names the session, exactly like the store's own path does.
+    title: currentConversation.title || message.content.trim().slice(0, 50),
+    messages: [...currentConversation.messages, message],
+    updatedAt: new Date(),
+  }
+  store.setState({
+    currentConversation: updated,
+    conversations: conversations.map((conversation) =>
+      conversation.id === updated.id ? updated : conversation,
+    ),
+  })
+}
 
 /**
  * Buffer entry for an outgoing payload that has to bridge a socket
@@ -190,9 +298,20 @@ interface UseWebSocketChatOptions {
 }
 
 interface UseWebSocketChatReturn {
-  /** Send a message via WebSocket. Returns false when the message could not
-   * be sent or queued (so the caller can preserve the user's input). */
-  sendMessage: (content: string) => boolean
+  /**
+   * Send a message via WebSocket.
+   *
+   * Without mentions this is the unchanged fast path and returns `false` when the
+   * message could not be sent or queued (so the caller can preserve the user's
+   * input). WITH mentions it returns a promise carrying the server's addressee
+   * ruling — the agent answers only if that ruling says so (ADR-0034 §4) — plus a
+   * localisable `failure` when the send was refused. Use `sendSucceeded` when all
+   * the caller needs is "did it go".
+   */
+  sendMessage: (
+    content: string,
+    options?: SendMessageOptions,
+  ) => boolean | Promise<SendMessageOutcome>
   /** Respond to a pending interaction (clarification, approval, etc.) */
   respondToInteraction: (response: string) => void
   /** Disconnect from the WebSocket server */
@@ -1485,46 +1604,43 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [projectId])
 
   /**
-   * Send a message via WebSocket
+   * The send metadata both paths need: which sources are live, and which of this
+   * session's files are attached.
    */
-  const sendMessage = useCallback(
-    (content: string): boolean => {
-      if (!content.trim()) return false
+  const collectSendMetadata = useCallback(() => {
+    const layoutState = useLayoutStore.getState()
+    const enabledDataSources = layoutState.enabledDataSourceIds
 
-      // Collect metadata about data sources and files before adding user message
-      const layoutState = useLayoutStore.getState()
-      const enabledDataSources = layoutState.enabledDataSourceIds
+    // Get session files
+    const sessionId = useChatStore.getState().currentConversation?.id
+    const trackedFiles = useDocumentsStore.getState().trackedFiles
+    const sessionFiles = sessionId
+      ? trackedFiles.filter(
+          (f) => f.collectionName === sessionId && (f.status === 'ingesting' || f.status === 'success')
+        )
+      : []
 
-      // Get session files
-      const sessionId = useChatStore.getState().currentConversation?.id
-      const trackedFiles = useDocumentsStore.getState().trackedFiles
-      const sessionFiles = sessionId
-        ? trackedFiles.filter(
-            (f) => f.collectionName === sessionId && (f.status === 'ingesting' || f.status === 'success')
-          )
-        : []
-
+    return {
       // Keep internal knowledge available for base/project/session corpora even though it is hidden from toggles.
-      const dataSourcesForMessage = layoutState.knowledgeLayerAvailable
+      dataSourcesForMessage: layoutState.knowledgeLayerAvailable
         ? Array.from(new Set([...enabledDataSources, 'knowledge_layer']))
-        : enabledDataSources
-
+        : enabledDataSources,
       // Prepare file metadata for display
-      const messageFiles = sessionFiles.map((f) => ({
-        id: f.id,
-        fileName: f.fileName,
-      }))
+      messageFiles: sessionFiles.map((f) => ({ id: f.id, fileName: f.fileName })),
+    }
+  }, [])
 
-      // Add user message to store with metadata
-      addUserMessage(content, {
-        enabledDataSources: dataSourcesForMessage,
-        messageFiles,
-      })
-
-      // currentConversation may have just been created inside addUserMessage.
-      const storeState = useChatStore.getState()
-      const conversationId = storeState.currentConversation?.id
-
+  /**
+   * Open an agent turn for `content`: reset the turn-scoped state, put the payload
+   * on the wire (or buffer it across a handshake / token rotation) and arm the
+   * inactivity watchdog.
+   *
+   * Extracted so both send paths share ONE definition of "a turn starts", and so
+   * the mention path can decline to call it at all — the whole point of MN-7 is
+   * that nothing is started rather than started and cancelled.
+   */
+  const openAgentTurn = useCallback(
+    (content: string, dataSourcesForMessage: string[], conversationId: string | undefined): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
       clearReportContent()
@@ -1602,7 +1718,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
     },
     [
-      addUserMessage,
       addErrorCard,
       clearReportContent,
       clearPendingInteraction,
@@ -1617,6 +1732,134 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       authRequired,
       activeSocketTokenExpiresAt,
     ]
+  )
+
+  /**
+   * Send a message that carries mentions — THE ADDRESSEE CONTRACT (ADR-0034 §4).
+   *
+   * Everything that makes this path different from the fast one follows from a
+   * single rule: **the server decides who answers.** So persistence is awaited, the
+   * `addressees` ruling is read off the response, and an agent turn is opened only
+   * when `addressees.agent` is true. When it is false nothing at all is started —
+   * no status, no thinking bubble, no tokens (spec MN-7) — and the thread's
+   * awaiting-state explains the silence instead.
+   *
+   * It also means a refusal (a collaborator tagging a non-participant, a target
+   * outside the project, a rate limit) refuses the WHOLE send: nothing is echoed
+   * into the thread, so the composer can keep the user's text and say why.
+   */
+  const sendMentionMessage = useCallback(
+    async (content: string, options: SendMessageOptions): Promise<SendMessageOutcome> => {
+      const mentions = options.mentions ?? []
+      const store = useChatStore.getState()
+      const conversationId = store.currentConversation?.id ?? store.ensureSession?.()
+      if (!conversationId) {
+        addErrorCard('system.unknown', 'No active conversation')
+        return { ok: false }
+      }
+
+      const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
+      // Our id, generated up front: it is the anchor the mention request points at,
+      // and the idempotency key the server rules on.
+      const messageId = uuidv4()
+
+      let ruling: AddresseeSet | null = null
+      try {
+        // The conversation row has to exist before a message can be posted onto it.
+        // Shared with the store's own append path, so it is at most one round trip.
+        await store._ensureConversationExists?.()
+
+        const response = await fetch(
+          `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: messageId,
+              role: 'user',
+              content,
+              messageType: 'user',
+              metadata: {
+                enabledDataSources: dataSourcesForMessage,
+                ...(messageFiles.length > 0 ? { messageFiles } : {}),
+              },
+              createdAt: new Date().toISOString(),
+              // Structured references, never a text match on a name (spec MN-3).
+              mentions: mentions.map((mention) => ({ targetId: mention.targetId })),
+              ...(options.mentionNote ? { mentionNote: options.mentionNote } : {}),
+            }),
+          },
+        )
+
+        if (!response.ok) {
+          return { ok: false, failure: await readSendFailure(response) }
+        }
+        ruling = readAddresseeRuling(await response.json(), messageId)
+      } catch {
+        // Network/offline: nothing was stored, so nothing is echoed and no turn is
+        // opened. The composer keeps the text.
+        return { ok: false, failure: { reason: null, message: null } }
+      }
+
+      if (!ruling) return { ok: false, failure: { reason: null, message: null } }
+
+      appendLocalUserMessage({
+        id: messageId,
+        role: 'user',
+        content,
+        timestamp: new Date(),
+        messageType: 'user',
+        enabledDataSources: dataSourcesForMessage,
+        messageFiles: messageFiles.length > 0 ? messageFiles : undefined,
+        // Kept on the message so the bubble can render the tokens as chips
+        // without re-deriving anything from the text.
+        mentions: mentions.map((mention) => ({ ...mention })),
+        addressees: ruling,
+      })
+
+      if (!ruling.agent) {
+        // The thread now waits for a human. Nothing is started (MN-7).
+        return { ok: true, addressees: ruling }
+      }
+
+      const started = openAgentTurn(content, dataSourcesForMessage, conversationId)
+      return { ok: started, addressees: ruling }
+    },
+    [addErrorCard, collectSendMetadata, openAgentTurn],
+  )
+
+  /**
+   * Send a message via WebSocket.
+   *
+   * Two paths, deliberately asymmetric:
+   *   - **no mentions** — today's fast path, unchanged: the message is echoed and
+   *     persisted fire-and-forget and the turn opens immediately. This is the 99%
+   *     case and it must not pay for the feature (returns a plain boolean).
+   *   - **with mentions** — the addressee contract: persistence is awaited and the
+   *     server decides whether a turn opens at all (returns an outcome).
+   */
+  const sendMessage = useCallback(
+    (content: string, options?: SendMessageOptions): boolean | Promise<SendMessageOutcome> => {
+      if (!content.trim()) return false
+
+      if (options?.mentions && options.mentions.length > 0) {
+        return sendMentionMessage(content, options)
+      }
+
+      const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
+
+      // Add user message to store with metadata
+      addUserMessage(content, {
+        enabledDataSources: dataSourcesForMessage,
+        messageFiles,
+      })
+
+      // currentConversation may have just been created inside addUserMessage.
+      const conversationId = useChatStore.getState().currentConversation?.id
+
+      return openAgentTurn(content, dataSourcesForMessage, conversationId)
+    },
+    [addUserMessage, collectSendMetadata, openAgentTurn, sendMentionMessage],
   )
 
   /**

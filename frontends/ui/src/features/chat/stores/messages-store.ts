@@ -289,22 +289,26 @@ const withServerFacts = (local: ChatMessage, remote: ChatMessage): ChatMessage =
  *
  * Returns the ORIGINAL array when nothing changed, so a poll or focus refresh
  * that learns nothing new costs no re-render, no conversation rebuild and no
- * re-sort.
+ * re-sort. `added` distinguishes "a message arrived" (new activity in the thread)
+ * from "an existing message was corrected" (resolved author names, the server's
+ * timestamp) — only the former is activity that may reorder the session list.
  */
 const mergeRemoteMessages = (
   local: ChatMessage[],
   remote: ChatMessage[],
   replace: boolean
-): ChatMessage[] => {
+): { messages: ChatMessage[]; added: boolean } => {
   const localById = new Map(local.map((message) => [message.id, message]))
 
   // Known ids keep their local object (plus the server's facts); unknown ids are
   // genuinely new — a colleague's message, or one of ours from another device.
   let changed = false
+  let added = false
   const reconciled = remote.map((message) => {
     const existing = localById.get(message.id)
     if (!existing) {
       changed = true
+      added = true
       return message
     }
     const merged = withServerFacts(existing, message)
@@ -330,9 +334,9 @@ const mergeRemoteMessages = (
       : localOnly
   if (keptLocalOnly.length !== localOnly.length) changed = true
 
-  if (!changed) return local
+  if (!changed) return { messages: local, added: false }
 
-  return [...reconciled, ...keptLocalOnly].sort(compareThreadOrder)
+  return { messages: [...reconciled, ...keptLocalOnly].sort(compareThreadOrder), added }
 }
 
 /**
@@ -1839,7 +1843,11 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       (currentConversation?.id === conversationId ? currentConversation : undefined)
     if (!target) return
 
-    const merged = mergeRemoteMessages(target.messages, messages, options?.replace ?? false)
+    const { messages: merged, added } = mergeRemoteMessages(
+      target.messages,
+      messages,
+      options?.replace ?? false
+    )
     // Identity is the signal that nothing arrived: skip the write entirely rather
     // than rebuild the conversation and re-render the whole thread.
     if (merged === target.messages) return
@@ -1847,9 +1855,10 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const updatedConversation: Conversation = {
       ...target,
       messages: merged,
-      // A colleague's message IS new activity in this thread, so the session list
-      // reorders. Only reached when something actually arrived (see above).
-      updatedAt: new Date(),
+      // A colleague's message IS new activity, so the session list may reorder —
+      // but merely resolving an author name on a message already on screen is not,
+      // and must not shuffle the sidebar every time a thread is opened.
+      ...(added ? { updatedAt: new Date() } : {}),
     }
 
     set(

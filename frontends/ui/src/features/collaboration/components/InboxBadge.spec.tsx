@@ -50,4 +50,14 @@ describe('InboxBadge', () => {
     render(<InboxBadge pending={2} className="absolute -top-1 -right-1" />)
     expect(screen.getByTestId('inbox-badge')).toHaveClass('absolute')
   })
+
+  test('renders through the CountPill primitive, in its attention tone', () => {
+    // The shape (rounded-full, tabular numerals, padding) is the primitive's job;
+    // a fourth hand-rolled copy of it is what this composition exists to prevent.
+    render(<InboxBadge pending={3} />)
+    const badge = screen.getByTestId('inbox-badge')
+    expect(badge).toHaveAttribute('data-slot', 'count-pill')
+    // Attention, not the primitive's default muted: this count is a call to act.
+    expect(badge).toHaveClass('bg-primary')
+  })
 })

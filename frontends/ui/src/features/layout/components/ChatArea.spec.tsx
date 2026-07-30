@@ -41,10 +41,50 @@ vi.mock('@/features/chat', () => ({
     <div data-testid="agent-response">{content}</div>
   ),
   ErrorBanner: ({ message }: { message: string }) => <div data-testid="error-card">{message}</div>,
-  UserMessage: ({ content }: { content: string }) => (
-    <div data-testid="user-message">{content}</div>
+  // The stub surfaces the multi-author props so ChatArea's own derivation
+  // (who wrote what, and which messages group) is assertable here, while the
+  // bubble's rendering stays covered by UserMessage.spec.
+  UserMessage: ({
+    content,
+    author,
+    grouped,
+  }: {
+    content: string
+    author?: { name?: string | null; isYou?: boolean }
+    grouped?: boolean
+  }) => (
+    <div
+      data-testid="user-message"
+      data-author={author ? (author.isYou ? 'you' : (author.name ?? 'unknown')) : undefined}
+      data-grouped={grouped ? 'true' : undefined}
+    >
+      {content}
+    </div>
   ),
   ChatThinking: (props: unknown) => mockChatThinking(props),
+}))
+
+// The ADR-0033 seam is mocked so this spec can drive the states it produces
+// (shared / not shared, a turn in flight, an unread anchor) without a server. Its
+// own behaviour — what it fetches and when — is covered in
+// features/collaboration/hooks/use-shared-thread.spec.ts. The default is the INERT
+// result, which is what every pre-collaboration test in this file relies on.
+const INERT_SHARED_THREAD = {
+  shared: false,
+  myRole: null,
+  loading: false,
+  connected: false,
+  turnInFlight: null as { actorUserId: string | null } | null,
+  participants: [] as Array<{ userId: string; name: string }>,
+  unreadAfterMessageId: null as string | null,
+  lastArrival: null as { messageId: string; authorUserId: string | null; authorName: string | null } | null,
+  authorOf: (_userId?: string | null) => null as { userId: string; name: string } | null,
+  refresh: () => {},
+}
+let mockSharedThread = { ...INERT_SHARED_THREAD }
+
+vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
+  useSharedThread: () => mockSharedThread,
 }))
 
 import { useChatStore } from '@/features/chat'
@@ -56,6 +96,7 @@ describe('ChatArea', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUserName = 'Max Mustermann'
+    mockSharedThread = { ...INERT_SHARED_THREAD }
   })
 
   test('renders welcome state when not authenticated', () => {
@@ -515,5 +556,169 @@ describe('ChatArea', () => {
     // Second turn is actively streaming — shows spinner, not interrupted.
     expect(secondCallProps.isThinking).toBe(true)
     expect(secondCallProps.isInterrupted).toBe(false)
+  })
+})
+
+/**
+ * The multi-person thread (spec CC-5, CC-13, CC-19).
+ *
+ * These cover what ChatArea itself decides: who each message is attributed to,
+ * which messages GROUP under one header, where the unread separator lands, and
+ * whether the observer is told that the agent is busy on someone else's turn.
+ */
+describe('ChatArea — shared thread', () => {
+  const ME = 'user-1'
+  const ANNA = 'user_anna'
+
+  // Typed with `never` rather than the file's older `any` so the helper adds no
+  // new lint warnings; the state object is a fixture, not the real store shape.
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  const userMessage = (id: string, authorUserId: string | null, content = id) => ({
+    id,
+    role: 'user',
+    messageType: 'user',
+    content,
+    authorUserId,
+  })
+
+  beforeEach(() => {
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      participants: [
+        { userId: ME, name: 'Max Mustermann' },
+        { userId: ANNA, name: 'Anna Berger' },
+      ],
+      authorOf: (userId?: string | null) =>
+        userId === ANNA
+          ? { userId: ANNA, name: 'Anna Berger' }
+          : userId === ME
+            ? { userId: ME, name: 'Max Mustermann' }
+            : null,
+    }
+  })
+
+  test('attributes each human message, and marks the reader\'s own as theirs', () => {
+    setThread([userMessage('m1', ME, 'my question'), userMessage('m2', ANNA, "Anna's answer")])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const bubbles = screen.getAllByTestId('user-message')
+    expect(bubbles[0]).toHaveAttribute('data-author', 'you')
+    expect(bubbles[1]).toHaveAttribute('data-author', 'Anna Berger')
+  })
+
+  test('groups consecutive messages from the same author, and only those', () => {
+    setThread([
+      userMessage('m1', ANNA, 'first'),
+      userMessage('m2', ANNA, 'second'),
+      userMessage('m3', ME, 'mine'),
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const bubbles = screen.getAllByTestId('user-message')
+    expect(bubbles[0]).not.toHaveAttribute('data-grouped')
+    expect(bubbles[1]).toHaveAttribute('data-grouped', 'true')
+    // A different author breaks the run.
+    expect(bubbles[2]).not.toHaveAttribute('data-grouped')
+  })
+
+  test('the agent answering breaks a run, so the next message gets its own header', () => {
+    setThread([
+      userMessage('m1', ANNA, 'question'),
+      { id: 'a1', role: 'assistant', messageType: 'agent_response', content: 'answer' },
+      userMessage('m2', ANNA, 'follow-up'),
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const bubbles = screen.getAllByTestId('user-message')
+    expect(bubbles[1]).not.toHaveAttribute('data-grouped')
+  })
+
+  test('draws the unread separator where the reader left off (spec CC-19)', () => {
+    mockSharedThread = { ...mockSharedThread, unreadAfterMessageId: 'm1' }
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('unread-divider')).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: /new/i })).toBeInTheDocument()
+  })
+
+  test('does not draw the separator when everything after the mark is the reader\'s own', () => {
+    // "New" above your own message would be telling you that you have not read
+    // yourself.
+    mockSharedThread = { ...mockSharedThread, unreadAfterMessageId: 'm1' }
+    setThread([userMessage('m1', ME), userMessage('m2', ME)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('unread-divider')).not.toBeInTheDocument()
+  })
+
+  test("tells an observer whose question the agent is answering (spec CC-13)", () => {
+    mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ANNA } }
+    setThread([userMessage('m1', ANNA, 'question')])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('turn-in-flight')).toHaveTextContent(/Anna Berger/)
+  })
+
+  test('words the banner differently when the turn is the reader\'s own', () => {
+    mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ME } }
+    setThread([userMessage('m1', ME, 'question')])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const banner = screen.getByTestId('turn-in-flight')
+    expect(banner).toBeInTheDocument()
+    expect(banner).not.toHaveTextContent(/Max Mustermann/)
+  })
+
+  test("announces a colleague's arrival politely", () => {
+    mockSharedThread = {
+      ...mockSharedThread,
+      lastArrival: { messageId: 'm2', authorUserId: ANNA, authorName: 'Anna Berger' },
+    }
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    const { container } = render(<ChatArea isAuthenticated canCollaborate />)
+
+    const live = container.querySelector('[aria-live="polite"]')
+    expect(live).toHaveTextContent(/Anna Berger/)
+  })
+
+  test('renders nothing extra for a thread the server says is not shared (spec NF-8)', () => {
+    // The flag can be on while THIS conversation is private: the local-first
+    // rendering must be exactly as before — no attribution, no separator, no banner.
+    mockSharedThread = { ...INERT_SHARED_THREAD, unreadAfterMessageId: 'm1' }
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    for (const bubble of screen.getAllByTestId('user-message')) {
+      expect(bubble).not.toHaveAttribute('data-author')
+      expect(bubble).not.toHaveAttribute('data-grouped')
+    }
+    expect(screen.queryByTestId('unread-divider')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('turn-in-flight')).not.toBeInTheDocument()
   })
 })

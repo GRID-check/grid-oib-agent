@@ -1,7 +1,35 @@
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
+import type { ResourceSharingState } from '@/lib/sharing/types'
 import { ChatToolbar } from './ChatToolbar'
+
+// Sharing data hooks are stubbed: this spec is about what the toolbar shows and
+// gates, not about the (separately tested) fetching. The default state is "nothing
+// loaded", which is exactly what a collaboration-disabled org looks like — so the
+// pre-existing tests below are unaffected by the sharing surfaces.
+let mockSharingState: ResourceSharingState | null = null
+const mockUseSharing = vi.fn()
+
+vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
+  useSharing: (...args: unknown[]) => {
+    mockUseSharing(...args)
+    return {
+      state: mockSharingState,
+      loading: false,
+      loadError: false,
+      failure: null,
+      saving: false,
+      refresh: vi.fn(),
+      setVisibility: vi.fn(async () => true),
+      grant: vi.fn(async () => true),
+      changeRole: vi.fn(async () => true),
+      revoke: vi.fn(async () => true),
+      escalate: vi.fn(async () => true),
+    }
+  },
+  useShareCandidates: () => ({ candidates: [], loading: false }),
+}))
 
 // Mock the layout store — the component uses both the hook selector form and
 // useLayoutStore.getState() inside click handlers.
@@ -78,6 +106,7 @@ describe('ChatToolbar', () => {
     mockDeepResearchJobId = null
     mockIsLoadJobDataLoading = false
     mockCurrentSessionId = 'session-1'
+    mockSharingState = null
   })
 
   describe('research toggle', () => {
@@ -323,5 +352,138 @@ describe('ChatToolbar', () => {
 
       expect(screen.getByRole('button', { name: /rename session/i })).toBeDisabled()
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Sharing surfaces (spec SH-17/SH-18). Everything here is gated twice: the org's
+// collaboration flag AND a reachable, started conversation.
+// ---------------------------------------------------------------------------
+
+const SHARED_STATE: ResourceSharingState = {
+  resourceType: 'conversation',
+  resourceId: 'session-1',
+  visibility: 'private',
+  allowedVisibilities: ['private', 'project'],
+  myRole: 'owner',
+  canManage: true,
+  canEscalate: false,
+  shared: true,
+  entries: [
+    {
+      person: { userId: 'u-me', name: 'Matthias Bigl', email: null, profilePictureUrl: null },
+      role: 'owner',
+      reason: 'creator',
+      grantedBy: null,
+    },
+    {
+      person: { userId: 'u-anna', name: 'Anna Weber', email: null, profilePictureUrl: null },
+      role: 'collaborator',
+      reason: 'grant',
+      grantedBy: 'u-me',
+    },
+  ],
+}
+
+describe('ChatToolbar — sharing surfaces', () => {
+  test('shows nothing collaboration-related when the feature is off (default-deny)', () => {
+    render(<ChatToolbar sessionTitle="My Session" conversationId="session-1" />)
+
+    expect(mockUseSharing).toHaveBeenCalledWith('conversation', 'session-1', false)
+    expect(screen.queryByTestId('participant-strip')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
+  })
+
+  test('does not even ask the server without a conversation, or before the chat starts', () => {
+    render(<ChatToolbar isCollaborationEnabled conversationId={null} />)
+    expect(mockUseSharing).toHaveBeenLastCalledWith('conversation', null, false)
+
+    render(<ChatToolbar isCollaborationEnabled conversationId="session-1" isChatStarted={false} />)
+    expect(mockUseSharing).toHaveBeenLastCalledWith('conversation', 'session-1', false)
+  })
+
+  test('asks for sharing state once the feature is on and the thread is reachable', () => {
+    mockSharingState = SHARED_STATE
+    render(<ChatToolbar sessionTitle="My Session" isCollaborationEnabled conversationId="session-1" />)
+
+    expect(mockUseSharing).toHaveBeenCalledWith('conversation', 'session-1', true)
+  })
+
+  test('puts who-can-see-this next to the thread identity, and the door in the actions pill', () => {
+    mockSharingState = SHARED_STATE
+    render(
+      <ChatToolbar
+        sessionTitle="My Session"
+        isCollaborationEnabled
+        conversationId="session-1"
+        currentUserId="u-me"
+      />,
+    )
+
+    expect(screen.getByTestId('participant-strip')).toBeInTheDocument()
+    expect(screen.getByTestId('access-chip')).toHaveTextContent('Shared with 1')
+    expect(screen.getByTestId('share-button')).toBeInTheDocument()
+  })
+
+  test('a solo private thread shows the chip but no participant strip', () => {
+    mockSharingState = { ...SHARED_STATE, entries: [SHARED_STATE.entries[0]] }
+    render(
+      <ChatToolbar
+        sessionTitle="My Session"
+        isCollaborationEnabled
+        conversationId="session-1"
+        currentUserId="u-me"
+      />,
+    )
+
+    // No collaboration furniture for a single-player chat…
+    expect(screen.queryByTestId('participant-strip')).not.toBeInTheDocument()
+    // …but "who can see this" is still answered, and sharing is still reachable.
+    expect(screen.getByTestId('access-chip')).toHaveTextContent('Private')
+    expect(screen.getByTestId('share-button')).toBeInTheDocument()
+  })
+
+  test('the share button opens the one sharing surface', async () => {
+    mockSharingState = SHARED_STATE
+    const user = userEvent.setup()
+    render(
+      <ChatToolbar
+        sessionTitle="My Session"
+        isCollaborationEnabled
+        conversationId="session-1"
+        currentUserId="u-me"
+      />,
+    )
+
+    expect(screen.queryByTestId('share-dialog')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('share-button'))
+
+    expect(await screen.findByTestId('share-dialog')).toBeInTheDocument()
+  })
+
+  test('the participant strip opens the same surface', async () => {
+    mockSharingState = SHARED_STATE
+    const user = userEvent.setup()
+    render(
+      <ChatToolbar
+        sessionTitle="My Session"
+        isCollaborationEnabled
+        conversationId="session-1"
+        currentUserId="u-me"
+      />,
+    )
+
+    await user.click(screen.getByTestId('participant-strip'))
+
+    expect(await screen.findByTestId('share-dialog')).toBeInTheDocument()
+  })
+
+  test('nothing is claimed about access before the server has answered', () => {
+    mockSharingState = null
+    render(<ChatToolbar sessionTitle="My Session" isCollaborationEnabled conversationId="session-1" />)
+
+    expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
   })
 })

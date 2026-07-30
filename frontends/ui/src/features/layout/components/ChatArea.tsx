@@ -36,6 +36,10 @@ import {
   formatElapsed,
 } from '@/features/chat'
 import type { ChatMessage, StatusType } from '@/features/chat'
+// Imported from its own module rather than the `@/features/chat` barrel so the
+// shared-thread additions do not depend on that barrel's mock in existing specs.
+import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
+import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
@@ -58,6 +62,17 @@ interface ChatAreaProps {
    * callers/specs are unaffected.
    */
   showAnswerFeedback?: boolean
+  /**
+   * Whether the collaboration surfaces are reachable for this org (ADR-0032…0035,
+   * dark-launched behind the per-org `collaboration` flag).
+   *
+   * **Defaults to false, and false means "exactly today"** (spec NF-8): no
+   * conversation read, no live subscription, no authorship, no banners — the
+   * local-first chat path is untouched. Even with the flag on, a conversation the
+   * server reports as private keeps that path; only a shared one switches to the
+   * server-authoritative one (ADR-0033).
+   */
+  canCollaborate?: boolean
 }
 
 /**
@@ -69,6 +84,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   onSignIn,
   showConfidenceChip = true,
   showAnswerFeedback = true,
+  canCollaborate = false,
 }) {
   const {
     currentConversation,
@@ -93,6 +109,25 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
   const t = useTranslations('research')
+  const tCollaboration = useTranslations('collaboration')
+  const { user } = useAuth()
+  const currentUserId = user?.id ?? null
+
+  // ── The ADR-0033 seam ───────────────────────────────────────────────────────
+  // One hook owns "is this thread shared, load it from the server, keep it
+  // reconciled". With `canCollaborate` false — the default — it does nothing at
+  // all, so the local-first path below is byte-identical to today's.
+  const {
+    shared,
+    turnInFlight,
+    unreadAfterMessageId,
+    lastArrival,
+    authorOf,
+  } = useSharedThread({
+    conversationId: currentConversation?.id ?? null,
+    enabled: canCollaborate,
+    currentUserId,
+  })
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
   // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
@@ -152,6 +187,59 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const isEmpty = displayableMessages.length === 0
+
+  // ── Multi-author bookkeeping (shared threads only) ──────────────────────────
+  // Authorship per message, plus whether it CONTINUES a run by the same author.
+  // Grouping is computed here rather than in the bubble because it is a property
+  // of the sequence, not of a message: a run is broken by anyone else speaking and
+  // by the agent answering in between.
+  const authorship = useMemo(() => {
+    const byMessageId = new Map<string, { author: UserMessageAuthor; grouped: boolean }>()
+    if (!shared) return byMessageId
+
+    let previousAuthorKey: string | null = null
+    for (const message of displayableMessages) {
+      const isUserMessage = message.messageType === 'user' || message.role === 'user'
+      if (!isUserMessage) {
+        // The agent answering ends the run: the next human message starts fresh.
+        previousAuthorKey = null
+        continue
+      }
+
+      // A user message with no author can only be one this browser just wrote —
+      // the optimistic echo, before the server's copy (which carries the author)
+      // has come back. Attributing it to the reader avoids a flash of "Someone".
+      const userId = message.authorUserId ?? currentUserId ?? null
+      const person = authorOf(userId)
+      const key = userId ?? `unattributed:${message.id}`
+
+      byMessageId.set(message.id, {
+        author: {
+          userId,
+          name: person?.name ?? message.authorName ?? null,
+          avatarUrl: person?.profilePictureUrl ?? message.authorAvatarUrl ?? null,
+          isYou: Boolean(userId && currentUserId && userId === currentUserId),
+        },
+        grouped: key === previousAuthorKey,
+      })
+      previousAuthorKey = key
+    }
+    return byMessageId
+  }, [shared, displayableMessages, authorOf, currentUserId])
+
+  // Where the reader left off (spec CC-19). Anchored on the server-held read mark,
+  // then advanced past the reader's OWN messages — a separator whose first item is
+  // your own message would be telling you that you have not read yourself.
+  const unreadDividerBeforeId = useMemo(() => {
+    if (!shared || !unreadAfterMessageId) return null
+    const anchorIndex = displayableMessages.findIndex((m) => m.id === unreadAfterMessageId)
+    if (anchorIndex < 0) return null
+    for (const message of displayableMessages.slice(anchorIndex + 1)) {
+      const mine = authorship.get(message.id)?.author.isYou === true
+      if (!mine) return message.id
+    }
+    return null
+  }, [shared, unreadAfterMessageId, displayableMessages, authorship])
 
   // Entrance-animation bookkeeping: messages already present when a conversation
   // renders (hydration / session switch) must NOT animate in — only messages
@@ -424,6 +512,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               // The just-sent question's turn is the top-anchor target on send.
               const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
 
+              const messageAuthorship = authorship.get(message.id)
+
               return (
                 <motion.div
                   key={message.id}
@@ -436,6 +526,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   exit={{ opacity: 0, transition: { duration: 0.15 } }}
                   transition={springGentle}
                 >
+                  {/* Where the reader left off, in a shared thread (spec CC-19). */}
+                  {unreadDividerBeforeId === message.id && (
+                    <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
+                  )}
+
                   {/* Render the message */}
                   <MessageRenderer
                     message={message}
@@ -446,6 +541,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     onErrorRetry={handleErrorRetry}
                     showConfidenceChip={showConfidenceChip}
                     showAnswerFeedback={showAnswerFeedback}
+                    author={messageAuthorship?.author}
+                    grouped={messageAuthorship?.grouped}
+                    currentUserId={currentUserId}
                   />
 
                   {/* Assistant-side thread spine: the Herleitung shares the
@@ -484,6 +582,38 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
 
           {/* Latency-gap typing indicator (before the first token arrives) */}
           {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
+
+          {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
+              this an observer sees a thread where nothing appears to be happening
+              and a composer that will not take their question. Suppressed while
+              this client is itself streaming — the asker already has the typing
+              indicator and the Herleitung. */}
+          {shared && turnInFlight && !isStreaming && !showTypingPlaceholder && (
+            <TurnInFlightBanner
+              label={
+                turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId
+                  ? tCollaboration('thread.turnInFlightYou')
+                  : tCollaboration('thread.turnInFlight', {
+                      name:
+                        authorOf(turnInFlight.actorUserId)?.name ??
+                        tCollaboration('inbox.unknownActor'),
+                    })
+              }
+            />
+          )}
+
+          {/* A colleague writing while you are reading is a change you must be able
+              to learn about without eyes. Polite, so it never interrupts. */}
+          <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {shared && lastArrival
+              ? tCollaboration('thread.authorAria', {
+                  name:
+                    lastArrival.authorName ??
+                    authorOf(lastArrival.authorUserId)?.name ??
+                    tCollaboration('inbox.unknownActor'),
+                })
+              : ''}
+          </div>
 
           {/* Top-anchor spacer: invisible, zero-height by default, sized to a
               viewport only while a just-sent question is anchored to the top so
@@ -540,6 +670,15 @@ interface MessageRendererProps {
   showConfidenceChip?: boolean
   /** Whether the AgentResponse thumbs feedback row renders (feature-flagged). */
   showAnswerFeedback?: boolean
+  /**
+   * Who wrote this message. Present ONLY in a shared thread — absent means "render
+   * exactly as before", which is what keeps a solo thread unchanged.
+   */
+  author?: UserMessageAuthor
+  /** This message continues a run by the same author (no repeated header). */
+  grouped?: boolean
+  /** The reader, so a mention of them can be marked in the text. */
+  currentUserId?: string | null
 }
 
 const MessageRendererComponent: FC<MessageRendererProps> = ({
@@ -553,12 +692,24 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   onErrorRetry,
   showConfidenceChip = true,
   showAnswerFeedback = true,
+  author,
+  grouped,
+  currentUserId,
 }) => {
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
   switch (messageType) {
     case 'user':
-      return <UserMessage content={message.content} timestamp={message.timestamp} />
+      return (
+        <UserMessage
+          content={message.content}
+          timestamp={message.timestamp}
+          author={author}
+          grouped={grouped}
+          mentions={message.mentions}
+          currentUserId={currentUserId}
+        />
+      )
 
     case 'prompt':
       // Guard against missing promptType
@@ -686,6 +837,16 @@ const areMessageRendererPropsEqual = (
   prev.conversationId === next.conversationId &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
+  // Authorship is derived per render (from the roster + the reader), so compare
+  // its fields rather than the object — otherwise every roster refresh would
+  // re-render every bubble in the thread.
+  prev.grouped === next.grouped &&
+  prev.currentUserId === next.currentUserId &&
+  Boolean(prev.author) === Boolean(next.author) &&
+  prev.author?.userId === next.author?.userId &&
+  prev.author?.name === next.author?.name &&
+  prev.author?.avatarUrl === next.author?.avatarUrl &&
+  prev.author?.isYou === next.author?.isYou &&
   prev.onPromptRespond === next.onPromptRespond &&
   prev.onErrorDismiss === next.onErrorDismiss &&
   prev.onErrorRetry === next.onErrorRetry &&
@@ -693,6 +854,48 @@ const areMessageRendererPropsEqual = (
 
 const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEqual)
 MessageRenderer.displayName = 'MessageRenderer'
+
+/**
+ * "New" separator marking where the reader left off in a shared thread (spec
+ * CC-19). A rule with a centred label rather than a coloured band: it has to be
+ * findable when scrolling a long thread without competing with the messages, and
+ * it must not read as an error state.
+ */
+const UnreadDivider: FC<{ label: string }> = ({ label }) => (
+  <div className="flex items-center gap-3" role="separator" aria-label={label} data-testid="unread-divider">
+    <span className="h-px flex-1 bg-brand/35" aria-hidden="true" />
+    <span className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-brand">
+      {label}
+    </span>
+    <span className="h-px flex-1 bg-brand/35" aria-hidden="true" />
+  </div>
+)
+
+/**
+ * "Piloti is answering <name>'s question" — the observer's view of a turn that is
+ * not theirs (spec CC-13).
+ *
+ * Phase 1 deliberately shows turn STATE, not the streaming tokens: mirroring the
+ * agent's frames to every participant needs a relay out of the Python tier
+ * (ADR-0033 §7). What matters is that the wait is explained — without this, a
+ * second participant sees a thread where nothing is happening and a composer that
+ * will not take their question, which reads as a broken product rather than a busy
+ * one.
+ */
+const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
+  <div
+    className="flex w-fit items-center gap-2 rounded-2xl border border-brand/25 bg-brand/5 px-3.5 py-2.5"
+    role="status"
+    data-testid="turn-in-flight"
+  >
+    <span className="flex items-center gap-1" aria-hidden="true">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70 [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70 [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70" />
+    </span>
+    <span className="text-xs font-medium text-foreground">{label}</span>
+  </div>
+)
 
 /**
  * Latency-gap typing indicator (three pulsing dots) shown after the just-sent

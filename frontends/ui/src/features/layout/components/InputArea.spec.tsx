@@ -1,7 +1,13 @@
-import { render, screen } from '@/test-utils'
+import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
+import { toast } from 'sonner'
 import { InputArea } from './InputArea'
+
+// Transient send failures surface as toasts; spy on them rather than render them.
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
+}))
 
 // Mock the chat hooks
 const mockSendMessage = vi.fn()
@@ -177,6 +183,51 @@ vi.mock('@/features/documents', () => ({
   })),
 }))
 
+// Mention candidates for the `@` picker. Mocked at the hook boundary so the
+// composer tests never touch the network; the picker itself is unit-tested in
+// features/collaboration/components/MentionPicker.spec.tsx.
+const AGENT_CANDIDATE = {
+  targetId: 'agent:piloti',
+  person: { userId: 'agent:piloti', name: 'Piloti', email: null, profilePictureUrl: null },
+  isAgent: true,
+  isParticipant: true,
+  needsInvite: false,
+}
+const ANNA_CANDIDATE = {
+  targetId: 'u-anna',
+  person: {
+    userId: 'u-anna',
+    name: 'Anna Weber',
+    email: 'anna@example.com',
+    profilePictureUrl: null,
+  },
+  isAgent: false,
+  isParticipant: true,
+  needsInvite: false,
+}
+const MARKUS_CANDIDATE = {
+  targetId: 'u-markus',
+  person: {
+    userId: 'u-markus',
+    name: 'Markus Hofer',
+    email: 'markus@example.com',
+    profilePictureUrl: null,
+  },
+  isAgent: false,
+  isParticipant: true,
+  needsInvite: false,
+}
+
+let mockMentionData: unknown = {
+  candidates: [AGENT_CANDIDATE, ANNA_CANDIDATE, MARKUS_CANDIDATE],
+  canInvite: true,
+}
+let mockMentionsLoading = false
+
+vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
+  useMentionCandidates: vi.fn(() => ({ data: mockMentionData, loading: mockMentionsLoading })),
+}))
+
 // FileSourcesTab is imported by InputArea for the "manage files" dialog; it
 // pulls a large dependency graph that is irrelevant to composer unit tests.
 vi.mock('./FileSourcesTab', () => ({
@@ -209,6 +260,11 @@ describe('InputArea', () => {
     mockActiveSourcePreset = null
     mockIsStreaming = false
     mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]
+    mockMentionData = {
+      candidates: [AGENT_CANDIDATE, ANNA_CANDIDATE, MARKUS_CANDIDATE],
+      canInvite: true,
+    }
+    mockMentionsLoading = false
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
@@ -1042,6 +1098,288 @@ describe('InputArea', () => {
       expect(
         screen.queryByRole('button', { name: /building law & guidelines/i })
       ).not.toBeInTheDocument()
+    })
+  })
+
+  /**
+   * @-mentions in the composer (spec MN-3, MN-4, MN-7).
+   *
+   * The picker itself is covered in MentionPicker.spec.tsx; these tests are about
+   * the composer's half of the contract: the trigger, the keyboard (Enter must
+   * NEVER submit while the picker is open), what is inserted, what is finally sent,
+   * and what the user is told before they send it.
+   */
+  describe('@-mentions', () => {
+    const composer = () => screen.getByPlaceholderText('Ask Piloti about this project …')
+    /** The candidates on screen. Read by target id: a highlighted name is split
+        across elements, so a text query would be brittle. */
+    const optionTargets = () =>
+      screen.getAllByTestId('mention-option').map((row) => row.getAttribute('data-target-id'))
+
+    test('typing @ at a word boundary opens the picker', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('Frage an @')
+
+      expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
+      expect(screen.getByText('Anna Weber')).toBeInTheDocument()
+      expect(screen.getByText('Piloti')).toBeInTheDocument()
+    })
+
+    test('typing after the @ filters the candidates', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@hof')
+
+      expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
+      expect(optionTargets()).toEqual(['u-markus'])
+    })
+
+    test('does not open inside a word — an email address is not a mention', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('anna@example.com')
+
+      expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+    })
+
+    test('Enter inserts the selected candidate and does NOT send the message', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+
+      expect(composer()).toHaveValue('@Anna Weber ')
+      expect(mockSendMessage).not.toHaveBeenCalled()
+      expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+    })
+
+    test('Tab inserts too', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Tab}')
+
+      expect(composer()).toHaveValue('@Anna Weber ')
+    })
+
+    test('the arrow keys choose which candidate is inserted', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@')
+      await screen.findByTestId('mention-picker')
+      // Piloti is pinned first; one step down lands on Anna.
+      await user.keyboard('{ArrowDown}{Enter}')
+
+      expect(composer()).toHaveValue('@Anna Weber ')
+    })
+
+    test('Escape closes the picker, and a fresh @ opens it again', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@an')
+      await screen.findByTestId('mention-picker')
+
+      await user.keyboard('{Escape}')
+      expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+
+      await user.keyboard(' und @ma')
+      expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
+      expect(optionTargets()).toEqual(['u-markus'])
+    })
+
+    test('deleting the @ closes the picker', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@a')
+      await screen.findByTestId('mention-picker')
+
+      await user.keyboard('{Backspace}{Backspace}')
+      expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+    })
+
+    test('the textarea is a combobox pointing at the active option while open', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@an')
+      await screen.findByTestId('mention-picker')
+
+      const input = composer()
+      expect(input).toHaveAttribute('role', 'combobox')
+      expect(input).toHaveAttribute('aria-expanded', 'true')
+      expect(input).toHaveAttribute('aria-controls', screen.getByRole('listbox').id)
+      await waitFor(() =>
+        expect(input).toHaveAttribute(
+          'aria-activedescendant',
+          screen.getAllByRole('option')[0].id,
+        ),
+      )
+
+      // Closed again: no dangling aria-controls to a listbox that is gone.
+      await user.keyboard('{Escape}')
+      expect(composer()).not.toHaveAttribute('aria-controls')
+      expect(composer()).not.toHaveAttribute('aria-expanded')
+    })
+
+    test('once a human is tagged the composer says the agent will stay quiet', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+
+      expect(screen.getByTestId('composer-mention-hint')).toHaveTextContent(
+        'Piloti will stay quiet — Anna Weber is being asked.',
+      )
+    })
+
+    test('tagging only the assistant does not claim it will stay quiet', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@pil')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+
+      expect(composer()).toHaveValue('@Piloti ')
+      expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    })
+
+    test('sending passes the STRUCTURED mentions, not the text', async () => {
+      const user = userEvent.setup()
+      mockSendMessage.mockResolvedValue({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      await user.keyboard('passt das?')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      expect(mockSendMessage).toHaveBeenCalledWith('@Anna Weber passt das?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+      expect(composer()).toHaveValue('')
+      // The hint goes with the sent message.
+      expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    })
+
+    test('deleting the inserted token deletes the mention (MN-3)', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      expect(screen.getByTestId('composer-mention-hint')).toBeInTheDocument()
+
+      // The token is edited away: the mention goes with it, and the message is
+      // sent with no mentions at all (so the agent answers as usual).
+      await user.clear(composer())
+      await user.keyboard('doch nicht, danke')
+      expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+      expect(mockSendMessage).toHaveBeenCalledWith('doch nicht, danke')
+    })
+
+    test('a refused mention keeps the text and explains the refusal', async () => {
+      const user = userEvent.setup()
+      mockSendMessage.mockResolvedValue({
+        ok: false,
+        failure: { reason: 'mention-invite-requires-owner', message: 'refused' },
+      })
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      // Nothing is lost: text AND the picked mention survive for another attempt.
+      await waitFor(() => expect(composer()).toHaveValue('@Anna Weber'))
+      expect(screen.getByTestId('composer-mention-hint')).toBeInTheDocument()
+      expect(toast.error).toHaveBeenCalledWith(
+        'You can only mention people who are already in this conversation. Ask an owner to invite Anna Weber.',
+        expect.anything(),
+      )
+    })
+
+    test('a rate-limited mention says so', async () => {
+      const user = userEvent.setup()
+      mockSendMessage.mockResolvedValue({
+        ok: false,
+        failure: { reason: 'mention-rate-limited', message: null },
+      })
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(
+          'Too many mentions. Please wait a few minutes.',
+          expect.anything(),
+        ),
+      )
+    })
+
+    test('without a candidate list the composer behaves exactly as before (NF-8)', async () => {
+      const user = userEvent.setup()
+      mockMentionData = null
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+
+      expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+      // No combobox semantics at all: it is the plain textarea it always was.
+      expect(composer()).not.toHaveAttribute('role')
+
+      await user.keyboard('{Enter}')
+      expect(mockSendMessage).toHaveBeenCalledWith('@anna')
+    })
+
+    test('while the candidates load the picker shows its skeleton rows', async () => {
+      const user = userEvent.setup()
+      mockMentionData = null
+      mockMentionsLoading = true
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@')
+
+      expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
+      expect(screen.getByText('Loading people…')).toBeInTheDocument()
     })
   })
 })
