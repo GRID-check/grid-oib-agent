@@ -6,9 +6,16 @@
  * localStorage no longer has them (quota cleanup, new device, cleared site
  * data). The server stores a deliberately small payload — role, content,
  * timestamps plus a metadata jsonb (messageType, errorData, fileData, cards,
- * cardInteractions, enabledDataSources, messageFiles, citations) — so heavy
- * stream state (thinking steps, report content) is not restored here; it is
- * refetched on demand like the localStorage pruning path already does.
+ * cardInteractions, enabledDataSources, messageFiles, citations, provenance) —
+ * so the heaviest stream state (a deep-research report's body) is not restored
+ * here; it is refetched on demand like the localStorage pruning path already does.
+ *
+ * The **provenance** IS restored (ADR-0037): the Herleitung in its compact form,
+ * the confidence self-assessment, the routing transparency and the deep-research
+ * job pointer. Without it a shared thread showed a colleague a bare answer — they
+ * hold no agent socket by design (ADR-0033 §7), so the intermediate frames never
+ * reach them and this row is the only place the reasoning could come from. It also
+ * fixes the same loss for the ASKER on a second device, which predates sharing.
  *
  * Citations ARE restored, and are not optional in the way the rest of that
  * payload is: an answer that comes back without its provenance is an answer
@@ -26,7 +33,7 @@
  */
 
 import type { Message } from '@/lib/db/schema'
-import type { ChatMessage, ErrorCardData, FileCardData, MessageType } from '../types'
+import type { ChatMessage, ErrorCardData, FileCardData, MessageType, ThinkingStep } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
 import { sanitizeCardInteractions } from '@/features/grid-cards/card-decision'
 import { decodeCitations } from './citations'
@@ -129,8 +136,79 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(Array.isArray(metadata.messageFiles)
       ? { messageFiles: metadata.messageFiles as Array<{ id: string; fileName: string }> }
       : {}),
+    // What the answer rested on. Spread last so a future metadata key cannot
+    // silently shadow one of the fields above.
+    ...restoreProvenance(metadata.provenance),
   }
 }
+
+/**
+ * Unpack the stored provenance onto the message shape the renderers already read.
+ *
+ * Flattened rather than nested under a `provenance` key, because `ChatThinking`,
+ * the confidence chip and the routing line each take their own prop and none of
+ * them should have to know that this arrived from a server row rather than from a
+ * live stream. Timestamps are revived to `Date`, which is what the step shape
+ * declares and what the renderer sorts on.
+ *
+ * Narrowed, not cast: the server bounds this on write (`sanitizeProvenance`), but
+ * a row written by an older build is still whatever it was.
+ */
+const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const provenance = value as Record<string, unknown>
+  const out: Partial<ChatMessage> = {}
+
+  if (Array.isArray(provenance.thinkingSteps)) {
+    const steps = provenance.thinkingSteps
+      .filter((step): step is Record<string, unknown> => typeof step === 'object' && step !== null)
+      .map((step) => ({
+        ...(step as unknown as ThinkingStep),
+        timestamp: new Date(step.timestamp as string),
+        // The payload was dropped on write, exactly as the localStorage prune
+        // drops it; the renderer reads `displayName` and `traceLanes`.
+        content: '',
+      }))
+    if (steps.length > 0) out.thinkingSteps = steps
+  }
+
+  if (isConfidence(provenance.answerConfidence)) out.answerConfidence = provenance.answerConfidence
+  if (typeof provenance.answerConfidenceReason === 'string') {
+    out.answerConfidenceReason = provenance.answerConfidenceReason
+  }
+  if (
+    provenance.answerConfidenceCappedReason === 'ungrounded' ||
+    provenance.answerConfidenceCappedReason === 'quote_unverified'
+  ) {
+    out.answerConfidenceCappedReason = provenance.answerConfidenceCappedReason
+  }
+  if (isRoutingDecision(provenance.routingDecision)) {
+    out.routingDecision = provenance.routingDecision
+  }
+  if (typeof provenance.routingReason === 'string') out.routingReason = provenance.routingReason
+  if (typeof provenance.escalationReason === 'string') {
+    out.escalationReason = provenance.escalationReason
+  }
+  if (
+    typeof provenance.citationsRemoved === 'object' &&
+    provenance.citationsRemoved !== null &&
+    typeof (provenance.citationsRemoved as { count?: unknown }).count === 'number'
+  ) {
+    out.citationsRemoved = provenance.citationsRemoved as { count: number; reasons: string[] }
+  }
+  if (typeof provenance.deepResearchJobId === 'string') {
+    out.deepResearchJobId = provenance.deepResearchJobId
+  }
+  if (provenance.showViewReport === true) out.showViewReport = true
+
+  return out
+}
+
+const isConfidence = (value: unknown): value is 'low' | 'medium' | 'high' =>
+  value === 'low' || value === 'medium' || value === 'high'
+
+const isRoutingDecision = (value: unknown): value is 'meta' | 'shallow' | 'deep' | 'error' =>
+  value === 'meta' || value === 'shallow' || value === 'deep' || value === 'error'
 
 /** Map a full server history, dropping rows the chat window can't render. */
 export const mapServerMessagesToChatMessages = (messages: Message[]): ChatMessage[] =>

@@ -57,6 +57,7 @@ import {
   setEngagement,
   type EngagementState,
 } from './engagement'
+import { sanitizeProvenance } from './message-provenance'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
@@ -440,8 +441,8 @@ function attributeLegacyAuthor(row: Message, createdBy: string | null): Message 
 }
 
 /**
- * Record the user's answers to an assistant answer's interactive cards
- * (`accepted`, `dismissed`, …) on the stored message row.
+ * Record what a message carries beyond its text: the user's answers to its
+ * interactive cards (`accepted`, `dismissed`, …), and the answer's own provenance.
  *
  * Merged into `metadata.cardInteractions` so it rides along with the `cards`
  * payload already stored there: when a history is rehydrated from the server
@@ -451,20 +452,43 @@ function attributeLegacyAuthor(row: Message, createdBy: string | null): Message 
  * conversation org-scoped FIRST; both a cross-org conversation and a message
  * that is not part of it surface as 404.
  */
-export async function updateMessageCardInteractions(
+export async function updateMessageDetail(
   session: AuthorizedSession,
   conversationId: string,
   messageId: string,
-  cardInteractions: Record<string, unknown>,
+  patch: { cardInteractions?: Record<string, unknown>; provenance?: unknown },
 ): Promise<Message> {
-  // Answering a card is contributing to the thread, not reading it.
+  // Answering a card, or recording what an answer rested on, is contributing to
+  // the thread rather than reading it.
   await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
+
+  const metadata: Record<string, unknown> = {}
+  const deepMergeKeys: string[] = []
+
+  if (patch.cardInteractions) {
+    metadata.cardInteractions = patch.cardInteractions
+    deepMergeKeys.push('cardInteractions')
+  }
+
+  if (patch.provenance !== undefined) {
+    // Whitelisted and bounded HERE, never trusted from the client: this lands in
+    // a jsonb column (ADR-0037). A payload with nothing usable in it is dropped
+    // rather than stamped on as an empty object.
+    const provenance = sanitizeProvenance(patch.provenance)
+    if (provenance) metadata.provenance = provenance
+  }
+
+  // Nothing survived sanitisation and no cards were sent — the row is already
+  // right, so return it rather than performing a no-op write under a row lock.
+  if (Object.keys(metadata).length === 0) {
+    const existing = await findMessageInConversation(conversationId, messageId)
+    if (!existing) throw new NotFoundError()
+    return existing
+  }
 
   // Deep-merged per card key: a second client PATCHing the map it knows about
   // must not erase a decision it never saw (see `mergeMessageMetadata`).
-  const row = await mergeMessageMetadata(conversationId, messageId, { cardInteractions }, [
-    'cardInteractions',
-  ])
+  const row = await mergeMessageMetadata(conversationId, messageId, metadata, deepMergeKeys)
   if (!row) throw new NotFoundError()
   return row
 }

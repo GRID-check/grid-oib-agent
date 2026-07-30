@@ -746,6 +746,10 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
 
     get()._appendMessage(updatedMessage)
+    // The turn has settled, so its provenance exists now and can be mirrored
+    // (ADR-0037). Fire-and-forget: the asker already sees the Herleitung from the
+    // store, and a failed mirror must not fail the turn.
+    void get()._persistTurnProvenance()
   },
 
   setLoading: (isLoading: boolean) => {
@@ -1394,6 +1398,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     if (finalizedMessage) {
       get()._appendMessage(finalizedMessage)
+      void get()._persistTurnProvenance()
     }
   },
 

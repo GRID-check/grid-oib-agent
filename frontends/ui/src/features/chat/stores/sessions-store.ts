@@ -13,7 +13,10 @@ import type {
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
-import { pruneMessageForStorage } from '../lib/prune-message-for-storage'
+import {
+  pruneMessageForStorage,
+  stripThinkingStepsForStorage,
+} from '../lib/prune-message-for-storage'
 import {
   logStorageWrite,
   logQuotaExceededPruning,
@@ -85,6 +88,15 @@ export type SessionsSlice = {
     messageId: string,
     cardInteractions: CardInteractions
   ) => Promise<void>
+  /**
+   * Mirror an answer's provenance to the server once the turn has settled
+   * (ADR-0037) — the Herleitung, the confidence self-assessment, the routing
+   * transparency, the deep-research job pointer.
+   *
+   * Separate from `_appendMessage` because none of it exists when the message is
+   * posted: it accumulates from the intermediate frames while the answer streams.
+   */
+  _persistTurnProvenance: () => Promise<void>
 }
 
 // Persistence helpers
@@ -1378,6 +1390,86 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       })
     } catch (err) {
       console.warn('[appendMessage] Failed:', err)
+    }
+  },
+
+  _persistTurnProvenance: async () => {
+    const { currentConversation, currentUserMessageId } = get()
+    if (!currentConversation) return
+
+    // Two messages carry provenance and they carry different halves of it: the
+    // USER message owns the Herleitung (that is where `ChatThinking` hangs it),
+    // and the ASSISTANT message owns the confidence and routing transparency.
+    const messages = currentConversation.messages
+    const userMessage = currentUserMessageId
+      ? messages.find((message) => message.id === currentUserMessageId)
+      : undefined
+    const assistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant')
+
+    const targets: Array<[string, Record<string, unknown>]> = []
+
+    if (userMessage?.thinkingSteps?.length) {
+      // The COMPACT form — the same one localStorage keeps, so a thread restored
+      // from the server and one restored from the browser look identical rather
+      // than differing in ways nobody would predict.
+      targets.push([
+        userMessage.id,
+        { thinkingSteps: stripThinkingStepsForStorage(userMessage.thinkingSteps) },
+      ])
+    }
+
+    if (assistantMessage) {
+      const provenance: Record<string, unknown> = {}
+      if (assistantMessage.answerConfidence) {
+        provenance.answerConfidence = assistantMessage.answerConfidence
+      }
+      if (assistantMessage.answerConfidenceCappedReason) {
+        provenance.answerConfidenceCappedReason = assistantMessage.answerConfidenceCappedReason
+      }
+      if (assistantMessage.answerConfidenceReason) {
+        provenance.answerConfidenceReason = assistantMessage.answerConfidenceReason
+      }
+      if (assistantMessage.routingDecision) {
+        provenance.routingDecision = assistantMessage.routingDecision
+      }
+      if (assistantMessage.routingReason) provenance.routingReason = assistantMessage.routingReason
+      if (assistantMessage.escalationReason) {
+        provenance.escalationReason = assistantMessage.escalationReason
+      }
+      if (assistantMessage.citationsRemoved) {
+        provenance.citationsRemoved = assistantMessage.citationsRemoved
+      }
+      // The POINTER, not the report: a colleague fetches the document through the
+      // path that already serves it rather than being handed a copy in a message
+      // row.
+      if (assistantMessage.deepResearchJobId) {
+        provenance.deepResearchJobId = assistantMessage.deepResearchJobId
+      }
+      if (assistantMessage.showViewReport) provenance.showViewReport = true
+
+      if (Object.keys(provenance).length > 0) targets.push([assistantMessage.id, provenance])
+    }
+
+    if (targets.length === 0) return
+
+    try {
+      const conversationsClient = await getConversationsClient()
+      // Sequential: both PATCHes take a row lock on the same conversation's
+      // messages, and there is no deadline here worth racing them for.
+      for (const [messageId, provenance] of targets) {
+        await conversationsClient.updateMessageProvenance(
+          currentConversation.id,
+          messageId,
+          provenance
+        )
+      }
+    } catch (err) {
+      // Never surfaced. The asker is already looking at the Herleitung, rendered
+      // from the store; losing the mirror costs a colleague's view and the
+      // cross-device replay, not this turn.
+      console.warn('[persistTurnProvenance] Failed:', err)
     }
   },
 

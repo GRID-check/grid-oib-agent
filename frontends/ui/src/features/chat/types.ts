@@ -1063,6 +1063,16 @@ export interface ChatActions {
     messageId: string,
     cardInteractions: CardInteractions
   ) => Promise<void>
+  /**
+   * Mirror the settled turn's provenance to its server rows (ADR-0037): the
+   * Herleitung onto the user message, the confidence and routing transparency onto
+   * the assistant message.
+   *
+   * Best-effort, like the card mirror. Without it a colleague — who holds no agent
+   * socket by design — sees a bare answer, and the asker loses the reasoning on any
+   * other device.
+   */
+  _persistTurnProvenance: () => Promise<void>
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void

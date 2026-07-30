@@ -202,3 +202,102 @@ describe('mapServerMessagesToChatMessages', () => {
     ])
   })
 })
+
+/**
+ * The provenance round-trip (ADR-0037).
+ *
+ * This is what an OBSERVER's whole view of the reasoning rests on. A colleague
+ * holds no agent socket by design (ADR-0033 §7), so they never receive the
+ * intermediate frames — this row is the only place the Herleitung can come from.
+ * The same path is what restores it for the asker on a second device.
+ */
+describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
+  const provenance = {
+    thinkingSteps: [
+      {
+        id: 's1',
+        userMessageId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        functionName: 'oib_lookup',
+        displayName: 'OIB-Richtlinie durchsucht',
+        category: 'tools',
+        timestamp: '2026-07-01T10:00:05.000Z',
+        isComplete: true,
+        isTopLevel: true,
+        traceLanes: [{ kind: 'oib', label: 'OIB 2.3' }],
+      },
+    ],
+    answerConfidence: 'high',
+    answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
+    routingDecision: 'shallow',
+    routingReason: 'Direkte Normfrage.',
+    citationsRemoved: { count: 1, reasons: ['ungrounded'] },
+    deepResearchJobId: 'job_1',
+    showViewReport: true,
+  }
+
+  it('restores the Herleitung, with its timestamps as Dates', () => {
+    const mapped = mapServerMessageToChatMessage(serverMessage({ metadata: { provenance } }))
+
+    expect(mapped!.thinkingSteps).toHaveLength(1)
+    const step = mapped!.thinkingSteps![0]
+    expect(step.displayName).toBe('OIB-Richtlinie durchsucht')
+    // A Date, because that is what the step shape declares and what the renderer
+    // sorts on — an ISO string here silently breaks ordering.
+    expect(step.timestamp).toBeInstanceOf(Date)
+    expect(step.timestamp.toISOString()).toBe('2026-07-01T10:00:05.000Z')
+    // The sources fan-out is the part of a step a reader actually reads.
+    expect(step.traceLanes).toEqual([{ kind: 'oib', label: 'OIB 2.3' }])
+  })
+
+  it('restores the confidence self-assessment and the routing transparency', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance } }),
+    )
+
+    expect(mapped!.answerConfidence).toBe('high')
+    expect(mapped!.answerConfidenceReason).toBe('Zwei übereinstimmende Quellen.')
+    expect(mapped!.routingDecision).toBe('shallow')
+    expect(mapped!.routingReason).toBe('Direkte Normfrage.')
+    expect(mapped!.citationsRemoved).toEqual({ count: 1, reasons: ['ungrounded'] })
+    expect(mapped!.deepResearchJobId).toBe('job_1')
+    expect(mapped!.showViewReport).toBe(true)
+  })
+
+  it('ignores a provenance blob written by some other build', () => {
+    // Narrowed, not cast: the server bounds this on write, but a row written
+    // earlier is whatever it was, and a bad value must not reach a renderer.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        metadata: {
+          provenance: {
+            answerConfidence: 'extremely-high',
+            routingDecision: 'sideways',
+            thinkingSteps: 'not-an-array',
+            citationsRemoved: { count: 'lots' },
+          },
+        },
+      }),
+    )
+
+    expect(mapped!.answerConfidence).toBeUndefined()
+    expect(mapped!.routingDecision).toBeUndefined()
+    expect(mapped!.thinkingSteps).toBeUndefined()
+    expect(mapped!.citationsRemoved).toBeUndefined()
+  })
+
+  it('adds nothing when the row has no provenance — the pre-ADR-0037 case', () => {
+    const mapped = mapServerMessageToChatMessage(serverMessage())
+
+    expect(mapped!.thinkingSteps).toBeUndefined()
+    expect(mapped!.answerConfidence).toBeUndefined()
+  })
+
+  it('a non-object provenance is ignored rather than throwing', () => {
+    for (const value of [null, 'x', 42, []]) {
+      const mapped = mapServerMessageToChatMessage(
+        serverMessage({ metadata: { provenance: value } }),
+      )
+      expect(mapped!.thinkingSteps).toBeUndefined()
+    }
+  })
+})
