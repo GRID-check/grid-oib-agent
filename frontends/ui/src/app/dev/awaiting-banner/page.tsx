@@ -141,10 +141,14 @@ export default function AwaitingBannerPreviewPage() {
       </Section>
 
       <Section label="Ihre Einschätzung ist gefragt">
+        {/* The one state that carries "Rückfrage an …": the reader was asked
+            something they may not be able to answer without more information, and
+            typing that question as plain text is the move that misfires. */}
         <AwaitingBanner
           awaiting={withoutReleased(ME)}
           onRelease={onRelease}
           onAskAgent={() => undefined}
+          onAskBack={() => undefined}
         />
       </Section>
     </main>

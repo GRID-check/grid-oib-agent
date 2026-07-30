@@ -122,6 +122,11 @@ export const collaboration: typeof en.collaboration = {
       agentHint: '@Piloti eingeben, um Piloti zu fragen',
       ariaLabel: 'Empfänger dieser Nachricht: {label}',
     },
+    peek: {
+      agentRole: 'Assistent in diesem Projekt',
+      inConversation: 'Kann diesen Chat lesen',
+      notInConversation: 'Nicht in diesem Chat',
+    },
     notePlaceholder: 'Worum soll sich die Person kümmern? (optional)',
     awaiting: {
       one: 'Warten auf {name}',

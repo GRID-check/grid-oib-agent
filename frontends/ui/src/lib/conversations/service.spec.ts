@@ -63,6 +63,14 @@ vi.mock('@/lib/mentions/service', () => ({
   threadIsAwaitingHuman: vi.fn(),
 }))
 
+// The engagement mode (ADR-0036) is mocked at the module boundary: what this
+// suite asserts is that the RULING obeys it, while how the mode is stored and
+// derived has its own tests in engagement.spec.ts.
+vi.mock('./engagement', () => ({
+  resolveEngagementFor: vi.fn(),
+  persistDerivedEngagement: vi.fn(),
+}))
+
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
@@ -73,6 +81,7 @@ import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
 import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
+import { persistDerivedEngagement, resolveEngagementFor } from './engagement'
 import {
   deleteConversationInOrg,
   findConversationInOrg,
@@ -129,6 +138,8 @@ function stubConversation(
     id: CONVERSATION_ID,
     title: 'Brandschutz Stiegenhaus',
     tags: [],
+    // Unset, so the mode derives from the thread's author count (ADR-0036).
+    engagement: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-02T10:00:00Z'),
     ...tenancy,
@@ -171,6 +182,11 @@ beforeEach(() => {
   // explicitly because `clearAllMocks` clears CALLS but not a `mockResolvedValue`,
   // so a test that opts into "awaiting" would otherwise leak into its neighbours.
   vi.mocked(threadIsAwaitingHuman).mockResolvedValue(false)
+  // Default: `ask`, so a plain message asks Piloti. Set explicitly for the same
+  // reason as `threadIsAwaitingHuman` above — `clearAllMocks` does not clear a
+  // `mockResolvedValue`, so a test opting into `mention` would leak.
+  vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null })
+  vi.mocked(persistDerivedEngagement).mockResolvedValue(true)
   vi.mocked(findConversationRead).mockResolvedValue(null)
   vi.mocked(resolveParticipants).mockResolvedValue([])
   vi.mocked(emitInboxItems).mockResolvedValue(0)
@@ -394,6 +410,88 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     ])
 
     expect(persisted.addressees).toEqual({ agent: true, users: [] })
+  })
+
+  /**
+   * The fourth row of the routing table (ADR-0036) — the only one in question.
+   *
+   * `@Piloti` always answers, a humans-only tag never starts a turn, tagging both
+   * answers. Those three are absolute. A message that tags NOBODY is governed by
+   * the thread's engagement mode, and the reason that exists is the reported bug:
+   * Anna answers, Matthias replies TO ANNA, and Piloti answers a message that was
+   * never for it.
+   */
+  it('sends a plain message to the chat, not to Piloti, in a mention-mode thread', async () => {
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: 'mention' })
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Danke Anna, dann nehmen wir 1,20 m.' },
+    ])
+
+    expect(persisted.addressees).toEqual({ agent: false, users: [] })
+  })
+
+  it('still answers a plain message in an ask-mode thread — the default is unchanged', async () => {
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null })
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
+    ])
+
+    expect(persisted.addressees).toEqual({ agent: true, users: [] })
+  })
+
+  it('an outstanding wait outranks the mode — a waiting thread is asking nobody', async () => {
+    // Both would send the message to the chat; what this pins is the ORDER, so a
+    // thread explicitly waiting on Anna never pays for the mode lookup and can
+    // never be overridden by an `ask` mode into waking the agent.
+    vi.mocked(threadIsAwaitingHuman).mockResolvedValue(true)
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: 'ask' })
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Kein Stress, wann du dazu kommst.' },
+    ])
+
+    expect(persisted.addressees).toEqual({ agent: false, users: [] })
+    // …and the mode is never even looked up: a waiting thread does not ask the
+    // question, so it pays for no query and cannot be talked out of waiting.
+    expect(resolveEngagementFor).not.toHaveBeenCalled()
+  })
+
+  it('resolves the mode at most once for a batch, however many messages it carries', async () => {
+    // The ruling and the settle-the-flip step both need the mode. Resolving it
+    // twice was a duplicate query on every plain message in every shared thread.
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: null })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Erstens…' },
+      { id: 'msg_2', role: 'user', content: 'Zweitens…' },
+    ])
+
+    expect(resolveEngagementFor).toHaveBeenCalledTimes(1)
+  })
+
+  it('settles the derived mode once, and never overwrites a chosen one', async () => {
+    // The second human has written, so the thread is now a conversation between
+    // people. Persisted so the author-count aggregate does not run on every plain
+    // message for the life of the thread.
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: null })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Passt.' },
+    ])
+
+    expect(persistDerivedEngagement).toHaveBeenCalledWith(CONVERSATION_ID, 'mention')
+  })
+
+  it('writes nothing when the mode was already chosen by a participant', async () => {
+    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: 'mention' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Passt.' },
+    ])
+
+    expect(persistDerivedEngagement).not.toHaveBeenCalled()
   })
 
   it('never pays for the awaiting lookup on a solo thread', async () => {

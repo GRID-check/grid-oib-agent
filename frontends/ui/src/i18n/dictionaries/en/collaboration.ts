@@ -161,6 +161,17 @@ export const collaboration = {
       agentHint: 'Type @Piloti to ask Piloti',
       ariaLabel: 'Recipient of this message: {label}',
     },
+    /**
+     * The panel behind a mention pill in message text. A tag is a reference to a
+     * person, and in a project of forty a name often does not place them — so the
+     * reference answers "who is that?" where it is asked, like a citation does.
+     */
+    peek: {
+      agentRole: 'Assistant in this project',
+      inConversation: 'Can read this conversation',
+      /** The one that matters: a tag that reaches nobody looks identical otherwise. */
+      notInConversation: 'Not in this conversation',
+    },
     notePlaceholder: 'What would you like them to look at? (optional)',
     /** The banner every participant sees while the thread waits (spec MN-8). */
     awaiting: {

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { render, screen } from '@/test-utils'
+
+import { MentionPeopleProvider } from '../context/mention-people'
 
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { MentionText } from './MentionText'
@@ -83,5 +86,94 @@ describe('MentionText', () => {
     expect(chips.map((chip) => chip.textContent)).toEqual(['@Anna Weber', '@Anna'])
     expect(chips[0]).toHaveAttribute('data-mention-target', 'u-anna')
     expect(chips[1]).toHaveAttribute('data-mention-target', 'u-anna-2')
+  })
+})
+
+/**
+ * The pill as a reference you can resolve without leaving the thread.
+ *
+ * In a project of forty people, "@S. Gruber" is either the fire-safety engineer or
+ * somebody in accounts, and a reader who cannot tell either interrupts themselves
+ * to go and look or guesses. What these pin is that the peek exists ONLY when
+ * there is something true to say — a pill that opens an empty panel is worse than
+ * plain text.
+ */
+describe('MentionText — the peek behind a pill', () => {
+  const roster = [
+    { userId: 'u-anna', name: 'Anna Weber', email: 'anna@example.com', profilePictureUrl: null },
+  ]
+
+  const withPeople = (ui: JSX.Element, currentUserId?: string | null) =>
+    render(
+      <MentionPeopleProvider participants={roster} currentUserId={currentUserId} agentName="Piloti">
+        {ui}
+      </MentionPeopleProvider>,
+    )
+
+  test('stays a plain span with no provider — a private thread grows no furniture (NF-8)', () => {
+    render(<MentionText content="@Anna Weber bitte" mentions={[anna]} />)
+    const chip = screen.getByTestId('mention-chip')
+    expect(chip.tagName).toBe('SPAN')
+    expect(chip).not.toHaveAttribute('data-mention-interactive')
+  })
+
+  test('stays a plain span when the provider is disabled', () => {
+    render(
+      <MentionPeopleProvider participants={roster} agentName="Piloti" enabled={false}>
+        <MentionText content="@Anna Weber bitte" mentions={[anna]} />
+      </MentionPeopleProvider>,
+    )
+    expect(screen.getByTestId('mention-chip').tagName).toBe('SPAN')
+  })
+
+  test('becomes a button once the person resolves, and opens their card', async () => {
+    const user = userEvent.setup()
+    withPeople(<MentionText content="@Anna Weber bitte" mentions={[anna]} />)
+
+    const chip = screen.getByTestId('mention-chip')
+    expect(chip.tagName).toBe('BUTTON')
+    expect(chip).toHaveAttribute('aria-haspopup', 'dialog')
+
+    await user.click(chip)
+
+    const peek = await screen.findByTestId('person-peek')
+    expect(peek).toHaveTextContent('Anna Weber')
+    expect(peek).toHaveTextContent('anna@example.com')
+    expect(screen.getByTestId('person-peek-access')).toHaveTextContent('Can read this conversation')
+  })
+
+  test('the assistant gets its own card rather than an email address', async () => {
+    const user = userEvent.setup()
+    withPeople(<MentionText content="@Piloti bitte weiter" mentions={[agent]} />)
+
+    await user.click(screen.getByTestId('mention-chip'))
+
+    const peek = await screen.findByTestId('person-peek')
+    expect(peek).toHaveTextContent('Piloti')
+    expect(peek).toHaveTextContent('Assistant in this project')
+    // "Can read this conversation" is a category error about the assistant.
+    expect(screen.queryByTestId('person-peek-access')).not.toBeInTheDocument()
+  })
+
+  test('a mention of someone no longer in the roster stays plain — no guessing about access', () => {
+    withPeople(
+      <MentionText
+        content="@Tobias Kern hatte das geprüft"
+        mentions={[{ targetId: 'u-tobias', display: 'Tobias Kern' }]}
+      />,
+    )
+    const chip = screen.getByTestId('mention-chip')
+    expect(chip.tagName).toBe('SPAN')
+    // The name still reads — it travels with the message, not with the roster.
+    expect(chip).toHaveTextContent('@Tobias Kern')
+  })
+
+  test('a mention of the reader says so on the card too', async () => {
+    const user = userEvent.setup()
+    withPeople(<MentionText content="@Anna Weber bitte" mentions={[anna]} />, 'u-anna')
+
+    await user.click(screen.getByTestId('mention-chip'))
+
+    expect(await screen.findByTestId('person-peek')).toHaveTextContent('Anna Weber (you)')
   })
 })

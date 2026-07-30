@@ -1,10 +1,15 @@
 /**
- * A citation preview you can hover, tap, or pin.
+ * A preview you can hover, tap, or pin.
  *
- * Checking a source is a glance, not a decision. Requiring a click to answer
- * "what is this?" charges the reader a commitment — and something they must
- * then dismiss — for a question they wanted answered in passing. So the peek
- * follows the pointer: hover to see, move away to forget.
+ * Shared rather than feature-local: this is the product's answer to "let me look
+ * at that thing in passing" and it now serves citations, source chips and
+ * @-mentions. Three surfaces with the same behaviour is a UI-system behaviour, and
+ * three copies of this timing would drift.
+ *
+ * Checking a source — or who a colleague is — is a glance, not a decision.
+ * Requiring a click to answer "what is this?" charges the reader a commitment —
+ * and something they must then dismiss — for a question they wanted answered in
+ * passing. So the peek follows the pointer: hover to see, move away to forget.
  *
  * But a peek that only follows the pointer is unusable the moment it holds
  * something to press ("open at this passage", "copy link"), because reaching

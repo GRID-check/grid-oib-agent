@@ -80,6 +80,7 @@ const conversation = {
   title: 'Chat',
   tags: [] as string[],
   visibility: 'private' as const,
+  engagement: null,
   projectId: PROJECT_ID,
   deletedAt: null,
   createdAt: new Date(),

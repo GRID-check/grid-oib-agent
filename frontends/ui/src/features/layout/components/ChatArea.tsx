@@ -43,6 +43,7 @@ import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
 import { useMessageAnchor } from '@/features/collaboration/hooks/use-message-anchor'
+import { MentionPeopleProvider } from '@/features/collaboration/context/mention-people'
 import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
 import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
@@ -124,17 +125,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // One hook owns "is this thread shared, load it from the server, keep it
   // reconciled". With `canCollaborate` false — the default — it does nothing at
   // all, so the local-first path below is byte-identical to today's.
-  const {
-    shared,
-    turnInFlight,
-    unreadAfterMessageId,
-    lastArrival,
-    authorOf,
-  } = useSharedThread({
-    conversationId: currentConversation?.id ?? null,
-    enabled: canCollaborate,
-    currentUserId,
-  })
+  const { shared, turnInFlight, unreadAfterMessageId, lastArrival, participants, authorOf } =
+    useSharedThread({
+      conversationId: currentConversation?.id ?? null,
+      enabled: canCollaborate,
+      currentUserId,
+    })
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
   // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
@@ -203,7 +199,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    */
   const anchoredMessageIds = useMemo(
     () => displayableMessages.map((m) => m.id),
-    [displayableMessages],
+    [displayableMessages]
   )
   const highlightedMessageId = useMessageAnchor(anchoredMessageIds)
 
@@ -267,7 +263,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // computed here, so this offer and the banner cannot disagree.
   const { awaiting, release } = useAwaitingState(
     currentConversation?.id ?? null,
-    canCollaborate && shared,
+    canCollaborate && shared
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
 
@@ -282,7 +278,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    * another device), and an offer that only existed in the browser that watched the
    * message land would be missing in exactly that case.
    */
-  const handback = useMemo((): { anchorId: string; people: Array<{ userId: string; name: string }> } | null => {
+  const handback = useMemo((): {
+    anchorId: string
+    people: Array<{ userId: string; name: string }>
+  } | null => {
     if (!shared || threadAwaitsHuman) return null
 
     // Who this thread has actually ASKED. A message whose server-computed addressee
@@ -318,10 +317,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       if (answerers.some((person) => person.userId === userId)) continue
       answerers.unshift({
         userId,
-        name:
-          authorOf(userId)?.name ??
-          message.authorName ??
-          tCollaboration('inbox.unknownActor'),
+        name: authorOf(userId)?.name ?? message.authorName ?? tCollaboration('inbox.unknownActor'),
       })
     }
     if (!anchorId || answerers.length === 0) return null
@@ -339,7 +335,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const handleHandback = useCallback(() => {
     if (!handback) return
     setComposerPrefill(
-      `@${tCollaboration('mentions.picker.agentName')} ${tCollaboration('mentions.handback.prefill')}`,
+      `@${tCollaboration('mentions.picker.agentName')} ${tCollaboration('mentions.handback.prefill')}`
     )
     setHandbackDismissedFor(handback.anchorId)
   }, [handback, setComposerPrefill, tCollaboration])
@@ -370,7 +366,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     (asker: { userId: string; name: string }) => {
       setComposerPrefill(`@${asker.name} `)
     },
-    [setComposerPrefill],
+    [setComposerPrefill]
   )
 
   // Entrance-animation bookkeeping: messages already present when a conversation
@@ -558,173 +554,183 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   }, [isStreaming, currentUserMessageId, displayableMessages, getThinkingStepsForMessage])
 
   return (
-    // Non-scrolling wrapper: anchors the floating "scroll to latest" button so
-    // it stays pinned to the viewport instead of scrolling away with content.
-    <div className="relative flex min-h-0 flex-1 flex-col">
-    <div
-      ref={scrollContainerRef}
-      onScroll={handleScroll}
-      className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
-      aria-label={t('chatArea.ariaMessages')}
+    // Mentions in message text resolve to a person through this, so a pill can
+    // answer "who is that?" without the reader leaving the thread. Disabled in a
+    // solo conversation, where it resolves nothing and pills stay plain (NF-8).
+    <MentionPeopleProvider
+      participants={participants}
+      currentUserId={currentUserId}
+      agentName={tCollaboration('mentions.picker.agentName')}
+      enabled={shared}
     >
-      {!hasHydrated ? (
-        // Hydration skeleton (C5): the persisted thread hasn't rehydrated yet.
-        // Show a lightweight grey-bubble placeholder — never flash WelcomeState
-        // for a returning user whose conversation is about to load in.
-        <MessageListSkeleton />
-      ) : isEmpty ? (
-        <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
-      ) : (
-        // Bottom padding tracks the floating composer's REAL height (published
-        // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
-        // so the last message/Herleitung never renders behind the composer no
-        // matter how tall it grows. The 11rem fallback matches the old pb-44.
+      {/* Non-scrolling wrapper: anchors the floating "scroll to latest" button so
+          it stays pinned to the viewport instead of scrolling away with content. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
         <div
-          ref={contentRef}
-          // Top padding reserves clearance for the floating toolbar pills that
-          // overlay the top of this scroll plane, so the first message never
-          // renders behind them — a little extra on mobile where the pills sit
-          // edge-to-edge over the full-width column.
-          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
-          style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
+          aria-label={t('chatArea.ariaMessages')}
         >
-          <AnimatePresence initial={false}>
-            {displayableMessages.map((message, index) => {
-              const isUserMessage = message.messageType === 'user' || message.role === 'user'
-              const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
-              const hasThinkingSteps = messageSteps.length > 0
+          {!hasHydrated ? (
+            // Hydration skeleton (C5): the persisted thread hasn't rehydrated yet.
+            // Show a lightweight grey-bubble placeholder — never flash WelcomeState
+            // for a returning user whose conversation is about to load in.
+            <MessageListSkeleton />
+          ) : isEmpty ? (
+            <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+          ) : (
+            // Bottom padding tracks the floating composer's REAL height (published
+            // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
+            // so the last message/Herleitung never renders behind the composer no
+            // matter how tall it grows. The 11rem fallback matches the old pb-44.
+            <div
+              ref={contentRef}
+              // Top padding reserves clearance for the floating toolbar pills that
+              // overlay the top of this scroll plane, so the first message never
+              // renders behind them — a little extra on mobile where the pills sit
+              // edge-to-edge over the full-width column.
+              className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
+              style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+            >
+              <AnimatePresence initial={false}>
+                {displayableMessages.map((message, index) => {
+                  const isUserMessage = message.messageType === 'user' || message.role === 'user'
+                  const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
+                  const hasThinkingSteps = messageSteps.length > 0
 
-              // Derive post-thinking state for user messages with thinking steps.
-              // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
-              const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
-              const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
-              const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
-              const nextUserMessageIndex = remaining.findIndex(
-                (m) => m.messageType === 'user' || m.role === 'user'
-              )
-              // Only evaluate status within this message turn (until next user message).
-              // This prevents later turns from overriding interrupted/waiting state.
-              const turnMessages =
-                nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
+                  // Derive post-thinking state for user messages with thinking steps.
+                  // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
+                  const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
+                  const shouldCheckPostState =
+                    isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
+                  const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
+                  const nextUserMessageIndex = remaining.findIndex(
+                    (m) => m.messageType === 'user' || m.role === 'user'
+                  )
+                  // Only evaluate status within this message turn (until next user message).
+                  // This prevents later turns from overriding interrupted/waiting state.
+                  const turnMessages =
+                    nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
 
-              // Waiting: an unresponded HITL prompt follows this user message
-              const isWaiting =
-                shouldCheckPostState &&
-                turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
+                  // Waiting: an unresponded HITL prompt follows this user message
+                  const isWaiting =
+                    shouldCheckPostState &&
+                    turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
 
-              // Interrupted: no actual response AND not waiting for HITL
-              const hasResponse = turnMessages.some(
-                (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-              )
-              const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
+                  // Interrupted: no actual response AND not waiting for HITL
+                  const hasResponse = turnMessages.some(
+                    (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                  )
+                  const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
-              // Real data threaded into the Herleitung assessment/next-steps
-              // nodes: the turn's answer (confidence + citations) and any live
-              // multiple-choice HITL prompt. Absent on streaming/shallow turns —
-              // those nodes then hide themselves.
-              const agentMsg = turnMessages.find(
-                (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-              )
-              const choicePromptMsg = turnMessages.find(
-                (m) =>
-                  m.messageType === 'prompt' &&
-                  m.promptType === 'choice' &&
-                  (m.promptOptions?.length ?? 0) > 0
-              )
-              const choicePrompt = choicePromptMsg
-                ? {
-                    promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
-                    text: choicePromptMsg.content,
-                    options: choicePromptMsg.promptOptions ?? [],
-                    isResponded: !!choicePromptMsg.isPromptResponded,
-                    selected: choicePromptMsg.promptResponse,
-                  }
-                : undefined
+                  // Real data threaded into the Herleitung assessment/next-steps
+                  // nodes: the turn's answer (confidence + citations) and any live
+                  // multiple-choice HITL prompt. Absent on streaming/shallow turns —
+                  // those nodes then hide themselves.
+                  const agentMsg = turnMessages.find(
+                    (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                  )
+                  const choicePromptMsg = turnMessages.find(
+                    (m) =>
+                      m.messageType === 'prompt' &&
+                      m.promptType === 'choice' &&
+                      (m.promptOptions?.length ?? 0) > 0
+                  )
+                  const choicePrompt = choicePromptMsg
+                    ? {
+                        promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
+                        text: choicePromptMsg.content,
+                        options: choicePromptMsg.promptOptions ?? [],
+                        isResponded: !!choicePromptMsg.isPromptResponded,
+                        selected: choicePromptMsg.promptResponse,
+                      }
+                    : undefined
 
-              // The just-sent question's turn is the top-anchor target on send.
-              const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
+                  // The just-sent question's turn is the top-anchor target on send.
+                  const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
 
-              const messageAuthorship = authorship.get(message.id)
+                  const messageAuthorship = authorship.get(message.id)
 
-              return (
-                <motion.div
-                  key={message.id}
-                  // The deep-link target (`#message-<id>`). Every message carries
-                  // it, not just mentions: an inbox item can point at any message,
-                  // and a link that resolves for some rows and not others is worse
-                  // than none.
-                  id={`message-${message.id}`}
-                  data-chat-anchor={isAnchorTarget ? 'true' : undefined}
-                  className={cn(
-                    'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16',
-                    // The arrival mark: says "this is the one" for a beat, then
-                    // fades. A ring rather than a background, so it reads on the
-                    // user bubble and the answer card alike.
-                    highlightedMessageId === message.id &&
-                      'rounded-xl ring-2 ring-warning/50 ring-offset-4 ring-offset-background transition-shadow duration-500',
-                  )}
-                  variants={fadeRise}
-                  // Animate only genuinely new messages; hydrated ones render in place.
-                  initial={hydratedIds.has(message.id) ? false : 'hidden'}
-                  animate="visible"
-                  exit={{ opacity: 0, transition: { duration: 0.15 } }}
-                  transition={springGentle}
-                >
-                  {/* Where the reader left off, in a shared thread (spec CC-19). */}
-                  {unreadDividerBeforeId === message.id && (
-                    <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
-                  )}
+                  return (
+                    <motion.div
+                      key={message.id}
+                      // The deep-link target (`#message-<id>`). Every message carries
+                      // it, not just mentions: an inbox item can point at any message,
+                      // and a link that resolves for some rows and not others is worse
+                      // than none.
+                      id={`message-${message.id}`}
+                      data-chat-anchor={isAnchorTarget ? 'true' : undefined}
+                      className={cn(
+                        'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16',
+                        // The arrival mark: says "this is the one" for a beat, then
+                        // fades. A ring rather than a background, so it reads on the
+                        // user bubble and the answer card alike.
+                        highlightedMessageId === message.id &&
+                          'ring-warning/50 ring-offset-background rounded-xl ring-2 ring-offset-4 transition-shadow duration-500'
+                      )}
+                      variants={fadeRise}
+                      // Animate only genuinely new messages; hydrated ones render in place.
+                      initial={hydratedIds.has(message.id) ? false : 'hidden'}
+                      animate="visible"
+                      exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                      transition={springGentle}
+                    >
+                      {/* Where the reader left off, in a shared thread (spec CC-19). */}
+                      {unreadDividerBeforeId === message.id && (
+                        <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
+                      )}
 
-                  {/* Render the message */}
-                  <MessageRenderer
-                    message={message}
-                    conversationId={currentConversation?.id}
-                    onPromptRespond={handlePromptRespond}
-                    onFileRetry={handleFileRetry}
-                    onErrorDismiss={dismissErrorCard}
-                    onErrorRetry={handleErrorRetry}
-                    showConfidenceChip={showConfidenceChip}
-                    showAnswerFeedback={showAnswerFeedback}
-                    author={messageAuthorship?.author}
-                    grouped={messageAuthorship?.grouped}
-                    currentUserId={currentUserId}
-                  />
+                      {/* Render the message */}
+                      <MessageRenderer
+                        message={message}
+                        conversationId={currentConversation?.id}
+                        onPromptRespond={handlePromptRespond}
+                        onFileRetry={handleFileRetry}
+                        onErrorDismiss={dismissErrorCard}
+                        onErrorRetry={handleErrorRetry}
+                        showConfidenceChip={showConfidenceChip}
+                        showAnswerFeedback={showAnswerFeedback}
+                        author={messageAuthorship?.author}
+                        grouped={messageAuthorship?.grouped}
+                        currentUserId={currentUserId}
+                      />
 
-                  {/* Assistant-side thread spine: the Herleitung shares the
+                      {/* Assistant-side thread spine: the Herleitung shares the
                       answer card's width and left alignment, so the reasoning and
                       the answer stack as ONE left column (the user bubble stays
                       right-aligned). Auto-expanded while the turn is live, it
                       collapses to a one-line bar once the answer lands. */}
-                  {isUserMessage && hasThinkingSteps && (
-                    <div className="w-[680px] max-w-full">
-                      <ChatThinking
-                        steps={messageSteps}
-                        isThinking={isStreaming && message.id === currentUserMessageId}
-                        autoOpen={
-                          (isStreaming && message.id === currentUserMessageId) || isWaiting
-                        }
-                        isWaiting={isWaiting}
-                        isInterrupted={isInterrupted}
-                        isRecoveryPending={isRecoveryPending}
-                        enabledDataSources={message.enabledDataSources}
-                        messageFiles={message.messageFiles}
-                        userQuestion={message.content}
-                        answerConfidence={agentMsg?.answerConfidence}
-                        citations={agentMsg?.citations}
-                        choicePrompt={choicePrompt}
-                        onChoiceRespond={handlePromptRespond}
-                        routingDecision={agentMsg?.routingDecision}
-                        routingReason={agentMsg?.routingReason}
-                        escalationReason={agentMsg?.escalationReason}
-                      />
-                    </div>
-                  )}
-                </motion.div>
-              )
-            })}
-          </AnimatePresence>
+                      {isUserMessage && hasThinkingSteps && (
+                        <div className="w-[680px] max-w-full">
+                          <ChatThinking
+                            steps={messageSteps}
+                            isThinking={isStreaming && message.id === currentUserMessageId}
+                            autoOpen={
+                              (isStreaming && message.id === currentUserMessageId) || isWaiting
+                            }
+                            isWaiting={isWaiting}
+                            isInterrupted={isInterrupted}
+                            isRecoveryPending={isRecoveryPending}
+                            enabledDataSources={message.enabledDataSources}
+                            messageFiles={message.messageFiles}
+                            userQuestion={message.content}
+                            answerConfidence={agentMsg?.answerConfidence}
+                            citations={agentMsg?.citations}
+                            choicePrompt={choicePrompt}
+                            onChoiceRespond={handlePromptRespond}
+                            routingDecision={agentMsg?.routingDecision}
+                            routingReason={agentMsg?.routingReason}
+                            escalationReason={agentMsg?.escalationReason}
+                          />
+                        </div>
+                      )}
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
 
-          {/* The thread is WAITING on a named person (spec MN-8). Without this
+              {/* The thread is WAITING on a named person (spec MN-8). Without this
               mounted, the agent's silence has no explanation on screen, and
               "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
               mitigation for its own worst risk, a wait nobody ever answers — has no
@@ -735,96 +741,97 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               Mutually exclusive with the hand-back offer by construction: this
               returns null once `pending` is empty, which is exactly when the offer
               becomes eligible. */}
-          {shared && (
-            <AwaitingBanner
-              awaiting={awaiting}
-              onRelease={release}
-              onAskAgent={handleAskAgent}
-              onAskBack={handleAskBack}
-            />
-          )}
+              {shared && (
+                <AwaitingBanner
+                  awaiting={awaiting}
+                  onRelease={release}
+                  onAskAgent={handleAskAgent}
+                  onAskBack={handleAskBack}
+                />
+              )}
 
-          {/* The colleague has answered and Piloti is out of the loop — the one
+              {/* The colleague has answered and Piloti is out of the loop — the one
               moment the thread is worth handing on, and until now the only
               transition with no affordance on screen (see HandbackOffer). Anchored
               here, directly under the answer it is about. */}
-          {showHandback && handback && (
-            <HandbackOffer
-              people={handback.people}
-              onAccept={handleHandback}
-              onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
-            />
-          )}
+              {showHandback && handback && (
+                <HandbackOffer
+                  people={handback.people}
+                  onAccept={handleHandback}
+                  onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
+                />
+              )}
 
-          {/* Latency-gap typing indicator (before the first token arrives) */}
-          {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
+              {/* Latency-gap typing indicator (before the first token arrives) */}
+              {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
 
-          {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
+              {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
               this an observer sees a thread where nothing appears to be happening
               and a composer that will not take their question. Suppressed while
               this client is itself streaming — the asker already has the typing
               indicator and the Herleitung. */}
-          {shared && turnInFlight && !isStreaming && !showTypingPlaceholder && (
-            <TurnInFlightBanner
-              label={
-                turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId
-                  ? tCollaboration('thread.turnInFlightYou')
-                  : tCollaboration('thread.turnInFlight', {
+              {shared && turnInFlight && !isStreaming && !showTypingPlaceholder && (
+                <TurnInFlightBanner
+                  label={
+                    turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId
+                      ? tCollaboration('thread.turnInFlightYou')
+                      : tCollaboration('thread.turnInFlight', {
+                          name:
+                            authorOf(turnInFlight.actorUserId)?.name ??
+                            tCollaboration('inbox.unknownActor'),
+                        })
+                  }
+                />
+              )}
+
+              {/* A colleague writing while you are reading is a change you must be able
+              to learn about without eyes. Polite, so it never interrupts. */}
+              <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                {shared && lastArrival
+                  ? tCollaboration('thread.authorAria', {
                       name:
-                        authorOf(turnInFlight.actorUserId)?.name ??
+                        lastArrival.authorName ??
+                        authorOf(lastArrival.authorUserId)?.name ??
                         tCollaboration('inbox.unknownActor'),
                     })
-              }
-            />
-          )}
+                  : ''}
+              </div>
 
-          {/* A colleague writing while you are reading is a change you must be able
-              to learn about without eyes. Polite, so it never interrupts. */}
-          <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            {shared && lastArrival
-              ? tCollaboration('thread.authorAria', {
-                  name:
-                    lastArrival.authorName ??
-                    authorOf(lastArrival.authorUserId)?.name ??
-                    tCollaboration('inbox.unknownActor'),
-                })
-              : ''}
-          </div>
-
-          {/* Top-anchor spacer: invisible, zero-height by default, sized to a
+              {/* Top-anchor spacer: invisible, zero-height by default, sized to a
               viewport only while a just-sent question is anchored to the top so
               it can reach the top and the answer streams downward. Released when
               the turn ends. */}
-          <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
+              <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
+            </div>
+          )}
         </div>
-      )}
-    </div>
 
-      {/* Floating "scroll to latest" button — appears when the user has scrolled
+        {/* Floating "scroll to latest" button — appears when the user has scrolled
           up and newer content is below. Pinned to the wrapper (not the scroll
           content) so it stays put while the thread scrolls behind it. */}
-      <AnimatePresence>
-        {showScrollButton && (
-          <motion.div
-            className="pointer-events-none absolute inset-x-0 z-10 flex justify-center"
-            style={{ bottom: 'calc(var(--composer-h, 11rem) + 1rem)' }}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
-            transition={{ duration: 0.15 }}
-          >
-            <button
-              type="button"
-              onClick={handleScrollToLatest}
-              aria-label={t('chatArea.scrollToLatest')}
-              className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-lg border bg-card text-muted-foreground shadow-md transition hover:text-foreground active:scale-press"
+        <AnimatePresence>
+          {showScrollButton && (
+            <motion.div
+              className="pointer-events-none absolute inset-x-0 z-10 flex justify-center"
+              style={{ bottom: 'calc(var(--composer-h, 11rem) + 1rem)' }}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              transition={{ duration: 0.15 }}
             >
-              <ArrowDown className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+              <button
+                type="button"
+                onClick={handleScrollToLatest}
+                aria-label={t('chatArea.scrollToLatest')}
+                className="bg-card text-muted-foreground hover:text-foreground active:scale-press pointer-events-auto flex h-9 w-9 items-center justify-center rounded-lg border shadow-md transition"
+              >
+                <ArrowDown className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </MentionPeopleProvider>
   )
 })
 
@@ -939,11 +946,11 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       }
       return (
         <div
-          className="flex items-center gap-2 rounded-xl bg-muted/50 px-4 py-2 shadow-xs"
+          className="bg-muted/50 shadow-xs flex items-center gap-2 rounded-xl px-4 py-2"
           role="status"
         >
-          <FileText className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <span className="text-sm text-muted-foreground">
+          <FileText className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+          <span className="text-muted-foreground text-sm">
             {message.fileData.fileName} ({message.fileData.fileStatus})
           </span>
         </div>
@@ -1044,12 +1051,17 @@ MessageRenderer.displayName = 'MessageRenderer'
  * findable; the label does not have to shout to be one.
  */
 const UnreadDivider: FC<{ label: string }> = ({ label }) => (
-  <div className="flex items-center gap-3" role="separator" aria-label={label} data-testid="unread-divider">
-    <span className="h-px flex-1 bg-border" aria-hidden="true" />
-    <span className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+  <div
+    className="flex items-center gap-3"
+    role="separator"
+    aria-label={label}
+    data-testid="unread-divider"
+  >
+    <span className="bg-border h-px flex-1" aria-hidden="true" />
+    <span className="text-muted-foreground text-[10.5px] font-semibold uppercase tracking-[0.06em]">
       {label}
     </span>
-    <span className="h-px flex-1 bg-border" aria-hidden="true" />
+    <span className="bg-border h-px flex-1" aria-hidden="true" />
   </div>
 )
 
@@ -1073,12 +1085,12 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
  */
 const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
   <div
-    className="flex w-fit items-center gap-2 rounded-lg border bg-card px-3.5 py-2 shadow-xs"
+    className="bg-card shadow-xs flex w-fit items-center gap-2 rounded-lg border px-3.5 py-2"
     role="status"
     data-testid="turn-in-flight"
   >
-    <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-    <span className="animate-text-shimmer text-xs font-medium text-foreground">{label}</span>
+    <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
+    <span className="animate-text-shimmer text-foreground text-xs font-medium">{label}</span>
   </div>
 )
 
@@ -1106,20 +1118,22 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
   const elapsed = useElapsedSeconds(true)
   return (
     <div
-      className="animate-in fade-in-0 flex w-fit items-center gap-2 rounded-2xl bg-muted/60 px-3.5 py-2.5 duration-200"
+      className="animate-in fade-in-0 bg-muted/60 flex w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 duration-200"
       role="status"
       aria-label={label}
     >
       <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
+        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:-0.3s]" />
+        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:-0.15s]" />
+        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-bounce rounded-full" />
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
       <span className="animate-text-shimmer text-xs font-medium">{label}</span>
       {elapsed > 2 && (
-        <span className="text-[11px] tabular-nums text-muted-foreground/80">{formatElapsed(elapsed)}</span>
+        <span className="text-muted-foreground/80 text-[11px] tabular-nums">
+          {formatElapsed(elapsed)}
+        </span>
       )}
     </div>
   )
@@ -1142,15 +1156,15 @@ const MessageListSkeleton: FC = () => {
     >
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="h-10 w-1/2 animate-pulse rounded-2xl bg-muted/70" />
+        <div className="bg-muted/70 h-10 w-1/2 animate-pulse rounded-2xl" />
       </div>
       {/* assistant bubble (left, taller) */}
       <div className="flex justify-start">
-        <div className="h-24 w-4/5 animate-pulse rounded-2xl bg-muted/50" />
+        <div className="bg-muted/50 h-24 w-4/5 animate-pulse rounded-2xl" />
       </div>
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="h-10 w-1/3 animate-pulse rounded-2xl bg-muted/70" />
+        <div className="bg-muted/70 h-10 w-1/3 animate-pulse rounded-2xl" />
       </div>
     </div>
   )
@@ -1198,17 +1212,17 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
         style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border bg-muted text-brand">
+          <div className="bg-muted text-brand flex h-12 w-12 items-center justify-center rounded-xl border">
             <Lock className="h-5 w-5" aria-hidden="true" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-display">
+          <h1 className="tracking-display text-2xl font-semibold">
             {t('chatArea.loggedOutTitle')}
           </h1>
-          <p className="text-sm text-muted-foreground">{t('chatArea.loggedOutBody')}</p>
+          <p className="text-muted-foreground text-sm">{t('chatArea.loggedOutBody')}</p>
           <Button
             onClick={onSignIn}
             aria-label={t('chatArea.signInSso')}
-            className="transition active:scale-press"
+            className="active:scale-press transition"
           >
             {t('chatArea.signInSso')}
           </Button>
@@ -1219,9 +1233,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   const greeting = tChat(`greeting.${greetingKeyForHour(new Date().getHours())}`)
   const firstName = user?.name?.trim().split(/\s+/)[0]
-  const heading = firstName
-    ? tChat('greeting.withName', { greeting, name: firstName })
-    : greeting
+  const heading = firstName ? tChat('greeting.withName', { greeting, name: firstName }) : greeting
 
   return (
     <div
@@ -1229,15 +1241,15 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
     >
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
-      <div className="mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border bg-card px-[11px] shadow-xs">
-        <Lock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-        <span className="text-[12px] font-medium text-muted-foreground">
+      <div className="bg-card shadow-xs mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border px-[11px]">
+        <Lock className="text-subtle size-3 shrink-0" aria-hidden="true" />
+        <span className="text-muted-foreground text-[12px] font-medium">
           {tChat('workspace.private')}
         </span>
       </div>
 
       {/* Hero greeting — 23px/500 ink, tight tracking */}
-      <h1 className="text-center text-[23px] font-medium tracking-display text-foreground">
+      <h1 className="tracking-display text-foreground text-center text-[23px] font-medium">
         {heading}
       </h1>
 

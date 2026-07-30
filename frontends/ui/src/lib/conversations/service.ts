@@ -50,6 +50,11 @@ import type { AddresseeSet, MentionInput, PersistedMessageResult } from '@/lib/m
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
+import {
+  persistDerivedEngagement,
+  resolveEngagementFor,
+  type EngagementState,
+} from './engagement'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
@@ -528,7 +533,7 @@ async function prepareMessage(
   session: AuthorizedSession,
   conversationId: string,
   input: CreateMessageInput,
-  context: { shared: boolean },
+  context: { shared: boolean; engagement: () => Promise<EngagementState> },
 ): Promise<PreparedMessage> {
   if (input.role !== 'user') {
     return { input, addressees: null, createdRequests: 0 }
@@ -536,21 +541,33 @@ async function prepareMessage(
 
   const mentions = input.mentions ?? []
   if (mentions.length === 0) {
-    // A plain message normally asks Piloti — that is the product's whole point,
-    // and this path stays query-free so it costs nothing.
-    //
-    // The one exception: while the thread is WAITING on a named person, a plain
-    // message is a remark to the people in it, not a question for the agent.
-    // Otherwise the colleague's answer (which carries no mentions) would wake
-    // Piloti to answer a message written to a human — and so would "thanks, take
-    // your time" from the asker. `@Piloti` remains the explicit way back.
-    //
-    // Only shared threads are checked: a solo thread cannot hold a request, so
-    // the overwhelmingly common case never pays for the lookup.
-    if (context.shared && (await threadIsAwaitingHuman('conversation', conversationId))) {
+    // A plain message in a SOLO thread asks Piloti — that is the product's whole
+    // point, and this path stays query-free so it costs nothing. Nearly every
+    // message in the product takes this line and stops here.
+    if (!context.shared) {
+      return { input, addressees: AGENT_ADDRESSED, createdRequests: 0 }
+    }
+
+    // While the thread is WAITING on a named person, a plain message is a remark
+    // to the people in it, not a question for the agent. Otherwise the
+    // colleague's answer (which carries no mentions) would wake Piloti to answer
+    // a message written to a human — and so would "thanks, take your time" from
+    // the asker. Checked first because it outranks the mode: a thread that is
+    // explicitly waiting on Anna is not asking the assistant anything.
+    if (await threadIsAwaitingHuman('conversation', conversationId)) {
       return { input, addressees: THREAD_ADDRESSED, createdRequests: 0 }
     }
-    return { input, addressees: AGENT_ADDRESSED, createdRequests: 0 }
+
+    // Otherwise the thread's engagement mode decides (ADR-0036). Deterministic
+    // and inspectable: a thread where two or more people have written is a
+    // conversation between people, and the assistant stops assuming every
+    // sentence is for it. `@Piloti` remains the explicit way to ask.
+    const { mode } = await context.engagement()
+    return {
+      input,
+      addressees: mode === 'mention' ? THREAD_ADDRESSED : AGENT_ADDRESSED,
+      createdRequests: 0,
+    }
   }
 
   // The mention path is the collaboration feature, and it must not switch itself
@@ -599,11 +616,19 @@ export async function createConversationMessages(
   const grantCount = await countGrantsForResource('conversation', conversationId)
   const shared = isShared(access.visibility, grantCount)
 
+  // The engagement mode (ADR-0036), resolved AT MOST ONCE per call and only if a
+  // plain message in this batch actually needs it. Memoized rather than fetched
+  // up front because the overwhelmingly common shape — a solo thread, or a
+  // message that tags someone — never asks the question at all.
+  let engagementState: EngagementState | null = null
+  const engagement = async (): Promise<EngagementState> =>
+    (engagementState ??= await resolveEngagementFor(conversationId))
+
   // Sequential, not parallel: mention application writes grants and requests,
   // and a batch must not race itself over the same conversation.
   const prepared: PreparedMessage[] = []
   for (const input of inputs) {
-    prepared.push(await prepareMessage(session, conversationId, input, { shared }))
+    prepared.push(await prepareMessage(session, conversationId, input, { shared, engagement }))
   }
 
   const rows = await insertMessages(prepared.map((entry) => buildMessageRow(conversationId, entry, session.userId)))
@@ -619,6 +644,29 @@ export async function createConversationMessages(
   })
 
   const humanMessages = persisted.filter((message) => message.role === 'user')
+
+  // The thread just became a conversation between PEOPLE (ADR-0036). Structural,
+  // not a judgement: a second distinct human has now written here, so a plain
+  // message stops being assumed to be a question for the assistant. Persisted
+  // once — guarded on `engagement IS NULL`, so it can never overwrite a mode a
+  // participant chose, and every later message reads the stored value instead of
+  // recounting authors. Best-effort: the message is already stored, and the mode
+  // derives to the same answer on the next read if this write is lost.
+  // Settled only when the ruling above actually resolved the mode, so this costs
+  // no query of its own — ever. Skipping it on the other paths is safe because
+  // the stored value is nothing but a cache of the derivation: a thread whose
+  // messages all tag someone, or that is waiting on a named person, is not asking
+  // the mode question, and the next plain message derives the same answer.
+  if (shared && humanMessages.length > 0 && engagementState) {
+    const { mode, stored } = engagementState
+    if (!stored && mode === 'mention') {
+      try {
+        await persistDerivedEngagement(conversationId, mode)
+      } catch (error) {
+        console.warn('[conversations] settling the engagement mode failed (non-fatal):', error)
+      }
+    }
+  }
 
   // A contribution from a human closes whatever that person was asked in this
   // thread (spec MN-9.1, MN-16). Best-effort: the message is already stored, and

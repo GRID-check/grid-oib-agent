@@ -316,11 +316,19 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="mention-picker-preview"]',
   },
   {
+    id: 'mention-pill',
+    mobile: true,
+    path: '/dev/mention-pill',
+    description:
+      'A mention inside message text: a pill, not plain text, with the person card it opens on hover/tap/focus (the same peek timing as a citation). Four rows — a colleague, YOU (filled ink, the one mention that asks something of the reader), Piloti, and someone no longer in the roster who deliberately gets NO card. Plus the card in its four shapes, including "Nicht in diesem Chat" in warning ink, which is the difference between a tag that reaches someone and one that quietly does nothing.',
+    waitFor: '[data-testid="mention-pill-preview"]',
+  },
+  {
     id: 'awaiting-banner',
     mobile: true,
     path: '/dev/awaiting-banner',
     description:
-      'The hand-off state every participant sees while the agent deliberately stays silent (spec MN-7/MN-8): "Warten auf Anna Berger", the reason it is quiet, who asked, and the release action so a thread can never be permanently stuck.',
+      'The hand-off state every participant sees while the agent deliberately stays silent (spec MN-7/MN-8): "Warten auf Anna Berger", the reason it is quiet, who asked, and the release action so a thread can never be permanently stuck. The third block is the reader\'s own turn to answer, which also carries "Rückfrage an …" — the affordance for the most common outcome, being asked something you cannot answer yet.',
     waitFor: '[data-testid="awaiting-banner-preview"]',
   },
   {
