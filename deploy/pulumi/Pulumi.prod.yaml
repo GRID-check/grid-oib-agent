@@ -130,6 +130,8 @@ config:
   grid-oib:workosClientId: client_REPLACE_ME
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "false"
+  # Collaboration (ADR-0032…0035) stays dark in prod until it has run in staging.
+  grid-oib:collaborationEnabled: "false"
 
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
   # Deployed only when grid-oib:observabilityEnabled (default true) AND every

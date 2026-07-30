@@ -296,6 +296,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // Workflows.
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },
+    // Collaboration (ADR-0032…0035). Frontend-only: the inbox, the share
+    // surfaces and the mention picker are BFF/UI concerns, so no worker or the
+    // backend needs this. Without it the feature is invisible even on a
+    // deployment carrying its code — which is exactly the dark-launch contract.
+    { name: "GRID_COLLABORATION_ENABLED", value: String(cfg.collaboration.enabled) },
     // OTLP tracing via the cluster collector — injected only when the
     // observability tier is deployed, which is what makes
     // src/instrumentation.ts register @vercel/otel (it no-ops without the

@@ -301,6 +301,20 @@ export interface GridConfig {
     minIntervalMinutes: number;
   };
 
+  collaboration: {
+    /**
+     * Dark-launch gate for collaboration (ADR-0032…0035: shared chats,
+     * `@`-mentions with the agent hand-off, the inbox). Reaches the frontend as
+     * `GRID_COLLABORATION_ENABLED`, which the BFF only consults while
+     * `enforceFeatureFlags` is off; with enforcement on, the per-org
+     * `collaboration` WorkOS flag decides instead. Default-deny, like the
+     * feature itself: it changes who can see a conversation, so an operator has
+     * to choose it. No paired capability — without `REDIS_URL` live updates
+     * simply degrade to polling.
+     */
+    enabled: boolean;
+  };
+
   observability: {
     /**
      * Whether the observability tier (OTel Collector + Aspire dashboard) is
@@ -753,6 +767,10 @@ export function loadConfig(): GridConfig {
     workflows: {
       enabled: bool(cfg, "workflowsEnabled", false),
       minIntervalMinutes: num(cfg, "workflowMinIntervalMinutes", 15),
+    },
+
+    collaboration: {
+      enabled: bool(cfg, "collaborationEnabled", false),
     },
 
     observability: {

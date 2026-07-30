@@ -174,6 +174,8 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **Workflows** | | |
 | `workflowsEnabled` | `false` | Scheduled workflows feature; the `workflow-scheduler` Deployment is only created when `true` |
 | `workflowMinIntervalMinutes` | `15` | Minimum schedule interval |
+| **Collaboration** (ADR-0032…0035) | | |
+| `collaborationEnabled` | `false` | Shared chats, `@`-mentions and the inbox. Reaches the frontend as `GRID_COLLABORATION_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `collaboration` WorkOS flag decides). Default-deny — the feature changes who can see a conversation |
 | **Observability** (ADR-0029) | | |
 | `observabilityEnabled` | `true` | Feature flag for the tier. Deployed only when the flag is on **AND** the capability holds (`otelPrimaryApiKey`, `otelOidcIssuer`, `otelOidcClientId`, `otelOidcClientSecret` all set) — otherwise `preview` warns and nothing is provisioned, including the `https-otel` listener and the producers' OTLP env |
 | **`otelOidcIssuer`** | — | Issuer of the dashboard's dedicated WorkOS **Connect** application (the environment's AuthKit domain, `https://<tenant>.authkit.app`) |

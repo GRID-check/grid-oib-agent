@@ -234,7 +234,14 @@ let mockMentionsLoading = false
 let mockAwaitingPending: Array<{ id: string }> = []
 
 vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
-  useMentionCandidates: vi.fn(() => ({ data: mockMentionData, loading: mockMentionsLoading })),
+  // Honours `enabled` for the same reason `useAwaitingState` below does, and it
+  // is not cosmetic: a mock that answered regardless of the gate is what let the
+  // composer ship a picker that flashed open on `@` in a deployment with
+  // collaboration off. The stub has to refuse where the endpoint would.
+  useMentionCandidates: vi.fn((_conversationId: string | null, enabled: boolean) => ({
+    data: enabled ? mockMentionData : null,
+    loading: enabled ? mockMentionsLoading : false,
+  })),
   useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
     // A gated org never gets an answer — which is what keeps the composer
     // byte-identical to today with the flag off (spec NF-8).
@@ -261,6 +268,7 @@ vi.mock('@/features/documents/components/file-preview-dialog', () => ({
 
 import { useWebSocketChat, useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
+import { useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
 
 describe('InputArea', () => {
   beforeEach(() => {
@@ -1141,7 +1149,7 @@ describe('InputArea', () => {
 
     test('typing @ at a word boundary opens the picker', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('Frage an @')
@@ -1153,7 +1161,7 @@ describe('InputArea', () => {
 
     test('typing after the @ filters the candidates', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@hof')
@@ -1164,7 +1172,7 @@ describe('InputArea', () => {
 
     test('does not open inside a word — an email address is not a mention', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('anna@example.com')
@@ -1174,7 +1182,7 @@ describe('InputArea', () => {
 
     test('Enter inserts the selected candidate and does NOT send the message', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1188,7 +1196,7 @@ describe('InputArea', () => {
 
     test('Tab inserts too', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1200,7 +1208,7 @@ describe('InputArea', () => {
 
     test('the arrow keys choose which candidate is inserted', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@')
@@ -1213,7 +1221,7 @@ describe('InputArea', () => {
 
     test('Escape closes the picker, and a fresh @ opens it again', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@an')
@@ -1229,7 +1237,7 @@ describe('InputArea', () => {
 
     test('deleting the @ closes the picker', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@a')
@@ -1241,7 +1249,7 @@ describe('InputArea', () => {
 
     test('the textarea is a combobox pointing at the active option while open', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@an')
@@ -1266,7 +1274,7 @@ describe('InputArea', () => {
 
     test('once a human is tagged the composer says the agent will stay quiet', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1280,7 +1288,7 @@ describe('InputArea', () => {
 
     test('tagging only the assistant does not claim it will stay quiet', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@pil')
@@ -1294,7 +1302,7 @@ describe('InputArea', () => {
     test('sending passes the STRUCTURED mentions, not the text', async () => {
       const user = userEvent.setup()
       mockSendMessage.mockResolvedValue({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1313,7 +1321,7 @@ describe('InputArea', () => {
 
     test('deleting the inserted token deletes the mention (MN-3)', async () => {
       const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1337,7 +1345,7 @@ describe('InputArea', () => {
         ok: false,
         failure: { reason: 'mention-invite-requires-owner', message: 'refused' },
       })
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1360,7 +1368,7 @@ describe('InputArea', () => {
         ok: false,
         failure: { reason: 'mention-rate-limited', message: null },
       })
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1379,7 +1387,7 @@ describe('InputArea', () => {
     test('without a candidate list the composer behaves exactly as before (NF-8)', async () => {
       const user = userEvent.setup()
       mockMentionData = null
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1396,13 +1404,52 @@ describe('InputArea', () => {
       const user = userEvent.setup()
       mockMentionData = null
       mockMentionsLoading = true
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
       await user.keyboard('@')
 
       expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
       expect(screen.getByText('Loading people…')).toBeInTheDocument()
+    })
+
+    /**
+     * With collaboration off the composer must be byte-identical to the one that
+     * shipped before the feature existed (spec NF-8) — and "identical" includes
+     * the moment between keystroke and answer. The bug these two pin: the
+     * candidate fetch ran regardless of the gate, and the loading state alone
+     * opened the picker, so a user on a deployment WITHOUT collaboration saw a
+     * panel flash open on `@` and vanish when the route answered 403.
+     */
+    describe('with collaboration off', () => {
+      test('typing @ opens nothing, even while a load could be in flight', async () => {
+        const user = userEvent.setup()
+        mockMentionData = null
+        mockMentionsLoading = true
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('Frage an @')
+
+        expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+        // The textarea keeps its plain semantics: no combobox, nothing to navigate.
+        expect(composer()).not.toHaveAttribute('role')
+      })
+
+      test('never asks the server who could be mentioned', async () => {
+        const user = userEvent.setup()
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('@ann')
+
+        // The gate belongs on the request, not on the rendering of its result:
+        // a disabled feature must not generate the round-trip at all.
+        expect(vi.mocked(useMentionCandidates)).toHaveBeenCalled()
+        for (const call of vi.mocked(useMentionCandidates).mock.calls) {
+          expect(call[1]).toBe(false)
+        }
+      })
     })
   })
 

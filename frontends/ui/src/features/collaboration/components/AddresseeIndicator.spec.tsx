@@ -78,7 +78,7 @@ describe('AddresseeIndicator — teaching that @ exists', () => {
       <AddresseeIndicator mentions={[]} awaitingHuman={false} onMentionSomeone={onMentionSomeone} />,
     )
 
-    const hint = screen.getByTestId('composer-mention-hint')
+    const hint = screen.getByTestId('composer-mention-offer')
     expect(hint).toHaveTextContent('mention a colleague')
 
     await user.click(hint)
@@ -87,7 +87,7 @@ describe('AddresseeIndicator — teaching that @ exists', () => {
 
   test('is absent without the callback — a solo thread grows no furniture (NF-8)', () => {
     render(<AddresseeIndicator mentions={[]} awaitingHuman={false} />)
-    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
   })
 
   test('steps aside once somebody is already tagged', () => {
@@ -100,14 +100,14 @@ describe('AddresseeIndicator — teaching that @ exists', () => {
         onMentionSomeone={vi.fn()}
       />,
     )
-    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
   })
 
   test('steps aside while the thread waits on someone', () => {
     render(
       <AddresseeIndicator mentions={[]} awaitingHuman onMentionSomeone={vi.fn()} />,
     )
-    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
   })
 
   test('steps aside when Piloti is explicitly tagged', () => {
@@ -118,6 +118,6 @@ describe('AddresseeIndicator — teaching that @ exists', () => {
         onMentionSomeone={vi.fn()}
       />,
     )
-    expect(screen.queryByTestId('composer-mention-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
   })
 })

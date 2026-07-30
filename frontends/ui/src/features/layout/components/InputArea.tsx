@@ -778,9 +778,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Mention candidates for this conversation — the agent, the participants, and the
   // colleagues who would have to be invited (spec MN-4/MN-5).
+  // `canCollaborate` gates the REQUEST, not just the picker. Without it, typing
+  // `@` with the feature off still fired this fetch at a route that answers 403,
+  // and `mentionsLoading` alone was enough to open the picker (below) — so the
+  // panel flashed open and vanished, advertising a feature this deployment does
+  // not have (spec NF-8). The gate has to sit on the fetch: any other placement
+  // leaves the round-trip, and the flicker is the round-trip.
   const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
     currentSessionId ?? null,
-    mentionRequested,
+    canCollaborate && mentionRequested,
   )
 
   /**
@@ -870,13 +876,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
 
   /**
-   * The picker is open only once the candidate list has actually answered.
+   * The picker opens only where collaboration is on, and then only once the
+   * candidate list is on its way.
    *
-   * That is deliberate: where collaboration is off the endpoint never answers, so
-   * typing `@` behaves exactly as it did before this feature existed. A user who
-   * shares nothing must not be able to notice it is there (spec NF-8).
+   * `canCollaborate` is checked here as well as on the fetch above — not
+   * redundantly: the two answer different questions ("may this deployment mention
+   * anyone?" vs. "has the list arrived?"), and stating the first one here is what
+   * keeps a stale `mentionsLoading` from ever opening a panel the feature gate
+   * has closed. With the feature off, typing `@` behaves exactly as it did before
+   * this feature existed (spec NF-8).
    */
   const mentionPickerOpen =
+    canCollaborate &&
     mentionQuery !== null &&
     !mentionDismissed &&
     !disabled &&
@@ -1161,7 +1172,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // chat plane). No hard border — the field reads as a calm surface, and
           // focus is signalled by a subtle focus-within ring instead of an
           // outline. Textarea on top, hairline-separated control row below.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out active:scale-95 focus-within:ring-2',
+          // NOT `active:scale-95`: the press response belongs on the controls a
+          // reader actually presses (the chips and buttons in the row below), and
+          // this div is the card that HOLDS them. With it here, putting the caret
+          // in the textarea shrank the whole composer — text, chips and all — on
+          // every mousedown, which reads as the surface flinching away from the
+          // click rather than as a control acknowledging a press.
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'

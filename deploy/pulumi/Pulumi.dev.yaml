@@ -90,6 +90,11 @@ config:
   grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "true"
+  # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. On in
+  # staging so the feature can actually be exercised; prod stays dark until it
+  # ships. With enforceFeatureFlags off, this env gate is the only thing that
+  # turns the surfaces on.
+  grid-oib:collaborationEnabled: "true"
   grid-oib:registryUsername: matthiasbigl
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
   # Deployed only when the flag is on AND every dependency is set; otherwise
