@@ -13,8 +13,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { authzErrorResponse } from '@/lib/auth/require-auth'
-import { getGridSession } from '@/lib/auth/session'
+import { ForbiddenError } from '@/lib/api/errors'
+import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { getAnswerFeedbackHealth } from '@/lib/feedback/service'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
@@ -34,10 +34,9 @@ const COLUMNS = [
   'answer',
 ] as const
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = apiRoute(async ({ request, session }) => {
+  const filters = parseFeedbackFilters(new URL(request.url).searchParams)
   try {
-    const session = await getGridSession()
-    const filters = parseFeedbackFilters(new URL(request.url).searchParams)
     const health = await getAnswerFeedbackHealth(session, filters)
 
     const rows = health.defects.map((defect) =>
@@ -68,11 +67,7 @@ export async function GET(request: Request): Promise<Response> {
       },
     })
   } catch (error) {
-    if (error instanceof PlatformAccessDeniedError) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
+    if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
     throw error
   }
-}
+})
