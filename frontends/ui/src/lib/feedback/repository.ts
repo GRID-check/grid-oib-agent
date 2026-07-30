@@ -281,6 +281,18 @@ export function parseFeedbackWindowDays(raw: string | null): number {
     : FEEDBACK_HEALTH_WINDOW_DAYS
 }
 
+/**
+ * Unwrap a raw `db.execute` result into plain rows.
+ *
+ * Drizzle types `execute` loosely and the driver returns `{ rows }`, so the cast
+ * is unavoidable — but it is unchecked, so it lives in one place rather than
+ * being re-derived at each call site. Every field is still coerced individually
+ * downstream; this only gets us to the array.
+ */
+function rowsOf(result: unknown): Record<string, unknown>[] {
+  return (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+}
+
 /** Start of the health window, as an ISO instant. */
 function windowStart(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
@@ -408,8 +420,7 @@ export async function getFeedbackHealth(
 
   const turns = await listFeedbackTurns(filters)
 
-  const topicResultRows =
-    (topicRows as unknown as { rows?: Record<string, unknown>[] }).rows ?? []
+  const topicResultRows = rowsOf(topicRows)
 
   return {
     windowDays,
@@ -512,7 +523,7 @@ export async function listFeedbackTurns(
     limit ${recentLimit}
   `)
 
-  const rows = (result as unknown as { rows?: Record<string, unknown>[] }).rows ?? []
+  const rows = rowsOf(result)
   return rows.map((row) => ({
     id: String(row.id),
     organizationId: String(row.organization_id),

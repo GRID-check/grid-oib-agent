@@ -33,6 +33,7 @@ import httpx
 from fastapi import APIRouter
 from fastapi import Header
 
+from ..models.requests import MAX_DIGEST_SAMPLES
 from ..models.requests import FeedbackDigestRequest
 from ..models.requests import FeedbackDigestResponse
 from .generate_summary import _llm_settings
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Bounds. The caller already truncates, but a route that trusts its caller's
 # bounds is one refactor away from posting a megabyte of chat history.
-_MAX_SAMPLES = 60
+_MAX_SAMPLES = MAX_DIGEST_SAMPLES
 _MAX_QUESTION_CHARS = 240
 _MAX_ITEMS = 3
 _MAX_ITEM_CHARS = 220
@@ -156,8 +157,9 @@ def _build_brief(request: FeedbackDigestRequest) -> str:
 
         The question is the one piece of raw, user-authored text in this prompt,
         so it is fenced in ``<question>`` markers that the system prompt declares
-        as data-only. Any closing marker inside the text is neutralised, because
-        a delimiter a user can close is not a delimiter.
+        as data-only. Every ``<`` inside the text is neutralised, because a
+        delimiter a user can close is not a delimiter — and case and whitespace
+        variants of the closing marker close it just as well.
 
         Entries whose question did not survive the join are dropped rather than
         rendered as a blank bullet — an empty line in the prompt is a line the
@@ -170,7 +172,10 @@ def _build_brief(request: FeedbackDigestRequest) -> str:
                 continue
             if len(question) > _MAX_QUESTION_CHARS:
                 question = question[:_MAX_QUESTION_CHARS] + "…"
-            question = question.replace("<question>", "(question)").replace("</question>", "(/question)")
+            # Every `<`, not just the two literal markers: a model reads
+            # `</QUESTION>` and `< /question >` as closing tags too, and a
+            # delimiter that only survives lowercase is not a delimiter.
+            question = question.replace("<", "‹")
             tags = f" [{', '.join(entry.topics)}]" if entry.topics else ""
             reason = f" (reason: {entry.reason})" if entry.reason else ""
             out.append(f"- <question>{question}</question>{tags}{reason}")

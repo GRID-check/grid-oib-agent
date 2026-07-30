@@ -184,6 +184,21 @@ describe('getFeedbackDigest — caching', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)
   })
 
+  /**
+   * The key has to name the window the SENTENCES describe. Filters may omit
+   * `windowDays`; the aggregate always resolved one, and reading the default
+   * from a second place is how an entry gets labelled with the wrong window.
+   */
+  it('keys on the window the aggregate resolved, not the one the filters named', async () => {
+    // Same (empty) filters, two different aggregates: two different digests.
+    await getFeedbackDigest({ ...health(), windowDays: 30 }, {})
+    await getFeedbackDigest({ ...health(), windowDays: 7 }, {})
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    expect([...store.entries.keys()].some((k) => k.endsWith(':30:*:*:de'))).toBe(true)
+    expect([...store.entries.keys()].some((k) => k.endsWith(':7:*:*:de'))).toBe(true)
+  })
+
   it('re-asks when the reader presses refresh', async () => {
     await getFeedbackDigest(health(), { windowDays: 30 })
     await getFeedbackDigest(health(), { windowDays: 30 }, { refresh: true })

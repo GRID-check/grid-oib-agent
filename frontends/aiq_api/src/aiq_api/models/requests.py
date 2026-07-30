@@ -1,6 +1,7 @@
 """Request and response models for knowledge API endpoints."""
 
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -126,6 +127,12 @@ class GenerateConversationTitleResponse(BaseModel):
     )
 
 
+#: Ceiling on the sampled questions a digest request may carry. Enforced on the
+#: schema so an oversized list is refused at parse time; the route slices to the
+#: same bound for callers that are within it.
+MAX_DIGEST_SAMPLES = 60
+
+
 class FeedbackDigestTopic(BaseModel):
     """Votes on one OIB topic tag, for the digest's per-topic reading."""
 
@@ -155,7 +162,7 @@ class FeedbackDigestSample(BaseModel):
     it does not need the generated text back, and answers are the long half.
     """
 
-    verdict: str = Field(..., description="'up' or 'down'")
+    verdict: Literal["up", "down"] = Field(..., description="'up' or 'down'")
     reason: str | None = Field(None, description="Down-vote reason key, when the vote carried one")
     topics: list[str] = Field(default_factory=list, description="Topic tag keys of the conversation")
     question: str = Field(..., description="The user's question, truncated by the caller")
@@ -194,6 +201,10 @@ class FeedbackDigestRequest(BaseModel):
     samples: list[FeedbackDigestSample] = Field(
         default_factory=list,
         description="Bounded sample of rated questions, both directions",
+        # Bounded at the schema, not only by the route's slice: an unknown
+        # verdict would otherwise fall silently into the "disliked" bucket, and
+        # an oversized list would be fully parsed before being truncated.
+        max_length=MAX_DIGEST_SAMPLES,
     )
     locale: str = Field("de", description="UI locale ('de' or 'en') — the language the digest is written in")
 
