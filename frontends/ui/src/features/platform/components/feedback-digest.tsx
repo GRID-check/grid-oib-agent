@@ -62,6 +62,11 @@ export interface FeedbackDigestProps {
 /** Codes that describe a young window rather than a failure. */
 const BENIGN = new Set(['no_feedback', 'too_few_votes'])
 
+/**
+ * The digest card. Fetches on its own so a slow model never delays the figures,
+ * and renders one of four states: the sentences, a young window, a thin window,
+ * or a failure that says the figures below are still good.
+ */
 export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.Element | null {
   const t = useTranslations('platform')
   const { locale } = useLocale()
@@ -195,6 +200,10 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
   )
 }
 
+/**
+ * One half of the digest. Always rendered, even with nothing in it — a column
+ * that disappears when empty is how the good half quietly loses its billing.
+ */
 function DigestColumn({
   testId,
   icon,

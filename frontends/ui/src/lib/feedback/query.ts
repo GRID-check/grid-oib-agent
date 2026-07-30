@@ -14,6 +14,13 @@ import { parseFeedbackWindowDays, type FeedbackHealthFilters } from './repositor
 /** Free-text search is bounded: it becomes an ILIKE, not a novel. */
 const MAX_QUERY_CHARS = 120
 
+/**
+ * Coerce a query string into the filters the repository accepts.
+ *
+ * Nothing is trusted: an unknown reason or topic becomes `null` rather than
+ * reaching a SQL comparison, and an unparseable direction falls back to the
+ * failures.
+ */
 export function parseFeedbackFilters(params: URLSearchParams): FeedbackHealthFilters {
   const rawReason = params.get('reason')
   const reason = (ANSWER_FEEDBACK_REASONS as readonly string[]).includes(rawReason ?? '')

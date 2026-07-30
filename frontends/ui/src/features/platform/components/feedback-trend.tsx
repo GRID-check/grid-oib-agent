@@ -72,6 +72,11 @@ function formatDay(day: string, locale: string): string {
   return new Date(day).toLocaleDateString(locale, { timeZone: 'UTC' })
 }
 
+/**
+ * The daily helpful rate over a stacked volume strip, with the direction stated
+ * in words. Returns a sentence instead of a chart when too few days are
+ * readable — see the module note on why that is not a flat line.
+ */
 export function FeedbackTrend({
   points,
   windowDays,

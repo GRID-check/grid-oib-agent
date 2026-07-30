@@ -32,6 +32,7 @@ def _configured_llm_key(monkeypatch):
 
 
 def _fake_async_client(post_mock):
+    """Stand in for `httpx.AsyncClient` as an async context manager."""
     client = MagicMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
@@ -40,6 +41,7 @@ def _fake_async_client(post_mock):
 
 
 def _llm_response(content: str):
+    """A successful chat-completions response carrying `content`."""
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = 200
     mock_response.raise_for_status = MagicMock()
@@ -84,6 +86,7 @@ _GOOD_REPLY = json.dumps(
 
 
 def _sent_payload(mock_post) -> dict:
+    """The JSON body the route actually posted to the model."""
     return mock_post.call_args.kwargs["json"]
 
 

@@ -80,6 +80,12 @@ SYSTEM_PROMPT = (
 
 
 def _rate(up: int, down: int) -> str:
+    """Render one up/down pair as a helpful rate with the volume behind it.
+
+    Always paired with the count, because the model is asked not to make claims
+    the sample cannot support and "100% helpful" over two votes is exactly the
+    claim it would otherwise make.
+    """
     total = up + down
     if total == 0:
         return "no votes"
@@ -141,6 +147,12 @@ def _build_brief(request: FeedbackDigestRequest) -> str:
     disliked = [s for s in samples if s.verdict != "up"]
 
     def _render(entries: list) -> list[str]:
+        """One bullet per sampled question, truncated, tagged and reason-annotated.
+
+        Entries whose question did not survive the join are dropped rather than
+        rendered as a blank bullet — an empty line in the prompt is a line the
+        model will try to interpret.
+        """
         out = []
         for entry in entries:
             question = (entry.question or "").strip()
@@ -203,6 +215,12 @@ def _parse_digest(raw: str | None) -> tuple[str, list[str], list[str], str | Non
         headline = headline[: _MAX_HEADLINE_CHARS - 1].rstrip() + "…"
 
     def _list(key: str) -> list[str]:
+        """One cleaned, capped string list off the reply, or empty if unusable.
+
+        A non-list value is empty rather than an error: `strengths` and
+        `concerns` are independent, and one malformed field must not throw away
+        the other one.
+        """
         values = data.get(key, [])
         if not isinstance(values, list):
             return []
@@ -236,6 +254,12 @@ def add_feedback_digest_routes(router: APIRouter) -> None:
         # is the platform organization.
         x_grid_organization_id: str | None = Header(default=None),
     ) -> FeedbackDigestResponse:
+        """Summarise one window of answer feedback, or say why it could not be.
+
+        Never raises and never answers non-200: the digest is a convenience on
+        top of a page that works without it, so every failure comes back as an
+        empty digest plus a code the UI can turn into a sentence.
+        """
         if request.up + request.down == 0:
             # Nothing was rated. There is no digest to write, and a model asked
             # to summarise an empty window writes a confident paragraph about

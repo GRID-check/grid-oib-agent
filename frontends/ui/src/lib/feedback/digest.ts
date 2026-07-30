@@ -115,6 +115,10 @@ function digestKey(filters: FeedbackHealthFilters, locale: string): string {
   return `feedback:digest:${CACHE_VERSION}:${parts.join(':')}`
 }
 
+/**
+ * Flatten and truncate one question for the prompt. `null` for anything that is
+ * left empty — a blank sample is a line the model would try to interpret.
+ */
 function trimQuestion(value: string | null): string | null {
   if (!value) return null
   const flat = value.replace(/\s+/g, ' ').trim()
@@ -181,6 +185,11 @@ export async function getFeedbackDigest(
   return { digest: null, error: outcome.error ?? 'digest_unavailable' }
 }
 
+/**
+ * The uncached path: sample both directions, strip every identifier, ask the
+ * model. Only reached on a cache miss, and every failure is returned rather than
+ * thrown — `getFeedbackDigest` caches the outcome either way.
+ */
 async function generateDigest(
   health: FeedbackHealth,
   filters: FeedbackHealthFilters,

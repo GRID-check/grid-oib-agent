@@ -121,6 +121,11 @@ function excerpt(value: string | null, max = 180): string | null {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }
 
+/**
+ * The whole surface: digest, headline, direction, why, by topic, by
+ * organization, and the switchable drill-in. Every filter round-trips to the
+ * server — see the note on `search`.
+ */
 export function AnswerFeedbackHealth(): JSX.Element {
   const t = useTranslations('platform')
   const { locale } = useLocale()
