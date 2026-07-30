@@ -8,6 +8,7 @@
  */
 
 import { ANSWER_FEEDBACK_REASONS, type AnswerFeedbackReason } from '@/lib/db/schema'
+import { isConversationTagKey } from '@/lib/conversations/tags'
 import { parseFeedbackWindowDays, type FeedbackHealthFilters } from './repository'
 
 /** Free-text search is bounded: it becomes an ILIKE, not a novel. */
@@ -19,13 +20,23 @@ export function parseFeedbackFilters(params: URLSearchParams): FeedbackHealthFil
     ? (rawReason as AnswerFeedbackReason)
     : null
 
+  // Anything but an explicit `up` is `down`: the failed answers are the
+  // actionable list, so an unparseable value must not land the reader in the
+  // praise list wondering where the problems went.
+  const verdict = params.get('verdict') === 'up' ? 'up' : 'down'
+
+  const rawTopic = params.get('topic')?.trim().toLowerCase() ?? ''
+  const topic = isConversationTagKey(rawTopic) ? rawTopic : null
+
   const organizationId = params.get('org')?.trim() || null
   const query = params.get('q')?.trim().slice(0, MAX_QUERY_CHARS) || null
 
   return {
     windowDays: parseFeedbackWindowDays(params.get('days')),
+    verdict,
     reason,
     organizationId,
+    topic,
     query,
   }
 }

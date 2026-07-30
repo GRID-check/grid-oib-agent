@@ -1,15 +1,21 @@
 'use client'
 
 /**
- * Is it getting better? — the daily negative rate, with the volume it rests on.
+ * Is it getting better? — the daily HELPFUL rate, with the volume it rests on.
  *
  * The headline figure is a scoreboard; this is the part you can steer by. A
  * platform owner improving answers needs the DIRECTION, and a single number for a
  * window cannot carry one.
  *
- * **Rate, not count.** Plotting down-votes per day would mostly plot traffic: a
- * busy Tuesday produces more of them without anything getting worse. The series
- * is therefore the share of that day's votes that were negative.
+ * **Up is better.** This plotted the negative share until the surface was, fairly,
+ * accused of only ever showing the bad half. Same data either way — but on a
+ * negative-rate chart every reader has to invert the shape before it means
+ * anything, and the label "3 points better" sat above a line that had just
+ * fallen. The good direction is now the up direction.
+ *
+ * **Rate, not count.** Plotting votes per day would mostly plot traffic: a busy
+ * Tuesday produces more of everything without anything having changed. The series
+ * is the share of that day's votes that were helpful.
  *
  * **Two plots, never two y-axes.** Rate and volume are different scales, and a
  * dual-axis chart lets the reader "see" a correlation that is an artefact of two
@@ -17,21 +23,29 @@
  * line, and a volume strip underneath that says how much each point is worth.
  *
  * **Thin days are drawn as unresolved, not as fact.** One down-vote out of two is
- * 50% and would spike the line into something that looks like a regression. Those
- * points are hollow and the segments around them dashed — the reader can see the
+ * 50% and would spike the line into something that looks like a collapse. Those
+ * points are dropped and the segments around them dashed — the reader can see the
  * shape without being invited to believe it.
+ *
+ * The window filling and the direction arithmetic live in `@/lib/feedback/trend`,
+ * shared with the digest: the chart's "3.4 points better" and the digest's
+ * sentence about improvement are the same claim, and two implementations of it
+ * would eventually disagree on one screen.
  */
 
 import { useId, useMemo, useState } from 'react'
 
 import { useLocale, useTranslations } from '@/i18n'
+import {
+  feedbackTrendAverage,
+  feedbackTrendDelta,
+  fillTrendWindow,
+  MIN_TREND_VOTES,
+  type FeedbackDayPoint,
+} from '@/lib/feedback/trend'
 import { cn } from '@/lib/utils'
 
-export interface FeedbackTrendPoint {
-  day: string
-  up: number
-  down: number
-}
+export type FeedbackTrendPoint = FeedbackDayPoint
 
 export interface FeedbackTrendProps {
   points: readonly FeedbackTrendPoint[]
@@ -48,38 +62,6 @@ const VOL_H = 28
 /** Left gutter for the y labels — without a scale the line has no magnitude. */
 const PAD_X = 34
 
-interface Day {
-  day: string
-  total: number
-  down: number
-  rate: number | null
-}
-
-/**
- * Fill the window day by day. The server returns only days that HAD votes, and
- * plotting those against an evenly spaced axis silently compresses quiet periods
- * — a fortnight of silence would render as one step.
- */
-function fillWindow(points: readonly FeedbackTrendPoint[], windowDays: number, minVotes: number): Day[] {
-  const byDay = new Map(points.map((p) => [p.day, p]))
-  const out: Day[] = []
-  const today = new Date()
-  for (let i = windowDays - 1; i >= 0; i -= 1) {
-    const date = new Date(today)
-    date.setUTCDate(date.getUTCDate() - i)
-    const key = date.toISOString().slice(0, 10)
-    const found = byDay.get(key)
-    const total = found ? found.up + found.down : 0
-    out.push({
-      day: key,
-      total,
-      down: found?.down ?? 0,
-      rate: total >= minVotes ? ((found?.down ?? 0) / total) * 100 : null,
-    })
-  }
-  return out
-}
-
 /**
  * A `day` key is a UTC calendar date, and it has to be formatted as one.
  * `new Date('2026-07-30')` parses to midnight UTC, so a reader west of Greenwich
@@ -93,7 +75,7 @@ function formatDay(day: string, locale: string): string {
 export function FeedbackTrend({
   points,
   windowDays,
-  minVotes = 5,
+  minVotes = MIN_TREND_VOTES,
   className,
 }: FeedbackTrendProps): JSX.Element | null {
   const t = useTranslations('platform')
@@ -102,13 +84,13 @@ export function FeedbackTrend({
   const [hover, setHover] = useState<number | null>(null)
 
   const days = useMemo(
-    () => fillWindow(points, windowDays, minVotes),
+    () => fillTrendWindow(points, windowDays, minVotes),
     [points, windowDays, minVotes],
   )
 
   const readable = days.filter((d) => d.rate !== null)
   // Nothing to draw a direction from. Said in words rather than as a flat line at
-  // zero, which would read as "we are perfect" instead of "we do not know yet".
+  // zero, which would read as "every answer failed" instead of "we do not know".
   if (readable.length < 2) {
     return (
       <p className={cn('text-xs text-muted-foreground', className)} data-testid="feedback-trend-empty">
@@ -117,7 +99,9 @@ export function FeedbackTrend({
     )
   }
 
-  const maxRate = Math.max(10, ...readable.map((d) => d.rate ?? 0))
+  // The helpful rate is a share of a whole, so the axis is the whole: fitting it
+  // to the data would redraw 88%–92% as a mountain range. 100% is the top.
+  const maxRate = 100
   const maxVol = Math.max(1, ...days.map((d) => d.total))
   const step = days.length > 1 ? (VIEW_W - PAD_X * 2) / (days.length - 1) : 0
   const x = (i: number): number => PAD_X + i * step
@@ -143,21 +127,10 @@ export function FeedbackTrend({
     ]
   })
 
-  /**
-   * The direction, measured as first third against last third — NOT first point
-   * against last point.
-   *
-   * Endpoints are single days, so a quiet Friday at one end swings the verdict by
-   * a dozen points and the headline claim about whether the product is improving
-   * becomes noise. That is the same small-sample trap the rest of this page
-   * guards against; measuring it here and not there would be incoherent.
-   */
-  const average = readable.reduce((sum, d) => sum + (d.rate ?? 0), 0) / readable.length
-
-  const third = Math.max(1, Math.floor(readable.length / 3))
-  const mean = (window: Day[]): number =>
-    window.reduce((sum, d) => sum + (d.rate ?? 0), 0) / window.length
-  const delta = mean(readable.slice(-third)) - mean(readable.slice(0, third))
+  const average = feedbackTrendAverage(days)
+  // Positive = the helpful rate rose = better. Measured first third against last
+  // third, not endpoint against endpoint — see `feedbackTrendDelta`.
+  const delta = feedbackTrendDelta(days) ?? 0
   const hovered = hover !== null ? days[hover] : null
 
   return (
@@ -171,15 +144,15 @@ export function FeedbackTrend({
         <p
           className={cn(
             'text-xs font-medium tabular-nums',
-            delta <= -1 ? 'text-success' : delta >= 1 ? 'text-warning' : 'text-muted-foreground',
+            delta >= 1 ? 'text-success' : delta <= -1 ? 'text-warning' : 'text-muted-foreground',
           )}
           data-testid="feedback-trend-delta"
         >
           {t(
-            delta <= -1
-              ? 'answerFeedback.trendDown'
-              : delta >= 1
-                ? 'answerFeedback.trendUp'
+            delta >= 1
+              ? 'answerFeedback.trendBetter'
+              : delta <= -1
+                ? 'answerFeedback.trendWorse'
                 : 'answerFeedback.trendFlat',
             { points: Math.abs(delta).toLocaleString(locale, { maximumFractionDigits: 1 }) },
           )}

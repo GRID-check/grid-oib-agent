@@ -32,6 +32,11 @@ import {
   type FeedbackHealth,
   type FeedbackHealthFilters,
 } from './repository'
+import {
+  getFeedbackDigest,
+  type FeedbackDigestOptions,
+  type FeedbackDigestResult,
+} from './digest'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
@@ -113,4 +118,25 @@ export async function getAnswerFeedbackHealth(
 ): Promise<FeedbackHealth> {
   await requirePlatformOwner(session)
   return getFeedbackHealth(filters)
+}
+
+/**
+ * The same view, in sentences — see `./digest` for what is sent and why.
+ *
+ * Behind the SAME gate as the numbers, and for a sharper reason: the digest
+ * reads across every tenant's questions at once and hands a model a summary of
+ * all of them. Anyone who can read that can already read the underlying page.
+ *
+ * The aggregate is computed here and passed down rather than recomputed inside
+ * the digest, so the sentences and the figures beside them can never describe
+ * two different windows.
+ */
+export async function getAnswerFeedbackDigest(
+  session: GridSession | null,
+  filters: FeedbackHealthFilters = {},
+  options: FeedbackDigestOptions = {},
+): Promise<FeedbackDigestResult> {
+  await requirePlatformOwner(session)
+  const health = await getFeedbackHealth({ ...filters, limit: 0 })
+  return getFeedbackDigest(health, filters, options)
 }

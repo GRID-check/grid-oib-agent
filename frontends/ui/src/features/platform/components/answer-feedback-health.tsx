@@ -11,12 +11,22 @@
  * product asked users for a signal and then had no way to look at it, which makes
  * the asking dishonest. This is the read.
  *
- * **The form follows the job.** The job is not "how many thumbs" — it is *get me
- * to the answers that failed*. So the primary surface is the defect list, and the
- * numbers above it exist only to orient: a headline rate, a four-bar breakdown of
- * why, and a per-organization rollup that says whether a problem is everyone's or
- * one tenant's. Nothing here is a chart for its own sake; a four-category
- * magnitude comparison is a bar list, which is plain HTML and needs no library.
+ * **The form follows the job.** The job is *what should I do about answer
+ * quality?* — which needs both halves of the answer. The first version of this
+ * asked only the failure half: a negative headline, a negative trend line, a
+ * table sorted by failures, a list of failed turns. That is a page you can only
+ * lose on, and a reader cannot tell from it which of last month's changes to
+ * keep. So: the headline is the helpful rate, the trend rises when things
+ * improve, the drill-in switches between the answers that landed and the ones
+ * that missed, and a topic rollup says what the product is good AT rather than
+ * only who is unhappy with it. The failure breakdown is still here, one section
+ * among several rather than the whole page.
+ *
+ * Above all of it sits the digest — the same window in sentences. See
+ * `./feedback-digest`.
+ *
+ * Nothing here is a chart for its own sake; a four-category magnitude comparison
+ * is a bar list, which is plain HTML and needs no library.
  *
  * **Colour.** ONE hue for every bar (`--grid-series-1`), because the job is
  * comparing magnitude and the rule for magnitude is sequential — categorical is
@@ -41,8 +51,10 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
+import { FeedbackDigest } from './feedback-digest'
 import { FeedbackTrend } from './feedback-trend'
 import { useLocale, useTranslations } from '@/i18n'
+import { CONVERSATION_TAG_KEYS, type ConversationTagKey } from '@/lib/conversations/tags'
 import { formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -60,6 +72,9 @@ const MIN_RATE_VOTES = 5
 /** Windows offered. Mirrors `FEEDBACK_WINDOW_OPTIONS`; the server coerces anyway. */
 const WINDOWS = [7, 30, 90] as const
 
+/** Which half of the feedback the drill-in is showing. */
+type Verdict = 'down' | 'up'
+
 interface FeedbackHealthResponse {
   windowDays: number
   answers: number
@@ -67,17 +82,20 @@ interface FeedbackHealthResponse {
   reasons: { reason: Reason | null; count: number }[]
   daily: { day: string; up: number; down: number }[]
   organizations: { organizationId: string; up: number; down: number; voters: number }[]
-  defects: {
+  topics: { topic: ConversationTagKey; up: number; down: number; voters: number }[]
+  turns: {
     id: string
     organizationId: string
     projectId: string | null
     conversationId: string | null
     messageId: string
+    verdict: Verdict
     reason: Reason | null
     createdAt: string
     answer: string | null
     question: string | null
     conversationTitle: string | null
+    topics: ConversationTagKey[]
   }[]
 }
 
@@ -111,8 +129,10 @@ export function AnswerFeedbackHealth(): JSX.Element {
   const [failed, setFailed] = useState(false)
 
   const [days, setDays] = useState<number>(30)
+  const [verdict, setVerdict] = useState<Verdict>('down')
   const [reason, setReason] = useState<Reason | null>(null)
   const [org, setOrg] = useState<string | null>(null)
+  const [topic, setTopic] = useState<ConversationTagKey | null>(null)
   const [query, setQuery] = useState('')
   /** The value actually sent — debounced, so typing does not fire a query a keystroke. */
   const [committedQuery, setCommittedQuery] = useState('')
@@ -128,14 +148,23 @@ export function AnswerFeedbackHealth(): JSX.Element {
    * would search the last 50 defects and confidently report nothing beyond them.
    */
   const search = useMemo(() => {
-    const params = new URLSearchParams({ days: String(days) })
-    if (reason) params.set('reason', reason)
+    const params = new URLSearchParams({ days: String(days), verdict })
+    if (reason && verdict === 'down') params.set('reason', reason)
     if (org) params.set('org', org)
+    if (topic) params.set('topic', topic)
     if (committedQuery) params.set('q', committedQuery)
     return params.toString()
-  }, [days, reason, org, committedQuery])
+  }, [days, verdict, reason, org, topic, committedQuery])
 
-  const filtered = Boolean(reason || org || committedQuery)
+  const filtered = Boolean(reason || org || topic || committedQuery)
+  /**
+   * Only the org and topic filters narrow the AGGREGATES; reason and free text
+   * narrow the drill-in alone (see `getFeedbackHealth`). The "this describes
+   * your selection" warning follows the aggregates, because that is what it is
+   * a warning about — putting it on the reason filter would be crying wolf on a
+   * headline that had not moved.
+   */
+  const narrowed = Boolean(org || topic)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -161,12 +190,21 @@ export function AnswerFeedbackHealth(): JSX.Element {
   const clearFilters = (): void => {
     setReason(null)
     setOrg(null)
+    setTopic(null)
     setQuery('')
     setCommittedQuery('')
   }
 
   const total = (data?.totals.up ?? 0) + (data?.totals.down ?? 0)
-  const downRate = total > 0 ? (data!.totals.down / total) * 100 : 0
+  /**
+   * The headline is the HELPFUL share, not the negative one.
+   *
+   * Same arithmetic, and not the same page. A surface whose biggest number is a
+   * failure rate can only ever report how much was lost, and the reader who
+   * needs to decide what to keep doing gets nothing from it. The negative count
+   * is still here, one line below, where it is a fact rather than a verdict.
+   */
+  const helpfulRate = total > 0 ? (data!.totals.up / total) * 100 : 0
   // What share of answers anybody rated at all. The rate above describes the
   // people who voted; this says how few of them there were.
   const coverage = data && data.answers > 0 ? (total / data.answers) * 100 : 0
@@ -184,6 +222,32 @@ export function AnswerFeedbackHealth(): JSX.Element {
       /** Share of the widest bar — the bar's job is comparison, not absolute scale. */
       pct: ((counts.get(reason) ?? 0) / max) * 100,
     }))
+  }, [data])
+
+  /**
+   * Topics, ordered best-first and carrying their own volume.
+   *
+   * Best-first rather than worst-first on purpose: this is the section that
+   * answers "what is the product actually good at", and a table that opens with
+   * the failures answers a question the rest of the card already covers. Topics
+   * below the floor keep their counts and withhold the rate, same rule as the
+   * organizations.
+   */
+  const topicRows = useMemo(() => {
+    const byKey = new Map((data?.topics ?? []).map((entry) => [entry.topic, entry]))
+    return CONVERSATION_TAG_KEYS.flatMap((key) => {
+      const entry = byKey.get(key)
+      if (!entry) return []
+      const votes = entry.up + entry.down
+      if (votes === 0) return []
+      return [{ topic: key, votes, rate: votes > 0 ? (entry.up / votes) * 100 : 0 }]
+    }).sort((a, b) => {
+      // Unreadable topics sink to the bottom rather than sorting as 0% or 100%.
+      const aReadable = a.votes >= MIN_RATE_VOTES
+      const bReadable = b.votes >= MIN_RATE_VOTES
+      if (aReadable !== bReadable) return aReadable ? -1 : 1
+      return aReadable ? b.rate - a.rate : b.votes - a.votes
+    })
   }, [data])
 
   return (
@@ -277,23 +341,29 @@ export function AnswerFeedbackHealth(): JSX.Element {
           />
         ) : (
           <>
+            {/* ---- The window in sentences, above the figures it is made of.
+                 Its own fetch, so a slow model never delays the numbers. ---- */}
+            <FeedbackDigest search={search} />
+
             {/* ---- Orientation: the headline, then the two counts it is made of.
                  A hero figure rather than a one-bar chart (choosing-a-form). ---- */}
             <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
               <div>
                 <p className="text-3xl font-semibold tabular-nums tracking-tight text-foreground">
-                  {t('answerFeedback.percent', { value: num(downRate, locale, 1) })}
+                  {t('answerFeedback.percent', { value: num(helpfulRate, locale, 1) })}
                 </p>
-                <p className="text-xs text-muted-foreground">{t('answerFeedback.downRate')}</p>
+                <p className="text-xs text-muted-foreground">{t('answerFeedback.helpfulRate')}</p>
                 {/* The denominator, deliberately adjacent to the headline rather
-                    than tucked away. A negative rate over votes alone describes
-                    the people who chose to vote — raters self-select and skew
-                    negative — so without the coverage beside it the big number
-                    gets quoted as a quality figure it is not. */}
-                {/* When a filter is on, the headline is a claim about the SELECTION,
-                    not the platform — and a big percentage with no such note is
-                    exactly how a filtered figure ends up in a slide. */}
-                {filtered && (
+                    than tucked away. A rate over votes alone describes the people
+                    who chose to vote — raters self-select — so without the
+                    coverage beside it the big number gets quoted as a quality
+                    figure it is not. That cuts both ways now that the headline is
+                    the flattering half: a 94% helpful rate on 4% of answers is
+                    just as misquotable as the negative version was. */}
+                {/* When the aggregates are narrowed, the headline is a claim about
+                    the SELECTION, not the platform — and a big percentage with no
+                    such note is exactly how a filtered figure ends up in a slide. */}
+                {narrowed && (
                   <p className="mt-0.5 text-xs font-medium text-warning">
                     {t('answerFeedback.filteredNote')}
                   </p>
@@ -348,7 +418,14 @@ export function AnswerFeedbackHealth(): JSX.Element {
                           to exist. */}
                       <button
                         type="button"
-                        onClick={() => setReason(reason === reasonKey ? null : reasonKey)}
+                        onClick={() => {
+                          // A reason only exists on a down-vote, so picking one
+                          // also takes the list there. Leaving the reader on the
+                          // praise list with an inert reason chip applied is the
+                          // kind of dead control that teaches people not to click.
+                          setVerdict('down')
+                          setReason(reason === reasonKey ? null : reasonKey)
+                        }}
                         aria-pressed={reason === reasonKey}
                         className={cn(
                           'w-32 shrink-0 truncate rounded text-left text-xs transition-colors',
@@ -385,6 +462,65 @@ export function AnswerFeedbackHealth(): JSX.Element {
               </div>
             )}
 
+            {/* ---- Per topic. The section that says what the product is GOOD at,
+                 which no amount of failure analysis can produce. Best first: the
+                 failures already have three sections of their own, and a reader
+                 deciding what to protect needs the top of this list. ---- */}
+            {topicRows.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t('answerFeedback.topicsHeading')}
+                </h4>
+                <ul className="divide-y rounded-lg border" data-testid="feedback-topics">
+                  {topicRows.map(({ topic: topicKey, votes, rate }) => (
+                    <li
+                      key={topicKey}
+                      data-testid="feedback-topic"
+                      data-selected={topic === topicKey || undefined}
+                      className={cn(
+                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors',
+                        topic === topicKey && 'bg-accent/40',
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setTopic(topic === topicKey ? null : topicKey)}
+                        aria-pressed={topic === topicKey}
+                        className={cn(
+                          'min-w-0 flex-1 truncate rounded text-left text-foreground',
+                          'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+                          'hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                        )}
+                      >
+                        {t(`answerFeedback.topics.${topicKey}`)}
+                      </button>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {t('answerFeedback.orgVotes', { votes: num(votes, locale) })}
+                      </span>
+                      {votes >= MIN_RATE_VOTES ? (
+                        <span className="w-14 shrink-0 text-right font-medium tabular-nums text-foreground">
+                          {t('answerFeedback.percent', { value: num(rate, locale) })}
+                        </span>
+                      ) : (
+                        <span
+                          className="w-14 shrink-0 text-right text-muted-foreground/70"
+                          title={t('answerFeedback.tooFewVotes', { min: MIN_RATE_VOTES })}
+                        >
+                          {t('answerFeedback.tooFewShort')}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {/* Not a second denominator. Only tagged conversations reach this
+                    table, so its votes do not sum to the headline — said out loud
+                    rather than left for somebody to discover by adding it up. */}
+                <p className="text-[11px] text-muted-foreground/70">
+                  {t('answerFeedback.topicsCaveat')}
+                </p>
+              </div>
+            )}
+
             {/* ---- Per organization. The second bias guard: one noisy tenant can
                  carry the whole platform rate, and a single number cannot say so.
                  Sorted by down-votes, so whoever is having the worst time is the
@@ -397,7 +533,10 @@ export function AnswerFeedbackHealth(): JSX.Element {
                 <ul className="divide-y rounded-lg border" data-testid="feedback-orgs">
                   {data!.organizations.map((o) => {
                     const orgTotal = o.up + o.down
-                    const orgRate = orgTotal > 0 ? (o.down / orgTotal) * 100 : 0
+                    // Helpful share, matching the headline. Two rates pointing in
+                    // opposite directions on one card is how a reader ends up
+                    // reading the worst tenant as the best one.
+                    const orgRate = orgTotal > 0 ? (o.up / orgTotal) * 100 : 0
                     return (
                       <li
                         key={o.organizationId}
@@ -426,11 +565,11 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         {/* The rate is the comparable figure across tenants of
                             very different sizes; the raw counts sit beside it so
                             a 100% built on one vote cannot masquerade as a trend. */}
-                        {/* One down-vote in an org with one vote is 100%, and it
-                            would sort to the top of this list looking like a
-                            crisis. Below the floor the row keeps its counts and
-                            withholds the percentage rather than printing a number
-                            that cannot mean anything. */}
+                        {/* An org with one vote reads as 0% or 100% helpful, and
+                            either one looks like a verdict. Below the floor the
+                            row keeps its counts and withholds the percentage
+                            rather than printing a number that cannot mean
+                            anything. */}
                         {orgTotal >= MIN_RATE_VOTES ? (
                           <span className="w-14 shrink-0 text-right font-medium tabular-nums text-foreground">
                             {t('answerFeedback.percent', { value: num(orgRate, locale) })}
@@ -451,35 +590,91 @@ export function AnswerFeedbackHealth(): JSX.Element {
             )}
 
             {/* ---- The access point. Everything above is orientation; this is
-                 what the surface is for. ---- */}
+                 what the surface is for — in both directions. The switch is a
+                 pair of peers rather than a "show the good ones too" afterthought,
+                 because the answers that landed are how you find out which of last
+                 month's changes to keep. ---- */}
             <div className="space-y-2">
-              <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t('answerFeedback.defectsHeading')}
-              </h4>
-              {data!.defects.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('answerFeedback.noDefects')}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t(verdict === 'down' ? 'answerFeedback.missedHeading' : 'answerFeedback.landedHeading')}
+                </h4>
+                <div
+                  className="flex items-center gap-1"
+                  role="group"
+                  aria-label={t('answerFeedback.verdictLabel')}
+                  data-testid="feedback-verdict-switch"
+                >
+                  <Button
+                    variant={verdict === 'down' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={verdict === 'down'}
+                    onClick={() => setVerdict('down')}
+                  >
+                    <ThumbsDown className="size-3.5" aria-hidden />
+                    {t('answerFeedback.showMissed')}
+                  </Button>
+                  <Button
+                    variant={verdict === 'up' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={verdict === 'up'}
+                    onClick={() => {
+                      // The reason filter is a down-vote concept; carrying it
+                      // across would silently empty the list.
+                      setReason(null)
+                      setVerdict('up')
+                    }}
+                  >
+                    <ThumbsUp className="size-3.5" aria-hidden />
+                    {t('answerFeedback.showLanded')}
+                  </Button>
+                </div>
+              </div>
+              {data!.turns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {t(verdict === 'down' ? 'answerFeedback.noMissed' : 'answerFeedback.noLanded')}
+                </p>
               ) : (
-                <ul className="divide-y rounded-lg border" data-testid="feedback-defects">
-                  {data!.defects.map((defect) => {
-                    const question = excerpt(defect.question)
-                    const answer = excerpt(defect.answer, 220)
+                <ul className="divide-y rounded-lg border" data-testid="feedback-turns">
+                  {data!.turns.map((turn) => {
+                    const question = excerpt(turn.question)
+                    const answer = excerpt(turn.answer, 220)
+                    const landed = turn.verdict === 'up'
                     return (
-                      <li key={defect.id} className="space-y-1.5 px-3 py-2.5" data-testid="feedback-defect">
+                      <li key={turn.id} className="space-y-1.5 px-3 py-2.5" data-testid="feedback-turn">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                           <span
-                            className="inline-flex items-center gap-1 rounded-md bg-warning-subtle px-1.5 py-px font-medium text-warning"
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-md px-1.5 py-px font-medium',
+                              landed
+                                ? 'bg-success-subtle text-success'
+                                : 'bg-warning-subtle text-warning',
+                            )}
                           >
-                            <ThumbsDown className="size-3" aria-hidden />
-                            {t(`answerFeedback.reasons.${defect.reason ?? 'other'}`)}
+                            {landed ? (
+                              <ThumbsUp className="size-3" aria-hidden />
+                            ) : (
+                              <ThumbsDown className="size-3" aria-hidden />
+                            )}
+                            {/* A helpful vote carries no reason — the chip says
+                                what it is instead of borrowing a failure label. */}
+                            {landed
+                              ? t('answerFeedback.landedChip')
+                              : t(`answerFeedback.reasons.${turn.reason ?? 'other'}`)}
                           </span>
-                          <span className="truncate font-mono text-[11px]">{defect.organizationId}</span>
-                          <time dateTime={defect.createdAt}>
-                            {formatRelativeTime(defect.createdAt, locale)}
+                          <span className="truncate font-mono text-[11px]">{turn.organizationId}</span>
+                          {turn.topics.map((topicKey) => (
+                            <span key={topicKey} className="rounded bg-muted px-1.5 py-px text-[11px]">
+                              {t(`answerFeedback.topics.${topicKey}`)}
+                            </span>
+                          ))}
+                          <time dateTime={turn.createdAt}>
+                            {formatRelativeTime(turn.createdAt, locale)}
                           </time>
                         </div>
 
                         {/* The question is the point of the row — what was asked
-                            that produced a bad answer. */}
+                            that produced this answer. */}
                         {question ? (
                           <p className="text-sm leading-snug text-foreground">{question}</p>
                         ) : (

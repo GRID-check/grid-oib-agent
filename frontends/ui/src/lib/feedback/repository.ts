@@ -26,6 +26,7 @@ import {
   type AnswerFeedbackReason,
   type AnswerFeedbackVerdict,
 } from '@/lib/db/schema'
+import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -163,7 +164,29 @@ export interface FeedbackOrgRollup {
 }
 
 /**
- * One down-voted answer, with as much of the turn as survives the join.
+ * Votes rolled up by the conversation's OIB topic tags.
+ *
+ * The aggregate everything else here was missing: totals say how the product is
+ * doing, and this says *at what*. "Brandschutz answers land, Schallschutz ones
+ * do not" is a sentence somebody can act on; "12% negative" is not, and neither
+ * is a per-organization split, which describes who is unhappy rather than what
+ * about.
+ *
+ * Tags come from `conversations.tags` (the naming LLM's closed vocabulary, see
+ * `lib/conversations/tags.ts`), so this covers only feedback whose conversation
+ * row exists AND was tagged — a strict subset of the totals. It is a breakdown,
+ * never a second denominator: the numbers here do not sum to `totals`.
+ */
+export interface FeedbackTopicRollup {
+  topic: ConversationTagKey
+  up: number
+  down: number
+  /** Distinct voters on this topic — see the note on `FeedbackHealthTotals`. */
+  voters: number
+}
+
+/**
+ * One voted-on answer, with as much of the turn as survives the join.
  *
  * `question`/`answer` are NULLABLE on purpose, and the UI must render the row
  * without them. `answer_feedback.message_id` is the chat-store id and carries no
@@ -171,20 +194,28 @@ export interface FeedbackOrgRollup {
  * no row to join, and `conversation_id` is likewise plain text whose row is
  * written asynchronously. A drill-in that only listed joinable rows would
  * silently hide exactly the feedback nobody has looked at yet.
+ *
+ * The row carries its own `verdict` because the list serves BOTH directions: the
+ * answers that missed, and — asked for by name — the ones that landed. One shape
+ * and one query for the two, so the good half can never quietly fall behind the
+ * bad half in what it shows.
  */
-export interface FeedbackDefect {
+export interface FeedbackTurn {
   id: string
   organizationId: string
   projectId: string | null
   conversationId: string | null
   messageId: string
+  verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
   createdAt: Date
-  /** The answer that was voted down, when its message row exists. */
+  /** The answer that was voted on, when its message row exists. */
   answer: string | null
-  /** The user turn immediately preceding it — the question that went wrong. */
+  /** The user turn immediately preceding it — the question that was asked. */
   question: string | null
   conversationTitle: string | null
+  /** The conversation's topic tags, when it has a row and was tagged. */
+  topics: ConversationTagKey[]
 }
 
 export interface FeedbackHealth {
@@ -208,7 +239,9 @@ export interface FeedbackHealth {
   reasons: FeedbackReasonCount[]
   daily: FeedbackDailyPoint[]
   organizations: FeedbackOrgRollup[]
-  defects: FeedbackDefect[]
+  topics: FeedbackTopicRollup[]
+  /** The drill-in, in whichever direction `filters.verdict` asked for. */
+  turns: FeedbackTurn[]
 }
 
 /**
@@ -221,10 +254,18 @@ export interface FeedbackHealth {
  */
 export interface FeedbackHealthFilters {
   windowDays?: number
-  /** Restrict the drill-in to one reason. */
+  /**
+   * Which direction the drill-in lists. Defaults to `down` — that is the
+   * actionable list — but `up` is a first-class value, not an afterthought: the
+   * answers that landed are what tells you which of the recent changes to keep.
+   */
+  verdict?: AnswerFeedbackVerdict
+  /** Restrict the drill-in to one reason. Only meaningful with `verdict: 'down'`. */
   reason?: AnswerFeedbackReason | null
   /** Restrict everything to one organization. */
   organizationId?: string | null
+  /** Restrict everything to one conversation topic tag. */
+  topic?: ConversationTagKey | null
   /** Free text across the question and the answer. */
   query?: string | null
   limit?: number
@@ -254,26 +295,39 @@ function windowStart(days: number): string {
 export async function getFeedbackHealth(
   filters: FeedbackHealthFilters = {},
 ): Promise<FeedbackHealth> {
-  const {
-    windowDays = FEEDBACK_HEALTH_WINDOW_DAYS,
-    reason = null,
-    organizationId = null,
-    query = null,
-    limit: recentLimit = FEEDBACK_HEALTH_RECENT_LIMIT,
-  } = filters
+  // `verdict`/`reason`/`query` are deliberately NOT read here: they narrow the
+  // drill-in only, and applying them to the aggregates would make the headline
+  // describe the list rather than the window.
+  const { windowDays = FEEDBACK_HEALTH_WINDOW_DAYS, organizationId = null, topic = null } = filters
   const db = getDb()
   const since = windowStart(windowDays)
 
   // The org filter narrows the aggregates too — asking "how is this tenant
   // doing?" and getting a platform-wide headline over a filtered list would be
-  // two different questions answered in one card.
+  // two different questions answered in one card. The topic filter is the same
+  // promise for the other axis, so it is an EXISTS against the conversation
+  // rather than a join: a join would multiply a vote by its tag count and
+  // inflate every total on the page.
   const orgScope = organizationId ? [eq(answerFeedback.organizationId, organizationId)] : []
+  const topicScope = topic
+    ? [
+        sql`exists (
+          select 1 from conversations tc
+          where tc.id = ${answerFeedback.conversationId}
+            and tc.tags @> array[${topic}]::text[]
+        )`,
+      ]
+    : []
+  const scope = [...orgScope, ...topicScope]
   const inWindow = gte(answerFeedback.createdAt, sql`${since}::timestamptz`)
 
-  // The denominator has to obey the org filter too, or a tenant's negative rate
-  // is computed over the whole platform's answers and reads far lower than it is.
-  // `messages` carries no organization: its conversation does, and the column is
-  // NOT NULL with an FK, so the join drops nothing when nothing is filtered.
+  // The denominator has to obey the org filter too, or a tenant's rate is
+  // computed over the whole platform's answers and its coverage reads far higher
+  // than it is. `messages` carries no organization: its conversation does, and
+  // the column is NOT NULL with an FK, so the join drops nothing when nothing is
+  // filtered. The topic filter rides the same join for the same reason — a
+  // numerator narrowed to one topic over a denominator that was not is the same
+  // bug on a second axis.
   const [answersRow] = await db
     .select({ count: sql<string>`count(*)` })
     .from(messages)
@@ -283,6 +337,7 @@ export async function getFeedbackHealth(
         eq(messages.role, 'assistant'),
         gte(messages.createdAt, sql`${since}::timestamptz`),
         ...(organizationId ? [eq(conversations.organizationId, organizationId)] : []),
+        ...(topic ? [sql`${conversations.tags} @> array[${topic}]::text[]`] : []),
       ),
     )
 
@@ -294,7 +349,7 @@ export async function getFeedbackHealth(
       downVoters: sql<string>`count(distinct ${answerFeedback.userId}) filter (where ${answerFeedback.verdict} = 'down')`,
     })
     .from(answerFeedback)
-    .where(and(inWindow, ...orgScope))
+    .where(and(inWindow, ...scope))
 
   const reasons = await db
     .select({
@@ -302,7 +357,7 @@ export async function getFeedbackHealth(
       count: sql<string>`count(*)`,
     })
     .from(answerFeedback)
-    .where(and(eq(answerFeedback.verdict, 'down'), inWindow, ...orgScope))
+    .where(and(eq(answerFeedback.verdict, 'down'), inWindow, ...scope))
     .groupBy(answerFeedback.reason)
 
   const daily = await db
@@ -315,7 +370,7 @@ export async function getFeedbackHealth(
       down: sql<string>`count(*) filter (where ${answerFeedback.verdict} = 'down')`,
     })
     .from(answerFeedback)
-    .where(and(inWindow, ...orgScope))
+    .where(and(inWindow, ...scope))
     .groupBy(sql`date_trunc('day', ${answerFeedback.createdAt} at time zone 'UTC')`)
     .orderBy(sql`date_trunc('day', ${answerFeedback.createdAt} at time zone 'UTC')`)
 
@@ -327,52 +382,34 @@ export async function getFeedbackHealth(
       voters: sql<string>`count(distinct ${answerFeedback.userId})`,
     })
     .from(answerFeedback)
-    .where(and(inWindow, ...orgScope))
+    .where(and(inWindow, ...scope))
     .groupBy(answerFeedback.organizationId)
     .orderBy(desc(sql`count(*) filter (where ${answerFeedback.verdict} = 'down')`))
 
-  // The drill-in. LEFT JOINs throughout: a defect whose turn was never
-  // persisted still has to appear, because unexplained feedback is precisely
-  // what this page exists to surface. The question is the newest user turn
-  // before the answer — a lateral, so one row per defect rather than a fan-out.
-  const defectRows = await db.execute(sql`
+  // Votes by topic. `unnest` fans a conversation out over its tags on purpose —
+  // here the tag IS the grouping key, so a two-tag conversation legitimately
+  // counts once under each. That is also why this cannot be folded into the
+  // totals query: the same fan-out there would double-count the headline.
+  const topicRows = await db.execute(sql`
     select
-      f.id,
-      f.organization_id,
-      f.project_id,
-      f.conversation_id,
-      f.message_id,
-      f.reason,
-      f.created_at,
-      m.content    as answer,
-      q.content    as question,
-      c.title      as conversation_title
+      tag                                                  as topic,
+      count(*) filter (where f.verdict = 'up')             as up,
+      count(*) filter (where f.verdict = 'down')           as down,
+      count(distinct f.user_id)                            as voters
     from answer_feedback f
-    left join messages m on m.id::text = f.message_id
-    left join conversations c on c.id = f.conversation_id
-    left join lateral (
-      select content
-      from messages
-      where conversation_id = f.conversation_id
-        and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
-      order by created_at desc
-      limit 1
-    ) q on true
-    where f.verdict = 'down'
-      and f.created_at >= ${since}::timestamptz
+    join conversations c on c.id = f.conversation_id
+    cross join lateral unnest(c.tags) as tag
+    where f.created_at >= ${since}::timestamptz
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
-      ${reason ? sql`and f.reason = ${reason}` : sql``}
-      ${
-        query
-          ? sql`and (m.content ilike ${'%' + query + '%'} or q.content ilike ${'%' + query + '%'})`
-          : sql``
-      }
-    order by f.created_at desc
-    limit ${recentLimit}
+      ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
+    group by tag
+    order by count(*) desc
   `)
 
-  const rows = (defectRows as unknown as { rows?: Record<string, unknown>[] }).rows ?? []
+  const turns = await listFeedbackTurns(filters)
+
+  const topicResultRows =
+    (topicRows as unknown as { rows?: Record<string, unknown>[] }).rows ?? []
 
   return {
     windowDays,
@@ -391,17 +428,106 @@ export async function getFeedbackHealth(
       down: Number(o.down),
       voters: Number(o.voters),
     })),
-    defects: rows.map((row) => ({
-      id: String(row.id),
-      organizationId: String(row.organization_id),
-      projectId: (row.project_id as string | null) ?? null,
-      conversationId: (row.conversation_id as string | null) ?? null,
-      messageId: String(row.message_id),
-      reason: (row.reason as AnswerFeedbackReason | null) ?? null,
-      createdAt: new Date(row.created_at as string),
-      answer: (row.answer as string | null) ?? null,
-      question: (row.question as string | null) ?? null,
-      conversationTitle: (row.conversation_title as string | null) ?? null,
-    })),
+    // Unknown tags are dropped, not rendered: `conversations.tags` is written by
+    // an LLM and backfilled rows predate the vocabulary, so a stray key would
+    // reach the UI as an unlabelled row. Same guard as `normalizeConversationTags`.
+    topics: topicResultRows.flatMap((row) => {
+      const key = String(row.topic ?? '')
+      return isConversationTagKey(key)
+        ? [{ topic: key, up: Number(row.up), down: Number(row.down), voters: Number(row.voters) }]
+        : []
+    }),
+    turns,
   }
+}
+
+/**
+ * The drill-in, on its own so the digest can sample BOTH directions without
+ * paying for a second set of aggregates.
+ *
+ * LEFT JOINs throughout: a vote whose turn was never persisted still has to
+ * appear, because unexplained feedback is precisely what the surface exists to
+ * show. The question is the newest user turn before the answer — a lateral, so
+ * one row per vote rather than a fan-out over the conversation.
+ *
+ * `verdict` is a parameter rather than a literal so the praised list and the
+ * failed list are the SAME query. Two near-identical queries would drift, and
+ * the half that drifts is always the one nobody is watching.
+ *
+ * Cross-tenant like `getFeedbackHealth`, and reachable only through it or
+ * through the digest — both of which sit behind `requirePlatformOwner`.
+ */
+export async function listFeedbackTurns(
+  filters: FeedbackHealthFilters = {},
+): Promise<FeedbackTurn[]> {
+  const {
+    windowDays = FEEDBACK_HEALTH_WINDOW_DAYS,
+    verdict = 'down',
+    reason = null,
+    organizationId = null,
+    topic = null,
+    query = null,
+    limit: recentLimit = FEEDBACK_HEALTH_RECENT_LIMIT,
+  } = filters
+  const db = getDb()
+  const since = windowStart(windowDays)
+
+  const result = await db.execute(sql`
+    select
+      f.id,
+      f.organization_id,
+      f.project_id,
+      f.conversation_id,
+      f.message_id,
+      f.verdict,
+      f.reason,
+      f.created_at,
+      m.content    as answer,
+      q.content    as question,
+      c.title      as conversation_title,
+      c.tags       as topics
+    from answer_feedback f
+    left join messages m on m.id::text = f.message_id
+    left join conversations c on c.id = f.conversation_id
+    left join lateral (
+      select content
+      from messages
+      where conversation_id = f.conversation_id
+        and role = 'user'
+        and (m.created_at is null or created_at <= m.created_at)
+      order by created_at desc
+      limit 1
+    ) q on true
+    where f.verdict = ${verdict}
+      and f.created_at >= ${since}::timestamptz
+      ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+      ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
+      ${reason && verdict === 'down' ? sql`and f.reason = ${reason}` : sql``}
+      ${
+        query
+          ? sql`and (m.content ilike ${'%' + query + '%'} or q.content ilike ${'%' + query + '%'})`
+          : sql``
+      }
+    order by f.created_at desc
+    limit ${recentLimit}
+  `)
+
+  const rows = (result as unknown as { rows?: Record<string, unknown>[] }).rows ?? []
+  return rows.map((row) => ({
+    id: String(row.id),
+    organizationId: String(row.organization_id),
+    projectId: (row.project_id as string | null) ?? null,
+    conversationId: (row.conversation_id as string | null) ?? null,
+    messageId: String(row.message_id),
+    verdict: row.verdict as AnswerFeedbackVerdict,
+    reason: (row.reason as AnswerFeedbackReason | null) ?? null,
+    // Raw `sql` results are not runtime-validated — coerce at this boundary.
+    createdAt: new Date(row.created_at as string),
+    answer: (row.answer as string | null) ?? null,
+    question: (row.question as string | null) ?? null,
+    conversationTitle: (row.conversation_title as string | null) ?? null,
+    topics: Array.isArray(row.topics)
+      ? (row.topics as unknown[]).map(String).filter(isConversationTagKey)
+      : [],
+  }))
 }

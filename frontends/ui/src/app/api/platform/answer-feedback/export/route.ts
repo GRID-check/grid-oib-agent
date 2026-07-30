@@ -1,5 +1,5 @@
 /**
- * Answer-feedback export — the filtered defect list as CSV, for the analysis that
+ * Answer-feedback export — the filtered drill-in as CSV, for the analysis that
  * does not fit on a page (pivoting by org, joining against a release date, handing
  * a quarter's worth to somebody without a login).
  *
@@ -29,7 +29,12 @@ const COLUMNS = [
   'organization_id',
   'conversation_id',
   'message_id',
+  // The export follows the drill-in in BOTH directions now, so the verdict has
+  // to be a column: a praise export and a defect export are otherwise
+  // indistinguishable once the file leaves the browser.
+  'verdict',
   'reason',
+  'topics',
   'question',
   'answer',
 ] as const
@@ -39,15 +44,17 @@ export const GET = apiRoute(async ({ request, session }) => {
   try {
     const health = await getAnswerFeedbackHealth(session, filters)
 
-    const rows = health.defects.map((defect) =>
+    const rows = health.turns.map((turn) =>
       [
-        defect.createdAt instanceof Date ? defect.createdAt.toISOString() : defect.createdAt,
-        defect.organizationId,
-        defect.conversationId,
-        defect.messageId,
-        defect.reason,
-        defect.question,
-        defect.answer,
+        turn.createdAt instanceof Date ? turn.createdAt.toISOString() : turn.createdAt,
+        turn.organizationId,
+        turn.conversationId,
+        turn.messageId,
+        turn.verdict,
+        turn.reason,
+        turn.topics.join(' '),
+        turn.question,
+        turn.answer,
       ]
         .map(csvCell)
         .join(','),
@@ -58,11 +65,15 @@ export const GET = apiRoute(async ({ request, session }) => {
     const body = `﻿${COLUMNS.join(',')}\n${rows.join('\n')}\n`
     const stamp = new Date().toISOString().slice(0, 10)
 
+    // The verdict is in the FILENAME as well as the column, because the two
+    // exports are otherwise one download folder away from being the same file.
+    const filename = `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
+
     return new NextResponse(body, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="answer-feedback-${stamp}.csv"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
         'Cache-Control': 'no-store',
       },
     })

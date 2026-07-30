@@ -9,7 +9,10 @@ vi.mock('./repository', () => ({
   deleteAnswerFeedbackForUser: vi.fn(),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
+  listFeedbackTurns: vi.fn(),
 }))
+
+vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
 
 vi.mock('@/lib/authz/platform', () => ({
   requirePlatformOwner: vi.fn(),
@@ -26,7 +29,9 @@ import {
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
 } from './repository'
+import { getFeedbackDigest } from './digest'
 import {
+  getAnswerFeedbackDigest,
   getAnswerFeedbackHealth,
   getOwnConversationFeedback,
   retractAnswerFeedback,
@@ -212,12 +217,51 @@ describe('getAnswerFeedbackHealth', () => {
       reasons: [],
       daily: [],
       organizations: [],
-      defects: [],
+      topics: [],
+      turns: [],
     } as never)
 
     const health = await getAnswerFeedbackHealth({} as never)
 
     expect(health.totals).toEqual({ up: 4, down: 1 })
     expect(requirePlatformOwner).toHaveBeenCalledOnce()
+  })
+})
+
+/**
+ * The digest reads across every tenant's questions at once and hands a summary
+ * of all of them to a model — so it needs the same gate as the numbers, and
+ * needs it to run BEFORE anything is read or sent.
+ */
+describe('getAnswerFeedbackDigest', () => {
+  beforeEach(() => {
+    vi.mocked(requirePlatformOwner).mockReset()
+    vi.mocked(getFeedbackHealth).mockReset()
+    vi.mocked(getFeedbackDigest).mockReset()
+  })
+
+  it('refuses anyone who is not a platform owner, and neither reads nor summarises', async () => {
+    vi.mocked(requirePlatformOwner).mockRejectedValue(new PlatformAccessDeniedError())
+
+    await expect(getAnswerFeedbackDigest({} as never)).rejects.toBeInstanceOf(
+      PlatformAccessDeniedError,
+    )
+    expect(getFeedbackHealth).not.toHaveBeenCalled()
+    expect(getFeedbackDigest).not.toHaveBeenCalled()
+  })
+
+  it('summarises the SAME aggregate the page shows, and skips the drill-in rows', async () => {
+    vi.mocked(requirePlatformOwner).mockResolvedValue(undefined)
+    const health = { windowDays: 30, totals: { up: 9, down: 1 } } as never
+    vi.mocked(getFeedbackHealth).mockResolvedValue(health)
+    vi.mocked(getFeedbackDigest).mockResolvedValue({ digest: null, error: 'too_few_votes' })
+
+    const result = await getAnswerFeedbackDigest({} as never, { windowDays: 7 }, { locale: 'en' })
+
+    // `limit: 0` — the digest samples its own turns in both directions, so the
+    // aggregate read must not also pay for a drill-in nobody will look at.
+    expect(getFeedbackHealth).toHaveBeenCalledWith({ windowDays: 7, limit: 0 })
+    expect(getFeedbackDigest).toHaveBeenCalledWith(health, { windowDays: 7 }, { locale: 'en' })
+    expect(result).toEqual({ digest: null, error: 'too_few_votes' })
   })
 })

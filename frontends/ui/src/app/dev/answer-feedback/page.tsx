@@ -8,10 +8,15 @@
  * fetches in its own mount effect, which runs before a parent effect could have
  * replaced `window.fetch`, so a shim installed later would race the first load.
  *
- * The fixture is chosen to carry the two cases the surface exists to tell apart:
- * a defect whose turn WAS persisted (question + answer, the drill-in working)
+ * The fixture carries the cases the surface exists to tell apart: a turn whose
+ * conversation WAS persisted (question + answer + topics, the drill-in working)
  * and one whose turn was not (`message_id` has no FK to `messages`), which must
- * still be listed and must say why it is bare.
+ * still be listed and must say why it is bare — plus a topic and an organization
+ * below the rate floor, which must show counts and withhold a percentage.
+ *
+ * The digest is stubbed too, with a written-out example rather than a lorem
+ * paragraph: it is the most prominent copy on the card and the screenshot is the
+ * only place anybody reviews it before it ships.
  *
  * Not linked from anywhere; 404s outside development. Pinned to German — the
  * primary product language — with `fixedLocale`, so the evidence is the copy
@@ -67,24 +72,34 @@ const FIXTURE = {
   ],
   organizations: [
     { organizationId: 'org_arch_buero', up: 120, down: 17, voters: 28 },
-    // Deliberately below the floor: one down-vote out of two is 50%, which would
-    // otherwise sort near the top looking like a problem.
+    // Deliberately below the floor: one vote either way is 0% or 100%, which
+    // would otherwise sort near the top looking like a verdict.
     { organizationId: 'org_planwerk', up: 1, down: 1, voters: 1 },
     { organizationId: 'org_stadtplan', up: 7, down: 1, voters: 3 },
   ],
-  defects: [
+  topics: [
+    { topic: 'brandschutz', up: 41, down: 9, voters: 14 },
+    { topic: 'energie', up: 33, down: 2, voters: 11 },
+    { topic: 'schallschutz', up: 12, down: 6, voters: 7 },
+    { topic: 'barrierefreiheit', up: 9, down: 1, voters: 5 },
+    // Below the floor: counts, no rate.
+    { topic: 'statik', up: 2, down: 1, voters: 2 },
+  ],
+  turns: [
     {
       id: 'f-1',
       organizationId: 'org_arch_buero',
       projectId: null,
       conversationId: 'c-atrium',
       messageId: 'm-1',
+      verdict: 'down',
       reason: 'inaccurate',
       createdAt: ago(45),
       question: 'Gilt die 40-m-Grenze für Fluchtweglängen auch für das nördliche Treppenhaus?',
       answer:
         'Die maximale Fluchtweglänge beträgt 40 m. Für das nördliche Treppenhaus gilt dieselbe Grenze, da es als notwendiger Treppenraum ausgeführt ist.',
       conversationTitle: 'Atrium — Rauchabschnitte GK 4',
+      topics: ['brandschutz'],
     },
     {
       id: 'f-2',
@@ -92,11 +107,13 @@ const FIXTURE = {
       projectId: null,
       conversationId: 'c-brand',
       messageId: 'm-2',
+      verdict: 'down',
       reason: 'wrong_source',
       createdAt: ago(210),
       question: 'Welche OIB-Richtlinie regelt die Brandabschnittsgrößen für Gebäudeklasse 4?',
       answer: 'Das ist in OIB-Richtlinie 2 geregelt, Punkt 3.1.',
       conversationTitle: 'Brandabschnitte',
+      topics: ['brandschutz', 'allgemein'],
     },
     {
       id: 'f-3',
@@ -104,6 +121,7 @@ const FIXTURE = {
       projectId: null,
       conversationId: null,
       messageId: 'm-unpersisted',
+      verdict: 'down',
       reason: 'other',
       createdAt: ago(1400),
       // The honest edge case: nothing to join, so the row carries the signal and
@@ -111,15 +129,80 @@ const FIXTURE = {
       question: null,
       answer: null,
       conversationTitle: null,
+      topics: [],
     },
   ],
+}
+
+/** The praised half, served when the drill-in is switched to `verdict=up`. */
+const LANDED = [
+  {
+    id: 'g-1',
+    organizationId: 'org_arch_buero',
+    projectId: null,
+    conversationId: 'c-u-wert',
+    messageId: 'm-11',
+    verdict: 'up',
+    reason: null,
+    createdAt: ago(90),
+    question: 'Welcher U-Wert gilt für Außenwände bei einer thermischen Sanierung im Bestand?',
+    answer:
+      'Für Außenwände gegen Außenluft fordert OIB-Richtlinie 6 einen U-Wert von höchstens 0,35 W/(m²·K); im Bestand gilt dieser Wert bei einer größeren Renovierung.',
+    conversationTitle: 'Sanierung Gründerzeit — Wärmeschutz',
+    topics: ['energie'],
+  },
+  {
+    id: 'g-2',
+    organizationId: 'org_stadtplan',
+    projectId: null,
+    conversationId: 'c-lift',
+    messageId: 'm-12',
+    verdict: 'up',
+    reason: null,
+    createdAt: ago(320),
+    question: 'Ab wann ist ein Aufzug barrierefrei erforderlich?',
+    answer:
+      'OIB-Richtlinie 4 verlangt einen Aufzug, sobald mehr als eine Geschoßebene barrierefrei erschlossen werden muss.',
+    conversationTitle: 'Wohnbau Nord — Erschließung',
+    topics: ['barrierefreiheit'],
+  },
+]
+
+const DIGEST = {
+  digest: {
+    headline:
+      'In den letzten 30 Tagen wurden 147 Antworten bewertet, 87 % davon als hilfreich. Die Quote hat sich gegenüber dem Beginn des Zeitraums leicht verbessert. Bewertet wurde rund jede zehnte Antwort, die negativen Stimmen stammen von vier Personen.',
+    strengths: [
+      'Fragen zu Wärmeschutz und U-Werten werden fast durchgehend als hilfreich bewertet.',
+      'Barrierefreiheits-Fragen liegen ebenfalls deutlich im positiven Bereich, wenn auch bei kleiner Stichprobe.',
+    ],
+    concerns: [
+      'Die meisten negativen Bewertungen betreffen Fluchtweg- und Brandabschnittsfragen und sind als „ungenau" begründet.',
+      'Fast alle negativen Stimmen stammen aus einer einzigen Organisation — die Quote der übrigen ist unauffällig.',
+    ],
+    recommendation:
+      'Die als ungenau markierten Brandschutz-Antworten durchsehen und prüfen, ob die zitierte Stelle der OIB-Richtlinie 2 jeweils die richtige ist.',
+    generatedAt: ago(22),
+    windowDays: 30,
+    votes: 147,
+  },
+  error: null,
 }
 
 if (typeof window !== 'undefined') {
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).includes('/api/platform/answer-feedback')) {
-      return new Response(JSON.stringify(FIXTURE), {
+    const url = String(input)
+    // Checked FIRST: the digest path contains the health path as a prefix.
+    if (url.includes('/api/platform/answer-feedback/digest')) {
+      return new Response(JSON.stringify(DIGEST), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    if (url.includes('/api/platform/answer-feedback')) {
+      const landed = url.includes('verdict=up')
+      return new Response(JSON.stringify({ ...FIXTURE, turns: landed ? LANDED : FIXTURE.turns }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
@@ -142,7 +225,7 @@ export default function AnswerFeedbackPreviewPage() {
         <header>
           <h1 className="text-xl font-semibold tracking-tight">Antwort-Feedback</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Was Nutzer von ihren Antworten hielten — und die Fragen hinter den misslungenen Antworten.
+            Was Nutzer von ihren Antworten hielten — was gelungen ist, was nicht, und die Fragen dahinter.
           </p>
         </header>
         <AnswerFeedbackHealth />

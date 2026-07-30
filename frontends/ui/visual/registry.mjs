@@ -320,7 +320,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/answer-feedback',
     description:
-      'Platform \u2192 answer quality: the thumbs users leave on answers, across every organization, and the questions behind the ones that missed. Written to since WS-7 and read by nobody until now. The numbers orient (negative rate, then a four-bar breakdown of why \u2014 zero-filled, so a reason nobody picked still shows and the bars keep their colours between loads); the defect list is the point. Includes the honest edge case: a down-vote whose turn was never persisted has no question to show, and says so rather than being dropped.',
+      'Platform \u2192 answer quality: the thumbs users leave on answers, across every organization, and the questions behind them \u2014 both halves. Opens with an AI-written summary of the window (what is working and what needs attention as peer columns, with its age and the "written by AI" provenance beside it), then the HELPFUL rate as the headline, a trend where up means better, the four-bar breakdown of why answers missed (zero-filled, so a reason nobody picked still shows), a per-topic table sorted best-first, the per-organization rollup, and a drill-in that switches between the answers that landed and the ones that missed. Includes the honest edge cases: a vote whose turn was never persisted has no question to show and says so, and a topic or tenant below the rate floor keeps its counts and withholds the percentage.',
     waitFor: '[data-testid="answer-feedback-preview"]',
   },
   {
