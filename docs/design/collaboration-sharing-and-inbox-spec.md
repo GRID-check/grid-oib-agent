@@ -419,6 +419,17 @@ flowchart TB
   `Geteilt mit 3` — so that "who can see this" is answerable without opening a
   dialog. *This closes the "Privater Workspace" chip left undesigned in the
   click-dummy spec.*
+  - **In an OPEN thread the chip is not the indicator; the participant strip is.**
+    SH-18 is a requirement about *lists*, where there is no room for faces. The
+    thread header has the faces (CC-6), and they answer the same question in the
+    form people actually read — so a `Geteilt mit 2` chip beside two avatars is the
+    same sentence twice, and in German it is the widest element in a header that
+    also has to carry the thread's own title. The chip is therefore shown in the
+    header **only for a blanket rule** (`Projekt`, `Organisation`), which names an
+    audience nobody enumerated and which no set of avatars can stand for. A
+    private thread — solo or shared with named people — carries no chip in its
+    header. The exact state is always one click away in the sharing surface
+    (SH-17), and unchanged in every list.
 - **SH-19 (MUST).** The invite picker offers **only people who satisfy SH-4/SH-5**
   (that is: members of the container project). Organisation members who are *not*
   project members MUST NOT appear as if they were invitable; where showing them is

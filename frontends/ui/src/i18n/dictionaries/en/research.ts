@@ -58,6 +58,10 @@ export const research = {
     signInToManage: 'Sign in to manage data sources',
     sources: 'Sources',
     research: 'Research',
+    /** Trigger for the thread menu that holds every non-primary header action. */
+    moreActions: 'More actions',
+    renameSession: 'Rename chat',
+    researchReport: 'Research report',
   },
 
   dataSources: {

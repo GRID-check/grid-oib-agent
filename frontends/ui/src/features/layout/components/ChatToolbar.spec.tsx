@@ -96,6 +96,17 @@ vi.mock('@/features/chat', () => ({
   }),
 }))
 
+/**
+ * Open the thread menu — the one place every non-primary header action lives.
+ * The header shows only what is TRUE about the thread plus New chat; share,
+ * rename and the research report are behind this trigger by design, so most
+ * action tests start here.
+ */
+async function openThreadMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByTestId('thread-menu'))
+  await screen.findByRole('menu')
+}
+
 describe('ChatToolbar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -110,11 +121,55 @@ describe('ChatToolbar', () => {
   })
 
   describe('research toggle', () => {
-    test('renders the research toggle button', () => {
+    // The toggle is RE-ENTRY to a report this thread already has — the answer card
+    // that produced it is the primary door — so its precondition is that a report
+    // exists. Every test below that is about the toggle's behaviour starts there.
+    beforeEach(() => {
+      mockDeepResearchJobId = 'job-123'
+    })
+
+    test('is offered in the thread menu once a report exists', async () => {
+      const user = userEvent.setup()
       render(<ChatToolbar />)
 
+      await openThreadMenu(user)
+
       expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
-      expect(screen.getByText('Research')).toBeInTheDocument()
+    })
+
+    test('is absent on a thread that never ran deep research', () => {
+      mockDeepResearchJobId = null
+      mockCurrentSessionId = null // …and nothing else to put in the menu either
+
+      render(<ChatToolbar />)
+
+      // Not merely hidden in the menu: with no report, no rename and no sharing,
+      // there is nothing occasional to disclose, so the trigger itself is gone.
+      // A permanent "Research" button here was a door to an empty room.
+      expect(screen.queryByTestId('thread-menu')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('research-panel-toggle')).not.toBeInTheDocument()
+    })
+
+    test('appears while a run is streaming, before any job id is known', async () => {
+      mockDeepResearchJobId = null
+      mockIsDeepResearchStreaming = true
+      const user = userEvent.setup()
+
+      render(<ChatToolbar />)
+      await openThreadMenu(user)
+
+      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
+    })
+
+    test('stays while the panel is open, so it can close what it opened', async () => {
+      mockDeepResearchJobId = null
+      mockRightPanel = 'research'
+      const user = userEvent.setup()
+
+      render(<ChatToolbar />)
+      await openThreadMenu(user)
+
+      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
     })
 
     test('opens the research panel when closed', async () => {
@@ -122,6 +177,7 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
 
       render(<ChatToolbar />)
+      await openThreadMenu(user)
 
       await user.click(screen.getByTestId('research-panel-toggle'))
 
@@ -133,6 +189,7 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
 
       render(<ChatToolbar />)
+      await openThreadMenu(user)
 
       await user.click(screen.getByTestId('research-panel-toggle'))
 
@@ -147,6 +204,7 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
 
       render(<ChatToolbar />)
+      await openThreadMenu(user)
 
       await user.click(screen.getByTestId('research-panel-toggle'))
 
@@ -160,6 +218,7 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
 
       render(<ChatToolbar />)
+      await openThreadMenu(user)
 
       await user.click(screen.getByTestId('research-panel-toggle'))
 
@@ -167,30 +226,37 @@ describe('ChatToolbar', () => {
       expect(mockLoadResearchPanelTab).not.toHaveBeenCalled()
     })
 
-    test('is disabled when not authenticated', () => {
+    test('is disabled when not authenticated', async () => {
       mockIsAuthenticated = false
+      const user = userEvent.setup()
 
       render(<ChatToolbar />)
+      await openThreadMenu(user)
 
-      const toggleButton = screen.getByTestId('research-panel-toggle')
-      expect(toggleButton).toBeDisabled()
-      expect(toggleButton).toHaveAttribute('title', 'Sign in to access research panel')
+      expect(screen.getByTestId('research-panel-toggle')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    test('shows a spinner while deep research is streaming', () => {
+    test('a live run is STATUS in the header, not a control', () => {
       mockIsDeepResearchStreaming = true
+      mockSharingState = SHARED_STATE
 
-      render(<ChatToolbar />)
+      render(<ChatToolbar conversationId="session-1" isCollaborationEnabled />)
 
-      expect(screen.getByLabelText('Researching')).toBeInTheDocument()
+      // The one piece of research the header carries in the open: the thread's own
+      // banner scrolls away, so this is the persistent "still working" signal. It
+      // states — the way INTO the report is the menu item.
+      const running = screen.getByTestId('research-running')
+      expect(running).toBeInTheDocument()
+      expect(running.querySelector('button')).toBeNull()
     })
 
-    test('shows the sparkles icon when not streaming', () => {
+    test('says nothing about research when nothing is running', () => {
       mockIsDeepResearchStreaming = false
+      mockSharingState = SHARED_STATE
 
-      render(<ChatToolbar />)
+      render(<ChatToolbar conversationId="session-1" isCollaborationEnabled />)
 
-      expect(screen.queryByLabelText('Researching')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('research-running')).not.toBeInTheDocument()
     })
   })
 
@@ -208,8 +274,8 @@ describe('ChatToolbar', () => {
       expect(screen.getByRole('button', { name: 'Toggle sessions sidebar' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Open navigation' })).toBeInTheDocument()
 
-      // The primary actions + thread identity are withheld until a chat starts.
-      expect(screen.queryByTestId('research-panel-toggle')).not.toBeInTheDocument()
+      // The actions + thread identity are withheld until a chat starts.
+      expect(screen.queryByTestId('thread-menu')).not.toBeInTheDocument()
       expect(
         screen.queryByRole('button', { name: 'Create new session' })
       ).not.toBeInTheDocument()
@@ -217,7 +283,9 @@ describe('ChatToolbar', () => {
       expect(screen.queryByText('My Session')).not.toBeInTheDocument()
     })
 
-    test('shows New chat, Research and the breadcrumb once a chat has started', () => {
+    test('shows New chat, the thread menu and the breadcrumb once a chat has started', async () => {
+      mockDeepResearchJobId = 'job-123'
+      const user = userEvent.setup()
       render(
         <ChatToolbar
           sessionTitle="My Session"
@@ -226,10 +294,12 @@ describe('ChatToolbar', () => {
         />
       )
 
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Create new session' })).toBeInTheDocument()
       expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
       expect(screen.getByText('My Session')).toBeInTheDocument()
+
+      await openThreadMenu(user)
+      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
     })
   })
 
@@ -294,13 +364,33 @@ describe('ChatToolbar', () => {
       expect(screen.getByText('My Session')).toBeInTheDocument()
     })
 
-    test('clicking the title switches to an input; Enter commits via the store rename action', async () => {
+    test('the project segment does not shrink — it truncates at its own cap or not at all', () => {
+      render(<ChatToolbar sessionTitle="My Session" projectName="Wohnbau Favoriten" />)
+
+      // Guards the regression this rule exists for: as a shrinkable flex child the
+      // project name collapsed to "Wohnb…" — an ellipsis naming nothing while still
+      // charging for its space and its separator. Only a screenshot shows the
+      // crowding; this pins the fix that a refactor would otherwise drop.
+      expect(screen.getByText('Wohnbau Favoriten')).toHaveClass('shrink-0')
+    })
+
+    test('the title is text, not a disguised button', () => {
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      // It used to be a `<button>` styled exactly like the label it also was — the
+      // header's least honest element, and the one interaction in it nobody could
+      // discover. Renaming is an action and now lives with the other actions.
+      expect(screen.getByText('My Session').tagName).toBe('SPAN')
+    })
+
+    test('the menu opens the inline editor; Enter commits via the store rename action', async () => {
       const user = userEvent.setup()
       render(<ChatToolbar sessionTitle="My Session" />)
 
-      await user.click(screen.getByRole('button', { name: /rename session/i }))
+      await openThreadMenu(user)
+      await user.click(screen.getByTestId('rename-session'))
 
-      const input = screen.getByRole('textbox', { name: /session title/i })
+      const input = await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       expect(input).toHaveValue('My Session')
 
       await user.clear(input)
@@ -314,8 +404,9 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
       render(<ChatToolbar sessionTitle="My Session" />)
 
-      await user.click(screen.getByRole('button', { name: /rename session/i }))
-      const input = screen.getByRole('textbox', { name: /session title/i })
+      await openThreadMenu(user)
+      await user.click(screen.getByTestId('rename-session'))
+      const input = await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       await user.clear(input)
       await user.type(input, 'discarded{Escape}')
 
@@ -327,8 +418,9 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
       render(<ChatToolbar sessionTitle="My Session" />)
 
-      await user.click(screen.getByRole('button', { name: /rename session/i }))
-      const input = screen.getByRole('textbox', { name: /session title/i })
+      await openThreadMenu(user)
+      await user.click(screen.getByTestId('rename-session'))
+      const input = await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       await user.clear(input)
       await user.type(input, 'Renamed on blur')
       await user.tab()
@@ -340,17 +432,25 @@ describe('ChatToolbar', () => {
       const user = userEvent.setup()
       render(<ChatToolbar sessionTitle="My Session" />)
 
-      await user.click(screen.getByRole('button', { name: /rename session/i }))
+      await openThreadMenu(user)
+      await user.click(screen.getByTestId('rename-session'))
+      await screen.findByRole('textbox', { name: /session title/i }, { timeout: 5000 })
       await user.keyboard('{Enter}')
 
       expect(mockUpdateConversationTitle).not.toHaveBeenCalled()
     })
 
-    test('rename is disabled without an active session', () => {
+    test('rename is not offered without an active session', async () => {
       mockCurrentSessionId = null
+      mockDeepResearchJobId = 'job-123' // keep the menu itself around
+      const user = userEvent.setup()
       render(<ChatToolbar sessionTitle="My Session" />)
 
-      expect(screen.getByRole('button', { name: /rename session/i })).toBeDisabled()
+      await openThreadMenu(user)
+
+      // An action that cannot run is not listed. A disabled row here would only
+      // pose a question the reader cannot answer from the menu.
+      expect(screen.queryByTestId('rename-session')).not.toBeInTheDocument()
     })
   })
 })
@@ -386,6 +486,20 @@ const SHARED_STATE: ResourceSharingState = {
 }
 
 describe('ChatToolbar — sharing surfaces', () => {
+  // This block used to inherit whatever the previous test happened to leave in the
+  // module-level mocks — the reset lives in the other describe's beforeEach, which
+  // does not reach here. Reset explicitly so each case states its own preconditions.
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsAuthenticated = true
+    mockRightPanel = null
+    mockIsDeepResearchStreaming = false
+    mockDeepResearchJobId = null
+    mockIsLoadJobDataLoading = false
+    mockCurrentSessionId = 'session-1'
+    mockSharingState = null
+  })
+
   test('shows nothing collaboration-related when the feature is off (default-deny)', () => {
     render(<ChatToolbar sessionTitle="My Session" conversationId="session-1" />)
 
@@ -410,7 +524,7 @@ describe('ChatToolbar — sharing surfaces', () => {
     expect(mockUseSharing).toHaveBeenCalledWith('conversation', 'session-1', true)
   })
 
-  test('puts who-can-see-this next to the thread identity, and the door in the actions pill', () => {
+  test('states who-can-see-this ONCE — the faces, not the faces plus a chip saying the same', () => {
     mockSharingState = SHARED_STATE
     render(
       <ChatToolbar
@@ -422,12 +536,14 @@ describe('ChatToolbar — sharing surfaces', () => {
     )
 
     expect(screen.getByTestId('participant-strip')).toBeInTheDocument()
-    expect(screen.getByTestId('access-chip')).toHaveTextContent('Shared with 1')
-    expect(screen.getByTestId('share-button')).toBeInTheDocument()
+    // The chip would read "Shared with 1" — the same sentence the two faces
+    // already are, and the widest element in a row that has to hold the thread's
+    // own title. Under `private` the roster IS the audience, so the faces say it.
+    expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
   })
 
-  test('a solo private thread shows the chip but no participant strip', () => {
-    mockSharingState = { ...SHARED_STATE, entries: [SHARED_STATE.entries[0]] }
+  test('the faces are STATUS — they say who is here, they do not act', () => {
+    mockSharingState = SHARED_STATE
     render(
       <ChatToolbar
         sessionTitle="My Session"
@@ -437,14 +553,48 @@ describe('ChatToolbar — sharing surfaces', () => {
       />,
     )
 
-    // No collaboration furniture for a single-player chat…
+    // The header's rule: information is not clickable, controls look like
+    // controls. An avatar stack that silently opened a dialog was the clearest
+    // case of the two being mixed — and it made sharing's ONE door into three.
+    expect(screen.getByTestId('participant-strip').tagName).not.toBe('BUTTON')
+  })
+
+  test('a blanket visibility rule keeps the chip — no set of faces can express it', () => {
+    mockSharingState = { ...SHARED_STATE, visibility: 'project' }
+    render(
+      <ChatToolbar
+        sessionTitle="My Session"
+        isCollaborationEnabled
+        conversationId="session-1"
+        currentUserId="u-me"
+      />,
+    )
+
+    expect(screen.getByTestId('access-chip')).toHaveTextContent('Project')
+  })
+
+  test('a solo private thread carries no collaboration furniture at all', async () => {
+    mockSharingState = { ...SHARED_STATE, entries: [SHARED_STATE.entries[0]] }
+    const user = userEvent.setup()
+    render(
+      <ChatToolbar
+        sessionTitle="My Session"
+        isCollaborationEnabled
+        conversationId="session-1"
+        currentUserId="u-me"
+      />,
+    )
+
+    // Neither faces nor a "Private" chip: the default state of the overwhelmingly
+    // common thread needs no announcement…
     expect(screen.queryByTestId('participant-strip')).not.toBeInTheDocument()
-    // …but "who can see this" is still answered, and sharing is still reachable.
-    expect(screen.getByTestId('access-chip')).toHaveTextContent('Private')
+    expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
+    // …but sharing is still reachable, which is how a thread stops being solo.
+    await openThreadMenu(user)
     expect(screen.getByTestId('share-button')).toBeInTheDocument()
   })
 
-  test('the share button opens the one sharing surface', async () => {
+  test('sharing has exactly ONE door in the header (SH-17), and it is the menu', async () => {
     mockSharingState = SHARED_STATE
     const user = userEvent.setup()
     render(
@@ -456,34 +606,24 @@ describe('ChatToolbar — sharing surfaces', () => {
       />,
     )
 
+    // Nothing in the open row opens it — not the faces, not a second button.
     expect(screen.queryByTestId('share-dialog')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
+
+    await openThreadMenu(user)
     await user.click(screen.getByTestId('share-button'))
 
     expect(await screen.findByTestId('share-dialog')).toBeInTheDocument()
   })
 
-  test('the participant strip opens the same surface', async () => {
-    mockSharingState = SHARED_STATE
-    const user = userEvent.setup()
-    render(
-      <ChatToolbar
-        sessionTitle="My Session"
-        isCollaborationEnabled
-        conversationId="session-1"
-        currentUserId="u-me"
-      />,
-    )
-
-    await user.click(screen.getByTestId('participant-strip'))
-
-    expect(await screen.findByTestId('share-dialog')).toBeInTheDocument()
-  })
-
-  test('nothing is claimed about access before the server has answered', () => {
+  test('nothing is claimed about access before the server has answered', async () => {
     mockSharingState = null
+    mockDeepResearchJobId = 'job-123' // keep the menu itself around
+    const user = userEvent.setup()
     render(<ChatToolbar sessionTitle="My Session" isCollaborationEnabled conversationId="session-1" />)
 
     expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
+    await openThreadMenu(user)
     expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
   })
 })

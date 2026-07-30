@@ -10,7 +10,25 @@ Click **New Session** in the sessions panel (left sidebar) or the quiet **New ch
 
 ## Thread header
 
-The header shows a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels. This uses the same rename action as the sessions panel. The header also hosts the sessions-panel toggle and the Research/Sources panel buttons.
+The header is two floating pills, split by what they are for.
+
+**Left — where you are.** The sessions-panel toggle (the door to past chats) and a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels; this uses the same rename action as the sessions panel. The project name truncates before the session title does, because the project is already named by the composer's scope chip and the navigation rail, while the session title is the only place this thread is named at all. On a phone the project segment is dropped entirely.
+
+**Right — what is true about this chat, then what you can do to it,** separated by a hairline.
+
+Before the line is *status*, and none of it is clickable: the participant faces (who can read this chat, once it is shared and once collaboration is enabled for your organization), an access chip that appears **only** when the chat is readable through a blanket rule (`Projekt`, `Organisation`) rather than a named list, and — while deep research is running — a spinner, so the "still working" signal survives scrolling past the thread's own banner. A private one-person chat shows none of it, because there is nothing to report.
+
+After the line is *action*. **New chat** is the only one kept in the open. The rest live in the **…** menu, and each appears only when it is real:
+
+| Menu entry | Appears when |
+|---|---|
+| **Rename chat** | there is a chat to rename — it opens the title for editing in place; Enter or clicking away commits, Escape cancels (the same rename action as the sessions panel) |
+| **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners |
+| **Research report** | this thread already has a report, one is running, or the panel is open |
+
+If none of them applies, there is no menu button either. The main way into a report is still the "view report" action on the answer that produced it — the menu entry is for coming back after you have closed the panel and scrolled on — and the panel closes with its own ✕ or Escape.
+
+The whole header is hidden on an empty chat that has not started yet, apart from the sessions and navigation doors.
 
 ## The composer
 
