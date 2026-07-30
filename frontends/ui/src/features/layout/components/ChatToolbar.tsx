@@ -9,11 +9,15 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Menu, MessageSquareText, Sparkles, SquarePen } from 'lucide-react'
+import { Menu, MessageSquareText, Share2, Sparkles, SquarePen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore, useLoadJobData } from '@/features/chat'
+import { AccessChip, namedAudienceCount } from '@/features/collaboration/components/AccessChip'
+import { ParticipantStrip } from '@/features/collaboration/components/ParticipantStrip'
+import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
+import { useSharing } from '@/features/collaboration/hooks/use-sharing'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 
@@ -31,6 +35,21 @@ interface ChatToolbarProps {
    * that don't yet pass it (and existing specs) keep the full toolbar.
    */
   isChatStarted?: boolean
+  /**
+   * The conversation the sharing surfaces act on. Passed in rather than read from
+   * the chat store so this component keeps taking its inputs as props (and so a
+   * preview or a test can drive it without a store).
+   */
+  conversationId?: string | null
+  /**
+   * Whether the collaboration feature is on for this org. **Default `false`**: the
+   * gate is default-deny like the API's (`requireCollaborationEnabled`), so a
+   * caller that has not been taught about sharing yet opens no request and shows no
+   * collaboration furniture.
+   */
+  isCollaborationEnabled?: boolean
+  /** The signed-in user, so the roster can mark "you" and Leave knows its target. */
+  currentUserId?: string | null
 }
 
 export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
@@ -39,11 +58,15 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   onNewSession,
   isNewSessionDisabled = false,
   isChatStarted = true,
+  conversationId = null,
+  isCollaborationEnabled = false,
+  currentUserId = null,
 }) {
   const { isAuthenticated } = useAuth()
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const tNav = useTranslations('nav')
+  const tCollab = useTranslations('collaboration')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
   const openMobileNav = useLayoutStore((s) => s.setMobileNavOpen)
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
@@ -53,6 +76,19 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const currentSessionId = useChatStore((s) => s.currentConversation?.id)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
   const { loadResearchPanelTab, isLoading: isStreamLoading } = useLoadJobData()
+
+  // Sharing state for this thread. One request per conversation, shared by the
+  // strip, the chip and the dialog — the hook is fully inert while the feature is
+  // off or there is no reachable conversation (no fetch, no live subscription).
+  const isSharingReachable = Boolean(
+    isCollaborationEnabled && isAuthenticated && isChatStarted && conversationId,
+  )
+  const sharing = useSharing('conversation', conversationId ?? null, isSharingReachable)
+  const [isShareOpen, setIsShareOpen] = useState(false)
+  // Only render the collaboration affordances once the server has actually told us
+  // about this thread. A chip guessing "Privat" before the answer arrives would be
+  // a claim about access control made without evidence.
+  const sharingState = isSharingReachable ? sharing.state : null
 
   // Inline title editing state (Enter commits / Escape cancels / blur commits).
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -240,6 +276,28 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               ) : null}
           </nav>
         )}
+
+        {/* Who can reach this thread, right next to what the thread IS. The strip
+            is the recognisable answer (faces), the chip the precise one (the rule);
+            both disappear entirely for a solo private chat, so a single-player user
+            never meets collaboration furniture. */}
+        {sharingState && (
+          <>
+            <ParticipantStrip
+              entries={sharingState.entries}
+              currentUserId={currentUserId}
+              onOpen={() => setIsShareOpen(true)}
+              className="ml-0.5"
+            />
+            {/* Hidden on the narrowest viewports: the left pill is capped at 64%
+                of the row there, and the thread title has the better claim on it. */}
+            <AccessChip
+              visibility={sharingState.visibility}
+              sharedWith={namedAudienceCount(sharingState.entries, currentUserId)}
+              className="ml-1.5 hidden sm:inline-flex"
+            />
+          </>
+        )}
       </div>
 
       {/* RIGHT pill: primary actions. New chat is the highest-value action and
@@ -248,6 +306,24 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           redundant and there is no research report to reopen yet. */}
       {isChatStarted && (
       <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        {/* Share — the ONE door to the sharing surface (SH-17). Present for every
+            participant, not only owners: a viewer is entitled to see who else is in
+            the room, and it is where they leave from. */}
+        {sharingState && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 rounded-md"
+            onClick={() => setIsShareOpen(true)}
+            aria-label={tCollab('sharing.action')}
+            title={tCollab('sharing.action')}
+            data-testid="share-button"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden text-sm sm:inline">{tCollab('sharing.action')}</span>
+          </Button>
+        )}
+
         {/* New chat */}
         <Button
           variant="ghost"
@@ -300,6 +376,20 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
       </div>
       )}
       </div>
+
+      {/* The sharing surface itself. Mounted only once the thread is reachable and
+          the reader has asked for it, so it costs nothing on every other render.
+          `pointer-events-auto` is unnecessary here — the dialog portals out of this
+          `pointer-events-none` header. */}
+      {sharingState && isShareOpen && (
+        <ShareDialog
+          open={isShareOpen}
+          onOpenChange={setIsShareOpen}
+          resourceId={conversationId}
+          sharing={sharing}
+          currentUserId={currentUserId}
+        />
+      )}
     </header>
   )
 })

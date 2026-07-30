@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,8 @@ import pytest
 from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
+from aiq_agent.conversation_context import MAX_CONTEXT_MESSAGE_CHARS
+from aiq_agent.conversation_context import register_context_appender
 from aiq_api import websocket_reconnect
 from aiq_api.auth.middleware import get_current_user
 from aiq_api.auth.request_trace import get_request_trace_tags
@@ -175,6 +178,83 @@ async def test_registry_pending_interaction_resolve() -> None:
 
     await registry.clear_pending_interaction("conv-1")
     assert await registry.resolve_pending_interaction("conv-1", response) is False
+
+
+@pytest.mark.asyncio
+async def test_only_the_person_who_was_asked_may_answer() -> None:
+    """A colleague in a shared conversation must not answer a prompt asked of someone else.
+
+    ``_pending_interactions`` is keyed by conversation id, so before this every
+    socket registered for the conversation could resolve the future. In a shared
+    conversation (ADR-0032) that is a second participant answering a question the
+    assistant asked the first — and nothing on the server stopped it. The only thing
+    that did was the colleague's browser having no prompt to render, which is a UI
+    accident, not an authorization rule.
+    """
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+    response = TextContent(text="ja, passt")
+
+    # A colleague: refused, and the prompt stays open for the person it is for.
+    assert await registry.resolve_pending_interaction("conv-1", response, "user_anna") is False
+    assert not future.done()
+
+    # An unauthenticated answer cannot stand in for a named one either.
+    assert await registry.resolve_pending_interaction("conv-1", response, None) is False
+    assert not future.done()
+
+    # The person who was asked: accepted.
+    assert await registry.resolve_pending_interaction("conv-1", response, "user_matthias") is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
+async def test_an_unauthenticated_prompt_stays_answerable() -> None:
+    """No verified human was asked, so there is no identity to match.
+
+    Internal and service-token callers are trusted by other means. Requiring a
+    subject here would make every internal HITL turn permanently unanswerable —
+    closing a hole by breaking a working path.
+    """
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, None)
+
+    response = TextContent(text="ok")
+    assert await registry.resolve_pending_interaction("conv-1", response, None) is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
+async def test_a_bus_relayed_answer_is_not_re_authorized() -> None:
+    """A multi-replica relay carries no subject, and was authorized upstream.
+
+    The replica that accepted the answer from a socket already checked the sender;
+    the subject is not on the bus wire. Re-checking here would reject every
+    legitimate cross-replica answer.
+    """
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+    response = TextContent(text="ja")
+    assert await registry.resolve_pending_interaction("conv-1", response, websocket_reconnect._ANY_SUBJECT) is True
+    assert future.result() == response
+
+
+@pytest.mark.asyncio
+async def test_submit_hitl_answer_carries_the_answerer_through() -> None:
+    registry = WebSocketSessionRegistry()
+    future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+    response = TextContent(text="ja")
+    assert await registry.submit_hitl_answer("conv-1", response, "user_anna") is False
+    assert not future.done()
+    assert await registry.submit_hitl_answer("conv-1", response, "user_matthias") is True
+    assert future.result() == response
 
 
 @pytest.mark.asyncio
@@ -504,7 +584,7 @@ async def test_handler_run_uses_registry_when_no_future(
     async def fake_set_socket(_conversation_id, _socket):
         return None
 
-    async def fake_resolve_pending(_conversation_id, _user_content):
+    async def fake_resolve_pending(_conversation_id, _user_content, _answered_by=None):
         return True
 
     monkeypatch.setattr(
@@ -1038,3 +1118,233 @@ async def test_process_workflow_request_binds_request_trace_tags(monkeypatch) ->
             "aiq.access.channel": "ui",
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# Ingest-only context (ADR-0034 addendum): "always send, never always judge".
+#
+# The agent's history IS its LangGraph checkpoint, so a human turn that never
+# reached the agent could never be referred back to — `@Piloti given that,
+# recheck` had nothing to point at. Every human message now reaches the agent,
+# tagged with whether it is addressed to it. A `context_only` frame is appended
+# to the conversation's state and answered with NOTHING: no workflow, no LLM, no
+# system_response, no intermediate or status frame.
+# ---------------------------------------------------------------------------
+
+
+def _context_only_user_message(
+    text: str,
+    *,
+    conversation_id: str | None = "conv-1",
+    context_only: bool = True,
+    author_name: str | None = "Anna Weber",
+) -> WebSocketUserMessage:
+    """A `user_message` frame carrying the ingest-only payload the client sends."""
+    payload: dict = {"query": text, "data_sources": []}
+    if context_only:
+        payload["context_only"] = True
+    if author_name is not None:
+        payload["author_name"] = author_name
+    return WebSocketUserMessage(
+        type=WebSocketMessageType.USER_MESSAGE,
+        schema_type=WorkflowSchemaType.CHAT_STREAM,
+        id="msg-ctx-1",
+        conversation_id=conversation_id,
+        content=UserMessageContent(
+            messages=[
+                UserMessages(
+                    role=UserMessageContentRoleType.USER,
+                    content=[TextContent(text=json.dumps(payload))],
+                )
+            ]
+        ),
+    )
+
+
+def _handler_for(message: WebSocketUserMessage, monkeypatch) -> tuple[object, DummySocket, list]:
+    """A handler whose single inbound frame is *message*, with the workflow stubbed."""
+    socket = DummySocket(messages=[{"ok": True}])
+    handler = ReconnectableWebSocketMessageHandler(
+        socket=socket,
+        session_manager=DummySessionManager(),
+        step_adaptor=DummyStepAdaptor(),
+        worker=DummyWorker(),
+    )
+    processed: list = []
+
+    async def fake_validate_message(_message):
+        return message
+
+    async def fake_process_workflow(_message):
+        processed.append(_message)
+
+    async def fake_set_socket(_conversation_id, _socket):
+        return None
+
+    monkeypatch.setattr(handler._message_validator, "validate_message", fake_validate_message)
+    monkeypatch.setattr(handler, "process_workflow_request", fake_process_workflow)
+    monkeypatch.setattr(websocket_reconnect._registry, "set_socket", fake_set_socket)
+    return handler, socket, processed
+
+
+@pytest.fixture(name="captured_context")
+def fixture_captured_context():
+    """Capture what the handler appends, and never leak the stub between tests."""
+    appended: list[tuple[str, str]] = []
+
+    async def appender(thread_id: str, text: str) -> None:
+        appended.append((thread_id, text))
+
+    register_context_appender(appender)
+    yield appended
+    register_context_appender(None)
+
+
+@pytest.mark.asyncio
+async def test_context_only_message_is_ingested_and_invokes_no_workflow(monkeypatch, captured_context) -> None:
+    """THE POINT: it lands in the agent's history, and nothing runs or is sent."""
+    message = _context_only_user_message("Ja, das Atrium ist ein eigener Abschnitt.")
+    handler, socket, processed = _handler_for(message, monkeypatch)
+
+    await handler.run()
+
+    # Appended, attributed to its author.
+    assert captured_context == [("conv-1", "Anna Weber: Ja, das Atrium ist ein eigener Abschnitt.")]
+    # No LLM: `process_workflow_request` is the ONLY door to the graph and the
+    # models behind it, and it was never opened.
+    assert processed == []
+    # Not one frame back: no system_response, no intermediate, no status, no error.
+    assert socket.sent == []
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_message_still_runs_the_workflow(monkeypatch, captured_context) -> None:
+    """A NEW backend reading no flag behaves exactly as it did before this existed."""
+    message = _context_only_user_message("Wie breit muss der Fluchtweg sein?", context_only=False)
+    handler, _socket, processed = _handler_for(message, monkeypatch)
+
+    await handler.run()
+
+    assert processed == [message]
+    assert captured_context == []
+
+
+@pytest.mark.asyncio
+async def test_context_only_prefers_the_verified_principal_over_the_client_name(monkeypatch, captured_context) -> None:
+    """A client cannot attribute its text to a colleague in the agent's history."""
+    message = _context_only_user_message("Bemerkung", author_name="Matthias Bigl")
+    handler, _socket, _processed = _handler_for(message, monkeypatch)
+    handler._authenticated_user = {"type": "oidc", "sub": "u-anna", "name": "Anna Weber"}
+
+    await handler.run()
+
+    assert captured_context == [("conv-1", "Anna Weber: Bemerkung")]
+
+
+@pytest.mark.asyncio
+async def test_context_only_body_is_capped(monkeypatch, captured_context) -> None:
+    """A pathological paste must not bloat the checkpoint every later turn reads."""
+    message = _context_only_user_message("z" * 50_000, author_name=None)
+    handler, _socket, processed = _handler_for(message, monkeypatch)
+
+    await handler.run()
+
+    assert processed == []
+    assert len(captured_context) == 1
+    _thread_id, stored = captured_context[0]
+    assert len(stored) == MAX_CONTEXT_MESSAGE_CHARS
+    assert stored == "z" * MAX_CONTEXT_MESSAGE_CHARS
+
+
+@pytest.mark.asyncio
+async def test_context_only_without_a_conversation_id_is_dropped_silently(monkeypatch, captured_context) -> None:
+    """No thread to append to. Still never an answer, and never an error frame."""
+    message = _context_only_user_message("Bemerkung", conversation_id=None)
+    handler, socket, processed = _handler_for(message, monkeypatch)
+
+    await handler.run()
+
+    assert captured_context == []
+    assert processed == []
+    assert socket.sent == []
+
+
+@pytest.mark.asyncio
+async def test_context_only_survives_a_missing_appender(monkeypatch) -> None:
+    """Ingestion is best-effort: a lost line of memory must not cost the socket."""
+    register_context_appender(None)
+    message = _context_only_user_message("Bemerkung")
+    handler, socket, processed = _handler_for(message, monkeypatch)
+
+    await handler.run()
+
+    assert processed == []
+    assert socket.sent == []
+
+
+@pytest.mark.asyncio
+async def test_context_only_is_refused_under_an_expired_handshake_token(monkeypatch, captured_context) -> None:
+    """An expired token buys no write into the checkpoint either."""
+    message = _context_only_user_message("Bemerkung")
+    handler, socket, processed = _handler_for(message, monkeypatch)
+    monkeypatch.setattr(handler, "_is_handshake_token_expired", lambda: True)
+
+    await handler.run()
+
+    assert captured_context == []
+    assert processed == []
+    # The client is told to reconnect, exactly as for an ordinary message.
+    assert [frame.get("type") for frame in socket.sent] == [WebSocketMessageType.ERROR_MESSAGE.value]
+
+
+def test_latest_user_text_reads_the_last_text_part() -> None:
+    message = _context_only_user_message("die Bemerkung")
+
+    raw = websocket_reconnect.latest_user_text(message)
+
+    assert raw is not None
+    assert json.loads(raw)["query"] == "die Bemerkung"
+
+
+@pytest.mark.asyncio
+async def test_an_unanswered_hitl_prompt_expires_instead_of_hanging(
+    monkeypatch,
+    dummy_socket: DummySocket,
+) -> None:
+    """An abandoned prompt must not pin the turn — or its checkpoint — forever.
+
+    Before this the await had no deadline, and the only thing that ever released it
+    was a NEW turn on the same conversation cancelling the stale task. A shared
+    conversation makes that worse: the asker can close the tab while colleagues keep
+    reading, and nothing ever starts a new turn.
+    """
+    handler = ReconnectableWebSocketMessageHandler(
+        socket=dummy_socket,
+        session_manager=DummySessionManager(),
+        step_adaptor=DummyStepAdaptor(),
+        worker=DummyWorker(),
+    )
+    handler._conversation_id = "conv-expiry"
+
+    monkeypatch.setattr(websocket_reconnect, "HITL_RESPONSE_TIMEOUT_SECONDS", 0.01)
+
+    sent: list[dict] = []
+
+    async def fake_create_websocket_message(**kwargs):
+        sent.append(kwargs)
+
+    monkeypatch.setattr(handler, "create_websocket_message", fake_create_websocket_message)
+
+    class _Prompt:
+        content = DummyMessage()
+
+    with pytest.raises(TimeoutError):
+        await handler.human_interaction_callback(_Prompt())
+
+    # The prompt WAS delivered; it simply went unanswered.
+    assert sent, "the prompt should still have been sent before the wait"
+    # And the registry is left clean, so the next turn is not blocked by a stale entry.
+    assert (
+        await websocket_reconnect._registry.resolve_pending_interaction("conv-expiry", TextContent(text="late"), None)
+        is False
+    )

@@ -6,6 +6,7 @@ import { ChatArea } from './ChatArea'
 // Mock the chat store
 const mockRespondToPrompt = vi.fn()
 const mockDismissErrorCard = vi.fn()
+const mockSetComposerPrefill = vi.fn()
 const mockGetThinkingStepsForMessage = vi.fn((_messageId: string) => [] as { id: string; displayName: string }[])
 const mockChatThinking = vi.fn((_props: unknown) => <div data-testid="chat-thinking">Thinking...</div>)
 
@@ -30,6 +31,7 @@ vi.mock('@/features/chat', () => ({
       thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
+      setComposerPrefill: mockSetComposerPrefill,
       getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
     }
     return selector ? selector(state) : state
@@ -41,10 +43,86 @@ vi.mock('@/features/chat', () => ({
     <div data-testid="agent-response">{content}</div>
   ),
   ErrorBanner: ({ message }: { message: string }) => <div data-testid="error-card">{message}</div>,
-  UserMessage: ({ content }: { content: string }) => (
-    <div data-testid="user-message">{content}</div>
+  // The stub surfaces the multi-author props so ChatArea's own derivation
+  // (who wrote what, and which messages group) is assertable here, while the
+  // bubble's rendering stays covered by UserMessage.spec.
+  UserMessage: ({
+    content,
+    author,
+    grouped,
+  }: {
+    content: string
+    author?: { name?: string | null; isYou?: boolean }
+    grouped?: boolean
+  }) => (
+    <div
+      data-testid="user-message"
+      data-author={author ? (author.isYou ? 'you' : (author.name ?? 'unknown')) : undefined}
+      data-grouped={grouped ? 'true' : undefined}
+    >
+      {content}
+    </div>
   ),
   ChatThinking: (props: unknown) => mockChatThinking(props),
+}))
+
+// The ADR-0033 seam is mocked so this spec can drive the states it produces
+// (shared / not shared, a turn in flight, an unread anchor) without a server. Its
+// own behaviour — what it fetches and when — is covered in
+// features/collaboration/hooks/use-shared-thread.spec.ts. The default is the INERT
+// result, which is what every pre-collaboration test in this file relies on.
+const INERT_SHARED_THREAD = {
+  shared: false,
+  myRole: null as 'viewer' | 'collaborator' | 'owner' | null,
+  loading: false,
+  connected: false,
+  turnInFlight: null as { actorUserId: string | null } | null,
+  participants: [] as Array<{ userId: string; name: string }>,
+  unreadAfterMessageId: null as string | null,
+  lastArrival: null as { messageId: string; authorUserId: string | null; authorName: string | null } | null,
+  authorOf: (_userId?: string | null) => null as { userId: string; name: string } | null,
+  engagement: 'ask' as 'ask' | 'mention',
+  engagementSuggestion: null as 'ask' | 'mention' | null,
+  setEngagement: async (_mode: 'ask' | 'mention') => true,
+  refresh: () => {},
+}
+let mockSharedThread = { ...INERT_SHARED_THREAD }
+
+vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
+  useSharedThread: () => mockSharedThread,
+}))
+
+// The derived hand-off state behind the hand-back offer. Mocked at the hook
+// boundary: the offer must never compute a wait locally (ADR-0034), so what it
+// reads is the server's answer and nothing else.
+// Full rows, not `{ id }` stubs: the banner RENDERS these (name, avatar, who
+// asked, since when), so a thin fixture makes the mount untestable — which is
+// how the banner stayed unmounted with the suite green.
+let mockAwaitingPending: Array<{
+  id: string
+  person: { userId: string; name: string }
+  requestedBy: { userId: string; name: string } | null
+  createdAt: string
+  note?: string | null
+}> = []
+
+const pendingRequest = (
+  overrides: Partial<(typeof mockAwaitingPending)[number]> = {},
+): (typeof mockAwaitingPending)[number] => ({
+  id: 'r-1',
+  person: { userId: 'user_anna', name: 'Anna Berger' },
+  requestedBy: { userId: 'user-1', name: 'Max Mustermann' },
+  createdAt: '2026-07-29T09:00:00.000Z',
+  note: null,
+  ...overrides,
+})
+
+vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
+  useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
+    awaiting: enabled ? { pending: mockAwaitingPending, awaitingMe: false } : null,
+    refresh: vi.fn(),
+    release: vi.fn(),
+  })),
 }))
 
 import { useChatStore } from '@/features/chat'
@@ -56,6 +134,7 @@ describe('ChatArea', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUserName = 'Max Mustermann'
+    mockSharedThread = { ...INERT_SHARED_THREAD }
   })
 
   test('renders welcome state when not authenticated', () => {
@@ -515,5 +594,568 @@ describe('ChatArea', () => {
     // Second turn is actively streaming — shows spinner, not interrupted.
     expect(secondCallProps.isThinking).toBe(true)
     expect(secondCallProps.isInterrupted).toBe(false)
+  })
+})
+
+/**
+ * The multi-person thread (spec CC-5, CC-13, CC-19).
+ *
+ * These cover what ChatArea itself decides: who each message is attributed to,
+ * which messages GROUP under one header, where the unread separator lands, and
+ * whether the observer is told that the agent is busy on someone else's turn.
+ */
+describe('ChatArea — shared thread', () => {
+  const ME = 'user-1'
+  const ANNA = 'user_anna'
+
+  // Typed with `never` rather than the file's older `any` so the helper adds no
+  // new lint warnings; the state object is a fixture, not the real store shape.
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  const userMessage = (id: string, authorUserId: string | null, content = id) => ({
+    id,
+    role: 'user',
+    messageType: 'user',
+    content,
+    authorUserId,
+  })
+
+  beforeEach(() => {
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      participants: [
+        { userId: ME, name: 'Max Mustermann' },
+        { userId: ANNA, name: 'Anna Berger' },
+      ],
+      authorOf: (userId?: string | null) =>
+        userId === ANNA
+          ? { userId: ANNA, name: 'Anna Berger' }
+          : userId === ME
+            ? { userId: ME, name: 'Max Mustermann' }
+            : null,
+    }
+  })
+
+  test('attributes each human message, and marks the reader\'s own as theirs', () => {
+    setThread([userMessage('m1', ME, 'my question'), userMessage('m2', ANNA, "Anna's answer")])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const bubbles = screen.getAllByTestId('user-message')
+    expect(bubbles[0]).toHaveAttribute('data-author', 'you')
+    expect(bubbles[1]).toHaveAttribute('data-author', 'Anna Berger')
+  })
+
+  test('groups consecutive messages from the same author, and only those', () => {
+    setThread([
+      userMessage('m1', ANNA, 'first'),
+      userMessage('m2', ANNA, 'second'),
+      userMessage('m3', ME, 'mine'),
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const bubbles = screen.getAllByTestId('user-message')
+    expect(bubbles[0]).not.toHaveAttribute('data-grouped')
+    expect(bubbles[1]).toHaveAttribute('data-grouped', 'true')
+    // A different author breaks the run.
+    expect(bubbles[2]).not.toHaveAttribute('data-grouped')
+  })
+
+  test('the agent answering breaks a run, so the next message gets its own header', () => {
+    setThread([
+      userMessage('m1', ANNA, 'question'),
+      { id: 'a1', role: 'assistant', messageType: 'agent_response', content: 'answer' },
+      userMessage('m2', ANNA, 'follow-up'),
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const bubbles = screen.getAllByTestId('user-message')
+    expect(bubbles[1]).not.toHaveAttribute('data-grouped')
+  })
+
+  test('draws the unread separator where the reader left off (spec CC-19)', () => {
+    mockSharedThread = { ...mockSharedThread, unreadAfterMessageId: 'm1' }
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('unread-divider')).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: /new/i })).toBeInTheDocument()
+  })
+
+  test('does not draw the separator when everything after the mark is the reader\'s own', () => {
+    // "New" above your own message would be telling you that you have not read
+    // yourself.
+    mockSharedThread = { ...mockSharedThread, unreadAfterMessageId: 'm1' }
+    setThread([userMessage('m1', ME), userMessage('m2', ME)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('unread-divider')).not.toBeInTheDocument()
+  })
+
+  test("tells an observer whose question the agent is answering (spec CC-13)", () => {
+    mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ANNA } }
+    setThread([userMessage('m1', ANNA, 'question')])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('turn-in-flight')).toHaveTextContent(/Anna Berger/)
+  })
+
+  test('words the banner differently when the turn is the reader\'s own', () => {
+    mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ME } }
+    setThread([userMessage('m1', ME, 'question')])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    const banner = screen.getByTestId('turn-in-flight')
+    expect(banner).toBeInTheDocument()
+    expect(banner).not.toHaveTextContent(/Max Mustermann/)
+  })
+
+  test("announces a colleague's arrival politely", () => {
+    mockSharedThread = {
+      ...mockSharedThread,
+      lastArrival: { messageId: 'm2', authorUserId: ANNA, authorName: 'Anna Berger' },
+    }
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    const { container } = render(<ChatArea isAuthenticated canCollaborate />)
+
+    const live = container.querySelector('[aria-live="polite"]')
+    expect(live).toHaveTextContent(/Anna Berger/)
+  })
+
+  test('renders nothing extra for a thread the server says is not shared (spec NF-8)', () => {
+    // The flag can be on while THIS conversation is private: the local-first
+    // rendering must be exactly as before — no attribution, no separator, no banner.
+    mockSharedThread = { ...INERT_SHARED_THREAD, unreadAfterMessageId: 'm1' }
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    for (const bubble of screen.getAllByTestId('user-message')) {
+      expect(bubble).not.toHaveAttribute('data-author')
+      expect(bubble).not.toHaveAttribute('data-grouped')
+    }
+    expect(screen.queryByTestId('unread-divider')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('turn-in-flight')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The waiting banner, asserted where it actually has to appear.
+ *
+ * The banner was built, unit-tested and screenshotted while NOTHING in the product
+ * rendered it — its only consumer was the dev preview page. So the feature's central
+ * promise (the thread visibly waits for Anna, and any participant can release the
+ * wait) was absent from the shipped UI while every unit test around it stayed green.
+ * These tests assert REACHABILITY, which coverage of the component cannot.
+ */
+describe('ChatArea — the awaiting banner is reachable', () => {
+  const ME = 'user-1'
+  const ANNA = 'user_anna'
+
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  /** Max asked Anna and nobody has answered yet — the state the banner is for. */
+  const waitingThread = () => [
+    {
+      id: 'm1',
+      role: 'user',
+      messageType: 'user',
+      content: 'm1',
+      authorUserId: ME,
+      addressees: { agent: false, users: [ANNA] },
+    },
+  ]
+
+  beforeEach(() => {
+    mockAwaitingPending = []
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      participants: [
+        { userId: ME, name: 'Max Mustermann' },
+        { userId: ANNA, name: 'Anna Berger' },
+      ],
+      authorOf: (userId?: string | null) =>
+        userId === ANNA
+          ? { userId: ANNA, name: 'Anna Berger' }
+          : userId === ME
+            ? { userId: ME, name: 'Max Mustermann' }
+            : null,
+    }
+  })
+
+  test('a waiting shared thread renders the banner, naming who holds it', () => {
+    mockAwaitingPending = [pendingRequest()]
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('awaiting-banner')).toHaveTextContent('Waiting for Anna Berger')
+  })
+
+  test('the release action — the way out of a wait — is present', () => {
+    mockAwaitingPending = [pendingRequest()]
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    // MN-9.2. Without this on screen a thread is stuck whenever the person who
+    // was asked goes on holiday, and ADR-0034's own mitigation for its worst
+    // risk does not exist.
+    expect(
+      screen.getByRole('button', { name: 'Continue without Anna Berger' }),
+    ).toBeInTheDocument()
+  })
+
+  test('no banner when nothing is outstanding', () => {
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('awaiting-banner')).not.toBeInTheDocument()
+  })
+
+  test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {
+    mockAwaitingPending = [pendingRequest()]
+    mockSharedThread = { ...INERT_SHARED_THREAD }
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate={false} />)
+
+    expect(screen.queryByTestId('awaiting-banner')).not.toBeInTheDocument()
+  })
+
+  test('"ask Piloti instead" pre-fills rather than sending, like every other hand-off action', async () => {
+    const user = userEvent.setup()
+    mockAwaitingPending = [pendingRequest()]
+    setThread(waitingThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+    await user.click(screen.getByRole('button', { name: 'Ask Piloti instead' }))
+
+    // `@Piloti` is what releases the wait server-side, so the ruling does it —
+    // no separate release call, and the message stays honestly authored.
+    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti ')
+  })
+})
+
+/**
+ * The hand-back offer (ADR-0034 addendum) — the last transition of the state
+ * machine: asking Piloti → tag a human → waiting → they answer → **hand back?**
+ *
+ * The offer is derived from the THREAD, not from a live transition, which is what
+ * these tests pin hardest: the asker usually arrives after the answer landed (hours
+ * later, another device), so an offer that only existed in the browser that watched
+ * the message arrive would be missing in exactly the case it is for.
+ */
+describe('ChatArea — the hand-back offer', () => {
+  const ME = 'user-1'
+  const ANNA = 'user_anna'
+  const TOBIAS = 'user_tobias'
+
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  const userMessage = (
+    id: string,
+    authorUserId: string | null,
+    extra: Record<string, unknown> = {},
+  ) => ({ id, role: 'user', messageType: 'user', content: id, authorUserId, ...extra })
+
+  /** The hand-off itself: the server addressed people and NOT the agent (MN-1). */
+  const asks = (users: string[]) => ({ addressees: { agent: false, users } })
+
+  /** The reader asked Anna; Anna has answered; nothing is outstanding. */
+  const resolvedThread = () => [
+    userMessage('m1', ME, asks([ANNA])),
+    userMessage('m2', ANNA),
+  ]
+
+  beforeEach(() => {
+    mockAwaitingPending = []
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      participants: [
+        { userId: ME, name: 'Max Mustermann' },
+        { userId: ANNA, name: 'Anna Berger' },
+      ],
+      authorOf: (userId?: string | null) =>
+        userId === ANNA
+          ? { userId: ANNA, name: 'Anna Berger' }
+          : userId === TOBIAS
+            ? { userId: TOBIAS, name: 'Tobias Kern' }
+            : userId === ME
+              ? { userId: ME, name: 'Max Mustermann' }
+              : null,
+    }
+  })
+
+  test('offers to let Piloti carry on once the person who was asked has answered', () => {
+    setThread(resolvedThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('handback-offer')).toHaveTextContent(
+      'Anna Berger replied — let Piloti carry on?',
+    )
+  })
+
+  test('names everyone who answered when several were asked', () => {
+    setThread([
+      userMessage('m1', ME, asks([ANNA, TOBIAS])),
+      userMessage('m2', ANNA),
+      userMessage('m3', TOBIAS),
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('handback-offer')).toHaveTextContent(
+      'Anna Berger, Tobias Kern replied — let Piloti carry on?',
+    )
+  })
+
+  test('falls back to the structured mentions when the ruling was not stored', () => {
+    setThread([
+      userMessage('m1', ME, { mentions: [{ targetId: ANNA, display: 'Anna Berger' }] }),
+      userMessage('m2', ANNA),
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('handback-offer')).toBeInTheDocument()
+  })
+
+  test('accepting PRE-FILLS the composer with @Piloti and never sends', async () => {
+    const user = userEvent.setup()
+    setThread(resolvedThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+    await user.click(screen.getByRole('button', { name: 'Let Piloti carry on' }))
+
+    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti please carry on from here.')
+    // And it steps aside — the composer now holds the offer.
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+
+  test('dismissing it takes it away', async () => {
+    const user = userEvent.setup()
+    setThread(resolvedThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+    await user.click(screen.getByRole('button', { name: 'Not now' }))
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+    expect(mockSetComposerPrefill).not.toHaveBeenCalled()
+  })
+
+  test('stays away while the thread is still waiting on someone — and the BANNER is what owns that state', () => {
+    mockAwaitingPending = [pendingRequest()]
+    setThread(resolvedThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+    // This assertion is the point. The old version of this test named the banner
+    // in its title and never checked it, so the banner could be — and was —
+    // completely unmounted while the suite stayed green. The agent's silence had
+    // no explanation on screen and the release action had no affordance.
+    expect(screen.getByTestId('awaiting-banner')).toBeInTheDocument()
+  })
+
+  test('stays away once the agent has already answered — there is nothing to hand back', () => {
+    setThread([
+      ...resolvedThread(),
+      { id: 'a1', role: 'assistant', messageType: 'agent_response', content: 'answer' },
+    ])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+
+  test('stays away when the reader had the last word', () => {
+    setThread([...resolvedThread(), userMessage('m3', ME)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+
+  test('stays away for a remark by somebody who was never asked', () => {
+    setThread([userMessage('m1', ME, asks([ANNA])), userMessage('m2', TOBIAS)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+
+  test('stays away when nobody was ever asked at all', () => {
+    setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+
+  test('renders nothing for a thread the server says is not shared (spec NF-8)', () => {
+    mockSharedThread = { ...INERT_SHARED_THREAD }
+    setThread(resolvedThread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The engagement notice, asserted where it has to appear.
+ *
+ * Same lesson as the awaiting banner: a component that explains the product's
+ * routing is worth nothing if the product does not render it. In `mention` mode a
+ * plain message goes to the chat rather than to Piloti, and a reader with no
+ * explanation on screen concludes the assistant is broken.
+ */
+describe('ChatArea — the engagement notice is reachable', () => {
+  const setThread = (messages: unknown[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: never) => unknown) => {
+      const state = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(state as never) : state
+    })
+  }
+
+  const thread = () => [
+    { id: 'm1', role: 'user', messageType: 'user', content: 'm1', authorUserId: 'user-1' },
+  ]
+
+  beforeEach(() => {
+    mockAwaitingPending = []
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, engagement: 'mention' }
+  })
+
+  test('a mention-mode shared thread explains the rule', () => {
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
+      'Piloti answers when mentioned',
+    )
+  })
+
+  test('an ask-mode thread with nothing to offer stays quiet about it', () => {
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, engagement: 'ask' }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.queryByTestId('engagement-notice')).not.toBeInTheDocument()
+  })
+
+  test('a multi-person ask-mode thread is OFFERED mention, and still answers to Piloti', () => {
+    // The correction that matters: `ask` stays the default however many people are
+    // here. A second person writing produces a question for the humans, never a
+    // change the thread made to itself.
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      engagement: 'ask',
+      engagementSuggestion: 'mention',
+    }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
+      'Should Piloti wait to be mentioned?',
+    )
+  })
+
+  test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {
+    mockSharedThread = { ...INERT_SHARED_THREAD, engagement: 'mention' }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate={false} />)
+
+    expect(screen.queryByTestId('engagement-notice')).not.toBeInTheDocument()
+  })
+
+  test('a viewer gets the explanation without the control', () => {
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      engagement: 'mention',
+      myRole: 'viewer',
+    }
+    setThread(thread())
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(screen.getByTestId('engagement-notice')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Let Piloti answer everything' }),
+    ).not.toBeInTheDocument()
   })
 })

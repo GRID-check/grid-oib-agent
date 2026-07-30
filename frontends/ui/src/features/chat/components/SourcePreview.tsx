@@ -36,7 +36,7 @@ import {
 } from '@/features/layout/components/SourceSignalChip'
 import type { SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
-import { useHoverPopover } from '../lib/hover-popover'
+import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { CitationPeek } from './CitationPeek'
 import { CopySourceCitationButton } from './CopyCitation'
 import { CopyCitationLinkButton } from './CopyCitationLink'

@@ -166,6 +166,53 @@ the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
 
+### 2b-bis. Ingest-only turns: how a message reaches the graph WITHOUT a turn
+
+Not every `user_message` opens a turn. The chat graph's conversation history **is**
+its LangGraph checkpoint (`thread_id == conversation_id`, `chat_deepresearcher_agent
+.checkpoint_db`), so only what passes through the agent is ever in its memory. That
+made collaboration's hand-off (ADR-0034) lose the thread: a message addressed to a
+*person* was suppressed by not invoking the agent, so Piloti never saw the question
+asked of Anna, nor Anna's answer, and a follow-up `@Piloti given that, recheck` had
+nothing to refer to.
+
+The rule is **"always send, never always judge"**: every human message is delivered
+to the agent, tagged with whether it is addressed to it. Routing stays deterministic
+and server-decided (the BFF's `addressees`, computed at persist time); only *delivery*
+changed.
+
+```
+client  user_message  content.text = {"query": …, "data_sources": […],
+                                      "context_only": true, "author_name": "Anna Weber"}
+  → websocket_reconnect.run()
+      1. per-message re-auth gate (unchanged; an expired token buys no write either)
+      2. context_only_directive(msg)  →  parse_context_only_payload()
+      3. _ingest_context_only_message()
+           • author = VERIFIED principal name, falling back to author_name
+           • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
+           • append_conversation_context()  → the registered appender
+      4. continue  ← no process_workflow_request, no socket registration
+  → ChatResearcherAgent.append_context_message()
+      graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
+```
+
+What makes it genuinely free: `aupdate_state` writes a checkpoint through the
+`messages` reducer (`add_messages` appends) and **executes no node**, so no LLM call,
+no `system_response_message`, no intermediate/status frame, and nothing to stream. The
+next real turn's `ainvoke` then reads the ingested turns as ordinary history.
+
+Key pieces:
+- Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
+- The appender is *published*, not imported: `aiq_api` owns the socket and
+  `aiq_agent` owns the graph, so `chat_researcher/register.py` calls
+  `register_context_appender(agent.append_context_message)` where the compiled graph
+  (and its checkpointer) exists.
+- Fail-soft throughout. A missing appender, a dead checkpointer or a raising append is
+  logged and swallowed: the human's message is already persisted in `grid_app.messages`,
+  so the worst case is a gap in the agent's memory, never a lost message or a closed
+  socket.
+- Wire contract + compatibility in both directions: `docs/api/websocket-protocol.md`.
+
 ### 2c. Reconnect & resume semantics (socket drop mid-turn)
 
 A turn can outlive its socket: the browser tab sleeps, the network blips, or a

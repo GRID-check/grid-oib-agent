@@ -148,6 +148,57 @@ export const conversationsClient = {
     if (!res.ok) throw new Error('Failed to update message card interactions')
     return res.json()
   },
+
+  /**
+   * Record what an answer rested on — the Herleitung, the confidence
+   * self-assessment, the routing transparency (ADR-0037).
+   *
+   * Sent once a turn has settled rather than with the message, because none of it
+   * exists yet when the message is posted: it accumulates from the intermediate
+   * frames while the answer streams. The server whitelists and bounds the payload
+   * (`sanitizeProvenance`), so what is sent here is the client's compact display
+   * form and not the raw stream.
+   */
+  async updateMessageProvenance(
+    conversationId: string,
+    messageId: string,
+    provenance: Record<string, unknown>,
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provenance }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message provenance')
+    return res.json()
+  },
+
+  /**
+   * Record the answer to a human-in-the-loop prompt on its message row, so the
+   * transcript says what was DECIDED rather than only that something was asked.
+   *
+   * Only the answer travels: the instant is stamped at the server persistence
+   * boundary so a participant cannot backdate a decision.
+   */
+  async updateMessagePromptState(
+    conversationId: string,
+    messageId: string,
+    promptState: { response: string },
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptState }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message prompt state')
+    return res.json()
+  },
 }
 
 export type ConversationsClient = typeof conversationsClient

@@ -176,6 +176,16 @@ export interface ChatMessage {
   promptResponse?: string
   /** Whether the prompt has been responded to */
   isPromptResponded?: boolean
+  /**
+   * The person the agent asked (ADR-0037). Present on a prompt restored from the
+   * server; absent on a live one, where the browser holding the socket IS the
+   * addressee by construction.
+   *
+   * Every other reader is shown the question read-only, because the agent tier
+   * refuses an answer from anybody but this person — offering them buttons would be
+   * offering a refusal.
+   */
+  promptFor?: string
   /** File card data for file messages */
   fileData?: FileCardData
   /** Error card data for error messages */
@@ -238,6 +248,32 @@ export interface ChatMessage {
    * `features/grid-cards/card-decision.ts`).
    */
   cardInteractions?: CardInteractions
+  /**
+   * WHICH person wrote this message (collaboration, ADR-0032/CC-3).
+   *
+   * `role` only ever said what KIND of author wrote a message, which was free
+   * while a thread had one human in it. With two it is a defect: the reader must
+   * be able to tell colleagues apart, and apart from the agent. Absent/null for
+   * assistant, status and system messages, and for solo threads where the UI
+   * deliberately renders no attribution at all.
+   */
+  authorUserId?: string | null
+  /** Resolved display name + avatar, so a bubble needs no directory lookup. */
+  authorName?: string | null
+  authorAvatarUrl?: string | null
+  /**
+   * Structured mentions carried by this message, in the order they appear.
+   * Deliberately NOT derived from the text: typing the characters "@Anna"
+   * without choosing her from the picker is not a mention and must not notify
+   * her (spec MN-3).
+   */
+  mentions?: Array<{ targetId: string; display: string }>
+  /**
+   * Who the message was addressed to, as ruled by the SERVER at persist time
+   * (spec MN-1/MN-2). The client stores it for rendering only — the decision of
+   * whether to open an agent turn was already made from this value.
+   */
+  addressees?: { agent: boolean; users: string[] }
   /**
    * The assistant's own guarded self-assessment of how well this answer is
    * grounded in its sources (shallow answers only). Absent on error, escalation,
@@ -567,6 +603,12 @@ export interface ChatState {
    * appears once this settles to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /**
+   * Whether the server conversation list has been asked for at least once. A
+   * `?session=<id>` deep link needs this to tell "stale id" from "not fetched
+   * yet" before it strips itself from the URL (see the sessions slice).
+   */
+  serverConversationsLoaded: boolean
   /** Whether a message is currently streaming */
   isStreaming: boolean
   /** Whether we're waiting for the first response token */
@@ -1031,6 +1073,21 @@ export interface ChatActions {
     messageId: string,
     cardInteractions: CardInteractions
   ) => Promise<void>
+  /**
+   * Mirror the settled turn's provenance to its server rows (ADR-0037): the
+   * Herleitung onto the user message, the confidence and routing transparency onto
+   * the assistant message.
+   *
+   * Best-effort, like the card mirror. Without it a colleague — who holds no agent
+   * socket by design — sees a bare answer, and the asker loses the reasoning on any
+   * other device.
+   */
+  _persistTurnProvenance: () => Promise<void>
+  /**
+   * Mirror the answer to a human-in-the-loop prompt onto its message row, so the
+   * transcript records what was decided and a colleague's reload sees it settled.
+   */
+  _persistPromptState: (messageId: string, response: string) => Promise<void>
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void

@@ -174,6 +174,22 @@ export async function getCached<T>(
   return value
 }
 
+/**
+ * Write a value directly, bypassing the read-through path.
+ *
+ * For the rare case where the caller has already computed the value and the
+ * write is the point — e.g. a fixed-window counter incrementing itself
+ * (`@/lib/sharing/rate-limit`). Prefer `getCached` for anything load-shaped.
+ * Fails open: a store error is logged, never thrown.
+ */
+export async function setCached<T>(key: string, value: T, ttlMs: number): Promise<void> {
+  try {
+    await store.set(key, JSON.stringify(value ?? null), ttlMs)
+  } catch (error) {
+    console.warn(`[cache] direct write failed for ${key}:`, error)
+  }
+}
+
 /** Drop a single cache entry (write-invalidate call sites). */
 export async function invalidateCached(key: string): Promise<void> {
   try {

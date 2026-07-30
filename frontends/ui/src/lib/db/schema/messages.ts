@@ -5,6 +5,19 @@ export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
   role: text('role').notNull(),
+  /**
+   * WorkOS user id of the human who wrote this message; NULL for assistant,
+   * system and tool messages, and NULL for messages written before authorship
+   * existed.
+   *
+   * `role` only ever recorded the KIND of author (user vs assistant), which was
+   * free when a thread had exactly one human in it. With two it is a defect:
+   * multi-author rendering, mention attribution and per-person read state all
+   * need to know WHICH person. Legacy rows are attributed to the conversation's
+   * creator at read time rather than backfilled, so the data never claims a
+   * precision it does not have (spec MG-3).
+   */
+  authorUserId: text('author_user_id'),
   content: text('content').notNull(),
   metadata: jsonb('metadata'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

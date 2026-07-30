@@ -36,10 +36,19 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
   const pathname = usePathname() ?? '/'
   const searchParams = useSearchParams()
 
-  const { currentConversation, currentUserId } = useChatStore(useShallow((s) => ({
-    currentConversation: s.currentConversation,
-    currentUserId: s.currentUserId,
-  })))
+  const { currentConversation, currentUserId, conversations, serverConversationsLoaded } =
+    useChatStore(
+      useShallow((s) => ({
+        currentConversation: s.currentConversation,
+        currentUserId: s.currentUserId,
+        // Not read directly — it is the RETRY TRIGGER. A deep-linked id that this
+        // browser has never seen (an inbox notification for a conversation a
+        // colleague shared) only becomes resolvable once the server list lands,
+        // which is after this effect first runs.
+        conversations: s.conversations,
+        serverConversationsLoaded: s.serverConversationsLoaded,
+      })),
+    )
   const selectConversation = useChatStore((s) => s.selectConversation)
   const getUserConversations = useChatStore((s) => s.getUserConversations)
 
@@ -77,8 +86,17 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
     if (sessionExists) {
       // Select the session from URL
       selectConversation(sessionId)
+    } else if (!serverConversationsLoaded) {
+      // Not stale — just not fetched yet. Leaving `initialSyncDone` false means
+      // this effect runs again when the server list arrives (it depends on
+      // `conversations`), which is the only way a link into a conversation this
+      // browser has never seen can ever open. Stripping the id here instead —
+      // what this did before — silently broke every inbox notification: the
+      // recipient landed on whatever session was last active, and the row was
+      // marked read, consuming their one signal.
+      return
     } else {
-      // Invalid session ID - clear it from URL
+      // Genuinely unknown after we have asked the server: a stale URL. Clear it.
       const newParams = new URLSearchParams(searchParams.toString())
       newParams.delete('session')
       const newUrl = newParams.toString() ? `${pathname}?${newParams.toString()}` : pathname
@@ -94,6 +112,8 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
     router,
     selectConversation,
     getUserConversations,
+    conversations,
+    serverConversationsLoaded,
   ])
 
   // Update URL when current conversation changes (but not on initial load)

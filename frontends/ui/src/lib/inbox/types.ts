@@ -1,0 +1,86 @@
+/**
+ * Inbox wire types + the client-side half of the item-type registry (ADR-0035).
+ *
+ * No `'server-only'`: the inbox list, the badge and the row renderer are client
+ * components and import these directly.
+ *
+ * **The extensibility contract lives here.** A new notification type needs:
+ *   1. a member added to `INBOX_ITEM_TYPES` (in the schema module),
+ *   2. an entry in `INBOX_TYPE_PRESENTATION` below,
+ *   3. the two translation keys it names.
+ * No schema change, no new component — the generic row renders every registered
+ * type from its entry. `Record<InboxItemType, …>` makes the map exhaustive, so
+ * `tsc` fails until step 2 is done.
+ */
+
+import type { InboxItemType, ShareableResourceType } from '@/lib/db/schema'
+
+export type { InboxItemType, ShareableResourceType }
+
+/** Lifecycle state, derived from the row's timestamps. */
+export type InboxItemState = 'unread' | 'read' | 'resolved' | 'archived' | 'inert'
+
+/** One item as the browser receives it. */
+export interface InboxItemView {
+  id: string
+  type: InboxItemType
+  state: InboxItemState
+  /** True for items representing an outstanding request against the recipient. */
+  actionable: boolean
+  resourceType: ShareableResourceType
+  resourceId: string
+  anchorId: string | null
+  /** Resolved display name of whoever caused it; null for system items. */
+  actorName: string | null
+  actorUserId: string | null
+  /** Occurrences absorbed by grouping (≥ 1). */
+  count: number
+  /** Where clicking it should land. Null when the item is inert. */
+  href: string | null
+  /** Short context line — e.g. the conversation title. */
+  subject: string | null
+  /**
+   * The asker's question, or a message excerpt. Stripped when the item is inert,
+   * because an inbox must never leak content whose access was revoked (IB-13).
+   */
+  excerpt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** `GET /api/inbox` */
+export interface InboxListResponse {
+  items: InboxItemView[]
+  /** Count of things needing attention — the badge number. */
+  pending: number
+}
+
+/** `GET /api/inbox/summary` — the cheap badge-only read. */
+export interface InboxSummaryResponse {
+  pending: number
+}
+
+/** Presentation metadata for one item type. */
+export interface InboxTypePresentation {
+  /** Lucide icon name, resolved by the renderer's icon map. */
+  readonly icon: 'at-sign' | 'message-square' | 'user-plus' | 'check-circle'
+  /** i18n key under `inbox.types.<key>.title` / `.body`. */
+  readonly i18nKey: string
+  /** Tone hint, so an actionable request reads differently from an FYI. */
+  readonly tone: 'request' | 'info'
+}
+
+/**
+ * The client-side registry. Exhaustive over `InboxItemType` by construction.
+ *
+ * Kept separate from the server registry (`./registry`) on purpose: the server
+ * half owns grouping keys, retention and the actionable flag (facts that decide
+ * what gets WRITTEN), while this half owns only how a row LOOKS. Neither needs
+ * the other's concerns, and this one must be importable by client components.
+ */
+export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentation> = {
+  'mention.requested': { icon: 'at-sign', i18nKey: 'mentionRequested', tone: 'request' },
+  'mention.answered': { icon: 'check-circle', i18nKey: 'mentionAnswered', tone: 'info' },
+  'conversation.shared_with_you': { icon: 'user-plus', i18nKey: 'conversationShared', tone: 'info' },
+  'conversation.activity': { icon: 'message-square', i18nKey: 'conversationActivity', tone: 'info' },
+}

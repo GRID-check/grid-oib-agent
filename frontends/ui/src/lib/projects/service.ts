@@ -11,6 +11,8 @@ import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { neutralizeCollaborationForProject } from '@/lib/collaboration/cleanup'
+import { listConversationIdsForProject } from '@/lib/conversations/repository'
 import { computePurgeAfter, projectGraceDays } from '@/lib/deletion/policy'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -126,6 +128,23 @@ export async function deleteProject(
 
   const purgeAfter = computePurgeAfter(new Date(), projectGraceDays())
   await softDeleteProjectAndEnqueue(project, session.userId, purgeAfter)
+
+  // Every conversation in the project just became unreachable, so collaboration
+  // state that assumes someone can READ those threads must be settled: open
+  // mention requests are voided (nobody can answer a thread they cannot open, and
+  // the hand-off banner would otherwise wait forever) and inbox items go inert
+  // with their payloads wiped, so a quoted snippet cannot outlive access to the
+  // thread it came from.
+  //
+  // Grants are deliberately KEPT: a soft delete may be restored during the grace
+  // period, and the project should come back with its threads shared exactly as
+  // they were (spec SH-13). Best-effort — a deletion must not fail on bookkeeping.
+  try {
+    const conversationIds = await listConversationIdsForProject(projectId, session.organizationId)
+    await neutralizeCollaborationForProject(session.organizationId, projectId, conversationIds)
+  } catch (error) {
+    console.warn('[projects] collaboration neutralization on project delete failed:', error)
+  }
 
   await recordAuditEvent({
     organizationId: session.organizationId,

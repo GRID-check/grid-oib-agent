@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Clock,
   Folder,
+  Inbox,
   MessageSquare,
   Settings,
   Zap,
@@ -23,9 +24,9 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Workflows* · Files · History · Archiv*. The palette
- * additionally surfaces the palette-only destinations Knowledge* and Setup
- * (intake). A `*` marks a flag-gated section.
+ * separately): Ask Piloti · Workflows* · Files · History · Archiv* · Inbox*.
+ * The palette additionally surfaces the palette-only destinations Knowledge* and
+ * Setup (intake). A `*` marks a flag-gated section.
  */
 
 export type ProjectSectionKey =
@@ -35,6 +36,7 @@ export type ProjectSectionKey =
   | 'knowledge'
   | 'history'
   | 'archiv'
+  | 'inbox'
   | 'intake'
   | 'settings'
 
@@ -46,6 +48,8 @@ export interface ProjectSectionFlags {
   canAccessArchiv?: boolean
   /** Project knowledge page — feature-flagged, default off. */
   showKnowledge?: boolean
+  /** Collaboration surfaces — `collaboration` flag / env opt-in (ADR-0032…0035). */
+  canCollaborate?: boolean
 }
 
 export interface ProjectSection {
@@ -59,6 +63,13 @@ export interface ProjectSection {
   icon: ComponentType<{ className?: string }>
   /** Key under `nav.sections` used for the visible label. */
   i18nKey: string
+  /**
+   * Overrides where the visible label comes from. Default is
+   * `nav.sections.<i18nKey>`; a section whose copy belongs to its own feature —
+   * the inbox lives in the `collaboration` dictionary (ADR-0035) — declares it
+   * here instead of duplicating the string into the nav dictionary.
+   */
+  label?: { namespace: 'collaboration'; key: string }
   /** Which flag gates this section, if any. `undefined` = always visible. */
   gate?: keyof ProjectSectionFlags
   /** Appears in the desktop/mobile rail's scrollable section nav. */
@@ -104,6 +115,25 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     gate: 'canAccessArchiv',
     inRail: true,
     inPalette: true,
+  },
+  {
+    // The inbox (ADR-0035): one per user per organization, so — like the Archiv —
+    // it keeps an org-scoped route and reads as a cross-project doorway rather
+    // than a project subpage. IB-18 wants it reachable from anywhere in the app,
+    // which is what a standing rail entry (plus its badge) delivers.
+    //
+    // Rail-only for now: the ⌘K palette labels every command from
+    // `nav.sections.*`, and the inbox's copy lives in the collaboration
+    // dictionary — wiring the palette is a separate change to that surface.
+    key: 'inbox',
+    segment: null,
+    href: '/app/inbox',
+    icon: Inbox,
+    i18nKey: 'inbox',
+    label: { namespace: 'collaboration', key: 'inbox.navLabel' },
+    gate: 'canCollaborate',
+    inRail: true,
+    inPalette: false,
   },
   {
     // The intake wizard ("Setup"). Palette-only — the rail reaches it via the

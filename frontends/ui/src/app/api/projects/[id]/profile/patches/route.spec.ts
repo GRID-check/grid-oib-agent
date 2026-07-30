@@ -81,4 +81,60 @@ describe('POST /api/projects/[id]/profile/patches', () => {
     expect(body.profileVersion).toBe(2)
     expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
   })
+
+  /**
+   * `updateProjectProfileIfVersion` only compares `profileVersion`, so the refusal
+   * it returns is a GENERIC optimistic-lock failure. Which of the two conflicts it
+   * is decides whether the caller may report success, and only the profile the
+   * winner left behind can say.
+   */
+  it('reports an idempotent success when the winner already applied this patch', async () => {
+    const applied = ProjectProfileSchema.parse({
+      facts: {
+        gebaeudeklasse: {
+          value: 'GK4',
+          confidence: 'confirmed',
+          source: 'user_confirmed',
+          updatedAt: '2026-07-30T08:00:00.000Z',
+        },
+      },
+    })
+    vi.mocked(findProjectProfileInOrg)
+      .mockResolvedValueOnce(currentState)
+      .mockResolvedValueOnce({ ...currentState, profile: applied, profileVersion: 2 })
+    vi.mocked(updateProjectProfileIfVersion).mockResolvedValue(null)
+
+    const response = await POST(
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] }),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.alreadyApplied).toBe(true)
+  })
+
+  it('still returns 409 when the concurrent write was somebody else’s change', async () => {
+    // The winner set a DIFFERENT fact, so these operations were dropped. Reporting
+    // this as applied would lose the change behind a card that cannot be retried.
+    const other = ProjectProfileSchema.parse({
+      facts: {
+        bauwerkstyp: {
+          value: 'wohngebaeude',
+          confidence: 'confirmed',
+          source: 'user_confirmed',
+          updatedAt: '2026-07-30T08:00:00.000Z',
+        },
+      },
+    })
+    vi.mocked(findProjectProfileInOrg)
+      .mockResolvedValueOnce(currentState)
+      .mockResolvedValueOnce({ ...currentState, profile: other, profileVersion: 2 })
+    vi.mocked(updateProjectProfileIfVersion).mockResolvedValue(null)
+
+    const response = await POST(
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] }),
+    )
+
+    expect(response.status).toBe(409)
+  })
 })

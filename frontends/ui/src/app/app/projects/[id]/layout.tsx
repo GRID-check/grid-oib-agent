@@ -90,6 +90,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
         canAccessArchiv={navFlags.canAccessArchiv}
+        canCollaborate={navFlags.canCollaborate}
         showWorkflows={isWorkflowsEnabled(session)}
       />
       {/* tabIndex={-1} makes the landmark programmatically focusable so

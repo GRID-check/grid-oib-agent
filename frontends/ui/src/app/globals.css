@@ -95,6 +95,31 @@ body {
   outline-offset: 2px;
 }
 
+/* Bottom edge of a scrollable list, made legibly intentional.
+   A list that simply clips its next row through the middle of the text reads as
+   broken rather than as "there is more below"; this dissolves the last few pixels
+   instead. It is a MASK, not an overlay gradient: masking composites against
+   whatever surface the list actually sits on (popover, card, dialog), so it needs
+   no colour at all and light/dark mode are free — an overlay would have to name a
+   surface token and would be wrong on the next surface that reuses the component.
+   Kept as a utility rather than a wrapper component on purpose: it is one paint
+   rule with no DOM, no state and no children, so a component would add an element
+   and force every caller to restructure its scroll container to gain nothing.
+   Used by the mention picker's list and the share dialog's body. */
+@utility scroll-fade-bottom {
+  --scroll-fade-size: 24px;
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+}
+
 /* Hide scrollbar utility */
 @utility scrollbar-hide {
   -ms-overflow-style: none;

@@ -18,6 +18,10 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `answer-feedback.ts` | `answer_feedback` |
 | `agent-profiler.ts` | `agent_profiler_spans` |
 | `citation-events.ts` | `citation_events` |
+| `resource-shares.ts` | `resource_shares` |
+| `inbox.ts` | `inbox_items` |
+| `mention-requests.ts` | `mention_requests` |
+| `conversation-reads.ts` | `conversation_reads` |
 
 ---
 
@@ -77,6 +81,7 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
+| `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
@@ -107,6 +112,7 @@ export const messages = pgTable('messages', {
 | `id` | `uuid` | PK, `defaultRandom()` | Auto-generated |
 | `conversation_id` | `text` | NOT NULL, FK → `conversations.id` ON DELETE CASCADE | |
 | `role` | `text` | NOT NULL | `user`, `assistant`, `system`, or agent name |
+| `author_user_id` | `text` | | WorkOS user id of the human author; NULL for assistant/system/tool rows and for messages written before authorship existed. `role` only recorded the KIND of author, which was free with one human per thread and a defect with two. Legacy NULL-author `user` rows are attributed to the conversation's `created_by` **at read time**, never backfilled, so the column never claims a precision the data lacks (spec MG-3). |
 | `content` | `text` | NOT NULL | Message body |
 | `metadata` | `jsonb` | | Flexible: see the key list below |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
@@ -438,3 +444,135 @@ produced a dashboard that contradicted itself:
   more turns than the window contains. Rollups take `count(distinct turn_id)`
   (`countTurnsForTargets` for a set of targets); the trend chart's stack counts
   *findings*, not turns, and is labelled as such.
+
+---
+
+## Collaboration tables (ADR-0032 · ADR-0034 · ADR-0035)
+
+Added by migration `0027_collaboration.sql`. Requirements:
+`docs/design/collaboration-sharing-and-inbox-spec.md`.
+
+### resource_shares
+
+The **one generic** table of resource-level access grants. Sharing is modelled as
+*visibility + additive grants*: visibility is a blanket rule living on the shared
+resource's own row (`conversations.visibility`), while individual `(person, role)`
+records live here — because grants are the part that must be queried in **both**
+directions: "who can reach R" (the authorization check) and "what has been shared
+with P" (the inbox, the history list, the badge, on every render).
+
+Grants are stored here rather than in WorkOS FGA — where *project* roles live —
+precisely because that reverse lookup is FGA's expensive direction and it sits on
+a render path. WorkOS stays authoritative for the **container**; this table is
+authoritative for **resources inside** it (ADR-0032).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | |
+| `organization_id` | `text` | NOT NULL | Tenant scope; never a cross-org grant |
+| `resource_type` | `text` | NOT NULL | `conversation` today; exhaustive over the sharing registry |
+| `resource_id` | `text` | NOT NULL | `text`, not `uuid`: shareable ids are heterogeneous (a conversation id is a client-generated string). No FK for the same reason — cascade cleanup is explicit |
+| `subject_user_id` | `text` | NOT NULL | WorkOS user the grant is FOR |
+| `role` | `text` | NOT NULL | `viewer` \| `collaborator` \| `owner`, weakest first |
+| `granted_by` | `text` | NOT NULL | Actor, for the roster's "why" column |
+| `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+Indexes: `uniq_resource_shares_resource_subject` (one grant per person per
+resource — re-sharing upserts the role); `idx_resource_shares_org_subject`
+(the reverse lookup this table exists for); `idx_resource_shares_resource`
+(roster + purge).
+
+### inbox_items
+
+One **fixed frame plus a typed `payload`**, so a new notification kind costs a
+registry entry and two translations — never a schema change and never a new
+component (ADR-0035).
+
+Three properties come from **one constraint**: the unique index on
+`(recipient_user_id, group_key)` combined with an incrementing upsert gives
+**grouping** (twenty new messages → one row, count 20), **deduplication**, and
+**idempotency** (a retried emission is a no-op). Callers choose the behaviour via
+the group key — `inboxGroupKey()` includes an anchor for per-occurrence rows and
+omits it to collapse.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | |
+| `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
+| `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
+| `type` | `text` | NOT NULL | `mention.requested` \| `mention.answered` \| `conversation.shared_with_you` \| `conversation.activity` |
+| `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
+| `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
+| `actor_user_id` | `text` | | Who caused it; NULL for system items |
+| `group_key` | `text` | NOT NULL | Grouping / dedup / idempotency key (see above) |
+| `actionable` | `boolean` | NOT NULL | Denormalized from the registry so the badge count is a plain indexed query. A type changing kind would need a backfill (accepted) |
+| `count` | `integer` | NOT NULL, default `1` | Occurrences absorbed by grouping |
+| `payload` | `jsonb` | NOT NULL, default `{}` | Display data only — never authoritative, never a source of access. **Wiped when an item goes inert** |
+| `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | List orders by `updated_at`; grouping touches it |
+| `read_at` / `resolved_at` / `archived_at` / `inert_at` | `timestamptz` | | Lifecycle. `inert_at` = target became unreachable: render redacted, never linked |
+
+Indexes: `uniq_inbox_items_recipient_group`;
+`idx_inbox_items_recipient_org_updated` (the list);
+`idx_inbox_items_target` (inert-marking + cascade); `idx_inbox_items_created_at`
+(retention prune); and the **partial** `idx_inbox_items_pending` — hand-written in
+the migration because the drizzle builder cannot express it — matching the badge
+predicate exactly (`archived_at IS NULL AND inert_at IS NULL AND (read_at IS NULL
+OR (actionable AND resolved_at IS NULL))`). Keep the predicate and
+`pendingPredicate()` in `lib/inbox/repository.ts` in step, or the badge silently
+stops using its index.
+
+### mention_requests
+
+An outstanding request for a **named person's** input — the durable home of the
+product's headline behaviour: someone tags a colleague and the agent deliberately
+stays silent until they answer (ADR-0034).
+
+Not the agent's in-process HITL future: that is loop-bound to whichever replica
+runs the turn, built for seconds, and explicitly not durable across restarts
+(ADR-0028). A mention waits days, for a specific person, across deploys and
+devices.
+
+**The thread-level "awaiting" state is DERIVED from these rows** — a conversation
+awaits input iff an `open` row exists for it. One source of truth, so the thread
+banner and the recipient's inbox cannot drift apart.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | |
+| `organization_id` | `text` | NOT NULL | |
+| `resource_type` / `resource_id` | `text` | NOT NULL | Generic from day one, so a second mention surface reuses this table |
+| `anchor_id` | `text` | | The message id carrying the mention. Deliberately not an FK: an addressable anchor, not a relation |
+| `requested_by` / `requested_of` | `text` | NOT NULL | Who asked / whose input is wanted |
+| `note` | `text` | | The asker's question, carried into the recipient's inbox body |
+| `status` | `text` | NOT NULL, default `'open'` | `open` \| `answered` \| `released` \| `void` |
+| `resolution` | `text` | | `answered` \| `released` \| `void` |
+| `resolved_by` / `resolved_at` | `text` / `timestamptz` | | Who closed it, when |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+Indexes: `idx_mention_requests_resource_status` (the derived banner state);
+`idx_mention_requests_requested_of_status` (resolution on reply, reminders);
+`idx_mention_requests_org_requested_by` ("what have I asked of others").
+
+Writes only ever transition `open` rows, so the first close wins and a late one
+is a no-op rather than rewriting history.
+
+### conversation_reads
+
+How far each participant has read a conversation — per **person**, server-side,
+because with two people in a thread "unread" is no longer a property of one
+browser. Backs the unread divider and the grouped activity item (which is cleared
+by reading the thread, not by dismissing the notification).
+
+Deliberately a single high-water mark per `(conversation, person)`, not
+per-message receipts: it answers every question the product asks at a fraction of
+the write volume.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `conversation_id` | `text` | NOT NULL, FK → `conversations.id` ON DELETE CASCADE | |
+| `user_id` | `text` | NOT NULL | WorkOS user |
+| `last_read_at` | `timestamptz` | NOT NULL, `defaultNow()` | Everything at/before this is read |
+| `last_read_message_id` | `text` | | For a stable "new since here" divider |
+| `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+Primary key: `conversation_reads_pk (conversation_id, user_id)`.

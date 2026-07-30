@@ -78,6 +78,11 @@ export function ProjectProfilePatchCard({
         body: JSON.stringify({ patch }),
       })
       if (!res.ok) {
+        // A 409 is NOT success. The server answers 200 with `alreadyApplied` for the
+        // one conflict that is (a colleague in this shared thread accepting the same
+        // card, so the brief already holds the change); every other version conflict
+        // means this patch was dropped, and settling as accepted here would hide a
+        // change that never landed behind a card that can no longer be retried.
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `${t('profilePatchCard.applyFailed')} (${res.status})`)
       }

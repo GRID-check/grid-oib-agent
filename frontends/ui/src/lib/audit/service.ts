@@ -48,6 +48,17 @@ export const AUDIT_ACTIONS = [
   'document.deleted',
   'archiv.document.uploaded',
   'archiv.document.deleted',
+  // Sharing (ADR-0032). Access-control changes on a resource are privileged
+  // mutations and get the same trail as project role grants.
+  'resource.shared',
+  'resource.share.revoked',
+  'resource.share.role_changed',
+  'resource.visibility.changed',
+  // A project admin taking ownership of a resource they were not party to.
+  // Distinct from `resource.shared` on purpose: it is the one path by which
+  // someone gains access to a PRIVATE resource without being invited, so it must
+  // be visible as such in the trail (spec SH-10, SH-14).
+  'resource.ownership.escalated',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

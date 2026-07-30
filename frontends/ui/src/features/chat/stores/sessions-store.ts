@@ -13,7 +13,10 @@ import type {
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
-import { pruneMessageForStorage } from '../lib/prune-message-for-storage'
+import {
+  pruneMessageForStorage,
+  stripThinkingStepsForStorage,
+} from '../lib/prune-message-for-storage'
 import {
   logStorageWrite,
   logQuotaExceededPruning,
@@ -46,6 +49,18 @@ export type SessionsSlice = {
    */
   isRecoveryPending: boolean
 
+  /**
+   * Whether the server conversation list has been ASKED for at least once
+   * (regardless of what it returned, or whether it failed).
+   *
+   * The one fact a `?session=<id>` deep link needs and could not get: an id that
+   * is unknown locally is either stale or simply not fetched yet. Without this,
+   * "unknown → strip it from the URL" fires before the fetch lands and destroys
+   * every link into a conversation this browser has never seen — which is
+   * exactly what an inbox notification is (ADR-0035).
+   */
+  serverConversationsLoaded: boolean
+
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
   setCurrentUser: (userId: string | null) => void
@@ -73,6 +88,17 @@ export type SessionsSlice = {
     messageId: string,
     cardInteractions: CardInteractions
   ) => Promise<void>
+  /**
+   * Mirror an answer's provenance to the server once the turn has settled
+   * (ADR-0037) — the Herleitung, the confidence self-assessment, the routing
+   * transparency, the deep-research job pointer.
+   *
+   * Separate from `_appendMessage` because none of it exists when the message is
+   * posted: it accumulates from the intermediate frames while the answer streams.
+   */
+  _persistTurnProvenance: () => Promise<void>
+  /** Mirror the answer to a HITL prompt onto its message row (ADR-0037). */
+  _persistPromptState: (messageId: string, response: string) => Promise<void>
 }
 
 // Persistence helpers
@@ -342,6 +368,7 @@ export const initialSessionsState = {
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
   isRecoveryPending: false,
+  serverConversationsLoaded: false,
 }
 
 export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
@@ -360,7 +387,18 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         const idx = merged.findIndex((c) => c.id === serverConv.id)
         const local: Conversation = {
           id: serverConv.id,
-          userId: serverConv.createdBy ?? currentUserId ?? 'unknown',
+          // The user this row belongs to in THIS browser's store — a membership
+          // marker, not authorship. Every consumer treats it that way (the
+          // sessions panel, the `selectConversation` guard, storage protection,
+          // deep-research scoping), and nothing renders it as an author; who
+          // wrote what comes from the shared-thread participants (ADR-0033).
+          //
+          // So it must be the person who FETCHED the list, not the creator: the
+          // server already decided visibility (`listVisibleConversations`), and
+          // stamping the creator made every conversation a colleague shared with
+          // you invisible in your own sessions panel and refused by
+          // `selectConversation` — the whole of ADR-0032 with no way in.
+          userId: currentUserId ?? serverConv.createdBy ?? 'unknown',
           // Server is the source of truth for project affiliation; keep the
           // locally stamped projectId for legacy server rows that predate
           // project stamping.
@@ -394,6 +432,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       }
     } catch (err) {
       console.warn('[loadServerConversations] Failed to load server conversations:', err)
+    } finally {
+      // "We have asked" — set even when the list was empty or the fetch failed,
+      // so a deep link to an id we cannot find stops waiting instead of hanging.
+      set({ serverConversationsLoaded: true }, false, 'serverConversationsLoaded')
     }
   },
 
@@ -1336,6 +1378,26 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
+          // A human-in-the-loop prompt (ADR-0037). Without this an observer's
+          // server-authoritative load showed NO card at all and the thread simply
+          // stopped mid-question; `promptFor` names the person the agent asked, so
+          // everybody else can be shown it read-only — the agent tier refuses an
+          // answer from anyone else anyway.
+          ...(message.messageType === 'prompt'
+            ? {
+                prompt: {
+                  ...(message.promptType && { promptType: message.promptType }),
+                  ...(message.promptId && { promptId: message.promptId }),
+                  ...(message.promptParentId && { promptParentId: message.promptParentId }),
+                  ...(message.promptInputType && { promptInputType: message.promptInputType }),
+                  ...(message.promptOptions && { promptOptions: message.promptOptions }),
+                  ...(message.promptPlaceholder && {
+                    promptPlaceholder: message.promptPlaceholder,
+                  }),
+                  ...(get().currentUserId ? { promptFor: get().currentUserId } : {}),
+                },
+              }
+            : {}),
           // An answer's grounding has to outlive the tab that produced it: a
           // chat restored from the server used to come back with the answer
           // intact and its whole provenance row missing.
@@ -1350,6 +1412,100 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       })
     } catch (err) {
       console.warn('[appendMessage] Failed:', err)
+    }
+  },
+
+  _persistPromptState: async (messageId: string, response: string) => {
+    const { currentConversation } = get()
+    if (!currentConversation) return
+    try {
+      const conversationsClient = await getConversationsClient()
+      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, { response })
+    } catch (err) {
+      // Best-effort, like the other mirrors: the answer already reached the agent
+      // over the socket and is rendered from the store. Losing this costs the
+      // transcript, not the turn.
+      console.warn('[persistPromptState] Failed:', err)
+    }
+  },
+
+  _persistTurnProvenance: async () => {
+    const { currentConversation, currentUserMessageId } = get()
+    if (!currentConversation) return
+
+    // Two messages carry provenance and they carry different halves of it: the
+    // USER message owns the Herleitung (that is where `ChatThinking` hangs it),
+    // and the ASSISTANT message owns the confidence and routing transparency.
+    const messages = currentConversation.messages
+    const userMessage = currentUserMessageId
+      ? messages.find((message) => message.id === currentUserMessageId)
+      : undefined
+    const assistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant')
+
+    const targets: Array<[string, Record<string, unknown>]> = []
+
+    if (userMessage?.thinkingSteps?.length) {
+      // The COMPACT form — the same one localStorage keeps, so a thread restored
+      // from the server and one restored from the browser look identical rather
+      // than differing in ways nobody would predict.
+      targets.push([
+        userMessage.id,
+        { thinkingSteps: stripThinkingStepsForStorage(userMessage.thinkingSteps) },
+      ])
+    }
+
+    if (assistantMessage) {
+      const provenance: Record<string, unknown> = {}
+      if (assistantMessage.answerConfidence) {
+        provenance.answerConfidence = assistantMessage.answerConfidence
+      }
+      if (assistantMessage.answerConfidenceCappedReason) {
+        provenance.answerConfidenceCappedReason = assistantMessage.answerConfidenceCappedReason
+      }
+      if (assistantMessage.answerConfidenceReason) {
+        provenance.answerConfidenceReason = assistantMessage.answerConfidenceReason
+      }
+      if (assistantMessage.routingDecision) {
+        provenance.routingDecision = assistantMessage.routingDecision
+      }
+      if (assistantMessage.routingReason) provenance.routingReason = assistantMessage.routingReason
+      if (assistantMessage.escalationReason) {
+        provenance.escalationReason = assistantMessage.escalationReason
+      }
+      if (assistantMessage.citationsRemoved) {
+        provenance.citationsRemoved = assistantMessage.citationsRemoved
+      }
+      // The POINTER, not the report: a colleague fetches the document through the
+      // path that already serves it rather than being handed a copy in a message
+      // row.
+      if (assistantMessage.deepResearchJobId) {
+        provenance.deepResearchJobId = assistantMessage.deepResearchJobId
+      }
+      if (assistantMessage.showViewReport) provenance.showViewReport = true
+
+      if (Object.keys(provenance).length > 0) targets.push([assistantMessage.id, provenance])
+    }
+
+    if (targets.length === 0) return
+
+    try {
+      const conversationsClient = await getConversationsClient()
+      // Sequential: both PATCHes take a row lock on the same conversation's
+      // messages, and there is no deadline here worth racing them for.
+      for (const [messageId, provenance] of targets) {
+        await conversationsClient.updateMessageProvenance(
+          currentConversation.id,
+          messageId,
+          provenance
+        )
+      }
+    } catch (err) {
+      // Never surfaced. The asker is already looking at the Herleitung, rendered
+      // from the store; losing the mirror costs a colleague's view and the
+      // cross-device replay, not this turn.
+      console.warn('[persistTurnProvenance] Failed:', err)
     }
   },
 

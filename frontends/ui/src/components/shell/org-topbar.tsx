@@ -12,6 +12,7 @@ import { Settings } from 'lucide-react'
 
 import { getTranslations } from '@/i18n/server'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
+import { TopbarInboxLink } from './topbar-inbox-link'
 
 export interface OrgTopbarProps {
   user?: SidebarUser
@@ -29,6 +30,14 @@ export interface OrgTopbarProps {
   canManagePlatform?: boolean
   /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
   canAccessArchiv?: boolean
+  /**
+   * Show the Postfach entry with its "needs you" count (ADR-0035).
+   *
+   * Without it the inbox existed only inside a project's sidebar, so being tagged
+   * had no observable effect anywhere above a project — for a monthly user, no
+   * effect at all.
+   */
+  canCollaborate?: boolean
 }
 
 export async function OrgTopbar({
@@ -38,6 +47,7 @@ export async function OrgTopbar({
   canViewOrganization,
   canManagePlatform,
   canAccessArchiv,
+  canCollaborate,
 }: OrgTopbarProps) {
   const t = await getTranslations('nav')
   const showOrganization = Boolean(canViewOrganization || canManageOrganization)
@@ -51,6 +61,9 @@ export async function OrgTopbar({
         Piloti
       </Link>
       <div className="ml-auto flex items-center gap-2">
+        {/* Before the Organisation button: a request for your input outranks a
+            settings entry. */}
+        <TopbarInboxLink canCollaborate={canCollaborate} />
         {showOrganization && (
           <Link
             href="/app/organization"

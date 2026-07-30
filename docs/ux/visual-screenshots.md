@@ -182,6 +182,13 @@ this on every PR that adds components:
     check the log if a PNG looks empty.
 - **`deviceScaleFactor: 2`** gives retina-quality PNGs; drop it if diffs get
   noisy.
+- **Pin a preview's language with `<I18nProvider initialLocale="de" fixedLocale>`;
+  `initialLocale` alone does not hold.** The provider reconciles the locale on
+  first mount against the viewer's saved preference and then their organization's
+  default (`src/i18n/context.tsx`), so a page passing only `initialLocale` renders
+  German or English depending on *whose* dev server captured it. `fixedLocale`
+  skips that reconciliation and exists for the `/dev/*` routes only — never for the
+  product, where following the user's preference is the point.
 - **Never put `border-radius: inherit` in the global `:focus-visible` rule.** A
   CSS `outline` already follows the focused element's *own* `border-radius` in
   every browser we target, so it needs no help. `border-radius: inherit`

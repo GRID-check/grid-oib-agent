@@ -31,7 +31,7 @@ export interface AnswerFeedbackProps {
 }
 
 const thumbButtonBase =
-  'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out active:scale-95 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversationId, className }) => {
   const t = useTranslations('chat')
@@ -105,7 +105,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
               key={reason}
               type="button"
               onClick={() => handleReason(reason)}
-              className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out active:scale-95 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t(`feedback.reasons.${reason}`)}
             </button>

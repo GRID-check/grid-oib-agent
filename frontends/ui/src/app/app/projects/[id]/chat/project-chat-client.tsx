@@ -9,6 +9,12 @@ import type { ResearchPanelTab } from '@/features/layout/types'
 
 export interface ProjectChatClientProps {
   projectId: string
+  /**
+   * Whether the collaboration surfaces are available (ADR-0032…0035).
+   * Dark-launched, so the server page resolves it and it is prop-drilled here
+   * rather than defaulting on.
+   */
+  canCollaborate?: boolean
   /** Whether report source lines show origin badges (WorkOS `source-origin-badges`). */
   showSourceBadges: boolean
   /** Whether shallow answers show the confidence chip (WorkOS `chat-confidence-chip`). */
@@ -34,6 +40,7 @@ const ProjectChatContent = ({
   showResearchInHistory,
   projectCollection,
   projectName,
+  canCollaborate = false,
 }: ProjectChatClientProps): ReactNode => {
   const { isAuthenticated, signIn } = useAuth()
   const setProjectId = useChatStore((s) => s.setProjectId)
@@ -131,6 +138,7 @@ const ProjectChatContent = ({
       showResearchInHistory={showResearchInHistory}
       projectCollection={projectCollection}
       projectName={projectName}
+      canCollaborate={canCollaborate}
     />
   )
 }

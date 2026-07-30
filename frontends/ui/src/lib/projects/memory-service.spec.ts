@@ -334,6 +334,37 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
+  /**
+   * Two people saving the SAME `memory_proposal` card in a shared conversation
+   * (ADR-0032) — the case I mistakenly reported as a double-write.
+   *
+   * It is not one, and this test is here so the claim cannot be re-litigated from
+   * the card component's comment (which is about the ROUTE having no idempotency
+   * parameter, not about this function). The second save finds the active duplicate
+   * by normalized content and REFRESHES it; no second row is written. The partial
+   * unique indexes in migration 0010 are the backstop, and the 23505 path below is
+   * what handles losing that race.
+   */
+  it('refreshes rather than duplicating when a colleague already saved the same memory', async () => {
+    const { values, set } = mockCreateChain({ id: 'existing-1', confidence: 'medium' })
+
+    const result = await createProjectMemoryItem({
+      scope: 'organization',
+      projectId: null,
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'The roof load is 2 kN/m².',
+      confidence: 'high',
+    } as any)
+
+    // The existing row, updated — not a new one.
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ confidence: 'high' }),
+    )
+    expect(result).toBeDefined()
+  })
+
   it('treats a concurrent unique-violation (23505) as a duplicate and returns the winner', async () => {
     // First de-dup check finds nothing; the insert loses a race and throws
     // 23505; the second de-dup check finds the winning row.

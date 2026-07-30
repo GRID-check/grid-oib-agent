@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react'
 import { eq } from 'drizzle-orm'
 import { getGridSession } from '@/lib/auth/session'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { ProjectChatClient } from './project-chat-client'
@@ -33,6 +33,10 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
   let showConfidenceChip = true
   let showResearchInHistory = true
   let showAnswerFeedback = true
+  // Collaboration is the one gate here that is default-DENY rather than
+  // fail-open: it changes who can see a conversation, so a session-lookup
+  // failure must leave it off (spec NF-7).
+  let canCollaborate = false
   try {
     const session = await getGridSession()
     if (session) {
@@ -40,6 +44,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
       showConfidenceChip = isFeatureEnabled(session, FEATURE_FLAGS.chatConfidenceChip)
       showResearchInHistory = isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)
       showAnswerFeedback = isFeatureEnabled(session, FEATURE_FLAGS.answerFeedback)
+      canCollaborate = isCollaborationEnabled(session)
     }
   } catch {
     // Fail open: a session-lookup problem must not hide chat affordances.
@@ -76,6 +81,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
       showResearchInHistory={showResearchInHistory}
       projectCollection={projectCollection}
       projectName={projectName}
+      canCollaborate={canCollaborate}
     />
   )
 }

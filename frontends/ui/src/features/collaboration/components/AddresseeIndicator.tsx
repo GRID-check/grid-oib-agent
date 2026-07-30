@@ -1,0 +1,181 @@
+'use client'
+
+/**
+ * "Who does this message go to?", said out loud in the composer (ADR-0034 addendum).
+ *
+ * The behaviour it describes is correct server-side and was *invisible*: after a
+ * colleague answers, nothing on screen told you whether your next plain message
+ * was a question for Piloti or a remark to the people in the thread. The reviewer's
+ * words were "I don't think it is clear out of the UI" — and a rule the user has to
+ * infer is still an unclear product.
+ *
+ * Three properties are load-bearing:
+ *
+ *   1. **It is always present.** If it only appeared in the unusual case, "Piloti is
+ *      next" would stay an inference — the reader would have to notice an *absence*
+ *      to conclude anything. The default rendering ("Geht an Piloti") is the quiet
+ *      reassurance that makes the other two legible as changes.
+ *   2. **It states, it does not warn.** No border, no fill, no chroma: it sits in the
+ *      action row between real buttons and must never look like one of them, nor
+ *      like an error. Ink and paper, one line.
+ *   3. **It is honest about every combination**, including the awkward one: tagging a
+ *      person *and* `@Piloti` addresses both (MN-1), so both are named — and the
+ *      "Piloti stays quiet" hint is then suppressed by the caller, because it would
+ *      be false.
+ *
+ * A `status` region, so the transition — the thing that actually teaches the model —
+ * is announced rather than only drawn.
+ */
+
+import { AtSign, Sparkles, Users } from 'lucide-react'
+
+import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'
+import { useTranslations } from '@/i18n'
+import { AGENT_MENTION_ID } from '@/lib/mentions/types'
+import { cn } from '@/lib/utils'
+import type { DraftMention } from '../lib/mention-text'
+
+export interface AddresseeIndicatorProps {
+  /**
+   * The mentions that survive the text being composed, in text order — exactly
+   * what the composer would send. Reconciled by the caller, so deleting an
+   * `@Anna` token changes this line as the character disappears.
+   */
+  mentions: readonly DraftMention[]
+  /**
+   * Whether the thread is currently waiting on a named person, as derived by the
+   * server (`useAwaitingState`). Never computed locally: the banner, the inbox and
+   * this line all read the same rows so they cannot disagree (ADR-0034).
+   */
+  awaitingHuman: boolean
+  /**
+   * Start a mention — the ONLY thing in the product that teaches `@` exists.
+   *
+   * There was no button, no icon, no tooltip and no onboarding for the feature this
+   * whole slice is built around: a user had to already know to type `@`. So the
+   * affordance sits on the line that already states the routing, because "this goes
+   * to Piloti" is exactly the moment somebody might want it to go to a colleague
+   * instead.
+   *
+   * Offered only in the default `agent` state: while people are already tagged, or
+   * while the thread waits on someone, the line has something more important to say
+   * and the picker is one keystroke away regardless. Omit to hide (a solo thread has
+   * nobody to mention — spec NF-8).
+   */
+  onMentionSomeone?: () => void
+  className?: string
+}
+
+/** Which of the three statements this state produces, for tests and screenshots. */
+export type AddresseeMode = 'agent' | 'people' | 'thread'
+
+export function AddresseeIndicator({
+  mentions,
+  awaitingHuman,
+  onMentionSomeone,
+  className,
+}: AddresseeIndicatorProps): JSX.Element {
+  const t = useTranslations('collaboration')
+
+  const humans = mentions.filter((mention) => mention.targetId !== AGENT_MENTION_ID)
+  const agentTagged = mentions.some((mention) => mention.targetId === AGENT_MENTION_ID)
+  const agentName = t('mentions.picker.agentName')
+
+  // Tagging beats the thread state: the message being written decides where it
+  // goes, and `@Piloti` is the documented way back out of a wait (MN-9.3).
+  const mode: AddresseeMode =
+    humans.length > 0 ? 'people' : agentTagged || !awaitingHuman ? 'agent' : 'thread'
+
+  // The agent rides along at the END of the list: the humans were tagged first and
+  // are who the question is for; Piloti answering too is the addition.
+  const names = [...humans.map((mention) => mention.display), ...(agentTagged ? [agentName] : [])]
+
+  const label =
+    mode === 'agent'
+      ? t('mentions.addressee.toAgent')
+      : mode === 'thread'
+        ? t('mentions.addressee.toThread')
+        : names.length === 1
+          ? t('mentions.addressee.toPerson', { name: names[0] })
+          : t('mentions.addressee.toPeople', { names: names.join(', ') })
+
+  /*
+    Human mentions carry the user id as their target, which is exactly what the
+    identity colour is keyed on — so a colleague's disc here is the same disc as in
+    the participant strip, the roster and their message bubbles.
+  */
+  const people: AvatarStackPerson[] = humans.map((mention) => ({
+    userId: mention.targetId,
+    name: mention.display,
+  }))
+
+  return (
+    <p
+      data-testid="composer-addressee"
+      data-mode={mode}
+      role="status"
+      aria-label={t('mentions.addressee.ariaLabel', { label })}
+      className={cn(
+        // `flex-wrap` so the OFFER yields, never the statement. Without it the
+        // affordance was `shrink-0` beside a `truncate` label, so a narrow composer
+        // rendered "Geht a… · @ Kollegin oder Kollegen erwähnen" — the optional
+        // teaching hint at full width and the promise about who receives this
+        // message cut in half. That promise is the one thing this element exists to
+        // make (ADR-0036 decision 6) and it is not the part that may be abbreviated.
+        // Wrapping puts the offer on its own line instead, where it costs nothing.
+        'inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] text-muted-foreground',
+        // Placement belongs HERE, not at each call site. In the composer's
+        // wrapping chip row this element sat inline when its label was short
+        // ("Geht an Piloti") and wrapped when it was long ("Geht an Anna Berger,
+        // Tobias Kern"), so it moved between states, the row height jumped, and on
+        // a narrow viewport the send button was orphaned on a line of its own. A
+        // statement about who receives the message must not change position with
+        // the length of a recipient's name. `order-last basis-full` pins it to its
+        // own line beneath the row — and owning it here means the dev preview,
+        // which builds its own composer facsimile, cannot drift from the real one.
+        'order-last basis-full pt-0.5',
+        className,
+      )}
+    >
+      {people.length > 0 && <AvatarStack people={people} size="sm" max={3} />}
+      {mode === 'thread' && <Users className="size-3.5 shrink-0 opacity-70" aria-hidden />}
+      {(mode === 'agent' || agentTagged) && (
+        <Sparkles className="size-3.5 shrink-0 opacity-70" aria-hidden />
+      )}
+      <span className="min-w-0 truncate">{label}</span>
+
+      {/* The teaching affordance. A quiet trailing action rather than a button in
+          the row above: it must not compete with Send, and it must not look like a
+          warning about the statement it follows.
+
+          Underlined AT REST — the same treatment, for the same reason, as the
+          engagement notice's control. Both are quiet inline actions sitting in
+          running prose at prose weight and prose colour, and an affordance that
+          only appears on hover is invisible to the person deciding whether there
+          is anything here to press (and never appears at all on touch). Dotted
+          keeps it an offer rather than a call to action. */}
+      {mode === 'agent' && !agentTagged && onMentionSomeone && (
+        <button
+          type="button"
+          data-testid="composer-mention-hint"
+          onClick={onMentionSomeone}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px]',
+            'text-muted-foreground/80 transition-colors duration-200 ease-out',
+            'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+            'hover:text-foreground hover:decoration-solid',
+            'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
+          )}
+        >
+          {/* No leading separator. A "·" reads as a divider only while the offer
+              sits on the SAME line as the statement; once it wraps to its own line
+              the dot leads the line and reads as a stray bullet. The at-rest
+              underline and the `@` glyph already mark this as a separate control,
+              so the dot was carrying no meaning the reader was missing. */}
+          <AtSign className="size-3.5 shrink-0" aria-hidden />
+          {t('mentions.addressee.mentionSomeone')}
+        </button>
+      )}
+    </p>
+  )
+}

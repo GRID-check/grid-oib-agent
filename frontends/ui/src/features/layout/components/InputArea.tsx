@@ -26,6 +26,7 @@ import {
 } from 'react'
 import {
   ArrowUp,
+  AtSign,
   Check,
   ChevronDown,
   FileText,
@@ -48,7 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -70,6 +71,24 @@ import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
+import {
+  MentionPicker,
+  type MentionPickerAria,
+  type MentionPickerHandle,
+} from '@/features/collaboration/components/MentionPicker'
+import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
+import { useTurnActorName } from '@/shared/collaboration/thread-sharing'
+import {
+  findMentionQuery,
+  humanMentions,
+  insertMention,
+  reconcileMentions,
+  type DraftMention,
+  type MentionQuery,
+} from '@/features/collaboration/lib/mention-text'
+import { MENTION_ERROR_REASONS, type MentionCandidate } from '@/lib/mentions/types'
+import type { SendMessageOutcome } from '@/features/chat/hooks/use-websocket-chat'
 
 /** Preset chip order + their provenance signals (spec §4 --source-* family). */
 const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
@@ -80,6 +99,48 @@ const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
 
 /** Connection mode for the chat */
 export type ConnectionMode = 'sse' | 'websocket'
+
+/**
+ * Normalise whatever `sendMessage` returned.
+ *
+ * The fast path answers synchronously with a boolean (and legacy/mocked callers
+ * answer with nothing at all), the mention path with the server's ruling. Only an
+ * explicit `false` or `ok: false` counts as "not sent" — exactly the contract the
+ * composer had before mentions existed.
+ */
+function normalizeSendResult(result: unknown): { ok: boolean; outcome?: SendMessageOutcome } {
+  if (result === false) return { ok: false }
+  if (result && typeof result === 'object' && 'ok' in result) {
+    const outcome = result as SendMessageOutcome
+    return { ok: outcome.ok, outcome }
+  }
+  return { ok: true }
+}
+
+/**
+ * The copy for a refused mention. The server names the reason machine-readably in
+ * `details.reason` precisely so the composer can say something useful instead of
+ * "something went wrong" — and the user's text is kept either way.
+ */
+function mentionRefusalMessage(
+  outcome: SendMessageOutcome | undefined,
+  taggedHumans: readonly DraftMention[],
+  tCollab: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
+  const reason = outcome?.failure?.reason
+  if (!reason) return null
+  const name = taggedHumans[0]?.display ?? ''
+  switch (reason) {
+    case MENTION_ERROR_REASONS.inviteRequiresOwner:
+      return tCollab('mentions.errors.inviteRequiresOwner', { name })
+    case MENTION_ERROR_REASONS.containerAccessRequired:
+      return tCollab('mentions.errors.containerAccessRequired', { name })
+    case MENTION_ERROR_REASONS.rateLimited:
+      return tCollab('mentions.errors.rateLimited')
+    default:
+      return null
+  }
+}
 
 /** Maximum height of the auto-sizing textarea in pixels */
 const TEXTAREA_MAX_HEIGHT_PX = 200
@@ -348,6 +409,16 @@ interface InputAreaProps {
   connectionMode?: ConnectionMode
   /** Name of the active project, shown in the composer scope chip */
   projectName?: string
+  /**
+   * Whether the collaboration surfaces are reachable for this org (ADR-0032…0035,
+   * dark-launched behind the per-org `collaboration` flag).
+   *
+   * **Defaults to false, and false means "exactly today"** (spec NF-8): no
+   * addressee statement, no hand-off read, no extra request. The `@` picker is
+   * gated differently — by whether the candidates endpoint answers at all — so a
+   * gated org cannot notice either of them.
+   */
+  canCollaborate?: boolean
 }
 
 /**
@@ -367,10 +438,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   isAuthenticated = false,
   connectionMode = 'websocket',
   projectName,
+  canCollaborate = false,
 }) {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
+  const tCollab = useTranslations('collaboration')
   const [message, setMessage] = useState('')
+
+  // ——— @-mentions (spec MN-3, MN-4) ————————————————————————————————————————
+  // The mentions the user actually PICKED, as structured references. Never derived
+  // from the text; reconciled against it right before sending.
+  const [mentions, setMentions] = useState<DraftMention[]>([])
+  // The `@…` fragment under the caret; its presence is what opens the picker.
+  const [mentionQuery, setMentionQuery] = useState<MentionQuery | null>(null)
+  // Esc (or clicking away) closes the picker for THIS fragment; a fresh `@`
+  // reopens it, however many times the user types one.
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  // Candidates are fetched lazily — a composer that never sees an `@` never asks.
+  const [mentionRequested, setMentionRequested] = useState(false)
+  const [mentionAria, setMentionAria] = useState<MentionPickerAria>({
+    listboxId: null,
+    activeOptionId: null,
+  })
+  const mentionPickerRef = useRef<MentionPickerHandle>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  // Caret to restore after a programmatic text change (mention insertion).
+  const pendingCaretRef = useRef<number | null>(null)
 
   // Attached-file preview (read-only): a successful chip opens the shared
   // FilePreviewDialog for its file. Also the primary file-access path on mobile.
@@ -392,8 +485,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Check if current session is busy with operations
   const isBusy = useIsCurrentSessionBusy()
 
-  // WebSocket chat hook for full HITL support
-  const wsChat = useWebSocketChat({ autoConnect: connectionMode === 'websocket' })
+  /*
+    WebSocket chat hook for full HITL support.
+
+    `canCollaborate` decides WHEN the agent socket opens, not whether. With the flag
+    off (the default) it opens on mount exactly as it always has. With the flag on it
+    opens on mount for a private thread too — but in a SHARED thread it waits for the
+    user to show they mean to write, because the Python socket registry is keyed by
+    conversation id, so a reader who merely opened the thread would take the asker's
+    registration away from him. See the socket-gate block in `use-websocket-chat`.
+  */
+  const wsChat = useWebSocketChat({
+    autoConnect: connectionMode === 'websocket',
+    canCollaborate,
+  })
 
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
@@ -506,7 +611,35 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
 
-  const { sendMessage, isLoading, respondToInteraction, pendingInteraction } = wsChat
+  const { sendMessage, isLoading, respondToInteraction, pendingInteraction, noteSendIntent } =
+    wsChat
+
+  /*
+    THE CONNECTION TRIGGER: composer focus.
+
+    Three candidates, and this is the trade we picked.
+
+      - **The send itself** is the latest possible moment and the cheapest for a
+        reader, but it puts a full WebSocket handshake in front of the first
+        message of every shared thread — the user waits for it, and it is the one
+        latency this fix must not add.
+      - **The first keystroke** is nearly as good and strictly worse: it connects
+        no earlier than focus and only saves a socket for the user who focuses the
+        composer and then types nothing at all, which is rare and harmless.
+      - **Focus** connects on the click or Tab that precedes the typing. By the
+        time a sentence has been written the socket is warm, so the send is as fast
+        as it is today, while a participant who is only READING never focuses the
+        composer and never connects. That is the case the defect is about.
+
+    Focus is not proof of intent to send, so the cost of being wrong matters: a
+    reader who idly clicks the composer opens a socket they will not use. That
+    costs one connection slot and, in a shared thread, can still displace the
+    asker's registration — which is why the frontend fix mitigates rather than
+    closes the collision (the registry has to become per-socket to close it).
+
+    `handleSubmit` calls it again as a backstop, for the paths that send without a
+    focus event ever reaching the textarea (composer prefill, deep links).
+  */
 
   // Register respondToInteraction in the store so sibling components (e.g. AgentPrompt) can use it
   const setRespondToInteractionFn = useChatStore((state) => state.setRespondToInteractionFn)
@@ -643,8 +776,117 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     return placeholder ?? tChat('composer.placeholder')
   }
 
+  // Mention candidates for this conversation — the agent, the participants, and the
+  // colleagues who would have to be invited (spec MN-4/MN-5).
+  const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
+    currentSessionId ?? null,
+    mentionRequested,
+  )
+
+  /**
+   * Re-evaluate whether the caret sits in an `@…` fragment. Called on every text
+   * change and on every caret move, which is what makes the trigger feel native:
+   * typing `@` opens the picker, deleting the `@` closes it, and clicking back into
+   * an unfinished fragment picks it up again.
+   */
+  const syncMentionQuery = useCallback((value: string, caret: number | null) => {
+    const range = caret === null ? null : findMentionQuery(value, caret)
+    setMentionQuery(range)
+    if (range) {
+      setMentionRequested(true)
+      return
+    }
+    // No fragment → nothing to dismiss; the next `@` starts clean.
+    setMentionDismissed(false)
+  }, [])
+
+  /**
+   * Start a mention from the composer's addressee line — the only affordance that
+   * teaches `@` exists (spec MN-3 had no discovery story at all).
+   *
+   * Types the character rather than opening the picker directly: `syncMentionQuery`
+   * already owns "the caret sits in an `@…` fragment", so going through the text is
+   * the one path that cannot drift from what typing `@` by hand does. It also leaves
+   * the user somewhere sensible if they change their mind — one backspace.
+   */
+  const handleMentionSomeone = useCallback(() => {
+    const el = textareaRef.current
+    const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
+    const next = `${base}@`
+    setMessage(next)
+    setMentionDismissed(false)
+    syncMentionQuery(next, next.length)
+    // Focus AFTER the value lands, so the caret is at the end of the fragment the
+    // picker is filtering on.
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(next.length, next.length)
+    })
+  }, [message, syncMentionQuery])
+
+  const syncMentionQueryFromElement = useCallback(
+    (element: HTMLTextAreaElement) => {
+      syncMentionQuery(element.value, element.selectionStart)
+    },
+    [syncMentionQuery],
+  )
+
+  // Restore the caret after a mention insertion rewrote the text.
+  useEffect(() => {
+    const caret = pendingCaretRef.current
+    if (caret === null) return
+    pendingCaretRef.current = null
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(caret, caret)
+  }, [message])
+
+  // Mentions that survive the current text, in text order — the single source for
+  // what gets sent, what the hint says, and whether the agent will stay quiet.
+  const activeMentions = useMemo(() => reconcileMentions(message, mentions), [message, mentions])
+  const taggedHumans = useMemo(() => humanMentions(activeMentions), [activeMentions])
+  // `@Piloti` alongside a person addresses BOTH (spec MN-1), so the "Piloti stays
+  // quiet" hint below would be a false statement — the addressee line names them
+  // both instead.
+  const agentTagged = activeMentions.length > taggedHumans.length
+
+  /*
+    The thread's hand-off state, read from the server (never computed here — the
+    banner, the inbox and this composer read the same rows, ADR-0034). It is what
+    turns the default "Geht an Piloti" into "Geht an den Chat": while a named person
+    is awaited, a plain message is a remark and the agent stays out.
+
+    Off entirely without the flag, so a gated org opens no request (spec NF-8).
+  */
+  const { awaiting } = useAwaitingState(
+    canCollaborate ? (currentSessionId ?? null) : null,
+    canCollaborate,
+  )
+  const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
+
+  // Whose question Piloti is answering, when it is not this reader's — published by
+  // the ADR-0033 seam so the composer does not pay for a second roster read.
+  const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
+
+  /**
+   * The picker is open only once the candidate list has actually answered.
+   *
+   * That is deliberate: where collaboration is off the endpoint never answers, so
+   * typing `@` behaves exactly as it did before this feature existed. A user who
+   * shares nothing must not be able to notice it is there (spec NF-8).
+   */
+  const mentionPickerOpen =
+    mentionQuery !== null &&
+    !mentionDismissed &&
+    !disabled &&
+    (mentionsLoading || mentionData !== null)
+
   const handleSubmit = useCallback(async () => {
     if (!message.trim() || disabled) return
+    // Backstop for a send that never saw a focus event (prefill, deep link). A no-op
+    // when focus already declared it.
+    noteSendIntent()
     const currentMessage = message.trim()
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
@@ -658,19 +900,53 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       return
     }
 
+    // Mentions are structured, and reconciled against the text at the last
+    // possible moment: whatever token the user deleted while editing is not sent
+    // (spec MN-3).
+    const sentMentions = reconcileMentions(currentMessage, mentions)
+    const sentHumans = humanMentions(sentMentions)
+
     // Files may still be uploading/ingesting — we no longer gate the send behind
     // a double-submit banner. The send button surfaces a subtle inline hint
     // (see title below) but the user is always free to send.
     setMessage('')
+    setMentionQuery(null)
     try {
       // sendMessage reports immediate failures (dead socket, no conversation)
-      // via a false return rather than throwing.
-      const sent = await sendMessage(currentMessage)
-      if (sent === false) throw new Error('Message could not be sent or queued')
+      // via a false return rather than throwing. A message WITH mentions resolves
+      // to the server's addressee ruling instead, and may be refused outright.
+      const { ok, outcome } = normalizeSendResult(
+        // Called with ONE argument when there is nothing to mention AND the thread
+        // is in its normal state — the fast path stays exactly the call it always
+        // was, free of the feature.
+        //
+        // `awaitingHuman` is what makes a plain message go through the server's
+        // ruling too: while a named person is awaited it is a remark to the thread,
+        // not a question for Piloti (ADR-0034 addendum), and the agent must be given
+        // it as context rather than as a turn. It reads the SAME hand-off state the
+        // addressee line above states to the user, so what they were told and what
+        // happens cannot disagree.
+        sentMentions.length > 0
+          ? await sendMessage(currentMessage, { mentions: sentMentions })
+          : threadAwaitsHuman
+            ? await sendMessage(currentMessage, { awaitingHuman: true })
+            : await sendMessage(currentMessage),
+      )
+      if (!ok) {
+        // Restore the text so nothing the user wrote is lost, and keep the picked
+        // mentions with it — the message is meant to be sent again, not retyped.
+        setMessage(currentMessage)
+        const refusal = mentionRefusalMessage(outcome, sentHumans, tCollab)
+        toast.error(refusal ?? t('inputArea.messageNotSent'), {
+          description: refusal ? undefined : t('inputArea.messageNotSentDesc'),
+        })
+        return
+      }
       // Sent successfully — drop this session's saved draft so it can't
       // resurface on the next visit. Only on success: a failed send keeps the
       // draft so nothing the user typed is lost.
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
+      setMentions([])
     } catch (error) {
       console.error('Failed to send message:', error)
       // Restore the message so the user doesn't lose what they typed. The
@@ -682,13 +958,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     }
   }, [
     message,
+    mentions,
     disabled,
     isResponseMode,
     respondToInteraction,
     sendMessage,
+    noteSendIntent,
+    threadAwaitsHuman,
     currentConversation,
     clearComposerDraft,
     t,
+    tCollab,
   ])
 
   // Post-research forward action: start a fresh session draft (the real
@@ -701,6 +981,39 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // While the picker is open it owns the navigation keys. The single most
+      // important detail: Enter must INSERT, never submit — a message sent because
+      // the user confirmed a name is the worst possible outcome here.
+      if (mentionPickerOpen) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          mentionPickerRef.current?.move(1)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          mentionPickerRef.current?.move(-1)
+          return
+        }
+        if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+          e.preventDefault()
+          if (mentionPickerRef.current?.selectActive()) return
+          // Nothing to insert (no match for what was typed): close the picker. An
+          // Enter then still means what it usually means — send.
+          setMentionDismissed(true)
+          if (e.key === 'Enter') handleSubmit()
+          return
+        }
+        if (e.key === 'Escape') {
+          // Stop here: an Escape that bubbles would close the surrounding surface.
+          e.preventDefault()
+          e.stopPropagation()
+          setMentionDismissed(true)
+          textareaRef.current?.focus()
+          return
+        }
+      }
+
       if (e.key !== 'Enter') return
       // Shift+Enter inserts a newline — let the textarea handle it natively.
       if (e.shiftKey) return
@@ -710,11 +1023,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       e.preventDefault()
       handleSubmit()
     },
-    [handleSubmit]
+    [handleSubmit, mentionPickerOpen]
   )
 
   const handleValueChange = useCallback(
-    (value: string) => {
+    (value: string, caret: number | null = value.length) => {
       if (isDisabledByAuth) return // Don't allow typing when not authenticated
 
       // Persist a session as soon as the user starts interacting via typed input.
@@ -731,8 +1044,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // Persist the draft under the active session (once one exists) so it
       // survives navigating away/back and a reload.
       if (sessionId) setComposerDraft(sessionId, value)
+      syncMentionQuery(value, caret)
     },
-    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft]
+    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
+  )
+
+  /**
+   * Insert the picked candidate: the `@fragment` becomes `@Display `, and the
+   * STRUCTURED reference is recorded alongside it. The text is a rendering of the
+   * mention, never its definition (spec MN-3).
+   */
+  const handleMentionSelect = useCallback(
+    (candidate: MentionCandidate) => {
+      const range = mentionQuery
+      if (!range) return
+      const display = candidate.isAgent
+        ? tCollab('mentions.picker.agentName')
+        : candidate.person.name
+      const { text, caret } = insertMention(message, range, display)
+
+      pendingCaretRef.current = caret
+      handleValueChange(text, caret)
+      setMentions((current) => [...current, { targetId: candidate.targetId, display }])
+      setMentionQuery(null)
+      setMentionDismissed(false)
+    },
+    [handleValueChange, message, mentionQuery, tCollab]
   )
 
   // Handle attach button click
@@ -806,14 +1143,25 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
+      {/* The mention picker is anchored to the composer CARD and opens above it,
+          spanning its full width — the Slack/Linear placement. Caret-pixel tracking
+          inside a textarea is fragile and buys nothing here. */}
+      <Popover
+        open={mentionPickerOpen}
+        onOpenChange={(open) => {
+          if (!open) setMentionDismissed(true)
+        }}
+      >
+      <PopoverAnchor asChild>
       <div
+        ref={composerRef}
         className={cn(
           // Composer card: white card grounded by a soft CARD-tier shadow (not
           // the modal shadow-lg, which detached it as a floating object over the
           // chat plane). No hard border — the field reads as a calm surface, and
           // focus is signalled by a subtle focus-within ring instead of an
           // outline. Textarea on top, hairline-separated control row below.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out active:scale-95 focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'
@@ -900,14 +1248,34 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // focus is drawn twice: a nested box inside the card's ring.
           className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 md:text-[14.5px]"
           value={message}
-          onChange={(e) => handleValueChange(e.target.value)}
+          onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
+          // Intent to send. In a shared thread this is what opens the agent socket
+          // (see the note next to `noteSendIntent` above); everywhere else the
+          // socket is already up and this is a no-op.
+          onFocus={noteSendIntent}
+          // The caret can move without the text changing (arrows, a click); the
+          // trigger has to follow it, or the picker outlives its own fragment.
+          onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
+          onClick={(e) => syncMentionQueryFromElement(e.currentTarget)}
           onPaste={handlePaste}
           placeholder={getPlaceholder()}
           disabled={disabled}
           rows={1}
           aria-label={
             isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')
+          }
+          // Combobox semantics only while the picker is live: the listbox
+          // `aria-controls` points at exists only then, and a chat composer that
+          // announces itself as a combobox at all times is worse for a screen
+          // reader than one that announces the popup when it appears.
+          role={mentionPickerOpen ? 'combobox' : undefined}
+          aria-expanded={mentionPickerOpen ? true : undefined}
+          aria-haspopup={mentionPickerOpen ? 'listbox' : undefined}
+          aria-autocomplete={mentionPickerOpen ? 'list' : undefined}
+          aria-controls={mentionPickerOpen ? (mentionAria.listboxId ?? undefined) : undefined}
+          aria-activedescendant={
+            mentionPickerOpen ? (mentionAria.activeOptionId ?? undefined) : undefined
           }
         />
 
@@ -951,7 +1319,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 disabled={isDisabledByAuth}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
                   <span className="bg-status-active size-[5px] rounded-full" />
@@ -1008,7 +1376,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   total: totalSourcesCount,
                 })}
                 title={t('inputArea.selectedConnections')}
-                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Layers className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="hidden sm:inline">{tChat('composer.sources')}</span>
@@ -1047,7 +1415,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             disabled={isDisabledByAuth}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
+              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
               'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
               deepResearchIntent
                 ? 'border-primary bg-primary text-primary-foreground shadow-xs'
@@ -1057,6 +1425,25 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <ZoomIn className="size-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
           </button>
+
+          {/* Who this message goes to — ALWAYS, whenever collaboration exists at
+              all. The point of it being unconditional: if it only appeared in the
+              unusual case, "Piloti is next" would remain something the user has to
+              infer from an absence. Borderless on purpose — it is a statement
+              standing among buttons, and must not read as one. */}
+          {canCollaborate && (
+            <AddresseeIndicator
+              mentions={activeMentions}
+              awaitingHuman={threadAwaitsHuman}
+              // Only where there is somebody to mention: a solo thread grows no
+              // collaboration furniture (spec NF-8).
+              // Offered wherever collaboration is available — including a PRIVATE
+              // thread, because mentioning somebody is how a thread starts being
+              // shared (the picker offers "Wird eingeladen"). This is the discovery
+              // path into the feature, not a reward for already having used it.
+              onMentionSomeone={handleMentionSomeone}
+            />
+          )}
 
           {/* Right Actions: manage-files, attach, submit — pushed right */}
           <div className="ml-auto flex items-center gap-1">
@@ -1234,6 +1621,64 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         </div>
 
+        {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
+            person is tagged the agent will stay quiet, and the user has to know
+            that while they can still change their mind. Suppressed when `@Piloti`
+            is tagged too — then the agent DOES answer (MN-1) and this sentence
+            would be false; the addressee line above names both. */}
+        {taggedHumans.length > 0 && !agentTagged && (
+          <p
+            data-testid="composer-mention-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>
+              {/* German inflects the verb, so joining names into the singular
+                  string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
+                  grammar in the primary product language. This i18n layer has no
+                  plural rules, hence two keys. */}
+              {taggedHumans.length === 1
+                ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
+                : tCollab('mentions.composerHintMany', {
+                    names: taggedHumans.map((mention) => mention.display).join(', '),
+                  })}
+            </span>
+          </p>
+        )}
+
+        {/* The way BACK, exactly where it is needed: while the thread waits on a
+            person, a plain message is a remark, so the composer says how to reach
+            Piloti instead of leaving that to be discovered. */}
+        {canCollaborate && threadAwaitsHuman && activeMentions.length === 0 && (
+          <p
+            data-testid="composer-agent-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>{tCollab('mentions.addressee.agentHint')}</span>
+          </p>
+        )}
+
+        {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
+            already locked by `isBusy`, and without a line here that lock is
+            unexplained — a colleague sees a dead input and no reason for it. The
+            string existed for exactly this and nothing rendered it. Only when the
+            turn belongs to someone else: the asker has their own typing indicator
+            and Herleitung, so telling them "Piloti is answering your question"
+            would be noise. */}
+        {canCollaborate && isBusy && otherPersonsTurnName && (
+          <p
+            data-testid="composer-busy-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
+          </p>
+        )}
+
         {/* Honest Deep-Research hint: the pill records intent; escalation
             stays automatic. Never promises a forced deep-research run. */}
         {deepResearchIntent && (
@@ -1251,6 +1696,37 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </p>
         )}
       </div>
+      </PopoverAnchor>
+
+        {/* The panel itself supplies the surface, so the popover contributes
+            nothing but placement and width. Focus must NOT move here: the user is
+            typing, and the textarea forwards the navigation keys. */}
+        <PopoverContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-[var(--radix-popover-trigger-width)] border-0 bg-transparent p-0 shadow-none"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          onFocusOutside={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            // Clicking inside the composer (e.g. moving the caret) is not
+            // "clicking away" — only a click outside it dismisses the picker.
+            const target = event.target as Node | null
+            if (target && composerRef.current?.contains(target)) event.preventDefault()
+          }}
+        >
+          <MentionPicker
+            ref={mentionPickerRef}
+            query={mentionQuery?.query ?? ''}
+            candidates={mentionData?.candidates ?? []}
+            canInvite={mentionData?.canInvite ?? false}
+            loading={mentionsLoading}
+            onSelect={handleMentionSelect}
+            onAriaChange={setMentionAria}
+          />
+        </PopoverContent>
+      </Popover>
 
       {/* Mobile scope cue: on phones the scope / Datengrundlage / Deep-Research
           labels collapse to bare icons (to keep the action row one compact

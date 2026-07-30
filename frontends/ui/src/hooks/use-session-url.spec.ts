@@ -21,6 +21,10 @@ vi.mock('next/navigation', () => ({
 const mockChatStore = {
   currentConversation: null as { id: string } | null,
   currentUserId: null as string | null,
+  conversations: [] as Array<{ id: string }>,
+  // Defaults to true so every pre-existing test keeps asserting the settled
+  // behaviour it was written for; the deep-link tests below drive it false.
+  serverConversationsLoaded: true,
   selectConversation: vi.fn(),
   getUserConversations: vi.fn((): Array<{ id: string; title: string }> => []),
 }
@@ -37,6 +41,8 @@ describe('useSessionUrl', () => {
     mockSearchParams = new URLSearchParams()
     mockChatStore.currentConversation = null
     mockChatStore.currentUserId = null
+    mockChatStore.conversations = []
+    mockChatStore.serverConversationsLoaded = true
     mockChatStore.getUserConversations.mockReturnValue([])
   })
 
@@ -120,6 +126,53 @@ describe('useSessionUrl', () => {
       ])
 
       renderHook(() => useSessionUrl({ isAuthenticated: true }))
+
+      expect(mockRouter.replace).toHaveBeenCalledWith('/')
+    })
+
+    /**
+     * The inbox-notification case (ADR-0035): a link into a conversation this
+     * browser has never seen, because a colleague shared it. At first render the
+     * server list has not arrived, so the id is unknown — and "unknown means
+     * stale" stripped it, dropping the recipient on whatever session was last
+     * active while the inbox row was marked read. Their one signal, spent on
+     * nothing.
+     */
+    test('holds an unknown session id until the server list has been fetched', () => {
+      mockSearchParams = new URLSearchParams('session=s_shared_1')
+      mockChatStore.currentUserId = 'user-anna'
+      mockChatStore.serverConversationsLoaded = false
+      mockChatStore.getUserConversations.mockReturnValue([])
+
+      const { rerender } = renderHook(() => useSessionUrl({ isAuthenticated: true }))
+
+      expect(mockRouter.replace).not.toHaveBeenCalled()
+      expect(mockChatStore.selectConversation).not.toHaveBeenCalled()
+
+      // The server list lands and carries the shared conversation.
+      mockChatStore.conversations = [{ id: 's_shared_1' }]
+      mockChatStore.serverConversationsLoaded = true
+      mockChatStore.getUserConversations.mockReturnValue([
+        { id: 's_shared_1', title: 'Brandschutz Halle 3' },
+      ])
+      rerender()
+
+      expect(mockChatStore.selectConversation).toHaveBeenCalledWith('s_shared_1')
+      expect(mockRouter.replace).not.toHaveBeenCalled()
+    })
+
+    test('still clears a genuinely stale id once the server has answered', () => {
+      mockSearchParams = new URLSearchParams('session=s_deleted')
+      mockChatStore.currentUserId = 'user-anna'
+      mockChatStore.serverConversationsLoaded = false
+
+      const { rerender } = renderHook(() => useSessionUrl({ isAuthenticated: true }))
+      expect(mockRouter.replace).not.toHaveBeenCalled()
+
+      // Asked and answered — the id is not coming.
+      mockChatStore.serverConversationsLoaded = true
+      mockChatStore.conversations = [{ id: 'other' }]
+      rerender()
 
       expect(mockRouter.replace).toHaveBeenCalledWith('/')
     })

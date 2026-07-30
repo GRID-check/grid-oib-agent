@@ -24,6 +24,7 @@ from aiq_agent.common.citation_verification import get_or_create_session_registr
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
+from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
@@ -709,6 +710,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         checkpointer=checkpointer,
         validate_deep_research_tools_fn=validate_deep_research_tools,
     )
+
+    # Ingest-only context (ADR-0034 addendum). The WebSocket front end owns the
+    # socket and this tier owns the graph, so the appender is published rather than
+    # imported: a `context_only` frame lands in this conversation's checkpoint
+    # without a turn, so the agent can see what a colleague wrote the next time it
+    # IS addressed. Registered here because this is where the compiled graph (and
+    # its checkpointer) exists.
+    register_context_appender(agent.append_context_message)
 
     async def _run(
         query: object,

@@ -179,6 +179,22 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
  * Get error metadata by code.
  * Falls back to system.unknown if code not found.
  */
+/**
+ * Whether an error is a fact about the CONVERSATION or about this browser.
+ *
+ * It decides what a colleague in a shared thread sees (ADR-0037). A turn that
+ * genuinely failed is part of the thread's history and must be visible to
+ * everybody: without it an observer sees a conversation that simply stops, with no
+ * way to tell "still working" from "gave up". A dropped socket or an expired token
+ * is the opposite — it describes the reader's own session, and publishing it would
+ * tell a colleague their connection failed when it did not.
+ *
+ * `connection.*` is also stripped from localStorage on rehydration for the same
+ * reason, so this keeps the two persistence layers making the same judgement.
+ */
+export const errorConcernsTheThread = (code: ErrorCode): boolean =>
+  !code.startsWith('connection.') && !code.startsWith('auth.')
+
 export const getErrorMeta = (code: ErrorCode): ErrorMeta => {
   return ERROR_REGISTRY[code] || ERROR_REGISTRY['system.unknown']
 }

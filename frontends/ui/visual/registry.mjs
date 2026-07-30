@@ -292,6 +292,118 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="citation-health"]',
   },
   {
+    id: 'inbox',
+    mobile: true,
+    path: '/dev/inbox',
+    description:
+      'The inbox list (spec IB-18…IB-21) — registry-driven rows carrying who/what/where/when: an unread actionable mention request with its quoted question, a grouped activity row (3 new messages), a shared-with-you row, an answered request, an unknown actor / untitled chat, and an INERT row whose target is gone (plain text, no link, no excerpt — IB-13). Plus the needs-me/all filter, mark-all-read, and the count badge including the collapsed-rail placement.',
+    waitFor: '[data-testid="inbox-item"]',
+  },
+  {
+    id: 'inbox-empty',
+    mobile: true,
+    path: '/dev/inbox?variant=empty',
+    description:
+      'The inbox with nothing in it — the crafted per-filter empty state ("Nichts zu tun" under Für mich), with mark-all-read correctly disabled.',
+    waitFor: '[data-testid="inbox-list"]',
+  },
+  {
+    id: 'mention-picker',
+    mobile: true,
+    path: '/dev/mention-picker',
+    description:
+      'The @-mention popover, open (spec MN-3/MN-4/MN-5). Anchored above the composer like Slack/Linear rather than caret-tracked. Avatars with a deterministic per-user hue, the matched substring emphasised, grouped agent -> in this chat -> elsewhere in project, "Wird eingeladen" on someone who will be invited by being tagged, and the keyboard hint strip.',
+    waitFor: '[data-testid="mention-picker-preview"]',
+  },
+  {
+    id: 'engagement-notice',
+    mobile: true,
+    path: '/dev/engagement-notice',
+    description:
+      'When Piloti answers a message that tags nobody (ADR-0036), stated where the question arises and doubling as the control. Three rows: a multi-person thread being OFFERED mention mode as a question about the future (never switched quietly — `ask` stays the default because Piloti is the point of the product, not a guest in a chat app), the rule stated in mention mode with the way back, and a viewer who gets the explanation without a control.',
+    waitFor: '[data-testid="engagement-notice-preview"]',
+  },
+  {
+    id: 'mention-pill',
+    mobile: true,
+    path: '/dev/mention-pill',
+    description:
+      'A mention inside message text: a pill, not plain text, with the person card it opens on hover/tap/focus (the same peek timing as a citation). Four rows — a colleague, YOU (filled ink, the one mention that asks something of the reader), Piloti, and someone no longer in the roster who deliberately gets NO card. Plus the card in its four shapes, including "Nicht in diesem Chat" in warning ink, which is the difference between a tag that reaches someone and one that quietly does nothing.',
+    waitFor: '[data-testid="mention-pill-preview"]',
+  },
+  {
+    id: 'awaiting-banner',
+    mobile: true,
+    path: '/dev/awaiting-banner',
+    description:
+      'The hand-off state every participant sees while the agent deliberately stays silent (spec MN-7/MN-8): "Warten auf Anna Berger", the reason it is quiet, who asked, and the release action so a thread can never be permanently stuck. The third block is the reader\'s own turn to answer, which also carries "Rückfrage an …" — the affordance for the most common outcome, being asked something you cannot answer yet.',
+    waitFor: '[data-testid="awaiting-banner-preview"]',
+  },
+  {
+    id: 'share-dialog',
+    mobile: true,
+    path: '/dev/share-dialog',
+    description:
+      'The sharing surface (spec SH-17/SH-19): visibility with its plain-words consequence, the roster with WHY each person has access, and an invite picker where someone outside the project appears DISABLED with the reason rather than hidden — sharing a chat never grants project access.',
+    waitFor: '[data-testid="share-dialog-preview"]',
+  },
+  {
+    id: 'access-overview',
+    mobile: true,
+    path: '/dev/access-overview',
+    description:
+      'The "who has access" answer (spec SH-18): the blanket visibility rule and the named exceptions together, grouped by role, each row carrying the reason for its access.',
+    waitFor: '[data-testid="access-overview-preview"]',
+  },
+  {
+    id: 'composer-addressee',
+    mobile: true,
+    path: '/dev/composer-addressee',
+    description:
+      'The composer\'s always-present statement of WHO receives this message (ADR-0034 addendum). Every rendering in one still: "Geht an Piloti" by default, "Geht an <Name>" the moment a colleague is tagged, both names when a person AND @Piloti are tagged, and "Geht an den Chat" + "@Piloti eingeben, um Piloti zu fragen" while the thread waits on a human. Always present on purpose — if it only appeared in the unusual case, "Piloti is next" would stay an inference.',
+    waitFor: '[data-testid="composer-addressee-preview"]',
+  },
+  {
+    id: 'shared-thread-handback',
+    mobile: true,
+    path: '/dev/shared-thread?variant=handback',
+    description:
+      'The hand-back offer at the point a wait resolves: the colleague answered, the wait closed, and the thread offers "Piloti weiterarbeiten lassen?". Its action PRE-FILLS the composer rather than firing a turn, so every message stays honestly authored. Derived from the thread rather than a live transition, because the asker usually arrives after the answer landed.',
+    waitFor: '[data-testid="shared-thread-preview"]',
+  },
+  {
+    id: 'share-dialog-invite',
+    mobile: true,
+    path: '/dev/share-dialog?variant=invite',
+    description:
+      'The invite half of the share dialog. Anyone already on the roster is filtered OUT (they carry their role control there, not here — one person, one control). Org members who cannot reach the container project stay VISIBLE but disabled with the reason, because silently omitting a colleague reads as a bug (spec SH-19).',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'share-dialog-project',
+    mobile: true,
+    path: '/dev/share-dialog?variant=project',
+    description:
+      'The dialog for a project-wide chat: the blanket rule stated in plain words ("Alle im Projekt koennen mitlesen und mitschreiben") ALONGSIDE the named exceptions, which is the hard part of answering "who can read this".',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'mention-picker-restricted',
+    mobile: true,
+    path: '/dev/mention-picker?variant=restricted',
+    description:
+      'The picker as a collaborator who may not invite (spec MN-5/OQ-3): people who would need an invitation are shown DISABLED with "Nur Eigentuemer koennen neue Personen in diesen Chat holen" rather than hidden, so the restriction is explicable instead of looking like a missing colleague.',
+    waitFor: '[data-testid="mention-picker-preview"]',
+  },
+  {
+    id: 'shared-thread',
+    mobile: true,
+    path: '/dev/shared-thread',
+    description:
+      'A shared thread with three people plus the agent (spec CC-4/CC-5/CC-13/CC-19): every human message attributed, one author\'s consecutive messages GROUPED under a single header, the unread separator, an @Piloti mention chip, and the turn-in-flight banner telling an observer whose question the agent is answering. All four voices distinguishable — colleague, you, the agent\'s answer, the agent\'s status.',
+    waitFor: '[data-testid="shared-thread-preview"]',
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:

@@ -27,7 +27,12 @@ import {
   invalidateProjectProfileCaches,
 } from './prompt-view'
 import { buildProjectSummaryText } from './brief-view'
-import { normalizeProfilePatchOperations, pruneResolvedAssumptions, pruneResolvedUnknowns } from './patch-engine'
+import {
+  isPatchAlreadyApplied,
+  normalizeProfilePatchOperations,
+  pruneResolvedAssumptions,
+  pruneResolvedUnknowns,
+} from './patch-engine'
 import {
   projectIntakeDefinitionV1,
   validateProfilePatchVocabulary,
@@ -89,27 +94,39 @@ export async function saveProjectProfile(
   return persistProfile(projectId, session.organizationId, profile, current, { resetSummary: true })
 }
 
+/** A patch write, plus whether it landed or was already there. */
+export interface PatchedProjectProfile extends ProjectProfileState {
+  /**
+   * The write lost an optimistic-lock race to a request that had ALREADY applied
+   * these exact operations (two collaborators accepting the same card). The
+   * profile holds the change, so this is an idempotent success rather than the
+   * generic 409 — which the caller must keep treating as "your patch did not land".
+   */
+  alreadyApplied?: boolean
+}
+
 /**
  * Apply agent-proposed patch operations to the stored profile. Bare values
  * are wrapped with provenance (accepting the card is the user confirmation),
  * then any unknowns the patch just answered are retired. 409 on a version
- * conflict.
+ * conflict, unless the conflict is the concurrent-accept case above.
  */
 export async function patchProjectProfile(
   session: AuthorizedSession,
   projectId: string,
   operations: ProjectProfilePatchOperation[],
-): Promise<ProjectProfileState> {
+): Promise<PatchedProjectProfile> {
   await requireProjectAccess(session, projectId, 'project:edit')
   const current = await findProjectProfileInOrg(projectId, session.organizationId)
   if (!current) throw new NotFoundError()
 
+  let normalized: ProjectProfilePatchOperation[]
   let profile: ProjectProfile
   try {
     // Defense-in-depth: reject values that violate the intake vocabulary before
     // they are wrapped with `user_confirmed` provenance and persisted.
     validateProfilePatchVocabulary(operations)
-    const normalized = normalizeProfilePatchOperations(operations)
+    normalized = normalizeProfilePatchOperations(operations)
     profile = pruneResolvedUnknowns(applyProjectProfilePatch(current.profile, normalized))
   } catch (error) {
     throw new BadRequestError(
@@ -117,7 +134,19 @@ export async function patchProjectProfile(
     )
   }
 
-  return persistProfile(projectId, session.organizationId, profile, current)
+  try {
+    return await persistProfile(projectId, session.organizationId, profile, current)
+  } catch (error) {
+    if (!(error instanceof ConflictError)) throw error
+    // Somebody wrote between our read and our write. `updateProjectProfileIfVersion`
+    // only compares `profileVersion`, so a 409 alone says nothing about WHOSE change
+    // won — read the winner's profile and ask whether it already contains ours. Only
+    // then is the outcome a success; anything else is a conflict the caller must see
+    // and be able to retry, or a patch is reported as applied while it was dropped.
+    const fresh = await findProjectProfileInOrg(projectId, session.organizationId)
+    if (!fresh || !isPatchAlreadyApplied(fresh.profile, normalized)) throw error
+    return { ...fresh, alreadyApplied: true }
+  }
 }
 
 /**
