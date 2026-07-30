@@ -796,3 +796,23 @@ function truncate(text: string | null | undefined): string | null {
   if (trimmed.length === 0) return null
   return trimmed.length > INBOX_TEXT_LIMIT ? `${trimmed.slice(0, INBOX_TEXT_LIMIT - 1)}…` : trimmed
 }
+
+/**
+ * Is this thread currently waiting on a human?
+ *
+ * The one question the message-persist path needs in order to decide whether a
+ * plain message is *for Piloti* or *a remark to the people in the thread*
+ * (ADR-0034 addendum). Derived from open requests, like every other reading of
+ * the hand-off state, so it can never disagree with the banner.
+ *
+ * Deliberately a boolean rather than the rows: the caller is making a routing
+ * decision, not rendering, and returning rows would invite it to re-derive the
+ * state a second way.
+ */
+export async function threadIsAwaitingHuman(
+  resourceType: MentionResourceType,
+  resourceId: string,
+): Promise<boolean> {
+  const open = await listOpenRequestsForResource(resourceType, resourceId)
+  return open.length > 0
+}

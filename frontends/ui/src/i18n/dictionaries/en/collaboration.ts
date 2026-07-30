@@ -123,6 +123,29 @@ export const collaboration = {
     },
     /** The composer's state once a human is tagged. */
     composerHint: 'Piloti will stay quiet — {name} is being asked.',
+    /**
+     * The composer's always-visible statement of WHO receives this message.
+     *
+     * This exists because the routing was not guessable from the UI: after a
+     * colleague answers, is the next message a question for Piloti or a remark to
+     * them? Rather than teach a rule, the composer says it. Present in every
+     * state, so "Piloti is next" is never an inference.
+     */
+    addressee: {
+      /** Default, and where a thread always returns. */
+      toAgent: 'Goes to Piloti',
+      /** One or more humans tagged in the message being written. */
+      toPerson: 'Goes to {name}',
+      toPeople: 'Goes to {names}',
+      /**
+       * While the thread is waiting on a named person, a plain message is a
+       * remark to the people in it — not a question for the agent.
+       */
+      toThread: 'Goes to the chat',
+      /** How to get back to the agent from the waiting state. */
+      agentHint: 'Type @Piloti to ask Piloti',
+      ariaLabel: 'Recipient of this message: {label}',
+    },
     notePlaceholder: 'What would you like them to look at? (optional)',
     /** The banner every participant sees while the thread waits (spec MN-8). */
     awaiting: {

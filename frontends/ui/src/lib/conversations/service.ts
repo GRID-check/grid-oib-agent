@@ -40,7 +40,11 @@ import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
-import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
+import {
+  applyMessageMentions,
+  resolveRequestsOnReply,
+  threadIsAwaitingHuman,
+} from '@/lib/mentions/service'
 import type { AddresseeSet, MentionInput, PersistedMessageResult } from '@/lib/mentions/types'
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
 import { countGrantsForResource } from '@/lib/sharing/repository'
@@ -407,6 +411,17 @@ export async function updateMessageCardInteractions(
 
 /** The agent answers — no mentions, today's behaviour unchanged (spec MN-1). */
 const AGENT_ADDRESSED: AddresseeSet = { agent: true, users: [] }
+
+/**
+ * A message that is a remark to the PEOPLE in the thread: the agent is not
+ * addressed, and nobody new is being asked.
+ *
+ * This is what a plain message becomes while the thread is waiting on a human
+ * (ADR-0034 addendum). Without it, the colleague's answer — a message with no
+ * mentions — would satisfy "no mentions means ask the agent" and Piloti would
+ * answer a reply that was written to a person.
+ */
+const THREAD_ADDRESSED: AddresseeSet = { agent: false, users: [] }
 /** Nothing is addressed: what the agent itself wrote, and system/tool rows. */
 const NOBODY_ADDRESSED: AddresseeSet = { agent: false, users: [] }
 
@@ -471,6 +486,7 @@ async function prepareMessage(
   session: AuthorizedSession,
   conversationId: string,
   input: CreateMessageInput,
+  context: { shared: boolean },
 ): Promise<PreparedMessage> {
   if (input.role !== 'user') {
     return { input, addressees: null, createdRequests: 0 }
@@ -478,6 +494,20 @@ async function prepareMessage(
 
   const mentions = input.mentions ?? []
   if (mentions.length === 0) {
+    // A plain message normally asks Piloti — that is the product's whole point,
+    // and this path stays query-free so it costs nothing.
+    //
+    // The one exception: while the thread is WAITING on a named person, a plain
+    // message is a remark to the people in it, not a question for the agent.
+    // Otherwise the colleague's answer (which carries no mentions) would wake
+    // Piloti to answer a message written to a human — and so would "thanks, take
+    // your time" from the asker. `@Piloti` remains the explicit way back.
+    //
+    // Only shared threads are checked: a solo thread cannot hold a request, so
+    // the overwhelmingly common case never pays for the lookup.
+    if (context.shared && (await threadIsAwaitingHuman('conversation', conversationId))) {
+      return { input, addressees: THREAD_ADDRESSED, createdRequests: 0 }
+    }
     return { input, addressees: AGENT_ADDRESSED, createdRequests: 0 }
   }
 
@@ -514,11 +544,18 @@ export async function createConversationMessages(
 ): Promise<PersistedMessage[]> {
   const access = await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
 
+  // Shared-ness decides two things: whether anything fans out at all, and whether
+  // a plain message can possibly be a remark rather than a question for Piloti
+  // (a solo thread cannot hold an open request). Resolved once here so neither
+  // decision costs a second query.
+  const grantCount = await countGrantsForResource('conversation', conversationId)
+  const shared = isShared(access.visibility, grantCount)
+
   // Sequential, not parallel: mention application writes grants and requests,
   // and a batch must not race itself over the same conversation.
   const prepared: PreparedMessage[] = []
   for (const input of inputs) {
-    prepared.push(await prepareMessage(session, conversationId, input))
+    prepared.push(await prepareMessage(session, conversationId, input, { shared }))
   }
 
   const rows = await insertMessages(prepared.map((entry) => buildMessageRow(conversationId, entry, session.userId)))
@@ -552,6 +589,7 @@ export async function createConversationMessages(
   }
 
   await fanOutMessageActivity({
+    shared,
     organizationId: session.organizationId,
     conversationId,
     visibility: access.visibility,
@@ -567,6 +605,8 @@ export async function createConversationMessages(
 }
 
 interface FanOutInput {
+  /** Pre-resolved shared-ness, when the caller already knows it. */
+  shared?: boolean
   organizationId: string
   conversationId: string
   visibility: ResourceVisibility
@@ -596,9 +636,17 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
   if (input.rows.length === 0) return
 
   try {
-    const grantCount =
-      input.visibility === 'private' ? await countGrantsForResource('conversation', conversationId) : 0
-    if (!isShared(input.visibility, grantCount)) return
+    // The session path already resolved shared-ness (it also decides whether a
+    // plain message is a remark rather than a question for Piloti), so it passes
+    // the answer in rather than paying for the same query twice. The internal
+    // service-token path has no such context and still works it out here.
+    const shared =
+      input.shared ??
+      isShared(
+        input.visibility,
+        input.visibility === 'private' ? await countGrantsForResource('conversation', conversationId) : 0,
+      )
+    if (!shared) return
 
     const participants = await resolveParticipants(organizationId, 'conversation', conversationId)
     if (participants.length === 0) return

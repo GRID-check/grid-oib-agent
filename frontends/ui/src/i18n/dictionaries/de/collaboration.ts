@@ -111,6 +111,14 @@ export const collaboration: typeof en.collaboration = {
       chipRemove: 'Erwähnung von {name} entfernen',
     },
     composerHint: 'Piloti antwortet nicht — {name} wird gefragt.',
+    addressee: {
+      toAgent: 'Geht an Piloti',
+      toPerson: 'Geht an {name}',
+      toPeople: 'Geht an {names}',
+      toThread: 'Geht an den Chat',
+      agentHint: '@Piloti eingeben, um Piloti zu fragen',
+      ariaLabel: 'Empfänger dieser Nachricht: {label}',
+    },
     notePlaceholder: 'Worum soll sich die Person kümmern? (optional)',
     awaiting: {
       one: 'Warten auf {name}',

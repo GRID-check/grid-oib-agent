@@ -73,6 +73,42 @@ outside the agent tier.**
    message persistence, which the BFF already owns on both the session and internal
    paths.
 
+## Addendum (2026-07-30): a plain message while awaiting a human is a remark, not a question
+
+The rule as first shipped was *"no mentions means the agent answers"*. That is right
+for a thread in its normal state and **wrong while a hand-off is outstanding**, which
+review caught before release:
+
+> Matthias tags Anna. Anna answers — a plain message, no mentions. Under the
+> original rule `addressed.length === 0` made `agent: true`, so **Piloti answered a
+> message Anna had written to Matthias.** The same happened for "thanks, take your
+> time" from the asker.
+
+The model is therefore stated as **two states**, and only one rule changes between
+them:
+
+| State | Entered by | A plain message goes to | Left when |
+|---|---|---|---|
+| **Asking Piloti** (default, and where a thread always returns) | — | the agent | a human is tagged |
+| **Waiting on a named person** | tagging a human | the **thread** (`{ agent: false, users: [] }`) | they answer · anyone releases · someone types `@Piloti` |
+
+`@Piloti` remains the explicit way back, and already released an open wait
+(spec MN-9.3), so no new gesture was invented.
+
+**Cost control.** The check is derived from open requests like every other reading
+of the hand-off state, so it cannot disagree with the banner — but it is a query,
+and the default path must stay free. It therefore runs **only for shared
+conversations**: a solo thread cannot hold a request, so the overwhelmingly common
+case (one person asking the agent) still reaches `{ agent: true }` without touching
+the database. `createConversationMessages` resolves shared-ness once and threads it
+to both the addressee decision and the fan-out, so neither pays twice.
+
+**The behaviour was not the whole defect.** The rule was invisible: nothing in the
+UI said who the next message would reach. The composer now states its addressee in
+every state ("Geht an Piloti" / "Geht an {name}" / "Geht an den Chat" with
+"@Piloti eingeben, um Piloti zu fragen"), because a correct rule the user has to
+infer is still an unclear product.
+
 ## Consequences
 
 ### Positive

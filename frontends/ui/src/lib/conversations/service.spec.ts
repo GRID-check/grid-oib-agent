@@ -60,11 +60,13 @@ vi.mock('@/lib/inbox/service', () => ({
 vi.mock('@/lib/mentions/service', () => ({
   applyMessageMentions: vi.fn(),
   resolveRequestsOnReply: vi.fn(),
+  threadIsAwaitingHuman: vi.fn(),
 }))
 
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
+import { threadIsAwaitingHuman } from '@/lib/mentions/service'
 import type { Message, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
@@ -161,6 +163,10 @@ beforeEach(() => {
   stubContainer('project-editor')
   vi.mocked(findGrantForSubject).mockResolvedValue(null)
   vi.mocked(countGrantsForResource).mockResolvedValue(0)
+  // Default: no outstanding hand-off, so a plain message asks Piloti. Set
+  // explicitly because `clearAllMocks` clears CALLS but not a `mockResolvedValue`,
+  // so a test that opts into "awaiting" would otherwise leak into its neighbours.
+  vi.mocked(threadIsAwaitingHuman).mockResolvedValue(false)
   vi.mocked(findConversationRead).mockResolvedValue(null)
   vi.mocked(resolveParticipants).mockResolvedValue([])
   vi.mocked(emitInboxItems).mockResolvedValue(0)
@@ -353,6 +359,44 @@ describe('message authorship (spec CC-3, MG-3)', () => {
 describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   beforeEach(() => {
     stubConversation({ createdBy: 'user_me', visibility: 'project' })
+  })
+
+  it('does NOT wake the agent for a plain message while the thread awaits a human', async () => {
+    // The defect this pins: a colleague's answer carries no mentions, so the
+    // "no mentions means ask the agent" rule would have Piloti answer a message
+    // that was written to a person. Same for "thanks, take your time" from the
+    // asker. While a wait is open, a plain message is a remark to the thread.
+    vi.mocked(threadIsAwaitingHuman).mockResolvedValue(true)
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Ja, das passt so.' },
+    ])
+
+    expect(persisted.addressees).toEqual({ agent: false, users: [] })
+  })
+
+  it('asks the agent again once the wait has cleared', async () => {
+    vi.mocked(threadIsAwaitingHuman).mockResolvedValue(false)
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
+    ])
+
+    expect(persisted.addressees).toEqual({ agent: true, users: [] })
+  })
+
+  it('never pays for the awaiting lookup on a solo thread', async () => {
+    // A private thread with no grants cannot hold a request, so the default path
+    // — a plain question to Piloti — must stay query-free.
+    stubConversation({ createdBy: 'user_me', visibility: 'private' })
+    vi.mocked(threadIsAwaitingHuman).mockResolvedValue(true)
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Frage an Piloti' },
+    ])
+
+    expect(threadIsAwaitingHuman).not.toHaveBeenCalled()
+    expect(persisted.addressees).toEqual({ agent: true, users: [] })
   })
 
   it('addresses the agent when a message carries no mentions', async () => {
