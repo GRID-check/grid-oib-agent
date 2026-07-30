@@ -142,7 +142,7 @@ export default function AnswerFeedbackPreviewPage() {
         <header>
           <h1 className="text-xl font-semibold tracking-tight">Antwort-Feedback</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Was Nutzer von ihren Antworten hielten — und die Fragen hinter den misslungenen.
+            Was Nutzer von ihren Antworten hielten — und die Fragen hinter den misslungenen Antworten.
           </p>
         </header>
         <AnswerFeedbackHealth />

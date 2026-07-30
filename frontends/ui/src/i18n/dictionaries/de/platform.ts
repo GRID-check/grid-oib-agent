@@ -517,7 +517,7 @@ export const platform: typeof en.platform = {
   },
   answerFeedback: {
     title: 'Antwort-Feedback',
-    subtitle: 'Wie Nutzerinnen und Nutzer ihre Antworten in den letzten {days} Tagen bewertet haben — und die Fragen hinter den misslungenen.',
+    subtitle: 'Wie Nutzerinnen und Nutzer ihre Antworten in den letzten {days} Tagen bewertet haben — und die Fragen hinter den misslungenen Antworten.',
     refresh: 'Aktualisieren',
     export: 'CSV exportieren',
     trendHeading: 'Entwicklung',
@@ -574,7 +574,7 @@ export const platform: typeof en.platform = {
     },
     quality: {
       title: 'Antwortqualität',
-      subtitle: 'Wie gut Antworten belegt sind — und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
+      subtitle: 'Wie gut Antworten belegt sind, was Nutzerinnen und Nutzer von ihnen hielten, und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
     },
     knowledge: {
       title: 'Basiswissen',

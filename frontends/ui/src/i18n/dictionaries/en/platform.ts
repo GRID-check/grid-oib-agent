@@ -561,7 +561,7 @@ export const platform = {
     },
     quality: {
       title: 'Answer quality',
-      subtitle: 'How well answers are grounded — and the execution timeline behind any turn that was not.',
+      subtitle: 'How well answers are grounded, what users thought of them, and the execution timeline behind any turn that was not.',
     },
     knowledge: {
       title: 'Base knowledge',
