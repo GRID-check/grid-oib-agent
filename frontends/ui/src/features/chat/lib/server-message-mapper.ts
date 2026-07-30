@@ -139,8 +139,61 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     // What the answer rested on. Spread last so a future metadata key cannot
     // silently shadow one of the fields above.
     ...restoreProvenance(metadata.provenance),
+    ...restorePrompt(metadata.prompt, metadata.promptState),
   }
 }
+
+/**
+ * Rebuild a human-in-the-loop prompt and its answer (ADR-0037).
+ *
+ * `promptFor` is the person the agent asked, and it is what lets every other reader
+ * be shown the question read-only: the agent tier refuses an answer from anybody
+ * else (`_may_answer_interaction`), so offering them the buttons would be offering a
+ * refusal.
+ *
+ * `isPromptResponded` is derived from the stored answer rather than stored
+ * separately — two fields that can disagree about the same fact is one field too
+ * many.
+ */
+const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessage> => {
+  const out: Partial<ChatMessage> = {}
+
+  if (typeof prompt === 'object' && prompt !== null && !Array.isArray(prompt)) {
+    const detail = prompt as Record<string, unknown>
+    if (isPromptType(detail.promptType)) out.promptType = detail.promptType
+    if (typeof detail.promptId === 'string') out.promptId = detail.promptId
+    if (typeof detail.promptParentId === 'string') out.promptParentId = detail.promptParentId
+    if (typeof detail.promptInputType === 'string') {
+      out.promptInputType = detail.promptInputType as ChatMessage['promptInputType']
+    }
+    if (Array.isArray(detail.promptOptions)) {
+      out.promptOptions = detail.promptOptions.filter(
+        (option): option is string => typeof option === 'string',
+      )
+    }
+    if (typeof detail.promptPlaceholder === 'string') {
+      out.promptPlaceholder = detail.promptPlaceholder
+    }
+    if (typeof detail.promptFor === 'string') out.promptFor = detail.promptFor
+  }
+
+  if (typeof promptState === 'object' && promptState !== null && !Array.isArray(promptState)) {
+    const answer = (promptState as { response?: unknown }).response
+    // Non-empty, matching what `sanitizePromptState` will store: `''` would render
+    // as "responded" with nothing to show, which is worse than still asking. The
+    // read has to agree with the write, or a row from another build renders wrong.
+    if (typeof answer === 'string' && answer.length > 0) {
+      out.promptResponse = answer
+      out.isPromptResponded = true
+    }
+  }
+
+  return out
+}
+
+const PROMPT_TYPES = ['clarification', 'approval', 'choice', 'text-input', 'plan_approval'] as const
+const isPromptType = (value: unknown): value is ChatMessage['promptType'] =>
+  typeof value === 'string' && (PROMPT_TYPES as readonly string[]).includes(value)
 
 /**
  * Unpack the stored provenance onto the message shape the renderers already read.

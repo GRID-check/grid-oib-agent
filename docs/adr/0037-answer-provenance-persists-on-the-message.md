@@ -1,4 +1,4 @@
-# ADR-0037: An answer's provenance persists on the message
+# ADR-0037: An answer's provenance — and its open questions — persist on the message
 
 - **Status:** Accepted
 - **Date:** 2026-07-30
@@ -31,9 +31,17 @@ In a building-regulation assistant the provenance is not decoration. An answer w
 grounding is the one thing this product must never render, which is precisely the argument
 the citations fix already made and won.
 
+A human-in-the-loop **prompt** was the same defect in a sharper form. `addAgentPrompt`
+never persisted anything, so a clarification card existed only in the browser whose
+socket received the frame. An observer's load showed **no card at all** — the thread
+simply stopped mid-question and the "Piloti is answering …" banner aged out after five
+minutes — and the asker's own reload lost it too. The transcript recorded that
+something had been asked and never what was decided.
+
 ## Decision
 
-**The compact provenance is stored on the message row, and restored from it.**
+**The compact provenance — and any prompt — is stored on the message row, and
+restored from it.**
 
 1. **Compact, not raw.** `stripThinkingStepsForStorage` already defines what a Herleitung
    is worth keeping — display fields plus the `traceLanes` fan-out, with `content` and
@@ -59,7 +67,16 @@ the citations fix already made and won.
    already reading the Herleitung from the store; losing the mirror costs a colleague's view
    and the cross-device replay, not the turn.
 
-6. **Restored flat, onto the fields the renderers already read.** `ChatThinking`, the
+6. **A prompt is persisted with its addressee, and read-only for everybody else.**
+   `promptFor` names the person the agent asked. It is not decoration: the agent tier
+   refuses an answer from anybody else (ADR-0033's follow-up), so a UI that offered a
+   colleague the buttons would be offering a refusal. A colleague therefore sees the
+   question and the options, plus a line saying who is being waited for — because a
+   card with no actions and no explanation reads as broken rather than as somebody
+   else's turn. `isPromptResponded` is derived from the stored answer rather than
+   stored beside it: two fields that can disagree about one fact is one field too many.
+
+7. **Restored flat, onto the fields the renderers already read.** `ChatThinking`, the
    confidence chip and the routing line each take their own prop, and none of them should
    have to know whether the value arrived from a live stream or a server row.
 

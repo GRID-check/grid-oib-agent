@@ -705,6 +705,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         author={messageAuthorship?.author}
                         grouped={messageAuthorship?.grouped}
                         currentUserId={currentUserId}
+                        promptAddresseeName={
+                          message.promptFor ? (authorOf(message.promptFor)?.name ?? null) : null
+                        }
                       />
 
                       {/* Assistant-side thread spine: the Herleitung shares the
@@ -890,6 +893,8 @@ interface MessageRendererProps {
   grouped?: boolean
   /** The reader, so a mention of them can be marked in the text. */
   currentUserId?: string | null
+  /** Who a restored prompt was addressed to, for the read-only line (ADR-0037). */
+  promptAddresseeName?: string | null
 }
 
 const MessageRendererComponent: FC<MessageRendererProps> = ({
@@ -906,6 +911,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   author,
   grouped,
   currentUserId,
+  promptAddresseeName,
 }) => {
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
@@ -938,6 +944,12 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           response={message.promptResponse}
           onRespond={onPromptRespond}
           timestamp={message.timestamp}
+          // `promptFor` is present only on a prompt restored from the server
+          // (ADR-0037). Absent means a live prompt, where this browser holds the
+          // socket and IS the addressee. Present and not us means a colleague's
+          // question: read-only, because the agent tier refuses our answer anyway.
+          isAddressee={!message.promptFor || message.promptFor === currentUserId}
+          addresseeName={promptAddresseeName}
         />
       )
 

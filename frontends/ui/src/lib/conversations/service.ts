@@ -58,6 +58,7 @@ import {
   type EngagementState,
 } from './engagement'
 import { sanitizeProvenance } from './message-provenance'
+import { sanitizePromptDetail, sanitizePromptState } from './message-prompt'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
@@ -456,7 +457,12 @@ export async function updateMessageDetail(
   session: AuthorizedSession,
   conversationId: string,
   messageId: string,
-  patch: { cardInteractions?: Record<string, unknown>; provenance?: unknown },
+  patch: {
+    cardInteractions?: Record<string, unknown>
+    provenance?: unknown
+    /** The answer to a human-in-the-loop prompt on this message (ADR-0037). */
+    promptState?: unknown
+  },
 ): Promise<Message> {
   // Answering a card, or recording what an answer rested on, is contributing to
   // the thread rather than reading it.
@@ -476,6 +482,11 @@ export async function updateMessageDetail(
     // rather than stamped on as an empty object.
     const provenance = sanitizeProvenance(patch.provenance)
     if (provenance) metadata.provenance = provenance
+  }
+
+  if (patch.promptState !== undefined) {
+    const promptState = sanitizePromptState(patch.promptState)
+    if (promptState) metadata.promptState = promptState
   }
 
   // Nothing survived sanitisation and no cards were sent — the row is already
@@ -565,7 +576,11 @@ function buildMessageRow(conversationId: string, prepared: PreparedMessage, auth
   // row or on the internal path — so a client-supplied value used to survive on
   // exactly those rows, and `storedAddressees` would then read it back as
   // authoritative on a replay.
-  const { addressees: _clientRuling, ...clientMetadata } = input.metadata ?? {}
+  const { addressees: _clientRuling, prompt: clientPrompt, ...clientMetadata } = input.metadata ?? {}
+  // A human-in-the-loop prompt's own shape (ADR-0037). Whitelisted and bounded like
+  // every other client-supplied jsonb payload — the option list in particular is an
+  // array from a browser.
+  const prompt = sanitizePromptDetail(clientPrompt)
   return {
     id: input.id,
     conversationId,
@@ -574,6 +589,7 @@ function buildMessageRow(conversationId: string, prepared: PreparedMessage, auth
     content: input.content,
     metadata: {
       ...clientMetadata,
+      ...(prompt ? { prompt } : {}),
       ...(input.messageType ? { messageType: input.messageType } : {}),
       // The server's ruling, stored once at persist time and never re-derived
       // from the text later (spec MN-2). Written LAST so a client cannot supply

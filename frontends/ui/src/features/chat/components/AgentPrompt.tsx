@@ -54,6 +54,19 @@ export interface AgentPromptProps {
   onRespond?: (promptId: string, response: string) => void
   /** Timestamp (Date or ISO string from persisted state) */
   timestamp?: Date | string
+  /**
+   * Whether THIS reader is the person the agent asked (ADR-0037).
+   *
+   * Defaults to true, which is right for a live prompt: the browser holding the
+   * socket is the addressee by construction. It is false only for a colleague in a
+   * shared thread reading a prompt restored from the server — and for them the
+   * actions must not render, because the agent tier refuses an answer from anybody
+   * but the addressee (`_may_answer_interaction`), so a button would be offering a
+   * refusal.
+   */
+  isAddressee?: boolean
+  /** Who was asked, for the read-only line a colleague sees instead of buttons. */
+  addresseeName?: string | null
 }
 
 /**
@@ -70,12 +83,15 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   isResponded = false,
   response,
   timestamp,
+  isAddressee = true,
+  addresseeName,
 }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
   const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
-  const showApprovalButtons = isApprovalPrompt && !isResponded && !!respondToInteractionFn
+  const showApprovalButtons =
+    isApprovalPrompt && !isResponded && !!respondToInteractionFn && isAddressee
   // Replace the English envelope sentence with localized copy rendered below.
   const displayContent = isApprovalPrompt
     ? content.replace(APPROVAL_PROMPT_STRIP_RE, '').trim()
@@ -114,15 +130,27 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
             <BranchOptions
               options={options}
               selected={isResponded ? response : undefined}
-              isResponded={isResponded}
-              onSelect={respondToInteractionFn ?? undefined}
-              digitShortcuts
+              // A colleague sees the choices as a settled list, not a picker: the
+              // question is not theirs to answer.
+              isResponded={isResponded || !isAddressee}
+              onSelect={isAddressee ? (respondToInteractionFn ?? undefined) : undefined}
+              digitShortcuts={isAddressee}
             />
+          )}
+
+          {/* Why a colleague has no buttons. Without a line here the card reads as
+              broken rather than as somebody else's turn. */}
+          {!isAddressee && !isResponded && (
+            <p data-testid="agent-prompt-awaiting-other" className="text-xs text-muted-foreground">
+              {addresseeName
+                ? t('agentPrompt.awaitingOther', { name: addresseeName })
+                : t('agentPrompt.awaitingSomeone')}
+            </p>
           )}
 
           {/* Localized instruction + duration/cost expectation for plan
               approval prompts, shown at the decision point (before approval). */}
-          {isApprovalPrompt && !isResponded && (
+          {isApprovalPrompt && !isResponded && isAddressee && (
             <div className="flex flex-col gap-1">
               <span className="text-sm text-foreground">
                 {t('agentPrompt.approvalInstruction')}

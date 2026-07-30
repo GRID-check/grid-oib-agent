@@ -78,6 +78,17 @@ export function ProjectProfilePatchCard({
         body: JSON.stringify({ patch }),
       })
       if (!res.ok) {
+        // 409 means somebody else got there first — the profile moved under us
+        // because a colleague in this shared thread accepted the same patch
+        // (`updateProjectProfileIfVersion` compares `profileVersion`). The work IS
+        // done, so settling as accepted is the truthful outcome; showing an error
+        // and leaving the card pending re-offers a button whose job is finished,
+        // which is how the loser of a race ends up applying something twice.
+        if (res.status === 409) {
+          setIsSubmitting(false)
+          decide('accepted')
+          return
+        }
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `${t('profilePatchCard.applyFailed')} (${res.status})`)
       }

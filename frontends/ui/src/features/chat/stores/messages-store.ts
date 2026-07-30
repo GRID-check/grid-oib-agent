@@ -1083,6 +1083,12 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'addAgentPrompt'
     )
+
+    // Persist it (ADR-0037). Without this the card lived only in the browser whose
+    // socket received the frame: an observer's server-authoritative load showed no
+    // card at all and the thread appeared to stop mid-question, and the asker's own
+    // reload lost it too.
+    void get()._appendMessage(promptMessage)
   },
 
   respondToPrompt: (messageId: string, response: string) => {
@@ -1113,6 +1119,9 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'respondToPrompt'
     )
+
+    // The transcript should say what was DECIDED, not only that something was asked.
+    void get()._persistPromptState(messageId, response)
   },
 
   addUserMessage: (

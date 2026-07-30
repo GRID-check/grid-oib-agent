@@ -175,6 +175,27 @@ export const conversationsClient = {
     if (!res.ok) throw new Error('Failed to update message provenance')
     return res.json()
   },
+
+  /**
+   * Record the answer to a human-in-the-loop prompt on its message row, so the
+   * transcript says what was DECIDED rather than only that something was asked.
+   */
+  async updateMessagePromptState(
+    conversationId: string,
+    messageId: string,
+    promptState: { response: string; respondedAt: string },
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptState }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message prompt state')
+    return res.json()
+  },
 }
 
 export type ConversationsClient = typeof conversationsClient

@@ -53,10 +53,16 @@ const updateMessageSchema = z
      * from a client array needs a bound to be safe, not a type.
      */
     provenance: z.unknown().optional(),
+    /** The answer to a human-in-the-loop prompt, bounded by `sanitizePromptState`. */
+    promptState: z.unknown().optional(),
   })
-  .refine((body) => body.cardInteractions !== undefined || body.provenance !== undefined, {
-    message: 'Provide cardInteractions or provenance',
-  })
+  .refine(
+    (body) =>
+      body.cardInteractions !== undefined ||
+      body.provenance !== undefined ||
+      body.promptState !== undefined,
+    { message: 'Provide cardInteractions, provenance or promptState' },
+  )
 
 export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
   const messageId = messageIdSchema.safeParse(params.messageId)
@@ -66,5 +72,6 @@ export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
   return updateMessageDetail(session, params.id, messageId.data, {
     cardInteractions: body.cardInteractions,
     provenance: body.provenance,
+    promptState: body.promptState,
   })
 })

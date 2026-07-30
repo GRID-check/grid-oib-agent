@@ -168,6 +168,8 @@ export const chat: typeof en.chat = {
     verifyRis: 'In RIS prüfen',
   },
   agentPrompt: {
+    awaitingOther: 'Piloti wartet auf {name}',
+    awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Der Agent benötigt Ihre Eingabe',
     receivedInput: 'Der Agent hat Ihre Eingabe erhalten',
     approve: 'Genehmigen',

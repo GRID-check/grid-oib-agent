@@ -301,3 +301,75 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     }
   })
 })
+
+/**
+ * A human-in-the-loop prompt, restored (ADR-0037).
+ *
+ * `addAgentPrompt` used to persist nothing, so a clarification card existed only in
+ * the browser whose socket received the frame. An observer's server-authoritative
+ * load showed NO card — the thread simply stopped mid-question and looked broken —
+ * and the asker's own reload lost it too.
+ */
+describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
+  const prompt = {
+    promptType: 'choice',
+    promptId: 'p-1',
+    promptParentId: 'parent-1',
+    promptInputType: 'radio',
+    promptOptions: ['Nur Kern B', 'Beide Kerne'],
+    promptPlaceholder: 'Welcher Kern?',
+    promptFor: 'user_matthias',
+  }
+
+  it('restores the question, its options and who was asked', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { messageType: 'prompt', prompt } }),
+    )
+
+    expect(mapped!.messageType).toBe('prompt')
+    expect(mapped!.promptType).toBe('choice')
+    expect(mapped!.promptOptions).toEqual(['Nur Kern B', 'Beide Kerne'])
+    expect(mapped!.promptPlaceholder).toBe('Welcher Kern?')
+    // The addressee is what lets every other reader be shown it read-only.
+    expect(mapped!.promptFor).toBe('user_matthias')
+    // Unanswered, so no response and not marked responded.
+    expect(mapped!.isPromptResponded).toBeUndefined()
+  })
+
+  it('derives isPromptResponded from the stored answer rather than a second field', () => {
+    // Two fields that can disagree about one fact is one field too many.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          messageType: 'prompt',
+          prompt,
+          promptState: { response: 'Beide Kerne', respondedAt: '2026-07-01T10:05:00.000Z' },
+        },
+      }),
+    )
+
+    expect(mapped!.promptResponse).toBe('Beide Kerne')
+    expect(mapped!.isPromptResponded).toBe(true)
+  })
+
+  it('ignores a promptType it does not know, rather than rendering an unknown card', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { messageType: 'prompt', prompt: { ...prompt, promptType: 'telepathy' } },
+      }),
+    )
+    expect(mapped!.promptType).toBeUndefined()
+  })
+
+  it('ignores an empty answer — that is still a question, not a decision', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { messageType: 'prompt', prompt, promptState: { response: '' } },
+      }),
+    )
+    expect(mapped!.isPromptResponded).toBeUndefined()
+  })
+})

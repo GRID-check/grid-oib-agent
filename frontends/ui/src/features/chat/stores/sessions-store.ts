@@ -97,6 +97,8 @@ export type SessionsSlice = {
    * posted: it accumulates from the intermediate frames while the answer streams.
    */
   _persistTurnProvenance: () => Promise<void>
+  /** Mirror the answer to a HITL prompt onto its message row (ADR-0037). */
+  _persistPromptState: (messageId: string, response: string) => Promise<void>
 }
 
 // Persistence helpers
@@ -1376,6 +1378,26 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
+          // A human-in-the-loop prompt (ADR-0037). Without this an observer's
+          // server-authoritative load showed NO card at all and the thread simply
+          // stopped mid-question; `promptFor` names the person the agent asked, so
+          // everybody else can be shown it read-only — the agent tier refuses an
+          // answer from anyone else anyway.
+          ...(message.messageType === 'prompt'
+            ? {
+                prompt: {
+                  ...(message.promptType && { promptType: message.promptType }),
+                  ...(message.promptId && { promptId: message.promptId }),
+                  ...(message.promptParentId && { promptParentId: message.promptParentId }),
+                  ...(message.promptInputType && { promptInputType: message.promptInputType }),
+                  ...(message.promptOptions && { promptOptions: message.promptOptions }),
+                  ...(message.promptPlaceholder && {
+                    promptPlaceholder: message.promptPlaceholder,
+                  }),
+                  ...(get().currentUserId ? { promptFor: get().currentUserId } : {}),
+                },
+              }
+            : {}),
           // An answer's grounding has to outlive the tab that produced it: a
           // chat restored from the server used to come back with the answer
           // intact and its whole provenance row missing.
@@ -1390,6 +1412,23 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       })
     } catch (err) {
       console.warn('[appendMessage] Failed:', err)
+    }
+  },
+
+  _persistPromptState: async (messageId: string, response: string) => {
+    const { currentConversation } = get()
+    if (!currentConversation) return
+    try {
+      const conversationsClient = await getConversationsClient()
+      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, {
+        response,
+        respondedAt: new Date().toISOString(),
+      })
+    } catch (err) {
+      // Best-effort, like the other mirrors: the answer already reached the agent
+      // over the socket and is rendered from the store. Losing this costs the
+      // transcript, not the turn.
+      console.warn('[persistPromptState] Failed:', err)
     }
   },
 

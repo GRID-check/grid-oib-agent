@@ -176,6 +176,16 @@ export interface ChatMessage {
   promptResponse?: string
   /** Whether the prompt has been responded to */
   isPromptResponded?: boolean
+  /**
+   * The person the agent asked (ADR-0037). Present on a prompt restored from the
+   * server; absent on a live one, where the browser holding the socket IS the
+   * addressee by construction.
+   *
+   * Every other reader is shown the question read-only, because the agent tier
+   * refuses an answer from anybody but this person — offering them buttons would be
+   * offering a refusal.
+   */
+  promptFor?: string
   /** File card data for file messages */
   fileData?: FileCardData
   /** Error card data for error messages */
@@ -1073,6 +1083,11 @@ export interface ChatActions {
    * other device.
    */
   _persistTurnProvenance: () => Promise<void>
+  /**
+   * Mirror the answer to a human-in-the-loop prompt onto its message row, so the
+   * transcript records what was decided and a colleague's reload sees it settled.
+   */
+  _persistPromptState: (messageId: string, response: string) => Promise<void>
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void

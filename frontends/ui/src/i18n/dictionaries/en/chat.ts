@@ -181,6 +181,14 @@ export const chat = {
   agentPrompt: {
     needsInput: 'Agent needs your input',
     receivedInput: 'Agent received your input',
+    /**
+     * Shown to a colleague in a shared thread instead of the buttons: the agent
+     * asked one person, and the agent tier refuses an answer from anybody else, so
+     * a button here would be offering a refusal. Without this line the card reads
+     * as broken rather than as somebody else's turn.
+     */
+    awaitingOther: 'Piloti is waiting for {name}',
+    awaitingSomeone: 'Piloti is waiting for another participant',
     approve: 'Approve',
     reject: 'Reject',
     approvePlan: 'Approve plan',
