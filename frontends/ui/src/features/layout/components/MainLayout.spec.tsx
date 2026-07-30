@@ -2,6 +2,9 @@ import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { MainLayout } from './MainLayout'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { LayoutStore } from '../types'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
 
 const mockUpdateSessionUrl = vi.fn()
 const mockClearSessionUrl = vi.fn()
@@ -27,8 +30,8 @@ let chatStoreOverrides: Record<string, unknown> = {}
 
 // Mock the chat store
 vi.mock('@/features/chat', () => ({
-  useChatStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
+    const state: DeepPartial<ChatStoreWithHydration> = {
       currentConversation: { id: 'session-1', title: 'Test Session' },
       getUserConversations: vi.fn(() => []),
       selectConversation: mockSelectConversation,
@@ -42,7 +45,7 @@ vi.mock('@/features/chat', () => ({
       deepResearchOwnerConversationId: null,
       ...chatStoreOverrides,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
   useDeepResearch: vi.fn(() => ({
     isResearching: false,
@@ -55,15 +58,15 @@ vi.mock('@/features/chat', () => ({
 
 // Mock the layout store
 vi.mock('../store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       rightPanel: null,
       isSessionsPanelOpen: false,
       setSessionsPanelOpen: vi.fn(),
       enabledDataSourceIds: ['source-1', 'source-2'],
       openRightPanel: mockOpenRightPanel,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 
@@ -187,8 +190,8 @@ describe('MainLayout', () => {
   })
 
   test('disables new session action while shallow streaming is active', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         currentConversation: { id: 'session-1', title: 'Test Session' },
         getUserConversations: vi.fn(() => []),
         selectConversation: vi.fn(),
@@ -201,7 +204,7 @@ describe('MainLayout', () => {
         isDeepResearchStreaming: false,
         deepResearchOwnerConversationId: null,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<MainLayout />)
@@ -210,14 +213,14 @@ describe('MainLayout', () => {
   })
 
   test('adjusts chat width when details panel is open', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         rightPanel: 'research',
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: vi.fn(),
         enabledDataSourceIds: ['source-1', 'source-2'],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { container } = render(<MainLayout />)
@@ -238,8 +241,8 @@ describe('MainLayout', () => {
       updatedAt: new Date(),
     })
 
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         currentConversation: null,
         currentUserId: 'user-1',
         projectId: 'proj-a',
@@ -260,7 +263,7 @@ describe('MainLayout', () => {
         isDeepResearchStreaming: false,
         deepResearchOwnerConversationId: null,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<MainLayout isAuthenticated={true} />)
@@ -274,14 +277,14 @@ describe('MainLayout', () => {
   })
 
   test('shows full width when details panel is closed', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         rightPanel: null,
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: vi.fn(),
         enabledDataSourceIds: ['source-1', 'source-2'],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { container } = render(<MainLayout />)

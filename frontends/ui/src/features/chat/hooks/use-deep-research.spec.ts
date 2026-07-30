@@ -2,6 +2,9 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useDeepResearch } from './use-deep-research'
 import { en } from '@/i18n/dictionaries/en'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '../store'
+import type { LayoutStore } from '@/features/layout/types'
 
 // ============================================================
 // Mock store state and actions
@@ -39,26 +42,28 @@ const mockSetDeepResearchStalled = vi.fn()
 const mockSetDeepResearchConnectionLost = vi.fn()
 const mockSetReconnectDeepResearchFn = vi.fn()
 
-let mockStoreState = {
-  deepResearchJobId: null as string | null,
-  deepResearchLastEventId: null as string | null,
+// Typed against the real store rather than a hand-copied shape, so the status
+// fixtures below are checked against `DeepResearchJobStatus` instead of `string`.
+let mockStoreState: DeepPartial<ChatStoreWithHydration> = {
+  deepResearchJobId: null,
+  deepResearchLastEventId: null,
   isDeepResearchStreaming: false,
-  deepResearchStatus: null as string | null,
+  deepResearchStatus: null,
   reportContent: '',
-  deepResearchAgents: [] as unknown[],
-  deepResearchLLMSteps: [] as unknown[],
-  deepResearchToolCalls: [] as unknown[],
-  deepResearchCitations: [] as unknown[],
-  deepResearchOwnerConversationId: 'test-conv-123' as string | null,
-  currentConversation: { id: 'test-conv-123' } as { id: string } | null,
-  activeDeepResearchMessageId: null as string | null,
-  currentUserMessageId: 'user-msg-1' as string | null,
+  deepResearchAgents: [],
+  deepResearchLLMSteps: [],
+  deepResearchToolCalls: [],
+  deepResearchCitations: [],
+  deepResearchOwnerConversationId: 'test-conv-123',
+  currentConversation: { id: 'test-conv-123' },
+  activeDeepResearchMessageId: null,
+  currentUserMessageId: 'user-msg-1',
 }
 
 vi.mock('../store', () => ({
   useChatStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
+    vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         ...mockStoreState,
         updateDeepResearchStatus: mockUpdateDeepResearchStatus,
         completeDeepResearch: mockCompleteDeepResearch,
@@ -91,7 +96,7 @@ vi.mock('../store', () => ({
         setDeepResearchConnectionLost: mockSetDeepResearchConnectionLost,
         setReconnectDeepResearchFn: mockSetReconnectDeepResearchFn,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     }),
     {
       getState: vi.fn(() => ({
@@ -119,12 +124,12 @@ const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
 
 vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       openRightPanel: mockOpenRightPanel,
       setResearchPanelTab: mockSetResearchPanelTab,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 

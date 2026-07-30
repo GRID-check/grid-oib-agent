@@ -114,7 +114,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
           // Non-fatal — labels degrade gracefully without titles.
         })
     },
-    [projectCollection, projectId],
+    [projectCollection, projectId, t],
   )
 
   useEffect(() => {

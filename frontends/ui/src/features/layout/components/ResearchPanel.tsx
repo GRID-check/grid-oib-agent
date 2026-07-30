@@ -159,7 +159,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         description: t('researchPanel.couldNotStopDesc'),
       })
     }
-  }, [deepResearchJobId, idToken])
+  }, [deepResearchJobId, idToken, t])
 
   const handleTabChange = useCallback(
     (value: string) => {

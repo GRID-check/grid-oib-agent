@@ -292,6 +292,9 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             file.contentType === 'application/pdf' ? (
               <iframe src={previewUrl} className="h-full w-full rounded border bg-background" title={file.filename} />
             ) : (
+              // A runtime preview URL (object URL / presigned storage link)
+              // whose dimensions are unknown — next/image cannot optimize it.
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
                 alt={file.filename}

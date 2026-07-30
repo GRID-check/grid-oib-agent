@@ -122,7 +122,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           setError(err instanceof Error ? err.message : t('memory.errors.loadFailed'))
         })
     },
-    [baseUrl],
+    [baseUrl, t],
   )
 
   // Initial load.

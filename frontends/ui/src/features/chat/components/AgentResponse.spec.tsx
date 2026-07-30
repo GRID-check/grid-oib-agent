@@ -2,25 +2,28 @@ import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { LayoutStore } from '@/features/layout/types'
+import type { ChatStoreWithHydration } from '../store'
 
 // Mock the layout store
 const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
 
 vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       openRightPanel: mockOpenRightPanel,
       setResearchPanelTab: mockSetResearchPanelTab,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 
 // Mock the chat store
 vi.mock('../store', () => ({
-  useChatStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
+    const state: DeepPartial<ChatStoreWithHydration> = {
       reportContent: '',
       deepResearchJobId: null,
       isDeepResearchStreaming: false,
@@ -29,7 +32,7 @@ vi.mock('../store', () => ({
       patchConversationMessage: vi.fn(),
       reconnectToActiveJob: vi.fn(),
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
 }))
 

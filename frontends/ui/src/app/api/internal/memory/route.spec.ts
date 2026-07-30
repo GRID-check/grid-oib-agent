@@ -18,6 +18,7 @@ import {
   organizationExists,
 } from '@/lib/projects/memory-service'
 import { POST } from './route'
+import { makeMemoryItem } from '@/test-utils/db-fixtures'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
 const REAL_TOKEN = 'a-real-secret-token'
@@ -85,10 +86,9 @@ describe('POST /api/internal/memory', () => {
 
   it('creates a project-scoped item with a valid token (201)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
-    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue({
-      id: 'item-1',
-      projectId: PROJECT_ID,
-    } as any)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(
+      makeMemoryItem({ id: 'item-1', projectId: PROJECT_ID }),
+    )
 
     const response = await POST(makeRequest(validProjectPayload, REAL_TOKEN))
 
@@ -107,7 +107,7 @@ describe('POST /api/internal/memory', () => {
 
   it('threads the provenanceType through (distillation from the reflection stage)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
-    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue({ id: 'item-d' } as any)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem({ id: 'item-d' }))
 
     const response = await POST(
       makeRequest({ ...validProjectPayload, provenanceType: 'distillation' }, REAL_TOKEN),
@@ -167,7 +167,12 @@ describe('POST /api/internal/memory', () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
     vi.mocked(organizationExists).mockResolvedValue(true)
-    vi.mocked(createProjectMemoryItem).mockResolvedValue({ id: 'item-2' } as any)
+    // The row the route echoes back must be org-scoped like the write itself —
+    // `makeMemoryItem` defaults to a project row, which would let the fixture
+    // contradict the operation under test.
+    vi.mocked(createProjectMemoryItem).mockResolvedValue(
+      makeMemoryItem({ id: 'item-2', scope: 'organization', projectId: null }),
+    )
 
     const response = await POST(
       makeRequest(

@@ -339,7 +339,7 @@ export function ProjectMembersForm({
     } finally {
       setIsLoading(false)
     }
-  }, [projectId])
+  }, [projectId, t])
 
   useEffect(() => {
     void load()
@@ -385,7 +385,7 @@ export function ProjectMembersForm({
         setUpdatingId(null)
       }
     },
-    [projectId],
+    [projectId, t],
   )
 
   /**

@@ -11,6 +11,8 @@
 
 import { renderHook, act } from '@testing-library/react'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { asStoreState, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStore } from '../types'
 
 // Mock the health check module
 vi.mock('@/shared/hooks/use-backend-health', () => ({
@@ -32,28 +34,30 @@ vi.mock('../store', () => {
   let hasError = false
 
   return {
-    useChatStore: vi.fn((selector: (state: any) => any) =>
-      selector({
-        dismissConnectionErrors: mockDismiss,
-        currentConversation: {
-          id: 'conv-1',
-          messages: hasError
-            ? [
-                {
-                  id: 'err-1',
-                  messageType: 'error',
-                  errorData: { errorCode: 'connection.failed' },
-                },
-              ]
-            : [],
-        },
-      })
+    useChatStore: vi.fn((selector: StoreSelector<ChatStore>) =>
+      selector(
+        asStoreState<ChatStore>({
+          dismissConnectionErrors: mockDismiss,
+          currentConversation: {
+            id: 'conv-1',
+            messages: hasError
+              ? [
+                  {
+                    id: 'err-1',
+                    messageType: 'error',
+                    errorData: { errorCode: 'connection.failed' },
+                  },
+                ]
+              : [],
+          },
+        }),
+      ),
     ),
-    selectHasConnectionError: (state: any) =>
+    // Mirrors the production selector (store.ts) so the hook under test sees
+    // the same predicate it will see at runtime.
+    selectHasConnectionError: (state: ChatStore): boolean =>
       state.currentConversation?.messages.some(
-        (m: any) =>
-          m.messageType === 'error' &&
-          m.errorData?.errorCode?.startsWith('connection.')
+        (m) => m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.')
       ) ?? false,
     __setHasError: (val: boolean) => {
       hasError = val
@@ -62,8 +66,16 @@ vi.mock('../store', () => {
   }
 })
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const storeMock = await import('../store') as any
+/**
+ * The mocked `../store` module: the real exports plus the two test hooks the
+ * factory above adds for driving the error state.
+ */
+type MockedStoreModule = typeof import('../store') & {
+  __setHasError: (value: boolean) => void
+  __getMockDismiss: () => ReturnType<typeof vi.fn>
+}
+
+const storeMock = (await import('../store')) as unknown as MockedStoreModule
 
 import { useConnectionRecovery } from './use-connection-recovery'
 
@@ -255,6 +267,6 @@ describe('useConnectionRecovery', () => {
     })
 
     expect(mockInvalidateCache).toHaveBeenCalledTimes(1)
-    expect(mockInvalidateCache).toHaveBeenCalledBefore(mockCheckHealth as any)
+    expect(mockInvalidateCache).toHaveBeenCalledBefore(mockCheckHealth)
   })
 })

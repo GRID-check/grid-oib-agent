@@ -60,6 +60,23 @@ export interface FileItem {
   tags: string[] | null
 }
 
+/**
+ * A `/api/documents` row as it arrives over the wire — the JSON projection of
+ * `listDocuments`. Everything ingestion derives (summary, page/chunk counts,
+ * content types, tags) is absent until the backend has produced it, which is
+ * why each is normalized to `null` when the response is mapped to `FileItem`.
+ */
+type DocumentWireRow = Omit<FileItem, OptionalWireField> & Partial<Pick<FileItem, OptionalWireField>>
+
+type OptionalWireField =
+  | 'folderId'
+  | 'errorMessage'
+  | 'summary'
+  | 'pageCount'
+  | 'chunkCount'
+  | 'contentTypes'
+  | 'tags'
+
 /** Presentation of the file browser: the dummy's card grid, or the folder tree. */
 type FileView = 'cards' | 'tree'
 const VIEW_STORAGE_KEY = 'grid.files.view'
@@ -94,10 +111,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     return fetch(`/api/documents?${params}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load documents (${r.status})`)
-        return r.json()
+        return r.json() as Promise<{ documents?: DocumentWireRow[] }>
       })
       .then((data) => {
-        const docs: FileItem[] = (data.documents ?? []).map((d: any) => ({
+        const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id,
           filename: d.filename,
           fileSize: d.fileSize,

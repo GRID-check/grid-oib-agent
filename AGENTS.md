@@ -232,6 +232,19 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   `new Date(row.x)`, `Number(row.x)`) — never trust the annotation downstream.
   A missing coercion here caused the profiler `toISOString is not a function`
   crash; the fix and the `totalDurationMsRaw` sibling are the reference pattern.
+- **`any` is not a type we accept — in production code or in tests.**
+  `@typescript-eslint/no-explicit-any` is an **error** (not a warning) in
+  `frontends/ui/eslint.config.mjs`, and the suite is clean. Reach for the real
+  type, a `Partial<T>`/`Pick<T, …>` of it, `unknown`, or a deliberate
+  `as unknown as T` at a single documented boundary. For spec fixtures use
+  `@/test-utils/store-fixtures` (`DeepPartial<TState>` + `asStoreState` for
+  zustand selector mocks — the fixture stays partial but every field is still
+  checked against the real store) and `@/test-utils/db-fixtures`
+  (`makeProject` / `makeDocument` / `makeMemoryItem` for whole repository rows,
+  `asDb` for the one drizzle query-builder-stub boundary).
+  `any` in a test double is how fixtures silently drift from the code they
+  stand in for. `no-console` allows `warn`/`error`/`debug`; `console.debug` is
+  the dev-only diagnostic channel and its call sites are `NODE_ENV`-gated.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
 - **Fix errors you find — never dismiss them as "pre-existing."** If, while
   working, you identify a bug, a failing/broken test, or wrong behavior — even

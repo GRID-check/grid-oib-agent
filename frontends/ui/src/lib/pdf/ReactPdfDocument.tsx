@@ -215,7 +215,7 @@ function renderParagraph(token: ParagraphToken, index: number): React.ReactNode 
 }
 
 function renderList(token: ListToken, index: number, _nested: boolean = false): React.ReactNode {
-  return token.items.map((item: any, itemIndex: number) => {
+  return token.items.map((item, itemIndex) => {
     const bullet = token.ordered ? `${itemIndex + 1}.` : '•'
     const textTokens: Token[] = []
     const nestedLists: Token[] = []
@@ -232,7 +232,7 @@ function renderList(token: ListToken, index: number, _nested: boolean = false): 
 
     const mainText = textTokens.length
       ? textTokens
-          .map((t: any) => {
+          .map((t) => {
             if ('text' in t) {
               return stripHtml(preserveHtmlLinks(t.text as string))
             }
@@ -255,7 +255,7 @@ function renderList(token: ListToken, index: number, _nested: boolean = false): 
         <Text style={styles.listItemBullet}>{bullet}</Text>
         <View style={styles.listItemText}>
           <Text>{parseInlineFormatting(mainText)}</Text>
-          {nestedLists.map((nestedList: any, nlIndex: number) =>
+          {nestedLists.map((nestedList, nlIndex) =>
             renderList(nestedList as ListToken, nlIndex, true)
           )}
         </View>
@@ -284,7 +284,7 @@ function renderTable(token: TableToken, index: number): React.ReactNode {
   return (
     <View key={index} style={styles.table} wrap={!isSmallTable}>
       <View style={styles.tableHeaderRow} wrap={false}>
-        {token.header.map((cell: any, cellIndex: number) => {
+        {token.header.map((cell, cellIndex) => {
           const isLast = cellIndex === token.header.length - 1
           return (
             <View key={cellIndex} style={isLast ? styles.tableCellLast : styles.tableCell}>
@@ -294,9 +294,9 @@ function renderTable(token: TableToken, index: number): React.ReactNode {
         })}
       </View>
 
-      {token.rows.map((row: any[], rowIndex: number) => (
+      {token.rows.map((row, rowIndex) => (
         <View key={rowIndex} style={styles.tableRow} wrap={false}>
-          {row.map((cell: any, cellIndex: number) => {
+          {row.map((cell, cellIndex) => {
             const isLast = cellIndex === row.length - 1
             return (
               <View key={cellIndex} style={isLast ? styles.tableCellLast : styles.tableCell}>

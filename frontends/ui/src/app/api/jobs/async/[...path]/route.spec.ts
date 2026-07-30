@@ -253,7 +253,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
       projectId: 'proj-1',
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
-    } as any)
+    })
     vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
     vi.mocked(loadProjectBundesland).mockResolvedValue(null)
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(

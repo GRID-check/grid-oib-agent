@@ -53,12 +53,22 @@ import {
   deleteArchivDocument as deleteArchivDocumentRow,
 } from './repository'
 import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
+import { makeDocument } from '@/test-utils/db-fixtures'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { DocumentMetadata, ReconcilableDocument } from '@/lib/documents/reconcile-status'
+import type { SearchedDocument } from '@/lib/documents/service'
 
-const session = {
+const session: AuthorizedSession = {
   userId: 'user-1',
   email: 'user@example.com',
+  name: 'Test User',
+  accessToken: 'test-access-token',
   organizationId: 'org-1',
-} as any
+  organizationMembershipId: 'om-1',
+  role: 'member',
+  permissions: [],
+  featureFlags: null,
+}
 
 const makeFile = (name = 'plan.pdf') =>
   ({
@@ -97,9 +107,18 @@ describe('listArchiv', () => {
 
   it('strips the internal metadata jsonb from every returned row', async () => {
     vi.mocked(listArchivDocuments).mockResolvedValue([])
-    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
-      { id: 'd1', filename: 'a.pdf', metadata: { ingestJobId: 'secret' }, summary: 's' } as any,
-    ])
+    const reconciled: Array<ReconcilableDocument & DocumentMetadata> = [
+      {
+        id: 'd1',
+        filename: 'a.pdf',
+        status: 'completed',
+        collectionName: 'archiv_org-1',
+        errorMessage: null,
+        metadata: { ingestJobId: 'secret' },
+        summary: 's',
+      },
+    ]
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(reconciled)
     vi.mocked(canManageArchiv).mockReturnValue(false)
 
     const result = await listArchiv(session)
@@ -112,20 +131,34 @@ describe('listArchiv', () => {
 
 describe('searchArchivDocuments', () => {
   it('resolves the org archiv collection, runs the search, and returns the joined hits', async () => {
-    const docs = [{ id: 'd1', filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z') }]
+    const docs: Array<ReconcilableDocument & { createdAt: Date }> = [
+      {
+        id: 'd1',
+        filename: 'plan.pdf',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        status: 'completed',
+        collectionName: 'archiv_org-1',
+        errorMessage: null,
+      },
+    ]
     vi.mocked(listArchivDocuments).mockResolvedValue([])
-    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(docs.map((d) => ({ ...d, metadata: {} })) as any)
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(docs.map((d) => ({ ...d, metadata: {} })))
     vi.mocked(canManageArchiv).mockReturnValue(false)
     const backendHits = [{ file_name: 'plan.pdf', score: 0.8, snippet: 's', page_number: 1, collection: 'archiv_org-1' }]
-    vi.mocked(fetchSemanticHits).mockResolvedValue(backendHits as any)
-    vi.mocked(joinHitsToFiles).mockReturnValue([{ id: 'd1', snippet: 's', page: 1, score: 0.8 }] as any)
+    vi.mocked(fetchSemanticHits).mockResolvedValue(backendHits)
+    const joinedHits: Array<SearchedDocument<(typeof docs)[number]>> = [
+      { ...docs[0], snippet: 's', page: 1, score: 0.8 },
+    ]
+    vi.mocked(joinHitsToFiles).mockReturnValue(joinedHits)
 
     const { hits } = await searchArchivDocuments(session, 'fire escape', 20)
 
     expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'fire escape', 20)
     // Joined against the Archiv's own reconciled rows (not the raw backend hits).
     expect(joinHitsToFiles).toHaveBeenCalledWith(backendHits, expect.arrayContaining([expect.objectContaining({ id: 'd1' })]))
-    expect(hits).toEqual([{ id: 'd1', snippet: 's', page: 1, score: 0.8 }])
+    // The service returns the join result untouched — the document row plus
+    // its match evidence, not a trimmed projection of it.
+    expect(hits).toEqual(joinedHits)
   })
 
   it('defaults topK to 20 when omitted', async () => {
@@ -184,12 +217,15 @@ describe('deleteArchivDocument', () => {
 
   it('purges chunks, deletes the row, and audits', async () => {
     vi.mocked(canManageArchiv).mockReturnValue(true)
-    vi.mocked(findArchivDocument).mockResolvedValue({
-      id: 'd1',
-      filename: 'plan.pdf',
-      collectionName: 'archiv_org-1',
-      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
-    } as any)
+    vi.mocked(findArchivDocument).mockResolvedValue(
+      makeDocument({
+        id: 'd1',
+        scope: 'archiv',
+        projectId: null,
+        collectionName: 'archiv_org-1',
+        storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+      }),
+    )
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
     vi.stubGlobal('fetch', fetchSpy)
 

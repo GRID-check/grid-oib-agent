@@ -4,6 +4,10 @@ import { useWebSocketChat, type SendMessageOutcome } from './use-websocket-chat'
 import { useAuth } from '@/adapters/auth'
 import { getTokenExpiration } from '@/adapters/auth/token'
 import { createNATWebSocketClient } from '@/adapters/api/websocket-client'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '../store'
+import type { LayoutStore } from '@/features/layout/types'
+import type { DocumentsStore } from '@/features/documents/types'
 
 // Mock store actions
 const mockAddUserMessage = vi.fn()
@@ -18,7 +22,6 @@ const mockCompleteThinkingStep = vi.fn()
 const mockUpdateThinkingStepByFunctionName = vi.fn()
 const mockFindThinkingStepByFunctionName = vi.fn(() => undefined)
 const mockSetReportContent = vi.fn()
-const mockAddStatusCard = vi.fn()
 const mockAddAgentPrompt = vi.fn()
 const mockAddErrorCard = vi.fn()
 const mockSetCurrentStatus = vi.fn()
@@ -39,27 +42,14 @@ const mockAddDeepResearchBanner = vi.fn()
 const mockDismissConnectionErrors = vi.fn()
 const mockMaybeGenerateConversationName = vi.fn()
 
-// Mock store state
-let mockStoreState: {
-  currentUserId: string | null
-  currentConversation: { id: string; messages: unknown[]; userId: string } | null
-  conversations: unknown[]
-  isStreaming: boolean
-  isLoading: boolean
-  error: string | null
-  thinkingSteps: unknown[]
-  activeThinkingStepId: string | null
-  reportContent: string
-  currentStatus: string | null
-  pendingInteraction: { id: string; parentId: string; inputType: string; text: string } | null
-  planMessages: unknown[]
-} = {
+// Mock store state. Typed against the real store rather than a hand-copied
+// shape, so a renamed or retyped field fails to compile here.
+let mockStoreState: DeepPartial<ChatStoreWithHydration> = {
   currentUserId: 'user-1',
   currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
   conversations: [],
   isStreaming: false,
   isLoading: false,
-  error: null,
   thinkingSteps: [],
   activeThinkingStepId: null,
   reportContent: '',
@@ -75,8 +65,8 @@ let mockStoreState: {
  * mockImplementation (e.g. the deep-research escalation test) can restore
  * the default in afterEach without duplicating the action wiring.
  */
-const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
-  const state = {
+const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration>) => {
+  const state: DeepPartial<ChatStoreWithHydration> = {
     ...mockStoreState,
     addUserMessage: mockAddUserMessage,
     addAgentResponse: mockAddAgentResponse,
@@ -90,7 +80,6 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     updateThinkingStepByFunctionName: mockUpdateThinkingStepByFunctionName,
     findThinkingStepByFunctionName: mockFindThinkingStepByFunctionName,
     setReportContent: mockSetReportContent,
-    addStatusCard: mockAddStatusCard,
     addAgentPrompt: mockAddAgentPrompt,
     addErrorCard: mockAddErrorCard,
     setCurrentStatus: mockSetCurrentStatus,
@@ -111,7 +100,7 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     dismissConnectionErrors: mockDismissConnectionErrors,
     maybeGenerateConversationName: mockMaybeGenerateConversationName,
   }
-  return selector ? selector(state) : state
+  return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
 }
 
 vi.mock('../store', () => ({
@@ -119,7 +108,7 @@ vi.mock('../store', () => ({
     // Wrap in lambda so the reference to `defaultUseChatStoreImpl` is
     // resolved at call time (not at vi.mock hoist time). Without the
     // lambda, vi.fn would read the const eagerly and hit TDZ.
-    vi.fn((selector?: (s: any) => any) => defaultUseChatStoreImpl(selector)),
+    vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => defaultUseChatStoreImpl(selector)),
     {
       getState: vi.fn(() => ({
         ...mockStoreState,
@@ -167,12 +156,12 @@ vi.mock('@/shared/hooks/use-backend-health', () => ({
 // Mock layout store
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
+    vi.fn((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         enabledDataSourceIds: ['source-1', 'source-2'],
         knowledgeLayerAvailable: false,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     }),
     {
       getState: vi.fn(() => ({
@@ -185,11 +174,11 @@ vi.mock('@/features/layout/store', () => ({
 // Mock documents store
 vi.mock('@/features/documents/store', () => ({
   useDocumentsStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
+    vi.fn((selector?: StoreSelector<DocumentsStore>) => {
+      const state: DeepPartial<DocumentsStore> = {
         trackedFiles: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<DocumentsStore>(state)) : state
     }),
     {
       getState: vi.fn(() => ({
@@ -293,7 +282,6 @@ describe('useWebSocketChat', () => {
       conversations: [],
       isStreaming: false,
       isLoading: false,
-      error: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
       reportContent: '',
@@ -1667,8 +1655,8 @@ describe('useWebSocketChat', () => {
     const mockUpdateConversationTitle = vi.fn()
     const localMockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
     // Need to mock useChatStore to include startDeepResearch
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         ...mockStoreState,
         addUserMessage: mockAddUserMessage,
         addAgentResponse: mockAddAgentResponse,
@@ -1681,7 +1669,6 @@ describe('useWebSocketChat', () => {
         updateThinkingStepByFunctionName: mockUpdateThinkingStepByFunctionName,
         findThinkingStepByFunctionName: mockFindThinkingStepByFunctionName,
         setReportContent: mockSetReportContent,
-        addStatusCard: mockAddStatusCard,
         addAgentPrompt: mockAddAgentPrompt,
         addErrorCard: mockAddErrorCard,
         setCurrentStatus: mockSetCurrentStatus,
@@ -1703,7 +1690,7 @@ describe('useWebSocketChat', () => {
         updateConversationTitle: mockUpdateConversationTitle,
         maybeGenerateConversationName: mockMaybeGenerateConversationName,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     renderWebSocketHook()
@@ -2756,7 +2743,6 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
       conversations: [],
       isStreaming: false,
       isLoading: false,
-      error: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
       reportContent: '',
@@ -2990,7 +2976,6 @@ describe('useWebSocketChat — context-only delivery (the agent sees the whole t
       conversations: [],
       isStreaming: false,
       isLoading: false,
-      error: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
       reportContent: '',
@@ -3196,7 +3181,6 @@ describe('useWebSocketChat — the agent socket follows intent to send, not moun
       conversations: [],
       isStreaming: false,
       isLoading: false,
-      error: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
       reportContent: '',
@@ -3369,7 +3353,6 @@ describe('useWebSocketChat — a context-only send with no socket yet', () => {
       conversations: [],
       isStreaming: false,
       isLoading: false,
-      error: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
       reportContent: '',

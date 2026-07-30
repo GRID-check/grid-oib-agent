@@ -11,15 +11,14 @@ vi.mock('@/lib/db/schema', () => ({
 }))
 
 import { getDb } from '@/lib/db'
+import { asDb } from '@/test-utils/db-fixtures'
 import { reconcileOrphanedVectors } from './vector-reconcile'
 
 const fetchMock = vi.fn()
 
 /** Stub getDb so `db.select({...}).from(documents)` resolves to `rows`. */
 function stubRows(rows: { collectionName: string; filename: string }[]) {
-  vi.mocked(getDb).mockReturnValue({
-    select: () => ({ from: () => Promise.resolve(rows) }),
-  } as unknown as ReturnType<typeof getDb>)
+  vi.mocked(getDb).mockReturnValue(asDb({ select: () => ({ from: () => Promise.resolve(rows) }) }))
 }
 
 /** A backend list response (array of FileInfo-ish objects). */
