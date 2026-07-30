@@ -111,11 +111,17 @@ const conversationDescriptor: ShareableDescriptor = {
   supportsMentions: true,
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
+    // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
+    // This used to invent `?conversation=`, which nothing anywhere parsed, so every
+    // inbox notification landed the recipient on whatever session happened to be
+    // active while marking the row read. If this name ever changes, it changes in
+    // `useSessionUrl` and here together.
+    //
     // A conversation is always reached through its project's chat surface when
     // we know the project; otherwise the chat route resolves it from history.
     return options?.projectId
-      ? `/app/projects/${encodeURIComponent(options.projectId)}/chat?conversation=${encodeURIComponent(resourceId)}${anchor}`
-      : `/app/chat?conversation=${encodeURIComponent(resourceId)}${anchor}`
+      ? `/app/projects/${encodeURIComponent(options.projectId)}/chat?session=${encodeURIComponent(resourceId)}${anchor}`
+      : `/app/chat?session=${encodeURIComponent(resourceId)}${anchor}`
   },
   labelKey: 'conversation',
 }

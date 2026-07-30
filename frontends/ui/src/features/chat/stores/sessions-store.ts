@@ -46,6 +46,18 @@ export type SessionsSlice = {
    */
   isRecoveryPending: boolean
 
+  /**
+   * Whether the server conversation list has been ASKED for at least once
+   * (regardless of what it returned, or whether it failed).
+   *
+   * The one fact a `?session=<id>` deep link needs and could not get: an id that
+   * is unknown locally is either stale or simply not fetched yet. Without this,
+   * "unknown → strip it from the URL" fires before the fetch lands and destroys
+   * every link into a conversation this browser has never seen — which is
+   * exactly what an inbox notification is (ADR-0035).
+   */
+  serverConversationsLoaded: boolean
+
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
   setCurrentUser: (userId: string | null) => void
@@ -342,6 +354,7 @@ export const initialSessionsState = {
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
   isRecoveryPending: false,
+  serverConversationsLoaded: false,
 }
 
 export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
@@ -360,7 +373,18 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         const idx = merged.findIndex((c) => c.id === serverConv.id)
         const local: Conversation = {
           id: serverConv.id,
-          userId: serverConv.createdBy ?? currentUserId ?? 'unknown',
+          // The user this row belongs to in THIS browser's store — a membership
+          // marker, not authorship. Every consumer treats it that way (the
+          // sessions panel, the `selectConversation` guard, storage protection,
+          // deep-research scoping), and nothing renders it as an author; who
+          // wrote what comes from the shared-thread participants (ADR-0033).
+          //
+          // So it must be the person who FETCHED the list, not the creator: the
+          // server already decided visibility (`listVisibleConversations`), and
+          // stamping the creator made every conversation a colleague shared with
+          // you invisible in your own sessions panel and refused by
+          // `selectConversation` — the whole of ADR-0032 with no way in.
+          userId: currentUserId ?? serverConv.createdBy ?? 'unknown',
           // Server is the source of truth for project affiliation; keep the
           // locally stamped projectId for legacy server rows that predate
           // project stamping.
@@ -394,6 +418,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       }
     } catch (err) {
       console.warn('[loadServerConversations] Failed to load server conversations:', err)
+    } finally {
+      // "We have asked" — set even when the list was empty or the fetch failed,
+      // so a deep link to an id we cannot find stops waiting instead of hanging.
+      set({ serverConversationsLoaded: true }, false, 'serverConversationsLoaded')
     }
   },
 

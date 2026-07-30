@@ -593,6 +593,12 @@ export interface ChatState {
    * appears once this settles to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /**
+   * Whether the server conversation list has been asked for at least once. A
+   * `?session=<id>` deep link needs this to tell "stale id" from "not fetched
+   * yet" before it strips itself from the URL (see the sessions slice).
+   */
+  serverConversationsLoaded: boolean
   /** Whether a message is currently streaming */
   isStreaming: boolean
   /** Whether we're waiting for the first response token */

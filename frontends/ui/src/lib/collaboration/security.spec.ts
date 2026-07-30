@@ -597,7 +597,7 @@ describe('a notification never outlives the access it describes (matrix F39, spe
     const { items } = await listInbox(session)
 
     expect(items[0]!.href).toBe(
-      `/app/projects/${PROJECT_ID}/chat?conversation=${CONVERSATION_ID}#message-msg_1`,
+      `/app/projects/${PROJECT_ID}/chat?session=${CONVERSATION_ID}#message-msg_1`,
     )
     expect(items[0]!.excerpt).toBe('Ist das Atrium OIB 2.3?')
   })

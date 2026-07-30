@@ -40,7 +40,9 @@ import type { ChatMessage, StatusType } from '@/features/chat'
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
+import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
+import { useMessageAnchor } from '@/features/collaboration/hooks/use-message-anchor'
 import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
 import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
@@ -192,6 +194,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const isEmpty = displayableMessages.length === 0
+
+  /**
+   * The other half of an inbox deep link: `#message-<id>` scrolls to the message
+   * the notification was actually about, once it has rendered. Without it the
+   * recipient arrives at the bottom of the thread with no idea which message
+   * concerns them — and the inbox row is already marked read.
+   */
+  const anchoredMessageIds = useMemo(
+    () => displayableMessages.map((m) => m.id),
+    [displayableMessages],
+  )
+  const highlightedMessageId = useMessageAnchor(anchoredMessageIds)
 
   // ── Multi-author bookkeeping (shared threads only) ──────────────────────────
   // Authorship per message, plus whether it CONTINUES a run by the same author.
@@ -618,8 +632,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               return (
                 <motion.div
                   key={message.id}
+                  // The deep-link target (`#message-<id>`). Every message carries
+                  // it, not just mentions: an inbox item can point at any message,
+                  // and a link that resolves for some rows and not others is worse
+                  // than none.
+                  id={`message-${message.id}`}
                   data-chat-anchor={isAnchorTarget ? 'true' : undefined}
-                  className="flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16"
+                  className={cn(
+                    'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16',
+                    // The arrival mark: says "this is the one" for a beat, then
+                    // fades. A ring rather than a background, so it reads on the
+                    // user bubble and the answer card alike.
+                    highlightedMessageId === message.id &&
+                      'rounded-xl ring-2 ring-warning/50 ring-offset-4 ring-offset-background transition-shadow duration-500',
+                  )}
                   variants={fadeRise}
                   // Animate only genuinely new messages; hydrated ones render in place.
                   initial={hydratedIds.has(message.id) ? false : 'hidden'}

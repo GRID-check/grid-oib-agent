@@ -89,7 +89,7 @@ beforeEach(() => {
   )
   vi.mocked(describeResource).mockReturnValue({
     deepLink: (resourceId: string, options?: { anchorId?: string; projectId?: string | null }) =>
-      `/app/projects/${options?.projectId}/chat?conversation=${resourceId}` +
+      `/app/projects/${options?.projectId}/chat?session=${resourceId}` +
       (options?.anchorId ? `#message-${options.anchorId}` : ''),
   } as never)
 })
@@ -129,7 +129,7 @@ describe('listInbox — read-time re-authorization (IB-13)', () => {
     // The subject is the conversation TITLE, so it is gated on access exactly as
     // the snippet is — otherwise "redacted" would only cover half the payload.
     expect(gone.subject).toBeNull()
-    expect(ok.href).toBe('/app/projects/proj_1/chat?conversation=conv_ok')
+    expect(ok.href).toBe('/app/projects/proj_1/chat?session=conv_ok')
     expect(ok.excerpt).toBe('Welche OIB-2 Anforderung gilt hier?')
   })
 
@@ -193,7 +193,7 @@ describe('listInbox — projection', () => {
       actionable: true,
       actorName: 'Anna Berger',
       actorUserId: 'user_2',
-      href: '/app/projects/proj_1/chat?conversation=conv_1#message-msg_7',
+      href: '/app/projects/proj_1/chat?session=conv_1#message-msg_7',
       subject: 'Brandschutz Halle 3',
       createdAt: '2026-07-29T10:00:00.000Z',
     })
