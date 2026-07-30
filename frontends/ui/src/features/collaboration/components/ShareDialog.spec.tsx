@@ -254,11 +254,17 @@ describe('ShareDialog — per-person controls', () => {
       }),
     })
 
-    // The row is present and explains itself…
-    expect(screen.getByText('Klaus Berger')).toBeInTheDocument()
-    expect(screen.getByText('Project member')).toBeInTheDocument()
-    // …but promises nothing the model cannot do.
+    // Klaus is still named and still explained — in the rule block, because that
+    // is what his access comes from…
+    const rule = screen.getByTestId('access-derived')
+    expect(within(rule).getByText(/Klaus Berger/)).toBeInTheDocument()
+    expect(within(rule).getByText(/Project member/)).toBeInTheDocument()
+    // …and the block promises nothing the model cannot do: there is no per-person
+    // deny, so there is no per-person control anywhere for him.
     expect(screen.queryByRole('button', { name: 'Manage access: Klaus Berger' })).toBeNull()
+    // He is also not a roster row, so the list that DOES carry controls is
+    // uniformly actionable rather than half-actionable.
+    expect(screen.getAllByTestId('access-row')).toHaveLength(1)
   })
 
   test('the reader’s own row has no remove button — leaving is its own action', () => {

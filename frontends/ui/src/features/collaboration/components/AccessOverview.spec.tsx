@@ -50,8 +50,11 @@ describe('AccessOverview — the blanket rule', () => {
     render(<AccessOverview state={state()} currentUserId="u-matthias" />)
 
     expect(screen.getByTestId('access-chip')).toHaveTextContent('Shared with 2')
+    // The chip's count is everyone the rule plus the grants resolve to.
     expect(screen.getByText('3 people')).toBeInTheDocument()
     expect(screen.getByText('Only the people listed here.')).toBeInTheDocument()
+    // Nothing is derived under `private`, so there is no rule block to draw.
+    expect(screen.queryByTestId('access-derived')).toBeNull()
   })
 
   test('a project-wide thread says the project can read it too', () => {
@@ -91,8 +94,11 @@ describe('AccessOverview — the blanket rule', () => {
     render(<AccessOverview state={state()} showVisibility={false} />)
 
     expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
-    // …but the roster still says how many people that is.
-    expect(screen.getByText('People with access')).toBeInTheDocument()
+    // …but the named list still says how many people that is. The heading is
+    // "Invited by name", not "People with access": with a rule block above it, this
+    // list is no longer everyone, and a heading claiming otherwise is the exact
+    // confusion the split exists to remove.
+    expect(screen.getByText('Invited by name')).toBeInTheDocument()
     expect(screen.getByText('3 people')).toBeInTheDocument()
   })
 })
@@ -149,7 +155,35 @@ describe('AccessOverview — the named exceptions', () => {
       />,
     )
 
-    expect(screen.getByText('Project member')).toBeInTheDocument()
+    // Derived access is its own block — not a row in the named list, because it
+    // carries no controls and changing it means changing the rule above it.
+    const block = screen.getByTestId('access-derived')
+    expect(within(block).getByText('Project member', { exact: false })).toBeInTheDocument()
+    // The NAME is present as text, not only as initials in an avatar.
+    expect(within(block).getByText('Klaus Berger', { exact: false })).toBeInTheDocument()
+    // …and it is not duplicated as a roster row.
+    expect(screen.getAllByTestId('access-row')).toHaveLength(1)
+  })
+
+  test('a long derived list is bounded and counts the remainder', () => {
+    render(
+      <AccessOverview
+        state={state({
+          visibility: 'project',
+          entries: [
+            entry('u-matthias', 'Matthias Bigl', 'owner', 'creator'),
+            ...Array.from({ length: 8 }, (_, index) =>
+              entry(`u-${index}`, `Person ${index}`, 'collaborator', 'visibility-project'),
+            ),
+          ],
+        })}
+      />,
+    )
+
+    // Five names, then the remainder counted rather than silently dropped.
+    expect(
+      within(screen.getByTestId('access-derived')).getByText(/and 3 more/),
+    ).toBeInTheDocument()
   })
 
   test('marks the reader’s own row', () => {

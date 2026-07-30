@@ -97,6 +97,8 @@ export const collaboration = {
       viaVisibilityProject: 'Everyone in this project can also read and contribute.',
       viaVisibilityOrganization: 'Everyone in your organization can also read and contribute.',
       viaVisibilityPrivate: 'Only the people listed here.',
+      namedHeading: 'Invited by name',
+      derivedMore: 'and {count} more',
     },
   },
 

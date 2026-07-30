@@ -78,7 +78,13 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
             className={cn(
               'inline-flex min-w-[1.05rem] items-center justify-center rounded-[4px] px-[3px]',
               'relative -top-[0.15em] text-[0.68em] font-semibold leading-[1.45] tabular-nums',
-              'transition-[filter,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+              // `transform` joins the transition list and `active:scale-95` matches
+              // the Button primitive exactly. A citation marker is one of the most
+              // pressed things in a read answer, and it was one of the raw
+              // `<button>`s that gave no press response at all — so half the chat's
+              // controls acknowledged a tap and half sat inert.
+              'transition-[filter,box-shadow,transform] duration-200 ease-out active:scale-95',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
               'hover:brightness-95 dark:hover:brightness-125'
             )}
             style={{

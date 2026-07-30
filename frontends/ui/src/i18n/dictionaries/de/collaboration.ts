@@ -90,6 +90,8 @@ export const collaboration: typeof en.collaboration = {
       viaVisibilityOrganization:
         'Alle in Ihrer Organisation können ebenfalls mitlesen und mitschreiben.',
       viaVisibilityPrivate: 'Nur die hier aufgeführten Personen.',
+      namedHeading: 'Namentlich eingeladen',
+      derivedMore: 'und {count} weitere',
     },
   },
 
