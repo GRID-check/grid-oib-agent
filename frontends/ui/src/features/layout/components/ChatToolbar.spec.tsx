@@ -559,7 +559,7 @@ describe('ChatToolbar — sharing surfaces', () => {
     expect(screen.getByTestId('participant-strip').tagName).not.toBe('BUTTON')
   })
 
-  test('a blanket visibility rule keeps the chip — no set of faces can express it', () => {
+  test('a blanket rule REPLACES the faces — the rule is the audience, not the roster', () => {
     mockSharingState = { ...SHARED_STATE, visibility: 'project' }
     render(
       <ChatToolbar
@@ -571,6 +571,11 @@ describe('ChatToolbar — sharing surfaces', () => {
     )
 
     expect(screen.getByTestId('access-chip')).toHaveTextContent('Project')
+    // Not both. Under a blanket rule the roster is not a summary of the audience
+    // but a partial sample of it — two faces beside "Projekt" read as "these two
+    // can see it" when the truth is "everyone in the project can". The named
+    // exceptions belong where there is room to explain them: the sharing surface.
+    expect(screen.queryByTestId('participant-strip')).not.toBeInTheDocument()
   })
 
   test('a solo private thread carries no collaboration furniture at all', async () => {

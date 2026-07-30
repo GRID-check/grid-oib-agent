@@ -419,17 +419,25 @@ flowchart TB
   `Geteilt mit 3` — so that "who can see this" is answerable without opening a
   dialog. *This closes the "Privater Workspace" chip left undesigned in the
   click-dummy spec.*
-  - **In an OPEN thread the chip is not the indicator; the participant strip is.**
+  - **In an OPEN thread, exactly ONE of chip and participant strip — never both.**
     SH-18 is a requirement about *lists*, where there is no room for faces. The
-    thread header has the faces (CC-6), and they answer the same question in the
-    form people actually read — so a `Geteilt mit 2` chip beside two avatars is the
-    same sentence twice, and in German it is the widest element in a header that
-    also has to carry the thread's own title. The chip is therefore shown in the
-    header **only for a blanket rule** (`Projekt`, `Organisation`), which names an
-    audience nobody enumerated and which no set of avatars can stand for. A
-    private thread — solo or shared with named people — carries no chip in its
-    header. The exact state is always one click away in the sharing surface
-    (SH-17), and unchanged in every list.
+    thread header has room for either, and which one it shows follows from *what
+    kind of thing the audience is*:
+    - **`private` → the faces** (CC-6). The audience was enumerated, person by
+      person, so the roster IS the audience and the faces are the whole answer. A
+      `Geteilt mit 2` chip beside two avatars is that same sentence twice — and in
+      German it is the widest element in a header that also carries the thread's
+      own title.
+    - **`project` / `organization` → the chip.** The audience is the *rule*: nobody
+      enumerated it and it changes as people join the project. Avatars there are
+      not a summary of the audience but a partial sample of it, and they read as
+      "these two can see it" when the truth is "everyone in the project can".
+    - **solo `private` → neither.** The overwhelmingly common thread carries no
+      collaboration furniture at all.
+
+    The named exceptions that exist alongside a blanket rule are real, and they are
+    stated where there is room to explain them: the sharing surface, which shows
+    the rule and the exceptions together (SH-17). Lists are unchanged.
 - **SH-19 (MUST).** The invite picker offers **only people who satisfy SH-4/SH-5**
   (that is: members of the container project). Organisation members who are *not*
   project members MUST NOT appear as if they were invitable; where showing them is

@@ -16,7 +16,15 @@ The header is two floating pills, split by what they are for.
 
 **Right — what is true about this chat, then what you can do to it,** separated by a hairline.
 
-Before the line is *status*, and none of it is clickable: the participant faces (who can read this chat, once it is shared and once collaboration is enabled for your organization), an access chip that appears **only** when the chat is readable through a blanket rule (`Projekt`, `Organisation`) rather than a named list, and — while deep research is running — a spinner, so the "still working" signal survives scrolling past the thread's own banner. A private one-person chat shows none of it, because there is nothing to report.
+Before the line is *status*, and none of it is clickable. Who can read the chat is answered in **one** of two forms, never both, depending on what kind of audience it has:
+
+- **shared with named people** → their **faces**. The audience was listed person by person, so the faces are the whole answer.
+- **shared with the whole project or organization** → an **access chip** (`Projekt`, `Organisation`) and *no* faces. That audience is a rule, not a list — it changes as people join the project — so avatars would show a handful of people and imply only they can read it.
+- **private, just you** → neither. There is nothing to report.
+
+Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the thread's own progress banner.
+
+Either way the full picture (the rule *and* anyone individually invited) is in the sharing surface, one click away in the menu.
 
 After the line is *action*. **New chat** is the only one kept in the open. The rest live in the **…** menu, and each appears only when it is real:
 

@@ -127,13 +127,35 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     deepResearchJobId || isDeepResearchStreaming || isResearchPanelOpen,
   )
 
-  // Does the status group have anything to say? Faces need a second person; the
-  // chip needs a blanket rule (under `private` the roster IS the audience). With
-  // neither, and nothing running, the group would be a bare separator.
+  /**
+   * Who can read this thread — answered by exactly ONE of two forms, never both.
+   *
+   * Which one is not a style choice; it is which form is TRUE of the audience:
+   *
+   *   `private`            the audience IS the roster. It was enumerated, person
+   *                        by person, so the faces are the whole answer and a
+   *                        "Geteilt mit 2" chip beside them is that same sentence
+   *                        a second time.
+   *   `project` / `organization`
+   *                        the audience IS the rule. Nobody enumerated it, and it
+   *                        keeps changing as people join the project — so faces
+   *                        there are not a summary of it but a partial sample of
+   *                        it, which reads as "these three can see it" when the
+   *                        truth is "everyone in the project can".
+   *
+   * The named exceptions under a blanket rule are real, and they are shown where
+   * there is room to explain them: the sharing surface, which states the rule and
+   * the exceptions together (SH-17/SH-18).
+   */
+  const showFaces = sharingState?.visibility === 'private'
+  const showAccessChip = Boolean(sharingState && sharingState.visibility !== 'private')
+
+  // Does the status group have anything to say? A solo private thread has neither
+  // form to show — with nothing running, the group would be a bare separator.
   const hasStatus = Boolean(
     isDeepResearchStreaming ||
-      (sharingState &&
-        (sharingState.entries.length > 1 || sharingState.visibility !== 'private')),
+      showAccessChip ||
+      (showFaces && (sharingState?.entries.length ?? 0) > 1),
   )
 
   const startEditingTitle = useCallback(() => {
@@ -379,19 +401,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
       {isChatStarted && (
       <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60">
         {/* ── STATUS ────────────────────────────────────────────────────────────
-            Who can reach this thread, stated ONCE and not clickable. The faces are
-            the answer wherever there are faces to show — three discs already say
-            "you and two colleagues", so a "Mit 2 Personen geteilt" chip beside them
-            is the same sentence twice, and in the product's primary language it is
-            the longest element in the row.
-
-            The chip is kept for exactly the case faces CANNOT express: a blanket
-            visibility rule. `Projekt` / `Organisation` name an audience nobody
-            enumerated, so no set of avatars stands for it. Under `private` the
-            roster IS the audience — and a solo private thread, the overwhelmingly
-            common one, gets neither, the same doctrine ParticipantStrip already
-            applies to itself: no collaboration furniture where nothing is being
-            collaborated on.
+            Who can reach this thread, stated ONCE, in whichever of the two forms is
+            true of the audience (see `showFaces` / `showAccessChip` above), and
+            never clickable. A solo private thread gets neither — the same doctrine
+            ParticipantStrip already applies to itself: no collaboration furniture
+            where nothing is being collaborated on.
 
             Desktop-only, the sharing marks: a phone's width belongs to the
             thread's name, and the menu below carries sharing there.
@@ -404,13 +418,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             {/* No `onOpen`: the strip is deliberately inert here. Sharing has ONE
                 door in this header and it is the menu item, so the faces can be
                 read as what they are. */}
-            {sharingState && (
-              <>
-                <ParticipantStrip entries={sharingState.entries} currentUserId={currentUserId} />
-                {sharingState.visibility !== 'private' && (
-                  <AccessChip visibility={sharingState.visibility} />
-                )}
-              </>
+            {showFaces && sharingState && (
+              <ParticipantStrip entries={sharingState.entries} currentUserId={currentUserId} />
+            )}
+            {showAccessChip && sharingState && (
+              <AccessChip visibility={sharingState.visibility} />
             )}
             {/* Live research is status too, and the one piece of it worth carrying
                 in the header: the thread's own banner scrolls away, and this is

@@ -28,8 +28,9 @@
  *      collaboration furniture at all: no faces, no access chip.
  *   2. **shared, long names** — the reported crowding case: a long project name,
  *      a long session title and three people, all at once.
- *   3. **project-wide** — the one access state faces cannot express, so the chip
- *      earns its width here and only here.
+ *   3. **project-wide** — the rule REPLACES the faces. The audience was never
+ *      enumerated and keeps changing as people join the project, so avatars there
+ *      are a partial sample of it, not a summary; "Projekt" is the whole truth.
  *
  * Variants via `?variant=`:
  *   - default    — a thread at rest. This is what most threads look like, which
@@ -132,7 +133,7 @@ const ROWS = [
   },
   {
     id: 'conv-project',
-    caption: 'Projektweit — die Regel, die Gesichter nicht ausdrücken können',
+    caption: 'Projektweit — die Regel ersetzt die Gesichter',
     projectName: 'Wohnbau Nord',
     sessionTitle: 'Brandschutz Stiegenhaus',
     state: sharingState('conv-project', 'project', [
