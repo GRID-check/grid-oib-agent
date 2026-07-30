@@ -1162,6 +1162,26 @@ Written as observable outcomes; each maps to at least one requirement above.
 
 ## 15. Open questions — decisions needed
 
+> **RESOLVED 2026-07-29.** All ten were decided **as recommended below** and are
+> now implemented. The load-bearing ones are recorded as ADRs:
+> OQ-2 in [ADR-0032](../adr/0032-shareable-resource-model.md),
+> OQ-6 in [ADR-0035](../adr/0035-notification-model-and-inbox.md) §9,
+> and the server-authoritative seam in
+> [ADR-0033](../adr/0033-server-authoritative-shared-conversations.md).
+> Two decisions were narrowed during implementation and the narrowing is recorded
+> where it happened:
+> - **`organization` visibility is withheld in phase 1.** The data model carries
+>   the value (so no migration is needed later), but offering it before the
+>   org-policy control of SH-15 exists would let one member expose a thread to
+>   everyone with no admin able to prevent it. The registry lists only
+>   `private`/`project` as permitted for conversations.
+> - **Observers get turn *state*, not token-level streaming** (ADR-0033 §7):
+>   "Piloti is answering X's question", then the answer when it lands. Mirroring
+>   the agent's frames to non-askers needs a relay out of the Python tier for a
+>   fraction of the value.
+>
+> The text below is preserved as the reasoning trail.
+
 Each has a recommendation, because an unowned open question is how specs die.
 
 - **OQ-1 — Default visibility, old and new.** What do existing chats become, and what
