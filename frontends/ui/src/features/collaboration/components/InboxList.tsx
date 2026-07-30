@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
+import { AnimatePresence } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { InboxItemRow } from './InboxItemRow'
 
@@ -148,14 +149,24 @@ export function InboxList({
           />
         ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-lg border-[0.5px] border-border bg-card shadow-xs">
-            {items.map((item) => (
-              <InboxItemRow
-                key={item.id}
-                item={item}
-                onOpen={onOpen}
-                onArchive={(id) => void archive(id)}
-              />
-            ))}
+            {/* Archiving a row is the one action here, and it removes that row —
+                so the list needs an exit, which CSS cannot give it, and `layout`
+                so the rows below close the gap instead of jumping.
+
+                No entrance stagger. The inbox is a work queue people open to
+                triage, and a cascade makes the first glance slower every single
+                time for a flourish that only reads once. Motion here is reserved
+                for a change the user causes. */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {items.map((item) => (
+                <InboxItemRow
+                  key={item.id}
+                  item={item}
+                  onOpen={onOpen}
+                  onArchive={(id) => void archive(id)}
+                />
+              ))}
+            </AnimatePresence>
           </ul>
         )}
       </div>

@@ -43,7 +43,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Info, Search, ShieldCheck, UserMinus, UserPlus } from 'lucide-react'
+import { AlertTriangle, Info, MoreHorizontal, Search, ShieldCheck, UserMinus, UserPlus } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PersonAvatar } from '@/components/ui/avatar-stack'
@@ -58,6 +58,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
@@ -268,38 +278,56 @@ export function ShareDialog({
     const isSelf = entry.person.userId === currentUserId
     const isExplicit = entry.reason === 'grant' || entry.reason === 'creator'
     if (!canManage || !isExplicit || isSelf) return null
+    // ONE control per row, and it does not restate the row's role. A 150px select
+    // showing "Kann mitschreiben" sat under a heading reading "KÖNNEN
+    // MITSCHREIBEN" — the group and the control said the identical thing, once per
+    // person, and two heavy controls per row turned a list of colleagues into a
+    // form. The grouping is the statement of role (the read-only overview already
+    // relies on that); this is only the way to CHANGE it, so it stays quiet until
+    // wanted. Changing the role moves the person into the other group, which the
+    // list animates — the regrouping is the feedback the select's own value used
+    // to provide.
     return (
-      <>
-        <Select
-          value={entry.role}
-          disabled={saving}
-          onValueChange={(value) => void sharing.changeRole(entry.person.userId, value as ResourceRole)}
-        >
-          {/* Labelled with the person's name: several of these live in one list, so
-              "combobox, Kann mitschreiben" alone would not say whose role it is. */}
-          <SelectTrigger className="h-8 w-[150px] text-xs" aria-label={entry.person.name}>
-            <SelectValue>{roleLabel(entry.role)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            disabled={saving}
+            // Several of these live in one list, so "button, more" alone would not
+            // say whose access it governs.
+            aria-label={t('sharing.manageFor', { name: entry.person.name })}
+          >
+            <MoreHorizontal className="size-4" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
+            {t('sharing.roleHeading')}
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={entry.role}
+            onValueChange={(value) =>
+              void sharing.changeRole(entry.person.userId, value as ResourceRole)
+            }
+          >
             {ROLE_OPTIONS.map((role) => (
-              <SelectItem key={role} value={role}>
+              <DropdownMenuRadioItem key={role} value={role}>
                 {roleLabel(role)}
-              </SelectItem>
+              </DropdownMenuRadioItem>
             ))}
-          </SelectContent>
-        </Select>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 text-muted-foreground hover:text-foreground"
-          disabled={saving}
-          aria-label={`${t('sharing.remove')}: ${entry.person.name}`}
-          title={t('sharing.remove')}
-          onClick={() => setPending({ kind: 'remove', entry })}
-        >
-          <UserMinus className="size-4" aria-hidden />
-        </Button>
-      </>
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={() => setPending({ kind: 'remove', entry })}
+          >
+            <UserMinus className="mr-2 size-4" aria-hidden />
+            {t('sharing.remove')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     )
   }
 
@@ -447,6 +475,14 @@ export function ShareDialog({
                     </p>
                   ) : (
                     <ul className="-mx-2">
+                      {/* Deliberately NOT animated. This is a SEARCH RESULT list —
+                          the input above filters it on every keystroke — and an
+                          exit animation keeps the filtered-out row mounted until it
+                          finishes, so results lag behind typing. Even a pure
+                          `layout` reflow puts the rows in constant motion while
+                          someone types a name. The animation budget is spent where
+                          movement carries meaning (the roster regrouping, a release,
+                          an archive), not here, where instant is the feature. */}
                       {filteredCandidates.map((candidate) => (
                         <li
                           key={candidate.person.userId}

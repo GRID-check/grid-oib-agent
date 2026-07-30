@@ -27,8 +27,11 @@
  * drifting copy of it.
  */
 
+import { useId } from 'react'
 import type { ReactNode } from 'react'
 import { Users } from 'lucide-react'
+
+import { motion, springGentle } from '@/components/motion'
 
 import { PersonAvatar } from '@/components/ui/avatar-stack'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -82,6 +85,8 @@ export function AccessOverview({
   className,
 }: AccessOverviewProps): JSX.Element {
   const t = useTranslations('collaboration')
+  // Namespaces this instance's shared layout ids — see the `layoutId` note below.
+  const instanceId = useId()
 
   const ordered = sortByRoleThenName(state.entries)
   const count = ordered.length
@@ -140,14 +145,37 @@ export function AccessOverview({
             const group = ordered.filter((entry) => entry.role === role)
             if (group.length === 0) return null
             return (
-              <div key={role} className="space-y-1" data-testid={`access-group-${role}`}>
+              <motion.div
+                key={role}
+                layout
+                transition={springGentle}
+                className="space-y-1"
+                data-testid={`access-group-${role}`}
+              >
                 <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
                   {t(headingKey)}
                 </h4>
                 <ul className="-mx-2">
                   {group.map((entry) => (
-                    <li
+                    /*
+                     * `layoutId` is what makes a role change legible. The row
+                     * unmounts from one group and mounts in another in a single
+                     * commit; a shared layout id tells motion those are the same
+                     * person, so they GLIDE from "can write" to "can read" instead
+                     * of blinking out of one list and into another. Since the row
+                     * menu no longer restates the role, this movement IS the
+                     * confirmation that the change took.
+                     *
+                     * Namespaced per instance: the id must be unique in the layout
+                     * tree, and several overviews can share a page (the dev preview
+                     * renders three). Bare user ids would make motion try to animate
+                     * one person between two unrelated cards.
+                     */
+                    <motion.li
                       key={entry.person.userId}
+                      layout
+                      layoutId={`${instanceId}-${entry.person.userId}`}
+                      transition={springGentle}
                       data-testid="access-row"
                       data-role={entry.role}
                       data-reason={entry.reason}
@@ -173,10 +201,10 @@ export function AccessOverview({
                       {renderActions && (
                         <div className="flex shrink-0 items-center gap-1.5">{renderActions(entry)}</div>
                       )}
-                    </li>
+                    </motion.li>
                   ))}
                 </ul>
-              </div>
+              </motion.div>
             )
           })
         )}

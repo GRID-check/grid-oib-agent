@@ -26,6 +26,7 @@ import { useState } from 'react'
 import { Clock, CornerUpLeft, Hand, Sparkles } from 'lucide-react'
 
 import { AvatarStack, PersonAvatar } from '@/components/ui/avatar-stack'
+import { AnimatePresence, motion, springGentle } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -178,27 +179,40 @@ export function AwaitingBanner({
               state resolves per person (MN-10). */}
           {!single && (
             <ul className="mt-2.5 flex flex-col divide-y rounded-lg border bg-background/40">
-              {pending.map((request) => (
-                <li
-                  key={request.id}
-                  data-testid="awaiting-person"
-                  className="flex items-center justify-between gap-3 px-2.5 py-1.5"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <PersonAvatar person={request.person} size="sm" />
-                    <span className="truncate text-sm">{request.person.name}</span>
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
-                    disabled={releasing !== null}
-                    onClick={() => void release([request], request.id)}
+              {/* Releasing one person removes their row while the others stay. A CSS
+                  `animate-in` can only play on mount, so without this the released
+                  row vanished between frames and the rows below snapped upward —
+                  the one moment in this banner where something the user just did
+                  has a visible result. `popLayout` takes the leaving row out of
+                  flow so the remainder closes the gap smoothly rather than after. */}
+              <AnimatePresence initial={false} mode="popLayout">
+                {pending.map((request) => (
+                  <motion.li
+                    key={request.id}
+                    layout
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, x: 8 }}
+                    transition={springGentle}
+                    data-testid="awaiting-person"
+                    className="flex items-center justify-between gap-3 px-2.5 py-1.5"
                   >
-                    {t('mentions.awaiting.releaseOne', { name: request.person.name })}
-                  </Button>
-                </li>
-              ))}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <PersonAvatar person={request.person} size="sm" />
+                      <span className="truncate text-sm">{request.person.name}</span>
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
+                      disabled={releasing !== null}
+                      onClick={() => void release([request], request.id)}
+                    >
+                      {t('mentions.awaiting.releaseOne', { name: request.person.name })}
+                    </Button>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
             </ul>
           )}
 

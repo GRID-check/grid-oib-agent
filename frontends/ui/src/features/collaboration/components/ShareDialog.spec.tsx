@@ -216,8 +216,10 @@ describe('ShareDialog — per-person controls', () => {
     const user = userEvent.setup()
     renderDialog()
 
-    await user.click(screen.getByRole('combobox', { name: 'Anna Weber' }))
-    await user.click(screen.getByRole('option', { name: 'Can view' }))
+    // One control per row, and it does NOT restate the role — the group heading
+    // above the row already says it. Opening the menu is how the role is changed.
+    await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Can view' }))
 
     expect(changeRole).toHaveBeenCalledWith('u-anna', 'viewer')
   })
@@ -226,7 +228,8 @@ describe('ShareDialog — per-person controls', () => {
     const user = userEvent.setup()
     renderDialog()
 
-    await user.click(screen.getByRole('button', { name: 'Remove access: Anna Weber' }))
+    await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Remove access/ }))
 
     expect(await screen.findByText('Remove Anna Weber?')).toBeInTheDocument()
     expect(
@@ -255,8 +258,7 @@ describe('ShareDialog — per-person controls', () => {
     expect(screen.getByText('Klaus Berger')).toBeInTheDocument()
     expect(screen.getByText('Project member')).toBeInTheDocument()
     // …but promises nothing the model cannot do.
-    expect(screen.queryByRole('combobox', { name: 'Klaus Berger' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Remove access: Klaus Berger/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Manage access: Klaus Berger' })).toBeNull()
   })
 
   test('the reader’s own row has no remove button — leaving is its own action', () => {
@@ -268,8 +270,7 @@ describe('ShareDialog — per-person controls', () => {
   test('controls are disabled while a mutation is in flight', () => {
     renderDialog({ saving: true })
 
-    expect(screen.getByRole('combobox', { name: 'Anna Weber' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Remove access: Anna Weber' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Manage access: Anna Weber' })).toBeDisabled()
   })
 })
 
@@ -373,8 +374,8 @@ describe('ShareDialog — invite', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toHaveTextContent('Sabine Gruber')
 
-    // Anna is on screen exactly once, with exactly one role control: her roster row.
-    expect(screen.getAllByRole('combobox', { name: 'Anna Weber' })).toHaveLength(1)
+    // Anna is on screen exactly once, with exactly one control: her roster row.
+    expect(screen.getAllByRole('button', { name: 'Manage access: Anna Weber' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: 'Invite: Anna Weber' })).toBeNull()
   })
 
@@ -505,5 +506,24 @@ describe('ShareDialog — refusals', () => {
     renderDialog({ failure: { reason: 'last-owner', message: null } })
 
     expect(screen.getAllByTestId('access-row')).toHaveLength(2)
+  })
+})
+
+describe('ShareDialog — the row menu states the current role', () => {
+  /**
+   * The select this replaced DISPLAYED the current role. Losing that would be a
+   * real regression for anyone who cannot see the group heading above the row —
+   * the checked radio is what carries it now, and a screen reader reads it.
+   */
+  test('the current role is the checked option, not merely the default', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
+
+    // Anna is a collaborator, so "Can contribute" is checked and the others are not.
+    expect(await screen.findByRole('menuitemradio', { name: 'Can contribute' })).toBeChecked()
+    expect(screen.getByRole('menuitemradio', { name: 'Can view' })).not.toBeChecked()
+    expect(screen.getByRole('menuitemradio', { name: 'Owner' })).not.toBeChecked()
   })
 })

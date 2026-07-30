@@ -32,6 +32,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useTranslations } from '@/i18n'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
+import { motion, springSnappy } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { useMentionPerson } from '../context/mention-people'
 import { splitMentionSegments, type DraftMention } from '../lib/mention-text'
@@ -115,18 +116,25 @@ function MentionPill({
   return (
     <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
       <PopoverAnchor asChild>
-        <button
+        {/* A press gives way slightly — `springSnappy` is the kit's vocabulary for
+            anything the user physically touches, and it is the only motion a pill
+            gets. Nothing on mount: these render inline in prose, and a message
+            whose mentions animate in draws the eye away from the sentence. Scale
+            only, no vertical move, so a pill cannot nudge the line it sits on. */}
+        <motion.button
           type="button"
           data-testid="mention-chip"
           data-mention-target={targetId}
           data-mention-me={isMe ? 'true' : 'false'}
           data-mention-interactive="true"
+          whileTap={{ scale: 0.96 }}
+          transition={springSnappy}
           {...peek.triggerProps}
           className={pillClasses(isMe, resolved.isAgent, true)}
           aria-label={label}
         >
           {text}
-        </button>
+        </motion.button>
       </PopoverAnchor>
       {/* Narrower than the citation peek: a person is four short lines, and a
           panel sized for a source snippet would be mostly empty. */}

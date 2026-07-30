@@ -39,6 +39,7 @@ import { getByPath } from '@/i18n/translate'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { INBOX_TYPE_PRESENTATION, type InboxItemView } from '@/lib/inbox/types'
 import { Badge } from '@/components/ui/badge'
+import { easeQuiet, motion } from '@/components/motion'
 import { cn } from '@/lib/utils'
 
 /**
@@ -132,7 +133,14 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
       : null
 
   return (
-    <li
+    /* The row owns its own <li>, so it is the element that animates — wrapping it
+       from the list would nest <li> in <li>, and a `display: contents` wrapper has
+       no box for a transform to act on. Exit + layout so archiving closes the gap
+       rather than snapping it shut; `AnimatePresence` lives in InboxList. */
+    <motion.li
+      layout
+      exit={{ opacity: 0, x: 12 }}
+      transition={easeQuiet}
       data-testid="inbox-item"
       data-state={item.state}
       data-type={item.type}
@@ -240,6 +248,6 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
           <Archive className="size-4" aria-hidden />
         </button>
       )}
-    </li>
+    </motion.li>
   )
 }

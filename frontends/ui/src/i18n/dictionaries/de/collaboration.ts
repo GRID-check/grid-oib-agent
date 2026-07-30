@@ -51,6 +51,8 @@ export const collaboration: typeof en.collaboration = {
       needsProjectAccessHint:
         'Fügen Sie die Person zuerst dem Projekt hinzu. Einen Chat zu teilen gibt nie Zugriff auf das Projekt selbst.',
     },
+    roleHeading: 'Zugriffsstufe',
+    manageFor: 'Zugriff verwalten: {name}',
     remove: 'Zugriff entziehen',
     removeConfirm: '{name} entfernen?',
     removeConfirmHint:

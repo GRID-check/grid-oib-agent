@@ -30,6 +30,7 @@
 import { useState } from 'react'
 import { AtSign, Loader2 } from 'lucide-react'
 
+import { easeQuiet, motion } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import type { ConversationEngagement } from '@/lib/db/schema'
@@ -84,7 +85,15 @@ export function EngagementNotice({
   }
 
   return (
-    <div
+    // Fades in rather than appearing between frames. This line arrives on its own
+    // schedule — the server decides there is a mode worth offering, which can land
+    // while the reader is mid-sentence in the composer directly above it — and
+    // furniture that materialises abruptly next to a text field reads as a jolt.
+    // Opacity and a 2px settle only: it must not push the composer around.
+    <motion.div
+      initial={{ opacity: 0, y: 2 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={easeQuiet}
       data-testid="engagement-notice"
       data-engagement={mode}
       // `items-start`, and the icon is a sibling of a text COLUMN rather than one
@@ -136,6 +145,6 @@ export function EngagementNotice({
         </span>
       )}
       </span>
-    </div>
+    </motion.div>
   )
 }

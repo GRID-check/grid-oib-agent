@@ -56,6 +56,8 @@ export const collaboration = {
       needsProjectAccessHint:
         'Add them to the project first. Sharing a chat never grants access to the project itself.',
     },
+    roleHeading: 'Access level',
+    manageFor: 'Manage access: {name}',
     remove: 'Remove access',
     removeConfirm: 'Remove {name}?',
     removeConfirmHint: 'They lose access immediately. Anything they wrote stays in the conversation.',
