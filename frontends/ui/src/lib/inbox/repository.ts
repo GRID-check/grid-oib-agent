@@ -235,16 +235,54 @@ export async function markResourceItemsRead(
 }
 
 /**
- * Resolve every actionable item that pointed at a settled request (spec MN-16).
- * Driven by domain events, not by the recipient tidying up.
+ * One item to settle, addressed the only way that is unambiguous: the group it
+ * belongs to AND WHOSE it is.
+ *
+ * A group key is deliberately NOT unique per person — everyone mentioned on the
+ * same message shares `mention.requested:conversation:<id>:<anchor>`, and the
+ * unique index is on `(recipient_user_id, group_key)` precisely because the
+ * recipient is half of the identity. The organization is carried too: group keys
+ * are built from client-generated resource ids, so they are not tenant-unique
+ * either.
  */
-export async function resolveInboxItemsByGroupKeys(groupKeys: string[]): Promise<number> {
-  if (groupKeys.length === 0) return 0
+export interface InboxResolutionTarget {
+  organizationId: string
+  recipientUserId: string
+  groupKey: string
+}
+
+/**
+ * Resolve the actionable items that pointed at settled requests (spec MN-16).
+ * Driven by domain events, not by the recipient tidying up.
+ *
+ * Scoped per (organization, recipient, group) pair. Matching on the group key
+ * alone would resolve a COLLEAGUE's still-open request whenever one mentionee
+ * answered — their badge would drop and their row would leave the "needs you"
+ * page while the thread banner still said it was waiting for them, which is
+ * exactly the disagreement spec MN-10 and lifecycle invariant 3 forbid.
+ */
+export async function resolveInboxItemsForTargets(
+  targets: readonly InboxResolutionTarget[],
+): Promise<number> {
+  if (targets.length === 0) return 0
   const db = getDb()
   const rows = await db
     .update(inboxItems)
     .set({ resolvedAt: new Date() })
-    .where(and(inArray(inboxItems.groupKey, groupKeys), isNull(inboxItems.resolvedAt)))
+    .where(
+      and(
+        isNull(inboxItems.resolvedAt),
+        or(
+          ...targets.map((target) =>
+            and(
+              eq(inboxItems.organizationId, target.organizationId),
+              eq(inboxItems.recipientUserId, target.recipientUserId),
+              eq(inboxItems.groupKey, target.groupKey),
+            ),
+          ),
+        ),
+      ),
+    )
     .returning({ id: inboxItems.id })
   return rows.length
 }

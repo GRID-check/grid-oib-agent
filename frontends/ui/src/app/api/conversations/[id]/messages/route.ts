@@ -12,11 +12,9 @@
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { createConversationMessages, listConversationMessages } from '@/lib/conversations/service'
+import { MAX_MENTIONS_PER_MESSAGE } from '@/lib/sharing/rate-limit'
 
 type Params = { id: string }
-
-/** Bounded per message (spec MN-13): one send may not tag an unbounded crowd. */
-const MAX_MENTIONS_PER_MESSAGE = 20
 
 const mentionSchema = z.object({
   // A WorkOS user id or the agent's sentinel id; length-capped like every other
@@ -39,6 +37,13 @@ const createMessageSchema = z.object({
   createdAt: z.string().optional(),
   // Structured mentions (spec MN-3) — never a text match on a name. The
   // addressee set is resolved from these server-side (spec MN-2).
+  //
+  // Bounded by the SAME constant the service enforces (`@/lib/sharing/rate-limit`
+  // owns the product bound MN-13 asks for) so the two cannot drift: this schema
+  // used to cap the array at 20 while the service refused anything over 10, which
+  // meant an 11-mention message passed validation and then hit a 403. The two are
+  // still both needed — this bounds the PAYLOAD, the service bounds the
+  // DEDUPLICATED target count, which is the number the abuse bound is about.
   mentions: z.array(mentionSchema).max(MAX_MENTIONS_PER_MESSAGE).optional(),
   // The asker's question, carried into the recipient's inbox item (spec MN-12).
   mentionNote: z.string().max(500).nullable().optional(),

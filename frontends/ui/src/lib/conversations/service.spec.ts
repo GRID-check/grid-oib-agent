@@ -63,7 +63,7 @@ vi.mock('@/lib/mentions/service', () => ({
   threadIsAwaitingHuman: vi.fn(),
 }))
 
-import { NotFoundError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import { threadIsAwaitingHuman } from '@/lib/mentions/service'
@@ -159,6 +159,10 @@ function messageRow(overrides: Partial<Message> = {}): Message {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The collaboration feature is dark-launched (spec NF-7): without an operator
+  // opt-in the mention path refuses outright, so the tests that exercise it must
+  // enable it. The flag-OFF behaviour has its own tests.
+  process.env.GRID_COLLABORATION_ENABLED = 'true'
   stubConversation()
   stubContainer('project-editor')
   vi.mocked(findGrantForSubject).mockResolvedValue(null)
@@ -311,12 +315,19 @@ describe('writing requires more than reading', () => {
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
   })
 
-  it('stays a silent no-op when deleting an id that does not exist at all', async () => {
-    // The chat store deletes server rows for conversations that may only ever
-    // have lived in the browser; a 404 there is noise, not a signal.
+  it('answers the SAME refusal for an id that does not exist at all (spec SH-6)', async () => {
+    // This assertion used to be `resolves.toBeUndefined()`, pinning a silent
+    // no-op — which made the service, and through it the endpoint, an existence
+    // oracle: 204 for an unknown id, 404 for one that exists in another tenant or
+    // belongs to a colleague. Any signed-in member could sort guessed ids into
+    // "real" and "not real" with it.
+    //
+    // The service now reports one truth for both, and the DELETE route turns that
+    // truth into ONE response (204 either way) so the chat store can still delete
+    // ids that only ever lived in a browser — see `[id]/route.spec.ts`.
     vi.mocked(findConversationTenancy).mockResolvedValue(null)
 
-    await expect(deleteConversation(session, CONVERSATION_ID)).resolves.toBeUndefined()
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow(NotFoundError)
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
   })
 })
@@ -568,6 +579,111 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
     ])
 
     expect(persisted).toHaveLength(1)
+  })
+})
+
+describe('the addressee ruling is the SERVER\'s, and only the server\'s (spec MN-2)', () => {
+  it('strips a client-supplied `addressees` from metadata on a NON-user row', async () => {
+    // The server writes its ruling only when it HAS one, and it has none for an
+    // assistant/system/tool row — so a client-supplied value used to survive
+    // untouched on exactly those rows, and `storedAddressees` would read it back
+    // as authoritative when the id was replayed.
+    stubConversation({ visibility: 'project', createdBy: session.userId })
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      {
+        id: 'msg_1',
+        role: 'assistant',
+        content: 'Antwort',
+        messageType: 'agent_response',
+        metadata: {
+          addressees: { agent: false, users: ['user_victim'] },
+          cards: [{ kind: 'memory_proposal' }],
+        },
+      },
+    ])
+
+    const metadata = persisted.metadata as Record<string, unknown>
+    expect(metadata.addressees).toBeUndefined()
+    // Everything else the client legitimately stores is untouched.
+    expect(metadata.cards).toEqual([{ kind: 'memory_proposal' }])
+    expect(metadata.messageType).toBe('agent_response')
+  })
+
+  it('overwrites a client-supplied ruling on a USER row with the server\'s own', async () => {
+    stubConversation({ visibility: 'project', createdBy: session.userId })
+    vi.mocked(applyMessageMentions).mockResolvedValue({
+      addressees: { agent: false, users: ['user_anna'] },
+      createdRequests: 1,
+      awaitingUserIds: ['user_anna'],
+    })
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: '@Anna richtig?',
+        mentions: [{ targetId: 'user_anna' }],
+        metadata: { addressees: { agent: true, users: ['user_victim'] } },
+      },
+    ])
+
+    expect((persisted.metadata as Record<string, unknown>).addressees).toEqual({
+      agent: false,
+      users: ['user_anna'],
+    })
+  })
+})
+
+describe('the collaboration flag is off (spec NF-8, NF-7)', () => {
+  beforeEach(() => {
+    // A deployment that never opted in. The chat path must be the product it was
+    // before this feature existed — the flag is the operator's decision, and the
+    // feature must not switch itself on by being POSTed to.
+    delete process.env.GRID_COLLABORATION_ENABLED
+  })
+
+  it('refuses a message carrying mentions, and grants/asks/notifies nobody', async () => {
+    stubConversation({ visibility: 'project', createdBy: 'user_me' })
+
+    const failure = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: '@Anna richtig?', mentions: [{ targetId: 'user_anna' }] },
+    ]).catch((error: unknown) => error)
+
+    expect((failure as ForbiddenError).status).toBe(403)
+    expect((failure as ForbiddenError).details).toEqual({
+      reason: 'feature-disabled',
+      feature: 'collaboration',
+    })
+    // No grant, no mention request, no inbox row — and the message itself is not
+    // stored either, because a refused mention must not leave a half-sent trail.
+    expect(applyMessageMentions).not.toHaveBeenCalled()
+    expect(insertMessages).not.toHaveBeenCalled()
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('still persists an ordinary message exactly as before, agent addressed', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_me' })
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Welche OIB-Richtlinie gilt hier?' },
+    ])
+
+    expect(persisted.id).toBe('msg_1')
+    expect(persisted.addressees).toEqual({ agent: true, users: [] })
+    expect(insertMessages).toHaveBeenCalled()
+  })
+
+  it('records the read mark but never touches the inbox', async () => {
+    stubConversation({ visibility: 'project', createdBy: 'user_other' })
+    vi.mocked(upsertConversationRead).mockResolvedValue({} as never)
+
+    await markConversationRead(session, CONVERSATION_ID, { lastReadMessageId: 'msg_9' })
+
+    // CC-18/CC-19 read state is ordinary chat state and keeps working…
+    expect(upsertConversationRead).toHaveBeenCalled()
+    // …but the ambient-item clearing is collaboration behaviour.
+    expect(markResourceItemsReadFor).not.toHaveBeenCalled()
   })
 })
 

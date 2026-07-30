@@ -65,7 +65,7 @@ flowchart TD
 | Path | Behaviour | Where |
 |---|---|---|
 | **Conversation deleted** (requires `owner`) | Purge grants, requests, items. `messages`/`reads` cascade. | `conversations/service.ts` → `purgeConversationCollaboration` |
-| **Conversation that never existed** | Silent no-op, nothing purged. The chat store deletes ids that may only ever have lived in a browser, so this must not 404 or cascade. | `deleteConversation`'s tenancy probe |
+| **Conversation that never existed** | Nothing purged, and the client is told **exactly what it is told for a conversation that exists and is not theirs**: `204`. The chat store deletes ids that may only ever have lived in a browser, so absence must not surface an error — and a 204/404 split would have made the endpoint a cross-tenant existence oracle (spec SH-6). The service reports the truth (`NotFoundError` for both); the DELETE route is what collapses the two into one response. | `deleteConversation` + `api/conversations/[id]` DELETE |
 | **Project soft-deleted** | Neutralize every conversation in it. Grants kept for restore. Best-effort: a failure here never fails the deletion. | `projects/service.ts` → `neutralizeCollaborationForProject` |
 | **Project restored** | Nothing to do — grants survived, and voided requests stay void (a request nobody could answer for days should not silently come back and re-block the thread). | — |
 | **Project purged** | Conversations cascade-delete through `project_id`. Purge happens **outside this tier**, so the rows orphan and the sweep reconciles them. | sweep |
@@ -95,6 +95,13 @@ often, and cannot be forgotten by a future purge path — whereas a hook can.
 | Grant revoked | Voided for that person | Inert, payload wiped | Deleted |
 | Left voluntarily (self-removal, needs only `viewer`) | Voided | Inert, payload wiped | Deleted |
 | **Removed from the project** | Voided **for that project only** | Inert for that project only | **Kept** (inert while the container is unreachable, so re-adding restores the prior state) |
+
+A retained grant makes someone a *participant* indefinitely, which is why
+"participant" is never treated as a substitute for the container precondition. The
+`@`-picker and the send path both re-check container access for existing
+participants as well as for invitees (spec MN-6/SH-19) — otherwise an ex-member
+would still be offered, still be mentionable, and would still receive an inbox item
+carrying the thread's title.
 | Role downgraded to `viewer` | Voided | Untouched (they can still read) | Kept |
 | Last owner removed/demoted | Refused — `ConflictError`, `details.reason = 'last-owner'` | — | — |
 
@@ -144,6 +151,17 @@ Recorded because an undocumented known gap is indistinguishable from a bug.
   agent is working for and holds the composer (spec CC-13/OQ-4), and the agent tier has
   its own supersede logic, but a hostile client could still open a second turn. The
   cost is a wasted turn in a thread the caller can already read — not a data leak.
+
+  That last clause is now *true* rather than merely intended. It used to rest on
+  nothing: `/api/auth/websocket-scope` authorized the `projectId` only, so a
+  caller-supplied `conversationId` reached the agent unchecked, and the finished
+  turn was persisted through `/api/internal/conversations/[id]/messages`, gated by
+  an org-scoped lookup alone. Any signed-in org member could therefore open a turn
+  on a colleague's private conversation and have the answer written into it and
+  published to its participants. The upgrade now authorizes the conversation too
+  (`lib/collection-scope-request.ts`, at least `viewer`), refusing with a 403 that
+  makes the gateway destroy the socket — while still allowing an id that does not
+  exist yet, which is the ordinary first-message path.
 
 ## 8. Where the tests live
 

@@ -112,7 +112,7 @@ vi.mock('@/lib/inbox/repository', () => ({
   markItemsInertForSubjectRow: vi.fn(),
   markResourceItemsRead: vi.fn(),
   pruneInboxItemsOlderThan: vi.fn(),
-  resolveInboxItemsByGroupKeys: vi.fn(),
+  resolveInboxItemsForTargets: vi.fn(),
   upsertInboxItems: vi.fn(),
 }))
 
@@ -173,7 +173,7 @@ import {
   markItemsInertForSubjectInProject,
   markItemsInertForSubjectRow,
   pruneInboxItemsOlderThan,
-  resolveInboxItemsByGroupKeys,
+  resolveInboxItemsForTargets,
 } from '@/lib/inbox/repository'
 import {
   deleteOrphanedMentionRequests,
@@ -333,7 +333,7 @@ beforeEach(() => {
   vi.mocked(markItemsInertForResource).mockResolvedValue(0)
   vi.mocked(markItemsInertForSubjectRow).mockResolvedValue(0)
   vi.mocked(markItemsInertForSubjectInProject).mockResolvedValue(0)
-  vi.mocked(resolveInboxItemsByGroupKeys).mockResolvedValue(0)
+  vi.mocked(resolveInboxItemsForTargets).mockResolvedValue(0)
 })
 
 // ---------------------------------------------------------------------------
@@ -353,9 +353,13 @@ describe('deleting a conversation (matrix A1–A3, spec SH-13)', () => {
   })
 
   it('purges nothing for an id that only ever lived in the browser', async () => {
+    // The service reports the same `NotFoundError` here as for a row that exists
+    // and is not the caller's, so the two cannot be told apart (spec SH-6); the
+    // DELETE route turns both into the 204 the chat store needs. What matters at
+    // THIS level is that nothing was purged either way.
     vi.mocked(findConversationTenancy).mockResolvedValue(null)
 
-    await expect(deleteConversation(session, CONVERSATION_ID)).resolves.toBeUndefined()
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toBeInstanceOf(NotFoundError)
 
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
     expect(deleteAllGrantsForResource).not.toHaveBeenCalled()
@@ -549,9 +553,15 @@ describe('changing a role (matrix B11–B13, spec MN-9.4)', () => {
     })
 
     expect(voidOpenRequestsForSubject).toHaveBeenCalledWith('conversation', CONVERSATION_ID, ANNA)
-    // …and their inbox item stops pointing at a question they cannot answer.
-    expect(resolveInboxItemsByGroupKeys).toHaveBeenCalledWith([
-      'mention.requested:conversation:conv_1:msg_1',
+    // …and THEIR inbox item stops pointing at a question they cannot answer —
+    // paired with the recipient, so a colleague mentioned on the same message
+    // keeps their own row open (spec MN-10).
+    expect(resolveInboxItemsForTargets).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_1:msg_1',
+      },
     ])
   })
 
@@ -634,7 +644,7 @@ describe('revoking a grant (matrix C14–C15, spec SH-13, IB-14)', () => {
       revokeResourceAccess(session, 'conversation', CONVERSATION_ID, ANNA),
     ).resolves.toBeDefined()
 
-    expect(resolveInboxItemsByGroupKeys).toHaveBeenCalledWith([])
+    expect(resolveInboxItemsForTargets).toHaveBeenCalledWith([])
     expect(markItemsInertForSubjectRow).toHaveBeenCalledWith('conversation', CONVERSATION_ID, ANNA)
     expect(publishToUsers).toHaveBeenCalledWith([ANNA], expect.objectContaining({ change: 'revoked' }))
   })
@@ -716,9 +726,17 @@ describe('losing PROJECT membership (matrix C18–C20, spec SH-13)', () => {
     // may still hold legitimate state in another project.
     expect(voidOpenRequestsForSubjectInProject).toHaveBeenCalledWith('org_1', PROJECT_ID, ANNA)
     expect(markItemsInertForSubjectInProject).toHaveBeenCalledWith('org_1', PROJECT_ID, ANNA)
-    expect(resolveInboxItemsByGroupKeys).toHaveBeenCalledWith([
-      'mention.requested:conversation:conv_a:msg_1',
-      'mention.requested:conversation:conv_b:msg_2',
+    expect(resolveInboxItemsForTargets).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_a:msg_1',
+      },
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_b:msg_2',
+      },
     ])
   })
 
@@ -801,8 +819,12 @@ describe('losing PROJECT membership (matrix C18–C20, spec SH-13)', () => {
     const result = await revokeCollaborationForProjectMember('org_1', PROJECT_ID, ANNA)
 
     expect(result.requests).toBe(2)
-    expect(resolveInboxItemsByGroupKeys).toHaveBeenCalledWith([
-      'mention.requested:conversation:conv_b:msg_2',
+    expect(resolveInboxItemsForTargets).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_b:msg_2',
+      },
     ])
   })
 

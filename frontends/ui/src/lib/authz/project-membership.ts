@@ -65,6 +65,26 @@ async function resolveSubjectMembership(
 }
 
 /**
+ * Is `targetUserId` a member of the caller's organization at all?
+ *
+ * The precondition UNDERNEATH the container one. A resource with no container has
+ * no project to gate on, but "no container" is not "no precondition": a grant may
+ * still only name somebody inside the tenant. Without this, a grant row could be
+ * written for an arbitrary — even foreign — user id, and the notification fan-out
+ * would then publish to that foreign user's event channel.
+ *
+ * **Fails closed**, and deliberately built on the same cached membership lookup
+ * `canUserAccessProject` starts from, so the two can never disagree about who
+ * exists in the organization.
+ */
+export async function isUserInOrganization(
+  session: AuthorizedSession,
+  targetUserId: string,
+): Promise<boolean> {
+  return (await resolveSubjectMembership(session.organizationId, targetUserId)) !== null
+}
+
+/**
  * Whether `targetUserId` can reach `projectId` in the caller's organization.
  *
  * **Fails closed**: an unknown user, a user outside the organization, or a failed

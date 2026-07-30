@@ -62,5 +62,11 @@ export interface ShareCandidate {
 /** Machine-readable refusal reasons, so the UI can localise without parsing prose. */
 export const SHARING_ERROR_REASONS = {
   containerAccessRequired: 'container-access-required',
+  /**
+   * The subject is not a member of the caller's organization. Distinct from
+   * `containerAccessRequired` because the remedy is different: nobody can add them
+   * to a project they are not in the tenant of.
+   */
+  organizationMembershipRequired: 'organization-membership-required',
   lastOwner: 'last-owner',
 } as const

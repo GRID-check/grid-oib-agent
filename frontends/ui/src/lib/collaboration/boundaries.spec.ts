@@ -29,6 +29,7 @@ vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/authz/project-membership', () => ({
   canUserAccessProject: vi.fn(),
   filterUsersWithProjectAccess: vi.fn(),
+  isUserInOrganization: vi.fn(),
 }))
 
 vi.mock('@/lib/conversations/repository', () => ({
@@ -66,7 +67,7 @@ vi.mock('@/lib/inbox/repository', () => ({
   markItemsInertForResource: vi.fn(),
   markItemsInertForSubjectRow: vi.fn(),
   markResourceItemsRead: vi.fn(),
-  resolveInboxItemsByGroupKeys: vi.fn(),
+  resolveInboxItemsForTargets: vi.fn(),
   upsertInboxItems: vi.fn(),
 }))
 
@@ -86,7 +87,11 @@ vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
 import { ConflictError, ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { canUserAccessProject } from '@/lib/authz/project-membership'
+import {
+  canUserAccessProject,
+  filterUsersWithProjectAccess,
+  isUserInOrganization,
+} from '@/lib/authz/project-membership'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import { findConversationInOrg, findConversationTenancy } from '@/lib/conversations/repository'
 import type { MentionRequest, NewInboxItem, ResourceRole, ResourceVisibility } from '@/lib/db/schema'
@@ -213,6 +218,13 @@ beforeEach(() => {
   vi.mocked(countGrantsForResource).mockResolvedValue(1)
   vi.mocked(countPendingInboxItems).mockResolvedValue(0)
   vi.mocked(canUserAccessProject).mockResolvedValue(true)
+  vi.mocked(isUserInOrganization).mockResolvedValue(true)
+  // Every candidate reaches the project unless a test says otherwise — the
+  // mention path now asserts the container precondition for participants too
+  // (spec MN-6), so this mirrors `canUserAccessProject` above.
+  vi.mocked(filterUsersWithProjectAccess).mockImplementation(
+    async (_session, _projectId, candidateUserIds) => new Set(candidateUserIds),
+  )
   vi.mocked(upsertGrant).mockResolvedValue({} as never)
   vi.mocked(upsertInboxItems).mockImplementation(async (rows) => rows as never)
   vi.mocked(listOpenRequestsForResource).mockResolvedValue([])
@@ -364,6 +376,17 @@ describe('a legacy conversation with no container (matrix E30, spec MG-2)', () =
 
     expect(canUserAccessProject).not.toHaveBeenCalled()
     expect(upsertGrant).toHaveBeenCalledWith(expect.objectContaining({ subjectUserId: BOB }))
+  })
+
+  it('still checks that the invitee is in the ORGANIZATION — no container is not no precondition', async () => {
+    // "Nothing to gate on" used to mean "nothing checked": a grant could name a
+    // user in another tenant, and the fan-out would publish to their channel.
+    await grantResourceAccess(session, 'conversation', CONVERSATION_ID, {
+      subjectUserId: BOB,
+      role: 'collaborator',
+    })
+
+    expect(isUserInOrganization).toHaveBeenCalledWith(session, BOB)
   })
 })
 

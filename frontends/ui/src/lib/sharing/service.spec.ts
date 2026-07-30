@@ -24,6 +24,7 @@ vi.mock('@/lib/events/bus', () => ({
 
 vi.mock('@/lib/authz/project-membership', () => ({
   canUserAccessProject: vi.fn(),
+  isUserInOrganization: vi.fn(),
 }))
 
 vi.mock('@/lib/conversations/repository', () => ({
@@ -65,7 +66,7 @@ vi.mock('./repository', () => ({
 import { BadRequestError, ConflictError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { canUserAccessProject } from '@/lib/authz/project-membership'
+import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
 import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
@@ -136,6 +137,7 @@ beforeEach(() => {
   vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 60 })
   vi.mocked(countGrantsForResource).mockResolvedValue(0)
   vi.mocked(canUserAccessProject).mockResolvedValue(true)
+  vi.mocked(isUserInOrganization).mockResolvedValue(true)
   vi.mocked(upsertGrant).mockResolvedValue({} as never)
   vi.mocked(deleteGrant).mockResolvedValue(true)
   vi.mocked(updateConversationVisibilityInOrg).mockResolvedValue({} as never)
@@ -217,6 +219,58 @@ describe('the container precondition (spec SH-5)', () => {
     expect(upsertGrant).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
     expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('still demands ORGANIZATION membership when there is no container to gate on', async () => {
+    // A legacy conversation with no `project_id` used to return early here, so
+    // nothing checked the subject at all: a grant could be written for a user in
+    // another tenant, and `publishToUsers` would then write to that foreign
+    // user's channel.
+    vi.mocked(findConversationTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: null,
+      visibility: 'private',
+      createdBy: 'user_owner',
+      deletedAt: null,
+    })
+    vi.mocked(isUserInOrganization).mockResolvedValue(false)
+
+    const failure = await grantResourceAccess(session, 'conversation', 'conv_1', {
+      subjectUserId: 'user_of_another_tenant',
+      role: 'collaborator',
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BadRequestError)
+    expect((failure as BadRequestError).details).toEqual({
+      reason: 'organization-membership-required',
+    })
+    expect(isUserInOrganization).toHaveBeenCalledWith(session, 'user_of_another_tenant')
+    // No grant row, no audit entry, and nothing published to a channel that is
+    // not ours to write to.
+    expect(upsertGrant).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('grants on a container-less resource to a member of the organization', async () => {
+    vi.mocked(findConversationTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: null,
+      visibility: 'private',
+      createdBy: 'user_owner',
+      deletedAt: null,
+    })
+
+    await grantResourceAccess(session, 'conversation', 'conv_1', {
+      subjectUserId: 'user_member',
+      role: 'collaborator',
+    })
+
+    expect(upsertGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectUserId: 'user_member' }),
+    )
+    // No project, so no project question is asked.
+    expect(canUserAccessProject).not.toHaveBeenCalled()
   })
 
   it('grants access to someone who can reach the project', async () => {

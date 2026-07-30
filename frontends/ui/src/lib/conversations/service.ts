@@ -26,8 +26,9 @@
 
 import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { FEATURE_FLAGS, isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { getBackendUrl } from '@/lib/backend-proxy'
-import { NotFoundError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type {
   Conversation,
@@ -328,16 +329,22 @@ export async function generateConversationTitle(
 /**
  * Delete a conversation. Requires `owner`.
  *
- * Still idempotent for an id that does not exist AT ALL — the chat store deletes
- * server rows for conversations that may only ever have lived in the browser, and
- * a 404 there is noise, not a signal. The existence probe reveals nothing to the
- * caller: a row that DOES exist and is not theirs still fails the `owner` check
- * as `NotFoundError`, indistinguishable from absence.
+ * **This function reports the truth and answers `NotFoundError` for both "no such
+ * conversation" and "not yours to delete" — the caller decides what the client
+ * sees.** It used to short-circuit on a missing row and return silently, which
+ * made the two cases tell a signed-in colleague apart from the outside: 204 for an
+ * id that exists nowhere, 404 for one that exists in another tenant or belongs to
+ * somebody else. That is a cross-tenant existence oracle, and it contradicts spec
+ * SH-6.
+ *
+ * Reconciling it needs both halves, and the route holds the other one: the chat
+ * store deletes server rows for conversations that may only ever have lived in a
+ * browser, so a genuinely-absent id must not surface an error to that client. The
+ * DELETE handler therefore answers **204 for `NotFoundError` either way** — one
+ * response for both, which is what SH-6 actually demands — while this function
+ * stays honest for every internal caller and every test.
  */
 export async function deleteConversation(session: AuthorizedSession, conversationId: string): Promise<void> {
-  const tenancy = await findConversationTenancy(conversationId)
-  if (!tenancy) return
-
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
   await deleteConversationInOrg(conversationId, session.organizationId)
 
@@ -409,6 +416,33 @@ export async function updateMessageCardInteractions(
   return row
 }
 
+/**
+ * A message arrived carrying collaboration input in a deployment where
+ * collaboration is off (spec NF-8).
+ *
+ * **Refused, not silently ignored.** Dropping the mentions would let the author
+ * believe they had handed the thread to a colleague — the composer would show the
+ * agent staying quiet, nobody would be asked, and no inbox item would ever
+ * arrive. A stated refusal is the only outcome that does not invent a hand-off
+ * that never happened. The chat path itself is untouched: a message WITHOUT
+ * mentions behaves exactly as it did before this feature existed, which is the
+ * whole point of the flag.
+ *
+ * Subclassed from `ForbiddenError` (which takes no `details`) so the reason is
+ * machine-readable, mirroring the `feature-disabled` envelope
+ * `requireCollaborationEnabled` answers with on every other collaboration route.
+ */
+class CollaborationDisabledError extends ForbiddenError {
+  constructor() {
+    super('Collaboration is not enabled here, so a message cannot mention anyone.')
+    // `ApiError.details` is a readonly constructor property, so it is attached
+    // rather than passed through a constructor that does not accept it.
+    Object.assign(this, {
+      details: { reason: 'feature-disabled', feature: FEATURE_FLAGS.collaboration },
+    })
+  }
+}
+
 /** The agent answers — no mentions, today's behaviour unchanged (spec MN-1). */
 const AGENT_ADDRESSED: AddresseeSet = { agent: true, users: [] }
 
@@ -447,6 +481,14 @@ interface PreparedMessage {
  */
 function buildMessageRow(conversationId: string, prepared: PreparedMessage, authorUserId: string | null) {
   const { input } = prepared
+  // `addressees` is the SERVER's ruling on who a message was for, and only the
+  // server may ever write it (spec MN-2). Stripped from the client's metadata
+  // unconditionally rather than merely overwritten: the spread below writes a
+  // ruling only when there IS one, and there is none for an assistant/system/tool
+  // row or on the internal path — so a client-supplied value used to survive on
+  // exactly those rows, and `storedAddressees` would then read it back as
+  // authoritative on a replay.
+  const { addressees: _clientRuling, ...clientMetadata } = input.metadata ?? {}
   return {
     id: input.id,
     conversationId,
@@ -454,7 +496,7 @@ function buildMessageRow(conversationId: string, prepared: PreparedMessage, auth
     authorUserId: input.role === 'user' ? authorUserId : null,
     content: input.content,
     metadata: {
-      ...(input.metadata ?? {}),
+      ...clientMetadata,
       ...(input.messageType ? { messageType: input.messageType } : {}),
       // The server's ruling, stored once at persist time and never re-derived
       // from the text later (spec MN-2). Written LAST so a client cannot supply
@@ -510,6 +552,12 @@ async function prepareMessage(
     }
     return { input, addressees: AGENT_ADDRESSED, createdRequests: 0 }
   }
+
+  // The mention path is the collaboration feature, and it must not switch itself
+  // on where an operator has not chosen it (spec NF-8). Checked BEFORE the
+  // replay lookup and before `applyMessageMentions`, so a flag-off send writes no
+  // grant, no request and no inbox row.
+  if (!isCollaborationEnabled(session)) throw new CollaborationDisabledError()
 
   // A replayed client-generated id must not create a second request or a second
   // notification. The first attempt's ruling is authoritative — read it back
@@ -710,6 +758,11 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
  * Reading a thread NEVER resolves an actionable request — being seen is not
  * being answered (spec MN-16). That distinction lives in
  * `markResourceItemsReadFor`, which only touches informational items.
+ *
+ * The read MARK is ordinary chat state and is recorded whatever the collaboration
+ * flag says — it is per person, it feeds the unread separator, and refusing it
+ * would break the core path. Touching the INBOX is collaboration behaviour, so it
+ * only happens where the feature is enabled (spec NF-8).
  */
 export async function markConversationRead(
   session: AuthorizedSession,
@@ -724,10 +777,12 @@ export async function markConversationRead(
     lastReadMessageId: input.lastReadMessageId ?? undefined,
   })
 
-  try {
-    await markResourceItemsReadFor(session, 'conversation', conversationId)
-  } catch (error) {
-    console.warn('[conversations] clearing ambient inbox items failed (non-fatal):', error)
+  if (isCollaborationEnabled(session)) {
+    try {
+      await markResourceItemsReadFor(session, 'conversation', conversationId)
+    } catch (error) {
+      console.warn('[conversations] clearing ambient inbox items failed (non-fatal):', error)
+    }
   }
 
   return mark

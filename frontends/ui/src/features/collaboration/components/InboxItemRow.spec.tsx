@@ -120,6 +120,25 @@ describe('InboxItemRow — inert items are never links (IB-13)', () => {
     // The title still renders, so the row is not a mystery blank.
     expect(screen.getByText('Anna Weber asked for your input')).toBeInTheDocument()
   })
+
+  test('names a withheld subject "no longer available", not "untitled"', () => {
+    // The server withholds `subject` — the conversation TITLE — for any row whose
+    // target the recipient can no longer reach, exactly as it withholds the
+    // snippet (IB-13). Calling that "Untitled conversation" would misstate WHY the
+    // row is nameless: the thread has a name, this reader is no longer entitled to
+    // it. `href: null` is the server's signal that the row is redacted.
+    render(<InboxItemRow item={item({ href: null, subject: null, excerpt: null })} />)
+
+    expect(screen.getByText('in No longer available')).toBeInTheDocument()
+    expect(screen.queryByText('in Untitled conversation')).not.toBeInTheDocument()
+  })
+
+  test('still says "untitled" for a REACHABLE thread that genuinely has no name', () => {
+    // The two cases must not be conflated in the other direction either.
+    render(<InboxItemRow item={item({ subject: null })} />)
+
+    expect(screen.getByText('in Untitled conversation')).toBeInTheDocument()
+  })
 })
 
 describe('InboxItemRow — actions', () => {

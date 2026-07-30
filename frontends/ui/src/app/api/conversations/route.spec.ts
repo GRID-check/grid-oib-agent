@@ -70,16 +70,20 @@ describe('GET /api/conversations', () => {
     expect(params).toContain('user_1')
   })
 
-  it('scopes by projectId, keeping tenancy, the legacy null fail-open rule, and privacy', async () => {
+  it('scopes by projectId, keeping tenancy, unstamped rows, and privacy', async () => {
     const res = await GET(new Request(`https://grid.example/api/conversations?projectId=${PROJECT_ID}`))
 
     expect(res.status).toBe(200)
     const { sql, params } = onlyQuery()
-    // Fail-open display rule: rows stamped with the project OR legacy rows with
-    // a NULL project_id — never rows from other projects, always inside the org.
+    // Rows stamped with the project, or unstamped legacy rows — never rows from
+    // another project, always inside the org. The two are separate disjuncts with
+    // separate visibility rules: an unstamped row is judged on creator/grant/org
+    // visibility, because the caller's proof about THIS project says nothing about
+    // a row that is not in it (see `conversations/repository.spec.ts`).
     expect(sql).toContain('"conversations"."organization_id" = $1')
-    expect(sql).toContain('("conversations"."project_id" = $2 or "conversations"."project_id" is null)')
-    // Project access is proven, so only `private` rows need narrowing.
+    expect(sql).toContain('("conversations"."project_id" = $2 and (')
+    expect(sql).toContain('or ("conversations"."project_id" is null and (')
+    // Project access is proven, so only `private` rows inside it need narrowing.
     expect(sql).toContain('"conversations"."visibility" <> $3')
     expect(sql).toContain('exists (select 1 from "resource_shares"')
     expect(params).toContain('private')

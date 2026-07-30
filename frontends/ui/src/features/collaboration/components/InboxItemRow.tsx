@@ -95,9 +95,16 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
   // answered it is history, and colouring it would keep shouting for attention.
   const isRequest = presentation.tone === 'request' && item.actionable && !resolved && !inert
 
+  // A REDACTED row — inert, or its target no longer reachable — carries no href
+  // and no payload, because the server withholds the conversation title exactly
+  // as it withholds the quoted snippet (IB-13). Falling back to "Untitled
+  // conversation" there would misstate WHY the row is nameless: the thread has a
+  // title, this reader is simply no longer entitled to it.
+  const redacted = !item.href
+
   const vars = {
     actor: item.actorName ?? t('inbox.unknownActor'),
-    subject: item.subject ?? t('inbox.untitledConversation'),
+    subject: item.subject ?? t(redacted ? 'inbox.inert' : 'inbox.untitledConversation'),
     count: item.count,
   }
 

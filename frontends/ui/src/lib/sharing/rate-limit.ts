@@ -36,7 +36,16 @@ export const SHARE_RATE_LIMIT: RateLimitRule = { action: 'share', limit: 60, win
 /** Sending mentions (counted per mentioned person, not per message). */
 export const MENTION_RATE_LIMIT: RateLimitRule = { action: 'mention', limit: 100, windowMs: 60 * 60 * 1000 }
 
-/** Maximum people one message may mention (spec MN-13). */
+/**
+ * Maximum people one message may mention (spec MN-13, which mandates a bound but
+ * names no number).
+ *
+ * The single source of truth for that bound: the mentions service refuses above
+ * it, and the messages route's request schema caps its `mentions` array with this
+ * same constant. Keeping them one value is deliberate — a looser schema cap meant
+ * an over-limit message passed validation and was then refused by the service,
+ * two different errors for one rule.
+ */
 export const MAX_MENTIONS_PER_MESSAGE = 10
 
 export interface RateLimitResult {

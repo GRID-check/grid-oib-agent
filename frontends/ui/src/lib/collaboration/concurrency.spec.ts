@@ -85,7 +85,7 @@ vi.mock('@/lib/inbox/repository', () => ({
   markItemsInertForResource: vi.fn(),
   markItemsInertForSubjectRow: vi.fn(),
   markResourceItemsRead: vi.fn(),
-  resolveInboxItemsByGroupKeys: vi.fn(),
+  resolveInboxItemsForTargets: vi.fn(),
   upsertInboxItems: vi.fn(),
 }))
 
@@ -124,7 +124,7 @@ import { emitInboxItems } from '@/lib/inbox/service'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import {
   countPendingInboxItems,
-  resolveInboxItemsByGroupKeys,
+  resolveInboxItemsForTargets,
   upsertInboxItems,
 } from '@/lib/inbox/repository'
 import {
@@ -242,6 +242,10 @@ function captureSql(rows: unknown[][] = []): CapturedQuery[] {
 }
 
 beforeEach(() => {
+  // The collaboration feature is dark-launched (spec NF-7): without an operator
+  // opt-in the mention path refuses outright, so the tests that exercise it must
+  // enable it. The flag-OFF behaviour has its own tests.
+  process.env.GRID_COLLABORATION_ENABLED = 'true'
   stubConversation()
   stubContainer('project-editor')
   stubMyGrant(null)
@@ -252,7 +256,7 @@ beforeEach(() => {
   vi.mocked(listOpenRequestsForResource).mockResolvedValue([])
   vi.mocked(listOpenRequestsForSubject).mockResolvedValue([])
   vi.mocked(resolveRequests).mockResolvedValue([])
-  vi.mocked(resolveInboxItemsByGroupKeys).mockResolvedValue(0)
+  vi.mocked(resolveInboxItemsForTargets).mockResolvedValue(0)
   vi.mocked(upsertInboxItems).mockImplementation(async (rows) => rows as never)
   vi.mocked(insertMentionRequests).mockResolvedValue([])
   vi.mocked(insertMessages).mockImplementation(async (rows) => rows as Message[])
@@ -294,7 +298,7 @@ describe('two people answering the same mention (matrix D21, spec CC-15)', () =>
     // No "your request was answered" for a request this author did not close, and
     // no awaiting republish claiming the state changed.
     expect(upsertInboxItems).not.toHaveBeenCalled()
-    expect(resolveInboxItemsByGroupKeys).not.toHaveBeenCalled()
+    expect(resolveInboxItemsForTargets).not.toHaveBeenCalled()
     expect(publishToUsers).not.toHaveBeenCalled()
   })
 
@@ -405,7 +409,7 @@ describe('releasing a request twice (matrix D24, spec MN-9.2)', () => {
     expect(state).toEqual({ pending: [], awaitingMe: false })
     // Nothing re-resolved, and no awaiting event announcing a change that did not
     // happen — a double click must not look like a second release.
-    expect(resolveInboxItemsByGroupKeys).not.toHaveBeenCalled()
+    expect(resolveInboxItemsForTargets).not.toHaveBeenCalled()
     expect(publishToUsers).not.toHaveBeenCalled()
   })
 
@@ -432,6 +436,6 @@ describe('revoking a grant twice (matrix D25, spec SH-13)', () => {
     // A revocation that removed nothing must leave no trail claiming it did.
     expect(recordAuditEvent).not.toHaveBeenCalled()
     expect(publishToUsers).not.toHaveBeenCalled()
-    expect(resolveInboxItemsByGroupKeys).not.toHaveBeenCalled()
+    expect(resolveInboxItemsForTargets).not.toHaveBeenCalled()
   })
 })

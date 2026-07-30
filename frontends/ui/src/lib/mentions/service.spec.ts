@@ -257,6 +257,41 @@ describe('applyMessageMentions — the invite policy (spec MN-5, MN-6, OQ-3)', (
     expect(emitInboxItems).toHaveBeenCalledTimes(1)
   })
 
+  it('refuses a mention of an EX-project-member, even though they are still a participant', async () => {
+    // Grants are deliberately retained when someone is removed from a project
+    // (lifecycle §5), so an ex-member is a "participant" forever. Being in the
+    // room is not the same as still being able to reach the room: without the
+    // container check the picker offers them, the mention succeeds, a request is
+    // written and an inbox item carries the thread's TITLE to somebody who may
+    // no longer see the project (spec MN-6, SH-19).
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_me', ANNA])
+    vi.mocked(filterUsersWithProjectAccess).mockResolvedValue(new Set([BOB]))
+
+    const failure = await send([ANNA]).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BadRequestError)
+    expect((failure as BadRequestError).details).toEqual({
+      reason: MENTION_ERROR_REASONS.containerAccessRequired,
+      targetId: ANNA,
+    })
+    // Nothing written and nobody told: no grant, no request row, no inbox item.
+    expect(grantResourceAccess).not.toHaveBeenCalled()
+    expect(insertMentionRequests).not.toHaveBeenCalled()
+    expect(emitInboxItems).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('checks the container ONCE for the whole mention list, not once per target', async () => {
+    await send([ANNA, BOB])
+
+    expect(filterUsersWithProjectAccess).toHaveBeenCalledTimes(1)
+    expect(filterUsersWithProjectAccess).toHaveBeenCalledWith(
+      session,
+      'proj_1',
+      expect.arrayContaining([ANNA, BOB]),
+    )
+  })
+
   it('refuses a mention of someone who cannot reach the container project', async () => {
     // Surfaced from grantResourceAccess rather than re-checked here (spec SH-5):
     // one implementation of the rule, one place to keep correct.
@@ -388,10 +423,13 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
     expect(result).toEqual({ answered: 1, askerUserIds: ['user_me'] })
 
     // The recipient's own item resolves without them dismissing anything (MN-16)…
-    expect(resolveInboxItemsFor).toHaveBeenCalledWith(
-      ['mention.requested:conversation:conv_1:msg_1'],
-      [ANNA],
-    )
+    expect(resolveInboxItemsFor).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_1:msg_1',
+      },
+    ])
     // …and the asker is told (MN-18).
     expect(emitInboxItems).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -401,6 +439,34 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
         groupKey: 'mention.answered:conversation:conv_1:msg_1',
       }),
     ])
+  })
+
+  it('settles only the replying person, never a colleague mentioned on the SAME message', async () => {
+    // Matthias mentioned Anna AND Bob on msg_1, so their two requests share the
+    // group key `mention.requested:conversation:conv_1:msg_1` — only the
+    // recipient differs. Anna replying must not close Bob's request, drop his
+    // badge, or take his row out of "needs you" while the banner still says the
+    // thread is waiting for him (spec MN-10, lifecycle invariant 3).
+    vi.mocked(listOpenRequestsForSubject).mockResolvedValue([requestRow({ requestedOf: ANNA })])
+    vi.mocked(resolveRequests).mockResolvedValue([
+      requestRow({ requestedOf: ANNA, status: 'answered', resolution: 'answered', resolvedBy: ANNA }),
+    ])
+
+    await resolveRequestsOnReply(input)
+
+    // Only Anna is addressed. Bob shares the group key and is absent, which is
+    // exactly the pairing the repository UPDATE now keys on.
+    const targets = vi.mocked(resolveInboxItemsFor).mock.calls[0]![0]
+    expect(targets).toEqual([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_1:msg_1',
+      },
+    ])
+    expect(targets.map((target) => target.recipientUserId)).not.toContain(BOB)
+    // Anna's own request is the only one asked about in the first place.
+    expect(listOpenRequestsForSubject).toHaveBeenCalledWith('conversation', 'conv_1', ANNA)
   })
 
   it('does nothing when the author was not being awaited', async () => {
@@ -426,10 +492,13 @@ describe('releaseRequest (spec MN-9.2)', () => {
     const state = await releaseRequest(session, 'req_1')
 
     expect(resolveRequests).toHaveBeenCalledWith(['req_1'], 'released', session.userId)
-    expect(resolveInboxItemsFor).toHaveBeenCalledWith(
-      ['mention.requested:conversation:conv_1:msg_1'],
-      [ANNA],
-    )
+    expect(resolveInboxItemsFor).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_1:msg_1',
+      },
+    ])
     expect(publishToUsers).toHaveBeenCalledWith(expect.arrayContaining(['user_me', ANNA]), {
       kind: 'conversation.awaiting',
       conversationId: 'conv_1',
@@ -505,6 +574,17 @@ describe('listMentionCandidates (spec MN-4, SH-19)', () => {
     // ever be refused reads as a bug (spec MN-6).
     expect(candidates.some((candidate) => candidate.targetId === CAROL)).toBe(false)
     expect(canInvite).toBe(true)
+  })
+
+  it('does not offer a participant who has lost access to the container project', async () => {
+    // Anna holds a retained grant but was removed from the project. Offering her
+    // would be offering a name the send path can only ever refuse (spec MN-6).
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_me', ANNA])
+    vi.mocked(filterUsersWithProjectAccess).mockResolvedValue(new Set([BOB]))
+
+    const { candidates } = await listMentionCandidates(session, 'conv_1')
+
+    expect(candidates.map((candidate) => candidate.targetId)).toEqual([AGENT_MENTION_ID, BOB])
   })
 
   it('reports canInvite false for a collaborator, who may only tag participants', async () => {

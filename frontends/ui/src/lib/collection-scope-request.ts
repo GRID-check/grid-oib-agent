@@ -2,6 +2,8 @@ import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects, userPreferences } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { findConversationTenancy } from '@/lib/conversations/repository'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import {
   buildCollectionScopeHeader,
   computeCollectionScope,
@@ -50,6 +52,39 @@ export async function resolveActiveProjectId(
   return undefined
 }
 
+/**
+ * Authorize a caller-supplied `conversationId` before it becomes chat scope.
+ *
+ * This is the gate on the WebSocket upgrade, and it is the only thing standing
+ * between "I know a conversation id" and "my prompt runs inside that thread".
+ * The finished assistant turn is persisted through the internal service path,
+ * whose only tenancy gate is `findConversationInOrg` — so without this check any
+ * signed-in org member could open a turn on a colleague's private conversation
+ * and have the answer written into it and fanned out to its real participants.
+ * ADR-0034 accepts an unenforced agent turn only on the premise that the thread
+ * is one the caller can already reach; this is that premise, enforced.
+ *
+ * **Absent is fine; existing-but-unreachable is not.** Conversation ids are
+ * client-generated and the row is created by the first message, so the normal
+ * first-message upgrade legitimately names an id that does not exist yet.
+ * `requireResourceAccess` cannot make that distinction on its own — it answers
+ * `NotFoundError` for "missing" and "not yours" alike, deliberately (spec SH-6) —
+ * so existence is probed first and only an EXISTING row is authorized. The cost
+ * is one extra indexed lookup per upgrade that carries a conversation id.
+ *
+ * Requires `viewer`: opening a turn is not contributing yet (the message POST
+ * demands `collaborator` in its own right), but reading the thread's context is
+ * the least the caller must be entitled to.
+ */
+async function authorizeConversationScope(
+  session: AuthorizedSession,
+  conversationId: string,
+): Promise<void> {
+  const tenancy = await findConversationTenancy(conversationId)
+  if (!tenancy) return
+  await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
+}
+
 async function resolveProjectCollectionName(
   projectId: string | undefined,
   organizationId: string | undefined,
@@ -89,6 +124,12 @@ export async function buildCollectionScopeFromRequest(
   }
 
   const conversationId = context.conversationId
+
+  // The conversation is authorized as well as the project. Both are
+  // caller-supplied, and until this ran only the project was ever checked.
+  if (conversationId && session && !anonymous) {
+    await authorizeConversationScope(session as AuthorizedSession, conversationId)
+  }
 
   if (projectId && session && !anonymous) {
     if (explicitProject) {

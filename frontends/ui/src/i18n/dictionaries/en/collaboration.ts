@@ -69,6 +69,7 @@ export const collaboration = {
       lastOwner: 'This conversation must keep at least one owner. Make someone else an owner first.',
       containerAccessRequired:
         'That person is not a member of this project yet. Add them to the project first.',
+      organizationMembershipRequired: 'That person is not a member of this organization.',
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',

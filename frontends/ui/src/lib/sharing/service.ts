@@ -32,7 +32,7 @@ import {
   upsertGrant,
   SHARE_ROSTER_LIMIT,
 } from './repository'
-import type { ResourceAccessEntry, ResourceSharingState } from './types'
+import { SHARING_ERROR_REASONS, type ResourceAccessEntry, type ResourceSharingState } from './types'
 
 export type { ResourceAccessEntry, ResourceSharingState }
 
@@ -234,13 +234,22 @@ export async function grantResourceAccess(
 }
 
 /**
- * The container precondition (spec SH-5), stated as its own function because it
- * is the rule most likely to be forgotten by a future caller.
+ * The invitee preconditions (spec SH-5), stated as their own function because
+ * they are the rules most likely to be forgotten by a future caller.
  *
- * A person who cannot reach the container must not receive a grant, because the
- * grant would be inert at best (access resolution gates on the container anyway)
- * and misleading at worst (a roster claiming someone has access when they do
- * not).
+ * **Two of them, and the second one is easy to lose.**
+ *
+ *   1. Same organization. Always. There is no shape of resource for which a grant
+ *      may name a stranger: a grant row for a foreign user id is unreachable
+ *      nonsense on the read path, but `publishToUsers` would still write to that
+ *      foreign user's event channel, and the roster would claim they have access.
+ *   2. The container, when there IS one. A person who cannot reach the container
+ *      must not receive a grant, because the grant would be inert at best (access
+ *      resolution gates on the container anyway) and misleading at worst.
+ *
+ * Rule 2 subsumes rule 1 — `canUserAccessProject` fails closed on a subject with
+ * no membership in the caller's organization — which is exactly why the
+ * no-container path has to state rule 1 for itself instead of returning early.
  */
 async function assertInviteeCanReachContainer(
   session: AuthorizedSession,
@@ -251,18 +260,30 @@ async function assertInviteeCanReachContainer(
   const descriptor = describeResource(resourceType)
   const probe = await descriptor.probe(resourceId)
   if (!probe) throw new NotFoundError()
+
+  const { canUserAccessProject, isUserInOrganization } = await import(
+    '@/lib/authz/project-membership'
+  )
+
   if (!probe.projectId) {
-    // No container to gate on: an organization-level resource is reachable by
-    // any member, and tenancy is checked when they actually read it.
+    // No container to gate on (a legacy organization-level resource), so the
+    // organization membership IS the whole precondition — and it is checked here
+    // rather than deferred to "tenancy is checked when they read it", because a
+    // grant and a published event are written before anyone reads anything.
+    if (!(await isUserInOrganization(session, subjectUserId))) {
+      throw new BadRequestError(
+        'That person is not a member of this organization.',
+        { reason: SHARING_ERROR_REASONS.organizationMembershipRequired },
+      )
+    }
     return
   }
 
-  const { canUserAccessProject } = await import('@/lib/authz/project-membership')
   const reachable = await canUserAccessProject(session, probe.projectId, subjectUserId)
   if (!reachable) {
     throw new BadRequestError(
       'That person is not a member of this project yet. Add them to the project first — sharing a resource never grants project access.',
-      { reason: 'container-access-required', projectId: probe.projectId },
+      { reason: SHARING_ERROR_REASONS.containerAccessRequired, projectId: probe.projectId },
     )
   }
 }

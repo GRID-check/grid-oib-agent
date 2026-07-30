@@ -29,8 +29,9 @@ import {
   markItemsInertForResource,
   markItemsInertForSubjectRow,
   markResourceItemsRead,
-  resolveInboxItemsByGroupKeys,
+  resolveInboxItemsForTargets,
   upsertInboxItems,
+  type InboxResolutionTarget,
 } from './repository'
 import { inboxItemIsActionable } from './registry'
 import type {
@@ -102,11 +103,20 @@ export async function emitInboxItems(emissions: InboxEmission[]): Promise<number
  *
  * Called by the mentions service when a request is answered, released or voided —
  * the recipient never has to tidy up manually for the inbox to stay accurate.
+ *
+ * Takes (organization, recipient, group) TRIPLES rather than a list of group keys
+ * plus a separate list of recipients: the pairing is what makes the update touch
+ * only the rows that actually settled. A group key is shared by everyone mentioned
+ * on the same message, so the two lists must never be applied as a cross product.
  */
-export async function resolveInboxItemsFor(groupKeys: string[], recipientUserIds: string[]): Promise<number> {
-  const resolved = await resolveInboxItemsByGroupKeys(groupKeys)
+export async function resolveInboxItemsFor(
+  targets: readonly InboxResolutionTarget[],
+): Promise<number> {
+  const resolved = await resolveInboxItemsForTargets(targets)
   await Promise.all(
-    [...new Set(recipientUserIds)].map((userId) => publishToUser(userId, { kind: 'inbox.changed', pending: -1 })),
+    [...new Set(targets.map((target) => target.recipientUserId))].map((userId) =>
+      publishToUser(userId, { kind: 'inbox.changed', pending: -1 }),
+    ),
   )
   return resolved
 }
@@ -151,6 +161,7 @@ export async function markItemsInertForDeletedResource(
  * list uses, without importing the repository (routes never reach the DB layer).
  */
 export { INBOX_LIST_LIMIT }
+export type { InboxResolutionTarget }
 
 export interface ListInboxParams {
   /** `true` = only what needs attention; omitted = everything unarchived. */
@@ -243,12 +254,19 @@ async function resolveTargets(
 /**
  * Project one row onto the wire shape.
  *
- * A row whose target is unreachable is returned REDACTED (`href: null`,
- * `excerpt: null`), never dropped: a redacted row explains itself ("you no
- * longer have access"), whereas a silently vanished notification looks like a
- * bug in the product. The stored payload of an inert row was already wiped at
- * revocation time (spec IB-14) — nulling the excerpt here is the second half of
- * that double protection, and the half that also covers a missed transition.
+ * A row whose target is unreachable is returned REDACTED — no link and no
+ * payload text at all — but never dropped: a redacted row explains itself ("you
+ * no longer have access"), whereas a silently vanished notification looks like a
+ * bug in the product.
+ *
+ * **The whole payload is withheld, not just the excerpt.** `subject` is the
+ * conversation's TITLE, which is exactly the kind of thing a title gives away
+ * ("Kündigung Müller", "Übernahmeangebot Halle 3"); gating the snippet while
+ * handing over the title would be a redaction in name only (spec IB-13, SH-19).
+ * The stored payload of an inert row was already wiped at revocation time (spec
+ * IB-14) — withholding it here is the second half of that double protection, and
+ * the half that also covers a missed transition, a narrowed visibility, or a lost
+ * project membership, none of which touch the stored row.
  */
 function toItemView(
   row: InboxItem,
@@ -278,7 +296,7 @@ function toItemView(
           projectId: access.container.projectId,
         })
       : null,
-    subject: coerceText(payload.subject, SUBJECT_MAX_LENGTH),
+    subject: access ? coerceText(payload.subject, SUBJECT_MAX_LENGTH) : null,
     excerpt: access ? coerceText(payload.excerpt, EXCERPT_MAX_LENGTH) : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

@@ -135,13 +135,23 @@ export async function revokeCollaborationForProjectMember(
           // list eagerly would let a single anchor-less row take the whole batch
           // into the catch below — every other recipient's item would silently stay
           // unresolved.
+          //
+          // Each row is paired with ITS recipient: a group key is shared by
+          // everyone mentioned on the same message, so an update keyed on the group
+          // alone would settle a colleague's still-open request too (spec MN-10).
           await resolveInboxItemsFor(
             voided
               .filter((request) => request.anchorId)
-              .map((request) =>
-                inboxGroupKey('mention.requested', 'conversation', request.resourceId, request.anchorId),
-              ),
-            voided.map((request) => request.requestedOf),
+              .map((request) => ({
+                organizationId: request.organizationId,
+                recipientUserId: request.requestedOf,
+                groupKey: inboxGroupKey(
+                  'mention.requested',
+                  'conversation',
+                  request.resourceId,
+                  request.anchorId,
+                ),
+              })),
           )
         }
         return voided.length

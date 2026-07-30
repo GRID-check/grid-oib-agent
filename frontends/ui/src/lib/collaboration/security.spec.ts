@@ -89,7 +89,7 @@ vi.mock('@/lib/inbox/repository', () => ({
   markItemsInertForResource: vi.fn(),
   markItemsInertForSubjectRow: vi.fn(),
   markResourceItemsRead: vi.fn(),
-  resolveInboxItemsByGroupKeys: vi.fn(),
+  resolveInboxItemsForTargets: vi.fn(),
   upsertInboxItems: vi.fn(),
 }))
 
@@ -577,8 +577,17 @@ describe('a notification never outlives the access it describes (matrix F39, spe
 
     expect(items[0]!.href).toBeNull()
     expect(items[0]!.excerpt).toBeNull()
-    // Redacted, not dropped: the row still explains itself.
-    expect(items[0]!.subject).toBe('Brandschutz Halle 3')
+    // The SUBJECT is the conversation's title, so it is withheld too. This
+    // assertion used to pin `'Brandschutz Halle 3'` — deliberately, on the
+    // reading that a redacted row must still "explain itself". It does explain
+    // itself: the row survives, carries its inert/unavailable label and its
+    // timestamp, and the client renders the generic `inbox.inert` copy in place of
+    // the name. What it must not do is keep leaking the title of a thread the
+    // recipient can no longer open (spec IB-13, SH-19).
+    expect(items[0]!.subject).toBeNull()
+    // Redacted, not dropped — the row is still there to explain itself.
+    expect(items).toHaveLength(1)
+    expect(items[0]!.type).toBe('mention.requested')
   })
 
   it('returns a working link only while the recipient can still reach the thread', async () => {

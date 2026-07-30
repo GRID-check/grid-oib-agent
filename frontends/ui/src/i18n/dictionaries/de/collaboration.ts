@@ -66,6 +66,7 @@ export const collaboration: typeof en.collaboration = {
         'Dieser Chat braucht mindestens einen Eigentümer. Bestimmen Sie zuerst eine andere Person.',
       containerAccessRequired:
         'Diese Person ist noch kein Mitglied des Projekts. Fügen Sie sie zuerst dem Projekt hinzu.',
+      organizationMembershipRequired: 'Diese Person ist kein Mitglied dieser Organisation.',
       rateLimited: 'Zu viele Änderungen an der Freigabe. Bitte warten Sie einige Minuten.',
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',

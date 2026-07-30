@@ -71,10 +71,18 @@ function grantNamesCaller(organizationId: string, userId: string) {
  *
  *   - **With `projectId`** (the normal case): the service has already proved the
  *     caller reaches that project (`requireProjectAccess`), so every
- *     `project`-visible row inside it is visible to them by definition. Only
- *     `private` rows need narrowing, to creator-or-grantee. Legacy rows with a
- *     NULL `project_id` stay fail-open exactly as before, so nobody loses sight
- *     of history created before project stamping.
+ *     `project`-visible row INSIDE IT is visible to them by definition. Only
+ *     `private` rows need narrowing, to creator-or-grantee. A row with a NULL
+ *     `project_id` is **not** inside that project, so the proof says nothing
+ *     about it and it is judged on its own terms — exactly the terms
+ *     `resolveResourceAccess` uses when there is no container to check: its
+ *     creator, an explicit grantee, or `organization` visibility. Sharing the
+ *     null-project clause and the visibility clause as two INDEPENDENT
+ *     disjuncts is what leaked: an unstamped conversation whose owner set
+ *     `project` visibility satisfied both for any caller in any project, so its
+ *     id, title, tags and author were listed org-wide and then 404'd on open —
+ *     the list and the access resolver disagreeing, which is the one thing this
+ *     query must never do.
  *
  *   - **Without `projectId`**: there is no proven container, and we will NOT do
  *     an FGA probe per row. The unscoped list is therefore narrowed to what the
@@ -96,14 +104,28 @@ export async function listVisibleConversations(
   const mine = eq(conversations.createdBy, userId)
   const granted = grantNamesCaller(organizationId, userId)
 
+  // The grounds a row is visible on when NO container backs it — the same answer
+  // `resolveResourceAccess` reaches for a null-project resource, and the same
+  // rule the unscoped branch below applies.
+  const withoutContainer = or(mine, granted, eq(conversations.visibility, 'organization'))
+
   const scope = projectId
     ? and(
         orgScope,
-        or(eq(conversations.projectId, projectId), isNull(conversations.projectId)),
-        // Inside a project the caller can reach, only `private` needs narrowing.
-        or(ne(conversations.visibility, 'private'), mine, granted),
+        or(
+          // Inside the project the caller has proved they reach, only `private`
+          // needs narrowing.
+          and(
+            eq(conversations.projectId, projectId),
+            or(ne(conversations.visibility, 'private'), mine, granted),
+          ),
+          // Unstamped rows are judged without any project claim, so that the list
+          // agrees with the access resolver instead of advertising titles it will
+          // then 404 on.
+          and(isNull(conversations.projectId), withoutContainer),
+        ),
       )
-    : and(orgScope, or(mine, granted, eq(conversations.visibility, 'organization')))
+    : and(orgScope, withoutContainer)
 
   return db.select().from(conversations).where(scope).orderBy(desc(conversations.updatedAt)).limit(limit)
 }

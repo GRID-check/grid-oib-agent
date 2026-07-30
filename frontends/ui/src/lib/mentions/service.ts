@@ -30,7 +30,11 @@ import { PRODUCT_NAME } from '@/lib/brand'
 import type { MentionRequest, ShareableResourceType } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
-import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
+import {
+  emitInboxItems,
+  resolveInboxItemsFor,
+  type InboxResolutionTarget,
+} from '@/lib/inbox/service'
 import { requireResourceAccess, type ResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory, unknownPerson } from '@/lib/sharing/directory'
 import { roleSatisfies } from '@/lib/sharing/registry'
@@ -115,11 +119,8 @@ export async function voidRequestsForSubject(
   // would escape into the middle of `revokeResourceAccess` — after the grant is
   // gone, but BEFORE the inbox payloads are wiped and before the revoked event is
   // published — leaving a quoted snippet alive for someone who just lost access
-  // (spec IB-14). `requestedGroupKeys` skips those rows for exactly this reason.
-  await resolveInboxItemsFor(
-    requestedGroupKeys(voided),
-    voided.map((request) => request.requestedOf),
-  )
+  // (spec IB-14). `requestedInboxTargets` skips those rows for exactly this reason.
+  await resolveInboxItemsFor(requestedInboxTargets(voided))
   return voided.length
 }
 
@@ -136,10 +137,7 @@ export async function voidRequestsForResource(
 
   // Anchor-less rows are skipped, not defaulted — see the note in
   // {@link voidRequestsForSubject}.
-  await resolveInboxItemsFor(
-    requestedGroupKeys(voided),
-    voided.map((request) => request.requestedOf),
-  )
+  await resolveInboxItemsFor(requestedInboxTargets(voided))
   return voided.length
 }
 
@@ -224,14 +222,29 @@ export async function applyMessageMentions(
   ])
   const participantSet = new Set(participants)
 
+  // Unresolvable ids are DROPPED, not refused (spec MN-3): a stale picker entry
+  // or a deactivated colleague is not something to fail a message over, and an
+  // id that resolves to nobody can neither be notified nor answer.
+  const resolvable = humanTargets.filter((targetId) => directory.has(targetId))
+
+  // The container precondition (spec MN-6/SH-5) applies to EVERY target, not only
+  // to the ones being invited. Grants are deliberately retained when someone is
+  // removed from a project (lifecycle §5), so "already a participant" outlives the
+  // container access that justified it — and addressing an ex-member would create
+  // a request they can never answer and put the thread's TITLE in the inbox of
+  // somebody who may no longer see the project.
+  //
+  // ONE batched check for the whole list, never one per target: this runs on the
+  // send path. `filterUsersWithProjectAccess` is the same rule the pickers use,
+  // and `grantResourceAccess` re-asserts it for the invite path — the answers are
+  // cached, so agreeing costs nothing.
+  const reachable = await resolveReachableTargets(session, access, resolvable)
+
   // Phase 1 — classify, and refuse before writing anything.
   const addressed: string[] = []
   const toInvite: string[] = []
-  for (const targetId of humanTargets) {
-    // Unresolvable ids are DROPPED, not refused (spec MN-3): a stale picker entry
-    // or a deactivated colleague is not something to fail a message over, and an
-    // id that resolves to nobody can neither be notified nor answer.
-    if (!directory.has(targetId)) continue
+  for (const targetId of resolvable) {
+    if (!reachable.has(targetId)) throw containerAccessRefusal(targetId)
 
     if (participantSet.has(targetId)) {
       addressed.push(targetId)
@@ -329,13 +342,44 @@ async function enforceMentionBounds(session: AuthorizedSession, count: number): 
 }
 
 /**
+ * Which of these targets satisfy the container precondition (spec SH-5)?
+ *
+ * The rule itself is `filterUsersWithProjectAccess` — the same function both
+ * pickers use, so what may be mentioned and what is offered cannot drift. A
+ * resource with no container (a legacy organization-level conversation) has
+ * nothing to gate on; tenancy is what bounds it, and the directory the targets
+ * came from is already org-scoped.
+ */
+async function resolveReachableTargets(
+  session: AuthorizedSession,
+  access: ResourceAccess,
+  targetIds: readonly string[],
+): Promise<Set<string>> {
+  const projectId = access.container.projectId
+  if (!projectId || targetIds.length === 0) return new Set(targetIds)
+  return filterUsersWithProjectAccess(session, projectId, targetIds)
+}
+
+/**
+ * The one refusal for "that person cannot reach this project", so the send path
+ * and the invite path cannot describe the same block two different ways
+ * (spec MN-6).
+ */
+function containerAccessRefusal(targetId: string): BadRequestError {
+  return new BadRequestError(
+    'That person cannot see this project yet. Add them to the project first — mentioning someone is never a back door into it.',
+    { reason: MENTION_ERROR_REASONS.containerAccessRequired, targetId },
+  )
+}
+
+/**
  * Invite a mentioned non-participant as `collaborator` (spec MN-5).
  *
- * The container check lives in `grantResourceAccess`, not here: duplicating it
- * would give two places to keep in agreement, and the refusal we need to surface
- * is exactly the one it already produces. We only re-label it with the mention
- * vocabulary and the target it was about, so the composer can say *which* name it
- * is complaining about (spec MN-6).
+ * `grantResourceAccess` asserts the container precondition again on its own
+ * authority — it is the module that owns the rule, and a mistake in a future
+ * caller must not turn into an invitation. This one re-labels its refusal with
+ * the mention vocabulary and the target it was about, so the composer can say
+ * *which* name it is complaining about (spec MN-6).
  */
 async function inviteMentionTarget(
   session: AuthorizedSession,
@@ -351,10 +395,7 @@ async function inviteMentionTarget(
   } catch (error) {
     const reason = errorReason(error)
     if (reason === MENTION_ERROR_REASONS.containerAccessRequired) {
-      throw new BadRequestError(
-        'That person cannot see this project yet. Add them to the project first — mentioning someone is never a back door into it.',
-        { reason: MENTION_ERROR_REASONS.containerAccessRequired, targetId },
-      )
+      throw containerAccessRefusal(targetId)
     }
     throw error
   }
@@ -446,7 +487,11 @@ export async function resolveRequestsOnReply(
   if (closed.length === 0) return { answered: 0, askerUserIds: [] }
 
   // The recipient never has to tidy up for the inbox to stay accurate (MN-16).
-  await resolveInboxItemsFor(requestedGroupKeys(closed), [authorUserId])
+  // Every closed row here is addressed to THIS author (they came from
+  // `listOpenRequestsForSubject`), and the targets carry that recipient
+  // explicitly — a colleague mentioned on the same message keeps their own row
+  // open (spec MN-10).
+  await resolveInboxItemsFor(requestedInboxTargets(closed))
 
   const askerUserIds = [...new Set(closed.map((request) => request.requestedBy))]
   const subject = await resolveSubjectLine(resourceType, resourceId, organizationId)
@@ -509,10 +554,7 @@ async function releaseOpenRequests(requests: MentionRequest[], resolvedBy: strin
     resolvedBy,
   )
   if (closed.length === 0) return 0
-  await resolveInboxItemsFor(
-    requestedGroupKeys(closed),
-    closed.map((request) => request.requestedOf),
-  )
+  await resolveInboxItemsFor(requestedInboxTargets(closed))
   return closed.length
 }
 
@@ -681,21 +723,19 @@ async function loadCandidateRoster(
   // Never offer the caller themselves: you cannot invite or await yourself.
   const others = [...directory.values()].filter((person) => person.userId !== session.userId)
 
-  const projectId = access.container.projectId
-  const reachable = projectId
-    ? await filterUsersWithProjectAccess(
-        session,
-        projectId,
-        others.map((person) => person.userId),
-      )
-    // No container to gate on (a legacy organization-level conversation): every
-    // member of the organization satisfies the precondition by definition.
-    : new Set(others.map((person) => person.userId))
-
-  // A participant is reachable by construction — they hold a grant, which the
-  // container check already gated when it was issued. Keeping them in the set
-  // means a stale FGA read cannot make an existing participant look invalid.
-  for (const userId of participantSet) reachable.add(userId)
+  // The container precondition, resolved through the same helper the send path
+  // uses. A PARTICIPANT is deliberately not exempted: grants are retained when
+  // someone is removed from a project (lifecycle §5), so an ex-member stays a
+  // participant indefinitely, and exempting them would put a name in the picker
+  // that the send path is then obliged to refuse (spec MN-6, SH-19) — while the
+  // resulting inbox item would carry the thread's title to somebody outside the
+  // project. The share dialog still LISTS them (`includeUnreachable`), flagged
+  // with the reason, because there an owner can act on it.
+  const reachable = await resolveReachableTargets(
+    session,
+    access,
+    others.map((person) => person.userId),
+  )
 
   const visible = options.includeUnreachable
     ? others
@@ -739,18 +779,32 @@ async function publishAwaiting(
 }
 
 /**
- * Group keys of the `mention.requested` items belonging to these requests.
+ * The `mention.requested` inbox rows belonging to these requests, each paired
+ * with the person whose row it is.
+ *
+ * The pairing is load-bearing: a group key is shared by everyone mentioned on the
+ * same message, so `(recipient, groupKey)` — not the group key alone — is what
+ * identifies one person's item (spec MN-10). The organization comes off the
+ * request row for the same reason: a group key built from a client-generated
+ * conversation id is not tenant-unique.
  *
  * Anchor-less requests are skipped rather than defaulted: `mention.requested`
  * groups per anchor, so there is no item to resolve for a request that never had
  * one, and `inboxGroupKey` would (correctly) throw.
  */
-function requestedGroupKeys(requests: MentionRequest[]): string[] {
+function requestedInboxTargets(requests: MentionRequest[]): InboxResolutionTarget[] {
   return requests
     .filter((request) => request.anchorId)
-    .map((request) =>
-      inboxGroupKey('mention.requested', request.resourceType, request.resourceId, request.anchorId),
-    )
+    .map((request) => ({
+      organizationId: request.organizationId,
+      recipientUserId: request.requestedOf,
+      groupKey: inboxGroupKey(
+        'mention.requested',
+        request.resourceType,
+        request.resourceId,
+        request.anchorId,
+      ),
+    }))
 }
 
 /**

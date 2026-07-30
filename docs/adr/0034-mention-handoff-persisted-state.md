@@ -130,9 +130,22 @@ infer is still an unclear product.
   (*clarification* for the agent's own question, *request* for a mention).
 - The client decides whether to open an agent turn from the server's answer, so a
   hostile client could open one anyway. The consequence is a wasted turn and an
-  unwanted answer in a thread the caller already has access to — not a data leak. A
-  server-side veto would require the agent tier to consult BFF state on every turn,
-  which is not worth it at this stage.
+  unwanted answer **in a thread the caller can already reach** — not a data leak. A
+  server-side veto on the *turn* would require the agent tier to consult BFF state
+  on every turn, which is not worth it at this stage.
+
+  "A thread the caller can already reach" is a claim, so it is enforced rather than
+  assumed: the WebSocket upgrade's scope resolution
+  (`lib/collection-scope-request.ts`) authorizes the caller-supplied
+  `conversationId` — at least `viewer` via `requireResourceAccess` — and the
+  gateway destroys the socket on the resulting 403. An id that does not exist yet
+  is still allowed, because conversation ids are client-generated and the row
+  appears with the first message; absent is fine, existing-but-unreachable is not.
+  Without that check the residual was not "a wasted turn" at all: the finished
+  assistant turn is persisted through the internal service path, whose only gate is
+  an org-scoped conversation lookup, so any signed-in org member could have had an
+  answer written into a colleague's private thread and fanned out to its real
+  participants.
 
 ### Risks
 

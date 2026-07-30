@@ -46,30 +46,53 @@ beforeEach(() => {
 })
 
 describe('listVisibleConversations — scoped to a project', () => {
-  it('keeps org tenancy and the legacy NULL-project fail-open rule', async () => {
+  it('keeps org tenancy, and judges in-project and unstamped rows SEPARATELY', async () => {
     await listVisibleConversations('org_1', 'user_me', { projectId: PROJECT_ID })
 
     const { sql, params } = onlyQuery()
     expect(sql).toContain('"conversations"."organization_id" = $1')
-    expect(sql).toContain(
-      '("conversations"."project_id" = $2 or "conversations"."project_id" is null)',
-    )
+    // Two disjuncts, each carrying its own visibility rule. The old shape put
+    // `project_id is null` and `visibility <> 'private'` in INDEPENDENT clauses,
+    // which is the leak: a row satisfying one from each was returned.
+    expect(sql).toContain('("conversations"."project_id" = $2 and (')
+    expect(sql).toContain('or ("conversations"."project_id" is null and (')
     expect(params.slice(0, 2)).toEqual(['org_1', PROJECT_ID])
   })
 
-  it('narrows ONLY private rows, because project access is already proven', async () => {
+  it('narrows ONLY private rows inside the project, because project access is proven', async () => {
     await listVisibleConversations('org_1', 'user_me', { projectId: PROJECT_ID })
 
     const { sql, params } = onlyQuery()
     // Anything not private is visible to someone who reaches the project;
     // private needs to be theirs or granted to them.
-    expect(sql).toContain('"conversations"."visibility" <> $3')
-    expect(sql).toContain('"conversations"."created_by" = $4')
+    expect(sql).toContain(
+      '"conversations"."project_id" = $2 and ("conversations"."visibility" <> $3 or "conversations"."created_by" = $4',
+    )
     expect(params).toContain('private')
-    expect(params.filter((param) => param === 'user_me')).toHaveLength(2)
   })
 
-  it('resolves grants with ONE correlated subquery, not one check per row', async () => {
+  it('does NOT hand an unstamped row out on `project` visibility alone (F5)', async () => {
+    await listVisibleConversations('org_1', 'user_me', { projectId: PROJECT_ID })
+
+    const { sql, params } = onlyQuery()
+    // A conversation with no `project_id` is not inside the project the caller
+    // proved they reach, so that proof says nothing about it. Its own grounds are
+    // exactly the ones `resolveResourceAccess` uses when there is no container:
+    // creator, explicit grantee, or `organization` visibility. Before this, an
+    // unstamped conversation whose owner set `project` visibility was listed —
+    // with its title, tags and author — to every member of every project, and then
+    // 404'd the moment they opened it.
+    expect(sql).toContain(
+      '("conversations"."project_id" is null and ("conversations"."created_by" = $8 or exists (',
+    )
+    expect(sql).toContain('"conversations"."visibility" = $12')
+    expect(params[11]).toBe('organization')
+    // The null-project branch never relaxes to "not private": `<>` appears once,
+    // and only inside the in-project branch.
+    expect(sql.match(/"conversations"\."visibility" <> /g)).toHaveLength(1)
+  })
+
+  it('resolves grants with ONE correlated subquery per branch, not one check per row', async () => {
     await listVisibleConversations('org_1', 'user_me', { projectId: PROJECT_ID })
 
     const { sql } = onlyQuery()
@@ -77,6 +100,7 @@ describe('listVisibleConversations — scoped to a project', () => {
     // Correlated on the outer row — this is what makes it a single round trip.
     expect(sql).toContain('"resource_shares"."resource_id" = "conversations"."id"')
     expect(sql).toContain('"resource_shares"."subject_user_id" = $7')
+    expect(sql).toContain('"resource_shares"."subject_user_id" = $11')
     // A grant row is tenant data like any other.
     expect(sql).toContain('"resource_shares"."organization_id" = $5')
     expect(sql).toContain('"resource_shares"."resource_type" = $6')
@@ -87,7 +111,7 @@ describe('listVisibleConversations — scoped to a project', () => {
 
     const { sql, params } = onlyQuery()
     expect(sql).toContain('order by "conversations"."updated_at" desc')
-    expect(sql).toContain('limit $8')
+    expect(sql).toContain('limit $13')
     expect(params.at(-1)).toBe(CONVERSATION_LIST_LIMIT)
   })
 })
@@ -106,7 +130,8 @@ describe('listVisibleConversations — no project scope', () => {
     expect(params).toContain('organization')
     // No project claim is made, so no project predicate is applied either.
     expect(sql).not.toContain('"conversations"."project_id"')
-    // And crucially: `project` visibility alone does NOT make the cut here.
+    // And crucially: `project` visibility alone does NOT make the cut here — the
+    // same rule the scoped branch now applies to its unstamped rows.
     expect(params).not.toContain('project')
   })
 })

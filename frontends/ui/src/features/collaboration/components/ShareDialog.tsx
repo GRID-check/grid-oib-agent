@@ -148,6 +148,9 @@ export function ShareDialog({
     if (value.reason === SHARING_ERROR_REASONS.containerAccessRequired) {
       return t('sharing.errors.containerAccessRequired')
     }
+    if (value.reason === SHARING_ERROR_REASONS.organizationMembershipRequired) {
+      return t('sharing.errors.organizationMembershipRequired')
+    }
     return t('sharing.errors.saveFailed')
   }
 

@@ -15,7 +15,7 @@ vi.mock('./repository', () => ({
   markResourceItemsRead: vi.fn(),
   markItemsInertForResource: vi.fn(),
   markItemsInertForSubjectRow: vi.fn(),
-  resolveInboxItemsByGroupKeys: vi.fn(),
+  resolveInboxItemsForTargets: vi.fn(),
   upsertInboxItems: vi.fn(),
 }))
 
@@ -126,7 +126,9 @@ describe('listInbox — read-time re-authorization (IB-13)', () => {
     // Redacted, NOT dropped: a vanished row would read as a bug.
     expect(gone.href).toBeNull()
     expect(gone.excerpt).toBeNull()
-    expect(gone.subject).toBe('Brandschutz Halle 3')
+    // The subject is the conversation TITLE, so it is gated on access exactly as
+    // the snippet is — otherwise "redacted" would only cover half the payload.
+    expect(gone.subject).toBeNull()
     expect(ok.href).toBe('/app/projects/proj_1/chat?conversation=conv_ok')
     expect(ok.excerpt).toBe('Welche OIB-2 Anforderung gilt hier?')
   })
@@ -377,6 +379,43 @@ describe('the SQL predicates behind the filters', () => {
       '"inbox_items"."read_at" is null or ("inbox_items"."actionable" = $3 and "inbox_items"."resolved_at" is null)',
     )
     expect(params).toEqual(['org_1', 'user_1', true])
+  })
+
+  it('resolves a settled request for ITS recipient only, never a colleague sharing the group key', async () => {
+    // Everyone mentioned on the same message shares
+    // `mention.requested:conversation:<id>:<anchor>` — only `recipient_user_id`
+    // differs. An UPDATE keyed on the group alone therefore closed Bob's
+    // untouched request when Anna answered hers (spec MN-10, lifecycle
+    // invariant 3): his badge dropped and his row left `pendingOnly` while the
+    // banner still said "awaiting Bob".
+    let condition: unknown
+    const returning = vi.fn().mockResolvedValue([])
+    const where = vi.fn((value: unknown) => {
+      condition = value
+      return { returning }
+    })
+    vi.mocked(getDb).mockReturnValue({
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where })) })),
+    } as never)
+
+    const real = await realRepository()
+    await real.resolveInboxItemsForTargets([
+      {
+        organizationId: 'org_1',
+        recipientUserId: 'user_anna',
+        groupKey: 'mention.requested:conversation:conv_1:msg_1',
+      },
+    ])
+    const { sql, params } = render(condition)
+
+    expect(sql).toContain('"inbox_items"."organization_id" = ')
+    expect(sql).toContain('"inbox_items"."recipient_user_id" = ')
+    expect(sql).toContain('"inbox_items"."resolved_at" is null')
+    expect(params).toEqual([
+      'org_1',
+      'user_anna',
+      'mention.requested:conversation:conv_1:msg_1',
+    ])
   })
 
   it('marking a resource read clears ambient items only, never actionable ones', async () => {
