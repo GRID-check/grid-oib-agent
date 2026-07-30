@@ -129,10 +129,18 @@ export async function revokeCollaborationForProjectMember(
         if (voided.length > 0) {
           // Resolve the matching inbox items so the request does not sit in their
           // list pointing at something they can no longer open.
+          //
+          // Anchor-less requests are FILTERED, not defaulted: `mention.requested`
+          // groups per anchor, so `inboxGroupKey` throws for one, and building the
+          // list eagerly would let a single anchor-less row take the whole batch
+          // into the catch below — every other recipient's item would silently stay
+          // unresolved.
           await resolveInboxItemsFor(
-            voided.map((request) =>
-              inboxGroupKey('mention.requested', 'conversation', request.resourceId, request.anchorId),
-            ),
+            voided
+              .filter((request) => request.anchorId)
+              .map((request) =>
+                inboxGroupKey('mention.requested', 'conversation', request.resourceId, request.anchorId),
+              ),
             voided.map((request) => request.requestedOf),
           )
         }

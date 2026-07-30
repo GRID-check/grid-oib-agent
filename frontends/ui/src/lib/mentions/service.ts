@@ -110,10 +110,14 @@ export async function voidRequestsForSubject(
   const voided = await voidOpenRequestsForSubject(resourceType, resourceId, subjectUserId)
   if (voided.length === 0) return 0
 
+  // `anchor_id` is nullable and `mention.requested` groups per anchor, so mapping
+  // blind would make `inboxGroupKey` throw on an anchor-less request. That throw
+  // would escape into the middle of `revokeResourceAccess` — after the grant is
+  // gone, but BEFORE the inbox payloads are wiped and before the revoked event is
+  // published — leaving a quoted snippet alive for someone who just lost access
+  // (spec IB-14). `requestedGroupKeys` skips those rows for exactly this reason.
   await resolveInboxItemsFor(
-    voided.map((request) =>
-      inboxGroupKey('mention.requested', resourceType, resourceId, request.anchorId),
-    ),
+    requestedGroupKeys(voided),
     voided.map((request) => request.requestedOf),
   )
   return voided.length
@@ -130,10 +134,10 @@ export async function voidRequestsForResource(
   const voided = await voidOpenRequestsForResource(resourceType, resourceId)
   if (voided.length === 0) return 0
 
+  // Anchor-less rows are skipped, not defaulted — see the note in
+  // {@link voidRequestsForSubject}.
   await resolveInboxItemsFor(
-    voided.map((request) =>
-      inboxGroupKey('mention.requested', resourceType, resourceId, request.anchorId),
-    ),
+    requestedGroupKeys(voided),
     voided.map((request) => request.requestedOf),
   )
   return voided.length
