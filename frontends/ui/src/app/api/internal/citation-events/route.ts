@@ -7,7 +7,11 @@
  */
 
 import { z } from 'zod'
-import { CITATION_EVENT_AGENTS, CITATION_EVENT_KINDS, CITATION_EVENT_SEVERITIES } from '@/lib/db/schema'
+import {
+  CITATION_EVENT_AGENTS,
+  CITATION_EVENT_KINDS,
+  CITATION_EVENT_SEVERITIES,
+} from '@/lib/db/schema'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { recordCitationEvents } from '@/lib/citations/service'
 
@@ -46,9 +50,9 @@ export const POST = internalApiRoute(
         count: event.count,
         reasons: event.reasons ?? null,
         detail: (event.detail as Record<string, unknown> | null) ?? null,
-      })),
+      }))
     )
     return { recorded }
   },
-  { status: 202 },
+  { status: 202 }
 )

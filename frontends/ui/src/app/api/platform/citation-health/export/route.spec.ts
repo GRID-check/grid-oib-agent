@@ -34,7 +34,8 @@ vi.mock('@/lib/citations/service', () => ({
 import { GET } from './route'
 import { getCitationExport } from '@/lib/citations/service'
 
-const request = (url = 'http://localhost/api/platform/citation-health/export'): Request => new Request(url)
+const request = (url = 'http://localhost/api/platform/citation-health/export'): Request =>
+  new Request(url)
 
 describe('GET /api/platform/citation-health/export', () => {
   beforeEach(() => {
@@ -55,7 +56,7 @@ describe('GET /api/platform/citation-health/export', () => {
     expect(res.headers.get('Content-Type')).toContain('application/json')
     expect(res.headers.get('Cache-Control')).toBe('no-store')
     expect(res.headers.get('Content-Disposition')).toBe(
-      'attachment; filename="citation-health-2026-06-29-to-2026-07-28.json"',
+      'attachment; filename="citation-health-2026-06-29-to-2026-07-28.json"'
     )
 
     const body = await res.json()

@@ -17,12 +17,17 @@ const deleteProjectSchema = z.object({
   confirmName: z.string().min(1),
 })
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getProject(session, params.id))
-
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const { name } = await parseJsonBody(request, updateProjectSchema)
-  return updateProjectName(session, params.id, name)
+export const GET = apiRoute<Params>(async ({ session, params }) => getProject(session, params.id), {
+  authz: { enforcedBy: 'getProject (requireProjectAccess project:view)' },
 })
+
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const { name } = await parseJsonBody(request, updateProjectSchema)
+    return updateProjectName(session, params.id, name)
+  },
+  { authz: { enforcedBy: 'updateProjectName (requireProjectAccess project:manage)' } }
+)
 
 export const DELETE = apiRoute<Params>(
   async ({ session, params, request }) => {
@@ -30,5 +35,5 @@ export const DELETE = apiRoute<Params>(
     const { purgeAfter } = await deleteProject(session, params.id, confirmName, request)
     return { status: 'pending', purgeAfter: purgeAfter.toISOString() }
   },
-  { status: 202 },
+  { status: 202, authz: { enforcedBy: 'deleteProject (requireProjectAccess project:manage)' } }
 )

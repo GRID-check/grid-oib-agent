@@ -103,7 +103,7 @@ export function enforcementOn(): boolean {
 /** Whether the session's user+org context has the feature enabled. */
 export function isFeatureEnabled(
   session: Pick<GridSession, 'featureFlags'>,
-  flag: KnownFeatureFlag,
+  flag: KnownFeatureFlag
 ): boolean {
   if (!enforcementOn()) return true
   if (session.featureFlags === null) return false // stale token — re-auth picks flags up
@@ -160,12 +160,12 @@ export function isCollaborationEnabled(session: Pick<GridSession, 'featureFlags'
  * Usage: `const gated = requireCollaborationEnabled(session); if (gated) return gated`
  */
 export function requireCollaborationEnabled(
-  session: Pick<GridSession, 'featureFlags'>,
+  session: Pick<GridSession, 'featureFlags'>
 ): Response | null {
   if (isCollaborationEnabled(session)) return null
   return NextResponse.json(
     { error: 'feature-disabled', feature: FEATURE_FLAGS.collaboration },
-    { status: 403 },
+    { status: 403 }
   )
 }
 
@@ -175,9 +175,14 @@ export function requireCollaborationEnabled(
  * because the gate is the dark-launch isWorkflowsEnabled(), not a plain flag
  * check. Usage: `const gated = requireWorkflowsEnabled(session); if (gated) return gated`
  */
-export function requireWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): Response | null {
+export function requireWorkflowsEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): Response | null {
   if (isWorkflowsEnabled(session)) return null
-  return NextResponse.json({ error: 'feature-disabled', feature: FEATURE_FLAGS.workflows }, { status: 403 })
+  return NextResponse.json(
+    { error: 'feature-disabled', feature: FEATURE_FLAGS.workflows },
+    { status: 403 }
+  )
 }
 
 /**
@@ -186,7 +191,7 @@ export function requireWorkflowsEnabled(session: Pick<GridSession, 'featureFlags
  */
 export function requireFeature(
   session: Pick<GridSession, 'featureFlags'>,
-  flag: KnownFeatureFlag,
+  flag: KnownFeatureFlag
 ): Response | null {
   if (isFeatureEnabled(session, flag)) return null
   return NextResponse.json({ error: 'feature-disabled', feature: flag }, { status: 403 })

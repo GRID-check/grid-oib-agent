@@ -24,5 +24,5 @@ export const PUT = apiRoute(
     const { mode } = await parseJsonBody(request, putSchema)
     return { mode: await setLlmProviderMode(session, mode, request) }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

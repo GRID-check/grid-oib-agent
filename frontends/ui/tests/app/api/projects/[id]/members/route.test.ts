@@ -76,14 +76,14 @@ describe('/api/projects/[id]/members', () => {
           name: null,
           profilePictureUrl: 'https://cdn.example.com/admin.png',
         },
-      ]),
+      ])
     )
     const listOrganizationMemberships = vi.fn().mockResolvedValue(
       paginated([
         { id: 'om_viewer', userId: 'user_viewer' },
         { id: 'om_editor', userId: 'user_editor' },
         { id: 'om_admin', userId: 'user_admin' },
-      ]),
+      ])
     )
     const listMembershipsForResourceByExternalId = vi
       .fn()
@@ -92,13 +92,13 @@ describe('/api/projects/[id]/members', () => {
           { id: 'om_viewer', userId: 'user_viewer' },
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
-        ]),
+        ])
       )
       .mockResolvedValueOnce(
         paginated([
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
-        ]),
+        ])
       )
       .mockResolvedValueOnce(paginated([{ id: 'om_admin', userId: 'user_admin' }]))
 
@@ -107,10 +107,16 @@ describe('/api/projects/[id]/members', () => {
       authorization: { listMembershipsForResourceByExternalId },
     } as never)
 
-    const res = await GET(new Request('http://localhost/api/projects/proj_1/members'), makeParams('proj_1'))
+    const res = await GET(
+      new Request('http://localhost/api/projects/proj_1/members'),
+      makeParams('proj_1')
+    )
 
     expect(res.status).toBe(200)
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj_1', 'project:manage')
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj_1', [
+      'project:members:manage',
+      'project:manage',
+    ])
     expect(listUsers).toHaveBeenCalledWith({ organizationId: 'org_1' })
     expect(listOrganizationMemberships).toHaveBeenCalledWith({ organizationId: 'org_1' })
     expect(listMembershipsForResourceByExternalId).toHaveBeenNthCalledWith(1, {

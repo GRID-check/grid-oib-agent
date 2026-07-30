@@ -22,7 +22,10 @@ type SessionSlice = Pick<GridSession, 'role' | 'permissions'>
  * their granular permission.
  */
 export function isOrgAdmin(session: SessionSlice): boolean {
-  return hasPermission(session, ORG_PERMISSIONS.settingsManage) || session.permissions.includes(USERS_TABLE_MANAGE)
+  return (
+    hasPermission(session, ORG_PERMISSIONS.settingsManage) ||
+    session.permissions.includes(USERS_TABLE_MANAGE)
+  )
 }
 
 /** May manage runtime AI model configuration (ADR-0014). */

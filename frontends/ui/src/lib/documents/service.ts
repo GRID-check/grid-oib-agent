@@ -106,15 +106,16 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  *
  *   - `project` documents → per-project FGA via `requireProjectAccess`.
  *   - `archiv` documents (org-wide, `projectId` NULL) → any org member may read
- *     (`view`); mutations (`edit`) require `org:archiv:manage`.
+ *     (read); writes require `org:archiv:manage`.
  *
- * Cross-tenant and no-access lookups both surface as 404. Reads default to
- * `project:view`; mutating actions (e.g. re-ingestion) pass `project:edit`.
+ * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
+ * `project:view` for reads and `project:documents:write` (accepting the legacy
+ * `project:edit` umbrella) for writes — ADR-0038.
  */
 async function getAccessibleDocument(
   session: AuthorizedSession,
   documentId: string,
-  permission: 'project:view' | 'project:edit' = 'project:view',
+  intent: 'read' | 'write' = 'read',
 ): Promise<Document> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
@@ -123,13 +124,17 @@ async function getAccessibleDocument(
     // The Archiv is org-scoped: findDocumentInOrg already confirmed the row
     // belongs to the caller's org (so any member may read it). Only mutations
     // need the manage permission.
-    if (permission === 'project:edit' && !canManageArchiv(session)) {
+    if (intent === 'write' && !canManageArchiv(session)) {
       throw new ForbiddenError()
     }
     return doc
   }
 
-  await requireProjectAccess(session, doc.projectId, permission)
+  await requireProjectAccess(
+    session,
+    doc.projectId,
+    intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
+  )
   return doc
 }
 
@@ -448,7 +453,7 @@ export async function uploadDocument(
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
 
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
   assertFileSizeAllowed(file.size)
 
@@ -532,7 +537,7 @@ export async function reingestDocument(
   session: AuthorizedSession,
   documentId: string,
 ): Promise<ReingestDocumentResult> {
-  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+  const doc = await getAccessibleDocument(session, documentId, 'write')
 
   if (doc.status !== 'failed') {
     throw new ConflictError('Only failed documents can be re-ingested', { status: doc.status })
@@ -556,7 +561,7 @@ export async function updateDocumentTags(
   documentId: string,
   tags: string[],
 ): Promise<{ id: string; tags: string[] }> {
-  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+  const doc = await getAccessibleDocument(session, documentId, 'write')
 
   const offending = tags.filter((tag) => !ALLOWED_TAGS.has(tag))
   if (offending.length > 0) {
@@ -613,7 +618,7 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.projectId === null) throw new NotFoundError()
 
-  await requireProjectAccess(session, doc.projectId, 'project:edit')
+  await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
@@ -670,7 +675,7 @@ export async function getDocumentVisualDetails(
   session: AuthorizedSession,
   documentId: string,
 ): Promise<{ id: string; details: DocumentVisualDetail[] }> {
-  const doc = await getAccessibleDocument(session, documentId, 'project:view')
+  const doc = await getAccessibleDocument(session, documentId, 'read')
 
   let res: Response
   try {

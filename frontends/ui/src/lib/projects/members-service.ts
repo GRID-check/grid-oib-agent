@@ -89,7 +89,7 @@ export async function listProjectMembers(
   session: AuthorizedSession,
   projectId: string,
 ): Promise<ProjectMember[]> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
   const workos = getWorkOS()
 
@@ -168,7 +168,7 @@ export async function setProjectMemberRole(
   input: { organizationMembershipId: string; roleSlug: ProjectMemberRole | '' },
   request: Request,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
   const workosResourceId = await findProjectWorkosResourceId(projectId, session.organizationId)
   if (!workosResourceId) throw new NotFoundError('Project resource not found.')
@@ -227,7 +227,7 @@ export async function removeProjectRoleAssignment(
   assignmentId: string,
   request: Request,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
   const workosResourceId = await findProjectWorkosResourceId(projectId, session.organizationId)
   if (!workosResourceId) throw new NotFoundError()

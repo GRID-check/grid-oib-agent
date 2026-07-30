@@ -44,29 +44,38 @@ describe('/api/v1/[...path] proxy — control-plane path blocking', () => {
     ['POST', POST, ['admin', 'oib', 'sync']],
     ['DELETE', DELETE, ['admin', 'oib', 'sync']],
     ['POST', POST, ['maintenance', 'purge-project-resources']],
-  ])('%s blocks the internal control-plane path %s with 404 and never forwards upstream', async (_method, handler, path) => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+  ])(
+    '%s blocks the internal control-plane path %s with 404 and never forwards upstream',
+    async (_method, handler, path) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
-    const res = await handler(
-      new Request(`https://grid.example/api/v1/${path.join('/')}`, { method: _method }),
-      { params: Promise.resolve({ path }) },
-    )
+      const res = await handler(
+        new Request(`https://grid.example/api/v1/${path.join('/')}`, { method: _method }),
+        { params: Promise.resolve({ path }) }
+      )
 
-    expect(res.status).toBe(404)
-    const body = await res.json()
-    expect(body).toEqual({ error: { code: 'NOT_FOUND', message: 'Not found' } })
-    // The block must happen BEFORE any upstream fetch.
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
+      expect(res.status).toBe(404)
+      const body = await res.json()
+      expect(body).toEqual({ error: { code: 'NOT_FOUND', message: 'Not found' } })
+      // The block must happen BEFORE any upstream fetch.
+      expect(fetchSpy).not.toHaveBeenCalled()
+    }
+  )
 
   it('forwards a legitimate path (data_sources) to the backend', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
     )
 
-    const res = await GET(new Request('https://grid.example/api/v1/data_sources', { method: 'GET' }), {
-      params: Promise.resolve({ path: ['data_sources'] }),
-    })
+    const res = await GET(
+      new Request('https://grid.example/api/v1/data_sources', { method: 'GET' }),
+      {
+        params: Promise.resolve({ path: ['data_sources'] }),
+      }
+    )
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ items: [] })

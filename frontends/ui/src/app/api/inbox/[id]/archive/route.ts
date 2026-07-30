@@ -10,8 +10,11 @@ import { apiRoute } from '@/lib/api/handler'
 import { requireCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { archiveItem } from '@/lib/inbox/service'
 
-export const POST = apiRoute<{ id: string }>(async ({ session, params }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  return archiveItem(session, params.id)
-})
+export const POST = apiRoute<{ id: string }>(
+  async ({ session, params }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    return archiveItem(session, params.id)
+  },
+  { authz: { enforcedBy: 'archiveItem (rows are keyed to session.userId)' } }
+)

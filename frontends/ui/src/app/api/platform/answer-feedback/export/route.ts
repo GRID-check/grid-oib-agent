@@ -39,46 +39,49 @@ const COLUMNS = [
   'answer',
 ] as const
 
-export const GET = apiRoute(async ({ request, session }) => {
-  const filters = parseFeedbackFilters(new URL(request.url).searchParams)
-  try {
-    const health = await getAnswerFeedbackHealth(session, filters)
+export const GET = apiRoute(
+  async ({ request, session }) => {
+    const filters = parseFeedbackFilters(new URL(request.url).searchParams)
+    try {
+      const health = await getAnswerFeedbackHealth(session, filters)
 
-    const rows = health.turns.map((turn) =>
-      [
-        turn.createdAt instanceof Date ? turn.createdAt.toISOString() : turn.createdAt,
-        turn.organizationId,
-        turn.conversationId,
-        turn.messageId,
-        turn.verdict,
-        turn.reason,
-        turn.topics.join(' '),
-        turn.question,
-        turn.answer,
-      ]
-        .map(csvCell)
-        .join(','),
-    )
+      const rows = health.turns.map((turn) =>
+        [
+          turn.createdAt instanceof Date ? turn.createdAt.toISOString() : turn.createdAt,
+          turn.organizationId,
+          turn.conversationId,
+          turn.messageId,
+          turn.verdict,
+          turn.reason,
+          turn.topics.join(' '),
+          turn.question,
+          turn.answer,
+        ]
+          .map(csvCell)
+          .join(',')
+      )
 
-    // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
-    // umlauts; a mojibake export is one nobody trusts a second time.
-    const body = `﻿${COLUMNS.join(',')}\n${rows.join('\n')}\n`
-    const stamp = new Date().toISOString().slice(0, 10)
+      // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
+      // umlauts; a mojibake export is one nobody trusts a second time.
+      const body = `﻿${COLUMNS.join(',')}\n${rows.join('\n')}\n`
+      const stamp = new Date().toISOString().slice(0, 10)
 
-    // The verdict is in the FILENAME as well as the column, because the two
-    // exports are otherwise one download folder away from being the same file.
-    const filename = `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
+      // The verdict is in the FILENAME as well as the column, because the two
+      // exports are otherwise one download folder away from being the same file.
+      const filename = `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
 
-    return new NextResponse(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-      },
-    })
-  } catch (error) {
-    if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
-    throw error
-  }
-})
+      return new NextResponse(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    } catch (error) {
+      if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
+      throw error
+    }
+  },
+  { authz: { enforcedBy: 'getAnswerFeedbackHealth (requirePlatformOwner)' } }
+)

@@ -50,7 +50,7 @@ import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
 async function filterDataSourcesResponse(
   path: string[],
   organizationId: string | null | undefined,
-  data: unknown,
+  data: unknown
 ): Promise<unknown> {
   if (path.length !== 1 || path[0] !== 'data_sources' || !organizationId) return data
   try {
@@ -60,14 +60,22 @@ async function filterDataSourcesResponse(
   }
   const dropWebSearch = (sources: unknown[]): unknown[] =>
     sources.filter(
-      (source) => !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search'),
+      (source) =>
+        !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search')
     )
   // The backend returns `{ data_sources, vlm_available }`; older/other shapes
   // may return a bare array. Filter web_search in either while preserving the
   // capability fields (e.g. vlm_available) untouched.
   if (Array.isArray(data)) return dropWebSearch(data)
-  if (data && typeof data === 'object' && Array.isArray((data as { data_sources?: unknown }).data_sources)) {
-    return { ...data, data_sources: dropWebSearch((data as { data_sources: unknown[] }).data_sources) }
+  if (
+    data &&
+    typeof data === 'object' &&
+    Array.isArray((data as { data_sources?: unknown }).data_sources)
+  ) {
+    return {
+      ...data,
+      data_sources: dropWebSearch((data as { data_sources: unknown[] }).data_sources),
+    }
   }
   return data
 }
@@ -121,7 +129,9 @@ export async function GET(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'GET',
@@ -192,7 +202,9 @@ export async function POST(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'POST',
@@ -243,7 +255,9 @@ export async function DELETE(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     let body: string | undefined
     try {

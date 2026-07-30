@@ -54,7 +54,7 @@ describe('/api/organization/llm-credentials/mode', () => {
     expect(setLlmProviderMode).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org-1' }),
       'platform',
-      expect.any(Request),
+      expect.any(Request)
     )
   })
 

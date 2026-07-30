@@ -110,14 +110,18 @@ describe('organization-archiv flag (standard WorkOS flag, ADR-0024)', () => {
 
   it('enforced: gated per-org by the WorkOS flag claim', () => {
     process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
-    expect(isFeatureEnabled({ featureFlags: [FEATURE_FLAGS.orgArchiv] }, FEATURE_FLAGS.orgArchiv)).toBe(true)
+    expect(
+      isFeatureEnabled({ featureFlags: [FEATURE_FLAGS.orgArchiv] }, FEATURE_FLAGS.orgArchiv)
+    ).toBe(true)
     expect(isFeatureEnabled({ featureFlags: [] }, FEATURE_FLAGS.orgArchiv)).toBe(false)
     expect(isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.orgArchiv)).toBe(false)
   })
 
   it('requireFeature: null when allowed, stable-coded 403 when off', async () => {
     process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
-    expect(requireFeature({ featureFlags: [FEATURE_FLAGS.orgArchiv] }, FEATURE_FLAGS.orgArchiv)).toBeNull()
+    expect(
+      requireFeature({ featureFlags: [FEATURE_FLAGS.orgArchiv] }, FEATURE_FLAGS.orgArchiv)
+    ).toBeNull()
 
     const res = requireFeature({ featureFlags: [] }, FEATURE_FLAGS.orgArchiv)
     expect(res?.status).toBe(403)

@@ -37,82 +37,85 @@ const RETRY_MS = 5_000
 /** Long-lived response: never prerender, never cache. */
 export const dynamic = 'force-dynamic'
 
-export const GET = apiRoute(async ({ session, request }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
+export const GET = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
 
-  const encoder = new TextEncoder()
-  let heartbeat: ReturnType<typeof setInterval> | null = null
-  let unsubscribe: (() => Promise<void>) | null = null
-  let closed = false
+    const encoder = new TextEncoder()
+    let heartbeat: ReturnType<typeof setInterval> | null = null
+    let unsubscribe: (() => Promise<void>) | null = null
+    let closed = false
 
-  /** Idempotent: whichever exit path fires first wins, the other is a no-op. */
-  const teardown = async (): Promise<void> => {
-    if (closed) return
-    closed = true
-    if (heartbeat) {
-      clearInterval(heartbeat)
-      heartbeat = null
+    /** Idempotent: whichever exit path fires first wins, the other is a no-op. */
+    const teardown = async (): Promise<void> => {
+      if (closed) return
+      closed = true
+      if (heartbeat) {
+        clearInterval(heartbeat)
+        heartbeat = null
+      }
+      const release = unsubscribe
+      unsubscribe = null
+      if (!release) return
+      try {
+        await release()
+      } catch (error) {
+        console.warn('[stream] unsubscribe failed:', error)
+      }
     }
-    const release = unsubscribe
-    unsubscribe = null
-    if (!release) return
-    try {
-      await release()
-    } catch (error) {
-      console.warn('[stream] unsubscribe failed:', error)
-    }
-  }
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      /**
-       * Enqueueing on a controller whose stream has closed throws, and the close
-       * can happen between an event arriving and this running. Swallow it and
-       * stop writing: the client is gone, there is nothing to report to.
-       */
-      const write = (chunk: string): void => {
-        if (closed) return
-        try {
-          controller.enqueue(encoder.encode(chunk))
-        } catch {
-          void teardown()
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        /**
+         * Enqueueing on a controller whose stream has closed throws, and the close
+         * can happen between an event arriving and this running. Swallow it and
+         * stop writing: the client is gone, there is nothing to report to.
+         */
+        const write = (chunk: string): void => {
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(chunk))
+          } catch {
+            void teardown()
+          }
         }
-      }
 
-      // Reconnect policy plus an immediate comment, so the connection is
-      // established (and any buffering proxy has flushed) before the first event
-      // rather than at the first heartbeat 25 seconds later.
-      write(`retry: ${RETRY_MS}\n\n`)
-      write(': connected\n\n')
-      heartbeat = setInterval(() => write(': ping\n\n'), HEARTBEAT_MS)
+        // Reconnect policy plus an immediate comment, so the connection is
+        // established (and any buffering proxy has flushed) before the first event
+        // rather than at the first heartbeat 25 seconds later.
+        write(`retry: ${RETRY_MS}\n\n`)
+        write(': connected\n\n')
+        heartbeat = setInterval(() => write(': ping\n\n'), HEARTBEAT_MS)
 
-      const release = await subscribeUser(session.userId, (envelope) => {
-        write(`data: ${JSON.stringify(envelope)}\n\n`)
-      })
-      // The client can disconnect while subscribe() is still in flight; without
-      // this the handle would be stored after teardown already ran and leak.
-      if (closed) {
-        await release().catch(() => {})
-        return
-      }
-      unsubscribe = release
+        const release = await subscribeUser(session.userId, (envelope) => {
+          write(`data: ${JSON.stringify(envelope)}\n\n`)
+        })
+        // The client can disconnect while subscribe() is still in flight; without
+        // this the handle would be stored after teardown already ran and leak.
+        if (closed) {
+          await release().catch(() => {})
+          return
+        }
+        unsubscribe = release
 
-      request.signal.addEventListener('abort', () => void teardown(), { once: true })
-      if (request.signal.aborted) await teardown()
-    },
-    async cancel() {
-      await teardown()
-    },
-  })
+        request.signal.addEventListener('abort', () => void teardown(), { once: true })
+        if (request.signal.aborted) await teardown()
+      },
+      async cancel() {
+        await teardown()
+      },
+    })
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      // Tell nginx-class proxies not to buffer, or events arrive in batches.
-      'X-Accel-Buffering': 'no',
-    },
-  })
-})
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        // Tell nginx-class proxies not to buffer, or events arrive in batches.
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  },
+  { authz: { enforcedBy: 'per-user SSE channel keyed to session.userId' } }
+)

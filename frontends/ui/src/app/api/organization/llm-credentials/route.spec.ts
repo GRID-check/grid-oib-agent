@@ -28,7 +28,9 @@ vi.mock('@/lib/llm-credentials/service', () => ({
       status: 'active',
     },
   ]),
-  createCredential: vi.fn().mockResolvedValue({ id: 'cred-2', provider: 'openrouter', status: 'active' }),
+  createCredential: vi
+    .fn()
+    .mockResolvedValue({ id: 'cred-2', provider: 'openrouter', status: 'active' }),
 }))
 
 import { GET, POST } from './route'
@@ -80,18 +82,24 @@ describe('/api/organization/llm-credentials', () => {
   })
 
   it('POST validates the payload shape (400) before touching the service', async () => {
-    expect((await POST(post({ provider: 'openrouter', label: 'x', apiKey: 'short' }))).status).toBe(400)
-    expect((await POST(post({ provider: 'anthropic', label: 'x', apiKey: 'sk-long-enough' }))).status).toBe(400)
+    expect((await POST(post({ provider: 'openrouter', label: 'x', apiKey: 'short' }))).status).toBe(
+      400
+    )
+    expect(
+      (await POST(post({ provider: 'anthropic', label: 'x', apiKey: 'sk-long-enough' }))).status
+    ).toBe(400)
     expect(createCredential).not.toHaveBeenCalled()
   })
 
   it('POST creates a credential (201) with the session + request threaded through', async () => {
-    const res = await POST(post({ provider: 'openrouter', label: 'Corp key', apiKey: 'sk-long-enough' }))
+    const res = await POST(
+      post({ provider: 'openrouter', label: 'Corp key', apiKey: 'sk-long-enough' })
+    )
     expect(res.status).toBe(201)
     expect(createCredential).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org-1' }),
       expect.objectContaining({ provider: 'openrouter', apiKey: 'sk-long-enough' }),
-      expect.any(Request),
+      expect.any(Request)
     )
   })
 })

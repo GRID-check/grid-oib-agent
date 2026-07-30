@@ -52,9 +52,9 @@ export const POST = internalApiRoute(
         status: span.status,
         errorMessage: span.errorMessage ?? null,
         metadata: span.metadata ?? null,
-      })),
+      }))
     )
     return { recorded }
   },
-  { status: 202 },
+  { status: 202 }
 )

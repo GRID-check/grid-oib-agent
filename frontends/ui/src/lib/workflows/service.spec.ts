@@ -181,7 +181,7 @@ describe('createWorkflow', () => {
       name: 'New WF',
       definition: { version: 1, blocks: { objective: 'Do research', context: 'ctx' } },
     })
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, 'project:edit')
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, ['project:workflows:manage', 'project:edit'])
     expect(repo.insertWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: PROJECT_ID,
@@ -330,7 +330,7 @@ describe('updateWorkflow', () => {
       definition: { version: 1, blocks: { objective: 'Updated objective' } },
       scheduleCron: '0 * * * *',
     })
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, 'project:edit')
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, ['project:workflows:manage', 'project:edit'])
     const patch = repo.updateWorkflow.mock.calls[0][2]
     expect(patch.compiledPrompt).toBe('# Objective\n\nUpdated objective')
     expect(patch.nextRunAt).toBeInstanceOf(Date)

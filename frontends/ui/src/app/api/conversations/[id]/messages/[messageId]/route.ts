@@ -35,7 +35,7 @@ const updateMessageSchema = z
         z.object({
           decision: z.enum(CARD_DECISIONS),
           decidedAt: z.string().datetime(),
-        }),
+        })
       )
       .refine((map) => Object.keys(map).length <= MAX_CARD_INTERACTIONS, {
         message: `At most ${MAX_CARD_INTERACTIONS} card interactions per message`,
@@ -61,17 +61,20 @@ const updateMessageSchema = z
       body.cardInteractions !== undefined ||
       body.provenance !== undefined ||
       body.promptState !== undefined,
-    { message: 'Provide cardInteractions, provenance or promptState' },
+    { message: 'Provide cardInteractions, provenance or promptState' }
   )
 
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const messageId = messageIdSchema.safeParse(params.messageId)
-  if (!messageId.success) throw new BadRequestError('Invalid message id')
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const messageId = messageIdSchema.safeParse(params.messageId)
+    if (!messageId.success) throw new BadRequestError('Invalid message id')
 
-  const body = await parseJsonBody(request, updateMessageSchema)
-  return updateMessageDetail(session, params.id, messageId.data, {
-    cardInteractions: body.cardInteractions,
-    provenance: body.provenance,
-    promptState: body.promptState,
-  })
-})
+    const body = await parseJsonBody(request, updateMessageSchema)
+    return updateMessageDetail(session, params.id, messageId.data, {
+      cardInteractions: body.cardInteractions,
+      provenance: body.provenance,
+      promptState: body.promptState,
+    })
+  },
+  { authz: { enforcedBy: 'updateMessageDetail (requireResourceAccess)' } }
+)

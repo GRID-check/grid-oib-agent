@@ -25,8 +25,14 @@ const listConversationsQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
 })
 
-export const GET = apiRoute(async ({ session, request }) =>
-  listConversations(session, parseQuery(request, listConversationsQuerySchema)),
+export const GET = apiRoute(
+  async ({ session, request }) =>
+    listConversations(session, parseQuery(request, listConversationsQuerySchema)),
+  {
+    authz: {
+      enforcedBy: 'listConversations (requireProjectAccess project:view + resource access)',
+    },
+  }
 )
 
 export const POST = apiRoute(
@@ -34,5 +40,5 @@ export const POST = apiRoute(
     const input = await parseJsonBody(request, createConversationSchema)
     return createConversation(session, input)
   },
-  { status: 201 },
+  { status: 201, authz: { enforcedBy: 'createConversation (requireProjectAccess project:view)' } }
 )

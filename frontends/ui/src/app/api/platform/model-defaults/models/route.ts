@@ -13,7 +13,12 @@ import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
-import { baseModelId, fetchModelCatalog, fetchZdrModelIds, searchModelsForGroup } from '@/lib/model-config/openrouter'
+import {
+  baseModelId,
+  fetchModelCatalog,
+  fetchZdrModelIds,
+  searchModelsForGroup,
+} from '@/lib/model-config/openrouter'
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -24,7 +29,10 @@ export async function GET(request: Request): Promise<Response> {
     const query = url.searchParams.get('q') ?? ''
     const group = getAgentGroup(groupId)
     if (!group) {
-      return NextResponse.json({ error: 'Unknown agent group', code: 'BAD_REQUEST' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Unknown agent group', code: 'BAD_REQUEST' },
+        { status: 400 }
+      )
     }
 
     let catalog
@@ -32,7 +40,10 @@ export async function GET(request: Request): Promise<Response> {
       catalog = await fetchModelCatalog()
     } catch (error) {
       console.error('[Platform Model Search] Model catalog unavailable:', error)
-      return NextResponse.json({ error: 'The model catalog is unavailable', code: 'SERVICE_UNAVAILABLE' }, { status: 503 })
+      return NextResponse.json(
+        { error: 'The model catalog is unavailable', code: 'SERVICE_UNAVAILABLE' },
+        { status: 503 }
+      )
     }
 
     // Advisory only — the owner may still pick a non-ZDR model; the flag tells

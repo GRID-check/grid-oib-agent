@@ -54,7 +54,7 @@ async function auditBreakGlassUse(session: GridSession): Promise<void> {
   if (last && Date.now() - last < BREAK_GLASS_AUDIT_INTERVAL_MS) return
   breakGlassAuditedAt.set(throttleKey, Date.now())
   console.warn(
-    `[Platform Authz] break-glass platform access granted to ${session.email} via GRID_PLATFORM_OWNER_EMAILS`,
+    `[Platform Authz] break-glass platform access granted to ${session.email} via GRID_PLATFORM_OWNER_EMAILS`
   )
   // WorkOS audit events are org-scoped — break-glass lands in the platform
   // org's trail. During true first-run (no platform org yet) only the log
@@ -75,7 +75,9 @@ async function auditBreakGlassUse(session: GridSession): Promise<void> {
 /** Resolve (and cache) the platform organization's WorkOS id. */
 export async function getPlatformOrganizationId(): Promise<string | null> {
   if (platformOrgCache) {
-    const ttl = platformOrgCache.organizationId ? PLATFORM_ORG_CACHE_TTL_MS : PLATFORM_ORG_NEGATIVE_TTL_MS
+    const ttl = platformOrgCache.organizationId
+      ? PLATFORM_ORG_CACHE_TTL_MS
+      : PLATFORM_ORG_NEGATIVE_TTL_MS
     if (Date.now() - platformOrgCache.fetchedAt < ttl) {
       return platformOrgCache.organizationId
     }
@@ -113,7 +115,9 @@ async function hasPlatformMembership(userId: string, platformOrgId: string): Pro
       statuses: ['active'],
       limit: 1,
     })
-    isOwner = memberships.data.some((membership) => membership.role?.slug === PLATFORM_OWNER_ROLE_SLUG)
+    isOwner = memberships.data.some(
+      (membership) => membership.role?.slug === PLATFORM_OWNER_ROLE_SLUG
+    )
   } catch {
     isOwner = false // fail closed
   }

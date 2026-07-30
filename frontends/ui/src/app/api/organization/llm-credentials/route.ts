@@ -35,7 +35,7 @@ export const GET = apiRoute(
       secretBackend: activeSecretBackend(),
     }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )
 
 const postSchema = z.object({
@@ -53,5 +53,5 @@ export const POST = apiRoute(
     const input = await parseJsonBody(request, postSchema)
     return { credential: await createCredential(session, input, request) }
   },
-  { permission: ORG_PERMISSIONS.modelsManage, status: 201 },
+  { status: 201, authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

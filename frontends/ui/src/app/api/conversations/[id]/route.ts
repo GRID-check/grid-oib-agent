@@ -30,19 +30,29 @@ const updateConversationSchema = z
     message: 'Provide title or engagement',
   })
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getConversation(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getConversation(session, params.id),
+  { authz: { enforcedBy: 'getConversation (requireResourceAccess)' } }
+)
 
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const body = await parseJsonBody(request, updateConversationSchema)
-  // Engagement first: renaming needs `owner` while the mode needs only
-  // `collaborator` (a thread stuck answering the wrong person must be fixable by
-  // whoever is in the room), so a combined body must not be gated on the stricter
-  // of the two for the looser change.
-  if (body.engagement) {
-    return updateConversationEngagement(session, params.id, body.engagement)
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const body = await parseJsonBody(request, updateConversationSchema)
+    // Engagement first: renaming needs `owner` while the mode needs only
+    // `collaborator` (a thread stuck answering the wrong person must be fixable by
+    // whoever is in the room), so a combined body must not be gated on the stricter
+    // of the two for the looser change.
+    if (body.engagement) {
+      return updateConversationEngagement(session, params.id, body.engagement)
+    }
+    return updateConversationTitle(session, params.id, body.title!)
+  },
+  {
+    authz: {
+      enforcedBy: 'updateConversationTitle / updateConversationEngagement (requireResourceAccess)',
+    },
   }
-  return updateConversationTitle(session, params.id, body.title!)
-})
+)
 
 /**
  * DELETE answers **204 whether or not the conversation existed, and whether or not
@@ -60,11 +70,14 @@ export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
  * into silence HERE, at the boundary that owns what the client learns. Nothing is
  * deleted in the refused case — `deleteConversation` throws before it writes.
  */
-export const DELETE = apiRoute<Params>(async ({ session, params }) => {
-  try {
-    await deleteConversation(session, params.id)
-  } catch (error) {
-    if (!(error instanceof NotFoundError)) throw error
-  }
-  return null
-})
+export const DELETE = apiRoute<Params>(
+  async ({ session, params }) => {
+    try {
+      await deleteConversation(session, params.id)
+    } catch (error) {
+      if (!(error instanceof NotFoundError)) throw error
+    }
+    return null
+  },
+  { authz: { enforcedBy: 'deleteConversation (requireResourceAccess)' } }
+)

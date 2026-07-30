@@ -49,8 +49,14 @@ export const GET = apiRoute(
         validation: catalog.validation,
         zdrOnly: catalog.zdrOnly,
       },
-      models: searchModelsForGroup(catalog.models, groupId, query, 30, catalog.validation === 'full'),
+      models: searchModelsForGroup(
+        catalog.models,
+        groupId,
+        query,
+        30,
+        catalog.validation === 'full'
+      ),
     }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

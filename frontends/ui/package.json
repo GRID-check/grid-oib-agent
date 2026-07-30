@@ -23,7 +23,8 @@
     "ci:local": "./scripts/ci-check.sh",
     "ci:quick": "./scripts/ci-check.sh --quick",
     "ci:fast": "./scripts/ci-check.sh --no-clean",
-    "prepare": "husky"
+    "prepare": "husky",
+    "provision:authz": "tsx scripts/provision-workos-authz.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",
@@ -120,6 +121,7 @@
     "prettier": "^3.0.0",
     "prettier-plugin-tailwindcss": "^0.5.0",
     "tailwindcss": "^4.3.2",
+    "tsx": "^4.22.4",
     "vitest": "^4.0.18"
   },
   "overrides": {

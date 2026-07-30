@@ -9,4 +9,7 @@ import { getDocumentThumbnail } from '@/lib/documents/service'
 
 type Params = { id: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getDocumentThumbnail(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getDocumentThumbnail(session, params.id),
+  { authz: { enforcedBy: 'getDocumentThumbnail -> getAccessibleDocument (project:view)' } }
+)

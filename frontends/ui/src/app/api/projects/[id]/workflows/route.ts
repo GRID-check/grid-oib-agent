@@ -11,11 +11,14 @@ import { createWorkflowSchema } from '@/lib/workflows/types'
 
 type Params = { id: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  return { workflows: await listWorkflows(session, params.id) }
-})
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    return { workflows: await listWorkflows(session, params.id) }
+  },
+  { authz: { enforcedBy: 'listWorkflows (requireProjectAccess project:view)' } }
+)
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
@@ -24,5 +27,8 @@ export const POST = apiRoute<Params>(
     const input = await parseJsonBody(request, createWorkflowSchema)
     return createWorkflow(session, params.id, input)
   },
-  { status: 201 },
+  {
+    status: 201,
+    authz: { enforcedBy: 'createWorkflow (requireProjectAccess project:workflows:manage)' },
+  }
 )

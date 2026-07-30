@@ -22,9 +22,12 @@ const listQuerySchema = z.object({
     .transform((value) => value === 'true'),
 })
 
-export const GET = apiRoute(async ({ session, request }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  const { pendingOnly } = parseQuery(request, listQuerySchema)
-  return listInbox(session, { pendingOnly })
-})
+export const GET = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    const { pendingOnly } = parseQuery(request, listQuerySchema)
+    return listInbox(session, { pendingOnly })
+  },
+  { authz: { enforcedBy: 'listInbox (rows are keyed to session.userId)' } }
+)

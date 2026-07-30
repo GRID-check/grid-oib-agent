@@ -54,7 +54,7 @@ describe('GET /api/platform/answer-feedback/digest', () => {
     expect(getAnswerFeedbackDigest).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ windowDays: 7, organizationId: 'org_2', topic: 'brandschutz' }),
-      { locale: 'en', refresh: false },
+      { locale: 'en', refresh: false }
     )
   })
 
@@ -65,7 +65,7 @@ describe('GET /api/platform/answer-feedback/digest', () => {
     expect(getAnswerFeedbackDigest).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      expect.objectContaining({ refresh: true }),
+      expect.objectContaining({ refresh: true })
     )
   })
 

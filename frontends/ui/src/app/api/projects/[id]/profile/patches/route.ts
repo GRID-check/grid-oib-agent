@@ -15,7 +15,10 @@ const patchProfileSchema = z.object({
   patch: z.array(ProjectProfilePatchOperationSchema),
 })
 
-export const POST = apiRoute<Params>(async ({ session, params, request }) => {
-  const { patch } = await parseJsonBody(request, patchProfileSchema)
-  return patchProjectProfile(session, params.id, patch)
-})
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const { patch } = await parseJsonBody(request, patchProfileSchema)
+    return patchProjectProfile(session, params.id, patch)
+  },
+  { authz: { enforcedBy: 'patchProjectProfile (requireProjectAccess project:edit)' } }
+)

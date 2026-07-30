@@ -51,7 +51,10 @@ const createMessageSchema = z.object({
 
 const createMessagesSchema = z.union([createMessageSchema, z.array(createMessageSchema).min(1)])
 
-export const GET = apiRoute<Params>(async ({ session, params }) => listConversationMessages(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => listConversationMessages(session, params.id),
+  { authz: { enforcedBy: 'listConversationMessages (requireResourceAccess)' } }
+)
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
@@ -59,5 +62,5 @@ export const POST = apiRoute<Params>(
     const inputs = Array.isArray(body) ? body : [body]
     return createConversationMessages(session, params.id, inputs)
   },
-  { status: 201 },
+  { status: 201, authz: { enforcedBy: 'createConversationMessages (requireResourceAccess)' } }
 )

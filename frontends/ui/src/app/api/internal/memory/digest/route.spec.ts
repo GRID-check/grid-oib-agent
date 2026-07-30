@@ -65,9 +65,13 @@ describe('GET /api/internal/memory/digest', () => {
 
   it('returns the digest for a valid token (200)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
-    vi.mocked(buildProjectMemoryDigest).mockResolvedValue('PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"')
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(
+      'PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"'
+    )
 
-    const response = await GET(makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}`, REAL_TOKEN))
+    const response = await GET(
+      makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}`, REAL_TOKEN)
+    )
 
     expect(response.status).toBe(200)
     const body = await response.json()

@@ -1,17 +1,58 @@
 # WorkOS Provisioning Runbook
 
 > What must exist in a WorkOS environment for GRID's authorization model
-> (ADR-0016) to work, what is already provisioned where, and how to replay
-> it (e.g. into Production). The app degrades gracefully when pieces are
-> missing (legacy `admin` back-compat, break-glass env allowlist), but this
+> (ADR-0016, ADR-0038) to work, what is already provisioned where, and how to
+> replay it (e.g. into Production). The app degrades gracefully when pieces are
+> missing (bounded `admin` back-compat, break-glass env allowlist), but this
 > is the intended steady state.
 
-## Provisioned state (Staging — done 2026-07-08)
+## The catalog is the source of truth
+
+Since ADR-0038 the tables below are **generated from, and verified against**,
+`frontends/ui/src/lib/authz/catalog.ts`. That file is what the app derives its
+permission types from AND what the provisioning script applies, so this runbook
+documents the catalog rather than competing with it.
+
+```bash
+cd frontends/ui
+WORKOS_API_KEY=sk_… npm run provision:authz            # read-only drift check
+WORKOS_API_KEY=sk_… npm run provision:authz -- --apply # reconcile
+```
+
+The check is read-only and exits non-zero on drift — run it in CI. It exists
+because the two ⚠️ rows this runbook used to carry (`org:audit:view`,
+`org:archiv:manage`, both "create this in Staging", both still absent three
+weeks later) were invisible to everything except a human re-reading the file.
+
+**Resource types are the one manual step**: the Node SDK exposes no CRUD for
+them, so create them in the dashboard. The script still catches a missing one —
+a permission cannot be created against a resource type that does not exist, and
+the failure names the type.
+
+## Provisioned state (Staging — catalog applied 2026-07-30)
 
 The Staging environment (`environment_01KEF0YG238CSMNF731TEG010E`) is the
 one the deployed app uses (its orgs include "GRID Test"). Everything below
 already exists there. **Production is empty and needs the same replay
 before go-live.**
+
+### 0. Resource topology
+
+`Organization → Project → Workflow`. Organization is the immutable root:
+creating a parentless resource type is rejected by the live API with
+*"At least one parent type is required"* (verified 2026-07-30), which is why the
+platform tier is modelled as an org-scoped role rather than a tier above
+Organization.
+
+| Type | Parent | Purpose |
+|---|---|---|
+| `organization` | — | System root. Carries org-tier and platform-tier permissions. |
+| `project` | `organization` | Tenant workspace: documents, memory, conversations. |
+| `workflow` | `project` | A scheduled research run (ADR-0023). Added by ADR-0038 so an operator can run one without editing the project. |
+
+> `document` was **deleted** (2026-07-30). It existed with zero roles and zero
+> permissions and nothing ever checked it; document access is inheritance from
+> the parent project, enforced in `lib/documents/service.ts`. See ADR-0038.
 
 ### 1. Organization-tier permissions (resource type: Organization)
 
@@ -21,12 +62,37 @@ before go-live.**
 | `org:models:manage` | Runtime AI model configuration (ADR-0014) |
 | `org:budgets:manage` | LLM budgets + org-wide usage (ADR-0015) |
 | `org:compliance:manage` | Legal holds + deletion queue |
-| `org:audit:view` | Open the org's native audit-log viewer (Admin Portal). ⚠️ Added after the 2026-07-08 provisioning run — create it in Staging + attach to Admin (until then, legacy-`admin` back-compat covers admins). |
-| `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. ⚠️ Added with ADR-0024 — create it + attach to Admin; until then legacy-`admin` back-compat covers admins, and custom non-admin roles that should upload need it explicitly. |
+| `org:audit:view` | Open the org's native audit-log viewer (Admin Portal) |
+| `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
+| `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
 
-Attached to the environment **Admin** role (which keeps its six
-`widgets:*` permissions). The **Member** role has none — members rely on
-project-level FGA roles.
+All seven are attached to the environment **Admin** role, which keeps its six
+`widgets:*` permissions. **Member** holds `org:projects:create` only — all other
+project access comes from project-scoped roles.
+
+### 1a. Project-tier permissions (resource type: Project)
+
+| Slug | Meaning |
+|---|---|
+| `project:view` | Read and search a project, its documents and conversations |
+| `project:chat` | Start and continue conversations in the project |
+| `project:edit` | **Deprecated** umbrella write, retained so existing grants keep working |
+| `project:documents:write` | Upload/delete/re-ingest/retag project documents |
+| `project:memory:write` | Add/edit/remove project memory items |
+| `project:manage` | Rename, archive or delete the project |
+| `project:members:manage` | Grant and revoke project roles |
+| `project:workflows:manage` | Create, edit and delete the project's workflows |
+
+### 1b. Workflow-tier permissions (resource type: Workflow)
+
+| Slug | Meaning |
+|---|---|
+| `workflow:view` | See a workflow's definition, schedule and run history |
+| `workflow:run` | Trigger it manually, outside its schedule (spends budget) |
+| `workflow:manage` | Edit its definition/schedule, or delete it |
+
+Creating a workflow is `project:workflows:manage` (there is no workflow yet to
+check against); operating an existing one is workflow-tier.
 
 ### 2. Platform-tier permissions (resource type: Organization)
 
@@ -37,10 +103,36 @@ project-level FGA roles.
 | `platform:usage:view` | Cross-org LLM usage/spend |
 | `platform:settings:manage` | Platform-wide settings (reserved) |
 
-They live on the Organization resource type because WorkOS permissions
-attach to resource types and **Organization is the immutable topology
-root** — a type above it is rejected by the API (see ADR-0016). They are
-only ever attached to platform-org roles, never to tenant roles.
+They live on the Organization resource type because WorkOS permissions attach to
+resource types and Organization is the immutable topology root (§0). They are
+only ever attached to platform-org roles, never to tenant roles — a provisioning
+convention plus the membership check in `lib/authz/platform.ts`. WorkOS itself
+cannot express "attachable only to one organization's roles", so the binding
+guarantee is that check, not the topology. `catalog.spec.ts` asserts no
+environment-scoped role holds a `platform:*` permission.
+
+### 2a. Roles
+
+| Slug | Scope | Holds |
+|---|---|---|
+| `member` | environment | `org:projects:create` |
+| `admin` | environment | every `org:*` + six `widgets:*` |
+| `org-auditor` | environment | `org:audit:view` |
+| `org-billing-admin` | environment | `org:budgets:manage` |
+| `org-compliance-officer` | environment | `org:compliance:manage`, `org:audit:view` |
+| `org-knowledge-manager` | environment | `org:archiv:manage` |
+| `project-viewer` | environment (Project) | `project:view` |
+| `project-contributor` | environment (Project) | `project:view`, `project:chat` |
+| `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
+| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:workflows:manage` |
+| `workflow-viewer` / `workflow-operator` / `workflow-admin` | environment (Workflow) | `workflow:view` / +`run` / +`manage` |
+| `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
+| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view` |
+
+The four fine-grained org personas exist to keep ADR-0016's extensibility
+contract honest: each holds a strict subset of Admin and works with no code
+change, which is the property that silently broke for `org:audit:view` and
+`org:archiv:manage`.
 
 ### 3. The platform organization + exclusive role
 
@@ -161,17 +253,19 @@ free-text check has been smoke-tested against a configured LLM.
 
 ## Replay into a fresh environment (e.g. Production)
 
-Via the WorkOS dashboard (or the management API):
-
-1. Create the ten permissions from tables 1 + 2 (resource type
-   Organization, same slugs).
-2. Edit the **Admin** role: add the five `org:*` permissions (keep the
-   `widgets:*` ones).
-3. Create organization **GRID Platform** with external id `grid-platform`.
-4. Inside that organization, create the **org-scoped** role
-   `org-platform-owner` with the four `platform:*` + five `widgets:*`
-   permissions.
-5. Add the owner's user to GRID Platform with that role.
+1. **Dashboard**: create the resource types from §0 — `project` (parent
+   `organization`), then `workflow` (parent `project`). Descriptions are capped
+   at 150 characters.
+2. **Dashboard**: create organization **GRID Platform** with external id
+   `grid-platform` (the app resolves it by external id, so the name may differ
+   but the external id may not).
+3. **Script**: `WORKOS_API_KEY=<prod key> npm run provision:authz -- --apply`
+   from `frontends/ui`. This creates every permission from §1/§1a/§1b/§2 and
+   every role from §2a, including the two platform-org roles, and is idempotent.
+4. **Script**: re-run without `--apply` and confirm it reports
+   "WorkOS matches the catalog."
+5. Add the owner's user to GRID Platform with the `org-platform-owner` role
+   (membership assignment stays a dashboard/API action).
 6. Add the production web origin to AuthKit CORS and redirect URIs.
 7. Provision the Audit Log schemas: `WORKOS_API_KEY=<prod key> npm run
    provision:audit-schemas` (from `frontends/ui`).
@@ -188,14 +282,29 @@ steps 3–5 are done, then clear it.
 
 ## How the app consumes this
 
-- JWT claims (`role`, `permissions`) per active org → permission registry
-  (`frontends/ui/src/lib/authz/permissions.ts`); legacy `admin` implies all
-  `org:*` (never `platform:*`).
-- Platform owner: `lib/authz/platform.ts` — platform-org membership with
-  `org-platform-owner` (cached lookup) or the break-glass allowlist.
-- Custom roles: create any role in WorkOS with a subset of `org:*` /
-  `widgets:*` permissions and it works immediately — code never checks role
-  names except the documented `admin` back-compat.
+- **Catalog** (`lib/authz/catalog.ts`) — the source of truth this runbook
+  documents, read by the app and by `provision:authz`.
+- **Decision point** (`lib/authz/decide.ts`) — one `decide()`/`authorize()`
+  across all four tiers, each answer carrying the named rule that produced it
+  (ADR-0038). Claims tiers deny with 403, resource tiers with 404.
+- **Claims** (`role`, `permissions`) per active org → `lib/authz/permissions.ts`.
+  A role slug implies exactly the permissions the **catalog** says that role
+  holds — a bounded back-compat bridge for sessions minted before a permission
+  was provisioned, not the old `org:*` prefix wildcard. `platform:*` is never
+  implied.
+- **Platform owner**: `lib/authz/platform.ts` — platform-org membership with
+  `org-platform-owner`/`org-platform-support` (cached lookup) or the break-glass
+  allowlist.
+- **Per-resource**: `lib/authz/resource-check.ts` is the single FGA round-trip
+  for both the project and workflow tiers, and fails closed.
+- **Route postures**: every `app/api` handler declares how it is authorized
+  (`{ permission }` / `{ enforcedBy }` / `{ sessionOnly, why }`); `tsc` rejects a
+  route that does not, and `src/app/api/authz-coverage.spec.ts` fails when a
+  handler escapes the factories entirely.
+- **Custom roles**: add a role to the catalog (or create one in WorkOS with a
+  subset of `org:*` / `widgets:*`) and it works immediately — code never checks
+  role names except the bounded `admin` back-compat above. The four shipped
+  personas in §2a exercise this path so it cannot rot unnoticed.
 
 ## Sign-up policy — what is native WorkOS vs. app-side
 

@@ -13,8 +13,16 @@ import { apiRoute } from '@/lib/api/handler'
 import { requireWorkflowsEnabled } from '@/lib/authz/feature-flags'
 import { listGalleryTemplates } from '@/lib/platform-workflow-templates/service'
 
-export const GET = apiRoute(async ({ session }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  return { templates: await listGalleryTemplates() }
-})
+export const GET = apiRoute(
+  async ({ session }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    return { templates: await listGalleryTemplates() }
+  },
+  {
+    authz: {
+      sessionOnly: true,
+      why: 'platform-curated workflow templates (ADR-0027), identical for every tenant and carrying no tenant data',
+    },
+  }
+)

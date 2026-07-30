@@ -534,7 +534,7 @@ describe('deleteDocument', () => {
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
 
-    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:edit')
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', ['project:documents:write', 'project:edit'])
     // Best-effort backend chunk purge, keyed by the document's collection + filename.
     const purgeCall = mockFetch.mock.calls.find(
       ([url, init]) => String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE',

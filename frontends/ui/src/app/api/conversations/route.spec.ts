@@ -71,7 +71,9 @@ describe('GET /api/conversations', () => {
   })
 
   it('scopes by projectId, keeping tenancy, unstamped rows, and privacy', async () => {
-    const res = await GET(new Request(`https://grid.example/api/conversations?projectId=${PROJECT_ID}`))
+    const res = await GET(
+      new Request(`https://grid.example/api/conversations?projectId=${PROJECT_ID}`)
+    )
 
     expect(res.status).toBe(200)
     const { sql, params } = onlyQuery()
@@ -92,12 +94,14 @@ describe('GET /api/conversations', () => {
   it('requires project access for a projectId filter (cross-org probing -> 404)', async () => {
     requireProjectAccessMock.mockRejectedValue(new NotFoundError())
 
-    const res = await GET(new Request(`https://grid.example/api/conversations?projectId=${PROJECT_ID}`))
+    const res = await GET(
+      new Request(`https://grid.example/api/conversations?projectId=${PROJECT_ID}`)
+    )
 
     expect(requireProjectAccessMock).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org_1', userId: 'user_1' }),
       PROJECT_ID,
-      'project:view',
+      'project:view'
     )
     expect(res.status).toBe(404)
     // The repository must never be reached for a project the caller can't see.
@@ -105,7 +109,9 @@ describe('GET /api/conversations', () => {
   })
 
   it('rejects a malformed projectId with 400', async () => {
-    const res = await GET(new Request('https://grid.example/api/conversations?projectId=not-a-uuid'))
+    const res = await GET(
+      new Request('https://grid.example/api/conversations?projectId=not-a-uuid')
+    )
 
     expect(res.status).toBe(400)
     expect(requireProjectAccessMock).not.toHaveBeenCalled()

@@ -41,5 +41,5 @@ export const POST = internalApiRoute<Params>(
     const messages = await persistInternalConversationMessages(organizationId, params.id, [message])
     return { messages }
   },
-  { status: 201 },
+  { status: 201 }
 )

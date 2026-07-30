@@ -12,9 +12,12 @@ import { apiRoute } from '@/lib/api/handler'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { deleteArchivDocument } from '@/lib/archiv/service'
 
-export const DELETE = apiRoute<{ id: string }>(async ({ session, params, request }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
-  if (gated) return gated
-  await deleteArchivDocument(session, params.id, request)
-  return null
-})
+export const DELETE = apiRoute<{ id: string }>(
+  async ({ session, params, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
+    if (gated) return gated
+    await deleteArchivDocument(session, params.id, request)
+    return null
+  },
+  { authz: { enforcedBy: 'deleteArchivDocument (canManageArchiv)' } }
+)
