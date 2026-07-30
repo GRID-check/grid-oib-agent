@@ -630,6 +630,11 @@ export async function createConversationMessages(
         resourceType: 'conversation',
         resourceId: conversationId,
         authorUserId: session.userId,
+        // Whom these messages addressed, so a question put BACK to the asker is
+        // recorded as that rather than as an answer they never gave.
+        addressedUserIds: [
+          ...new Set(humanMessages.flatMap((message) => message.addressees.users)),
+        ],
       })
     } catch (error) {
       console.warn('[conversations] resolving mention requests on reply failed (non-fatal):', error)

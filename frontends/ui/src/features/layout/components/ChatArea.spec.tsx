@@ -946,7 +946,7 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.getByTestId('handback-offer')).toHaveTextContent(
-      'Anna Berger answered — let Piloti carry on?',
+      'Anna Berger replied — let Piloti carry on?',
     )
   })
 
@@ -960,7 +960,7 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.getByTestId('handback-offer')).toHaveTextContent(
-      'Anna Berger, Tobias Kern answered — let Piloti carry on?',
+      'Anna Berger, Tobias Kern replied — let Piloti carry on?',
     )
   })
 

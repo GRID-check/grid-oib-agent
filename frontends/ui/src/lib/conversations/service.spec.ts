@@ -174,7 +174,7 @@ beforeEach(() => {
   vi.mocked(findConversationRead).mockResolvedValue(null)
   vi.mocked(resolveParticipants).mockResolvedValue([])
   vi.mocked(emitInboxItems).mockResolvedValue(0)
-  vi.mocked(resolveRequestsOnReply).mockResolvedValue({ answered: 0, askerUserIds: [] })
+  vi.mocked(resolveRequestsOnReply).mockResolvedValue({ answered: 0, askedBack: 0, askerUserIds: [] })
   vi.mocked(findMessageInConversation).mockResolvedValue(null)
   vi.mocked(insertMessages).mockImplementation(async (rows) => rows as Message[])
 })
@@ -470,7 +470,24 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
       resourceType: 'conversation',
       resourceId: CONVERSATION_ID,
       authorUserId: 'user_me',
+      // A plain contribution addresses nobody by name, so nothing is recorded as
+      // a question back — this is the "they really did answer" case.
+      addressedUserIds: [],
     })
+  })
+
+  it('passes on who the reply addressed, so a question back is not filed as an answer', async () => {
+    // The message that used to produce two contradictory notifications: Anna,
+    // who was asked, replies by asking Matthias something.
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: '@Anna welche Halle meinst du?', mentions: [{ targetId: 'user_anna' }] },
+    ])
+
+    // Whatever the ruling addressed is what resolution is judged against — the
+    // routing decision is made once, server-side, and never re-derived from text.
+    expect(resolveRequestsOnReply).toHaveBeenCalledWith(
+      expect.objectContaining({ addressedUserIds: ['user_anna'] }),
+    )
   })
 
   it('does not close anything for a message the agent wrote', async () => {

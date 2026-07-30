@@ -11,7 +11,7 @@ describe('HandbackOffer — the way on, once the colleague has answered', () => 
   test('names who answered and offers exactly one action plus a dismissal', () => {
     render(<HandbackOffer people={[ANNA]} onAccept={vi.fn()} onDismiss={vi.fn()} />)
 
-    expect(screen.getByText('Anna Weber answered — let Piloti carry on?')).toBeInTheDocument()
+    expect(screen.getByText('Anna Weber replied — let Piloti carry on?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Let Piloti carry on' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Not now' })).toBeInTheDocument()
     expect(screen.getAllByRole('button')).toHaveLength(2)
@@ -20,7 +20,7 @@ describe('HandbackOffer — the way on, once the colleague has answered', () => 
   test('pluralises when several people answered', () => {
     render(<HandbackOffer people={[ANNA, MARKUS]} onAccept={vi.fn()} onDismiss={vi.fn()} />)
     expect(
-      screen.getByText('Anna Weber, Markus Hofer answered — let Piloti carry on?'),
+      screen.getByText('Anna Weber, Markus Hofer replied — let Piloti carry on?'),
     ).toBeInTheDocument()
   })
 

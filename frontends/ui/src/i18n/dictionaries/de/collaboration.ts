@@ -135,6 +135,7 @@ export const collaboration: typeof en.collaboration = {
       releaseOne: 'Ohne {name} weitermachen',
       released: 'Das Warten wurde aufgehoben.',
       askAgent: 'Stattdessen Piloti fragen',
+      askBack: 'Rückfrage an {name}',
     },
     handback: {
       offer: '{name} hat geantwortet — Piloti weiterarbeiten lassen?',

@@ -27,11 +27,20 @@ export type MentionRequestStatus = (typeof MENTION_REQUEST_STATUSES)[number]
 
 /**
  * How an open request was closed.
- *   - `answered` — a mentioned person contributed to the resource;
- *   - `released` — a participant explicitly chose to continue without them;
- *   - `void`     — the request became meaningless (access lost, resource gone).
+ *   - `answered`   — a mentioned person contributed to the resource;
+ *   - `asked_back` — they responded by asking the asker something in return;
+ *   - `released`   — a participant explicitly chose to continue without them;
+ *   - `void`       — the request became meaningless (access lost, resource gone).
+ *
+ * `asked_back` exists because "they wrote something" and "they answered" are not
+ * the same event, and treating them as one produced the product's worst
+ * misstatement: a clarifying question from the person who was asked was reported
+ * to the asker as "Anna answered", the thread stopped waiting, and the next plain
+ * message — the asker replying to ANNA — went to the agent. The lifecycle
+ * `status` is still `answered` (the request is closed, they did respond); this
+ * column carries the distinction the copy and the notifications need.
  */
-export const MENTION_RESOLUTIONS = ['answered', 'released', 'void'] as const
+export const MENTION_RESOLUTIONS = ['answered', 'asked_back', 'released', 'void'] as const
 export type MentionResolution = (typeof MENTION_RESOLUTIONS)[number]
 
 export const mentionRequests = pgTable(

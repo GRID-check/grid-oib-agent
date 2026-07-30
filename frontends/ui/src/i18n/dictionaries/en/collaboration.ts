@@ -176,6 +176,15 @@ export const collaboration = {
       releaseOne: 'Continue without {name}',
       released: 'The wait was released.',
       askAgent: 'Ask Piloti instead',
+      /**
+       * Shown only to the person who was asked. Being asked something you cannot
+       * answer without more information is the most common outcome, and typing a
+       * plain reply is the one move that goes wrong: it reads as an answer, ends
+       * the wait, and hands the thread back to Piloti mid-conversation. This
+       * pre-fills `@{asker}` so the question travels back to the person who can
+       * answer it and the thread keeps waiting — on them, correctly.
+       */
+      askBack: 'Ask {name} back',
     },
     /**
      * The hand-BACK offer, shown in the thread at the moment a wait resolves.
@@ -188,8 +197,8 @@ export const collaboration = {
      * honestly authored, and a turn with no question of its own produces mush.
      */
     handback: {
-      offer: '{name} answered — let Piloti carry on?',
-      offerMany: '{names} answered — let Piloti carry on?',
+      offer: '{name} replied — let Piloti carry on?',
+      offerMany: '{names} replied — let Piloti carry on?',
       action: 'Let Piloti carry on',
       dismiss: 'Not now',
       /** Inserted after `@Piloti ` into the composer, for the user to edit or send. */
@@ -244,8 +253,14 @@ export const collaboration = {
         title: '{actor} asked for your input',
         body: 'in {subject}',
       },
+      /**
+       * "Replied", not "answered". Even with `asked_back` split out, a
+       * contribution can be "I'll look at it tomorrow" — true of every one of
+       * them is that the person replied. German already says exactly this
+       * ("hat geantwortet"); English "answered" was the one over-claim.
+       */
       mentionAnswered: {
-        title: '{actor} answered',
+        title: '{actor} replied',
         body: 'in {subject}',
       },
       conversationShared: {

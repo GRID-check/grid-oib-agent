@@ -191,3 +191,69 @@ describe('AwaitingBanner — always a way out (MN-9)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The wait could not be released.')
   })
 })
+
+/**
+ * The clarifying question — the most common thing the person who was asked
+ * actually needs to do, and the one move the deterministic routing gets wrong if
+ * they type it as plain text: a plain contribution settles the request, so the
+ * question reads as an answer, the wait ends, and Piloti is handed a thread in
+ * the middle of a human conversation.
+ */
+describe('AwaitingBanner — asking back', () => {
+  test('offers it to the person being asked, naming who to ask', () => {
+    render(
+      <AwaitingBanner
+        awaiting={state([request()], true)}
+        onRelease={vi.fn()}
+        onAskBack={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Ask Matthias Bigl back' })).toBeInTheDocument()
+  })
+
+  test('hands the asker back to the caller, so the composer can address them', async () => {
+    const user = userEvent.setup()
+    const onAskBack = vi.fn()
+    render(
+      <AwaitingBanner
+        awaiting={state([request()], true)}
+        onRelease={vi.fn()}
+        onAskBack={onAskBack}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Ask Matthias Bigl back' }))
+
+    expect(onAskBack).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-matthias', name: 'Matthias Bigl' }),
+    )
+  })
+
+  test('never offers it to an observer — it is not their question to send back', () => {
+    render(
+      <AwaitingBanner
+        awaiting={state([request()], false)}
+        onRelease={vi.fn()}
+        onAskBack={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /Ask .* back/ })).not.toBeInTheDocument()
+  })
+
+  test('stays away when several people asked — "ask whom back?" has no honest answer', () => {
+    render(
+      <AwaitingBanner
+        awaiting={state(
+          [
+            request(),
+            request({ id: 'r-2', person: person('u-tobias', 'Tobias Kern') }),
+          ],
+          true,
+        )}
+        onRelease={vi.fn()}
+        onAskBack={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /Ask .* back/ })).not.toBeInTheDocument()
+  })
+})

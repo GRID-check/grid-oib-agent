@@ -455,6 +455,15 @@ export interface ResolveRequestsOnReplyInput {
   resourceId: string
   /** Whoever just contributed. */
   authorUserId: string
+  /**
+   * Whom this author's contribution addressed, if anyone (the server's own
+   * ruling, from `prepareMessage`).
+   *
+   * This is what separates "Anna answered" from "Anna asked something back". The
+   * caller has the ruling already; recomputing it here would mean parsing the
+   * message text a second time and being allowed to disagree with the routing.
+   */
+  addressedUserIds?: readonly string[]
 }
 
 /**
@@ -465,52 +474,85 @@ export interface ResolveRequestsOnReplyInput {
  * already authorized the write, and resolution must also work for a contribution
  * that arrives on the internal path.
  *
+ * **A response is not always an answer.** When the person who was asked replies by
+ * asking the ASKER something in return, the request closes as `asked_back` and no
+ * "they answered" notification is emitted — the new request their message created
+ * is the honest notification, and sending both told the asker two contradictory
+ * things about one message. Everything else is unchanged: the thread stops waiting
+ * on them either way, because they did respond.
+ *
  * Returns the askers so they can be told their request was answered (spec MN-18)
  * — waiting for a colleague must not be a polling exercise.
  */
 export async function resolveRequestsOnReply(
   input: ResolveRequestsOnReplyInput,
-): Promise<{ answered: number; askerUserIds: string[] }> {
-  const { organizationId, resourceType, resourceId, authorUserId } = input
+): Promise<{ answered: number; askedBack: number; askerUserIds: string[] }> {
+  const { organizationId, resourceType, resourceId, authorUserId, addressedUserIds } = input
+  const none = { answered: 0, askedBack: 0, askerUserIds: [] as string[] }
 
   // Only the author's OWN open requests: someone else's outstanding request is
   // not answered by a third party writing something (spec MN-10 — each person's
   // request resolves independently).
   const open = await listOpenRequestsForSubject(resourceType, resourceId, authorUserId)
-  if (open.length === 0) return { answered: 0, askerUserIds: [] }
+  if (open.length === 0) return none
 
-  const closed = await resolveRequests(
-    open.map((request) => request.id),
-    'answered',
-    authorUserId,
-  )
-  if (closed.length === 0) return { answered: 0, askerUserIds: [] }
+  // A request the author just put a question BACK to. Per asker, not per message:
+  // Anna may be answering Tobias while asking Matthias something, and each of
+  // their requests deserves the truth about its own outcome.
+  const addressed = new Set(addressedUserIds ?? [])
+  const askedBack = open.filter((request) => addressed.has(request.requestedBy))
+  const answered = open.filter((request) => !addressed.has(request.requestedBy))
+
+  // Guarded rather than relying on `resolveRequests`' own empty-input early
+  // return: the common case has exactly one of these lists populated, and a
+  // no-op UPDATE round-trip per message is not free.
+  const closedAskedBack =
+    askedBack.length > 0
+      ? await resolveRequests(
+          askedBack.map((request) => request.id),
+          'asked_back',
+          authorUserId,
+        )
+      : []
+  const closedAnswered =
+    answered.length > 0
+      ? await resolveRequests(
+          answered.map((request) => request.id),
+          'answered',
+          authorUserId,
+        )
+      : []
+  const closed = [...closedAskedBack, ...closedAnswered]
+  if (closed.length === 0) return none
 
   // The recipient never has to tidy up for the inbox to stay accurate (MN-16).
   // Every closed row here is addressed to THIS author (they came from
   // `listOpenRequestsForSubject`), and the targets carry that recipient
   // explicitly — a colleague mentioned on the same message keeps their own row
-  // open (spec MN-10).
+  // open (spec MN-10). Both resolutions clear it: the request is settled either
+  // way, and leaving it would keep telling the recipient they owe an answer.
   await resolveInboxItemsFor(requestedInboxTargets(closed))
 
   const askerUserIds = [...new Set(closed.map((request) => request.requestedBy))]
-  const subject = await resolveSubjectLine(resourceType, resourceId, organizationId)
-  await emitInboxItems(
-    closed.map((request) => ({
-      organizationId,
-      recipientUserId: request.requestedBy,
-      type: 'mention.answered' as const,
-      resourceType,
-      resourceId,
-      anchorId: request.anchorId,
-      actorUserId: authorUserId,
-      groupKey: answeredGroupKey(request),
-      payload: { subject, excerpt: request.note },
-    })),
-  )
+  if (closedAnswered.length > 0) {
+    const subject = await resolveSubjectLine(resourceType, resourceId, organizationId)
+    await emitInboxItems(
+      closedAnswered.map((request) => ({
+        organizationId,
+        recipientUserId: request.requestedBy,
+        type: 'mention.answered' as const,
+        resourceType,
+        resourceId,
+        anchorId: request.anchorId,
+        actorUserId: authorUserId,
+        groupKey: answeredGroupKey(request),
+        payload: { subject, excerpt: request.note },
+      })),
+    )
+  }
 
   await publishAwaiting(organizationId, resourceType, resourceId)
-  return { answered: closed.length, askerUserIds }
+  return { answered: closedAnswered.length, askedBack: closedAskedBack.length, askerUserIds }
 }
 
 /**

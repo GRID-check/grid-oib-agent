@@ -420,7 +420,7 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
     // (spec MN-10 — each person's request resolves independently).
     expect(listOpenRequestsForSubject).toHaveBeenCalledWith('conversation', 'conv_1', ANNA)
     expect(resolveRequests).toHaveBeenCalledWith(['req_1'], 'answered', ANNA)
-    expect(result).toEqual({ answered: 1, askerUserIds: ['user_me'] })
+    expect(result).toEqual({ answered: 1, askedBack: 0, askerUserIds: ['user_me'] })
 
     // The recipient's own item resolves without them dismissing anything (MN-16)…
     expect(resolveInboxItemsFor).toHaveBeenCalledWith([
@@ -469,12 +469,77 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
     expect(listOpenRequestsForSubject).toHaveBeenCalledWith('conversation', 'conv_1', ANNA)
   })
 
+  /**
+   * The clarifying-question cascade.
+   *
+   * Anna was asked. Anna replies with a question BACK to Matthias. Treating that
+   * as an answer told Matthias "Anna hat geantwortet" about a message that
+   * answered nothing, offered to hand the thread back to Piloti, and stacked a
+   * second, contradictory row next to the request Anna's own message had just
+   * created. One message, two opposite claims.
+   */
+  it('records a question put back to the asker as asked_back, not as an answer', async () => {
+    vi.mocked(listOpenRequestsForSubject).mockResolvedValue([requestRow()])
+    vi.mocked(resolveRequests).mockResolvedValue([
+      requestRow({ status: 'answered', resolution: 'asked_back', resolvedBy: ANNA }),
+    ])
+
+    const result = await resolveRequestsOnReply({ ...input, addressedUserIds: ['user_me'] })
+
+    expect(resolveRequests).toHaveBeenCalledWith(['req_1'], 'asked_back', ANNA)
+    expect(result).toEqual({ answered: 0, askedBack: 1, askerUserIds: ['user_me'] })
+
+    // Anna's own "you were asked" row still clears — she did respond, and leaving
+    // it would keep telling her she owes an answer (MN-16).
+    expect(resolveInboxItemsFor).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: ANNA,
+        groupKey: 'mention.requested:conversation:conv_1:msg_1',
+      },
+    ])
+    // And the false claim is gone: the ONLY thing Matthias hears about this
+    // message is the new request it created, emitted by `applyMentions`.
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('judges each asker separately when one message answers one and asks another', async () => {
+    // Anna answers Bob and asks Matthias something in the same breath. Rolling
+    // them together would either rob Bob of his answer notification or tell
+    // Matthias he got one.
+    vi.mocked(listOpenRequestsForSubject).mockResolvedValue([
+      requestRow({ id: 'req_matthias', requestedBy: 'user_me' }),
+      requestRow({ id: 'req_bob', requestedBy: BOB }),
+    ])
+    vi.mocked(resolveRequests).mockImplementation(async (ids, resolution) =>
+      ids.map((id) =>
+        requestRow({
+          id,
+          requestedBy: id === 'req_bob' ? BOB : 'user_me',
+          status: 'answered',
+          resolution,
+          resolvedBy: ANNA,
+        }),
+      ),
+    )
+
+    const result = await resolveRequestsOnReply({ ...input, addressedUserIds: ['user_me'] })
+
+    expect(resolveRequests).toHaveBeenCalledWith(['req_matthias'], 'asked_back', ANNA)
+    expect(resolveRequests).toHaveBeenCalledWith(['req_bob'], 'answered', ANNA)
+    expect(result).toMatchObject({ answered: 1, askedBack: 1 })
+
+    // Only Bob is told he was answered.
+    const notified = vi.mocked(emitInboxItems).mock.calls.flatMap(([items]) => items)
+    expect(notified.map((item) => item.recipientUserId)).toEqual([BOB])
+  })
+
   it('does nothing when the author was not being awaited', async () => {
     vi.mocked(listOpenRequestsForSubject).mockResolvedValue([])
 
     const result = await resolveRequestsOnReply(input)
 
-    expect(result).toEqual({ answered: 0, askerUserIds: [] })
+    expect(result).toEqual({ answered: 0, askedBack: 0, askerUserIds: [] })
     expect(resolveRequests).not.toHaveBeenCalled()
     expect(emitInboxItems).not.toHaveBeenCalled()
     expect(publishToUsers).not.toHaveBeenCalled()

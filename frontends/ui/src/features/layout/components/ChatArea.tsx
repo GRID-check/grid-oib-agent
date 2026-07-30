@@ -356,6 +356,23 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     setComposerPrefill(`@${tCollaboration('mentions.picker.agentName')} `)
   }, [setComposerPrefill, tCollaboration])
 
+  /**
+   * "Rückfrage an Matthias" — the reader was asked something they cannot answer
+   * without more information.
+   *
+   * Pre-fills `@{asker} `, which routes the message as a mention: the asker's own
+   * request closes as `asked_back` rather than as an answer they never gave, and
+   * the thread keeps waiting — on them. Typing the same question as plain text
+   * instead settles the request, tells the asker "they answered", and hands the
+   * thread back to Piloti in the middle of a human conversation.
+   */
+  const handleAskBack = useCallback(
+    (asker: { userId: string; name: string }) => {
+      setComposerPrefill(`@${asker.name} `)
+    },
+    [setComposerPrefill],
+  )
+
   // Entrance-animation bookkeeping: messages already present when a conversation
   // renders (hydration / session switch) must NOT animate in — only messages
   // appended afterwards get the fade-rise entrance. Seeded synchronously so the
@@ -723,6 +740,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               awaiting={awaiting}
               onRelease={release}
               onAskAgent={handleAskAgent}
+              onAskBack={handleAskBack}
             />
           )}
 

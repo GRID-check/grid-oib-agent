@@ -294,7 +294,7 @@ describe('two people answering the same mention (matrix D21, spec CC-15)', () =>
       authorUserId: ANNA,
     })
 
-    expect(result).toEqual({ answered: 0, askerUserIds: [] })
+    expect(result).toEqual({ answered: 0, askedBack: 0, askerUserIds: [] })
     // No "your request was answered" for a request this author did not close, and
     // no awaiting republish claiming the state changed.
     expect(upsertInboxItems).not.toHaveBeenCalled()
@@ -315,7 +315,7 @@ describe('two people answering the same mention (matrix D21, spec CC-15)', () =>
       authorUserId: ANNA,
     })
 
-    expect(result).toEqual({ answered: 1, askerUserIds: [session.userId] })
+    expect(result).toEqual({ answered: 1, askedBack: 0, askerUserIds: [session.userId] })
     expect(vi.mocked(upsertInboxItems).mock.calls[0]![0]).toHaveLength(1)
   })
 })

@@ -16,6 +16,7 @@ import {
   conversations,
   mentionRequests,
   type MentionRequest,
+  type MentionRequestStatus,
   type MentionResolution,
   type NewMentionRequest,
   type ShareableResourceType,
@@ -81,6 +82,23 @@ export async function listOpenRequestsForSubject(
 }
 
 /**
+ * The lifecycle `status` each resolution lands on.
+ *
+ * Exhaustive by type rather than a ternary chain, so adding a resolution is a
+ * compile error here instead of silently falling through to `void` — which is
+ * what a chain ending in `: 'void'` would have done to `asked_back`, voiding a
+ * request the recipient actually responded to.
+ */
+const STATUS_FOR_RESOLUTION: Record<MentionResolution, MentionRequestStatus> = {
+  answered: 'answered',
+  // They responded, so the request is closed and the thread stops waiting on
+  // them; `resolution` carries the fact that the response was a question back.
+  asked_back: 'answered',
+  released: 'released',
+  void: 'void',
+}
+
+/**
  * Close a set of requests with a resolution.
  *
  * Only `open` rows are touched, so a concurrent resolution cannot be overwritten:
@@ -94,7 +112,7 @@ export async function resolveRequests(
 ): Promise<MentionRequest[]> {
   if (requestIds.length === 0) return []
   const db = getDb()
-  const status = resolution === 'answered' ? 'answered' : resolution === 'released' ? 'released' : 'void'
+  const status = STATUS_FOR_RESOLUTION[resolution]
   return db
     .update(mentionRequests)
     .set({ status, resolution, resolvedBy, resolvedAt: new Date() })

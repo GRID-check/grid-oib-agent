@@ -23,7 +23,7 @@
  */
 
 import { useState } from 'react'
-import { Clock, Hand, Sparkles } from 'lucide-react'
+import { Clock, CornerUpLeft, Hand, Sparkles } from 'lucide-react'
 
 import { AvatarStack, PersonAvatar } from '@/components/ui/avatar-stack'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,17 @@ export interface AwaitingBannerProps {
   onRelease: (requestId: string) => Promise<boolean> | boolean
   /** Hand the question to the assistant instead (MN-9.3). Omit to hide. */
   onAskAgent?: () => void
+  /**
+   * Put a question BACK to whoever asked — offered only to the person who was
+   * asked, and only when there is a single named asker to send it to.
+   *
+   * The affordance exists because the obvious move (type a plain reply) is the
+   * one that misfires: a plain contribution settles the request, so a clarifying
+   * question reads as an answer, ends the wait and hands the thread back to the
+   * agent mid-conversation. Routing it as a mention keeps the thread waiting on
+   * the person who can actually answer.
+   */
+  onAskBack?: (asker: { userId: string; name: string }) => void
   className?: string
 }
 
@@ -46,6 +57,7 @@ export function AwaitingBanner({
   awaiting,
   onRelease,
   onAskAgent,
+  onAskBack,
   className,
 }: AwaitingBannerProps): JSX.Element | null {
   const t = useTranslations('collaboration')
@@ -191,6 +203,21 @@ export function AwaitingBanner({
           )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {/* The reader's own move, so it leads. Only when THEY are the one
+                being asked and there is a single asker to send it back to — with
+                two askers "Rückfrage an wen?" has no honest answer, and the
+                composer's own `@` is the right tool then. */}
+            {awaitingMe && onAskBack && single?.requestedBy && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => onAskBack(single.requestedBy!)}
+              >
+                <CornerUpLeft className="size-3.5" aria-hidden />
+                {t('mentions.awaiting.askBack', { name: single.requestedBy.name })}
+              </Button>
+            )}
             {onAskAgent && (
               <Button
                 variant="outline"
