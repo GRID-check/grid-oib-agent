@@ -64,6 +64,16 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 
 **Best-effort by design**: always returns HTTP `200`. Any failure (no resolvable LLM key → `error=llm_not_configured`; upstream LLM error/transport failure → `llm_request_failed`; unparseable/odd-shaped LLM output → `llm_response_malformed`) yields `findings: null` + an `error` code so the wizard can save anyway. Empty free text short-circuits to `findings: []`. The LLM is resolved from `CONSISTENCY_LLM_MODEL` / `CONSISTENCY_LLM_API_KEY` / `CONSISTENCY_LLM_BASE_URL` (falling back to `LLM_*` then the OpenRouter/OpenAI defaults — see the environment-variables reference). Proxied by the BFF `POST /api/projects/{id}/consistency-check` (which adds `project:edit` authorization).
 
+## Platform quality
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/feedback-digest` | Plain-language digest of one window of answer feedback, backing the platform's **Answer feedback** card. Turns an aggregate (vote counts, reason mix, per-topic and anonymised per-organization splits, trend delta) plus a bounded sample of the **questions** that were rated into a short readable summary. `strengths` and `concerns` are separate required fields: a single free-form summary of a feedback dataset comes back as a list of complaints every time. | `{ window_days, answers, up, down, voters, down_voters, reasons, topics, organizations, trend_delta_points?, samples, locale? }` | `FeedbackDigestResponse`: `{ headline, strengths, concerns, recommendation?, error? }` | `add_feedback_digest_routes` in `aiq_api.routes.feedback_digest` |
+
+**What the caller sends, and what it does not.** Counts and questions only. No answer text, no user/conversation/message identifiers, and — deliberately — **no organization identifiers**: the digest needs the shape of the distribution ("one tenant accounts for most of the negative votes"), never the identity, and the per-organization table renders directly beneath it on the same screen. The BFF strips these at its own boundary (`lib/feedback/digest.ts`), so this route never receives them.
+
+**Best-effort by design**: always returns HTTP `200`. `no_feedback` (nothing was rated — the model is never called), `llm_not_configured`, `llm_request_failed` and `llm_response_malformed` all come back with an empty digest so the page, which works without it, keeps working. LLM settings resolve through the shared summary chain (`SUMMARY_LLM_*` → `LLM_*` → OpenRouter/OpenAI defaults, plus BYOK). Proxied by the BFF `GET /api/platform/answer-feedback/digest`, which adds the platform-owner gate and a 6-hour shared cache.
+
 ## Chat / Generation
 
 | Method | Path | Description | Request | Response | Handler |
