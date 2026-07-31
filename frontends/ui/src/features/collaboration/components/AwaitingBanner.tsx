@@ -76,6 +76,10 @@ export function AwaitingBanner({
     (earliest, request) => (request.createdAt < earliest.createdAt ? request : earliest),
     pending[0],
   )
+  /** Names carried by more than one row — see the per-row release button. */
+  const repeatedNames = new Set(
+    names.filter((name, index) => names.indexOf(name) !== index),
+  )
 
   const headline = awaitingMe
     ? t('mentions.awaiting.awaitingYou')
@@ -164,7 +168,8 @@ export function AwaitingBanner({
           {/* Only stated at thread level when ONE person is awaited. With several,
               "asked by X, since Y" taken from the oldest request described somebody
               else's wait — most confusingly for the reader who is themselves
-              awaited by a different person. Each row carries its own instead. */}
+              awaited by a different person. Each row below carries both facts for
+              its own request instead, so nothing is lost by narrowing this. */}
           {single && (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             {oldest.requestedBy && (
@@ -225,32 +230,63 @@ export function AwaitingBanner({
                       <PersonAvatar person={request.person} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm">{request.person.name}</span>
-                        {/* Per row, because the thread-level line above is only
-                            shown for a single request (see there). */}
-                        {request.requestedBy && (
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {t('mentions.awaiting.askedBy', { name: request.requestedBy.name })}
-                          </span>
-                        )}
+                        {/* Both facts per row, because the thread-level line above
+                            is only shown for a single request (see there) — the
+                            asker AND how long this particular person has been
+                            waited on. Same absolute-time reading as up there, for
+                            the same reason. */}
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                          {request.requestedBy && (
+                            <span className="truncate">
+                              {t('mentions.awaiting.askedBy', { name: request.requestedBy.name })}
+                            </span>
+                          )}
+                          <time
+                            dateTime={request.createdAt}
+                            title={formatRelativeTime(request.createdAt, locale)}
+                          >
+                            {t('mentions.awaiting.since', {
+                              time: formatAbsoluteTime(request.createdAt, locale),
+                            })}
+                          </time>
+                        </span>
                       </span>
                     </span>
+                    {/* The question, per person. It used to render only when
+                        exactly one person was awaited, so the moment two people
+                        were asked the thing they were asked disappeared.
+
+                        Before the button in the DOM, `order-last` in the layout:
+                        a screen reader follows source order, and reading "release
+                        this person" before the question they were asked offers the
+                        way out of a wait whose reason has not been said yet. */}
+                    {request.note && (
+                      <p className="order-last w-full border-l border-border pl-2.5 text-sm leading-relaxed text-foreground/80">
+                        {request.note}
+                      </p>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
                       disabled={releasing !== null}
+                      // Two open requests can name the SAME person — asked twice,
+                      // or by two colleagues — and then every button in this list
+                      // reads "Continue without Anna Weber", with nothing to
+                      // choose between them out of context. When the name repeats,
+                      // the accessible name carries what actually differs.
+                      aria-label={
+                        repeatedNames.has(request.person.name)
+                          ? t('mentions.awaiting.releaseOneSince', {
+                              name: request.person.name,
+                              time: formatAbsoluteTime(request.createdAt, locale),
+                            })
+                          : undefined
+                      }
                       onClick={() => void release([request], request.id)}
                     >
                       {t('mentions.awaiting.releaseOne', { name: request.person.name })}
                     </Button>
-                    {/* The question, per person. It used to render only when
-                        exactly one person was awaited, so the moment two people
-                        were asked the thing they were asked disappeared. */}
-                    {request.note && (
-                      <p className="w-full border-l border-border pl-2.5 text-sm leading-relaxed text-foreground/80">
-                        {request.note}
-                      </p>
-                    )}
                   </motion.li>
                 ))}
               </AnimatePresence>

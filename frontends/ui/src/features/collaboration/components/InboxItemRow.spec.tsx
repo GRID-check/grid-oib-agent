@@ -122,8 +122,10 @@ describe('InboxItemRow — registry-driven rendering (IB-6)', () => {
         item={item({ type: 'conversation.activity', actionable: false, state: 'read', count: 0 })}
       />,
     )
-    expect(screen.getByText('New messages')).toBeInTheDocument()
+    expect(screen.getByText('Messages')).toBeInTheDocument()
     expect(screen.queryByText('1 new message')).not.toBeInTheDocument()
+    // …and it must not claim novelty either: there is nothing new in this row.
+    expect(screen.queryByText(/new/i)).not.toBeInTheDocument()
   })
 
   test('falls back to the placeholder copy for an unresolvable actor and an untitled target', () => {

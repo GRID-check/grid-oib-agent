@@ -95,6 +95,91 @@ describe('AwaitingBanner — the silence is explained (MN-8)', () => {
     expect(within(rows[1]).getByText('Asked by Lena Fuchs')).toBeInTheDocument()
   })
 
+  test('gives each row its own since-time, not the oldest request’s', () => {
+    // The thread-level "asked by X, since Y" is narrowed to the single-person
+    // case precisely because it would describe somebody else's wait here — so
+    // every row has to carry its own, or the fact is simply gone.
+    render(
+      <AwaitingBanner
+        awaiting={state([
+          request({ id: 'r-1', createdAt: '2026-07-29T07:15:00Z' }),
+          request({
+            id: 'r-2',
+            person: person('u-tobias', 'Tobias Kern'),
+            createdAt: '2026-07-29T09:40:00Z',
+          }),
+        ])}
+        onRelease={vi.fn()}
+      />,
+    )
+    const rows = screen.getAllByTestId('awaiting-person')
+    const times = rows.map((row) => within(row).getByText(/^since /).textContent)
+    expect(times[0]).not.toEqual(times[1])
+    expect(rows[0].querySelector('time')).toHaveAttribute('datetime', '2026-07-29T07:15:00Z')
+    expect(rows[1].querySelector('time')).toHaveAttribute('datetime', '2026-07-29T09:40:00Z')
+  })
+
+  test('a row reads the question before it offers the way out of it', () => {
+    // A screen reader follows source order. Offering "continue without Anna" to
+    // somebody who has not been told what Anna was asked is the wrong order.
+    render(
+      <AwaitingBanner
+        awaiting={state([
+          request({ id: 'r-1', note: 'Ist das Atrium ein eigener Abschnitt?' }),
+          request({
+            id: 'r-2',
+            person: person('u-tobias', 'Tobias Kern'),
+            note: 'Gilt hier OIB 2 oder 2.1?',
+          }),
+        ])}
+        onRelease={vi.fn()}
+      />,
+    )
+    const row = screen.getAllByTestId('awaiting-person')[0]
+    const children = Array.from(row.children)
+    const note = within(row).getByText('Ist das Atrium ein eigener Abschnitt?')
+    const button = within(row).getByRole('button')
+    expect(children.indexOf(note)).toBeLessThan(children.indexOf(button))
+  })
+
+  test('tells two waits on the same person apart by name', () => {
+    // One colleague can be waited on twice — asked twice, or by two people — and
+    // then both buttons read "Continue without Anna Weber".
+    render(
+      <AwaitingBanner
+        awaiting={state([
+          request({ id: 'r-1', createdAt: '2026-07-29T07:15:00Z' }),
+          request({
+            id: 'r-2',
+            requestedBy: person('u-lena', 'Lena Fuchs'),
+            createdAt: '2026-07-29T09:40:00Z',
+          }),
+        ])}
+        onRelease={vi.fn()}
+      />,
+    )
+    const buttons = screen.getAllByRole('button', { name: /^Continue without Anna Weber/ })
+    expect(buttons).toHaveLength(2)
+    const labels = buttons.map((button) => button.getAttribute('aria-label'))
+    expect(labels.every((label) => label?.includes('waiting since'))).toBe(true)
+    expect(new Set(labels).size).toBe(2)
+  })
+
+  test('leaves the release label alone when the name is unambiguous', () => {
+    render(
+      <AwaitingBanner
+        awaiting={state([
+          request(),
+          request({ id: 'r-2', person: person('u-markus', 'Markus Hofer') }),
+        ])}
+        onRelease={vi.fn()}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: 'Continue without Markus Hofer' }),
+    ).toBeInTheDocument()
+  })
+
   test('carries an avatar for each awaited person', () => {
     render(
       <AwaitingBanner

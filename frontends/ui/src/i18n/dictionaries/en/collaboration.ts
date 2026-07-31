@@ -236,6 +236,12 @@ export const collaboration = {
       awaitingYouHint: 'Answer in the conversation, or release the wait.',
       release: 'Continue without waiting',
       releaseOne: 'Continue without {name}',
+      /**
+       * The accessible name of a per-person release button whose name is not
+       * unique in the list — the same colleague can be waited on twice. Only the
+       * start of the wait tells the two apart, so only it is added.
+       */
+      releaseOneSince: 'Continue without {name} — waiting since {time}',
       released: 'The wait was released.',
       askAgent: 'Ask Piloti instead',
       /**
@@ -313,8 +319,13 @@ export const collaboration = {
        * A refused ACTION, which is a different fact from a failed load — and the
        * commonest cause is benign (a row a second tab already archived). Kept
        * separate so a working list is never replaced by a load-failure sentence.
+       *
+       * "Unchanged", not "up to date": the refusal path deliberately does not
+       * re-read the list, so the rows on screen are exactly the ones that were
+       * there before — which in the commonest case (a row another tab already
+       * archived) is precisely NOT up to date.
        */
-      actionFailed: 'That action could not be completed. Your inbox is up to date.',
+      actionFailed: 'That action could not be completed. Your inbox is unchanged.',
       tryAgain: 'Try again',
     },
     /**
@@ -343,8 +354,12 @@ export const collaboration = {
       conversationActivity: {
         titleOne: '1 new message',
         titleMany: '{count} new messages',
-        /** Read, with nothing new since — the counter has been spent. */
-        titleNone: 'New messages',
+        /**
+         * Read, with nothing new since — the counter has been spent. So it must
+         * not say "new": this row is history, and a group of twenty the reader
+         * has just been through was announcing fresh mail at them.
+         */
+        titleNone: 'Messages',
         body: 'in {subject}',
       },
       /**
@@ -384,8 +399,17 @@ export const collaboration = {
     typingMany: '{names} and {count} others are writing…',
     /** `typingMany` with an overflow of exactly one — reachable at three typists. */
     typingManyOne: '{names} and 1 other are writing…',
-    /** Joins two names in the typing line. */
+    /**
+     * Joins the named typists when a count follows them ("Anna, Tobias and 2
+     * others"), where the conjunction is already spoken by `typingMany`.
+     */
     typingNameSeparator: ', ',
+    /**
+     * The two named typists when nobody follows them. A list separator is not a
+     * conjunction: German reads "Anna und Tobias schreiben", never "Anna, Tobias
+     * schreiben", and English is no different.
+     */
+    typingNamePair: '{first} and {second}',
     /** The agent put a question to the asker; an observer is told, not offered it. */
     spectatorPrompt: 'Piloti asked a question and is waiting for an answer: “{question}”',
     spectatorFailed: 'This turn ended with an error.',

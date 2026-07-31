@@ -131,6 +131,29 @@ resource waits on somebody who can never answer.
 *Lift:* take `(resourceType, resourceId)` at the five entry points, and derive the
 project-scoped variants from a `listIdsInProject` descriptor member.
 
+**And the cascade is stated twice, in two runtimes.** The purger service
+(`frontends/ui/purger/purge-project.js`) deletes `inbox_items`,
+`mention_requests` and `resource_shares` for a purged project with its own raw
+SQL and its own hardcoded `resource_type = 'conversation'` literal. It is not
+working around the helper: it *cannot* call it. The purger is a separate
+CommonJS process (`node purger/index.js`) with no bundler and no TS step, so a
+`'server-only'` module behind `@/…` aliases is unreachable; its grid_app deletes
+must stay inside one postgres.js transaction, while this tier's repositories open
+their own connection; the per-conversation helper is best-effort and never
+throws, where the purger needs a failure to abort and leave the queue row
+retryable; and it is per conversation, where the purger needs a statement count
+that does not grow with the project. A dead typed helper
+(`purgeCollaborationForConversations`, no caller anywhere) used to sit next to
+that duplicate; it has been deleted, and this entry is what replaces it. So: a
+second resource type has to add its literal in **two** places, in two languages,
+and nothing type-checks the second one.
+
+*Lift:* one resource-type-parameterised source of these three statements that
+both runtimes can consume — realistically SQL text generated from the registry
+and exported as plain JS, since the purger cannot take a TypeScript dependency.
+Until then the orphan sweep (§3.6) is the only thing keeping the two statements
+of the cascade from silently diverging, and it only sweeps conversations.
+
 ### 3.6 Orphan sweeps skip anything that is not a conversation
 
 All three sweeps are `resource_type = 'conversation' AND NOT EXISTS (… FROM
@@ -195,3 +218,10 @@ If adding your type makes you edit a file under `lib/sharing`, `lib/inbox`,
 `lib/mentions`, `lib/events` or `lib/collaboration` **for any reason other than
 adding a registry entry**, you have found a substrate defect. Fix it there rather
 than at your call site, and add it to §1 here when it is gone.
+
+One place the rule cannot reach, and you have to check by hand: the substrate has
+a second implementation outside the BFF. `frontends/ui/purger/purge-project.js`
+carries its own copy of the delete cascade, in CommonJS, outside `tsc --noEmit`
+and outside `eslint src` (§3.5). Widening the union will not make it fail to
+compile, and no test in this tier covers it. Grep the purger for your type's name
+before you call a cascade done.

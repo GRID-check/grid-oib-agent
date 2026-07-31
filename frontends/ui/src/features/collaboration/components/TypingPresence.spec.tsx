@@ -34,6 +34,33 @@ describe('TypingPresence', () => {
     expect(screen.getByRole('status')).not.toHaveTextContent('is writing')
   })
 
+  it('joins exactly two names with a conjunction, not a comma', () => {
+    render(
+      <TypingPresence typists={[person('u1', 'Anna Berger'), person('u2', 'Tobias Kern')]} />
+    )
+    // A list separator is not a conjunction — "Anna, Tobias schreiben" is not
+    // German, and "Anna Berger, Tobias Kern are writing…" is not English either.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Anna Berger and Tobias Kern are writing…',
+    )
+  })
+
+  it('keeps the comma when a count follows the names', () => {
+    // Here the conjunction is already in the sentence, before the count.
+    render(
+      <TypingPresence
+        typists={[
+          person('u1', 'Anna Berger'),
+          person('u2', 'Tobias Kern'),
+          person('u3', 'Lena Fuchs'),
+        ]}
+      />
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Anna Berger, Tobias Kern and 1 other are writing…',
+    )
+  })
+
   it('inflects the overflow too', () => {
     render(
       <TypingPresence

@@ -378,7 +378,12 @@ const FileChip: FC<{
     <span
       className={cn(
         'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
-        isFailed && 'border-error/50'
+        // `border-error` is a static `@utility` in globals.css with no
+        // `--modifier()`, so the slash form (`border-error/50`) matched nothing
+        // and this chip kept the neutral default border — a failed upload was
+        // signalled by the glyph alone. The token itself already carries ~55%
+        // alpha, so the solid class is the soft edge the author was after.
+        isFailed && 'border-error'
       )}
       title={`${file.fileName} — ${statusTitle}`}
     >

@@ -111,12 +111,34 @@ async function purgeProject(tx, entry, deps) {
   //    for good. The rows are invisible to access checks, but they keep
   //    inflating roster counts and leave permanently redacted entries in
   //    people's inboxes, for a project that no longer exists.
-  //    The ids were already gathered above, before anything was destroyed.
-  const conversationIds = conversations.map((c) => c.id)
-  if (conversationIds.length > 0) {
-    await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN ${tx(conversationIds)}`
-    await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN ${tx(conversationIds)}`
-    await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN ${tx(conversationIds)}`
+  //
+  //    The conversation set is expressed as a SUBQUERY, not as a list of bound
+  //    ids. `IN ${tx(ids)}` expands to one placeholder per id, and Postgres
+  //    refuses any statement with more than 65535 of them — so a project with
+  //    tens of thousands of conversations threw MAX_PARAMETERS_EXCEEDED here,
+  //    *after* Chroma, SeaweedFS and WorkOS had already been destroyed. Nothing
+  //    recovers from that: the queue row is guarded by `status='purging'` rather
+  //    than by a lock (see the file header), so it stays stuck in 'purging',
+  //    and every retry would fail on the same statement against external stores
+  //    that no longer exist. The subquery binds ONE parameter regardless of how
+  //    many conversations the project holds, so the statement count and the
+  //    parameter count are both constant.
+  //
+  //    Reading the set from the table also narrows a snapshot gap: a conversation
+  //    that appeared after the SELECT above is still caught by
+  //    `DELETE FROM conversations WHERE project_id = …` below, but was absent
+  //    from the gathered id list — so its collaboration rows were orphaned by
+  //    the very statements meant to prevent that. Same transaction, same
+  //    predicate, and the conversations are still present when these run. (The
+  //    guard below is still the gathered snapshot, so a project that was empty
+  //    at gather time issues no collaboration statements at all, as before.)
+  //
+  //    `conversations.id` and `resource_id` are both `text`, so the comparison
+  //    needs no cast.
+  if (conversations.length > 0) {
+    await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+    await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+    await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
   }
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`

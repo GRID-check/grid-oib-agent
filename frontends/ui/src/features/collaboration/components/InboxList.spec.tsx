@@ -150,6 +150,16 @@ describe('InboxList — states', () => {
     expect(status).not.toHaveTextContent('Anna Weber')
   })
 
+  test('says nothing when nothing needs the reader', () => {
+    // The region is re-read on every filter change and every archive, so an empty
+    // queue used to interrupt with "0 items need your attention" — an
+    // announcement about nothing, repeated.
+    useInboxListMock.mockReturnValue(result({ items: [], pending: 0 }))
+    render(<InboxList />)
+    expect(screen.getByRole('status')).toHaveTextContent('')
+    expect(screen.queryByText(/0 items/)).not.toBeInTheDocument()
+  })
+
   test('a refused action is reported beside the list, not instead of it', () => {
     // Archiving a row a second tab already archived used to replace every row
     // with "Your inbox could not be loaded." — which had not happened.
@@ -158,6 +168,10 @@ describe('InboxList — states', () => {
     expect(screen.getAllByTestId('inbox-item')).toHaveLength(1)
     expect(screen.getByText(/That action could not be completed/)).toBeInTheDocument()
     expect(screen.queryByText('Your inbox could not be loaded.')).not.toBeInTheDocument()
+    // The refusal path does not re-read the list, so the alert must not claim it
+    // did: the rows on screen are the ones that were already there.
+    expect(refresh).not.toHaveBeenCalled()
+    expect(screen.getByText(/Your inbox is unchanged\./)).toBeInTheDocument()
   })
 
   test('the bulk action stands down while it is in flight', () => {

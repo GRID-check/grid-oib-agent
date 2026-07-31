@@ -163,6 +163,7 @@ export const collaboration: typeof en.collaboration = {
       awaitingYouHint: 'Antworten Sie im Chat – oder heben Sie das Warten auf.',
       release: 'Ohne Antwort weitermachen',
       releaseOne: 'Ohne {name} weitermachen',
+      releaseOneSince: 'Ohne {name} weitermachen – Warten seit {time}',
       released: 'Das Warten wurde aufgehoben.',
       askAgent: 'Stattdessen Piloti fragen',
       askBack: 'Rückfrage an {name}',
@@ -210,7 +211,7 @@ export const collaboration: typeof en.collaboration = {
     },
     errors: {
       loadFailed: 'Ihr Postfach konnte nicht geladen werden.',
-      actionFailed: 'Die Aktion konnte nicht ausgeführt werden. Ihr Postfach ist aktuell.',
+      actionFailed: 'Die Aktion konnte nicht ausgeführt werden. Ihr Postfach ist unverändert.',
       tryAgain: 'Erneut versuchen',
     },
     types: {
@@ -229,11 +230,11 @@ export const collaboration: typeof en.collaboration = {
       conversationActivity: {
         titleOne: '1 neue Nachricht',
         titleMany: '{count} neue Nachrichten',
-        titleNone: 'Neue Nachrichten',
+        titleNone: 'Nachrichten',
         body: 'in {subject}',
       },
       unknown: {
-        title: 'Es gibt etwas Neues',
+        title: 'Es gab Aktivität',
         body: 'in {subject}',
       },
     },
@@ -253,6 +254,7 @@ export const collaboration: typeof en.collaboration = {
     typingMany: '{names} und {count} weitere Personen schreiben…',
     typingManyOne: '{names} und eine weitere Person schreiben…',
     typingNameSeparator: ', ',
+    typingNamePair: '{first} und {second}',
     spectatorPrompt: 'Piloti hat eine Rückfrage gestellt und wartet auf eine Antwort: „{question}“',
     spectatorFailed: 'Diese Antwort endete mit einem Fehler.',
     composerBusy:

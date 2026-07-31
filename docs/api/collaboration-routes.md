@@ -11,11 +11,22 @@ Routes for sharing, `@`-mentions with the agent hand-off, and the inbox.
 
 ## Rules that apply to every route here
 
-- **All are gated.** Each handler calls `requireCollaborationEnabled(session)`
-  first and returns `403 { error: 'feature-disabled', feature: 'collaboration' }`
-  when off. The gate is **default-deny** (per-org `collaboration` WorkOS flag with
-  flag enforcement on; `GRID_COLLABORATION_ENABLED=true` otherwise) because the
-  feature changes who can see conversations.
+- **All are gated**, in one of two ways. The collaboration-only routes (sharing,
+  mentions, inbox, `/api/stream`, `/api/conversations/{id}/{awaiting,
+  mention-candidates,live}`) call `requireCollaborationEnabled(session)` as their
+  first statement and return
+  `403 { error: 'feature-disabled', feature: 'collaboration' }` when off. The
+  routes that **pre-date** the feature and were extended by it —
+  `…/messages`, `…/read`, `…/typing` — cannot answer `403` without breaking chat
+  for orgs that never had collaboration, so the gate sits in the service and only
+  the collaboration *behaviour* switches off: a message with no mentions persists
+  exactly as it always did while one carrying `mentions` is refused
+  `403 details.reason = 'feature-disabled'`, `…/read` still moves the high-water
+  mark but skips the ambient inbox clear, and `publishTypingPresence` returns
+  without publishing (`204` either way). Both forms read the same
+  **default-deny** flag (per-org `collaboration` WorkOS flag with flag enforcement
+  on; `GRID_COLLABORATION_ENABLED=true` otherwise), because the feature changes
+  who can see conversations.
 - **All are declared through `apiRoute`** from `@/lib/api/handler`, so they are
   session-authenticated, org-scoped, and return the standard error envelope
   `{ error, code, details? }`. The one exception to the JSON-wrapping is
@@ -151,6 +162,16 @@ Returns the updated `AwaitingStateResponse`.
 
 ## Messages (existing route, extended)
 
+### `GET /api/conversations/{id}/messages`
+
+Requires `viewer`. Unchanged in shape, but worth stating here because ADR-0033
+makes this the **load** path for a shared thread rather than a rehydration
+fallback: it returns the **newest** `MESSAGE_LIST_LIMIT` (1000) messages, in
+ascending order, tie-broken on `(created_at, id)` so two clients cannot see the
+same two messages in different orders (spec CC-11). Taking the window from the
+oldest end pinned a long shared thread to ancient history and let a reader never
+see a new message again.
+
 ### `POST /api/conversations/{id}/messages`
 
 The existing persist route, with two additions. **The response shape is
@@ -207,10 +228,25 @@ comes back with `href: null` and `excerpt: null`. Such rows are **redacted, not
 dropped**: a redacted row explains itself, a vanished one looks like a bug.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/
-`inert`), `actionable`, `count` (occurrences absorbed by grouping), `actorName`,
-`subject`, `excerpt`, `href`, and timestamps. Rendering is driven entirely by
-`INBOX_TYPE_PRESENTATION` in `lib/inbox/types.ts`, so a new item type needs a
-registry entry and two translations — no new component (spec IB-6).
+`inert`), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,
+`excerpt`, `href`, `resourceType`/`resourceId`/`anchorId`, and timestamps.
+Rendering is driven entirely by `INBOX_TYPE_PRESENTATION` in
+`lib/inbox/types.ts`, so a new item type needs a registry entry and its
+translations — no new component (spec IB-6).
+
+**`count` is "occurrences absorbed by grouping SINCE THE ROW WAS LAST READ", not
+"since the row was created."** Every mark-read path resets it to zero alongside
+`readAt` — `POST /api/inbox/read` in both its shapes, and the ambient clear
+performed by `POST /api/conversations/{id}/read` (`markReadValues()` in
+`lib/inbox/repository.ts` is the single mutation all three share). So:
+
+- `count: 0` is the **ordinary** state of a read row, not a missing value.
+  Anything treating the field as `≥ 1` is wrong for every read row.
+- After a read, the upsert increments from zero: a group of twenty that was read
+  and then received one more says `1`, not `21`.
+- A renderer therefore needs **three** cases, not two —
+  `titleMany` / `titleOne` / `titleNone` (`InboxItemRow.tsx`); `titleNone` is what
+  a read row with nothing new since renders as.
 
 ### `GET /api/inbox/summary`
 
@@ -220,12 +256,20 @@ index `idx_inbox_items_pending`.
 
 ### `POST /api/inbox/read`
 
-Body `{ itemIds: string[] }` or `{ all: true }` (exactly one; `{}` is a `400`).
-Scoped to the caller, so ids belonging to someone else cannot be poked.
+Body `{ itemIds: string[] }` or `{ all: true }` — at least one of them; `{}` is a
+`400`. `itemIds` must be uuids and is capped at `INBOX_LIST_LIMIT`, because a
+mark-read request can only ever be about rows the client was shown. If both are
+sent, `all` wins. Scoped to the caller, so ids belonging to someone else cannot be
+poked (they simply match nothing — telling you an item is not yours would confirm
+it exists).
+
+Returns `{ affected, pending }`: rows actually touched (`0` is a legitimate
+no-op) and the recomputed badge, so no follow-up read is needed.
 
 ### `POST /api/inbox/{id}/archive`
 
-Archive one item. `404` on a miss — indistinguishable from "not yours".
+Archive one item. `404` on a miss — indistinguishable from "not yours". Returns
+the same `{ affected, pending }`.
 
 ---
 

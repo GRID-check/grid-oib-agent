@@ -12,8 +12,10 @@
  * Accessibility notes that are requirements, not polish:
  *   - a small `role="status"` region carries the announcement — NOT the row
  *     container, which would read the whole list aloud on every filter change
- *     and every archive. It states the count of things needing attention (NF-3);
- *     an arrival that leaves that count unchanged is currently not announced,
+ *     and every archive. It states the count of things needing attention (NF-3),
+ *     and says nothing at all when that count is zero — "nothing needs you" is
+ *     already on screen as the empty state and is not worth interrupting for;
+ *     an arrival that leaves the count unchanged is likewise not announced,
  *     which is a known narrowing of NF-3 rather than the intent;
  *   - the filter is a `role="group"` of `aria-pressed` toggles rather than two
  *     unlabelled buttons;
@@ -210,9 +212,14 @@ export function InboxList({
       {/* The whole announcement, in one always-mounted node: how many things need
           this person. A live region that is created at the same moment as its
           content is routinely dropped by screen readers, so it is mounted whether
-          or not there is anything to say. */}
+          or not there is anything to say.
+
+          Nothing to say is the literal case at zero: "0 items need your attention"
+          is not news, and this region is re-read on every filter change and after
+          every archive — so an empty queue interrupted the reader to tell them
+          about nothing, over and over. */}
       <p className="sr-only" role="status" aria-live="polite">
-        {loading
+        {loading || pending === 0
           ? ''
           : pending === 1
             ? t('inbox.badgeAriaOne')

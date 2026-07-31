@@ -39,9 +39,15 @@ export const TypingPresence: FC<TypingPresenceProps> = ({ typists, className }) 
 
   const named = typists.slice(0, MAX_NAMED)
   const overflow = typists.length - named.length
-  const names = named.map((person) => person.name).join(t('thread.typingNameSeparator'))
+  // Two names with nothing after them take a conjunction, not a list separator:
+  // "Anna, Tobias schreiben" is not German. With an overflow the comma is right,
+  // because `typingMany` supplies the "und" before the count.
+  const names =
+    named.length === 2 && overflow === 0
+      ? t('thread.typingNamePair', { first: named[0].name, second: named[1].name })
+      : named.map((person) => person.name).join(t('thread.typingNameSeparator'))
   // Four shapes, because this i18n layer has interpolation but no plural rules and
-  // BOTH counts inflect: the named list ("Anna schreibt" vs "Anna, Tobias
+  // BOTH counts inflect: the named list ("Anna schreibt" vs "Anna und Tobias
   // schreiben") and the overflow ("eine weitere Person" vs "{count} weitere
   // Personen"). Picking on `overflow > 0` alone put two typists in the singular,
   // which is the commonest multi-typist case there is.
