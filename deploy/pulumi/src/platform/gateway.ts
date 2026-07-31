@@ -11,6 +11,7 @@ import type { IEnvoyProxySpec } from "@kubernetes-models/envoy-gateway/gateway.e
 import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/ClientTrafficPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
+import { EDGE_SHUTDOWN, SURGE_ONLY_STRATEGY } from "./rollout";
 import { EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
@@ -99,6 +100,14 @@ export function installGatewayResources(
         ...(envoyService ? { envoyService } : {}),
         envoyDeployment: {
           replicas: 2,
+          // Surge-only, one at a time — the same rule every app tier follows
+          // (rollout.ts). Without it the generated Deployment inherits
+          // `maxUnavailable: 25%`, which on a 2-replica fleet retires one proxy
+          // the instant an EnvoyProxy/chart change lands: half the edge capacity
+          // (and every connection it terminated) gone before the replacement is
+          // serving. That is a user-visible "Connection Failed" on a change that
+          // has nothing to do with the app.
+          strategy: SURGE_ONLY_STRATEGY,
           // Requests AND limits on the data-plane fleet — the platform's
           // cluster-autoscaler prerequisite applies to the edge pods too.
           container: { resources: PLATFORM_RESOURCES.envoyProxy },
@@ -126,6 +135,9 @@ export function installGatewayResources(
         envoyPDB: { maxUnavailable: 1 },
       },
     },
+    // Drain open connections on the way out instead of resetting them. Pinned
+    // rather than left to the chart's defaults — see EDGE_SHUTDOWN.
+    shutdown: EDGE_SHUTDOWN,
   };
   const envoyProxyConfig = new k8s.apiextensions.CustomResource(
     "grid-envoy-proxy-config",

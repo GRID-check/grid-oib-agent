@@ -593,4 +593,51 @@ describe('NATWebSocketClient reconnect scheduling', () => {
     // Previously this was always exactly 1000 — that constancy was the bug.
     expect(await scheduleFirstReconnect(0)).toBe(500)
   })
+
+  /**
+   * Regression: the default budget used to be 3 attempts, i.e. it expired
+   * ~4-7 seconds after the socket dropped. A rolling deploy takes minutes (the
+   * serving pod drains, then the replacement cold-starts — see
+   * `deploy/pulumi/src/platform/rollout.ts`), so EVERY deploy ended with
+   * "Unable to connect to the server" in front of every open chat, even though
+   * the stack came back healthy on its own moments later.
+   *
+   * The budget is asserted as a count rather than a wall-clock span because the
+   * curve is jittered; the count is what `handleReconnect` gates on.
+   */
+  test('keeps retrying across a rolling deploy instead of giving up in seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const client = new NATWebSocketClient({
+        conversationId: 'conv-deploy',
+        callbacks: { onError },
+      })
+      await client.connect()
+
+      // Fail every attempt. Each close schedules the next connect; running the
+      // timers drives the whole budget to exhaustion.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        MockWebSocket.instances.at(-1)!.onclose?.(new CloseEvent('close'))
+        await vi.runOnlyPendingTimersAsync()
+      }
+      // The old budget would already have surrendered here.
+      expect(onError).not.toHaveBeenCalled()
+
+      for (let attempt = 3; attempt < 12; attempt++) {
+        MockWebSocket.instances.at(-1)!.onclose?.(new CloseEvent('close'))
+        await vi.runOnlyPendingTimersAsync()
+      }
+      // ...and the 12th failure is still not terminal; the budget is spent only
+      // when the next close arrives with no attempts left.
+      expect(onError).not.toHaveBeenCalled()
+
+      MockWebSocket.instances.at(-1)!.onclose?.(new CloseEvent('close'))
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'CONNECTION_FAILED' })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -5,8 +5,43 @@ import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.netw
 import type { IBackendTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/BackendTrafficPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import type { IRetry } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/Retry";
 import { GATEWAY_NAME } from "../platform/gateway";
-import { EDGE_TIMEOUT, PORT } from "../constants";
+import { EDGE_RETRY, EDGE_TIMEOUT, PORT } from "../constants";
+
+/**
+ * Retry policy applied to both public routes.
+ *
+ * The trigger list is the whole design. Envoy's own default trigger set
+ * includes `unavailable` and `retriable-status-codes(503)` — retrying on a
+ * status the upstream actually RETURNED. That is wrong here: the BFF routes are
+ * not all idempotent (chat sends, ingest, workflow mutations are POSTs), and a
+ * 503 produced by application code means the request was received and may have
+ * had side effects. Replaying it risks a duplicate.
+ *
+ * The three triggers below are the ones where Envoy knows the upstream never
+ * processed the request, so a retry cannot duplicate anything:
+ *   - `connect-failure`        — the TCP connect itself failed (pod gone).
+ *   - `refused-stream`         — HTTP/2 REFUSED_STREAM, i.e. explicitly not started.
+ *   - `reset-before-request`   — the stream was reset before the request was sent
+ *                                upstream. Note this is NOT plain `reset`, which
+ *                                also fires after a response has begun — that
+ *                                would replay a half-streamed chat answer.
+ *
+ * Setting `retryOn` at all is what narrows the defaults; leaving `retry` unset
+ * entirely would mean no retries, and setting only `numRetries` would inherit
+ * the unsafe default triggers.
+ */
+const edgeRetry: IRetry = {
+  numRetries: EDGE_RETRY.numRetries,
+  retryOn: { triggers: ["connect-failure", "refused-stream", "reset-before-request"] },
+  perRetry: {
+    // Backoff only — deliberately NO `perRetry.timeout`. That field caps each
+    // attempt, and a cap here would silently override the 3600s streaming /
+    // WebSocket budget the same policy sets below.
+    backOff: { baseInterval: EDGE_RETRY.baseInterval, maxInterval: EDGE_RETRY.maxInterval },
+  },
+};
 
 /**
  * Gateway API HTTPRoutes (replacing the legacy Ingress resources):
@@ -45,6 +80,9 @@ export function installHttpRoutes(
   const appBackendPolicySpec: IBackendTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-app" }],
     timeout: { http: { requestTimeout: EDGE_TIMEOUT } },
+    // Ride out the endpoint-programming race on every frontend rolling update
+    // instead of surfacing it to the browser.
+    retry: edgeRetry,
   };
   new k8s.apiextensions.CustomResource(
     "grid-app-backend-traffic-policy",
@@ -63,6 +101,8 @@ export function installHttpRoutes(
   const s3BackendPolicySpec: IBackendTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-s3" }],
     timeout: { http: { requestTimeout: EDGE_TIMEOUT } },
+    // Same race, and a presigned GET is idempotent besides.
+    retry: edgeRetry,
   };
 
   const s3RouteSpec: IHTTPRouteSpec = {
