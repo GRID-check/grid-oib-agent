@@ -172,6 +172,7 @@ const TRANSIENT_UPSTREAM_CODES = new Set([
   'EHOSTUNREACH',
   'ENETUNREACH',
   'ENOTFOUND', // pod DNS not resolvable yet (StatefulSet scale-up)
+  'EAI_AGAIN', // cluster DNS temporarily unavailable (CoreDNS restart)
   'ETIMEDOUT',
   'EPIPE',
 ])
