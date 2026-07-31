@@ -62,9 +62,9 @@ export const POST = internalApiRoute(
         costUsd: event.costUsd.toFixed(8),
         costSource: event.costSource,
         isByok: event.isByok ?? null,
-      })),
+      }))
     )
     return { recorded }
   },
-  { status: 202 },
+  { status: 202 }
 )

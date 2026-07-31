@@ -11,20 +11,23 @@ type Params = { id: string }
 
 const addMemberSchema = z.object({
   organizationMembershipId: z.string().min(1),
-  roleSlug: z.union([
-    z.enum(['project-viewer', 'project-editor', 'project-admin']),
-    z.literal(''),
-  ]),
+  roleSlug: z.union([z.enum(['project-viewer', 'project-editor', 'project-admin']), z.literal('')]),
 })
 
-export const GET = apiRoute<Params>(async ({ session, params }) => ({
-  members: await listProjectMembers(session, params.id),
-}))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => ({
+    members: await listProjectMembers(session, params.id),
+  }),
+  { authz: { enforcedBy: 'listProjectMembers (requireProjectAccess project:members:manage)' } }
+)
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
     const input = await parseJsonBody(request, addMemberSchema)
     await setProjectMemberRole(session, params.id, input, request)
   },
-  { status: 201 },
+  {
+    status: 201,
+    authz: { enforcedBy: 'setProjectMemberRole (requireProjectAccess project:members:manage)' },
+  }
 )

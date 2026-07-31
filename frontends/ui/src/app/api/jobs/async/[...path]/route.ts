@@ -31,7 +31,10 @@ import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
-import { buildGridRequestContextWireHeaders, type GridRequestContextInput } from '@/lib/request-context'
+import {
+  buildGridRequestContextWireHeaders,
+  type GridRequestContextInput,
+} from '@/lib/request-context'
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
@@ -68,7 +71,7 @@ import type { GridSession } from '@/lib/auth/types'
  */
 async function resolveGridContextHeaders(
   session: GridSession | null,
-  extra: { projectId?: string; collectionScope?: string[] },
+  extra: { projectId?: string; collectionScope?: string[] }
 ): Promise<Record<string, string>> {
   const input: GridRequestContextInput = {
     organizationId: session?.organizationId ?? null,
@@ -155,7 +158,10 @@ export async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const { headerValue } = await buildCollectionScopeFromRequest(
+      session,
+      parseQueryContext(searchParams)
+    )
 
     // The token query param is consumed for auth and forwarded via headers.
     const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, searchParams, ['token'])
@@ -245,9 +251,12 @@ export async function POST(
 
     const { headerValue, scope, projectId } = await buildCollectionScopeFromRequest(
       session,
-      parseBodyContext(parsedBody),
+      parseBodyContext(parsedBody)
     )
-    const gridContextHeaders = await resolveGridContextHeaders(session, { projectId, collectionScope: scope })
+    const gridContextHeaders = await resolveGridContextHeaders(session, {
+      projectId,
+      collectionScope: scope,
+    })
 
     // Forward the request to the backend.
     //
@@ -308,7 +317,10 @@ export async function DELETE(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('DELETE WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const { headerValue } = await buildCollectionScopeFromRequest(
+      session,
+      parseQueryContext(searchParams)
+    )
 
     const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
 

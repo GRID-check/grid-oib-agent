@@ -18,14 +18,20 @@ const putSchema = z.object({
   settings: z.record(z.unknown()).optional(),
 })
 
-export const GET = apiRoute(async ({ session }) => ({
-  settings: await getOrgSettings(session.organizationId),
-}))
+export const GET = apiRoute(
+  async ({ session }) => ({ settings: await getOrgSettings(session.organizationId) }),
+  {
+    authz: {
+      sessionOnly: true,
+      why: "every member may read their own organization's settings; the read is keyed by session.organizationId and writes require org:settings:manage below",
+    },
+  }
+)
 
 export const PUT = apiRoute(
   async ({ session, request }) => {
     const patch = await parseJsonBody(request, putSchema)
     return { settings: await saveOrgSettings(session, patch, request) }
   },
-  { permission: ORG_PERMISSIONS.settingsManage },
+  { authz: { permission: ORG_PERMISSIONS.settingsManage } }
 )

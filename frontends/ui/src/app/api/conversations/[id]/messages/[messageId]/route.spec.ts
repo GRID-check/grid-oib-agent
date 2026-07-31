@@ -72,7 +72,10 @@ describe('PATCH /api/conversations/[id]/messages/[messageId]', () => {
     })
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
     vi.mocked(findGrantForSubject).mockResolvedValue(null)
-    mergeMessageMetadata.mockResolvedValue({ id: MESSAGE_ID, metadata: { cardInteractions: decisions } })
+    mergeMessageMetadata.mockResolvedValue({
+      id: MESSAGE_ID,
+      metadata: { cardInteractions: decisions },
+    })
   })
 
   it('merges the decisions into the message metadata, per card key', async () => {
@@ -85,7 +88,7 @@ describe('PATCH /api/conversations/[id]/messages/[messageId]', () => {
       'conv_1',
       MESSAGE_ID,
       { cardInteractions: decisions },
-      ['cardInteractions'],
+      ['cardInteractions']
     )
   })
 
@@ -99,7 +102,7 @@ describe('PATCH /api/conversations/[id]/messages/[messageId]', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org_1' }),
       PROJECT_ID,
-      'project:view',
+      'project:view'
     )
   })
 
@@ -177,7 +180,7 @@ describe('PATCH /api/conversations/[id]/messages/[messageId]', () => {
       Array.from({ length: 65 }, (_, i) => [
         `memory_proposal-${i}`,
         { decision: 'dismissed', decidedAt: '2026-07-28T09:00:00.000Z' },
-      ]),
+      ])
     )
     const res = await patch({ cardInteractions: oversized })
     expect(res.status).toBe(400)

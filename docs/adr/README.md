@@ -73,6 +73,13 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0029](0029-aspire-dashboard-telemetry.md) | Aspire standalone dashboard as the live telemetry pane | Accepted |
 | [0030](0030-interactive-card-decisions-persist-on-the-message.md) | Interactive-card decisions persist on the message | Accepted |
 | [0031](0031-err2issue-errors-to-github-issues.md) | err2issue — ERROR telemetry becomes deduplicated GitHub issues | Accepted |
+| [0032](0032-shareable-resource-model.md) | The shareable-resource model, and where resource-level grants live | Accepted |
+| [0033](0033-server-authoritative-shared-conversations.md) | Server-authoritative shared conversations (and the seam that keeps private ones local-first) | Accepted |
+| [0034](0034-mention-handoff-persisted-state.md) | The mention hand-off is persisted conversation state, not the agent's in-memory HITL | Accepted |
+| [0035](0035-notification-model-and-inbox.md) | The notification model — a generic item frame, a type registry, and the database as the record | Accepted |
+| [0036](0036-when-the-agent-answers-in-a-shared-thread.md) | When the agent answers in a shared thread (engagement modes, not judgement) | Accepted |
+| [0037](0037-answer-provenance-persists-on-the-message.md) | An answer's provenance — and its open questions — persist on the message | Accepted |
+| [0038](0038-one-authorization-catalog-and-decision-point.md) | One authorization catalog, one decision point, and a coverage gate | Accepted |
 
 > Note: two ADRs were independently numbered 0027. Both are Accepted and in
 > effect; the collision is recorded rather than renumbered so existing links

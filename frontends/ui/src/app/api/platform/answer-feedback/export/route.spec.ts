@@ -72,7 +72,7 @@ describe('GET /api/platform/answer-feedback/export', () => {
         verdict: 'up',
         topic: 'brandschutz',
         organizationId: 'org_2',
-      }),
+      })
     )
   })
 
@@ -99,7 +99,7 @@ describe('GET /api/platform/answer-feedback/export', () => {
     const bytes = new Uint8Array(await res.arrayBuffer())
 
     expect(new TextDecoder().decode(bytes)).toContain(
-      '"Welcher U-Wert gilt für Außenwände, und warum?"',
+      '"Welcher U-Wert gilt für Außenwände, und warum?"'
     )
     // A BOM, so Excel opens the umlauts as umlauts.
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])

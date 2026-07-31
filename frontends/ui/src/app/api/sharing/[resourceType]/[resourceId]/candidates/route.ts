@@ -29,8 +29,15 @@ function requireShareableType(raw: string): ShareableResourceType {
   return resourceType
 }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  return listShareCandidates(session, requireShareableType(params.resourceType), params.resourceId)
-})
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    return listShareCandidates(
+      session,
+      requireShareableType(params.resourceType),
+      params.resourceId
+    )
+  },
+  { authz: { enforcedBy: 'listShareCandidates (requireResourceAccess)' } }
+)

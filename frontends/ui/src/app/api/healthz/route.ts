@@ -21,9 +21,7 @@ import { publicApiRoute } from '@/lib/api/handler'
 // Never statically cached — always executes so the probe reflects a live server.
 export const dynamic = 'force-dynamic'
 
-export const GET = publicApiRoute(async () =>
-  NextResponse.json(
-    { status: 'ok' },
-    { headers: { 'Cache-Control': 'no-store' } },
-  ),
+export const GET = publicApiRoute(
+  async () => NextResponse.json({ status: 'ok' }, { headers: { 'Cache-Control': 'no-store' } }),
+  { why: 'a dependency-free liveness probe: it reads nothing and returns a constant' }
 )

@@ -1,101 +1,69 @@
 /**
- * Organization management (admin).
+ * Organization → overview. Who this organization is (WorkOS truth) and the
+ * Grid-side settings that shape how it behaves for everyone in it.
  *
- * Server-gated to org admins. Renders a live overview (from WorkOS), the
- * Grid-side settings form, the WorkOS Users Management widget (invite / roles /
- * remove), and — per the admin's permissions — the advanced enterprise widgets.
+ * The chrome, the back link and the section nav live in the shared `layout.tsx`;
+ * this page only names its section and renders it. The organization tier used to
+ * be one page stacking seven unrelated admin domains in a single scrolling
+ * column — each is now its own route, and this one keeps the identity of the org
+ * itself.
+ *
+ * Both reads are best-effort on purpose: a WorkOS outage or a Grid-DB hiccup
+ * must degrade one card into a dash or a "could not load" note, never take down
+ * the section. Everything here is admin-only; a plain member still lands on
+ * their organization's identifier plus a pointer at who can change the rest,
+ * rather than on a blank page.
  */
 
-import Link from 'next/link'
-import { ArrowLeft, Building2, Cpu, Gauge, Globe, KeyRound, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
+import { Building2, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { canManageBudgets, canManageModels, canViewAuditLogs, isOrgAdmin } from '@/lib/authz/organizations'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
-import { AuditLogButton } from '@/components/audit/audit-log-button'
-import { getNavFlags } from '@/lib/authz/nav'
-import { getOrganizationOverview, getOrgSettings, type OrganizationOverview } from '@/lib/organizations/service'
-import { OrgTopbar } from '@/components/shell'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { isOrgAdmin } from '@/lib/authz/organizations'
+import {
+  getOrganizationOverview,
+  getOrgSettings,
+  type OrganizationOverview,
+} from '@/lib/organizations/service'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
-import { getTranslations, getLocale } from '@/i18n/server'
+import { getLocale, getTranslations } from '@/i18n/server'
 import { OrgSettingsForm } from './org-settings-form'
-import { OrgWidgets } from './org-widgets'
-import { ModelConfigCard } from './model-config-card'
-import { LlmCredentialsCard } from './llm-credentials-card'
-import { BudgetUsageCard } from './budget-usage-card'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-
-export default async function OrganizationPage(): Promise<JSX.Element> {
+export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
-  const navFlags = await getNavFlags(session)
   const t = await getTranslations('organization')
   const locale = await getLocale()
 
-  const shell = (children: React.ReactNode): JSX.Element => (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <OrgTopbar
-        user={{ name: session.name, email: session.email }}
-        authRequired={isAuthRequired()}
-        heading={t('title')}
-        canManageOrganization={navFlags.canManageOrganization}
-        canViewOrganization={navFlags.canViewOrganization}
-        canManagePlatform={navFlags.canManagePlatform}
-        canAccessArchiv={navFlags.canAccessArchiv}
-        canCollaborate={navFlags.canCollaborate}
-      />
-      <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">
-        <Link
-          href="/app/projects"
-          className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          {t('backToApp')}
-        </Link>
-        {children}
-      </main>
-    </div>
-  )
-
-  // Capability flags: full admins see everything; custom roles holding only
-  // a granular permission (e.g. org:budgets:manage) see just their cards —
-  // the UI mirrors the API's permission model (ADR-0016).
   const admin = isOrgAdmin(session)
-  // Permission AND feature flag — the card mirrors the API's double gate.
-  const models = canManageModels(session) && isFeatureEnabled(session, FEATURE_FLAGS.modelConfiguration)
-  // BYOK LLM credentials (ADR-0022) — same permission, its own flag.
-  const byok = canManageModels(session) && isFeatureEnabled(session, FEATURE_FLAGS.byokLlm)
-  const budgets = canManageBudgets(session)
-  const audit = canViewAuditLogs(session)
 
-  // Users with no org capability at all can't manage the organization, but the
-  // page must still be worth landing on (the Organization nav entry is now
-  // visible to plain members). The usage API returns a member's own spend for
-  // non-admins, so give them a "Your usage" self-view — the primary way a
-  // budget-capped member can see why chat stopped — alongside a small note that
-  // full org management needs admin access.
-  if (!admin && !models && !byok && !budgets && !audit) {
-    return shell(
+  // Non-admins get the one fact that is theirs by definition — the id of the
+  // organization their own session is scoped to — and the admin-access note.
+  // No org-scoped read happens for them, so nothing new is exposed.
+  if (!admin) {
+    return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={t('title')} subtitle={t('memberSubtitle')} />
+        <PageHeader
+          title={t('sections.overview.title')}
+          subtitle={t('sections.overview.subtitle')}
+        />
 
-        {/* Member self-view of usage (ADR-0015). isAdmin=false hides the
-            admin-only limit editors and member/project tables; the card shows
-            the member's own spend meters and legend. */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Gauge className="size-4 text-muted-foreground" aria-hidden />
-              {t('budgets.memberTitle')}
+              <Building2 className="size-4 text-muted-foreground" aria-hidden />
+              {t('overview.title')}
             </CardTitle>
-            <CardDescription>{t('budgets.memberDescription')}</CardDescription>
+            <CardDescription>{t('overview.description')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <BudgetUsageCard isAdmin={false} />
+            <dl>
+              <dt className="text-xs font-medium uppercase text-muted-foreground">
+                {t('overview.id')}
+              </dt>
+              <dd className="mt-1 truncate font-mono text-sm">{session.organizationId}</dd>
+            </dl>
           </CardContent>
         </Card>
 
-        {/* Polite admin-access note — org management lives behind admin caps. */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -105,33 +73,27 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
             <CardDescription>{t('notAdmin.description')}</CardDescription>
           </CardHeader>
         </Card>
-      </div>,
+      </div>
     )
   }
 
-  // Live overview is best-effort — never block the page on a WorkOS hiccup.
-  // Admin-only data is only fetched for admins.
+  // Live overview is best-effort — never block the section on a WorkOS hiccup.
   let overview: OrganizationOverview | null = null
-  if (admin) {
-    try {
-      overview = await getOrganizationOverview(session.organizationId)
-    } catch {
-      overview = null
-    }
+  try {
+    overview = await getOrganizationOverview(session.organizationId)
+  } catch {
+    overview = null
   }
   // Grid-side settings are best-effort too — a Grid-DB hiccup must degrade this
-  // one card (a "could not load" note) rather than crash the whole admin page.
+  // one card (a "could not load" note) rather than crash the whole section.
   let settings: Awaited<ReturnType<typeof getOrgSettings>> | null = null
   let settingsError = false
-  if (admin) {
-    try {
-      settings = await getOrgSettings(session.organizationId)
-    } catch {
-      settingsError = true
-    }
+  try {
+    settings = await getOrgSettings(session.organizationId)
+  } catch {
+    settingsError = true
   }
 
-  const perms = session.permissions
   const createdLabel = overview
     ? new Date(overview.createdAt).toLocaleDateString(locale, {
         year: 'numeric',
@@ -140,12 +102,10 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
       })
     : null
 
-  return shell(
+  return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
+      <PageHeader title={t('sections.overview.title')} subtitle={t('sections.overview.subtitle')} />
 
-      {/* Overview (admins only) */}
-      {admin && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -213,112 +173,25 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         </CardContent>
       </Card>
 
+      {(settings || settingsError) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settings.title')}</CardTitle>
+            <CardDescription>{t('settings.description')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {settings ? (
+              <OrgSettingsForm
+                initialDisplayName={settings.displayName}
+                initialDefaultLocale={settings.defaultLocale}
+                initialWebSearchEnabled={settings.settings.webSearchEnabled !== false}
+              />
+            ) : (
+              <p className="text-muted-foreground text-sm">{t('settings.loadError')}</p>
+            )}
+          </CardContent>
+        </Card>
       )}
-
-      {/* Grid-side settings (admins only) */}
-      {admin && (settings || settingsError) && (
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('settings.title')}</CardTitle>
-          <CardDescription>{t('settings.description')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {settings ? (
-            <OrgSettingsForm
-              initialDisplayName={settings.displayName}
-              initialDefaultLocale={settings.defaultLocale}
-              initialWebSearchEnabled={settings.settings.webSearchEnabled !== false}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('settings.loadError')}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      )}
-
-      {/* Runtime model configuration (ADR-0014) */}
-      {models && (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Cpu className="size-4 text-muted-foreground" aria-hidden />
-            {t('models.title')}
-          </CardTitle>
-          <CardDescription>{t('models.description')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ModelConfigCard />
-        </CardContent>
-      </Card>
-
-      )}
-
-      {/* BYOK LLM credentials (ADR-0022) */}
-      {byok && (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="size-4 text-muted-foreground" aria-hidden />
-            {t('byok.title')}
-          </CardTitle>
-          <CardDescription>{t('byok.description')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <LlmCredentialsCard />
-        </CardContent>
-      </Card>
-
-      )}
-
-      {/* Usage & budgets (ADR-0015) */}
-      {budgets && (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Gauge className="size-4 text-muted-foreground" aria-hidden />
-            {t('budgets.title')}
-          </CardTitle>
-          <CardDescription>{t('budgets.description')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <BudgetUsageCard isAdmin={budgets} />
-        </CardContent>
-      </Card>
-
-      )}
-
-      {/* Audit trail — native WorkOS viewer, scoped to THIS organization */}
-      {audit && (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ScrollText className="size-4 text-muted-foreground" aria-hidden />
-            {t('audit.title')}
-          </CardTitle>
-          <CardDescription>{t('audit.description')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <AuditLogButton
-            endpoint="/api/organization/audit-portal"
-            label={t('audit.open')}
-            errorMessage={t('audit.error')}
-          />
-        </CardContent>
-      </Card>
-
-      )}
-
-      {/* WorkOS org widgets (admins only) */}
-      {admin && (
-      <OrgWidgets
-        canManageUsers
-        canManageSso={perms.includes('widgets:sso:manage')}
-        canManageDirectory={perms.includes('widgets:dsync:manage')}
-        canManageDomains={perms.includes('widgets:domain-verification:manage')}
-        canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
-      />
-      )}
-    </div>,
+    </div>
   )
 }

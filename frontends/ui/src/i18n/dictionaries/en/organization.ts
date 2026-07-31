@@ -5,6 +5,97 @@ export const organization = {
   loading: 'Loading organization…',
   memberSubtitle: 'Your LLM usage and your organization at a glance.',
   backToApp: 'Back to projects',
+  nav: {
+    label: 'Organization sections',
+    overview: 'Overview',
+    access: 'People & access',
+    models: 'Models',
+    budgets: 'Usage & budgets',
+    compliance: 'Compliance',
+    enterprise: 'Enterprise',
+  },
+  /** Page headers of the section routes — one heading per route, not per card. */
+  sections: {
+    overview: {
+      title: 'Overview',
+      subtitle:
+        'Your organization at a glance — name, domains, members, and the Piloti settings that apply to everyone in it.',
+    },
+    access: {
+      title: 'People & access',
+      subtitle:
+        'Who is in the organization, the role each of them holds, and what that role is allowed to do.',
+    },
+    models: {
+      title: 'Models',
+      subtitle:
+        'Which model each part of the agent runs on, and whether it runs on the platform key or your own.',
+    },
+    budgets: {
+      title: 'Usage & budgets',
+      subtitle:
+        'LLM spend against the limits it is checked against. Admins see the whole organization, everyone else their own.',
+    },
+    compliance: {
+      title: 'Compliance',
+      subtitle:
+        'The audit trail of every privileged change, plus the legal holds and deletions that answer for your data.',
+    },
+    enterprise: {
+      title: 'Enterprise',
+      subtitle:
+        'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
+    },
+  },
+  /** People & access: the member directory, the role catalog, the permission map. */
+  access: {
+    people: {
+      title: 'People',
+      description: 'Everyone in the organization and the role they were given.',
+      columnName: 'Name',
+      columnEmail: 'Email',
+      columnRole: 'Role',
+      columnStatus: 'Status',
+      noRole: 'No role',
+      empty: 'Nobody has joined this organization yet.',
+      loadError:
+        'Could not load the member directory right now. Roles can still be changed below.',
+    },
+    roles: {
+      title: 'Roles',
+      description: 'The roles this organization can hand out, and what each one unlocks.',
+      // Singular/plural is chosen in the component — this i18n has no ICU.
+      permissionCountOne: '1 permission',
+      permissionCountOther: '{count} permissions',
+      platformNotice:
+        'Platform staff only. These roles live in the GRID Platform organization and cannot be assigned here.',
+    },
+    permissions: {
+      title: 'Permissions',
+      description: 'Every permission the organization knows about, and the roles that grant it.',
+      columnPermission: 'Permission',
+      grantedBy: 'Granted by',
+      noRoles: 'No role grants this',
+      deprecated: 'Deprecated',
+    },
+    // Shared by the role catalog and the permission reference — one tier
+    // vocabulary, so the two surfaces cannot drift into different words for
+    // the same thing.
+    tiers: {
+      org: 'Organization',
+      project: 'Project',
+      workflow: 'Workflow',
+      platform: 'Platform',
+    },
+    // The gate here is `org:members:manage`, NOT org admin — borrowing the
+    // notAdmin copy would tell a User Admin the wrong thing about why they
+    // are being refused.
+    notAllowed: {
+      title: 'You cannot manage people here',
+      description:
+        'Managing people and roles needs the “Manage people and roles” permission. An organization admin can grant it.',
+    },
+  },
   overview: {
     title: 'Overview',
     description: 'Your organization at a glance.',

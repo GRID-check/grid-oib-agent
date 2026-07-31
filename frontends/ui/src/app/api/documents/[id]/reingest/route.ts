@@ -9,4 +9,7 @@ import { reingestDocument } from '@/lib/documents/service'
 
 type Params = { id: string }
 
-export const POST = apiRoute<Params>(async ({ session, params }) => reingestDocument(session, params.id))
+export const POST = apiRoute<Params>(
+  async ({ session, params }) => reingestDocument(session, params.id),
+  { authz: { enforcedBy: 'reingestDocument -> getAccessibleDocument (project:documents:write)' } }
+)

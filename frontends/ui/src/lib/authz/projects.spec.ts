@@ -64,7 +64,7 @@ describe('requireProjectAccess', () => {
     delete process.env.GRID_AUTHZ_CACHE_TTL_MS
     // Grant edit but not manage → derived role project-editor.
     check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
-      Promise.resolve({ authorized: permissionSlug !== 'project:manage' }),
+      Promise.resolve({ authorized: permissionSlug !== 'project:manage' })
     )
     findProjectTenancy.mockResolvedValue({ organizationId: 'org_1', deletedAt: null })
   })
@@ -72,7 +72,11 @@ describe('requireProjectAccess', () => {
   const authzKeys = () => store.getKeys.filter((k) => k.startsWith('authz:check:'))
 
   it('org admins bypass FGA entirely (differential: no WorkOS check calls)', async () => {
-    const result = await requireProjectAccess(session({ role: 'admin' }), PROJECT_ID, 'project:edit')
+    const result = await requireProjectAccess(
+      session({ role: 'admin' }),
+      PROJECT_ID,
+      'project:edit'
+    )
     expect(result).toEqual({ role: 'project-admin' })
     expect(check).not.toHaveBeenCalled()
   })
@@ -105,9 +109,11 @@ describe('requireProjectAccess', () => {
     it('miss then populate: the first request checks WorkOS and stores each result', async () => {
       await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
       expect(check).toHaveBeenCalledTimes(2)
+      // The key carries the resource TYPE as well as the id, so a project and a
+      // workflow that happen to share an external id cannot collide.
       expect([...store.map.keys()].sort()).toEqual([
-        'authz:check:om_1:proj_1:project:edit',
-        'authz:check:om_1:proj_1:project:manage',
+        'authz:check:om_1:project:proj_1:project:edit',
+        'authz:check:om_1:project:proj_1:project:manage',
       ])
     })
 
@@ -118,9 +124,13 @@ describe('requireProjectAccess', () => {
       expect(check).toHaveBeenCalledTimes(2)
     })
 
-    it('is keyed per membership: a different user does not read another user\'s grant', async () => {
+    it("is keyed per membership: a different user does not read another user's grant", async () => {
       await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
-      await requireProjectAccess(session({ organizationMembershipId: 'om_2' }), PROJECT_ID, 'project:edit')
+      await requireProjectAccess(
+        session({ organizationMembershipId: 'om_2' }),
+        PROJECT_ID,
+        'project:edit'
+      )
       expect(check).toHaveBeenCalledTimes(4)
     })
 
@@ -135,5 +145,73 @@ describe('requireProjectAccess', () => {
       check.mockResolvedValue({ authorized: false })
       await expect(requireProjectAccess(session(), PROJECT_ID, 'project:edit')).rejects.toThrow()
     })
+  })
+
+  it('fails CLOSED when the FGA call itself errors', async () => {
+    // A check that cannot complete is a denial, never a default-allow. Before
+    // the shared resource-check primitive this rejection propagated as a 500,
+    // which left the outcome to whatever the caller did with the exception.
+    check.mockRejectedValue(new Error('workos unreachable'))
+    await expect(requireProjectAccess(session(), PROJECT_ID, 'project:view')).rejects.toThrow(
+      'Not found'
+    )
+  })
+
+  describe('any-of permissions (the ADR-0038 project:edit split)', () => {
+    const DOC_WRITE = ['project:documents:write', 'project:edit'] as const
+
+    it('accepts the narrow permission on its own', async () => {
+      check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
+        Promise.resolve({ authorized: permissionSlug === 'project:documents:write' })
+      )
+      // The derived role reflects the INTENT that was satisfied, so a holder of
+      // only the narrow write permission reads as an editor — the same answer
+      // the pre-split code gave a `project:edit` holder.
+      await expect(requireProjectAccess(session(), PROJECT_ID, DOC_WRITE)).resolves.toEqual({
+        role: 'project-editor',
+      })
+    })
+
+    it('still accepts a legacy role holding only the project:edit umbrella', async () => {
+      // A custom role provisioned before the split must not lose document
+      // writes the day the narrow permission is introduced.
+      check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
+        Promise.resolve({ authorized: permissionSlug === 'project:edit' })
+      )
+      await expect(requireProjectAccess(session(), PROJECT_ID, DOC_WRITE)).resolves.toEqual({
+        role: 'project-editor',
+      })
+    })
+
+    it('denies when the caller holds neither', async () => {
+      check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
+        Promise.resolve({ authorized: permissionSlug === 'project:view' })
+      )
+      await expect(requireProjectAccess(session(), PROJECT_ID, DOC_WRITE)).rejects.toThrow(
+        'Not found'
+      )
+    })
+
+    it('does not let a memory grant unlock document writes', async () => {
+      check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
+        Promise.resolve({ authorized: permissionSlug === 'project:memory:write' })
+      )
+      await expect(requireProjectAccess(session(), PROJECT_ID, DOC_WRITE)).rejects.toThrow(
+        'Not found'
+      )
+    })
+  })
+
+  it('authorizes the new fine-grained project permissions', async () => {
+    check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
+      Promise.resolve({ authorized: permissionSlug === 'project:memory:write' })
+    )
+    await expect(
+      requireProjectAccess(session(), PROJECT_ID, 'project:memory:write')
+    ).resolves.toEqual({ role: 'project-viewer' })
+    // The same session must NOT get document writes from a memory grant.
+    await expect(
+      requireProjectAccess(session(), PROJECT_ID, 'project:documents:write')
+    ).rejects.toThrow('Not found')
   })
 })

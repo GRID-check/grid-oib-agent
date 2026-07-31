@@ -17,12 +17,15 @@ import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { getAnswerFeedbackHealth } from '@/lib/feedback/service'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
 
-export const GET = apiRoute(async ({ request, session }) => {
-  const filters = parseFeedbackFilters(new URL(request.url).searchParams)
-  try {
-    return await getAnswerFeedbackHealth(session, filters)
-  } catch (error) {
-    if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
-    throw error
-  }
-})
+export const GET = apiRoute(
+  async ({ request, session }) => {
+    const filters = parseFeedbackFilters(new URL(request.url).searchParams)
+    try {
+      return await getAnswerFeedbackHealth(session, filters)
+    } catch (error) {
+      if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
+      throw error
+    }
+  },
+  { authz: { enforcedBy: 'getAnswerFeedbackHealth (requirePlatformOwner)' } }
+)

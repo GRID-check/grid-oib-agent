@@ -26,10 +26,7 @@ vi.mock('@/lib/projects/repository', () => ({
 }))
 
 import { POST } from './route'
-import {
-  findProjectProfileInOrg,
-  updateProjectProfileIfVersion,
-} from '@/lib/projects/repository'
+import { findProjectProfileInOrg, updateProjectProfileIfVersion } from '@/lib/projects/repository'
 
 const currentState = {
   profile: ProjectProfileSchema.parse({}),
@@ -55,7 +52,7 @@ describe('POST /api/projects/[id]/profile/patches', () => {
     vi.mocked(findProjectProfileInOrg).mockResolvedValue(currentState)
 
     const response = await POST(
-      ...postRequest({ patch: [{ op: 'add', path: '/facts/bauwerkstyp', value: 'nope' }] }),
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/bauwerkstyp', value: 'nope' }] })
     )
 
     expect(response.status).toBe(400)
@@ -73,7 +70,7 @@ describe('POST /api/projects/[id]/profile/patches', () => {
     })
 
     const response = await POST(
-      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] }),
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] })
     )
 
     expect(response.status).toBe(200)
@@ -105,7 +102,7 @@ describe('POST /api/projects/[id]/profile/patches', () => {
     vi.mocked(updateProjectProfileIfVersion).mockResolvedValue(null)
 
     const response = await POST(
-      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] }),
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] })
     )
 
     expect(response.status).toBe(200)
@@ -132,7 +129,7 @@ describe('POST /api/projects/[id]/profile/patches', () => {
     vi.mocked(updateProjectProfileIfVersion).mockResolvedValue(null)
 
     const response = await POST(
-      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] }),
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }] })
     )
 
     expect(response.status).toBe(409)

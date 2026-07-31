@@ -9,4 +9,7 @@ import { getDocumentStatus } from '@/lib/documents/service'
 
 type Params = { id: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getDocumentStatus(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getDocumentStatus(session, params.id),
+  { authz: { enforcedBy: 'getDocumentStatus -> getAccessibleDocument (project:view)' } }
+)

@@ -11,5 +11,5 @@ type Params = { id: string }
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => releaseHold(session, params.id, request),
-  { permission: ORG_PERMISSIONS.complianceManage },
+  { authz: { permission: ORG_PERMISSIONS.complianceManage } }
 )

@@ -8,8 +8,16 @@ import { apiRoute } from '@/lib/api/handler'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { listArchiv } from '@/lib/archiv/service'
 
-export const GET = apiRoute(async ({ session }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
-  if (gated) return gated
-  return listArchiv(session)
-})
+export const GET = apiRoute(
+  async ({ session }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
+    if (gated) return gated
+    return listArchiv(session)
+  },
+  {
+    authz: {
+      sessionOnly: true,
+      why: 'the Archiv is org-wide shared knowledge; listArchiv scopes to session.organizationId and reports canManage for the UI',
+    },
+  }
+)

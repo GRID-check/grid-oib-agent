@@ -18,10 +18,11 @@ const createHoldSchema = z.object({
 })
 
 export const GET = apiRoute(async ({ session }) => listOpenHolds(session), {
-  permission: ORG_PERMISSIONS.complianceManage,
+  authz: { permission: ORG_PERMISSIONS.complianceManage },
 })
 
 export const POST = apiRoute(
-  async ({ session, request }) => createHold(session, await parseJsonBody(request, createHoldSchema), request),
-  { permission: ORG_PERMISSIONS.complianceManage, status: 201 },
+  async ({ session, request }) =>
+    createHold(session, await parseJsonBody(request, createHoldSchema), request),
+  { status: 201, authz: { permission: ORG_PERMISSIONS.complianceManage } }
 )

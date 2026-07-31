@@ -26,9 +26,12 @@ const markReadSchema = z
     message: 'Provide itemIds or all: true',
   })
 
-export const POST = apiRoute(async ({ session, request }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  const body = await parseJsonBody(request, markReadSchema)
-  return body.all ? markAllRead(session) : markRead(session, body.itemIds ?? [])
-})
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    const body = await parseJsonBody(request, markReadSchema)
+    return body.all ? markAllRead(session) : markRead(session, body.itemIds ?? [])
+  },
+  { authz: { enforcedBy: 'markRead / markAllRead (rows are keyed to session.userId)' } }
+)

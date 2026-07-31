@@ -87,7 +87,7 @@ describe('POST /api/internal/memory', () => {
   it('creates a project-scoped item with a valid token (201)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(
-      makeMemoryItem({ id: 'item-1', projectId: PROJECT_ID }),
+      makeMemoryItem({ id: 'item-1', projectId: PROJECT_ID })
     )
 
     const response = await POST(makeRequest(validProjectPayload, REAL_TOKEN))
@@ -101,7 +101,7 @@ describe('POST /api/internal/memory', () => {
         kind: 'derived_fact',
         content: 'The roof load is 2 kN/m2.',
         provenanceType: 'agent',
-      }),
+      })
     )
   })
 
@@ -110,13 +110,13 @@ describe('POST /api/internal/memory', () => {
     vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem({ id: 'item-d' }))
 
     const response = await POST(
-      makeRequest({ ...validProjectPayload, provenanceType: 'distillation' }, REAL_TOKEN),
+      makeRequest({ ...validProjectPayload, provenanceType: 'distillation' }, REAL_TOKEN)
     )
 
     expect(response.status).toBe(201)
     expect(createProjectMemoryItemForProject).toHaveBeenCalledWith(
       PROJECT_ID,
-      expect.objectContaining({ provenanceType: 'distillation' }),
+      expect.objectContaining({ provenanceType: 'distillation' })
     )
   })
 
@@ -126,9 +126,14 @@ describe('POST /api/internal/memory', () => {
 
     const response = await POST(
       makeRequest(
-        { scope: 'organization', organizationId: 'org-1', kind: 'preference', content: 'Prefer metric units.' },
-        REAL_TOKEN,
-      ),
+        {
+          scope: 'organization',
+          organizationId: 'org-1',
+          kind: 'preference',
+          content: 'Prefer metric units.',
+        },
+        REAL_TOKEN
+      )
     )
 
     expect(response.status).toBe(403)
@@ -153,8 +158,8 @@ describe('POST /api/internal/memory', () => {
           kind: 'preference',
           content: 'Prefer metric units.',
         },
-        REAL_TOKEN,
-      ),
+        REAL_TOKEN
+      )
     )
 
     expect(response.status).toBe(404)
@@ -171,7 +176,7 @@ describe('POST /api/internal/memory', () => {
     // `makeMemoryItem` defaults to a project row, which would let the fixture
     // contradict the operation under test.
     vi.mocked(createProjectMemoryItem).mockResolvedValue(
-      makeMemoryItem({ id: 'item-2', scope: 'organization', projectId: null }),
+      makeMemoryItem({ id: 'item-2', scope: 'organization', projectId: null })
     )
 
     const response = await POST(
@@ -182,14 +187,14 @@ describe('POST /api/internal/memory', () => {
           kind: 'preference',
           content: 'Prefer metric units.',
         },
-        REAL_TOKEN,
-      ),
+        REAL_TOKEN
+      )
     )
 
     expect(response.status).toBe(201)
     expect(organizationExists).toHaveBeenCalledWith('org-1')
     expect(createProjectMemoryItem).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: 'organization', organizationId: 'org-1', projectId: null }),
+      expect.objectContaining({ scope: 'organization', organizationId: 'org-1', projectId: null })
     )
   })
 })

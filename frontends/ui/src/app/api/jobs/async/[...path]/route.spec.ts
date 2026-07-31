@@ -12,7 +12,9 @@ vi.mock('@/lib/proxy/collection-authz', () => ({
 }))
 
 vi.mock('@/lib/collection-scope-request', () => ({
-  buildCollectionScopeFromRequest: vi.fn().mockResolvedValue({ headerValue: 'scope', scope: [], projectId: undefined }),
+  buildCollectionScopeFromRequest: vi
+    .fn()
+    .mockResolvedValue({ headerValue: 'scope', scope: [], projectId: undefined }),
 }))
 
 // Org model overrides lookup used by the POST handler to build
@@ -114,7 +116,9 @@ describe('/api/jobs/async/[...path] proxy — SSE reconnection resume', () => {
 
   it('does not append the header to an explicit /stream/{id} resume request', async () => {
     await GET(
-      getRequest('https://grid.example/api/jobs/async/job/job-1/stream/7', { 'Last-Event-ID': '42' }),
+      getRequest('https://grid.example/api/jobs/async/job/job-1/stream/7', {
+        'Last-Event-ID': '42',
+      }),
       streamParams(['job', 'job-1', 'stream', '7'])
     )
 
@@ -294,7 +298,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     expect(headers['X-Grid-Request-Context']).toBeDefined()
     expect(headers['X-Grid-Request-Context-Sig']).toBeUndefined()
 
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded).toEqual({
       organizationId: 'org-1',
       userId: 'user-1',
@@ -343,7 +349,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     expect(loadProjectBundesland).toHaveBeenCalledWith('proj-1')
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded.bundesland).toBe('tirol')
   })
 
@@ -358,7 +366,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     expect(res.status).toBe(200)
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded.bundesland).toBeUndefined()
   })
 
@@ -374,7 +384,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
     expect(headers['X-Grid-Request-Context']).toBeDefined()
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded.bundesland).toBeUndefined()
   })
 })

@@ -44,6 +44,7 @@ Host-native checks are the default; Docker is not required:
 | Backend lint | `.venv/Scripts/ruff.exe check <files>` (and `ruff format --check`) |
 | Backend tests | `$env:PYTHONPATH='src'; .venv/Scripts/python.exe -m pytest tests/` |
 | UI screenshot evidence | `cd frontends/ui && npm run screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
+| WorkOS authz drift | `cd frontends/ui && WORKOS_API_KEY=sk_… npm run provision:authz` (read-only; `-- --apply` reconciles) |
 
 **Backend tests MUST run with `PYTHONPATH=src`** (PowerShell: `$env:PYTHONPATH='src'` before the pytest call). This worktree's `.venv` has `aiq_agent` installed from a different worktree, so without it pytest validates the wrong code.
 
@@ -62,6 +63,29 @@ component without that evidence — opt out non-visual components with a
 **`docs/ux/visual-screenshots.md`**.
 
 **Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, **gitleaks** (secret scan, full history), and **trivy** (`image-scan` job: blocks on **fixable** HIGH/CRITICAL findings — it runs with `--ignore-unfixed` — in the digest-pinned observability images from `deploy/pulumi/src/config.ts`; findings inside those upstream images that no digest bump can clear go in `.trivyignore.yaml` as time-boxed exceptions with a justification and an `expired_at`, never by loosening the gate). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
+
+## Authorization (RBAC)
+
+The access model is **permission-driven, never role-name driven** (ADR-0016,
+ADR-0038). Three things to know before touching it:
+
+1. **`frontends/ui/src/lib/authz/catalog.ts` is the source of truth** for every
+   resource type, permission and role. The app derives its permission types from
+   it and `npm run provision:authz` applies it to WorkOS, so the code and the
+   identity provider cannot drift apart. Add a permission there first.
+2. **Every `app/api` route must declare how it is authorized.** `apiRoute` does
+   not compile without an `authz` option — `{ permission }` (factory-checked),
+   `{ enforcedBy }` (the service authorizes; name the function), or
+   `{ sessionOnly, why }`. `src/app/api/authz-coverage.spec.ts` fails when a
+   handler escapes the factories entirely.
+3. **`lib/authz/decide.ts` is the single decision point** across the org,
+   platform, project and workflow tiers. Every decision carries the named rule
+   that produced it, so bypasses (`org-admin-bypass`, `platform-membership`) are
+   visible rather than implicit.
+
+Resource topology is `Organization → Project → Workflow`; Organization is the
+immutable WorkOS root. Provisioning runbook:
+[`docs/deployment/workos-provisioning.md`](docs/deployment/workos-provisioning.md).
 
 ## Environment variables
 

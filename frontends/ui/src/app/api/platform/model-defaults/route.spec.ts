@@ -32,7 +32,9 @@ const recordAuditEvent = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (e: unknown) => recordAuditEvent(e) }))
 
 vi.mock('@/lib/model-config/backend-defaults', () => ({
-  getWorkflowGroupDefaults: vi.fn().mockResolvedValue({ deep_research: 'deepseek/deepseek-v4-flash' }),
+  getWorkflowGroupDefaults: vi
+    .fn()
+    .mockResolvedValue({ deep_research: 'deepseek/deepseek-v4-flash' }),
 }))
 
 const catalog = [
@@ -83,23 +85,25 @@ const put = (body: unknown): Promise<Response> =>
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }),
+    })
   )
 
 describe('/api/platform/model-defaults', () => {
   beforeEach(() => {
     requirePlatformOwner.mockReset().mockResolvedValue(undefined)
-    savePlatformModelDefaults.mockReset().mockImplementation(async (input: { defaults: Record<string, string> }) =>
-      Object.entries(input.defaults).map(([agentGroup, model]) => ({
-        agentGroup,
-        model,
-        note: null,
-        updatedBy: session.userId,
-        updatedByEmail: session.email,
-        updatedAt: new Date('2026-07-29T00:00:00Z'),
-        modelSnapshot: { _zdr: { safe: true } },
-      })),
-    )
+    savePlatformModelDefaults
+      .mockReset()
+      .mockImplementation(async (input: { defaults: Record<string, string> }) =>
+        Object.entries(input.defaults).map(([agentGroup, model]) => ({
+          agentGroup,
+          model,
+          note: null,
+          updatedBy: session.userId,
+          updatedByEmail: session.email,
+          updatedAt: new Date('2026-07-29T00:00:00Z'),
+          modelSnapshot: { _zdr: { safe: true } },
+        }))
+      )
     listPlatformModelDefaults.mockReset().mockResolvedValue([])
     fetchModelCatalog.mockReset().mockResolvedValue(catalog)
     fetchZdrModelIds.mockReset().mockResolvedValue(new Set(['vendor/capable']))
@@ -123,13 +127,16 @@ describe('/api/platform/model-defaults', () => {
   })
 
   it('saves a validated default and audits the fleet-wide change', async () => {
-    const response = await put({ defaults: { deep_research: { model: 'vendor/capable' } }, note: 'model bump' })
+    const response = await put({
+      defaults: { deep_research: { model: 'vendor/capable' } },
+      note: 'model bump',
+    })
     expect(response.status).toBe(200)
     expect(savePlatformModelDefaults).toHaveBeenCalledWith(
-      expect.objectContaining({ defaults: { deep_research: 'vendor/capable' }, note: 'model bump' }),
+      expect.objectContaining({ defaults: { deep_research: 'vendor/capable' }, note: 'model bump' })
     )
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'platform.model_defaults.updated' }),
+      expect.objectContaining({ action: 'platform.model_defaults.updated' })
     )
   })
 
@@ -150,7 +157,9 @@ describe('/api/platform/model-defaults', () => {
   it('treats an empty body as "clear every default" — back to the workflow config', async () => {
     const response = await put({ defaults: {} })
     expect(response.status).toBe(200)
-    expect(savePlatformModelDefaults).toHaveBeenCalledWith(expect.objectContaining({ defaults: {} }))
+    expect(savePlatformModelDefaults).toHaveBeenCalledWith(
+      expect.objectContaining({ defaults: {} })
+    )
   })
 
   it('records whether a chosen default can serve zero-data-retention tenants', async () => {

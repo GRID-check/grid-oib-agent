@@ -16,10 +16,7 @@ import {
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
-import {
-  PROJECT_MEMORY_CONFIDENCES,
-  PROJECT_MEMORY_KINDS,
-} from '@/lib/db/schema'
+import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
 
 // Agent-authored org-wide memory is DENIED by default: an org item lands in
 // every project's digest across the tenant, and this service-token endpoint
@@ -51,13 +48,23 @@ const internalMemorySchema = z
 export const POST = internalApiRoute(
   'Internal Memory',
   async ({ request }) => {
-    const { scope, projectId, organizationId, kind, content, confidence, provenanceType, sourceConversationId } =
-      await parseJsonBody(request, internalMemorySchema)
+    const {
+      scope,
+      projectId,
+      organizationId,
+      kind,
+      content,
+      confidence,
+      provenanceType,
+      sourceConversationId,
+    } = await parseJsonBody(request, internalMemorySchema)
 
     if (scope === 'organization') {
       // Default-deny agent-authored org-wide writes (audit finding S1).
       if (!agentOrgMemoryAllowed()) {
-        console.warn('[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)')
+        console.warn(
+          '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
+        )
         // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
         // reports the accurate cause instead of mislabeling it a token mismatch.
         throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
@@ -98,5 +105,5 @@ export const POST = internalApiRoute(
 
     return { item }
   },
-  { status: 201 },
+  { status: 201 }
 )

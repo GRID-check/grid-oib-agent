@@ -89,14 +89,18 @@ export async function GET(req: Request): Promise<Response> {
       // Fails OPEN on read errors — a broken budget lookup must not take
       // chat down; enforcement resumes on the next healthy upgrade.
       try {
-        const budgetStatus = await getBudgetStatus(session.organizationId, session.userId, projectId ?? null)
+        const budgetStatus = await getBudgetStatus(
+          session.organizationId,
+          session.userId,
+          projectId ?? null
+        )
         if (budgetStatus.blocked) {
           return NextResponse.json(
             {
               error: 'Budget exhausted',
               reason: `The ${budgetStatus.blockedScope} LLM budget is exhausted. An org admin can raise limits under Organization → Usage & budgets.`,
             },
-            { status: 403 },
+            { status: 403 }
           )
         }
         response.budget = {
@@ -147,7 +151,10 @@ export async function GET(req: Request): Promise<Response> {
     // even outside a project-scoped chat. Best-effort: memory must never block
     // the chat handshake.
     try {
-      const projectMemory = await buildProjectMemoryDigest(projectId, session?.organizationId ?? undefined)
+      const projectMemory = await buildProjectMemoryDigest(
+        projectId,
+        session?.organizationId ?? undefined
+      )
       if (projectMemory) {
         response.projectMemory = projectMemory
       }
@@ -163,9 +170,6 @@ export async function GET(req: Request): Promise<Response> {
 
     console.error('[WebSocket Scope API] Error:', error)
 
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }

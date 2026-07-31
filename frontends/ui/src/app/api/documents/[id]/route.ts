@@ -12,7 +12,10 @@
 import { apiRoute } from '@/lib/api/handler'
 import { deleteDocument } from '@/lib/documents/service'
 
-export const DELETE = apiRoute<{ id: string }>(async ({ session, params, request }) => {
-  await deleteDocument(session, params.id, request)
-  return null
-})
+export const DELETE = apiRoute<{ id: string }>(
+  async ({ session, params, request }) => {
+    await deleteDocument(session, params.id, request)
+    return null
+  },
+  { authz: { enforcedBy: 'deleteDocument (requireProjectAccess project:documents:write)' } }
+)

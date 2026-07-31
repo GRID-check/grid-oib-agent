@@ -12,7 +12,11 @@ import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
 import { requireCollaborationEnabled } from '@/lib/authz/feature-flags'
-import { RESOURCE_ROLES, SHAREABLE_RESOURCE_TYPES, type ShareableResourceType } from '@/lib/db/schema'
+import {
+  RESOURCE_ROLES,
+  SHAREABLE_RESOURCE_TYPES,
+  type ShareableResourceType,
+} from '@/lib/db/schema'
 import { changeResourceRole, escalateToOwner, grantResourceAccess } from '@/lib/sharing/service'
 
 type Params = { resourceType: string; resourceId: string }
@@ -63,12 +67,21 @@ export const POST = apiRoute<Params>(
     }
     return grantResourceAccess(session, resourceType, params.resourceId, body, request)
   },
-  { status: 201 },
+  { status: 201, authz: { enforcedBy: 'grantResourceAccess (requireResourceAccess owner)' } }
 )
 
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  const body = await parseJsonBody(request, roleChangeSchema)
-  return changeResourceRole(session, requireShareableType(params.resourceType), params.resourceId, body, request)
-})
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    const body = await parseJsonBody(request, roleChangeSchema)
+    return changeResourceRole(
+      session,
+      requireShareableType(params.resourceType),
+      params.resourceId,
+      body,
+      request
+    )
+  },
+  { authz: { enforcedBy: 'changeResourceRole (requireResourceAccess owner)' } }
+)

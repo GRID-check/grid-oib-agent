@@ -10,6 +10,7 @@
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { checkResourcePermission } from '@/lib/authz/resource-check'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { neutralizeCollaborationForProject } from '@/lib/collaboration/cleanup'
 import { listConversationIdsForProject } from '@/lib/conversations/repository'
@@ -39,8 +40,36 @@ import {
   softDeleteProjectAndEnqueue,
 } from './repository'
 
+/**
+ * Projects the caller can actually reach, not merely the ones their tenant owns.
+ *
+ * The listing used to return every non-deleted project in the organization while
+ * `getProject` gated on per-project FGA — so the detail view was protected and
+ * the list that fed it was not. Any member enumerated every project name and id
+ * in the tenant, which is exactly the distinction `project-viewer` /
+ * `project-editor` / `project-admin` exist to draw (ADR-0038).
+ *
+ * Org admins keep seeing everything (the same named bypass `requireProjectAccess`
+ * applies), and the checks run concurrently so the page costs one round of
+ * parallel FGA calls rather than a serial walk. Each check **fails closed**
+ * independently: a project whose check errors is omitted rather than shown.
+ */
 export async function listProjects(session: AuthorizedSession): Promise<Project[]> {
-  return listProjectsInOrg(session.organizationId)
+  const projects = await listProjectsInOrg(session.organizationId)
+  if (session.role === 'admin') return projects
+
+  const visible = await Promise.all(
+    projects.map(async (project) => {
+      const allowed = await checkResourcePermission({
+        organizationMembershipId: session.organizationMembershipId,
+        permissionSlug: 'project:view',
+        resourceExternalId: project.id,
+        resourceTypeSlug: 'project',
+      })
+      return allowed ? project : null
+    }),
+  )
+  return visible.filter((project): project is Project => project !== null)
 }
 
 /**
@@ -218,7 +247,7 @@ export async function addProjectMemoryItem(
     pinned?: boolean
   },
 ): Promise<ProjectMemoryItem> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   return createProjectMemoryItem({
     scope: 'project',
     projectId,
@@ -239,7 +268,7 @@ export async function editProjectMemoryItem(
   itemId: string,
   patch: ProjectMemoryItemPatch,
 ): Promise<ProjectMemoryItem> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   const item = await updateProjectMemoryItem({ projectId }, itemId, patch)
   if (!item) throw new NotFoundError()
   return item
@@ -250,7 +279,7 @@ export async function removeProjectMemoryItem(
   projectId: string,
   itemId: string,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   const deleted = await deleteProjectMemoryItem({ projectId }, itemId)
   if (!deleted) throw new NotFoundError()
 }

@@ -17,13 +17,29 @@ import { NextResponse } from 'next/server'
 import { ZodError, z } from 'zod'
 import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
-import { PlatformAccessDeniedError, getPlatformOrganizationId, requirePlatformOwner } from '@/lib/authz/platform'
+import {
+  PlatformAccessDeniedError,
+  getPlatformOrganizationId,
+  requirePlatformOwner,
+} from '@/lib/authz/platform'
 import { ApiError, ServiceUnavailableError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
+import {
+  AGENT_GROUPS,
+  AGENT_GROUP_IDS,
+  OPENROUTER_MODEL_ID_PATTERN,
+} from '@/lib/model-config/agent-groups'
 import { getWorkflowGroupDefaults } from '@/lib/model-config/backend-defaults'
-import { baseModelId, fetchModelCatalog, fetchZdrModelIds, validateOverrides } from '@/lib/model-config/openrouter'
-import { listPlatformModelDefaults, savePlatformModelDefaults } from '@/lib/model-config/platform-defaults'
+import {
+  baseModelId,
+  fetchModelCatalog,
+  fetchZdrModelIds,
+  validateOverrides,
+} from '@/lib/model-config/openrouter'
+import {
+  listPlatformModelDefaults,
+  savePlatformModelDefaults,
+} from '@/lib/model-config/platform-defaults'
 
 const putSchema = z.object({
   /**
@@ -33,7 +49,7 @@ const putSchema = z.object({
    */
   defaults: z.record(
     z.enum(AGENT_GROUP_IDS as [string, ...string[]]),
-    z.object({ model: z.string().regex(OPENROUTER_MODEL_ID_PATTERN, 'not an OpenRouter model id') }),
+    z.object({ model: z.string().regex(OPENROUTER_MODEL_ID_PATTERN, 'not an OpenRouter model id') })
   ),
   note: z.string().trim().max(500).nullable().optional(),
 })
@@ -62,7 +78,7 @@ export async function GET(): Promise<Response> {
           // Zero-Data-Retention tenants (see the PUT handler below).
           zdrSafe: zdrSafeFromSnapshot(row.modelSnapshot),
         },
-      ]),
+      ])
     )
 
     return NextResponse.json({ agentGroups: AGENT_GROUPS, defaults, workflowDefaults })
@@ -80,7 +96,9 @@ export async function PUT(request: Request): Promise<Response> {
 
     const json = await request.json().catch(() => null)
     const input = putSchema.parse(json)
-    const flat = Object.fromEntries(Object.entries(input.defaults).map(([group, value]) => [group, value.model]))
+    const flat = Object.fromEntries(
+      Object.entries(input.defaults).map(([group, value]) => [group, value.model])
+    )
 
     // Server-side revalidation against the live platform catalog — the picker
     // is never trusted, and a catalog outage rejects the save rather than
@@ -112,7 +130,7 @@ export async function PUT(request: Request): Promise<Response> {
       Object.entries(validation.snapshot).map(([group, model]) => [
         group,
         { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null } },
-      ]),
+      ])
     )
 
     const rows = await savePlatformModelDefaults({
@@ -144,7 +162,7 @@ export async function PUT(request: Request): Promise<Response> {
       // actor stays out of the log: it is already persisted on the saved rows
       // (`updated_by` / `updated_by_email`), so no user identity is needed here.
       console.error(
-        '[Platform Model Defaults] Fleet defaults were saved without an audit event: the platform organization did not resolve',
+        '[Platform Model Defaults] Fleet defaults were saved without an audit event: the platform organization did not resolve'
       )
     }
 
@@ -160,7 +178,7 @@ export async function PUT(request: Request): Promise<Response> {
             updatedAt: row.updatedAt,
             zdrSafe: zdrSafeFromSnapshot(row.modelSnapshot),
           },
-        ]),
+        ])
       ),
     })
   } catch (error) {
@@ -184,13 +202,13 @@ function handleError(error: unknown): Response {
   if (error instanceof ZodError) {
     return NextResponse.json(
       { error: 'Invalid model defaults', code: 'BAD_REQUEST', details: error.flatten() },
-      { status: 400 },
+      { status: 400 }
     )
   }
   if (error instanceof ApiError) {
     return NextResponse.json(
       { error: error.message, code: error.code, details: error.details },
-      { status: error.status },
+      { status: error.status }
     )
   }
   const denied = authzErrorResponse(error)

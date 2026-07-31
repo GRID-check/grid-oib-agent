@@ -65,6 +65,9 @@ export interface ResourceAccess {
 function roleFromProjectRole(projectRole: ProjectRole): ResourceRole {
   switch (projectRole) {
     case 'project-viewer':
+    // A contributor may run the agent but not change the project's corpus, so
+    // on a shared resource they read rather than edit (ADR-0038).
+    case 'project-contributor':
       return 'viewer'
     case 'project-editor':
     case 'project-admin':

@@ -11,15 +11,18 @@ import { BadRequestError } from '@/lib/api/errors'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { uploadArchivDocument } from '@/lib/archiv/service'
 
-export const POST = apiRoute(async ({ session, request }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
-  if (gated) return gated
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
+    if (gated) return gated
 
-  const formData = await request.formData()
-  const file = formData.get('file')
-  if (!(file instanceof File)) {
-    throw new BadRequestError('file is required')
-  }
+    const formData = await request.formData()
+    const file = formData.get('file')
+    if (!(file instanceof File)) {
+      throw new BadRequestError('file is required')
+    }
 
-  return uploadArchivDocument(session, file, request)
-})
+    return uploadArchivDocument(session, file, request)
+  },
+  { authz: { enforcedBy: 'uploadArchivDocument (canManageArchiv)' } }
+)

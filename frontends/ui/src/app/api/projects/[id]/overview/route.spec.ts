@@ -57,17 +57,16 @@ describe('GET /api/projects/[id]/overview', () => {
       Object.assign(Promise.resolve([statsRow]), {
         orderBy: mockOrderBy,
         limit: mockLimit,
-      }),
+      })
     )
     const mockFrom = vi.fn().mockImplementation(() => ({ where: mockWhere }))
     const mockSelect = vi.fn().mockImplementation(() => ({ from: mockFrom }))
 
     vi.mocked(getDb).mockReturnValue(asDb({ select: mockSelect }))
 
-    const response = await GET(
-      new Request('https://grid.test/api/projects/proj-1/overview'),
-      { params: Promise.resolve({ id: 'proj-1' }) },
-    )
+    const response = await GET(new Request('https://grid.test/api/projects/proj-1/overview'), {
+      params: Promise.resolve({ id: 'proj-1' }),
+    })
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toHaveProperty('name', 'Test Project')

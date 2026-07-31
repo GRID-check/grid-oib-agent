@@ -21,7 +21,10 @@ const markReadSchema = z.object({
   lastReadMessageId: z.string().min(1).max(128).nullable().optional(),
 })
 
-export const POST = apiRoute<Params>(async ({ session, params, request }) => {
-  const input = await parseJsonBody(request, markReadSchema)
-  return markConversationRead(session, params.id, input)
-})
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const input = await parseJsonBody(request, markReadSchema)
+    return markConversationRead(session, params.id, input)
+  },
+  { authz: { enforcedBy: 'markConversationRead (requireResourceAccess)' } }
+)

@@ -37,7 +37,7 @@ interface SubjectMembership {
  */
 async function resolveSubjectMembership(
   organizationId: string,
-  userId: string,
+  userId: string
 ): Promise<SubjectMembership | null> {
   return getCached(
     `membership-role:${organizationId}:${userId}`,
@@ -60,7 +60,7 @@ async function resolveSubjectMembership(
         return null
       }
     },
-    { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS },
+    { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS }
   )
 }
 
@@ -79,7 +79,7 @@ async function resolveSubjectMembership(
  */
 export async function isUserInOrganization(
   session: AuthorizedSession,
-  targetUserId: string,
+  targetUserId: string
 ): Promise<boolean> {
   return (await resolveSubjectMembership(session.organizationId, targetUserId)) !== null
 }
@@ -94,7 +94,7 @@ export async function isUserInOrganization(
 export async function canUserAccessProject(
   session: AuthorizedSession,
   projectId: string,
-  targetUserId: string,
+  targetUserId: string
 ): Promise<boolean> {
   const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
   if (!membership) return false
@@ -111,7 +111,10 @@ export async function canUserAccessProject(
     })
     return result.authorized
   } catch (error) {
-    console.warn(`[project-membership] FGA check failed for ${targetUserId} on ${projectId}:`, error)
+    console.warn(
+      `[project-membership] FGA check failed for ${targetUserId} on ${projectId}:`,
+      error
+    )
     return false
   }
 }
@@ -128,13 +131,13 @@ export async function canUserAccessProject(
 export async function filterUsersWithProjectAccess(
   session: AuthorizedSession,
   projectId: string,
-  candidateUserIds: readonly string[],
+  candidateUserIds: readonly string[]
 ): Promise<Set<string>> {
   const results = await Promise.all(
     candidateUserIds.map(async (userId) => ({
       userId,
       allowed: await canUserAccessProject(session, projectId, userId),
-    })),
+    }))
   )
   return new Set(results.filter((result) => result.allowed).map((result) => result.userId))
 }

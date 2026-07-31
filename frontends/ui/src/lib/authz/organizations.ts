@@ -22,7 +22,10 @@ type SessionSlice = Pick<GridSession, 'role' | 'permissions'>
  * their granular permission.
  */
 export function isOrgAdmin(session: SessionSlice): boolean {
-  return hasPermission(session, ORG_PERMISSIONS.settingsManage) || session.permissions.includes(USERS_TABLE_MANAGE)
+  return (
+    hasPermission(session, ORG_PERMISSIONS.settingsManage) ||
+    session.permissions.includes(USERS_TABLE_MANAGE)
+  )
 }
 
 /** May manage runtime AI model configuration (ADR-0014). */
@@ -43,6 +46,20 @@ export function canManageCompliance(session: SessionSlice): boolean {
 /** May open the org's audit trail (WorkOS Audit Logs viewer, org-scoped). */
 export function canViewAuditLogs(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.auditView)
+}
+
+/**
+ * May open the Access tab: the member directory, the role catalog and the
+ * WorkOS Users widget that invites, re-roles and removes people.
+ *
+ * The legacy `widgets:users-table:manage` still counts, so admins provisioned
+ * before `org:members:manage` existed keep their access without a re-login.
+ */
+export function canManageMembers(session: SessionSlice): boolean {
+  return (
+    hasPermission(session, ORG_PERMISSIONS.membersManage) ||
+    session.permissions.includes(USERS_TABLE_MANAGE)
+  )
 }
 
 /**

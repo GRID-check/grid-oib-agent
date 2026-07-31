@@ -13,7 +13,11 @@ import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
 import { requireCollaborationEnabled } from '@/lib/authz/feature-flags'
-import { RESOURCE_VISIBILITIES, SHAREABLE_RESOURCE_TYPES, type ShareableResourceType } from '@/lib/db/schema'
+import {
+  RESOURCE_VISIBILITIES,
+  SHAREABLE_RESOURCE_TYPES,
+  type ShareableResourceType,
+} from '@/lib/db/schema'
 import { getSharingState, setResourceVisibility } from '@/lib/sharing/service'
 
 type Params = { resourceType: string; resourceId: string }
@@ -43,21 +47,27 @@ function requireShareableType(raw: string): ShareableResourceType {
   return resourceType
 }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  return getSharingState(session, requireShareableType(params.resourceType), params.resourceId)
-})
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    return getSharingState(session, requireShareableType(params.resourceType), params.resourceId)
+  },
+  { authz: { enforcedBy: 'getSharingState (requireResourceAccess)' } }
+)
 
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const gated = requireCollaborationEnabled(session)
-  if (gated) return gated
-  const { visibility } = await parseJsonBody(request, visibilitySchema)
-  return setResourceVisibility(
-    session,
-    requireShareableType(params.resourceType),
-    params.resourceId,
-    visibility,
-    request,
-  )
-})
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const gated = requireCollaborationEnabled(session)
+    if (gated) return gated
+    const { visibility } = await parseJsonBody(request, visibilitySchema)
+    return setResourceVisibility(
+      session,
+      requireShareableType(params.resourceType),
+      params.resourceId,
+      visibility,
+      request
+    )
+  },
+  { authz: { enforcedBy: 'setResourceVisibility (requireResourceAccess owner)' } }
+)

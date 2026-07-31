@@ -7,6 +7,92 @@ export const organization: typeof en.organization = {
   loading: 'Organisation wird geladen…',
   memberSubtitle: 'Ihr LLM-Verbrauch und Ihre Organisation auf einen Blick.',
   backToApp: 'Zurück zu den Projekten',
+  nav: {
+    label: 'Organisationsbereiche',
+    overview: 'Übersicht',
+    access: 'Personen & Zugriff',
+    models: 'Modelle',
+    budgets: 'Nutzung & Budgets',
+    compliance: 'Compliance',
+    enterprise: 'Enterprise',
+  },
+  /** Seitentitel der Bereichsrouten — eine Überschrift pro Route, nicht pro Karte. */
+  sections: {
+    overview: {
+      title: 'Übersicht',
+      subtitle:
+        'Ihre Organisation auf einen Blick — Name, Domains, Mitglieder und die Piloti-Einstellungen, die für alle darin gelten.',
+    },
+    access: {
+      title: 'Personen & Zugriff',
+      subtitle:
+        'Wer in der Organisation ist, welche Rolle die Einzelnen haben und was diese Rolle erlaubt.',
+    },
+    models: {
+      title: 'Modelle',
+      subtitle:
+        'Mit welchem Modell jeder Teil des Agenten arbeitet — und ob dafür der Plattformschlüssel oder Ihr eigener verwendet wird.',
+    },
+    budgets: {
+      title: 'Nutzung & Budgets',
+      subtitle:
+        'LLM-Ausgaben im Verhältnis zu den Limits, gegen die sie geprüft werden. Administratoren sehen die gesamte Organisation, alle anderen ihren eigenen Verbrauch.',
+    },
+    compliance: {
+      title: 'Compliance',
+      subtitle:
+        'Der Audit-Trail jeder privilegierten Änderung, dazu Legal Holds und Löschungen, mit denen Sie für Ihre Daten geradestehen.',
+    },
+    enterprise: {
+      title: 'Enterprise',
+      subtitle:
+        'SSO, Directory Sync, Domain-Verifizierung und Audit-Log-Streaming — die WorkOS-Steuerung, die nur Administratoren berühren dürfen.',
+    },
+  },
+  /** Personen & Zugriff: Mitgliederverzeichnis, Rollenkatalog, Berechtigungsübersicht. */
+  access: {
+    people: {
+      title: 'Personen',
+      description: 'Alle Mitglieder der Organisation und die Rolle, die ihnen zugewiesen wurde.',
+      columnName: 'Name',
+      columnEmail: 'E-Mail',
+      columnRole: 'Rolle',
+      columnStatus: 'Status',
+      noRole: 'Keine Rolle',
+      empty: 'Dieser Organisation ist noch niemand beigetreten.',
+      loadError:
+        'Das Mitgliederverzeichnis konnte gerade nicht geladen werden. Rollen lassen sich unten trotzdem ändern.',
+    },
+    roles: {
+      title: 'Rollen',
+      description: 'Die Rollen, die diese Organisation vergeben kann, und was jede davon freischaltet.',
+      // Singular/Plural wird in der Komponente gewählt — dieses i18n hat kein ICU.
+      permissionCountOne: '1 Berechtigung',
+      permissionCountOther: '{count} Berechtigungen',
+      platformNotice:
+        'Nur für Plattform-Personal. Diese Rollen liegen in der Organisation „GRID Platform“ und können hier nicht vergeben werden.',
+    },
+    permissions: {
+      title: 'Berechtigungen',
+      description:
+        'Jede Berechtigung, die die Organisation kennt, und die Rollen, die sie vergeben.',
+      columnPermission: 'Berechtigung',
+      grantedBy: 'Vergeben durch',
+      noRoles: 'Keine Rolle vergibt dies',
+      deprecated: 'Veraltet',
+    },
+    tiers: {
+      org: 'Organisation',
+      project: 'Projekt',
+      workflow: 'Workflow',
+      platform: 'Plattform',
+    },
+    notAllowed: {
+      title: 'Du kannst hier keine Personen verwalten',
+      description:
+        'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
+    },
+  },
   overview: {
     title: 'Übersicht',
     description: 'Ihre Organisation auf einen Blick.',

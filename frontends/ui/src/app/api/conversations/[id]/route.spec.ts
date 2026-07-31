@@ -150,7 +150,7 @@ describe('DELETE /api/conversations/[id]', () => {
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
   })
 
-  it('answers BYTE-IDENTICALLY for an absent id and for one that is not the caller\'s (spec SH-6)', async () => {
+  it("answers BYTE-IDENTICALLY for an absent id and for one that is not the caller's (spec SH-6)", async () => {
     // The oracle, asserted as one property rather than two statuses: whatever the
     // endpoint says, it must say the same thing in both cases — otherwise a
     // signed-in member can enumerate which conversation ids exist in the org.

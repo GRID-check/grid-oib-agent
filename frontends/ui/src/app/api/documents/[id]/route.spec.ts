@@ -20,8 +20,10 @@ import { DELETE } from './route'
 
 const call = (id: string) =>
   DELETE(
-    new Request(`https://grid.test/api/documents/${id}`, { method: 'DELETE' }) as unknown as NextRequest,
-    { params: Promise.resolve({ id }) },
+    new Request(`https://grid.test/api/documents/${id}`, {
+      method: 'DELETE',
+    }) as unknown as NextRequest,
+    { params: Promise.resolve({ id }) }
   )
 
 describe('DELETE /api/documents/[id]', () => {
@@ -36,7 +38,7 @@ describe('DELETE /api/documents/[id]', () => {
     expect(deleteDocument).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1' }),
       'doc-1',
-      expect.any(Request),
+      expect.any(Request)
     )
   })
 

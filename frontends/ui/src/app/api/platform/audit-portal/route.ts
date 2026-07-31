@@ -6,7 +6,11 @@
 
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
-import { getPlatformOrganizationId, PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
+import {
+  getPlatformOrganizationId,
+  PlatformAccessDeniedError,
+  requirePlatformOwner,
+} from '@/lib/authz/platform'
 import { generateAuditPortalLink, trustedAppOrigin } from '@/lib/audit/service'
 
 export async function POST(request: Request): Promise<Response> {

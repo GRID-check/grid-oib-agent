@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const isOwner = { value: false }
 
 vi.mock('@/lib/auth/session', () => ({
-  getGridSession: vi.fn().mockResolvedValue({ userId: 'user_1', email: 'owner@example.com', organizationId: null }),
+  getGridSession: vi
+    .fn()
+    .mockResolvedValue({ userId: 'user_1', email: 'owner@example.com', organizationId: null }),
 }))
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -35,8 +37,18 @@ import { PATCH, DELETE } from './[templateId]/route'
 
 const validBody = () => ({
   content: {
-    de: { name: 'DE', description: 'd', category: 'C', definition: { version: 1, blocks: { objective: 'o' } } },
-    en: { name: 'EN', description: 'd', category: 'C', definition: { version: 1, blocks: { objective: 'o' } } },
+    de: {
+      name: 'DE',
+      description: 'd',
+      category: 'C',
+      definition: { version: 1, blocks: { objective: 'o' } },
+    },
+    en: {
+      name: 'EN',
+      description: 'd',
+      category: 'C',
+      definition: { version: 1, blocks: { objective: 'o' } },
+    },
   },
 })
 
@@ -61,11 +73,11 @@ describe('platform workflow-templates routes', () => {
   })
 
   it('rejects non-owners with 403 on every route', async () => {
-    expect((await GET()).status).toBe(403)
+    expect((await GET(new Request('http://localhost/api/platform'))).status).toBe(403)
     expect((await POST(postRequest(validBody()))).status).toBe(403)
     expect((await PATCH(patchRequest({ published: true }), itemParams)).status).toBe(403)
     expect(
-      (await DELETE(new Request('https://grid.example', { method: 'DELETE' }), itemParams)).status,
+      (await DELETE(new Request('https://grid.example', { method: 'DELETE' }), itemParams)).status
     ).toBe(403)
     expect(service.createPlatformTemplate).not.toHaveBeenCalled()
     expect(service.deletePlatformTemplate).not.toHaveBeenCalled()
@@ -82,7 +94,7 @@ describe('platform workflow-templates routes', () => {
       expect(res.status).toBe(201)
       expect(service.createPlatformTemplate).toHaveBeenCalledWith(
         expect.objectContaining({ content: expect.any(Object) }),
-        { userId: 'user_1', email: 'owner@example.com' },
+        { userId: 'user_1', email: 'owner@example.com' }
       )
     })
 
@@ -103,12 +115,12 @@ describe('platform workflow-templates routes', () => {
     it('deletes a template (204) and 404s an unknown id', async () => {
       service.deletePlatformTemplate.mockResolvedValueOnce(true)
       expect(
-        (await DELETE(new Request('https://grid.example', { method: 'DELETE' }), itemParams)).status,
+        (await DELETE(new Request('https://grid.example', { method: 'DELETE' }), itemParams)).status
       ).toBe(204)
 
       service.deletePlatformTemplate.mockResolvedValueOnce(false)
       expect(
-        (await DELETE(new Request('https://grid.example', { method: 'DELETE' }), itemParams)).status,
+        (await DELETE(new Request('https://grid.example', { method: 'DELETE' }), itemParams)).status
       ).toBe(404)
     })
   })

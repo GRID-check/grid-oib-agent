@@ -8,4 +8,7 @@ import { getDocumentDownload } from '@/lib/documents/service'
 
 type Params = { id: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getDocumentDownload(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getDocumentDownload(session, params.id),
+  { authz: { enforcedBy: 'getDocumentDownload -> getAccessibleDocument (project:view)' } }
+)

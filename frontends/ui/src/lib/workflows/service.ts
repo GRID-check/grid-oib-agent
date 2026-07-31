@@ -68,7 +68,7 @@ export async function createWorkflow(
 ): Promise<Workflow> {
   // Tenancy is covered by requireProjectAccess: it verifies the project exists
   // and belongs to the caller's org (findProjectTenancy) before any FGA check.
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
 
   const compiledPrompt = compileWorkflowPrompt(input.definition)
   const timezone = input.scheduleTimezone ?? 'UTC'
@@ -102,7 +102,7 @@ export async function updateWorkflow(
   workflowId: string,
   patch: PatchWorkflowInput,
 ): Promise<Workflow> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
 
   const existing = await repository.findWorkflow(workflowId, session.organizationId)
   if (!existing || existing.projectId !== projectId) throw new NotFoundError()
@@ -139,7 +139,7 @@ export async function deleteWorkflow(
   projectId: string,
   workflowId: string,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
 
   const existing = await repository.findWorkflow(workflowId, session.organizationId)
   if (!existing || existing.projectId !== projectId) throw new NotFoundError()
@@ -169,7 +169,7 @@ export async function runWorkflowNow(
   projectId: string,
   workflowId: string,
 ): Promise<WorkflowRun> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
   const workflow = await repository.findWorkflow(workflowId, session.organizationId)
   if (!workflow || workflow.projectId !== projectId) throw new NotFoundError()
   if (!workflow.enabled) throw new ConflictError('Workflow is disabled.')

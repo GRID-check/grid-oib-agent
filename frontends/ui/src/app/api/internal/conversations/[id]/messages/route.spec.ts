@@ -95,20 +95,16 @@ describe('POST /api/internal/conversations/[id]/messages', () => {
     expect(body.messages).toHaveLength(1)
     // Org scoping + conversation id from the path are threaded to the service,
     // and the message loses its top-level organizationId before insert.
-    expect(persistInternalConversationMessages).toHaveBeenCalledWith(
-      'org-1',
-      CONVERSATION_ID,
-      [
-        expect.objectContaining({
-          id: validPayload.id,
-          role: 'assistant',
-          content: 'Here is your finished answer.',
-          messageType: 'agent_response',
-        }),
-      ],
-    )
+    expect(persistInternalConversationMessages).toHaveBeenCalledWith('org-1', CONVERSATION_ID, [
+      expect.objectContaining({
+        id: validPayload.id,
+        role: 'assistant',
+        content: 'Here is your finished answer.',
+        messageType: 'agent_response',
+      }),
+    ])
     expect(vi.mocked(persistInternalConversationMessages).mock.calls[0][2][0]).not.toHaveProperty(
-      'organizationId',
+      'organizationId'
     )
   })
 

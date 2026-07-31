@@ -23,5 +23,5 @@ export const POST = apiRoute(
       throw new UpstreamError('portal-unavailable')
     }
   },
-  { permission: ORG_PERMISSIONS.auditView },
+  { authz: { permission: ORG_PERMISSIONS.auditView } }
 )

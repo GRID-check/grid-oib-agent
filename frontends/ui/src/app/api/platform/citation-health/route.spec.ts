@@ -35,11 +35,22 @@ vi.mock('@/lib/citations/service', () => ({
       emptyRegistries: 1,
     },
     byKind: [{ kind: 'citations_removed', turns: 9, items: 30, share: 0.09 }],
-    dailyTrend: [{ day: '2026-07-28', turns: 10, defectTurns: 2, byKind: { citations_removed: 2 } }],
-    reasons: [{ kind: 'citations_removed', reason: 'url_not_in_registry', occurrences: 20, share: 0.66 }],
+    dailyTrend: [
+      { day: '2026-07-28', turns: 10, defectTurns: 2, byKind: { citations_removed: 2 } },
+    ],
+    reasons: [
+      { kind: 'citations_removed', reason: 'url_not_in_registry', occurrences: 20, share: 0.66 },
+    ],
     sourceMix: [{ dimension: 'tool', label: 'ris_search_tool', turns: 7 }],
     organizations: [
-      { organizationId: 'org_1', name: 'Tenant', turns: 100, defectTurns: 12, errorTurns: 1, defectRate: 0.12 },
+      {
+        organizationId: 'org_1',
+        name: 'Tenant',
+        turns: 100,
+        defectTurns: 12,
+        errorTurns: 1,
+        defectRate: 0.12,
+      },
     ],
     recent: [],
   }),

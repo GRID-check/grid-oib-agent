@@ -43,40 +43,44 @@ const asDb = (stub: Record<string, unknown>): ReturnType<typeof getDbType> =>
 describe('GET /api/documents/[id]/preview', () => {
   it('returns 404 for non-existent document', async () => {
     const { getDb } = await import('@/lib/db')
-    vi.mocked(getDb).mockReturnValue(asDb({
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue([]),
-    }))
+    vi.mocked(getDb).mockReturnValue(
+      asDb({
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([]),
+      })
+    )
 
     const response = await GET(
       new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
-      { params: Promise.resolve({ id: 'doc-1' }) },
+      { params: Promise.resolve({ id: 'doc-1' }) }
     )
     expect(response.status).toBe(404)
   })
 
   it('returns presigned URL for PDF documents', async () => {
     const { getDb } = await import('@/lib/db')
-    vi.mocked(getDb).mockReturnValue(asDb({
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue([
-        {
-          storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
-          contentType: 'application/pdf',
-          filename: 'plan.pdf',
-          organizationId: 'org-1',
-          projectId: 'proj-1',
-        },
-      ]),
-    }))
+    vi.mocked(getDb).mockReturnValue(
+      asDb({
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([
+          {
+            storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+            contentType: 'application/pdf',
+            filename: 'plan.pdf',
+            organizationId: 'org-1',
+            projectId: 'proj-1',
+          },
+        ]),
+      })
+    )
 
     const response = await GET(
       new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
-      { params: Promise.resolve({ id: 'doc-1' }) },
+      { params: Promise.resolve({ id: 'doc-1' }) }
     )
     expect(response.status).toBe(200)
     const body = await response.json()
@@ -86,24 +90,26 @@ describe('GET /api/documents/[id]/preview', () => {
 
   it('returns 415 for unsupported content types', async () => {
     const { getDb } = await import('@/lib/db')
-    vi.mocked(getDb).mockReturnValue(asDb({
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue([
-        {
-          storageKey: 'org/org-1/project/proj-1/doc/doc-1/archive.zip',
-          contentType: 'application/zip',
-          filename: 'archive.zip',
-          organizationId: 'org-1',
-          projectId: 'proj-1',
-        },
-      ]),
-    }))
+    vi.mocked(getDb).mockReturnValue(
+      asDb({
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([
+          {
+            storageKey: 'org/org-1/project/proj-1/doc/doc-1/archive.zip',
+            contentType: 'application/zip',
+            filename: 'archive.zip',
+            organizationId: 'org-1',
+            projectId: 'proj-1',
+          },
+        ]),
+      })
+    )
 
     const response = await GET(
       new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
-      { params: Promise.resolve({ id: 'doc-1' }) },
+      { params: Promise.resolve({ id: 'doc-1' }) }
     )
     expect(response.status).toBe(415)
   })

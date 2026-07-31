@@ -83,22 +83,39 @@ describe('POST /api/internal/citation-events', () => {
       count: 1,
       reasons: null,
     })
-    expect(rows[1]).toMatchObject({ kind: 'citations_removed', count: 2, reasons: { url_not_in_registry: 2 } })
+    expect(rows[1]).toMatchObject({
+      kind: 'citations_removed',
+      count: 2,
+      reasons: { url_not_in_registry: 2 },
+    })
   })
 
   it('accepts an anonymous turn (no org / conversation / job)', async () => {
     const res = await POST(
-      request({ turnId: 'turn-1', agent: 'deep', events: [{ kind: 'registry_empty', severity: 'error' }] }),
+      request({
+        turnId: 'turn-1',
+        agent: 'deep',
+        events: [{ kind: 'registry_empty', severity: 'error' }],
+      })
     )
     expect(res.status).toBe(202)
     const rows = vi.mocked(recordCitationEvents).mock.calls[0][0]
-    expect(rows[0]).toMatchObject({ organizationId: null, conversationId: null, jobId: null, count: 1 })
+    expect(rows[0]).toMatchObject({
+      organizationId: null,
+      conversationId: null,
+      jobId: null,
+      count: 1,
+    })
   })
 
   it('rejects unknown kinds, severities and agents', async () => {
     const cases = [
       { turnId: 't', agent: 'shallow', events: [{ kind: 'made_up', severity: 'warn' }] },
-      { turnId: 't', agent: 'shallow', events: [{ kind: 'turn_verified', severity: 'catastrophic' }] },
+      {
+        turnId: 't',
+        agent: 'shallow',
+        events: [{ kind: 'turn_verified', severity: 'catastrophic' }],
+      },
       { turnId: 't', agent: 'medium', events: [{ kind: 'turn_verified', severity: 'ok' }] },
     ]
     for (const body of cases) {
@@ -110,6 +127,8 @@ describe('POST /api/internal/citation-events', () => {
   it('rejects an empty or oversized batch', async () => {
     expect((await POST(request({ turnId: 't', agent: 'shallow', events: [] }))).status).toBe(400)
     const oversized = Array.from({ length: 51 }, () => ({ kind: 'turn_verified', severity: 'ok' }))
-    expect((await POST(request({ turnId: 't', agent: 'shallow', events: oversized }))).status).toBe(400)
+    expect((await POST(request({ turnId: 't', agent: 'shallow', events: oversized }))).status).toBe(
+      400
+    )
   })
 })

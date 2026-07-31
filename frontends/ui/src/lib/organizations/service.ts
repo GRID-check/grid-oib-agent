@@ -86,6 +86,14 @@ export interface OrganizationMember {
   name: string | null
 }
 
+/** A member plus the role they hold, for the Access tab's directory. */
+export interface OrganizationMemberWithRole extends OrganizationMember {
+  /** WorkOS role slug for this membership, or null when none is resolvable. */
+  roleSlug: string | null
+  /** Membership status (`active`, `pending`, …) straight from WorkOS. */
+  status: string
+}
+
 /**
  * Active members of an org (first page, admin pickers). WorkOS is the source
  * of truth; capped at PAGE_LIMIT like the overview counts.
@@ -99,6 +107,54 @@ export async function listOrganizationMembers(organizationId: string): Promise<O
       email: user.email,
       name: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
     }))
+    .sort((a, b) => a.email.localeCompare(b.email))
+}
+
+/**
+ * The member directory behind the Access tab: every membership in the
+ * organization with the role it carries.
+ *
+ * Deliberately built from `listOrganizationMemberships` rather than
+ * `listUsers` — the membership is what holds the role, and it is also what
+ * WorkOS authorizes against. Identities are then resolved in ONE batched call
+ * instead of per-member, so a 200-person org costs two round-trips.
+ *
+ * Best-effort on the identity half: if the user lookup fails, members still
+ * appear with their id and role rather than the page failing outright.
+ */
+export async function listOrganizationMembersWithRoles(
+  organizationId: string
+): Promise<OrganizationMemberWithRole[]> {
+  const workos = getWorkOS()
+  const memberships = await workos.userManagement.listOrganizationMemberships({
+    organizationId,
+    limit: PAGE_LIMIT,
+  })
+
+  const identities = new Map<string, { email: string; name: string | null }>()
+  try {
+    const users = await workos.userManagement.listUsers({ organizationId, limit: PAGE_LIMIT })
+    for (const user of users.data) {
+      identities.set(user.id, {
+        email: user.email,
+        name: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
+      })
+    }
+  } catch {
+    // Non-fatal: the roster is still useful without display names.
+  }
+
+  return memberships.data
+    .map((membership) => {
+      const identity = identities.get(membership.userId)
+      return {
+        id: membership.userId,
+        email: identity?.email ?? membership.userId,
+        name: identity?.name ?? null,
+        roleSlug: membership.role?.slug ?? null,
+        status: String(membership.status),
+      }
+    })
     .sort((a, b) => a.email.localeCompare(b.email))
 }
 

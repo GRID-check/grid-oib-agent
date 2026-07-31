@@ -7,19 +7,22 @@ import { apiRoute } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadDocument } from '@/lib/documents/service'
 
-export const POST = apiRoute(async ({ session, request }) => {
-  const formData = await request.formData()
-  const projectId = formData.get('projectId')
-  const folderId = formData.get('folderId')
-  const file = formData.get('file')
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const formData = await request.formData()
+    const projectId = formData.get('projectId')
+    const folderId = formData.get('folderId')
+    const file = formData.get('file')
 
-  if (typeof projectId !== 'string' || !projectId || !(file instanceof File)) {
-    throw new BadRequestError('projectId and file are required')
-  }
+    if (typeof projectId !== 'string' || !projectId || !(file instanceof File)) {
+      throw new BadRequestError('projectId and file are required')
+    }
 
-  return uploadDocument(
-    session,
-    { projectId, folderId: typeof folderId === 'string' && folderId ? folderId : null, file },
-    request,
-  )
-})
+    return uploadDocument(
+      session,
+      { projectId, folderId: typeof folderId === 'string' && folderId ? folderId : null, file },
+      request
+    )
+  },
+  { authz: { enforcedBy: 'uploadDocument (requireProjectAccess project:documents:write)' } }
+)
