@@ -50,8 +50,13 @@ describe('authorization catalog', () => {
   })
 
   it('NO tenant-assignable role may hold a platform permission', () => {
-    // The whole platform tier rests on this. A `platform:*` permission on an
-    // environment-scoped role would be assignable inside any tenant org.
+    // The whole platform tier rests on this, and this assertion is the ONLY
+    // thing enforcing it. Verified against the live WorkOS API on 2026-07-31:
+    // a role on the `organization` resource type was created holding
+    // `project:view` (a Project-tier permission) and WorkOS accepted it, so the
+    // provider does not constrain permissions to roles of their own type.
+    // A `platform:*` permission on an environment-scoped role would be
+    // assignable inside any tenant org, and nothing upstream would object.
     const platformSlugs = new Set(PLATFORM_PERMISSION_SPECS.map((p) => p.slug))
     const leaked = ROLES.filter((role) => role.scope === 'environment').flatMap((role) =>
       role.permissions

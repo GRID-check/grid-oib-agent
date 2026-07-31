@@ -64,10 +64,24 @@ structure, F2 stops being expressible.
 
 ### 2. A resource topology that earns its keep
 
-`Organization → Project → Workflow`. We verified against the live WorkOS API
-that a parentless resource type is rejected (`"At least one parent type is
-required"`), so Organization is the immutable root and ADR-0016's platform-org
-modelling stands.
+`Organization → Project → Workflow`. Three properties of WorkOS's FGA model were
+verified against the live API rather than assumed, because each one rules out a
+design that looks attractive on paper:
+
+| Probe | Result | Consequence |
+|---|---|---|
+| Create a resource type with no parent | `"At least one parent type is required"` | Nothing can sit above Organization |
+| Rename / re-parent the `organization` type | `"Cannot update organization resource type"` | The root is immutable — you cannot relabel it as "Platform" and insert a tenant type beneath it |
+| Give an `organization`-typed role a `project:view` permission | **Accepted** | Permissions are NOT constrained to roles of their own resource type |
+
+The first two mean the platform tier cannot be modelled as a level above the
+tenant, so ADR-0016's platform-org approach stands. The third is the load-bearing
+one: it means moving `platform:*` onto a dedicated resource type would buy tidier
+grouping and **no security guarantee** — a tenant role could still be given those
+permissions. The guarantee therefore has to be ours, and it is: `lib/authz/platform.ts`
+requires GRID Platform membership before any platform surface answers, and
+`catalog.spec.ts` asserts no environment-scoped role holds a `platform:*`
+permission. That test is not belt-and-braces; it is the only enforcement.
 
 - **`workflow` is added.** A scheduled research run spends budget unattended and
   is a genuinely distinct access question from the project hosting it — an

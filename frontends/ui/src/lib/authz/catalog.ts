@@ -169,10 +169,21 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
 ]
 
 /**
- * Platform-tier permissions. Only ever attached to `platform-org` roles, so no
- * tenant admin can grant them. Note this is a provisioning convention plus the
- * membership check in `./platform` — WorkOS itself cannot express "attachable
- * only to roles of one organization".
+ * Platform-tier permissions. Only ever attached to `platform-org` roles.
+ *
+ * **This separation is enforced by US, not by WorkOS.** Verified against the
+ * live API on 2026-07-31: a role whose resource type is `organization` was
+ * created holding `project:view`, a Project-tier permission, and WorkOS accepted
+ * it — permissions are NOT constrained to roles of their own resource type.
+ * Moving `platform:*` onto a dedicated resource type would therefore buy tidier
+ * grouping and no security guarantee at all.
+ *
+ * What actually holds the line is two things, both ours:
+ *   1. `./platform` requires membership of the GRID Platform organization
+ *      before any platform surface answers — a claim alone is never enough.
+ *   2. `catalog.spec.ts` asserts no environment-scoped role holds a
+ *      `platform:*` permission, which is the ONLY check standing between a
+ *      careless provisioning edit and a tenant role carrying platform access.
  */
 export const PLATFORM_PERMISSION_SPECS: readonly PermissionSpec[] = [
   {

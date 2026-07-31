@@ -29,12 +29,31 @@ them, so create them in the dashboard. The script still catches a missing one �
 a permission cannot be created against a resource type that does not exist, and
 the failure names the type.
 
-## Provisioned state (Staging — catalog applied 2026-07-30)
+## Provisioned state (Staging + Production — catalog applied 2026-07-30/31)
 
-The Staging environment (`environment_01KEF0YG238CSMNF731TEG010E`) is the
-one the deployed app uses (its orgs include "GRID Test"). Everything below
-already exists there. **Production is empty and needs the same replay
-before go-live.**
+Everything below exists in **both** environments:
+
+| Environment | ID | Applied |
+|---|---|---|
+| Staging | `environment_01KEF0YG238CSMNF731TEG010E` | 2026-07-30 — the environment the deployed app uses (its orgs include "GRID Test") |
+| Production | `environment_01KEF0YGNYDFAFAS77EZEFQ839` | 2026-07-31 — full replay into a previously empty environment |
+
+Both carry the same three resource types, the same 22 GRID permissions and the
+same 15 roles, verified role-by-role against the catalog after each run.
+
+Two Production-specific notes:
+
+- **No users exist yet**, so the GRID Platform organization has no
+  `org-platform-owner` membership. Until the first owner signs in, platform
+  access comes from the `GRID_PLATFORM_OWNER_EMAILS` break-glass allowlist —
+  which is exactly the first-run case it exists for. Clear it once the
+  membership is assigned.
+- **`multipleRolesEnabled` is `false` in Production and `true` in Staging.**
+  This is a WorkOS role-config setting, not part of the catalog, so the
+  provisioning script neither reads nor changes it. It matters for the
+  fine-grained personas: with it off, a membership holds exactly one role, so
+  Auditor and Billing Admin cannot be combined on the same person. Turn it on
+  in Production if you want additive personas there too.
 
 ### 0. Resource topology
 
@@ -251,7 +270,10 @@ structured-answer rules plus a free-text LLM check, with a "Trotzdem speichern"
 override) — flip it on in Production once the review is signed off and the
 free-text check has been smoke-tested against a configured LLM.
 
-## Replay into a fresh environment (e.g. Production)
+## Replay into a fresh environment
+
+> Steps 1–5 were run against **Production on 2026-07-31** via the WorkOS
+> management API and verified role-by-role. Steps 6–9 remain open there.
 
 1. **Dashboard**: create the resource types from §0 — `project` (parent
    `organization`), then `workflow` (parent `project`). Descriptions are capped
