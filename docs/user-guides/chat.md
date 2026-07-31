@@ -31,7 +31,7 @@ After the line is *action*. **New chat** is the only one kept in the open. The r
 | Menu entry | Appears when |
 |---|---|
 | **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the chat-history panel |
-| **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners |
+| **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners. On a brand-new chat the thread only reaches the server with its first message, so this entry arrives a moment after you send it rather than being there from the first keystroke |
 | **Research report** | this thread already has a report, one is running, or the panel is open |
 
 Everything in this pill comes and goes during a conversation — the participants resolve a moment after the chat opens, research starts and finishes, the menu appears with the first thing worth listing — so arrivals animate: the pill grows into its new width and the buttons slide rather than jumping. If your system is set to reduce motion, they simply appear.
