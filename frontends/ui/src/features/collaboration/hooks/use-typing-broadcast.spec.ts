@@ -122,3 +122,48 @@ describe('useTypingBroadcast', () => {
     expect(() => act(() => result.current.onTyping())).not.toThrow()
   })
 })
+
+describe('a pause is not a stop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps the claim alive while the composer sits idle mid-sentence', () => {
+    // The claim was refreshed only by a keystroke and expires after 6s, so a
+    // colleague pausing to think dropped off the reader's screen and popped back
+    // on the next keypress. A flickering indicator reads as somebody who keeps
+    // changing their mind about answering.
+    const { result } = renderHook(() =>
+      useTypingBroadcast({ conversationId: 'c-1', enabled: true })
+    )
+    act(() => result.current.onTyping())
+    const afterFirstKeystroke = posts().length
+
+    act(() => {
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+    })
+    const later = posts()
+    expect(later.length).toBeGreaterThan(afterFirstKeystroke)
+    expect(later.at(-1)).toEqual({ conversationId: 'c-1', typing: true })
+  })
+
+  it('withdraws rather than claiming forever when the draft is abandoned', () => {
+    const { result } = renderHook(() =>
+      useTypingBroadcast({ conversationId: 'c-1', enabled: true })
+    )
+    act(() => result.current.onTyping())
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(posts().at(-1)).toEqual({ conversationId: 'c-1', typing: false })
+  })
+})

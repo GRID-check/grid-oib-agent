@@ -389,7 +389,15 @@ export const collaboration = {
     spectatorFailed: 'This turn ended with an error.',
     composerBusy: 'Piloti is answering {name}’s question — you can send once it finishes.',
     /** Access was revoked while the reader had the thread open. */
-    accessLost: 'You no longer have access to this conversation. What you see is a local copy and will not update.',
+    /**
+     * Deliberately says "no longer available" rather than "you no longer have
+     * access": the server refuses a revoked thread and a DELETED one with the
+     * same answer, on purpose (spec SH-6, denial indistinguishable from
+     * non-existence), so this string has to be true of both. It used to tell
+     * somebody they had been shut out of a conversation that no longer existed.
+     */
+    accessLost:
+      'This conversation is no longer available to you. What you see is a local copy and will not update.',
     /** Read-only role in a shared thread. */
     viewerNotice: 'You can read along here. An owner can give you write access from the sharing dialog.',
     unreadDivider: 'New',

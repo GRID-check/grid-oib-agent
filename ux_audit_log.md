@@ -423,3 +423,92 @@ message copy button, org-id copy, drag-overlay aria-live, dialog-cancel
 variant, members double-report, assorted AnimatePresence fades) are logged
 here as candidates but judged below the "damn, thoughtful" bar for this run —
 pick up in a future session if desired.
+
+---
+
+## Round — collaborative chat, 2026-07-31 (branch `claude/collab-chat-ui-polish-q25x2q`)
+
+**Mandate (user):** find and fix UX behaviour weirdness *and* bad code patterns
+across the collaborative chat surface (ADR-0032…0039).
+
+**Method:** eleven parallel read-only deep-read audits, one per slice — sharing,
+mentions, the shared-thread state machine, live presence/spectating, the inbox,
+the awaiting/hand-off flow, chat+composer integration, i18n/copy,
+accessibility/responsive, the Python collaboration paths, and authz/abuse. The
+merged, deduplicated backlog is ~140 findings; the ones fixed in this round are
+in the commits below. The remainder is recorded here so the next round starts
+from evidence rather than from a re-audit.
+
+**Baseline (pre-change):** `tsc --noEmit` 0 · `eslint src` 0 · vitest
+358 files / 4416 passed / 7 skipped / 0 failed.
+
+### Fixed this round
+
+- Typing line grammar (two typists read as one person, in both languages), and
+  the same sentence announced twice to screen readers.
+- Awaiting banner: `bg-warning/15` and `border-warning/40` compiled to nothing
+  (static `@utility`, no `--modifier()`), so the "your input is requested" state
+  had no border and no icon fill; the awaited name truncated to zero at phone
+  width; the question and the asker were shown only when exactly one person was
+  awaited.
+- Inbox: an unregistered item type crashed the whole route; the batch upsert's
+  conflict clause diverged from the single-row one it documents as identical;
+  `count` never reset on read ("21 new messages" after reading twenty); rows were
+  timestamped by `createdAt` while ordered by `updatedAt`; cmd/middle-click spent
+  the read state; a refused mutation replaced the list with a load-failure
+  message; `aria-live` wrapped all fifty rows.
+- Sharing: a refused Remove/Leave/Take-ownership closed its confirmation like a
+  success; "Try again" was invisible; a mutation could be overwritten by a read
+  issued before it; "Take ownership" was offered to existing owners and wrote a
+  false audit record; escalation published no access-changed event; a no-op role
+  PATCH; a clamped German error title.
+- Mentions: `@Tom` matched inside `@Tommy`; `(@Anna Berger)` was not a mention at
+  all; the picker could not find "Müller" from `muller`.
+- Shared thread: one failed access read froze the thread permanently (it also
+  disabled the live channel, the focus listener and the poll that would have
+  recovered it); the five-minute turn backstop erased a colleague's answer
+  mid-write on any longer turn; a turn that ended without a persisted assistant
+  message left every observer's composer locked.
+- A shared thread past 1000 messages showed the *oldest* 1000, forever.
+- A viewer could still upload files and rewrite the conversation's data sources.
+- No rate limit on the typing endpoint (the highest-frequency route).
+- Observer stream reconnected on a fixed 2s timer with no backoff or jitter;
+  the "Piloti is waiting for an answer" notice never cleared; the shared event
+  hub's reconnect budget was never reset outside `onopen`.
+- Activity inbox rows could never name their thread.
+- Chat timestamps ignored the app locale; several German strings said the wrong
+  thing ("Piloti antwortet nicht" as a fault report, a hardcoded headcount of
+  two, "Durchgang" for a chat turn); the access-lost notice claimed revocation
+  for a thread that may simply have been deleted.
+- Composing presence flickered off whenever a colleague paused to think.
+
+### Carried forward (highest value first)
+
+1. **Engagement mode `mention` is not enforced on the sender's client.** The
+   composer takes a fast path that opens an agent turn regardless, and the
+   addressee line has no notion of the mode — so switching a thread to "answer
+   only when mentioned" changes the notice and nothing else, and the stored row
+   says the agent was not addressed while it visibly answered (ADR-0036 §2, §6).
+2. **A mention's display text is never persisted**, so pills exist only in the
+   author's own tab; every other participant sees dead plain text.
+3. **`getSharingState` never emits visibility-derived entries**, so the narrowing
+   confirmation lists nobody, the access overview's rule block never renders, and
+   project members appear as invitable.
+4. **`turnInFlight` has no readable form** — it exists only if the live channel is
+   up, so on the documented degraded path two people get live composers.
+5. **The mention/share candidate roster is an unbounded whole-org fan-out** with
+   one uncached FGA check per member, and ships every colleague's email.
+6. **The collaboration prune job has no scheduler**, so inbox rows and orphaned
+   collaboration rows are never reclaimed.
+7. **Collaboration writes still happen with the feature flag off** (the message
+   fan-out has no flag check, and migration 0027 made every project conversation
+   `visibility: 'project'`).
+8. Python tier: a cancelled turn publishes no terminal frame; the frame's
+   `conversation_id` is trusted rather than checked against the authorized upgrade
+   parameter; `is_multi_replica_bus()` can report Redis while the bus fell back
+   in-process; one transient Redis error permanently kills a conversation's relay.
+9. The unread divider is computed but never scrolled to; deep links fight the
+   stick-to-bottom controller.
+10. Global keyboard shortcuts fire through open modals and popovers.
+
+Full evidence, with file:line for every item, is in the session transcripts.

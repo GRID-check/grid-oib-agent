@@ -257,7 +257,7 @@ export const collaboration: typeof en.collaboration = {
     composerBusy:
       'Piloti beantwortet gerade die Frage von {name} – Sie können senden, sobald das erledigt ist.',
     accessLost:
-      'Sie haben keinen Zugriff mehr auf diesen Chat – dies ist eine lokale Kopie, die nicht mehr aktualisiert wird.',
+      'Dieser Chat ist für Sie nicht mehr verfügbar. Was Sie hier sehen, ist eine lokale Kopie und wird nicht mehr aktualisiert.',
     viewerNotice:
       'Sie können hier mitlesen. Eine Eigentümerin oder ein Eigentümer kann Ihnen über den Teilen-Dialog Schreibzugriff geben.',
     unreadDivider: 'Neu',

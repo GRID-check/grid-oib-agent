@@ -24,6 +24,15 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { TYPING_REFRESH_MS } from '@/lib/conversations/presence-contract'
 
+/**
+ * How long the claim survives without a keystroke before it is withdrawn.
+ *
+ * Long enough to cover thinking mid-sentence or glancing at a document; short
+ * enough that a composer left open with a half-written draft in it stops
+ * claiming somebody is at the keyboard.
+ */
+const TYPING_IDLE_MS = 45_000
+
 export interface UseTypingBroadcastOptions {
   conversationId: string | null
   /**
@@ -53,9 +62,11 @@ export function useTypingBroadcast(
   conversationIdRef.current = conversationId
   const enabledRef = useRef(enabled)
   enabledRef.current = enabled
+  const lastKeystrokeAtRef = useRef(0)
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const publish = useCallback((typing: boolean) => {
-    const id = conversationIdRef.current
+  const publish = useCallback((typing: boolean, conversation?: string) => {
+    const id = conversation ?? conversationIdRef.current
     if (!id) return
     void fetch(`/api/conversations/${encodeURIComponent(id)}/typing`, {
       method: 'POST',
@@ -69,32 +80,66 @@ export function useTypingBroadcast(
     })
   }, [])
 
-  const onTyping = useCallback(() => {
-    if (!enabledRef.current) return
-    const now = Date.now()
-    if (now - lastPublishedAtRef.current < TYPING_REFRESH_MS) return
-    lastPublishedAtRef.current = now
-    publish(true)
-  }, [publish])
+  /*
+    Keep the claim alive across a PAUSE, not just across keystrokes.
+
+    The claim was refreshed only by a key press, and it expires after
+    `TYPING_TTL_MS` (6s). So a colleague who stops mid-sentence to think, or to
+    check a document — the ordinary rhythm of writing anything considered —
+    dropped off the reader's screen and popped back on the next keypress. A
+    flickering indicator is worse than none: it reads as a person who keeps
+    changing their mind about answering.
+
+    Bounded by `TYPING_IDLE_MS` rather than running forever, because a composer
+    left open with text in it is not somebody writing. When that runs out the
+    heartbeat withdraws the claim rather than just falling silent, so the reader
+    learns it from an event instead of waiting out the TTL.
+  */
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatRef.current === null) return
+    clearInterval(heartbeatRef.current)
+    heartbeatRef.current = null
+  }, [])
 
   const onStoppedTyping = useCallback(() => {
+    stopHeartbeat()
     // No outstanding claim means nothing to withdraw, and withdrawing anyway
     // would turn "cleared an already-empty box" into a request.
     if (lastPublishedAtRef.current === 0) return
     lastPublishedAtRef.current = 0
     publish(false)
-  }, [publish])
+  }, [publish, stopHeartbeat])
+
+  const onTyping = useCallback(() => {
+    if (!enabledRef.current) return
+    const now = Date.now()
+    lastKeystrokeAtRef.current = now
+    if (heartbeatRef.current === null) {
+      heartbeatRef.current = setInterval(() => {
+        if (Date.now() - lastKeystrokeAtRef.current > TYPING_IDLE_MS) {
+          onStoppedTyping()
+          return
+        }
+        lastPublishedAtRef.current = Date.now()
+        publish(true)
+      }, TYPING_REFRESH_MS)
+    }
+    if (now - lastPublishedAtRef.current < TYPING_REFRESH_MS) return
+    lastPublishedAtRef.current = now
+    publish(true)
+  }, [publish, onStoppedTyping])
 
   // Withdraw on the way out: switching conversation, navigating away, unmounting.
   // Reads the ids from refs at cleanup time so the effect does not re-run (and
   // therefore does not withdraw) on every render.
   useEffect(
     () => () => {
+      stopHeartbeat()
       if (lastPublishedAtRef.current === 0) return
       lastPublishedAtRef.current = 0
       publish(false)
     },
-    [publish]
+    [publish, stopHeartbeat]
   )
 
   // Switching conversation must not leave a claim standing on the OLD thread.
@@ -103,15 +148,13 @@ export function useTypingBroadcast(
     const previous = previousConversationRef.current
     previousConversationRef.current = conversationId
     if (previous === conversationId || lastPublishedAtRef.current === 0) return
+    stopHeartbeat()
     lastPublishedAtRef.current = 0
     if (!previous) return
-    void fetch(`/api/conversations/${encodeURIComponent(previous)}/typing`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ typing: false }),
-      keepalive: true,
-    }).catch(() => {})
-  }, [conversationId])
+    // Same request as every other withdrawal — `publish` takes the conversation
+    // explicitly so this path cannot drift from it.
+    publish(false, previous)
+  }, [conversationId, publish, stopHeartbeat])
 
   return { onTyping, onStoppedTyping }
 }
