@@ -918,6 +918,22 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   from a detached thread: `/v1/ingest` captures the org id into the job config
   and the ingestor resolves the override (and BYOK credential) by org id — see
   §6 "Multimodal & visual/vector-drawing ingestion".
+- **Retrieval settings** (2026-07-31): the fleet-wide retrieval counts —
+  `knowledge_search` `top_k`/`max_chunks_per_document`, `surface_documents`
+  `chunk_top_k`/`max_files`, web/advanced-web `max_results`, `ris_search`
+  `max_results`/`page_size`, `ris_catalog_lookup` `max_matches` — are no
+  longer only build-time YAML. The BFF's Platform → Retrieval surface
+  (`/api/platform/retrieval-settings`, catalog + bounds in
+  `frontends/ui/src/lib/retrieval-settings/catalog.ts`) pins keys; the backend
+  resolves them through `src/aiq_agent/common/retrieval_settings.py`
+  (`get_retrieval_setting(key, fallback)`), which pulls the pinned set from
+  the token-guarded `GET /api/internal/retrieval-settings` just like
+  `model_overrides` does, TTL-cached in-process (60s positive / 30s negative)
+  and **fail-open**: any fetch error, or a key absent from the pinned set,
+  falls back to the YAML/build-time value the tool was configured with. The
+  resolver never raises, so a BFF outage cannot break retrieval. Platform-only
+  by design: there is no org layer (ADR-0016) — every tenant's queries share
+  the fleet counts.
 - **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
