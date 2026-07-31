@@ -5,6 +5,75 @@ export const organization = {
   loading: 'Loading organization…',
   memberSubtitle: 'Your LLM usage and your organization at a glance.',
   backToApp: 'Back to projects',
+  nav: {
+    label: 'Organization sections',
+    overview: 'Overview',
+    access: 'People & access',
+    models: 'Models',
+    budgets: 'Usage & budgets',
+    compliance: 'Compliance',
+    enterprise: 'Enterprise',
+  },
+  /** Page headers of the section routes — one heading per route, not per card. */
+  sections: {
+    overview: {
+      title: 'Overview',
+      subtitle:
+        'Your organization at a glance — name, domains, members, and the Piloti settings that apply to everyone in it.',
+    },
+    access: {
+      title: 'People & access',
+      subtitle:
+        'Who is in the organization, the role each of them holds, and what that role is allowed to do.',
+    },
+    models: {
+      title: 'Models',
+      subtitle:
+        'Which model each part of the agent runs on, and whether it runs on the platform key or your own.',
+    },
+    budgets: {
+      title: 'Usage & budgets',
+      subtitle:
+        'LLM spend against the limits it is checked against. Admins see the whole organization, everyone else their own.',
+    },
+    compliance: {
+      title: 'Compliance',
+      subtitle:
+        'The audit trail of every privileged change, plus the legal holds and deletions that answer for your data.',
+    },
+    enterprise: {
+      title: 'Enterprise',
+      subtitle:
+        'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
+    },
+  },
+  /** People & access: the member directory, the role catalog, the permission map. */
+  access: {
+    people: {
+      title: 'People',
+      description: 'Everyone in the organization and the role they were given.',
+      columnName: 'Name',
+      columnEmail: 'Email',
+      columnRole: 'Role',
+      columnStatus: 'Status',
+      noRole: 'No role',
+      empty: 'Nobody has joined this organization yet.',
+    },
+    roles: {
+      title: 'Roles',
+      description: 'The roles this organization can hand out, and what each one unlocks.',
+      tierOrg: 'Organization roles',
+      tierProject: 'Project roles',
+      tierWorkflow: 'Workflow roles',
+      permissionCount: '{count} permissions',
+    },
+    permissions: {
+      title: 'Permissions',
+      description: 'Every permission the organization knows about, and the roles that grant it.',
+      grantedBy: 'Granted by',
+      noRoles: 'No role grants this',
+    },
+  },
   overview: {
     title: 'Overview',
     description: 'Your organization at a glance.',
