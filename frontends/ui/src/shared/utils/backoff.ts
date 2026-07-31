@@ -64,11 +64,18 @@ export function backoffWithJitter(
  * The two functions above are pure, which is why every caller that needed a
  * ladder re-invented the state around them — an `attempt` counter, a timer ref,
  * a cancel, and a rule for when the count goes back to zero. There were four
- * such copies in this codebase (the shared event hub, the per-turn spectator
- * stream, the sharing read and the access read), and **each of them got the
- * reset wrong at least once**: a tab that had ridden out one outage resuming its
- * next failure at the ceiling, a budget spent by four failures spread over an
- * hour of healthy connection, a timer that outlived the effect that made it.
+ * such copies in the collaboration surface alone (the shared event hub, the
+ * per-turn spectator stream, the sharing read and the access read), and **each
+ * of them got the reset wrong at least once**: a tab that had ridden out one
+ * outage resuming its next failure at the ceiling, a budget spent by four
+ * failures spread over an hour of healthy connection, a timer that outlived the
+ * effect that made it.
+ *
+ * `websocket-client.ts` deliberately keeps its own: its `reconnectCount` is also
+ * read as "are we mid-reconnect?" to suppress the intermediate status callbacks
+ * that would otherwise flicker the connection indicator, so collapsing it into
+ * an opaque ladder would cost a signal the ladder has no business owning.
+ * `use-connection-recovery.ts` is a poller with a running delay, not a ladder.
  *
  * The reset rule is the whole point, and it is one sentence: **evidence that it
  * works starts the ladder over.** As a primitive that is an invariant; as four
