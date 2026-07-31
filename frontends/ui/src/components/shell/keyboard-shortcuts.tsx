@@ -30,7 +30,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useShortcutsPreference } from '@/hooks/use-shortcuts-preference'
 import { CommandPalette, projectIdFromPathname } from './command-palette'
 import { ShortcutsCheatsheet } from './shortcuts-cheatsheet'
-import { LEADER_KEY, LEADER_TIMEOUT_MS, resolveJump, type ShortcutFlags } from './shortcuts'
+import {
+  isModifierKey,
+  LEADER_KEY,
+  LEADER_TIMEOUT_MS,
+  resolveJump,
+  type ShortcutFlags,
+} from './shortcuts'
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -117,10 +123,10 @@ export function KeyboardShortcuts({
       // in) simply disarms — never a navigation the user did not ask for.
       const armedAt = leaderArmedAtRef.current
       if (armedAt !== null && Date.now() - armedAt <= LEADER_TIMEOUT_MS) {
-        // A bare modifier keydown (Shift, CapsLock, …) cannot complete the
-        // sequence — leave the leader armed rather than making the user press
-        // `g` again just because they reached for a capital letter.
-        if (event.key.length !== 1) return
+        // A lone modifier keydown (Shift, CapsLock, …) cannot complete a
+        // sequence, so it must not spend the leader: reaching for a capital
+        // letter would otherwise cost the user their `g`.
+        if (isModifierKey(event.key)) return
         leaderArmedAtRef.current = null
         const href = resolveJump(event.key, flags, projectIdRef.current)
         if (href) {

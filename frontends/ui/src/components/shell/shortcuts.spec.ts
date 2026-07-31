@@ -3,6 +3,7 @@ import { describe, test, expect } from 'vitest'
 import { railSections, paletteSections } from './project-sections'
 import {
   jumpTargets,
+  isModifierKey,
   modifierLabel,
   resolveJump,
   shortcutSections,
@@ -75,7 +76,10 @@ describe('jumpTargets', () => {
     const missing = jumpTargets(ALL)
       .map((target) => target.key)
       .filter((key) => !palette.has(key) && !['p', 'o'].includes(key))
-    expect(missing).toEqual(['i'])
+    expect(
+      missing,
+      'jump keys reachable by keyboard but not from the ⌘K palette — wire the section into the palette, or add its key here with a reason',
+    ).toEqual(['i'])
   })
 })
 
@@ -160,6 +164,19 @@ describe('shortcutSections', () => {
     const palette = general?.rows.find((row) => row.id === 'palette')
     const caps = palette?.keys.flatMap((segment) => (segment.kind === 'chord' ? segment.caps : []))
     expect(caps).toEqual([MOD, 'K'])
+  })
+})
+
+describe('isModifierKey', () => {
+  test.each(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph', 'NumLock'])(
+    '%s is a modifier — it can never complete a leader sequence',
+    (key) => {
+      expect(isModifierKey(key)).toBe(true)
+    },
+  )
+
+  test.each(['p', 'f', 'G', 'Escape', 'Enter', 'Tab', '1'])('%s is a real key', (key) => {
+    expect(isModifierKey(key)).toBe(false)
   })
 })
 
