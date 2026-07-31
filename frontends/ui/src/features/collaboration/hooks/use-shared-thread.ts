@@ -54,6 +54,7 @@ import {
   publishTurnActor,
   useThreadRevision,
 } from '@/shared/collaboration/thread-sharing'
+import { createRetryLadder } from '@/shared/utils/backoff'
 import { useLiveEvents } from './use-live-events'
 
 /**
@@ -311,26 +312,15 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     had failed, and it needs a recovery path of its own rather than borrowing one.
     Short and bounded — this covers a blip, not an outage.
   */
-  const accessAttempt = useRef(0)
-  const accessRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const accessRetry = useRef(
+    createRetryLadder({ delaysMs: ACCESS_RETRY_DELAYS_MS })
+  ).current
   const loadRef = useRef<(replace: boolean) => void>(() => {})
 
-  const cancelAccessRetry = useCallback(() => {
-    if (accessRetryTimer.current === null) return
-    clearTimeout(accessRetryTimer.current)
-    accessRetryTimer.current = null
-  }, [])
 
   const scheduleAccessRetry = useCallback(() => {
-    const delay = ACCESS_RETRY_DELAYS_MS[accessAttempt.current]
-    if (delay === undefined) return
-    accessAttempt.current += 1
-    cancelAccessRetry()
-    accessRetryTimer.current = setTimeout(() => {
-      accessRetryTimer.current = null
-      loadRef.current(false)
-    }, delay)
-  }, [cancelAccessRetry])
+    accessRetry.schedule(() => loadRef.current(false))
+  }, [accessRetry])
   const currentUserIdRef = useRef(currentUserId)
   currentUserIdRef.current = currentUserId
   // Directory of participants, for resolving author names during a load that may
@@ -532,8 +522,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
         // A successful access read heals any earlier revocation signal, and ends
         // any retry ladder a previous failure started.
-        cancelAccessRetry()
-        accessAttempt.current = 0
+        accessRetry.reset()
         setAccessLost(false)
         const isShared = facts.shared === true
         sharedRef.current = isShared
@@ -603,7 +592,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         if (current === seq.current) setLoading(false)
       }
     },
-    [conversationId, enabled, loadMessages, loadRoster, scheduleAccessRetry, cancelAccessRetry]
+    [
+      conversationId,
+      enabled,
+      loadMessages,
+      loadRoster,
+      scheduleAccessRetry,
+      accessRetry,
+    ]
   )
 
   /**
@@ -643,8 +639,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     setTypingUntil((previous) => (Object.keys(previous).length === 0 ? previous : {}))
     setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
-    accessAttempt.current = 0
-    cancelAccessRetry()
+    accessRetry.reset()
     // Sharedness belongs to the conversation, not to the hook. It was never
     // reset here — previously the failure path cleared it as a side effect, and
     // now that a blip deliberately preserves the last known answer, an inherited
@@ -663,14 +658,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     // otherwise a retry for the thread you just left writes over the one you
     // are in. The `seq` bump matters for UNMOUNT specifically: a load already
     // in flight lands after this cleanup and would otherwise schedule a fresh
-    // timer that `cancelAccessRetry` has already run past, chaining fetches for
+    // timer that the ladder's `cancel` has already run past, chaining fetches for
     // a conversation nobody is viewing. (A switch is safe without it, because
     // the effect body's own load bumps `seq` first.)
     return () => {
       seq.current += 1
-      cancelAccessRetry()
+      accessRetry.cancel()
     }
-  }, [loadAndRevalidate, cancelAccessRetry])
+  }, [loadAndRevalidate, accessRetry])
 
   /*
     Re-read when somebody tells us the server's answer has moved.

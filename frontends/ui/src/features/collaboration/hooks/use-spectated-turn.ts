@@ -24,7 +24,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { backoffWithJitter } from '@/shared/utils/backoff'
+import { createRetryLadder } from '@/shared/utils/backoff'
 import {
   EMPTY_SPECTATED_TURN,
   reduceSpectatedFrame,
@@ -125,8 +125,11 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
     /** Set once the stream says there is nothing more to come, so a late error
         on the closed source cannot start the ladder again. */
     let terminated = false
-    let attempt = 0
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    const reconnect = createRetryLadder({
+      baseMs: RECONNECT_BASE_MS,
+      maxMs: RECONNECT_MAX_MS,
+      budget: MAX_RECONNECTS,
+    })
     lastSeqRef.current = 0
     setTurn({ ...EMPTY_SPECTATED_TURN })
     setLive(false)
@@ -138,7 +141,6 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
 
     const connect = (): void => {
       if (cancelled) return
-      reconnectTimer = null
       source = new EventSource(`/api/conversations/${encodeURIComponent(conversationId)}/live`)
       attachHandlers()
     }
@@ -159,7 +161,7 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
         // this, four failures spread over a long turn with healthy stretches
         // between them exhaust the budget and the observer loses the live view
         // for the rest of the turn. (The shared event hub had the same bug.)
-        attempt = 0
+        reconnect.reset()
 
         if (parsed.kind === 'unsupported' || parsed.kind === 'revoked') {
           // Nothing more is coming. Close so EventSource does not reconnect into a
@@ -206,16 +208,9 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
       source.onerror = () => {
         if (cancelled || terminated) return
         close()
-        if (attempt >= MAX_RECONNECTS) {
-          setLive(false)
-          return
-        }
-        const delay = backoffWithJitter(attempt, {
-          baseMs: RECONNECT_BASE_MS,
-          maxMs: RECONNECT_MAX_MS,
-        })
-        attempt += 1
-        reconnectTimer = setTimeout(connect, delay)
+        // Spent budget: stop rather than hammer. The static banner and the
+        // persisted answer are both still there.
+        if (!reconnect.schedule(connect)) setLive(false)
       }
     }
 
@@ -223,7 +218,9 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
 
     return () => {
       cancelled = true
-      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+      // `cancel`, not `reset`: the ladder is being abandoned with the effect, and
+      // `cancelled` above already stops a retry that slips through.
+      reconnect.cancel()
       close()
     }
   }, [conversationId, enabled])

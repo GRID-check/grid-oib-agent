@@ -14,7 +14,7 @@
  * also why there is no resume cursor here: reconnecting just means "fetch again".
  */
 
-import { backoffWithJitter } from '@/shared/utils/backoff'
+import { createRetryLadder } from '@/shared/utils/backoff'
 import type { CollaborationEvent } from '@/lib/events/types'
 
 export type { CollaborationEvent }
@@ -25,18 +25,23 @@ const listeners = new Set<Listener>()
 
 let source: EventSource | null = null
 let connected = false
-let reconnectAttempts = 0
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 const connectionListeners = new Set<(connected: boolean) => void>()
 
 /**
  * Exponential backoff, capped and jittered — a server restart must not become a
  * stampede. The cap alone bounds the retry *rate*; the jitter is what stops
  * every tab dropped by the same pod from returning on an identical schedule.
+ *
+ * Unbounded on purpose, unlike the per-turn spectator stream: this connection
+ * carries every collaboration event in the product, so giving up on it is worse
+ * than waiting thirty seconds for it.
+ *
+ * `baseMs` is 2s rather than the 1s that was written here before, and the ladder
+ * is unchanged by that: the old hand-rolled version incremented its counter
+ * BEFORE reading the delay, so its first rung was already `1_000 * 2**1`. The
+ * schedule is the same 2s, 4s, 8s … 30s; only the off-by-one is gone.
  */
-function backoffMs(attempt: number): number {
-  return backoffWithJitter(attempt, { baseMs: 1_000, maxMs: 30_000 })
-}
+const reconnect = createRetryLadder({ baseMs: 2_000, maxMs: 30_000 })
 
 function setConnected(next: boolean): void {
   if (connected === next) return
@@ -56,7 +61,10 @@ function open(): void {
   source = new EventSource('/api/stream')
 
   source.onopen = () => {
-    reconnectAttempts = 0
+    // The load-bearing reset: a connection that opened is evidence the route
+    // works, so the next failure starts at the base step rather than inheriting
+    // the ceiling from an outage the tab already rode out.
+    reconnect.reset()
     setConnected(true)
   }
 
@@ -87,16 +95,14 @@ function open(): void {
     setConnected(false)
     close()
     if (listeners.size === 0) return
-    reconnectAttempts += 1
-    reconnectTimer = setTimeout(open, backoffMs(reconnectAttempts))
+    reconnect.schedule(open)
   }
 }
 
 function close(): void {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
+  // `cancel`, never `reset`: this is called from the error path too, and a
+  // failure must not be allowed to look like evidence the connection works.
+  reconnect.cancel()
   if (source) {
     source.close()
     source = null
@@ -115,15 +121,11 @@ export function subscribeToEvents(listener: Listener): () => void {
     listeners.delete(listener)
     if (listeners.size !== 0) return
     close()
-    // Reset the ladder on a DELIBERATE teardown (never inside `close()` itself,
-    // which the error path calls before incrementing) so the next subscriber
-    // starts from a clean count rather than inheriting the last one's.
-    //
-    // Belt and braces, not the load-bearing reset: `onopen` above already clears
-    // the count on every successful connect, so a tab that rode out a long
-    // outage and then ran healthy for an hour does NOT resume at the 30-second
-    // cap. An earlier version of this comment claimed it did. It did not.
-    reconnectAttempts = 0
+    // Reset on a DELIBERATE teardown (never inside `close()`, which the error
+    // path also calls) so the next subscriber starts from a clean count rather
+    // than inheriting the last one's. Belt and braces: `onopen` above is what
+    // actually keeps a healthy tab off the ceiling.
+    reconnect.reset()
   }
 }
 
@@ -145,5 +147,5 @@ export function __resetEventHub(): void {
   listeners.clear()
   connectionListeners.clear()
   close()
-  reconnectAttempts = 0
+  reconnect.reset()
 }
