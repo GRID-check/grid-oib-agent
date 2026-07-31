@@ -43,7 +43,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Info, MoreHorizontal, Search, ShieldCheck, UserMinus, UserPlus } from 'lucide-react'
+import { AlertTriangle, Info, MoreHorizontal, Search, ShieldCheck, UserMinus, UserPlus, X } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PersonAvatar } from '@/components/ui/avatar-stack'
@@ -77,6 +77,7 @@ import {
   SHARING_ERROR_REASONS,
   type ResourceAccessEntry,
   type ResourceRole,
+  type ResourceSharingState,
   type ResourceVisibility,
   type ShareCandidate,
   type ShareableResourceType,
@@ -105,10 +106,16 @@ const VISIBILITY_RANK: Record<ResourceVisibility, number> = {
 /** Candidates shown at once. Bounded so the dialog cannot grow without limit. */
 const MAX_CANDIDATES = 6
 
-/** A consequential change waiting for explicit confirmation. */
+/** An owner can leave only when the conversation keeps another owner (SH-11). */
+const canLeave = (state: ResourceSharingState, currentUserId: string): boolean =>
+  state.myRole !== 'owner' ||
+  state.entries.some((entry) => entry.role === 'owner' && entry.person.userId !== currentUserId)
+
+  /** A consequential change waiting for explicit confirmation. */
 type PendingConfirm =
   | { kind: 'visibility'; next: ResourceVisibility }
   | { kind: 'remove'; entry: ResourceAccessEntry }
+  | { kind: 'escalate' }
   | { kind: 'leave' }
 
 export interface ShareDialogProps {
@@ -142,11 +149,12 @@ export function ShareDialog({
 
   // Candidates are loaded lazily: only while the dialog is open, and only for
   // someone who could act on them.
-  const { candidates, loading: candidatesLoading } = useShareCandidates(
-    resourceType,
-    resourceId,
-    open && canManage,
-  )
+  const {
+    candidates,
+    loading: candidatesLoading,
+    error: candidatesError,
+    reload: reloadCandidates,
+  } = useShareCandidates(resourceType, resourceId, open && canManage)
 
   const [query, setQuery] = useState('')
   const [pending, setPending] = useState<PendingConfirm | null>(null)
@@ -155,6 +163,8 @@ export function ShareDialog({
 
   const failureMessage = (value: SharingFailure): string => {
     if (value.reason === SHARING_ERROR_REASONS.lastOwner) return t('sharing.errors.lastOwner')
+    if (value.reason === SHARING_ERROR_REASONS.rateLimited) return t('sharing.errors.rateLimited')
+    if (value.reason === SHARING_ERROR_REASONS.rosterFull) return t('sharing.errors.rosterFull')
     if (value.reason === SHARING_ERROR_REASONS.containerAccessRequired) {
       return t('sharing.errors.containerAccessRequired')
     }
@@ -227,21 +237,32 @@ export function ShareDialog({
         title: t('sharing.visibilityHeading'),
         description: t(`sharing.visibility.${pending.next}Hint`),
         confirmLabel: t(`sharing.visibility.${pending.next}`),
-        // Say what happens by showing it: exactly the rows that disappear.
-        children:
-          derivedEntries.length > 0 ? (
-            <ul className="mt-1 space-y-1.5" data-testid="visibility-loss-list">
-              {derivedEntries.map((entry) => (
-                <li key={entry.person.userId} className="flex items-center gap-2">
-                  <PersonAvatar person={entry.person} size="sm" />
-                  <span className="truncate text-sm text-foreground">{entry.person.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {t(`sharing.reasons.${entry.reason}`)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : undefined,
+        // Say what happens: narrowing takes the blanket rule away from everyone
+        // who only had it through that rule, so the confirmation states that
+        // loss in words — and lists the affected people by name when the roster
+        // includes them (it does for derived rows the server resolves).
+        children: (
+          <>
+            {state && state.visibility !== 'private' && (
+              <p className="mt-1 text-sm text-foreground" data-testid="visibility-loss-note">
+                {t(`sharing.visibility.narrowLoss.${state.visibility}`)}
+              </p>
+            )}
+            {derivedEntries.length > 0 && (
+              <ul className="mt-1 space-y-1.5" data-testid="visibility-loss-list">
+                {derivedEntries.map((entry) => (
+                  <li key={entry.person.userId} className="flex items-center gap-2">
+                    <PersonAvatar person={entry.person} size="sm" />
+                    <span className="truncate text-sm text-foreground">{entry.person.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {t(`sharing.reasons.${entry.reason}`)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ),
         onConfirm: async () => {
           await sharing.setVisibility(pending.next)
         },
@@ -254,6 +275,18 @@ export function ShareDialog({
         confirmLabel: t('sharing.remove'),
         onConfirm: async () => {
           await sharing.revoke(pending.entry.person.userId)
+        },
+      }
+    }
+    if (pending.kind === 'escalate') {
+      // Taking ownership is legitimate; silent escalation is not — so it gets
+      // the same explicit confirm as every other consequential change (SH-10).
+      return {
+        title: t('sharing.escalateConfirm'),
+        description: t('sharing.escalateHint'),
+        confirmLabel: t('sharing.escalate'),
+        onConfirm: async () => {
+          await sharing.escalate()
         },
       }
     }
@@ -273,11 +306,12 @@ export function ShareDialog({
 
   const confirm = confirmProps()
 
-  /** Per-row controls. Only explicit grants get them — see rule 4 in the header. */
+  /** Per-row controls. Only explicit grants get them — see rule 4 in the header.
+      The CREATOR gets none either: the server keeps them an immovable owner, so
+      a role/remove control on that row could only fail or pretend to work. */
   const renderActions = (entry: ResourceAccessEntry): ReactNode => {
     const isSelf = entry.person.userId === currentUserId
-    const isExplicit = entry.reason === 'grant' || entry.reason === 'creator'
-    if (!canManage || !isExplicit || isSelf) return null
+    if (!canManage || entry.reason !== 'grant' || isSelf) return null
     // ONE control per row, and it does not restate the row's role. A 150px select
     // showing "Kann mitschreiben" sat under a heading reading "KÖNNEN
     // MITSCHREIBEN" — the group and the control said the identical thing, once per
@@ -350,7 +384,8 @@ export function ShareDialog({
 
         {loading && !state ? (
           // Skeleton shaped like the real thing: rule line, then roster rows.
-          <div className="space-y-4" data-testid="share-dialog-skeleton">
+          <div className="space-y-4" data-testid="share-dialog-skeleton" aria-busy="true">
+            <span className="sr-only">{t('sharing.loading')}</span>
             <Skeleton className="h-6 w-40 rounded-md" />
             <Skeleton className="h-4 w-64" />
             <div className="space-y-2">
@@ -395,6 +430,15 @@ export function ShareDialog({
               <Alert variant="destructive" data-testid="share-failure">
                 <AlertTriangle className="size-4" aria-hidden />
                 <AlertDescription>{failureMessage(failure)}</AlertDescription>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 size-6"
+                  aria-label={t('sharing.close')}
+                  onClick={sharing.dismissFailure}
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
               </Alert>
             )}
 
@@ -469,9 +513,25 @@ export function ShareDialog({
                         <Skeleton key={row} className="h-11 w-full" />
                       ))}
                     </div>
+                  ) : candidatesError ? (
+                    // A failed load is not "nobody left to invite" — say so,
+                    // with the way back.
+                    <Alert variant="destructive">
+                      <AlertTriangle className="size-4" aria-hidden />
+                      <AlertTitle>{t('sharing.errors.loadFailed')}</AlertTitle>
+                      <AlertDescription>
+                        <Button variant="outline" size="sm" className="mt-2" onClick={reloadCandidates}>
+                          {t('sharing.errors.tryAgain')}
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
                   ) : filteredCandidates.length === 0 ? (
                     <p className="px-1 py-2 text-sm text-muted-foreground">
-                      {t('sharing.invite.empty')}
+                      {/* A typed query that matches nothing is a search result,
+                          not an empty org — the two need different sentences. */}
+                      {query.trim().length > 0
+                        ? t('sharing.invite.noResults', { query: query.trim() })
+                        : t('sharing.invite.empty')}
                     </p>
                   ) : (
                     <ul className="-mx-2">
@@ -566,8 +626,9 @@ export function ShareDialog({
               </>
             )}
 
-            {/* Taking ownership is legitimate; silent escalation is not — so it is
-                a deliberate, labelled action that says it is audited (SH-10/SH-14). */}
+            {/* Taking ownership is legitimate; silent escalation is not — so it
+                routes through the same explicit confirm as every other
+                consequential change, and says it is audited (SH-10/SH-14). */}
             {state.canEscalate && (
               <>
                 <Separator />
@@ -577,7 +638,7 @@ export function ShareDialog({
                     size="sm"
                     className="gap-1.5"
                     disabled={saving}
-                    onClick={() => void sharing.escalate()}
+                    onClick={() => setPending({ kind: 'escalate' })}
                   >
                     <ShieldCheck className="size-3.5" aria-hidden />
                     {t('sharing.escalate')}
@@ -592,8 +653,10 @@ export function ShareDialog({
         ) : null}
 
         <DialogFooter className="sm:justify-between">
-          {/* Leaving needs no ownership (SH-12). */}
-          {state && state.myRole && state.myRole !== 'owner' && currentUserId ? (
+          {/* Leaving needs no ownership (SH-12). An owner may leave too — as long
+              as another owner remains; the last-owner invariant is enforced
+              server-side, so the button simply isn't offered in that case. */}
+          {state && state.myRole && currentUserId && canLeave(state, currentUserId) ? (
             <Button
               variant="ghost"
               size="sm"

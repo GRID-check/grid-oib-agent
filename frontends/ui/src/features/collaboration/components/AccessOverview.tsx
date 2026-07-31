@@ -162,7 +162,15 @@ export function AccessOverview({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <AccessChip visibility={state.visibility} sharedWith={namedOthers} size="md" />
-            <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span>
+            {/* The count is only meaningful when it actually enumerates the
+                audience: under a blanket rule it counts only the NAMED exceptions,
+                so printing it next to "Alle im Projekt können mitlesen" would
+                contradict the rule sentence (the server currently reports no
+                derived entries). Once derived entries exist, the count is the
+                union and can stand again. */}
+            {(state.visibility === 'private' || derived.length > 0) && (
+              <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span>
+            )}
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">
             {t(CONSEQUENCE[state.visibility] ?? CONSEQUENCE.private)}

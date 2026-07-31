@@ -36,8 +36,8 @@ export class UnauthorizedError extends ApiError {
 
 /** 403 — authenticated but not allowed. */
 export class ForbiddenError extends ApiError {
-  constructor(message = 'Forbidden') {
-    super(403, 'FORBIDDEN', message)
+  constructor(message = 'Forbidden', details?: unknown) {
+    super(403, 'FORBIDDEN', message, details)
   }
 }
 
