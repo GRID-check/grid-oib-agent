@@ -34,19 +34,35 @@ legend. Offer a diagram proactively for architecture/design discussions.
 
 ## Verification workflow
 
-Host-native checks are the default; Docker is not required:
+Host-native checks are the default; Docker is not required. Every command lives
+in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
+(`npm i -g @go-task/cli`), from the repo root, on any OS:
 
 | Check | Command |
 |-------|---------|
-| Frontend typecheck | `cd frontends/ui && npm run type-check` |
-| Frontend tests | `cd frontends/ui && npx vitest run <files>` |
-| Backend syntax | `.venv/Scripts/python.exe -m py_compile <files>` |
-| Backend lint | `.venv/Scripts/ruff.exe check <files>` (and `ruff format --check`) |
-| Backend tests | `$env:PYTHONPATH='src'; .venv/Scripts/python.exe -m pytest tests/` |
-| UI screenshot evidence | `cd frontends/ui && npm run screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
+| **Everything CI runs** | `task verify` |
+| Everything except the slow production build | `task verify:fast` |
+| First-time toolchain setup | `task setup` |
+| Frontend typecheck | `task fe:types` |
+| Frontend tests | `task fe:test` |
+| Frontend lint / build | `task fe:lint` / `task fe:build` |
+| Backend lint (ruff check + format) | `task be:lint` |
+| Backend tests | `task be:test` (plugin suite: `task be:test:api`) |
+| Infra typecheck (Pulumi + policy pack) | `task infra:types` |
+| Repo lint (pre-commit, all files) | `task lint:repo` |
+| UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
 | WorkOS authz drift | `cd frontends/ui && WORKOS_API_KEY=sk_… npm run provision:authz` (read-only; `-- --apply` reconciles) |
 
-**Backend tests MUST run with `PYTHONPATH=src`** (PowerShell: `$env:PYTHONPATH='src'` before the pytest call). This worktree's `.venv` has `aiq_agent` installed from a different worktree, so without it pytest validates the wrong code.
+`task --list` is the full, always-current list. CI calls these same tasks
+(`.github/workflows/ci.yml`), so `task verify` passing locally means the merge
+gate passes — there is no second copy of the commands to drift out of sync.
+
+The tasks also absorb two things that used to have to be remembered: the venv
+lives in `.venv/Scripts` on Windows and `.venv/bin` elsewhere, and **backend
+tests need `PYTHONPATH=src`** (otherwise pytest resolves `aiq_agent` from
+whatever the venv has installed — possibly another worktree — and validates the
+wrong code while appearing to pass). Both are set in `Taskfile.yml`; if you
+bypass the tasks and call `pytest` directly, you own them again.
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`.
 

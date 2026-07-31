@@ -20,9 +20,8 @@
     "test": "TZ=UTC vitest --no-watch",
     "test:watch": "TZ=UTC vitest",
     "test:ci": "TZ=UTC vitest run --coverage",
-    "ci:local": "./scripts/ci-check.sh",
-    "ci:quick": "./scripts/ci-check.sh --quick",
-    "ci:fast": "./scripts/ci-check.sh --no-clean",
+    "ci:local": "task -d ../.. fe:verify",
+    "ci:quick": "task -d ../.. verify:fast",
     "prepare": "husky",
     "provision:authz": "tsx scripts/provision-workos-authz.ts"
   },

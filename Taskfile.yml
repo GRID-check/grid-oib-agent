@@ -1,0 +1,206 @@
+# Grid agent — single source of truth for "how do I run this?"
+#
+# Why this file exists
+# -------------------
+# The same commands were previously written down in three places that drifted
+# independently: `.github/workflows/ci.yml`, the verification table in
+# AGENTS.md, and the `ci:*` scripts in `frontends/ui/package.json` (which
+# pointed at a `scripts/ci-check.sh` that did not exist). Documented commands
+# also assumed a Windows venv layout (`.venv/Scripts/python.exe`) and so did not
+# run in CI, the devcontainer, or an agent session.
+#
+# Everything below is defined once and consumed by humans, agents and CI alike.
+# `task verify` IS the merge gate — if it passes locally it passes in CI, and if
+# it drifts, it drifts for everyone at once instead of silently for one of them.
+#
+# Install:  npm i -g @go-task/cli   (or see https://taskfile.dev/installation/)
+# Discover: task --list
+
+version: '3'
+
+vars:
+  UI: frontends/ui
+  # go-task ships its own POSIX shell, so command SYNTAX is already portable and
+  # nothing below needs an OS branch. These two are the exception, because they
+  # are Python packaging facts rather than shell facts: a virtualenv puts its
+  # executables in `Scripts/` on Windows and `bin/` everywhere else. Stated once
+  # here so no task has to know about it.
+  #
+  # `uv run` would sidestep the whole question, but not in this repo: it
+  # resolves an environment without the `sources/` workspace packages, so the
+  # knowledge-layer tests fail to import. The venv that `uv sync --group dev`
+  # builds is the one that works.
+  VENV_BIN: '{{if eq OS "windows"}}.venv/Scripts{{else}}.venv/bin{{end}}'
+  EXE: '{{if eq OS "windows"}}.exe{{end}}'
+  PY: '{{.VENV_BIN}}/python{{.EXE}}'
+  RUFF: '{{.VENV_BIN}}/ruff{{.EXE}}'
+
+env:
+  # The documented footgun, removed. Without this pytest resolves `aiq_agent`
+  # from whatever is installed in the venv rather than from this worktree, and
+  # validates the wrong code while appearing to pass.
+  PYTHONPATH: src
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # ── the gate ────────────────────────────────────────────────────────────────
+
+  verify:
+    desc: 'Full merge gate: everything CI runs. Passing here means passing in CI.'
+    cmds:
+      - task: be:lint
+      - task: be:test
+      - task: fe:lint
+      - task: fe:types
+      - task: fe:test
+      - task: fe:build
+      - task: infra:types
+
+  verify:fast:
+    desc: Lint + types + tests, skipping the production build (the slow step)
+    cmds:
+      - task: be:lint
+      - task: be:test
+      - task: fe:lint
+      - task: fe:types
+      - task: fe:test
+
+  setup:
+    desc: Install every toolchain this repo needs (backend venv + UI + infra)
+    cmds:
+      - uv venv .venv
+      - uv sync --group dev
+      - task: fe:install
+      - npm --prefix deploy/pulumi ci
+      # The policy pack is its own Node program with its own lockfile; CI
+      # installs it separately and `infra:types` typechecks it.
+      - npm --prefix deploy/pulumi/policy ci
+
+  # ── frontend (frontends/ui) ─────────────────────────────────────────────────
+
+  fe:install:
+    desc: Install UI dependencies
+    dir: '{{.UI}}'
+    cmds:
+      - npm ci
+
+  fe:lint:
+    desc: ESLint the UI
+    dir: '{{.UI}}'
+    cmds:
+      - npm run lint
+
+  fe:types:
+    desc: Typecheck the UI (includes specs — a spec type error blocks next build)
+    dir: '{{.UI}}'
+    cmds:
+      - npm run type-check
+
+  fe:test:
+    desc: Run the UI test suite
+    dir: '{{.UI}}'
+    cmds:
+      - npm test
+
+  fe:test:ci:
+    desc: UI tests with the coverage reporters CI's coverage comment consumes
+    dir: '{{.UI}}'
+    cmds:
+      - npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
+
+  fe:build:
+    desc: Production build of the UI
+    dir: '{{.UI}}'
+    cmds:
+      - npm run build
+
+  fe:screenshots:
+    desc: 'Capture UI screenshot evidence (optional: -- <registry id>)'
+    dir: '{{.UI}}'
+    cmds:
+      - npm run screenshots -- {{.CLI_ARGS}}
+
+  fe:verify:
+    desc: Everything CI runs for the frontend tier
+    cmds:
+      - task: fe:lint
+      - task: fe:types
+      - task: fe:test:ci
+      - task: fe:build
+
+  # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
+
+  be:lint:
+    desc: Ruff lint + format check
+    cmds:
+      - '{{.RUFF}} check .'
+      - '{{.RUFF}} format --check .'
+
+  be:format:
+    desc: Apply ruff formatting and autofixes
+    cmds:
+      - '{{.RUFF}} check --fix .'
+      - '{{.RUFF}} format .'
+
+  be:test:
+    desc: Backend core suite
+    cmds:
+      - '{{.PY}} -X faulthandler -m pytest tests/ -q'
+
+  be:test:ci:
+    desc: Backend core suite with the coverage gate CI enforces
+    cmds:
+      - >-
+        {{.PY}} -X faulthandler -m pytest tests/ -v
+        --junitxml=report-core.xml
+        --cov=src/aiq_agent --cov-report=xml:coverage.xml --cov-report=term
+        --cov-fail-under=65
+
+  be:test:api:
+    desc: aiq_api plugin suite
+    cmds:
+      - '{{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q'
+
+  be:test:api:ci:
+    desc: aiq_api plugin suite with coverage reporting
+    cmds:
+      - >-
+        {{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -v
+        --junitxml=report-aiqapi.xml
+        --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml
+        --cov-report=term
+
+  be:verify:
+    desc: Everything CI runs for the backend tier
+    cmds:
+      - task: be:lint
+      - task: be:test:ci
+      - task: be:test:api:ci
+
+  # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
+
+  infra:types:
+    desc: Typecheck the Pulumi program and its policy pack
+    cmds:
+      - npm --prefix deploy/pulumi run typecheck
+      - npm --prefix deploy/pulumi/policy run typecheck
+
+  infra:preview:
+    desc: 'Pulumi preview (needs stack credentials)'
+    dir: deploy/pulumi
+    cmds:
+      - npm run preview
+
+  # ── repo-wide ───────────────────────────────────────────────────────────────
+
+  lint:repo:
+    desc: pre-commit across the whole repo — the same scope CI lints
+    cmds:
+      # From the venv, not PATH: `uv sync --group dev` installs pre-commit into
+      # .venv and nothing puts it on PATH.
+      - '{{.VENV_BIN}}/pre-commit{{.EXE}} run --all-files'

@@ -59,11 +59,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
-      - name: Ruff
-        run: |
-          . .venv/bin/activate
-          ruff check .
-          ruff format --check .
+      - uses: ./.github/actions/setup-task
+      # Defined in the root Taskfile so `task be:lint` locally runs exactly this.
+      - run: task be:lint
 
   # Deliberately NOT behind a paths filter. `pre-commit run --all-files` scans
   # the WHOLE repo, so gating it on the backend filter meant a PR touching only
@@ -101,21 +99,11 @@ jobs:
       - uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ matrix.python }}
+      - uses: ./.github/actions/setup-task
       - name: Core suite (coverage-gated)
-        run: |
-          set -euo pipefail
-          . .venv/bin/activate
-          python -X faulthandler -m pytest tests/ -v \
-            --junitxml=report-core.xml \
-            --cov=src/aiq_agent --cov-report=xml:coverage.xml --cov-report=term \
-            --cov-fail-under=65
+        run: task be:test:ci
       - name: aiq_api plugin suite
-        run: |
-          set -euo pipefail
-          . .venv/bin/activate
-          python -X faulthandler -m pytest frontends/aiq_api/tests/ -v \
-            --junitxml=report-aiqapi.xml \
-            --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml --cov-report=term
+        run: task be:test:api:ci
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request' && matrix.python == '3.13'
         continue-on-error: true # never fail CI on a comment hiccup
@@ -141,11 +129,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontends/ui/package-lock.json
       - run: npm ci
-      - run: npm run lint
-      - run: npm run type-check
-      # json-summary/json feed the coverage comment below.
-      - run: npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
-      - run: npm run build
+      - uses: ./.github/actions/setup-task
+      # lint + type-check + tests (with the json-summary/json reporters the
+      # coverage comment below consumes) + build. Same four steps as
+      # `task fe:verify` locally — defined once, in the root Taskfile.
+      - run: task fe:verify
+        working-directory: .
       - name: Coverage comment (frontend)
         if: github.event_name == 'pull_request'
         continue-on-error: true
@@ -169,19 +158,19 @@ jobs:
           cache: npm
           cache-dependency-path: deploy/pulumi/package-lock.json
       - run: npm ci
-      # Type-checks every `spec` written against the @kubernetes-models CRD
-      # types (Gateway API / Envoy Gateway / cert-manager). The deeper gates —
-      # `pulumi preview` + schema-validate every CR + the CrossGuard policy pack
-      # — need stack credentials and still run in deploy.yml; this is the part
-      # that can run on an untrusted PR.
-      - run: npm run typecheck
-      # The policy pack is its own Node program; a rule that no longer compiles
-      # would otherwise only surface at deploy time, i.e. with the guardrails
-      # already load-bearing.
+      # The policy pack is its own Node program with its own lockfile; a rule
+      # that no longer compiles would otherwise only surface at deploy time,
+      # i.e. with the guardrails already load-bearing.
       - run: npm ci
         working-directory: deploy/pulumi/policy
-      - run: npm run typecheck
-        working-directory: deploy/pulumi/policy
+      - uses: ./.github/actions/setup-task
+      # Type-checks every `spec` written against the @kubernetes-models CRD
+      # types (Gateway API / Envoy Gateway / cert-manager) AND the policy pack.
+      # The deeper gates — `pulumi preview` + schema-validate every CR + the
+      # CrossGuard policy pack — need stack credentials and still run in
+      # deploy.yml; this is the part that can run on an untrusted PR.
+      - run: task infra:types
+        working-directory: .
 
   ci-ok:
     name: CI OK
