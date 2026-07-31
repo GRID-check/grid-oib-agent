@@ -548,3 +548,49 @@ describe('NATWebSocketClient — the ingest-only user_message payload', () => {
     })
   })
 })
+
+describe('NATWebSocketClient reconnect scheduling', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * Regression: the reconnect wait used to be a fixed `reconnectDelay`. A
+   * rolling deploy drops every socket on a pod at the same instant, so a fixed
+   * wait brings the whole herd back on an identical schedule — and each upgrade
+   * costs a session resolution + FGA checks + budget reads (ADR-0020).
+   */
+  const scheduleFirstReconnect = async (random: number): Promise<number> => {
+    vi.spyOn(Math, 'random').mockReturnValue(random)
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-reconnect',
+      reconnectDelay: 1000,
+      callbacks: {},
+    })
+    await client.connect()
+
+    const socket = MockWebSocket.instances.at(-1)!
+    setTimeoutSpy.mockClear()
+    socket.onclose?.(new CloseEvent('close'))
+
+    const scheduled = setTimeoutSpy.mock.calls.at(-1)
+    return scheduled?.[1] as number
+  }
+
+  test('the top of the jitter window is the configured base delay', async () => {
+    expect(await scheduleFirstReconnect(1)).toBe(1000)
+  })
+
+  test('jitter can schedule earlier than the base delay', async () => {
+    // Previously this was always exactly 1000 — that constancy was the bug.
+    expect(await scheduleFirstReconnect(0)).toBe(500)
+  })
+})

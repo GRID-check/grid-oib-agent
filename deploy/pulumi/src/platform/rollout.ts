@@ -326,7 +326,7 @@ export function secretChecksum(
       const hash = createHash("sha256");
       // Sort so the digest depends on content only, never on key insertion order.
       for (const key of Object.keys(resolved).sort()) {
-        hash.update(key).update(" ").update(resolved[key] ?? "").update(" ");
+        hash.update(key).update("\u0000").update(resolved[key] ?? "").update("\u0000");
       }
       // 64 bits is far more than enough to distinguish successive rotations, and
       // keeps the annotation readable in `kubectl describe` / plan diffs.

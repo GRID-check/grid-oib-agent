@@ -74,15 +74,21 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   Core: `nvidia-nat*==1.7.0`, `deepagents`, `langgraph-checkpoint-*`, `chromadb`,
   `llama-index`, `langchain-tavily`, `langchain-modal==0.0.5` (pre-alpha maturity).
   Deliberate CVE floors + `override-dependencies` block (`pyproject.toml:214-227`).
-- **Node:** `package-lock.json` + `npm ci`; Next 16, `@workos-inc/*`,
+- **Node:** `bun.lock` + `bun install --frozen-lockfile`; Next 16, `@workos-inc/*`,
   `@aws-sdk/client-s3`, `http-proxy` (old but latest), drizzle; security `overrides`
-  for esbuild/postcss/uuid.
+  for esbuild/postcss/uuid (Bun honours npm `overrides`). Bun is the installer and
+  script runner only — Node remains the runtime for the app and the Next build.
+  OSV-Scanner supports the text `bun.lock` format, so lockfile CVE scanning is
+  unaffected by the switch (it does NOT support the binary `bun.lockb`, which
+  this repo does not use).
 - **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
-  CVEs; pip-audit/npm-audit; gitleaks full history; detect-secrets baseline;
+  CVEs; pip-audit + `bun audit`; gitleaks full history; detect-secrets baseline;
   Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced
   Security on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
-  instead.) Gaps: Semgrep + OSV-Scanner + pip-audit/npm-audit currently
-  non-blocking (Phase 1); no clean-as-you-code
+  instead.) Gaps: Semgrep + OSV-Scanner and both dependency audits (pip-audit and
+  `bun audit`) are currently non-blocking in
+  [`.github/workflows/security.yml`](../../.github/workflows/security.yml)
+  (Phase 1 — findings surface in the job log); no clean-as-you-code
   smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
   gate); actions tag-pinned not SHA-pinned (one `@main`); dev image pipes
   nodesource script to bash (dev only).

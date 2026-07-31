@@ -703,9 +703,30 @@ export function loadConfig(): GridConfig {
     },
 
     frontend: {
+      /**
+       * `requests` is load-bearing twice over, and both uses want the same
+       * number: roughly what a pod actually consumes at steady state.
+       *
+       *   1. **The HPA divides by it.** `averageUtilization` is a percentage of
+       *      REQUESTS, not of limits. At the previous `100m`, the 70% target
+       *      meant 70 millicores — 7% of the pod's own 1-core limit — which a
+       *      Next.js SSR pod clears the moment it serves anything. The HPA
+       *      therefore had no proportional range: idle sat at `minReplicas` and
+       *      any traffic at all pinned it to `maxReplicas`. At `500m` the target
+       *      is 350m, i.e. scale out at ~35% of the limit, leaving burst room.
+       *   2. **The scheduler bin-packs on it.** `100m` told the scheduler each
+       *      pod was tiny, so all `maxReplicas` could land on one node — and
+       *      `topologySpreadConstraints` is `ScheduleAnyway` (soft, by design),
+       *      so it would not prevent that. The PDB and the spread policy both
+       *      assume replicas are actually spread.
+       *
+       * Tune from real usage (`kubectl top pods -l app.kubernetes.io/name=frontend`)
+       * rather than from this default; the invariant to preserve is
+       * `requests ≈ steady-state` and `limits ≈ 2x requests` for burst.
+       */
       resources: {
-        requestsCpu: cfg.get("frontendRequestsCpu") ?? "100m",
-        requestsMemory: cfg.get("frontendRequestsMemory") ?? "256Mi",
+        requestsCpu: cfg.get("frontendRequestsCpu") ?? "500m",
+        requestsMemory: cfg.get("frontendRequestsMemory") ?? "512Mi",
         limitsCpu: cfg.get("frontendLimitsCpu") ?? "1",
         limitsMemory: cfg.get("frontendLimitsMemory") ?? "1Gi",
       },
@@ -850,4 +871,120 @@ export function toResourceRequirements(r: ResourceSpec) {
     requests: { cpu: r.requestsCpu, memory: r.requestsMemory },
     limits: { cpu: r.limitsCpu, memory: r.limitsMemory },
   };
+}
+
+/** Parse a k8s CPU quantity ("500m", "1", "1500m") into millicores. */
+export function cpuMillicores(quantity: string): number {
+  const trimmed = quantity.trim();
+  return trimmed.endsWith("m")
+    ? Number(trimmed.slice(0, -1))
+    : Number(trimmed) * 1000;
+}
+
+/** Parse a k8s memory quantity ("512Mi", "2Gi", "1000000") into bytes. */
+export function memoryBytes(quantity: string): number {
+  const match = /^([0-9]+(?:\.[0-9]+)?)(Ki|Mi|Gi|Ti|k|M|G|T)?$/.exec(
+    quantity.trim(),
+  );
+  if (!match) return NaN;
+  const multipliers: Record<string, number> = {
+    Ki: 1024,
+    Mi: 1024 ** 2,
+    Gi: 1024 ** 3,
+    Ti: 1024 ** 4,
+    k: 1000,
+    M: 1000 ** 2,
+    G: 1000 ** 3,
+    T: 1000 ** 4,
+  };
+  return Number(match[1]) * (match[2] ? multipliers[match[2]] : 1);
+}
+
+/**
+ * Guard memory requests against memory limits.
+ *
+ * `toResourceRequirements` forwards whatever strings the config carries, and
+ * Kubernetes only rejects them at admission — i.e. after `pulumi up` has already
+ * started mutating the cluster. A typo ("512M1") or an inverted pair
+ * (request 2Gi, limit 512Mi) fails the preview here instead.
+ */
+export function assertMemoryFitsLimit(tier: string, r: ResourceSpec): void {
+  const requests = memoryBytes(r.requestsMemory);
+  const limits = memoryBytes(r.limitsMemory);
+
+  if (
+    !Number.isFinite(requests) ||
+    !Number.isFinite(limits) ||
+    requests <= 0 ||
+    limits <= 0
+  ) {
+    throw new Error(
+      `${tier}: could not parse memory resources ` +
+        `(requests=${r.requestsMemory}, limits=${r.limitsMemory}).`,
+    );
+  }
+
+  if (limits < requests) {
+    throw new Error(
+      `${tier}: memory limit (${r.limitsMemory}) is below the request (${r.requestsMemory}).`,
+    );
+  }
+}
+
+/**
+ * Guard the relationship between CPU requests, CPU limits and the HPA target.
+ *
+ * An HPA's `averageUtilization` is a percentage of **requests**. That makes a
+ * too-small request silently destroy the control loop: the absolute trigger
+ * drops far below what a pod uses at idle, so the HPA is pinned at
+ * `maxReplicas` under any load at all and the "70%" in the config reads
+ * reassuring while meaning nothing. It is invisible in review because each
+ * individual number looks defensible — only the ratio is wrong.
+ *
+ * Same spirit as `assertDrainFitsGrace` in rollout.ts: encode the invariant
+ * where it can fail the deploy, not in a comment nobody re-reads.
+ */
+export function assertHpaTargetIsProportional(
+  tier: string,
+  r: ResourceSpec,
+  hpaCpuTargetPercent: number,
+): void {
+  const requests = cpuMillicores(r.requestsCpu);
+  const limits = cpuMillicores(r.limitsCpu);
+
+  if (!Number.isFinite(requests) || !Number.isFinite(limits) || requests <= 0) {
+    throw new Error(
+      `${tier}: could not parse CPU resources ` +
+        `(requests=${r.requestsCpu}, limits=${r.limitsCpu}).`,
+    );
+  }
+
+  // A NaN or Infinity target would slip past both comparisons below (every
+  // comparison against NaN is false), so the validator would accept it.
+  if (!Number.isFinite(hpaCpuTargetPercent) || hpaCpuTargetPercent <= 0) {
+    throw new Error(
+      `${tier}: HPA CPU target must be a finite positive number ` +
+        `(got ${hpaCpuTargetPercent}).`,
+    );
+  }
+
+  const trigger = (requests * hpaCpuTargetPercent) / 100;
+
+  // Below ~15% of the limit the HPA stops being proportional control and
+  // becomes an on/off switch to maxReplicas.
+  const triggerFractionOfLimit = trigger / limits;
+  if (triggerFractionOfLimit < 0.15) {
+    throw new Error(
+      `${tier}: HPA target of ${hpaCpuTargetPercent}% of ${r.requestsCpu} requests ` +
+        `= ${trigger}m, only ${(triggerFractionOfLimit * 100).toFixed(1)}% of the ` +
+        `${r.limitsCpu} limit. The HPA will pin to maxReplicas under any load. ` +
+        `Raise the CPU request toward real steady-state usage.`,
+    );
+  }
+
+  if (limits < requests) {
+    throw new Error(
+      `${tier}: CPU limit (${r.limitsCpu}) is below the request (${r.requestsCpu}).`,
+    );
+  }
 }

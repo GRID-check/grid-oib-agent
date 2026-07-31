@@ -14,6 +14,7 @@
  * also why there is no resume cursor here: reconnecting just means "fetch again".
  */
 
+import { backoffWithJitter } from '@/shared/utils/backoff'
 import type { CollaborationEvent } from '@/lib/events/types'
 
 export type { CollaborationEvent }
@@ -28,9 +29,13 @@ let reconnectAttempts = 0
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 const connectionListeners = new Set<(connected: boolean) => void>()
 
-/** Exponential backoff, capped — a server restart must not become a stampede. */
+/**
+ * Exponential backoff, capped and jittered — a server restart must not become a
+ * stampede. The cap alone bounds the retry *rate*; the jitter is what stops
+ * every tab dropped by the same pod from returning on an identical schedule.
+ */
 function backoffMs(attempt: number): number {
-  return Math.min(30_000, 1_000 * 2 ** Math.min(attempt, 5))
+  return backoffWithJitter(attempt, { baseMs: 1_000, maxMs: 30_000 })
 }
 
 function setConnected(next: boolean): void {

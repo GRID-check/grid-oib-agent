@@ -336,6 +336,90 @@ const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
   })
 }
 
+// ── WS-upgrade admission + scope memoisation ──
+// The per-IP limiter above throttles ONE abusive client. It does nothing about
+// the herd this deployment creates for itself: a rolling update severs every
+// socket on a pod at once, and those clients come back from thousands of
+// DISTINCT IPs, so every one of them passes the per-IP check and triggers a
+// fresh `/api/auth/websocket-scope` render (session resolution + FGA + budget
+// reads — ADR-0020). Two bounds on that amplification:
+//
+//   1. SINGLE-FLIGHT + short-TTL memo per (session, project, conversation).
+//      A client that reconnects within the TTL, or several tabs racing the same
+//      upgrade, cost one upstream resolution instead of N.
+//   2. A GLOBAL in-flight ceiling. Past it, upgrades are shed with 503 +
+//      Retry-After instead of queueing — the pod stays responsive for the
+//      connections it already holds, and the client's jittered backoff
+//      (`shared/utils/backoff.ts`) spreads the retry.
+//
+// The memo is per-process and in-memory ON PURPOSE: the payload carries an
+// access token, and a shared Dragonfly cache would put bearer credentials in a
+// store shared by every tier. Per-pod caching still cuts the amplification
+// proportionally, because a given client reconnects to one pod at a time.
+// TTL is deliberately short — it bounds how long a revoked session can still
+// ride a cached scope. 0 disables the memo entirely.
+const WS_UPGRADE_MAX_INFLIGHT = parseInt(process.env.GRID_WS_UPGRADE_MAX_INFLIGHT || '32', 10)
+const WS_SCOPE_CACHE_TTL_MS = parseInt(process.env.GRID_WS_SCOPE_CACHE_TTL_MS || '10000', 10)
+const WS_SCOPE_CACHE_MAX_ENTRIES = 5000
+
+let inflightScopeResolutions = 0
+const scopeCache = new Map()
+const scopeInflight = new Map()
+
+const scopeCacheKey = (req, projectId, conversationId) =>
+  crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify([req.headers.cookie || '', projectId ?? null, conversationId ?? null])
+    )
+    .digest('hex')
+
+/**
+ * Resolve the collection scope for an upgrade, memoised and admission-gated.
+ *
+ * Returns the same shape as `fetchCollectionScopeHeader`, plus `rejected: true`
+ * when the global in-flight ceiling shed this upgrade.
+ */
+const resolveCollectionScope = (req, projectId, conversationId) => {
+  // The memo and the admission ceiling are INDEPENDENT bounds: disabling the
+  // memo (TTL <= 0, e.g. to force fresh auth) must not also disable the ceiling.
+  const cacheEnabled = WS_SCOPE_CACHE_TTL_MS > 0
+  const key = cacheEnabled ? scopeCacheKey(req, projectId, conversationId) : null
+
+  if (cacheEnabled) {
+    const cached = scopeCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve(cached.result)
+    }
+
+    // Coalesce concurrent upgrades for the same session onto one upstream call.
+    const pending = scopeInflight.get(key)
+    if (pending) return pending
+  }
+
+  if (WS_UPGRADE_MAX_INFLIGHT > 0 && inflightScopeResolutions >= WS_UPGRADE_MAX_INFLIGHT) {
+    return Promise.resolve({ ok: false, status: 503, header: null, data: null, rejected: true })
+  }
+
+  inflightScopeResolutions += 1
+  const request = fetchCollectionScopeHeader(req, projectId, conversationId)
+    .then((result) => {
+      // Only successes are memoised — a transient failure must not be sticky.
+      if (cacheEnabled && result.ok) {
+        if (scopeCache.size > WS_SCOPE_CACHE_MAX_ENTRIES) scopeCache.clear()
+        scopeCache.set(key, { expiresAt: Date.now() + WS_SCOPE_CACHE_TTL_MS, result })
+      }
+      return result
+    })
+    .finally(() => {
+      inflightScopeResolutions -= 1
+      if (cacheEnabled) scopeInflight.delete(key)
+    })
+
+  if (cacheEnabled) scopeInflight.set(key, request)
+  return request
+}
+
 const startServer = async () => {
   // In production, prepare Next.js
   if (!dev && nextApp) {
@@ -419,7 +503,18 @@ const startServer = async () => {
       req.url = '/websocket' + (parsedUrl.search || '')
 
       try {
-        const result = await fetchCollectionScopeHeader(req, projectId, conversationId)
+        const result = await resolveCollectionScope(req, projectId, conversationId)
+        if (result.rejected) {
+          // Shed rather than queue: the pod protects the connections it already
+          // holds, and the client retries on a jittered backoff.
+          try {
+            socket.write(
+              'HTTP/1.1 503 Service Unavailable\r\nRetry-After: 5\r\nConnection: close\r\n\r\n'
+            )
+          } catch {}
+          socket.destroy()
+          return
+        }
         if (result.ok && result.header) {
           req.headers['x-grid-collection-scope'] = result.header
 

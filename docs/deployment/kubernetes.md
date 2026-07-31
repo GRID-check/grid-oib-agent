@@ -397,6 +397,47 @@ removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
 through SeaweedFS to make that admin flow fully replica-agnostic (scoped
 follow-up); high-traffic chat/retrieval does not need it.
 
+### 6.5 Frontend tier — what actually bounds it
+
+The `frontend` Deployment (Next.js UI + BFF + WS gateway, one Node process per
+pod) is stateless and HPA-scaled on CPU, 2→6 replicas. Two things determine
+whether that works, and neither is obvious from reading the Deployment:
+
+**1. `requests.cpu` is the HPA's divisor, not just a scheduling hint.**
+`averageUtilization` is a percentage of *requests*. With the old `100m` request,
+the 70% target meant **70 millicores — 7% of the pod's own 1-core limit**, which
+an SSR pod clears the instant it serves anything. The HPA had no proportional
+range: idle sat at `minReplicas`, any traffic pinned it to `maxReplicas`. The
+same number also told the scheduler each pod was tiny, so all six could land on
+one node — and `topologySpreadConstraints` is `ScheduleAnyway` (soft), so it
+would not have stopped that, defeating what the PDB and spread policy assume.
+
+Requests are now `500m` (trigger ≈ 350m, ~35% of the limit).
+`assertHpaTargetIsProportional` in `deploy/pulumi/src/config.ts` fails the
+preview if this ratio regresses. Tune from `kubectl top pods` — the invariant is
+`requests ≈ steady state`, `limits ≈ 2× requests`.
+
+**2. A rolling update is a self-inflicted reconnect herd.** Every WebSocket on a
+draining pod is severed, and each re-upgrade resolves the session, runs FGA
+checks and reads budgets (ADR-0020). `GRID_WS_UPGRADE_RATE_LIMIT` does not cover
+this: it is keyed on client IP, and the herd arrives from thousands of distinct
+IPs. Three bounds now apply — jittered client backoff
+(`frontends/ui/src/shared/utils/backoff.ts`), per-pod single-flight memoisation
+of the scope lookup (`GRID_WS_SCOPE_CACHE_TTL_MS`), and a global in-flight
+ceiling that sheds with `503` + `Retry-After` rather than queueing
+(`GRID_WS_UPGRADE_MAX_INFLIGHT`). Covered by
+`frontends/ui/tests/gateway/ws-upgrade-admission.test.ts`.
+
+**Known gap — CPU is the wrong signal for two of the three workloads.** Holding
+idle WebSockets is memory/fd/event-loop, not CPU; SSR awaiting the Python
+backend is I/O wait, not CPU. Only rendering is CPU-bound, so a pod can be at its
+connection or event-loop limit while the HPA sees a quiet CPU. Scaling on active
+WS connections and event-loop lag needs a `custom.metrics.k8s.io` provider, and
+this cluster has **only** `metrics.k8s.io` (metrics-server) — no Prometheus
+adapter, no KEDA. A `Pods`-type HPA metric would report `<unknown>` and never
+scale. Adding that pipeline is a deliberate infra decision, not a config tweak;
+see §10.
+
 ---
 
 ## 7. Security & hardening (what's wired)
@@ -790,3 +831,11 @@ required on the Python tiers.
   (§9) covers live traces only. Envoy Gateway, cert-manager, CNPG, and
   SeaweedFS all expose Prometheus metrics, so this is a natural next layer —
   and the provider's paid Metrics (Grafana) add-on is the quick option.
+- **Autoscaling the frontend on WS connections / event-loop lag (§6.5).**
+  Blocked on the item above, not on app code: an HPA can only consume
+  `custom.metrics.k8s.io` or `external.metrics.k8s.io`, and this cluster serves
+  only `metrics.k8s.io`. Once a metrics pipeline exists, the choice is
+  prometheus-adapter (map a scraped gauge to a `Pods` metric, keeps the HPA) or
+  KEDA (richer triggers, its own CRD and controller). The OTel collector already
+  carries a metrics pipeline (§9), so the app-side emission is the small half of
+  this; the cluster-side provider is the decision.

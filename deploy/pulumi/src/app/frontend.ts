@@ -1,6 +1,12 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, frontendImage, toResourceRequirements } from "../config";
+import {
+  GridConfig,
+  assertHpaTargetIsProportional,
+  assertMemoryFitsLimit,
+  frontendImage,
+  toResourceRequirements,
+} from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
@@ -39,6 +45,17 @@ export function installFrontend(
 ): Frontend {
   const labels = commonLabels("frontend");
   const shutdown = gracefulShutdown(ROLLOUT.frontend, "node");
+
+  // Fail the preview, not production: a CPU request far below steady-state
+  // usage turns the HPA below into an on/off switch to maxReplicas.
+  assertHpaTargetIsProportional(
+    "frontend",
+    cfg.frontend.resources,
+    cfg.frontend.hpaCpuTargetPercent,
+  );
+  // Memory is forwarded to the container verbatim, so an unparseable quantity or
+  // an inverted request/limit pair otherwise only fails at admission time.
+  assertMemoryFitsLimit("frontend", cfg.frontend.resources);
 
   const deployment = new k8s.apps.v1.Deployment(
     "frontend",

@@ -77,6 +77,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Bun is the INSTALLER and script runner; Node stays the runtime. Copied from
+# the official image rather than installed, so the layer is deterministic and
+# needs no network step.
+#
+# Do NOT switch the base to an `oven/bun` image and do NOT invoke bun with
+# `--bun`: Turbopack evaluates the Tailwind PostCSS loader in a spawned REAL
+# `node` process. A bun-only image has no `node` at all, and `--bun` exports
+# NODE_OPTIONS=--bun which that child then rejects. Either way `next build`
+# dies with a TurbopackInternalError.
+#
+# Tag choice: `-slim` (Debian bookworm, glibc — matches this node base), not
+# `-debian`. Bun does not publish a `-debian` alias for every release (1.3.11
+# has none), so that suffix breaks the build on an ordinary version bump.
+# Keep the version in lockstep with `.github/actions/setup-bun`.
+COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
+
 # =============================================================================
 # Stage 2: Dependencies
 # =============================================================================
@@ -84,9 +100,9 @@ FROM base AS deps
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json bun.lock ./
 
-RUN npm ci --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # =============================================================================
 # Stage 3: Builder
@@ -103,10 +119,10 @@ RUN rm -f .env .env.local .env.*.local .env.development .env.production 2>/dev/n
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN bun run build
 
 # Remove devDependencies — keeps dev-only packages out of the production image
-RUN npm ci --omit=dev --ignore-scripts
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 # =============================================================================
 # Stage 4: Production Runner
@@ -122,7 +138,7 @@ ENV HOSTNAME="0.0.0.0"
 
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/bun
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
