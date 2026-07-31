@@ -33,7 +33,14 @@ export interface InboxItemView {
   /** Resolved display name of whoever caused it; null for system items. */
   actorName: string | null
   actorUserId: string | null
-  /** Occurrences absorbed by grouping (≥ 1). */
+  /**
+   * Occurrences absorbed by grouping SINCE THE ROW WAS LAST READ.
+   *
+   * `0` on a row that has been read and has had nothing new since — reading
+   * resets it, so the counter always means "new", and a group of twenty that was
+   * read then received one more says "1", not "21". Anything treating this as
+   * `≥ 1` will be wrong for a read row.
+   */
   count: number
   /** Where clicking it should land. Null when the item is inert. */
   href: string | null

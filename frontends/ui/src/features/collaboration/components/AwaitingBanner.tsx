@@ -209,13 +209,19 @@ export function AwaitingBanner({
                     exit={{ opacity: 0, x: 8 }}
                     transition={springGentle}
                     data-testid="awaiting-person"
-                    // flex-wrap, because the release label carries the person's
-                    // name and `Button` refuses to wrap it: at phone width the
-                    // nowrap button won the width contest and truncated the name
-                    // column — the one thing the row exists to show — to zero.
+                    // The release label carries the person's name and `Button`
+                    // refuses to wrap it, so at phone width the nowrap button won
+                    // the width contest and truncated the name column — the one
+                    // thing the row exists to show — to zero.
+                    //
+                    // `flex-wrap` alone does NOT fix that: a `flex-1` child has a
+                    // flex-basis of 0, so its hypothetical main size is 0 and it
+                    // never contributes to the line-breaking decision. The button
+                    // still fits beside it at any width and still takes the lot.
+                    // The name column needs a real basis to break against.
                     className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-2.5 py-1.5"
                   >
-                    <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="flex min-w-0 grow basis-48 items-center gap-2">
                       <PersonAvatar person={request.person} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm">{request.person.name}</span>

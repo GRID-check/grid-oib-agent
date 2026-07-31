@@ -512,3 +512,28 @@ from evidence rather than from a re-audit.
 10. Global keyboard shortcuts fire through open modals and popovers.
 
 Full evidence, with file:line for every item, is in the session transcripts.
+
+### Corrections to this round's own work (same round, after review)
+
+Three defects in the fixes above, found by reviewing the diff rather than the
+original code. Recorded because a fix that does not work is worse than a known
+bug — it closes the ticket.
+
+- **The awaiting row's mobile fix did not work.** `flex-wrap` was added to let the
+  release button drop below the name, but the name column was `flex-1`, whose
+  flex-basis is `0` — so its hypothetical main size is 0, it never contributes to
+  the line-breaking decision, and the `whitespace-nowrap` button still took the
+  full width at any viewport. The committed mobile screenshot still showed the
+  bug afterwards. The column now has a real basis to break against.
+- **Resetting `count` on read made two schema comments false.** Both
+  `lib/inbox/types.ts` and `lib/db/schema/inbox.ts` documented the counter as
+  `≥ 1`; it is now `0` on a row that has been read with nothing new since. Both
+  comments corrected. **Follow-up:** a read row of a counted type still renders
+  through `titleOne`, so it reads "1 new message" where it should say nothing
+  about a count at all. That needs a copy decision, not a code change.
+- **The newest-N message window needed a tiebreaker.** Ordering by `created_at`
+  alone leaves two messages written in the same instant in an undefined order —
+  spec CC-11 forbids exactly that — and it made the window boundary
+  non-deterministic, which the previous oldest-N read had not exposed. `id` is
+  now the tiebreak.
+

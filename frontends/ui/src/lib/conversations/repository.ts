@@ -309,7 +309,13 @@ export async function listMessagesForConversation(
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
+    // `id` breaks ties. `created_at` alone leaves the order of two messages
+    // written in the same instant UNDEFINED, and free to differ between two
+    // executions of this query — which is exactly what spec CC-11 forbids ("two
+    // clients MUST NOT show the same two messages in different orders"). It also
+    // makes the window above deterministic: without it a tie straddling the
+    // limit could include or drop either message arbitrarily.
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(limit)
   return newestFirst.reverse()
 }

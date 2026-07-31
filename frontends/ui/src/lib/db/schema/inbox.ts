@@ -75,7 +75,10 @@ export const inboxItems = pgTable(
      * changed kind, existing rows would need a backfill (accepted, ADR-0035).
      */
     actionable: boolean('actionable').notNull(),
-    /** How many occurrences this row has absorbed (grouping, ≥ 1). */
+    /**
+     * How many occurrences this row has absorbed since it was last read.
+     * Reset to `0` by the mark-read paths, so it always counts what is NEW.
+     */
     count: integer('count').notNull().default(1),
     /** Type-specific display data. Never authoritative, never a source of access. */
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
