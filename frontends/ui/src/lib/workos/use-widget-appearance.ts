@@ -7,7 +7,36 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { WorkOsWidgetsProps } from '@workos-inc/widgets'
 import { useLayoutStore } from '@/features/layout/store'
+
+/**
+ * The one theme every embedded WorkOS widget mounts with. It was previously
+ * written out at each `<WorkOsWidgets>` call site, which is how the four of them
+ * came to be maintained as four separate objects that happened to agree.
+ *
+ * Two settings make an embedded widget look like part of the page rather than
+ * a hole punched in it, and both matter most in dark mode:
+ *
+ * `hasBackground: false` stops Radix painting its own theme background (its
+ * `--gray-1`) on the widget root. Radix forces that background on for any Theme
+ * given an explicit appearance — which ours always is, since we drive it from
+ * Grid's theme — and its dark `gray-1` sits BELOW our `--card`, so every widget
+ * rendered as a near-black rectangle inside an otherwise raised card. Off, our
+ * own card surface shows through and the widget sits on it.
+ *
+ * `grayColor: 'sand'` picks Radix's warm gray over its default cold neutral, so
+ * the widget's remaining surfaces, borders and muted text land in the same hue
+ * family as the warm charcoal (and warm paper) around them.
+ *
+ * `panelBackground` is deliberately left at Radix's `translucent` default: with
+ * no theme background of its own, a translucent panel composites against our
+ * card and reads as a quiet inset, whereas `solid` would re-introduce the same
+ * opaque `gray-1` block one level down.
+ */
+export function widgetTheme(appearance: 'light' | 'dark'): WorkOsWidgetsProps['theme'] {
+  return { appearance, hasBackground: false, grayColor: 'sand', radius: 'medium', scaling: '100%' }
+}
 
 export function useResolvedAppearance(): 'light' | 'dark' {
   const theme = useLayoutStore((s) => s.theme)

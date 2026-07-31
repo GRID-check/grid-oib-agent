@@ -226,8 +226,13 @@ body {
   background-color: var(--input-background);
 }
 
+/* The unchecked checkbox fill in dark mode. It is the same recessed well every
+   other field uses, so it resolves to the token rather than re-deriving it —
+   the inlined `color-mix(--input 30%, transparent)` this replaces mixed an
+   ALREADY transparent token down to ~4% paper alpha, leaving the box invisible
+   against the card until it was checked. */
 @utility bg-input-dark {
-  background-color: color-mix(in oklch, var(--input) 30%, transparent);
+  background-color: var(--input-background);
 }
 
 /* Opaque variant for chat bubbles - ensures full opacity to prevent bleed-through in light theme */
@@ -468,12 +473,15 @@ body {
      node scripts/validate_palette.js "<the eight light hexes>" \
        --mode light --surface "#ffffff"          → ALL CHECKS PASS
      node scripts/validate_palette.js "<the eight dark hexes>"  \
-       --mode dark  --surface "#232220"          → ALL CHECKS PASS
+       --mode dark  --surface "#22211d"          → ALL CHECKS PASS
 
    Surfaces are this app's real card surfaces (`--card`), not the validator's
    generic defaults — contrast is only meaningful against the surface the chart
    actually renders on. The dark column is SELECTED for the dark surface (same
    eight hues, re-stepped and re-validated), never an automatic flip of light.
+   The dark surface hex tracks `--card` in tokens.css: when the dark ramp was
+   re-tuned it moved #232220 → #22211d, which lifts every dark series by roughly
+   +0.06:1 (lowest is green at 3.26:1), so the dark column still passes as-is.
 
    Light mode carries a contrast WARN: aqua (2.82:1), yellow (2.17:1) and
    magenta (2.69:1) sit below 3:1 on white. That is not dismissable — the card

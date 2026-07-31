@@ -57,7 +57,7 @@ import { SectionCard } from '@/features/platform/components/section-card'
 import { findRoleSpec } from '@/lib/authz/catalog'
 import type { OrganizationMemberWithRole } from '@/lib/organizations/service'
 import { makeWidgetTokenFetcher } from '@/lib/workos/widget-token'
-import { useResolvedAppearance } from '@/lib/workos/use-widget-appearance'
+import { useResolvedAppearance, widgetTheme } from '@/lib/workos/use-widget-appearance'
 import { useTranslations } from '@/i18n'
 
 export interface PeopleDirectoryProps {
@@ -142,7 +142,7 @@ export function PeopleDirectory({
           uses, so a caller without `widgets:users-table:manage` gets a refusal
           from the token route rather than a widget that half-works. */}
       {showManagement ? (
-        <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
+        <WorkOsWidgets theme={widgetTheme(appearance)}>
           <Card>
             <CardHeader>
               <CardTitle>{t('members.title')}</CardTitle>

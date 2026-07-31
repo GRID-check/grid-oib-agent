@@ -39,7 +39,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { makeWidgetTokenFetcher } from '@/lib/workos/widget-token'
-import { useResolvedAppearance } from '@/lib/workos/use-widget-appearance'
+import { useResolvedAppearance, widgetTheme } from '@/lib/workos/use-widget-appearance'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatEur as eur } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -405,7 +405,7 @@ export const PlatformOverview: FC = () => {
             />
           }
         >
-          <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
+          <WorkOsWidgets theme={widgetTheme(appearance)}>
             <UsersManagement authToken={makeWidgetTokenFetcher(['widgets:users-table:manage'], 'platform')} />
           </WorkOsWidgets>
         </SectionCard>

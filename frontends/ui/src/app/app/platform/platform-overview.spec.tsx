@@ -24,6 +24,9 @@ vi.mock('@/lib/workos/widget-token', () => ({
 }))
 vi.mock('@/lib/workos/use-widget-appearance', () => ({
   useResolvedAppearance: () => 'light',
+  // The component builds the widget's Radix theme from this; a module mock that
+  // omits it makes the call site throw rather than render.
+  widgetTheme: (appearance: 'light' | 'dark') => ({ appearance }),
 }))
 
 const org = (overrides: Partial<Organization> & { id: string; name: string }): Organization => ({

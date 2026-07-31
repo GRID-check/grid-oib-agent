@@ -21,6 +21,41 @@ Use shadcn semantic classes: `bg-background/card/muted/accent`, `text-foreground
 
 **Surfaces (light):** app bg `--background` ≈ #f6f6f4 warm paper · sidebar/rails `--background-color-surface-sunken` ≈ #f1f1ef · cards white · subtle input surface `--input-background` ≈ #fafaf8 · chip/quiet fill `--secondary`/`--muted` ≈ #f2f2f0 · inset/hover `--accent` ≈ #ececea. Dark mode is the derived warm-charcoal equivalent (same warm hues, no cold blue-grays).
 
+**Surfaces (dark):** sidebar/rails #100f0d · app bg `--background` #171613 · input well `--input-background` #1c1b18 · cards `--card` #22211d · popovers #2a2825 · chip/quiet fill #2e2c28 · inset/hover `--accent` #373531.
+
+### Dark mode is derived, not mirrored
+
+Dark builds depth **differently on purpose**, and this is the one place the two
+themes are not the same system with swapped values. Copying light's ratios into
+dark is what made the first pass read as mud, so before re-tuning any dark
+surface, know why it is shaped this way:
+
+- **Elevation is carried by lightness, not by shadow.** On paper a white card
+  separates from the background mostly through its drop shadow — dark-on-light,
+  high contrast — and the surface step itself only does ~0.03L of work. On
+  charcoal that shadow contributes nothing (black on near-black is invisible),
+  so the step has to carry the hierarchy alone. Dark therefore uses **wider
+  steps** (bg→card is ~0.048L) and steps again for every plane above it.
+- **Raised planes get a lit top edge.** `--elevation-sm/md/lg` in dark open with
+  an `inset 0 1px 0` paper highlight: light comes from above, so a raised
+  surface catches it on its top edge. This is what actually reads as "raised" in
+  a dark UI, and it works where a drop shadow cannot. `--elevation-xs` stays
+  shadow-only — on a chip or button that highlight reads as a seam.
+- **Shadows anchor rather than lift.** They are deeper and tighter than light's,
+  and their job is separating a floating plane from what it covers (dialogs,
+  popovers), not creating the elevation itself.
+- **Inputs are recessed, cards are raised.** `--input-background` sits one step
+  *below* `--card`: a field is cut into its surface, not floated off it.
+- **Surface direction is preserved from light:** sunken < background < card <
+  popover < chip < hover.
+
+Two failure modes this replaced, worth recognising if they reappear: a token
+defined as a `color-mix()` of an **already transparent** token (that is how
+`--input-background` became ~4% paper alpha and every field in dark mode went
+invisible), and a scrim built from `--background` at near-full opacity (which
+erased the page behind a modal instead of dimming it, so the dialog lost any
+sense of sitting *on* something).
+
 **Ink ramp (light):** #1f2023 (foreground/action) → #55565a secondary → #6f706c muted → #8a8a86 placeholder → #b3b3af ghost. Borders are **alpha ink hairlines** (`rgba(28,30,33,…)` equivalents at .08 base / .12 input / .16 strong / .22–.32 selected), so they composite on any surface. Focus ring is ink-based (`--ring`), never blue.
 
 **Provenance signal system** — each signal has a base color, a `-tint` surface (for chips/rows on cards), and a `-text` variant (AA-readable on the tint), both modes:
