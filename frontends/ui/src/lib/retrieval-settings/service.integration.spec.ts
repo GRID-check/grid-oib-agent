@@ -61,6 +61,44 @@ describe.skipIf(!url)('platform retrieval settings against live Postgres', () =>
     expect(await getPlatformRetrievalSettings()).toEqual({})
   })
 
+  it('keeps the note and author of a key the save did not change', async () => {
+    const { listPlatformRetrievalSettings, savePlatformRetrievalSettings } = await import('./service')
+
+    await savePlatformRetrievalSettings({
+      settings: { 'knowledge.top_k': 12, 'web.max_results': 7 },
+      note: 'wider net',
+      actorUserId: 'user_first',
+      actorEmail: 'first@grid.test',
+    })
+
+    // The form resends every pinned key; only web.max_results actually moves.
+    await savePlatformRetrievalSettings({
+      settings: { 'knowledge.top_k': 12, 'web.max_results': 8 },
+      note: 'more web hits',
+      actorUserId: 'user_second',
+      actorEmail: 'second@grid.test',
+    })
+
+    const view = await listPlatformRetrievalSettings()
+    expect(view.find((row) => row.key === 'knowledge.top_k')).toMatchObject({
+      value: 12,
+      note: 'wider net',
+      updatedByEmail: 'first@grid.test',
+    })
+    expect(view.find((row) => row.key === 'web.max_results')).toMatchObject({
+      value: 8,
+      note: 'more web hits',
+      updatedByEmail: 'second@grid.test',
+    })
+
+    await savePlatformRetrievalSettings({
+      settings: {},
+      note: null,
+      actorUserId: 'user_second',
+      actorEmail: 'second@grid.test',
+    })
+  })
+
   it('rejects values outside the catalog before touching the database', async () => {
     const { savePlatformRetrievalSettings } = await import('./service')
     const actor = { actorUserId: 'user_test', actorEmail: 'owner@grid.test' }
