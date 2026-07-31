@@ -82,6 +82,9 @@ const ACCESS_RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
  */
 const TURN_BANNER_MAX_AGE_MS = 5 * 60_000
 
+/** How often the silence above is checked. Coarse, because the deadline is. */
+const TURN_SILENCE_POLL_MS = 30_000
+
 /** Debounce on the read receipt, so a burst of arrivals is one POST, not ten. */
 const MARK_READ_DEBOUNCE_MS = 1_200
 /** Retry spacing and budget for a failed read receipt, so a dropped POST does
@@ -275,8 +278,6 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const [accessLost, setAccessLost] = useState(false)
   const [participants, setParticipants] = useState<DirectoryPerson[]>([])
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
-  /** Bumped by {@link noteTurnActivity}; only its identity matters. */
-  const [turnHeartbeat, setTurnHeartbeat] = useState(0)
   /**
    * userId → the moment their typing claim stops being believable. A map rather
    * than a list because a refresh from the same person must move their expiry
@@ -339,6 +340,12 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const reportedReadIdRef = useRef<string | null>(null)
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const turnStartedAtRef = useRef<number>(0)
+  /**
+   * When the turn last showed a sign of life. A REF, not state, on purpose: this
+   * is fed by every spectated frame, and bumping state per frame re-rendered the
+   * hook's owner — the whole chat column — a second time per token.
+   */
+  const lastTurnActivityRef = useRef<number>(0)
 
   const base = conversationId ? `/api/conversations/${encodeURIComponent(conversationId)}` : null
 
@@ -736,14 +743,18 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   // poll that drives `refresh` does not run while the live channel is healthy,
   // so a dropped `ended` event on a good connection would otherwise leave the
   // banner up for the rest of the session.
-  // `turnHeartbeat` is in the deps so every piece of evidence that the turn is
-  // alive restarts the clock — that is what makes this a silence timeout rather
-  // than a turn-length one.
+  // A polled check against the last sign of life, rather than a timer restarted
+  // per frame: that is what makes this a SILENCE timeout instead of a
+  // turn-length one, and it costs one cheap interval instead of a re-render per
+  // token. The poll is coarse because the deadline is coarse.
   useEffect(() => {
     if (!turnInFlight) return
-    const timer = setTimeout(() => setTurnInFlight(null), TURN_BANNER_MAX_AGE_MS)
-    return () => clearTimeout(timer)
-  }, [turnInFlight, turnHeartbeat])
+    const id = setInterval(() => {
+      const lastSign = Math.max(lastTurnActivityRef.current, turnStartedAtRef.current)
+      if (lastSign > 0 && Date.now() - lastSign > TURN_BANNER_MAX_AGE_MS) setTurnInFlight(null)
+    }, TURN_SILENCE_POLL_MS)
+    return () => clearInterval(id)
+  }, [turnInFlight])
 
   // Expire typing claims. Runs only while somebody is claimed to be typing, so a
   // quiet thread costs nothing, and it is the ONLY thing that clears the list
@@ -902,7 +913,9 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    * making progress — there is no "is a turn running" endpoint — so it is what
    * feeds this.
    */
-  const noteTurnActivity = useCallback(() => setTurnHeartbeat((beat) => beat + 1), [])
+  const noteTurnActivity = useCallback(() => {
+    lastTurnActivityRef.current = Date.now()
+  }, [])
 
   /**
    * The reader's own role, same channel and same reason: a viewer's send is
