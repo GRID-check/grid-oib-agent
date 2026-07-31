@@ -49,7 +49,11 @@ vi.mock('../lib/event-hub', () => ({
 }))
 
 import { useChatStore } from '@/features/chat/store'
-import { getThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
+import {
+  bumpThreadRevision,
+  getThreadSharing,
+  resetThreadSharing,
+} from '@/shared/collaboration/thread-sharing'
 import { useSharedThread } from './use-shared-thread'
 
 const CONVERSATION_ID = 's_conv_shared'
@@ -560,6 +564,46 @@ describe('useSharedThread — reconciliation', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  test('re-reads the access facts when the thread is declared stale', async () => {
+    // The first `@` in a private thread makes it shared server-side. This hook
+    // only reads sharedness on a conversation change, and every live
+    // subscription that would carry the news is gated on `shared` — the very
+    // flag that is now wrong. Without a nudge the asker sent their mention and
+    // the product did nothing: no waiting banner, no explanation, no way back
+    // short of a reload.
+    let shared = false
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `/api/conversations/${CONVERSATION_ID}`) {
+        return Response.json({
+          id: CONVERSATION_ID,
+          title: 'Brandschutz',
+          shared,
+          myRole: shared ? 'owner' : null,
+          visibility: shared ? 'project' : 'private',
+          myReadState: null,
+        })
+      }
+      if (url === `/api/conversations/${CONVERSATION_ID}/messages`) return Response.json([])
+      if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.shared).toBe(false)
+
+    // The mention lands: the server's answer has moved, and the composer says so.
+    shared = true
+    await act(async () => {
+      bumpThreadRevision(CONVERSATION_ID)
+    })
+
+    await waitFor(() => expect(result.current.shared).toBe(true))
   })
 
   test('access revoked between the access read and the history read is still flagged', async () => {

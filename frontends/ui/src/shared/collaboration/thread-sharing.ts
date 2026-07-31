@@ -56,6 +56,20 @@ const turnActors = new Map<string, string>()
  * this reader, or not yet known" — both of which keep the composer enabled.
  */
 const threadRoles = new Map<string, ResourceRole>()
+/**
+ * A bump counter per conversation, meaning "the server knows something about
+ * this thread that you do not".
+ *
+ * The case it exists for: the FIRST `@` in a private thread. Sending it makes
+ * the thread shared server-side — a grant is written, a mention request is
+ * opened, the agent stands down — but the seam that reads sharedness only reads
+ * it when the conversation changes, and every live subscription it would
+ * otherwise learn from is gated on the very flag that is now stale. So the asker
+ * saw their message land and then nothing at all: no waiting banner, no
+ * explanation of the silence, no way back except reloading the page. The
+ * composer knows the moment it happens; this is how it says so.
+ */
+const revisions = new Map<string, number>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -104,6 +118,16 @@ export function publishThreadRole(conversationId: string, role: ResourceRole | n
   emit()
 }
 
+/**
+ * Tell the ADR-0033 seam that this thread's server-side facts have moved. Cheap
+ * and idempotent-ish: the seam re-reads once per bump, and a re-read that finds
+ * nothing changed writes no state.
+ */
+export function bumpThreadRevision(conversationId: string): void {
+  revisions.set(conversationId, (revisions.get(conversationId) ?? 0) + 1)
+  emit()
+}
+
 /** Imperative read, for code that is not in a render (effects, callbacks). */
 export function getThreadSharing(conversationId: string | null | undefined): ThreadSharing {
   if (!conversationId) return 'unknown'
@@ -115,11 +139,31 @@ export function getThreadSharing(conversationId: string | null | undefined): Thr
  * case's sharedness into the next.
  */
 export function resetThreadSharing(): void {
-  if (facts.size === 0 && turnActors.size === 0 && threadRoles.size === 0) return
+  if (
+    facts.size === 0 &&
+    turnActors.size === 0 &&
+    threadRoles.size === 0 &&
+    revisions.size === 0
+  ) {
+    return
+  }
   facts.clear()
   turnActors.clear()
   threadRoles.clear()
+  revisions.clear()
   emit()
+}
+
+/**
+ * How many times this thread has been declared stale. The seam depends on it, so
+ * a bump re-runs its read; the number itself means nothing.
+ */
+export function useThreadRevision(conversationId: string | null | undefined): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => (conversationId ? (revisions.get(conversationId) ?? 0) : 0),
+    () => 0
+  )
 }
 
 /**

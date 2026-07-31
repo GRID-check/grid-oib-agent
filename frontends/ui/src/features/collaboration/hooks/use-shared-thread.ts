@@ -48,7 +48,12 @@ import type { ChatMessage } from '@/features/chat/types'
 import type { MessagesSlice } from '@/features/chat/stores/messages-store'
 import { mapServerMessagesToChatMessages } from '@/features/chat/lib/server-message-mapper'
 import type { ConversationEngagement, Message } from '@/lib/db/schema'
-import { publishThreadRole, publishThreadSharing, publishTurnActor } from '@/shared/collaboration/thread-sharing'
+import {
+  publishThreadRole,
+  publishThreadSharing,
+  publishTurnActor,
+  useThreadRevision,
+} from '@/shared/collaboration/thread-sharing'
 import { useLiveEvents } from './use-live-events'
 
 /**
@@ -593,6 +598,28 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     // are in.
     return cancelAccessRetry
   }, [loadAndRevalidate, cancelAccessRetry])
+
+  /*
+    Re-read when somebody tells us the server's answer has moved.
+
+    The case: the first `@` in a PRIVATE thread. That send makes the thread
+    shared server-side, but this hook only reads sharedness on a conversation
+    change — and every live subscription that would otherwise carry the news is
+    gated on `shared`, which is exactly the flag that is now wrong. So the asker
+    watched their mention land and then saw nothing: no waiting banner, no
+    explanation for the agent's silence, no route back short of a reload.
+
+    Not `replace`: the messages are already right, it is the access facts that
+    are stale, and replacing would flash a skeleton over a thread the reader is
+    looking at. Skipped on the initial value so this never doubles the mount read.
+  */
+  const revision = useThreadRevision(conversationId)
+  const lastRevisionRef = useRef(revision)
+  useEffect(() => {
+    if (revision === lastRevisionRef.current) return
+    lastRevisionRef.current = revision
+    void loadAndRevalidate(false)
+  }, [revision, loadAndRevalidate])
 
   const onEvent = useCallback(
     (event: CollaborationEvent) => {

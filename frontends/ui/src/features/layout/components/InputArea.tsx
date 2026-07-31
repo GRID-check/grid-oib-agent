@@ -79,7 +79,12 @@ import {
   type MentionPickerHandle,
 } from '@/features/collaboration/components/MentionPicker'
 import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
-import { useThreadRole, useThreadSharing, useTurnActorName } from '@/shared/collaboration/thread-sharing'
+import {
+  bumpThreadRevision,
+  useThreadRole,
+  useThreadSharing,
+  useTurnActorName,
+} from '@/shared/collaboration/thread-sharing'
 import { useTypingBroadcast } from '@/features/collaboration/hooks/use-typing-broadcast'
 import {
   findMentionQuery,
@@ -1059,6 +1064,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // draft so nothing the user typed is lost.
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
       setMentions([])
+      /*
+        A mention can make a PRIVATE thread shared — the server writes the grant
+        and opens the request as part of storing the message. The seam that reads
+        sharedness only reads it when the conversation changes, and every live
+        subscription that would carry the news is gated on the very flag that is
+        now stale, so without this the asker sent their first `@` and the product
+        did nothing at all: no waiting banner, no explanation for Piloti's
+        silence, no way back short of reloading the page.
+      */
+      if (sentMentions.length > 0 && submittingSessionId) {
+        bumpThreadRevision(submittingSessionId)
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
       // Restore the message so the user doesn't lose what they typed. The
