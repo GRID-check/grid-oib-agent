@@ -479,6 +479,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="shared-thread-preview"]',
   },
   {
+    id: 'shared-thread-live',
+    mobile: true,
+    path: '/dev/shared-thread?variant=live',
+    description:
+      "The same shared thread with liveness on (ADR-0039). The observer WATCHES the colleague's turn — the Herleitung building and the answer streaming in — instead of a banner that says only that something is happening; and Anna is composing alongside it. The two live signals stay visually distinct on purpose: the agent keeps the Piloti glyph and the shimmering label, a person gets their avatar and three bouncing dots, so a reader can tell a machine working from a colleague thinking without reading a word.",
+    waitFor: '[data-testid="spectated-turn"]',
+  },
+  {
     id: 'chat-toolbar',
     mobile: true,
     path: '/dev/chat-toolbar',

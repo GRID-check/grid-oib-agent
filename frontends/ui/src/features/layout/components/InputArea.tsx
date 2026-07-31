@@ -79,7 +79,8 @@ import {
   type MentionPickerHandle,
 } from '@/features/collaboration/components/MentionPicker'
 import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
-import { useThreadRole, useTurnActorName } from '@/shared/collaboration/thread-sharing'
+import { useThreadRole, useThreadSharing, useTurnActorName } from '@/shared/collaboration/thread-sharing'
+import { useTypingBroadcast } from '@/features/collaboration/hooks/use-typing-broadcast'
 import {
   findMentionQuery,
   humanMentions,
@@ -724,6 +725,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const myThreadRole = useThreadRole(canCollaborate ? currentSessionId : null)
   const isViewerInSharedThread = myThreadRole === 'viewer'
 
+  // Composing presence. Only where somebody could actually see it: a shared
+  // thread, collaboration on, and a role that may contribute — a viewer's draft
+  // will never become a message, so announcing it would be a claim about
+  // something that cannot happen. The server enforces all three regardless; this
+  // is what keeps a private thread from issuing the request at all (spec NF-8).
+  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
+  const { onTyping, onStoppedTyping } = useTypingBroadcast({
+    conversationId: currentSessionId ?? null,
+    enabled: canCollaborate && threadSharing === 'shared' && !isViewerInSharedThread,
+  })
+
   const isDisabledByAuth = !isAuthenticated
   const disabled =
     isDisabledByAuth ||
@@ -858,8 +870,22 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // survives navigating away/back and a reload.
       if (sessionId) setComposerDraft(sessionId, value)
       syncMentionQuery(value, caret)
+      // Tell the thread. Throttled inside the hook, so this is a comparison on
+      // most keystrokes; emptying the box withdraws the claim rather than letting
+      // it expire, because "cleared the draft" is exactly when a colleague should
+      // stop expecting a message.
+      if (value.trim()) onTyping()
+      else onStoppedTyping()
     },
-    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
+    [
+      isDisabledByAuth,
+      currentConversation,
+      ensureSession,
+      setComposerDraft,
+      syncMentionQuery,
+      onTyping,
+      onStoppedTyping,
+    ]
   )
 
   /**
@@ -960,6 +986,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // HITL responses always go through immediately — no file-pending check
     if (isResponseMode && respondToInteraction) {
       setMessage('')
+      onStoppedTyping()
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
       respondToInteraction(currentMessage)
       return
@@ -976,6 +1003,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // (see title below) but the user is always free to send.
     setMessage('')
     setMentionQuery(null)
+    // The draft became a message; the claim has served its purpose and the
+    // message itself is the better signal from here on.
+    onStoppedTyping()
     try {
       // sendMessage reports immediate failures (dead socket, no conversation)
       // via a false return rather than throwing. A message WITH mentions resolves
@@ -1032,6 +1062,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     threadAwaitsHuman,
     currentConversation,
     clearComposerDraft,
+    onStoppedTyping,
     t,
     tCollab,
   ])

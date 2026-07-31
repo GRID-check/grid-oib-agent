@@ -80,6 +80,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0036](0036-when-the-agent-answers-in-a-shared-thread.md) | When the agent answers in a shared thread (engagement modes, not judgement) | Accepted |
 | [0037](0037-answer-provenance-persists-on-the-message.md) | An answer's provenance — and its open questions — persist on the message | Accepted |
 | [0038](0038-one-authorization-catalog-and-decision-point.md) | One authorization catalog, one decision point, and a coverage gate | Accepted |
+| [0039](0039-live-shared-turns-and-composing-presence.md) | Live shared turns and composing presence | Accepted |
 
 > Note: two ADRs were independently numbered 0027. Both are Accepted and in
 > effect; the collision is recorded rather than renumbered so existing links

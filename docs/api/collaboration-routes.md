@@ -237,7 +237,8 @@ One connection per browser tab, carrying that **user's** events only.
 
 - Frames are `data: <EventEnvelope JSON>`; see `lib/events/types.ts` for the
   `CollaborationEvent` union (`inbox.changed`, `conversation.message`,
-  `conversation.turn`, `conversation.awaiting`, `resource.access.changed`).
+  `conversation.turn`, `conversation.awaiting`, `conversation.typing`,
+  `resource.access.changed`).
 - Sends `retry: 5000` and a `: connected` comment immediately, then a `: ping`
   heartbeat every 25s so proxies do not reap the connection.
 - Headers include `X-Accel-Buffering: no` and `Cache-Control: no-cache,
@@ -250,14 +251,74 @@ Three properties worth knowing before consuming it:
    Browsers never subscribe to a resource channel and filter locally, so a
    non-participant cannot receive a thread's content.
 2. **Every event is a hint, never authoritative content.** Consumers respond by
-   re-reading from the server. The only shortcut taken anywhere is the badge count
-   on `inbox.changed`, and a negative value there explicitly means "unknown, go
-   and read".
+   re-reading from the server. Two documented exceptions, both bounded by an
+   expiry rather than by a fetch: the badge count on `inbox.changed` (a negative
+   value means "unknown, go and read"), and `conversation.typing`, which is
+   ephemeral presence with no endpoint behind it — it carries a `ttlMs` and a
+   receiver stops believing it when that elapses.
 3. **There is no resume / `Last-Event-ID`.** Postgres is the record; reconnecting
    means "fetch again" (spec RT-4). Correctness therefore never depends on an
    event having arrived — the client also refreshes on window focus and polls
    slowly while disconnected, and the whole feature works with the cache tier
    absent (spec RT-3).
+
+### `POST /api/conversations/{id}/typing`
+
+Broadcast that the caller is composing. Requires **`collaborator`** — a viewer's
+draft can never become a message, so announcing it would be a claim about
+something that cannot happen (and would leak that a read-only colleague is
+drafting).
+
+Body `{ typing?: boolean }`; absent means `true`, so the common case is the
+smallest possible request. Always `204` — there is no state to return, nothing is
+persisted, and there is deliberately **no matching `GET`**: the fact is true for a
+few seconds and worthless afterwards, so the only way to learn it is to be
+connected when it happens.
+
+Publishes `conversation.typing` to every participant **except the caller**, whose
+id is taken from the session and never from the body. A private conversation with
+no grants publishes nothing at all (spec NF-8). The client republishes every
+`TYPING_REFRESH_MS` (3s) while typing continues and posts `{ typing: false }` when
+the draft is sent, cleared, or abandoned; the server-side claim expires after
+`TYPING_TTL_MS` (6s) regardless, so a closed tab heals itself
+(`lib/conversations/presence-contract.ts` owns both numbers).
+
+### `GET /api/conversations/{id}/live` (Server-Sent Events)
+
+Watch a turn as it happens (ADR-0039). Relays the agent's outbound WebSocket
+frames for **one** conversation, so an observer sees the reasoning being done and
+the answer being written rather than a spinner followed by a finished block of
+text. Requires `viewer`.
+
+- Frames are `data: {"kind":"frame","seq":N,"payload":<NAT frame>}`. The payload is
+  the raw NAT WebSocket frame (`system_response_message`,
+  `system_intermediate_message`, `system_interaction_message`, `error_message`) —
+  the same bytes the asker's own socket carries, documented in
+  [`websocket-protocol.md`](websocket-protocol.md).
+- `{"kind":"unsupported"}` followed by a close means there is no cross-process
+  frame channel (no `REDIS_URL`, or Dragonfly unreachable). The client falls back
+  to the static turn banner and does **not** reconnect.
+- `{"kind":"revoked"}` followed by a close means access went away while the stream
+  was open.
+- Sends `retry: 2000` (shorter than `/api/stream`: five seconds of a ninety-second
+  turn is a visible hole in the answer) and a `: ping` heartbeat every 25s.
+
+Three things to know before consuming it:
+
+1. **Authorization is at subscribe time, and re-checked.** Unlike `/api/stream`,
+   this attaches to a per-RESOURCE channel (`conv:<id>:events` — the Python tier's
+   conversation bus, ADR-0028), so the publish-time argument does not apply. Access
+   is proven before the subscription opens and re-proven every
+   `LIVE_REAUTHORIZE_MS` (30s); a revoked grant closes the stream.
+2. **Nothing here is authoritative.** The finished answer is persisted and arrives
+   over the ordinary `conversation.message` → refetch path whether or not a single
+   frame was delivered (spec RT-4). That is what lets the whole route degrade to
+   one `unsupported` event.
+3. **No replay.** A subscriber sees frames from the moment it attaches. The bus's
+   replay stream is per conversation rather than per turn, so buffering would mean
+   guessing which frames belong to the turn running *now* — and guessing wrong
+   shows a colleague a stale answer under a live banner. Opening a thread mid-turn
+   therefore loses the tokens already spoken, and nothing else.
 
 ### `POST /api/internal/collaboration/prune`
 

@@ -74,6 +74,12 @@ Source: `frontends/ui/src/app/api/generate/route.ts`, `frontends/ui/src/app/api/
 | `POST` | `/api/conversations/{id}/messages` | Required | Create one or more messages. Accepts a single message or an array. | `{ id, role, content }` or `[{ id, role, content }, ...]` | `[{ id, role, content, ... }]` (201) |
 | `PATCH` | `/api/conversations/{id}/messages/{messageId}` | Required | Record the user's answers to that answer's interactive cards, merged **per card key** into `metadata.cardInteractions` (ADR-0030), so a settled `project_profile_patch` / `memory_proposal` cannot be re-offered after a server rehydrate. `decision` is validated against a closed union, `decidedAt` must be a UTC ISO-8601 instant (`…Z`; offset forms are rejected), keys are ≤64 chars and ≤64 entries; a non-uuid `messageId` is a 400. | `{ cardInteractions: { "<type>-<index>": { decision, decidedAt } } }` | `{ id, role, content, metadata, ... }` |
 
+Two further per-conversation routes belong to the collaboration feature and are
+documented with the rest of it in
+[`collaboration-routes.md`](collaboration-routes.md): `POST /api/conversations/{id}/typing`
+(composing presence) and `GET /api/conversations/{id}/live` (watch a turn stream in).
+Both are gated on the collaboration flag.
+
 All conversation routes access the PostgreSQL database directly (not proxied to Python). They enforce org-level scoping by filtering on `conversations.organizationId`. `messages` has no organization column, so message routes resolve the conversation org-scoped first and 404 on a mismatch.
 
 Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app/api/conversations/[id]/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/[messageId]/route.ts`

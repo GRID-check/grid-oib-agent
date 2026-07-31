@@ -87,6 +87,16 @@ export interface SharedThreadTurn {
   actorUserId: string | null
 }
 
+/**
+ * How often the typist list is swept for expired claims.
+ *
+ * Presence has no fetch behind it (see `@/lib/conversations/presence`), so a
+ * `typing: false` that never arrives — the tab was closed mid-word, the channel
+ * dropped — is healed by the claim aging out rather than by a re-read. The sweep
+ * is cheap and only runs while somebody is actually typing.
+ */
+const TYPING_SWEEP_MS = 1_000
+
 /** A message that arrived from someone else, for the polite announcement (CC-9). */
 export interface SharedThreadArrival {
   messageId: string
@@ -130,6 +140,13 @@ export interface UseSharedThreadResult {
   accessLost: boolean
   /** Non-null while the agent is answering somebody's question. */
   turnInFlight: SharedThreadTurn | null
+  /**
+   * Colleagues composing right now, resolved to directory entries so the caller
+   * can name them. Never includes the reader (the publisher drops its own echo),
+   * and empties itself when the claims expire — a chat where somebody is
+   * permanently "typing…" is worse than one with no indicator at all.
+   */
+  typists: DirectoryPerson[]
   /** Everyone with access, for author names/avatars and the participant strip. */
   participants: DirectoryPerson[]
   /** Resolve one author's directory entry (name + avatar) by user id. */
@@ -168,6 +185,7 @@ const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf' | 'setEngagement
   connected: false,
   accessLost: false,
   turnInFlight: null,
+  typists: [],
   participants: [],
   unreadAfterMessageId: null,
   lastArrival: null,
@@ -219,6 +237,12 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const [accessLost, setAccessLost] = useState(false)
   const [participants, setParticipants] = useState<DirectoryPerson[]>([])
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
+  /**
+   * userId → the moment their typing claim stops being believable. A map rather
+   * than a list because a refresh from the same person must move their expiry
+   * instead of adding a second entry.
+   */
+  const [typingUntil, setTypingUntil] = useState<Record<string, number>>({})
   const [unreadAfterMessageId, setUnreadAfterMessageId] = useState<string | null>(null)
   const [lastArrival, setLastArrival] = useState<SharedThreadArrival | null>(null)
   /**
@@ -485,6 +509,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     setLastArrival(null)
     setTurnInFlight(null)
     setAccessLost(false)
+    setTypingUntil((previous) => (Object.keys(previous).length === 0 ? previous : {}))
     setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
     void loadAndRevalidate(true)
@@ -515,6 +540,24 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
           // The answer is persisted by the time the turn ends, so go and read it.
           void loadMessages(conversationId, seq.current, false)
         }
+        return
+      }
+
+      if (event.kind === 'conversation.typing') {
+        if (event.conversationId !== conversationId) return
+        // Defence in depth: the publisher already excludes the reader, but an
+        // indicator that says YOU are typing is the one failure nobody would
+        // report as a bug and everybody would notice.
+        if (event.userId === currentUserIdRef.current) return
+        setTypingUntil((previous) => {
+          if (!event.typing) {
+            if (previous[event.userId] === undefined) return previous
+            const next = { ...previous }
+            delete next[event.userId]
+            return next
+          }
+          return { ...previous, [event.userId]: Date.now() + event.ttlMs }
+        })
         return
       }
 
@@ -573,6 +616,22 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     return () => clearTimeout(timer)
   }, [turnInFlight])
 
+  // Expire typing claims. Runs only while somebody is claimed to be typing, so a
+  // quiet thread costs nothing, and it is the ONLY thing that clears the list
+  // when a `typing: false` never arrives.
+  useEffect(() => {
+    if (Object.keys(typingUntil).length === 0) return
+    const timer = setInterval(() => {
+      const now = Date.now()
+      setTypingUntil((previous) => {
+        const live = Object.entries(previous).filter(([, until]) => until > now)
+        if (live.length === Object.keys(previous).length) return previous
+        return Object.fromEntries(live)
+      })
+    }, TYPING_SWEEP_MS)
+    return () => clearInterval(timer)
+  }, [typingUntil])
+
   // ── Read receipt (spec CC-18) ───────────────────────────────────────────────
   // Debounced and keyed on the newest message id, so a burst of arrivals is ONE
   // POST rather than one per message. Only while the thread is actually being
@@ -624,6 +683,22 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     (userId: string | null | undefined): DirectoryPerson | null =>
       userId ? (directory.get(userId) ?? null) : null,
     [directory]
+  )
+
+  /**
+   * Typists, resolved against the roster.
+   *
+   * Unresolved ids are dropped rather than shown as "someone": the indicator's
+   * only content is a name, and a nameless one would be a permanent mystery
+   * rather than a piece of information. The roster is loaded alongside the
+   * history, so this is a race that resolves itself within one round trip.
+   */
+  const typists = useMemo(
+    () =>
+      Object.keys(typingUntil)
+        .map((userId) => directory.get(userId))
+        .filter((person): person is DirectoryPerson => person !== undefined),
+    [typingUntil, directory]
   )
 
   /**
@@ -697,6 +772,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       connected,
       accessLost,
       turnInFlight,
+      typists,
       participants,
       authorOf,
       unreadAfterMessageId,
@@ -713,6 +789,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       connected,
       accessLost,
       turnInFlight,
+      typists,
       participants,
       authorOf,
       unreadAfterMessageId,

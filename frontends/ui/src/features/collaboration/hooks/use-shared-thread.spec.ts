@@ -684,3 +684,101 @@ describe('useSharedThread — sharedness is published for the agent-socket gate'
     expect(getThreadSharing(CONVERSATION_ID)).toBe('unknown')
   })
 })
+
+describe('useSharedThread — composing presence', () => {
+  /** Mount a shared thread and wait for its first load to settle. */
+  const mountShared = async () => {
+    const hook = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(hook.result.current.shared).toBe(true))
+    await waitFor(() => expect(hook.result.current.participants.length).toBeGreaterThan(0))
+    return hook
+  }
+
+  const typing = (userId: string, isTyping: boolean, ttlMs = 6_000): CollaborationEvent => ({
+    kind: 'conversation.typing',
+    conversationId: CONVERSATION_ID,
+    userId,
+    typing: isTyping,
+    ttlMs,
+  })
+
+  test('names a colleague who is composing, resolved from the roster', async () => {
+    const { result } = await mountShared()
+
+    await emit(typing(ANNA, true))
+
+    await waitFor(() => expect(result.current.typists).toHaveLength(1))
+    expect(result.current.typists[0].userId).toBe(ANNA)
+    expect(result.current.typists[0].name).toBeTruthy()
+  })
+
+  test('a withdrawal clears the claim immediately', async () => {
+    const { result } = await mountShared()
+
+    await emit(typing(ANNA, true))
+    await waitFor(() => expect(result.current.typists).toHaveLength(1))
+
+    await emit(typing(ANNA, false))
+    await waitFor(() => expect(result.current.typists).toHaveLength(0))
+  })
+
+  test('a claim whose withdrawal never arrives expires on its own', async () => {
+    // The failure this prevents is a colleague left permanently "about to
+    // answer" because their tab was closed mid-word. There is no fetch behind
+    // presence, so the expiry is the ONLY thing that heals it.
+    const { result } = await mountShared()
+
+    await emit(typing(ANNA, true, 20))
+    await waitFor(() => expect(result.current.typists).toHaveLength(1))
+
+    await waitFor(() => expect(result.current.typists).toHaveLength(0), { timeout: 3_000 })
+  })
+
+  test('never reports the reader as typing', async () => {
+    // The publisher already drops the actor's own echo; this is the second line
+    // of defence, because "you are typing" is the one failure everybody notices
+    // and nobody reports.
+    const { result } = await mountShared()
+
+    await emit(typing(ME, true))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.typists).toHaveLength(0)
+  })
+
+  test('ignores presence for a different conversation', async () => {
+    const { result } = await mountShared()
+
+    await emit({
+      kind: 'conversation.typing',
+      conversationId: 'some_other_conversation',
+      userId: ANNA,
+      typing: true,
+      ttlMs: 6_000,
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.typists).toHaveLength(0)
+  })
+
+  test('presence costs a private thread no requests', async () => {
+    routes.shared = false
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.shared).toBe(false))
+
+    await emit(typing(ANNA, true))
+
+    // No roster to resolve against and no subscription that could have carried
+    // it — the private path stays exactly as cheap as it was (spec NF-8).
+    expect(result.current.typists).toHaveLength(0)
+    expect(requested()).not.toContain(`/api/sharing/conversation/${CONVERSATION_ID}`)
+  })
+})
