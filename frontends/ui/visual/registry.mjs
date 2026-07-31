@@ -437,4 +437,28 @@ export const SCREENSHOT_TARGETS = [
     // first form control (the text input) — the rounded shape that regressed.
     tabStops: 2,
   },
+  {
+    id: 'organization-access-people',
+    mobile: true,
+    path: '/dev/organization-access',
+    description:
+      'Organization → Access, People: the member directory under the real sub-tab strip. The roster is chosen for the states that are easy to get wrong — a role the catalog knows (rendered as "Billing Admin", slug kept underneath), a CUSTOM role it does not (must degrade to the raw slug, never to "unknown"), a membership with no role at all, a pending invitation, and a member WorkOS knows only by email. The WorkOS management widget that normally sits beneath is suppressed: it needs a live token endpoint, and a backend-free route would capture it as a spinner.',
+    waitFor: '[data-testid="people-directory"]',
+  },
+  {
+    id: 'organization-access-roles',
+    mobile: true,
+    path: '/dev/organization-access?view=roles',
+    description:
+      'Organization → Access, Roles: every role in `lib/authz/catalog.ts` grouped by tier in reading order (organization → project → workflow → platform), each with the human name of every permission it grants and the slug in muted mono. The platform group is deliberately SHOWN and marked not-assignable-here rather than hidden — "exists, but not for you" is the real access rule, and the marker keys off `scope: platform-org`, the property WorkOS actually refuses on.',
+    waitFor: '[data-testid="role-catalog"]',
+  },
+  {
+    id: 'organization-access-permissions',
+    mobile: true,
+    path: '/dev/organization-access?view=permissions',
+    description:
+      'Organization → Access, Permissions: the catalog inverted — every permission with the roles that grant it, computed from `ROLES` at render rather than stored, so it cannot drift. Deprecated permissions (`project:edit`) and WorkOS-owned ones (`widgets:*`) are marked instead of hidden, because an admin auditing a role meets those slugs either way.',
+    waitFor: '[data-testid="permission-reference"]',
+  },
 ]
