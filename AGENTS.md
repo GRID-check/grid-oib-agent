@@ -51,7 +51,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | Infra typecheck (Pulumi + policy pack) | `task infra:types` |
 | Repo lint (pre-commit, all files) | `task lint:repo` |
 | UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
-| WorkOS authz drift | `cd frontends/ui && WORKOS_API_KEY=sk_… npm run provision:authz` (read-only; `-- --apply` reconciles) |
+| WorkOS authz drift | `cd frontends/ui && WORKOS_API_KEY=sk_… bun run provision:authz` (read-only; `-- --apply` reconciles) |
 
 `task --list` is the full, always-current list. CI calls these same tasks
 (`.github/workflows/ci.yml`), so `task verify` passing locally means the merge
@@ -70,7 +70,7 @@ Note: the UI tsconfig includes test files, so spec type errors block the product
 with a committed screenshot. This repo has a reproducible harness: a registry
 (`frontends/ui/visual/registry.mjs`) of `/dev/*` preview routes that render real
 components with fixture data (no backend), captured in light + dark by
-`npm run screenshots`. When you build a user-visible surface, add a `/dev/<name>`
+`task fe:screenshots`. When you build a user-visible surface, add a `/dev/<name>`
 preview route + a registry target and commit the resulting PNGs. The
 `visual-coverage` workflow nudges (comment-only, phase 1) when a PR adds a
 component without that evidence — opt out non-visual components with a
@@ -87,7 +87,7 @@ ADR-0038). Three things to know before touching it:
 
 1. **`frontends/ui/src/lib/authz/catalog.ts` is the source of truth** for every
    resource type, permission and role. The app derives its permission types from
-   it and `npm run provision:authz` applies it to WorkOS, so the code and the
+   it and `bun run provision:authz` applies it to WorkOS, so the code and the
    identity provider cannot drift apart. Add a permission there first.
 2. **Every `app/api` route must declare how it is authorized.** `apiRoute` does
    not compile without an `authz` option — `{ permission }` (factory-checked),
@@ -194,7 +194,7 @@ written through `useCardDecision`. Rationale and full contract: **ADR-0030**.
 
 Adding a card type? You must classify it in `CARD_INTERACTIVITY`
 (`frontends/ui/src/features/grid-cards/card-decision.ts`) — the map is
-exhaustive over the generated union, so `npm run type-check` fails until you do.
+exhaustive over the generated union, so `task fe:types` fails until you do.
 Classify it `'interactive'` if answering it starts a commitment that is not
 safely repeatable; opening a read-only preview is not one. Two further guards
 back this up: `card-interactivity.spec.tsx` (an interactive card must actually

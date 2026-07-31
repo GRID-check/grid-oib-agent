@@ -6,7 +6,7 @@ name: Security
 #                    and Sonar's security rules)
 #   - OSV-Scanner -> dependency vulnerabilities from lockfiles (replaces Sonar SCA;
 #                    Dependabot opens the fix PRs, see .github/dependabot.yml)
-#   - dependency-audit -> pip-audit + npm audit, complementary advisory sources
+#   - dependency-audit -> pip-audit + bun audit, complementary advisory sources
 #   - gitleaks    -> secret scanning across full history
 #   - image-scan  -> trivy on the digest-pinned observability images (ADR-0029)
 #                    deployed via deploy/pulumi (these images are not part of
@@ -147,14 +147,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontends/ui/package-lock.json
-      - name: npm audit (frontend)
+      - uses: ./.github/actions/setup-bun
+      - name: Dependency audit (frontend)
         continue-on-error: true
         working-directory: frontends/ui
         run: |
-          npm ci --ignore-scripts
-          npm audit --audit-level=high || true
+          bun install --frozen-lockfile --ignore-scripts
+          bun audit --audit-level=high || true
 
   secret-scan:
     name: Secret scan (gitleaks)

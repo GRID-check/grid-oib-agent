@@ -13,7 +13,7 @@
 # and the write scope it needed are gone.
 #
 # Capture and comment are DELIBERATELY separate jobs: capture executes
-# PR-controlled code (registry import, `npm ci`, the app itself) with a read-only
+# PR-controlled code (registry import, `bun install`, the app itself) with a read-only
 # token and no persisted credential; the commenting job checks out nothing, runs
 # no PR code and is the only job holding write scope.
 
@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: true
 
 # Least privilege per job: the jobs that execute PR-controlled code (registry
-# import, `npm ci`, the harness) run read-only, and no job keeps a checkout
+# import, `bun install`, the harness) run read-only, and no job keeps a checkout
 # credential in the workspace — the write token is injected only into the publish
 # step, after all PR-controlled steps have finished.
 permissions:
@@ -120,12 +120,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: frontends/ui/package-lock.json
+      - uses: ./.github/actions/setup-bun
 
       - name: Install dependencies
         working-directory: frontends/ui
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Cache the Playwright Chromium download
         uses: actions/cache@v4
@@ -159,7 +158,7 @@ jobs:
         env:
           IDS: ${{ needs.detect.outputs.ids }}
         # Unquoted on purpose: the ids are a validated, space-separated list.
-        run: npm run screenshots -- $IDS
+        run: bun run screenshots -- $IDS
 
       - name: Stage generated PNGs
         id: stage

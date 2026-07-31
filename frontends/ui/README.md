@@ -28,7 +28,7 @@ The Grid UI provides an accessible, feature-rich frontend for the AI-Q backend. 
 ### 1. Install Dependencies
 
 ```bash
-npm install
+bun install
 ```
 
 ### 2. Configure Environment
@@ -63,15 +63,15 @@ See `.env.example` for the full list of available frontend variables including a
 cd ../../
 ./scripts/start_e2e.sh
 ```
->**NOTE:** For UI development it may be more useful to use `./scripts/start_server_in_debug_mode.sh` with `npm run dev` in separate terminals.
+>**NOTE:** For UI development it may be more useful to use `./scripts/start_server_in_debug_mode.sh` with `bun run dev` in separate terminals.
 
 #### Separate terminal env setup
 
-When running the backend with `./scripts/start_server_in_debug_mode.sh` and the UI with `npm run dev` in a separate terminal, load the root env file in the UI terminal first:
+When running the backend with `./scripts/start_server_in_debug_mode.sh` and the UI with `bun run dev` in a separate terminal, load the root env file in the UI terminal first:
 
 ```bash
 set -a; source ../../deploy/.env; set +a
-npm run dev
+bun run dev
 ```
 
 **URLs:**
@@ -83,16 +83,16 @@ npm run dev
 
 | Script               | Description                                            |
 | -------------------- | ------------------------------------------------------ |
-| `npm run dev`        | Start gateway + Next.js dev server (with HMR)          |
-| `npm run build`      | Build for production                                   |
-| `npm run start`      | Start production server (gateway with WebSocket proxy) |
-| `npm run lint`       | Run ESLint                                             |
-| `npm run lint:fix`   | Run ESLint with auto-fix                               |
-| `npm run format`     | Format code with Prettier                              |
-| `npm run type-check` | Run TypeScript type checking                           |
-| `npm run test`       | Run tests once (Vitest)                                |
-| `npm run test:watch` | Run tests in watch mode                                |
-| `npm run test:ci`    | Run tests with coverage                                |
+| `bun run dev`        | Start gateway + Next.js dev server (with HMR)          |
+| `bun run build`      | Build for production                                   |
+| `bun run start`      | Start production server (gateway with WebSocket proxy) |
+| `bun run lint`       | Run ESLint                                             |
+| `bun run lint:fix`   | Run ESLint with auto-fix                               |
+| `bun run format`     | Format code with Prettier                              |
+| `bun run type-check` | Run TypeScript type checking                           |
+| `bun run test`       | Run tests once (Vitest)                                |
+| `bun run test:watch` | Run tests in watch mode                                |
+| `bun run test:ci`    | Run tests with coverage                                |
 
 ## Project Structure
 
@@ -480,13 +480,13 @@ The project uses **Vitest** with **Testing Library** and **MSW** (Mock Service W
 
 ```bash
 # Run tests once
-npm run test
+bun run test
 
 # Run tests in watch mode
-npm run test:watch
+bun run test:watch
 
 # Run tests with coverage
-npm run test:ci
+bun run test:ci
 ```
 
 - **Vitest** -- Test runner with coverage via `@vitest/coverage-v8`

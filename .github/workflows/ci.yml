@@ -123,13 +123,15 @@ jobs:
         working-directory: frontends/ui
     steps:
       - uses: actions/checkout@v7
+      # Node stays the RUNTIME (and Turbopack's PostCSS step spawns a real
+      # `node`); Bun is only the installer and script runner.
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontends/ui/package-lock.json
-      - run: npm ci
+      - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
+      - run: task fe:install
+        working-directory: .
       # lint + type-check + tests (with the json-summary/json reporters the
       # coverage comment below consumes) + build. Same four steps as
       # `task fe:verify` locally — defined once, in the root Taskfile.

@@ -87,43 +87,46 @@ tasks:
     desc: Install UI dependencies
     dir: '{{.UI}}'
     cmds:
-      - npm ci
+      # Bun is the INSTALLER and script runner only — never the runtime. Do not
+      # add `--bun`: it exports NODE_OPTIONS=--bun, and Turbopack's PostCSS step
+      # spawns a real `node`, which rejects the flag and fails the build.
+      - bun install --frozen-lockfile
 
   fe:lint:
     desc: ESLint the UI
     dir: '{{.UI}}'
     cmds:
-      - npm run lint
+      - bun run lint
 
   fe:types:
     desc: Typecheck the UI (includes specs — a spec type error blocks next build)
     dir: '{{.UI}}'
     cmds:
-      - npm run type-check
+      - bun run type-check
 
   fe:test:
     desc: Run the UI test suite
     dir: '{{.UI}}'
     cmds:
-      - npm test
+      - bun run test
 
   fe:test:ci:
     desc: UI tests with the coverage reporters CI's coverage comment consumes
     dir: '{{.UI}}'
     cmds:
-      - npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
+      - bun run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
 
   fe:build:
     desc: Production build of the UI
     dir: '{{.UI}}'
     cmds:
-      - npm run build
+      - bun run build
 
   fe:screenshots:
     desc: 'Capture UI screenshot evidence (optional: -- <registry id>)'
     dir: '{{.UI}}'
     cmds:
-      - npm run screenshots -- {{.CLI_ARGS}}
+      - bun run screenshots -- {{.CLI_ARGS}}
 
   fe:verify:
     desc: Everything CI runs for the frontend tier

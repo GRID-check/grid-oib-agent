@@ -183,17 +183,22 @@ Start with the current architecture deep-dives, then the topic docs:
 
 **Prerequisites:** Docker & Docker Compose · Git LFS (`git lfs pull` for OIB PDFs) · API keys (OpenRouter, Tavily; WorkOS for auth).
 
-**Verification.** Host `npm install` is unreliable on this project — run frontend checks in Docker, backend checks via the project venv:
+**Verification.** Every check is a task in the root [`Taskfile.yml`](Taskfile.yml),
+run with [go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the
+same tasks, so there is no second copy to drift:
 
 ```bash
-# Frontend typecheck + tests
-cd frontends/ui && docker build -f Dockerfile.typecheck -t grid-tsc . && docker run --rm grid-tsc
-docker run --rm grid-tsc npx vitest run           # test suite
+task setup        # one-time: backend venv, UI deps, Pulumi deps
+task verify       # the full merge gate — everything CI runs
+task verify:fast  # same, minus the slow production build
 
-# Backend
-.venv/Scripts/python.exe -m pytest tests/
-.venv/Scripts/ruff.exe check .
+task fe:types     # or fe:lint / fe:test / fe:build
+task be:test      # or be:lint
+task infra:types
 ```
+
+`task --list` shows everything. The tasks absorb the venv layout
+(`.venv/Scripts` vs `.venv/bin`) and the required `PYTHONPATH=src`.
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`. See [AGENTS.md](AGENTS.md) for the full contributor workflow.
 
