@@ -806,6 +806,8 @@ interface FanOutInput {
   turnStartedFor: readonly string[]
   /** Whether to fold an ambient "activity in this thread" item (CC-20). */
   emitAmbient: boolean
+  /** The thread's title, when the caller already has the row. Saves a read. */
+  title?: string | null
 }
 
 /**
@@ -873,6 +875,12 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
     // group key collapses by design, so twenty messages are one row that counts
     // up and is cleared by reading the thread (spec CC-20, IB-8).
     // `emitInboxItems` already drops the actor's own copy.
+    // The title, so the row can say WHICH thread. Without a payload every
+    // activity row rendered "3 new messages in Untitled conversation" — and this
+    // is the commonest row type there is, so ten of them were ten identical
+    // lines. One read, shared by every recipient's row.
+    const subject = input.title ?? (await findConversationInOrg(conversationId, organizationId))?.title ?? null
+
     await emitInboxItems(
       participants.map((recipientUserId) => ({
         organizationId,
@@ -881,6 +889,7 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
         resourceType: 'conversation' as const,
         resourceId: conversationId,
         actorUserId,
+        payload: subject ? { subject } : {},
         groupKey: inboxGroupKey('conversation.activity', 'conversation', conversationId),
       })),
     )

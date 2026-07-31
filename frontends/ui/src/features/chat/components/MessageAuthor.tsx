@@ -36,7 +36,7 @@ import Image from 'next/image'
 import { avatarColorStyle, personInitials } from '@/components/ui/avatar-identity'
 import { isOptimizableAvatarUrl } from '@/lib/images/avatar-hosts'
 import { formatTime } from '@/shared/utils/format-time'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 export interface MessageAuthorProps {
@@ -75,6 +75,10 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
   className,
 }) => {
   const t = useTranslations('collaboration')
+  // `formatTime` without a locale falls back to the RUNTIME default, so a
+  // German user on an en-US browser read "03:35 PM" here while the HITL prompt
+  // directly below it read "15:35". Every research card already passes it.
+  const { locale } = useLocale()
 
   const displayName = isYou ? t('thread.authorYou') : (name?.trim() || t('inbox.unknownActor'))
   const label = grouped
@@ -141,7 +145,7 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
         </span>
         {timestamp && (
           <span className="text-subtle text-[11px] leading-none tabular-nums">
-            {formatTime(timestamp)}
+            {formatTime(timestamp, locale)}
           </span>
         )}
       </span>

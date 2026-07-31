@@ -113,7 +113,14 @@ export function subscribeToEvents(listener: Listener): () => void {
   if (listeners.size === 1) open()
   return () => {
     listeners.delete(listener)
-    if (listeners.size === 0) close()
+    if (listeners.size !== 0) return
+    close()
+    // Reset the ladder on a DELIBERATE teardown (never inside `close()` itself,
+    // which the error path calls before incrementing). Without this a tab that
+    // had ridden out one long outage began its next failure at the 30-second
+    // cap, so the first reconnect after a perfectly healthy period took half a
+    // minute.
+    reconnectAttempts = 0
   }
 }
 

@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { backoffWithJitter } from '@/shared/utils/backoff'
 import {
   EMPTY_SPECTATED_TURN,
   reduceSpectatedFrame,
@@ -46,6 +47,20 @@ export interface UseSpectatedTurnResult {
   /** True once frames are actually flowing — the caller swaps the banner for this. */
   live: boolean
 }
+
+/**
+ * Reconnect policy for the per-turn stream.
+ *
+ * The server sends `retry: 2000`, so left alone the browser reconnects every two
+ * seconds forever — in lockstep across every observer, since the interval is a
+ * constant. Each attempt costs an authorization read and a fresh cache
+ * subscriber server-side, which is exactly the herd this project's shared
+ * backoff helper exists to prevent. Giving up after a few tries is safe: the
+ * static banner and the persisted answer are both still there.
+ */
+const RECONNECT_BASE_MS = 2_000
+const RECONNECT_MAX_MS = 20_000
+const MAX_RECONNECTS = 4
 
 /** What the SSE route sends. Anything else is ignored. */
 type LiveEvent =
@@ -88,6 +103,8 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
 
     let source: EventSource | null = null
     let cancelled = false
+    let attempt = 0
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     lastSeqRef.current = 0
     setTurn({ ...EMPTY_SPECTATED_TURN })
     setLive(false)
@@ -97,49 +114,83 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
       source = null
     }
 
-    source = new EventSource(`/api/conversations/${encodeURIComponent(conversationId)}/live`)
-
-    source.onmessage = (event: MessageEvent<string>) => {
+    const connect = (): void => {
       if (cancelled) return
-      let parsed: LiveEvent
-      try {
-        parsed = JSON.parse(event.data) as LiveEvent
-      } catch {
-        return
-      }
-
-      if (parsed.kind === 'unsupported' || parsed.kind === 'revoked') {
-        // Nothing more is coming. Close so EventSource does not reconnect into a
-        // stream that will answer the same way, and report nothing so the caller
-        // falls back to the static banner.
-        close()
-        setLive(false)
-        setTurn(null)
-        return
-      }
-
-      if (parsed.kind !== 'frame') return
-      const seq = typeof parsed.seq === 'number' ? parsed.seq : 0
-      // seq 0 means the publisher did not number this frame; take it rather than
-      // dropping it, since the dedupe is an optimisation and a lost token is not.
-      if (seq > 0 && seq <= lastSeqRef.current) return
-      if (seq > 0) lastSeqRef.current = seq
-
-      setTurn((previous) => {
-        const next = reduceSpectatedFrame(previous ?? EMPTY_SPECTATED_TURN, parsed.payload)
-        // "Live" the moment there is something to show, not merely on connect:
-        // an empty bubble replacing the banner reads as a stall.
-        if (next.answer || next.steps.length > 0 || next.waitingOn) setLive(true)
-        return next
-      })
+      reconnectTimer = null
+      source = new EventSource(`/api/conversations/${encodeURIComponent(conversationId)}/live`)
+      attachHandlers()
     }
 
-    // A drop is not an error worth surfacing: EventSource reconnects on its own,
-    // and what is already on screen stays until the persisted answer replaces it.
-    source.onerror = () => {}
+    const attachHandlers = (): void => {
+      if (!source) return
+
+      source.onmessage = (event: MessageEvent<string>) => {
+        if (cancelled) return
+        let parsed: LiveEvent
+        try {
+          parsed = JSON.parse(event.data) as LiveEvent
+        } catch {
+          return
+        }
+
+        if (parsed.kind === 'unsupported' || parsed.kind === 'revoked') {
+          // Nothing more is coming. Close so EventSource does not reconnect into a
+          // stream that will answer the same way, and report nothing so the caller
+          // falls back to the static banner.
+          close()
+          setLive(false)
+          setTurn(null)
+          return
+        }
+
+        if (parsed.kind !== 'frame') return
+        const seq = typeof parsed.seq === 'number' ? parsed.seq : 0
+        // seq 0 means the publisher did not number this frame; take it rather than
+        // dropping it, since the dedupe is an optimisation and a lost token is not.
+        if (seq > 0 && seq <= lastSeqRef.current) return
+        if (seq > 0) lastSeqRef.current = seq
+
+        setTurn((previous) => {
+          const next = reduceSpectatedFrame(previous ?? EMPTY_SPECTATED_TURN, parsed.payload)
+          // "Live" the moment there is something to show, not merely on connect:
+          // an empty bubble replacing the banner reads as a stall.
+          if (next.answer || next.steps.length > 0 || next.waitingOn) setLive(true)
+          return next
+        })
+      }
+
+      /*
+      A drop is not an error worth surfacing — what is already on screen stays
+      until the persisted answer replaces it — but it must not be left to the
+      browser either. EventSource reconnects on the server's `retry:` interval,
+      a fixed 2s with no backoff and no jitter, and every attempt costs an
+      authorization read plus a dedicated cache subscriber on the server. A
+      rolling deploy or a brief cache blip therefore had every observer of every
+      running turn retrying in lockstep, twice a second, for as long as the turn
+      lasted. Reconnect on the shared backoff instead, and give up rather than
+      hammer: the static banner and the persisted answer are both still there.
+    */
+      source.onerror = () => {
+        if (cancelled) return
+        close()
+        if (attempt >= MAX_RECONNECTS) {
+          setLive(false)
+          return
+        }
+        const delay = backoffWithJitter(attempt, {
+          baseMs: RECONNECT_BASE_MS,
+          maxMs: RECONNECT_MAX_MS,
+        })
+        attempt += 1
+        reconnectTimer = setTimeout(connect, delay)
+      }
+    }
+
+    connect()
 
     return () => {
       cancelled = true
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
       close()
     }
   }, [conversationId, enabled])

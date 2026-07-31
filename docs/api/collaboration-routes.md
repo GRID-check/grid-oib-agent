@@ -283,6 +283,15 @@ the draft is sent, cleared, or abandoned; the server-side claim expires after
 `TYPING_TTL_MS` (6s) regardless, so a closed tab heals itself
 (`lib/conversations/presence-contract.ts` owns both numbers).
 
+Rate-limited by `TYPING_RATE_LIMIT` (120 per user per minute — roughly ten times
+what the 3s client cadence costs). This is the highest-frequency endpoint in the
+product and every call resolves access, counts grants, resolves the participant
+list and then publishes once *per participant*, so the bound is what keeps that
+cost closed. Past the limit the request is **shed silently and still answers
+`204`**: the caller is only ever told the request was accepted, not that anybody
+received it, and a dropped presence claim is indistinguishable from the channel
+dropping one — which the TTL already heals.
+
 ### `GET /api/conversations/{id}/live` (Server-Sent Events)
 
 Watch a turn as it happens (ADR-0039). Relays the agent's outbound WebSocket
