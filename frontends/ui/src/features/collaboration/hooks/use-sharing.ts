@@ -41,10 +41,38 @@ async function readFailure(response: Response): Promise<SharingFailure> {
   }
 }
 
+/**
+ * Backoff ladder, in ms, for a load that came back empty-handed.
+ *
+ * The failure this exists for is not an error, it is a RACE. A brand-new thread
+ * reaches the server only when its first message is persisted
+ * (`ensureServerConversation` in the chat store — a list, then a create), while
+ * the header starts asking who can read the thread the moment that message
+ * appears locally. The sharing read therefore loses that race on the first turn
+ * of every new conversation and is answered with the 404 that
+ * `resolveResourceAccess` gives anything it cannot find.
+ *
+ * With a single attempt that 404 was permanent for the session: nothing re-reads
+ * until the tab is refocused, or the disconnected poll comes round a minute
+ * later (`useLiveEvents`), or the page is reloaded — so the thread you were
+ * actually in was the one thread with no Share in its menu, which is exactly
+ * when you want it.
+ *
+ * The ladder is short on purpose. It covers one create round-trip and then
+ * stops: a resource that is genuinely gone must not be polled forever, and the
+ * three existing triggers are still there for everything slower than this.
+ */
+const RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000]
+
 export interface UseSharingResult {
   state: ResourceSharingState | null
+  /** True while an answer is still coming — including between retries. */
   loading: boolean
-  /** Set when a load failed (distinct from a failed mutation). */
+  /**
+   * Set when a load failed and will NOT be retried (distinct from a failed
+   * mutation). A load still working through {@link RETRY_DELAYS_MS} is
+   * `loading`, not failed: a one-second-old thread has not gone wrong.
+   */
   loadError: boolean
   /** Set by the most recent mutation; cleared when the next one starts. */
   failure: SharingFailure | null
@@ -73,13 +101,27 @@ export function useSharing(
   const [failure, setFailure] = useState<SharingFailure | null>(null)
   const [saving, setSaving] = useState(false)
   const seq = useRef(0)
+  // Retry bookkeeping: how far down RETRY_DELAYS_MS this resource has walked,
+  // and the timer for the next rung.
+  const attempt = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Lets a scheduled retry call the CURRENT refresh without making `refresh`
+  // depend on itself.
+  const refreshRef = useRef<() => void>(() => {})
 
   const base = resourceId
     ? `/api/sharing/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`
     : null
 
+  const cancelRetry = useCallback(() => {
+    if (retryTimer.current === null) return
+    clearTimeout(retryTimer.current)
+    retryTimer.current = null
+  }, [])
+
   const refresh = useCallback(async () => {
     if (!enabled || !base) {
+      cancelRetry()
       setState(null)
       setLoading(false)
       return
@@ -92,27 +134,65 @@ export function useSharing(
       if (current !== seq.current) return
       setState(data)
       setLoadError(false)
+      attempt.current = 0
+      cancelRetry()
+      setLoading(false)
     } catch {
       if (current !== seq.current) return
-      setLoadError(true)
-    } finally {
-      if (current === seq.current) setLoading(false)
+      const delay = RETRY_DELAYS_MS[attempt.current]
+      if (delay === undefined) {
+        // The ladder is spent. Now it is a real failure, and the dialog may say so.
+        setLoadError(true)
+        setLoading(false)
+        return
+      }
+      attempt.current += 1
+      cancelRetry()
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null
+        refreshRef.current()
+      }, delay)
+      // `loading` deliberately stays true across the ladder: the answer is still
+      // coming, and a skeleton is truer than an error for a thread this young.
     }
-  }, [base, enabled])
+  }, [base, enabled, cancelRetry])
 
   useEffect(() => {
+    refreshRef.current = () => void refresh()
+  }, [refresh])
+
+  /**
+   * Read again from the top: a fresh ladder, not a continuation of the last one.
+   * This is what every EXTERNAL trigger gets — the dialog's "try again", a focus
+   * event, a live access change — because each of them is new evidence that the
+   * answer may have changed, and none of them should inherit the exhaustion of
+   * an attempt made minutes ago.
+   */
+  const restart = useCallback(() => {
+    attempt.current = 0
+    cancelRetry()
+    void refresh()
+  }, [refresh, cancelRetry])
+
+  useEffect(() => {
+    attempt.current = 0
+    cancelRetry()
+    setLoadError(false)
     setLoading(Boolean(enabled && base))
     void refresh()
-  }, [refresh, enabled, base])
+    // Switching resource (or closing the gate) abandons the ladder in flight —
+    // otherwise a retry for the thread you just left overwrites the one you are in.
+    return cancelRetry
+  }, [refresh, enabled, base, cancelRetry])
 
   // A revocation or visibility change made by someone else must land here too —
   // otherwise an owner's dialog keeps showing a roster that is no longer true.
   useLiveEvents({
     enabled: enabled && Boolean(base),
     onEvent: (event) => {
-      if (event.kind === 'resource.access.changed' && event.resourceId === resourceId) void refresh()
+      if (event.kind === 'resource.access.changed' && event.resourceId === resourceId) restart()
     },
-    onRefresh: () => void refresh(),
+    onRefresh: restart,
   })
 
   const mutate = useCallback(
@@ -151,7 +231,7 @@ export function useSharing(
     loadError,
     failure,
     saving,
-    refresh: () => void refresh(),
+    refresh: restart,
     setVisibility: async (visibility) =>
       base ? mutate(base, { ...json({ visibility }), method: 'PATCH' }) : false,
     grant: async (subjectUserId, role = 'collaborator') =>
