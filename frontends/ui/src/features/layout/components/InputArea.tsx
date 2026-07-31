@@ -837,6 +837,31 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setMentionDismissed(false)
   }, [])
 
+  // Declared here rather than beside the other handlers below: `handleMentionSomeone`
+  // lists it as a dependency, so a later `const` would be read in its own TDZ.
+  const handleValueChange = useCallback(
+    (value: string, caret: number | null = value.length) => {
+      if (isDisabledByAuth) return // Don't allow typing when not authenticated
+
+      // Persist a session as soon as the user starts interacting via typed input.
+      // This keeps logo-triggered "new session" drafts out of history until touched.
+      let sessionId = currentConversation?.id
+      if (!sessionId && value.trim().length > 0) {
+        sessionId = ensureSession()
+        // ensureSession just activated a brand-new session; mark its id as the
+        // loaded draft so the draft-sync effect doesn't reset the text we set here.
+        if (sessionId) loadedDraftSessionRef.current = sessionId
+      }
+
+      setMessage(value)
+      // Persist the draft under the active session (once one exists) so it
+      // survives navigating away/back and a reload.
+      if (sessionId) setComposerDraft(sessionId, value)
+      syncMentionQuery(value, caret)
+    },
+    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
+  )
+
   /**
    * Start a mention from the composer's addressee line — the only affordance that
    * teaches `@` exists (spec MN-3 had no discovery story at all).
@@ -1064,29 +1089,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       handleSubmit()
     },
     [handleSubmit, mentionPickerOpen]
-  )
-
-  const handleValueChange = useCallback(
-    (value: string, caret: number | null = value.length) => {
-      if (isDisabledByAuth) return // Don't allow typing when not authenticated
-
-      // Persist a session as soon as the user starts interacting via typed input.
-      // This keeps logo-triggered "new session" drafts out of history until touched.
-      let sessionId = currentConversation?.id
-      if (!sessionId && value.trim().length > 0) {
-        sessionId = ensureSession()
-        // ensureSession just activated a brand-new session; mark its id as the
-        // loaded draft so the draft-sync effect doesn't reset the text we set here.
-        if (sessionId) loadedDraftSessionRef.current = sessionId
-      }
-
-      setMessage(value)
-      // Persist the draft under the active session (once one exists) so it
-      // survives navigating away/back and a reload.
-      if (sessionId) setComposerDraft(sessionId, value)
-      syncMentionQuery(value, caret)
-    },
-    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
   )
 
   /**
