@@ -86,7 +86,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # `node` process. A bun-only image has no `node` at all, and `--bun` exports
 # NODE_OPTIONS=--bun which that child then rejects. Either way `next build`
 # dies with a TurbopackInternalError.
-COPY --from=oven/bun:1.3.11-debian /usr/local/bin/bun /usr/local/bin/bun
+#
+# Tag choice: `-slim` (Debian bookworm, glibc — matches this node base), not
+# `-debian`. Bun does not publish a `-debian` alias for every release (1.3.11
+# has none), so that suffix breaks the build on an ordinary version bump.
+# Keep the version in lockstep with `.github/actions/setup-bun`.
+COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
 
 # =============================================================================
 # Stage 2: Dependencies
