@@ -52,13 +52,32 @@ import { publishThreadRole, publishThreadSharing, publishTurnActor } from '@/sha
 import { useLiveEvents } from './use-live-events'
 
 /**
+ * Backoff ladder for a failed ACCESS read, in ms.
+ *
+ * Short and bounded: this covers a blip, not an outage. See `scheduleAccessRetry`
+ * for why this one read needs a recovery path that the others do not.
+ */
+const ACCESS_RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
+
+/**
  * How long a "turn started" banner may survive without its `ended` event before
  * we stop believing it. The banner is the one piece of state here with no fetch
  * behind it (there is no "is a turn running" endpoint), so it gets an expiry
  * instead — a dropped `ended` must not leave every observer staring at a spinner
  * for the rest of the session.
+ *
+ * This is a BACKSTOP, not a timeout, and it was five minutes — shorter than a
+ * deep-research turn routinely runs. An observer watching a colleague's answer
+ * being written had it erased mid-sentence at the five-minute mark: the banner
+ * cleared, which tore down the live stream with it, and the thread went quiet
+ * until the finished answer landed minutes later with no explanation of the gap.
+ *
+ * The real cure for a stuck banner is the terminal frame, which the observer's
+ * own stream already sees — see `clearTurnInFlight`, which the thread calls when
+ * the spectated turn reports it is done. This number only has to be longer than
+ * the longest turn anybody legitimately waits through.
  */
-const TURN_BANNER_MAX_AGE_MS = 5 * 60_000
+const TURN_BANNER_MAX_AGE_MS = 30 * 60_000
 
 /** Debounce on the read receipt, so a burst of arrivals is one POST, not ten. */
 const MARK_READ_DEBOUNCE_MS = 1_200
@@ -141,6 +160,13 @@ export interface UseSharedThreadResult {
   /** Non-null while the agent is answering somebody's question. */
   turnInFlight: SharedThreadTurn | null
   /**
+   * Clear the turn banner because the turn demonstrably ended — the observer's
+   * spectated stream saw its terminal frame. Without this the banner (and the
+   * composer lock that hangs off it) waited out {@link TURN_BANNER_MAX_AGE_MS}
+   * whenever no assistant message was persisted to publish the `ended` event.
+   */
+  clearTurnInFlight: () => void
+  /**
    * Colleagues composing right now, resolved to directory entries so the caller
    * can name them. Never includes the reader (the publisher drops its own echo),
    * and empties itself when the claims expire — a chat where somebody is
@@ -178,7 +204,10 @@ export interface UseSharedThreadResult {
   refresh: () => void
 }
 
-const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf' | 'setEngagement'> = {
+const INERT: Omit<
+  UseSharedThreadResult,
+  'refresh' | 'authorOf' | 'setEngagement' | 'clearTurnInFlight'
+> = {
   shared: false,
   myRole: null,
   loading: false,
@@ -255,6 +284,35 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   // `shared` is read inside callbacks that must not be re-created when it flips
   // (re-creating them would re-run the load effect), so it is mirrored in a ref.
   const sharedRef = useRef(false)
+  /*
+    Retry bookkeeping for the access read.
+
+    The access read is the hook's keystone: `shared` gates the live subscription,
+    the focus/visibility listener and the fallback poll. So a failure there is the
+    one failure that can also remove every route by which the hook would notice it
+    had failed, and it needs a recovery path of its own rather than borrowing one.
+    Short and bounded — this covers a blip, not an outage.
+  */
+  const accessAttempt = useRef(0)
+  const accessRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadRef = useRef<(replace: boolean) => void>(() => {})
+
+  const cancelAccessRetry = useCallback(() => {
+    if (accessRetryTimer.current === null) return
+    clearTimeout(accessRetryTimer.current)
+    accessRetryTimer.current = null
+  }, [])
+
+  const scheduleAccessRetry = useCallback(() => {
+    const delay = ACCESS_RETRY_DELAYS_MS[accessAttempt.current]
+    if (delay === undefined) return
+    accessAttempt.current += 1
+    cancelAccessRetry()
+    accessRetryTimer.current = setTimeout(() => {
+      accessRetryTimer.current = null
+      loadRef.current(false)
+    }, delay)
+  }, [cancelAccessRetry])
   const currentUserIdRef = useRef(currentUserId)
   currentUserIdRef.current = currentUserId
   // Directory of participants, for resolving author names during a load that may
@@ -415,7 +473,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         const facts = (await response.json()) as ConversationAccessFacts
         if (current !== seq.current) return 'ok'
 
-        // A successful access read heals any earlier revocation signal.
+        // A successful access read heals any earlier revocation signal, and ends
+        // any retry ladder a previous failure started.
+        cancelAccessRetry()
+        accessAttempt.current = 0
         setAccessLost(false)
         const isShared = facts.shared === true
         sharedRef.current = isShared
@@ -467,19 +528,25 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         return messages === 'denied' ? 'denied' : 'ok'
       } catch {
         if (current === seq.current) {
-          sharedRef.current = false
-          setShared(false)
-          // Deliberately NOT published: a network failure is not evidence that the
-          // thread is private, and telling the socket gate "private" on a guess is
-          // how the two-participant collision comes back. Left `unknown`, so the
-          // composer opens its socket on intent instead of on mount.
+          // A network failure is not evidence about this thread at all, and it
+          // used to clear `shared` — which ALSO switched off the live
+          // subscription, the focus listener and the fallback poll, every one of
+          // which is gated on that flag. A single dropped request (a sleeping
+          // laptop, one 502) therefore froze the thread permanently: stale
+          // messages, no error, a live-looking composer, and no way back except
+          // a remount. Keep the last known answer and retry on a short ladder.
+          //
+          // Nothing is published for the same reason as before: telling the
+          // socket gate "private" on a guess is how the two-participant
+          // collision comes back.
+          scheduleAccessRetry()
         }
         return 'ok'
       } finally {
         if (current === seq.current) setLoading(false)
       }
     },
-    [conversationId, enabled, loadMessages, loadRoster]
+    [conversationId, enabled, loadMessages, loadRoster, scheduleAccessRetry, cancelAccessRetry]
   )
 
   /**
@@ -497,6 +564,12 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     [load]
   )
 
+  // Lets a scheduled retry call the CURRENT load without making `load` depend on
+  // itself.
+  useEffect(() => {
+    loadRef.current = (replace: boolean) => void loadAndRevalidate(replace)
+  }, [loadAndRevalidate])
+
   // Open / switch conversation: reset every per-conversation fact, then load.
   // Every setter here is written so that resetting an ALREADY-empty hook is a
   // no-op — `setParticipants([])` with a fresh array would otherwise re-render
@@ -512,8 +585,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     setTypingUntil((previous) => (Object.keys(previous).length === 0 ? previous : {}))
     setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
+    accessAttempt.current = 0
+    cancelAccessRetry()
     void loadAndRevalidate(true)
-  }, [loadAndRevalidate])
+    // Switching conversation (or unmounting) abandons a retry in flight —
+    // otherwise a retry for the thread you just left writes over the one you
+    // are in.
+    return cancelAccessRetry
+  }, [loadAndRevalidate, cancelAccessRetry])
 
   const onEvent = useCallback(
     (event: CollaborationEvent) => {
@@ -755,6 +834,18 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   }, [conversationId, turnInFlight, currentUserId, directory])
 
   /**
+   * Stop believing in a turn because it actually ended.
+   *
+   * The `ended` event is published as a side effect of an assistant message
+   * being persisted, so a turn that dies without one — a cancelled turn, a
+   * failed server-side persist — never publishes it, and the expiry above was
+   * the only thing that ever cleared the banner. Meanwhile the observer's own
+   * spectated stream sees the terminal frame immediately and knows. This is how
+   * it says so.
+   */
+  const clearTurnInFlight = useCallback(() => setTurnInFlight(null), [])
+
+  /**
    * The reader's own role, same channel and same reason: a viewer's send is
    * rejected server-side, so the composer must be read-only BEFORE the attempt.
    * Cleared the moment the thread is no longer shared for this reader.
@@ -772,6 +863,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       connected,
       accessLost,
       turnInFlight,
+      clearTurnInFlight,
       typists,
       participants,
       authorOf,
@@ -789,6 +881,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       connected,
       accessLost,
       turnInFlight,
+      clearTurnInFlight,
       typists,
       participants,
       authorOf,
@@ -803,5 +896,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
   // The disabled case is a distinct, deliberately inert object: no state a caller
   // could act on, so a gated org cannot render a collaboration affordance.
-  return enabled && conversationId ? result : { ...INERT, authorOf, refresh, setEngagement }
+  return enabled && conversationId
+    ? result
+    : { ...INERT, authorOf, refresh, setEngagement, clearTurnInFlight }
 }

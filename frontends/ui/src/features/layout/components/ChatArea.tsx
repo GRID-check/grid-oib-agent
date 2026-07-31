@@ -135,6 +135,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     loading: sharedLoading,
     accessLost,
     turnInFlight,
+    clearTurnInFlight,
     typists,
     unreadAfterMessageId,
     lastArrival,
@@ -161,6 +162,17 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     conversationId: currentConversation?.id ?? null,
     enabled: isForeignTurn,
   })
+
+  // The `ended` event is published as a side effect of an assistant message being
+  // persisted, so a turn that dies without one — cancelled, or a server-side
+  // persist that failed — never publishes it, and the observer sat behind a
+  // locked composer and a spinner until the banner's backstop expired. The
+  // spectated stream sees the terminal frame the moment it happens; this is the
+  // wire from that fact to the banner.
+  const spectatedTurnOver = Boolean(spectatedTurn?.done || spectatedTurn?.failed)
+  useEffect(() => {
+    if (isForeignTurn && spectatedTurnOver) clearTurnInFlight()
+  }, [isForeignTurn, spectatedTurnOver, clearTurnInFlight])
 
   // One label, two renderings (the static banner and the live stream), so the
   // observer's headline cannot change wording just because frames started

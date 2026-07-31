@@ -512,6 +512,56 @@ describe('useSharedThread — reconciliation', () => {
     )
   })
 
+  test('a network failure on the access read is retried, not treated as "not shared"', async () => {
+    // A thrown fetch used to clear `shared`, which ALSO switched off the live
+    // subscription, the focus listener and the fallback poll — every one of
+    // which is gated on that flag. One dropped request therefore froze the
+    // thread for the rest of the session, silently, with no way back except a
+    // remount. It must retry instead.
+    vi.useFakeTimers()
+    try {
+      let accessReads = 0
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === `/api/conversations/${CONVERSATION_ID}`) {
+          accessReads += 1
+          if (accessReads === 1) throw new TypeError('network error')
+          return Response.json({
+            id: CONVERSATION_ID,
+            title: 'Brandschutz',
+            shared: true,
+            myRole: 'collaborator',
+            visibility: 'project',
+            myReadState: null,
+          })
+        }
+        if (url === `/api/conversations/${CONVERSATION_ID}/messages`)
+          return Response.json({ messages: [] })
+        if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+        throw new Error(`unexpected request: ${url}`)
+      })
+
+      const { result } = renderHook(() =>
+        useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+      )
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      // The failed read is not evidence about sharedness, so nothing is claimed.
+      expect(result.current.accessLost).toBe(false)
+      expect(accessReads).toBe(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_100)
+      })
+      expect(accessReads).toBeGreaterThan(1)
+      await vi.waitFor(() => expect(result.current.shared).toBe(true))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('access revoked between the access read and the history read is still flagged', async () => {
     // The race the initial load used to drop: the access read says "shared", the
     // history read that follows it is denied. Nothing in the first read can know
