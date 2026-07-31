@@ -7,6 +7,8 @@ import pytest
 from knowledge_layer.register import KnowledgeRetrievalConfig
 from knowledge_layer.register import knowledge_retrieval
 
+from aiq_agent.common.retrieval_settings import reset_retrieval_settings_cache
+
 
 class _FakeResult:
     def __init__(self, chunks):
@@ -33,6 +35,9 @@ def harness(monkeypatch):
     monkeypatch.setattr("aiq_agent.knowledge.factory.configure_summary_db", lambda url: None)
     monkeypatch.setattr("aiq_agent.knowledge.norm_store.configure_norm_store", lambda url: None)
     monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    # The resolver's TTL cache is process-global; start every case cold so an
+    # entry from another module cannot decide this test's counts.
+    reset_retrieval_settings_cache()
     return retriever
 
 
@@ -56,13 +61,13 @@ class TestKnowledgeSearchPlatformCounts:
         )
 
         async with knowledge_retrieval(_config(), MagicMock()) as info:
-            await info.single_fn(query="OIB Richtlinie 3 Brandschutz")
+            await info.single_fn(info.input_schema(query="OIB Richtlinie 3 Brandschutz"))
 
         assert harness.retrieve_calls == [{"collection": "oib_knowledge", "top_k": 11}]
 
     async def test_defaults_used_without_platform_value(self, harness):
         async with knowledge_retrieval(_config(), MagicMock()) as info:
-            await info.single_fn(query="OIB Richtlinie 3 Brandschutz")
+            await info.single_fn(info.input_schema(query="OIB Richtlinie 3 Brandschutz"))
 
         assert harness.retrieve_calls == [{"collection": "oib_knowledge", "top_k": 8}]
 
@@ -73,7 +78,7 @@ class TestKnowledgeSearchPlatformCounts:
         )
 
         async with knowledge_retrieval(_config(project_collections=["proj_abc"]), MagicMock()) as info:
-            await info.single_fn(query="Holzbau Decke")
+            await info.single_fn(info.input_schema(query="Holzbau Decke"))
 
         assert harness.retrieve_calls == [
             {"collection": "oib_knowledge", "top_k": 6},

@@ -164,7 +164,7 @@ class TestPlatformCounts:
         retriever, registry = self._make_env(monkeypatch)
 
         async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
-            output = await info.single_fn("Lageplan")
+            output = await info.single_fn(info.input_schema(query="Lageplan"))
 
         assert retriever.calls == [{"collection": "proj_test", "top_k": 6}]
         card = registry.add.call_args.args[0]
@@ -180,7 +180,7 @@ class TestPlatformCounts:
         retriever, registry = self._make_env(monkeypatch)
 
         async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
-            await info.single_fn("Lageplan")
+            await info.single_fn(info.input_schema(query="Lageplan"))
 
         assert retriever.calls == [{"collection": "proj_test", "top_k": 24}]
         card = registry.add.call_args.args[0]
