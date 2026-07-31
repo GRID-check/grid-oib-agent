@@ -48,7 +48,7 @@ import type { ChatMessage } from '@/features/chat/types'
 import type { MessagesSlice } from '@/features/chat/stores/messages-store'
 import { mapServerMessagesToChatMessages } from '@/features/chat/lib/server-message-mapper'
 import type { ConversationEngagement, Message } from '@/lib/db/schema'
-import { publishThreadSharing, publishTurnActor } from '@/shared/collaboration/thread-sharing'
+import { publishThreadRole, publishThreadSharing, publishTurnActor } from '@/shared/collaboration/thread-sharing'
 import { useLiveEvents } from './use-live-events'
 
 /**
@@ -62,6 +62,10 @@ const TURN_BANNER_MAX_AGE_MS = 5 * 60_000
 
 /** Debounce on the read receipt, so a burst of arrivals is one POST, not ten. */
 const MARK_READ_DEBOUNCE_MS = 1_200
+/** Retry spacing and budget for a failed read receipt, so a dropped POST does
+    not silently move the reader's unread anchor to a stale mark. */
+const MARK_READ_RETRY_MS = 8_000
+const MARK_READ_MAX_ATTEMPTS = 3
 
 /**
  * The access facts `GET /api/conversations/:id` adds to the conversation. Declared
@@ -117,6 +121,13 @@ export interface UseSharedThreadResult {
   loading: boolean
   /** Live-channel health, so a degraded hint is possible. */
   connected: boolean
+  /**
+   * True once a thread that WAS shared stops being reachable for this reader
+   * (access revoked while viewing). The fallback local-first copy then keeps
+   * rendering, and this flag is what lets the UI say why it stopped updating
+   * instead of silently freezing.
+   */
+  accessLost: boolean
   /** Non-null while the agent is answering somebody's question. */
   turnInFlight: SharedThreadTurn | null
   /** Everyone with access, for author names/avatars and the participant strip. */
@@ -155,6 +166,7 @@ const INERT: Omit<UseSharedThreadResult, 'refresh' | 'authorOf' | 'setEngagement
   myRole: null,
   loading: false,
   connected: false,
+  accessLost: false,
   turnInFlight: null,
   participants: [],
   unreadAfterMessageId: null,
@@ -204,6 +216,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     null
   )
   const [loading, setLoading] = useState(false)
+  const [accessLost, setAccessLost] = useState(false)
   const [participants, setParticipants] = useState<DirectoryPerson[]>([])
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
   const [unreadAfterMessageId, setUnreadAfterMessageId] = useState<string | null>(null)
@@ -305,19 +318,32 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
   /** Read the message history. Only ever called for a shared conversation. */
   const loadMessages = useCallback(
-    async (targetConversationId: string, current: number, replace: boolean) => {
+    async (
+      targetConversationId: string,
+      current: number,
+      replace: boolean
+    ): Promise<'ok' | 'denied' | 'failed'> => {
       try {
         const response = await fetch(
           `/api/conversations/${encodeURIComponent(targetConversationId)}/messages`
         )
-        if (!response.ok) return
+        if (!response.ok) {
+          // A denial on a thread believed shared is the revocation signal when
+          // no live event arrived — the caller re-reads the access fact.
+          if (response.status === 401 || response.status === 403 || response.status === 404) {
+            return 'denied'
+          }
+          return 'failed'
+        }
         const rows = (await response.json()) as Message[]
-        if (current !== seq.current) return
-        if (!Array.isArray(rows)) return
+        if (current !== seq.current) return 'failed'
+        if (!Array.isArray(rows)) return 'failed'
         applyMessages(targetConversationId, rows, replace)
+        return 'ok'
       } catch {
         // Keep what is on screen. The focus/poll fallbacks will try again, which
         // is precisely why a failed read is allowed to be silent here.
+        return 'failed'
       }
     },
     [applyMessages]
@@ -345,11 +371,17 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         if (!response.ok) {
           // A 403 from the feature gate or a 404 (no access) both mean "no shared
           // behaviour here" — fall back to the local-first path rather than
-          // retrying, and never surface an error over a working thread.
+          // retrying, and never surface an error over a working thread. One
+          // exception: a thread that WAS shared for this reader and now denies
+          // access has been revoked mid-view, and a silent fallback would leave
+          // them reading a frozen thread with a live-looking composer. That case
+          // is flagged so the UI can say what happened.
           if (current === seq.current) {
+            const wasShared = sharedRef.current
             sharedRef.current = false
             setShared(false)
             setLoading(false)
+            if (wasShared) setAccessLost(true)
             // Same fallback for the composer's socket: a thread with no shared
             // behaviour behaves like a private one, connect-on-mount included.
             publishThreadSharing(conversationId, false)
@@ -359,6 +391,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         const facts = (await response.json()) as ConversationAccessFacts
         if (current !== seq.current) return
 
+        // A successful access read heals any earlier revocation signal.
+        setAccessLost(false)
         const isShared = facts.shared === true
         sharedRef.current = isShared
         setShared(isShared)
@@ -430,6 +464,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     setUnreadAfterMessageId(null)
     setLastArrival(null)
     setTurnInFlight(null)
+    setAccessLost(false)
     setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
     void load(true)
@@ -441,10 +476,11 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
       if (event.kind === 'conversation.message') {
         if (event.conversationId !== conversationId) return
-        // Our own write, already on screen as an optimistic echo. Re-reading for
-        // it would be pure cost — and the next focus/poll refresh picks up the
-        // server's version of it anyway.
-        if (event.authorUserId && event.authorUserId === currentUserIdRef.current) return
+        // Refetch even when the author is us: on THIS device our write is an
+        // optimistic echo the store dedupes by id, but the same event also fires
+        // for a message we sent from a second device, which has no echo here.
+        // The id-keyed merge makes the refetch free in the first case and
+        // correct in the second.
         void loadMessages(conversationId, seq.current, false)
         return
       }
@@ -489,7 +525,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       void load(false)
       return
     }
-    if (conversationId) void loadMessages(conversationId, seq.current, false)
+    if (conversationId) {
+      void loadMessages(conversationId, seq.current, false).then((outcome) => {
+        // Access revoked without a live event (SSE down, tab focused): the
+        // messages read is the first thing that notices, so it escalates to the
+        // access re-read, which is what flags `accessLost`.
+        if (outcome === 'denied') void load(false)
+      })
+    }
   }, [conversationId, load, loadMessages])
 
   const { connected } = useLiveEvents({
@@ -499,6 +542,16 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     onEvent,
     onRefresh: refresh,
   })
+
+  // Turn-banner expiry as a TIMER, not only inside `refresh`: the disconnected
+  // poll that drives `refresh` does not run while the live channel is healthy,
+  // so a dropped `ended` event on a good connection would otherwise leave the
+  // banner up for the rest of the session.
+  useEffect(() => {
+    if (!turnInFlight) return
+    const timer = setTimeout(() => setTurnInFlight(null), TURN_BANNER_MAX_AGE_MS)
+    return () => clearTimeout(timer)
+  }, [turnInFlight])
 
   // ── Read receipt (spec CC-18) ───────────────────────────────────────────────
   // Debounced and keyed on the newest message id, so a burst of arrivals is ONE
@@ -511,18 +564,30 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     if (!newest || newest === reportedReadIdRef.current) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
-    markReadTimerRef.current = setTimeout(() => {
+    let attempts = 0
+    const report = () => {
       reportedReadIdRef.current = newest
       void fetch(`${base}/read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lastReadMessageId: newest }),
-      }).catch(() => {
-        // Reading is not a mutation the user is waiting on; the next arrival (or
-        // the next open) reports the mark again.
-        reportedReadIdRef.current = null
       })
-    }, MARK_READ_DEBOUNCE_MS)
+        .then((response) => {
+          if (!response.ok) throw new Error(`read receipt failed: ${response.status}`)
+        })
+        .catch(() => {
+          // Reading is not a mutation the user is waiting on, but a silently
+          // dropped mark IS visible (the next open anchors the unread divider
+          // at the stale server mark), so retry a few times before deferring to
+          // the next arrival or open.
+          reportedReadIdRef.current = null
+          attempts += 1
+          if (attempts < MARK_READ_MAX_ATTEMPTS) {
+            markReadTimerRef.current = setTimeout(report, MARK_READ_RETRY_MS)
+          }
+        })
+    }
+    markReadTimerRef.current = setTimeout(report, MARK_READ_DEBOUNCE_MS)
 
     return () => {
       if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
@@ -594,12 +659,23 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     )
   }, [conversationId, turnInFlight, currentUserId, directory])
 
+  /**
+   * The reader's own role, same channel and same reason: a viewer's send is
+   * rejected server-side, so the composer must be read-only BEFORE the attempt.
+   * Cleared the moment the thread is no longer shared for this reader.
+   */
+  useEffect(() => {
+    if (!conversationId) return
+    publishThreadRole(conversationId, shared ? myRole : null)
+  }, [conversationId, shared, myRole])
+
   const result = useMemo<UseSharedThreadResult>(
     () => ({
       shared,
       myRole,
       loading,
       connected,
+      accessLost,
       turnInFlight,
       participants,
       authorOf,
@@ -615,6 +691,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       myRole,
       loading,
       connected,
+      accessLost,
       turnInFlight,
       participants,
       authorOf,

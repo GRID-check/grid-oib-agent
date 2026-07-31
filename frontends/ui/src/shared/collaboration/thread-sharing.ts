@@ -47,6 +47,14 @@ const facts = new Map<string, 'private' | 'shared'>()
  * typing indicator and the Herleitung, so naming them would be noise.
  */
 const turnActors = new Map<string, string>()
+/**
+ * The reader's own role in a shared thread ('viewer' | 'collaborator' | 'owner'),
+ * published by the seam for the same reason as the turn actor: the server rejects
+ * a viewer's send, so the composer must be read-only before the attempt — a ghost
+ * bubble only the viewer sees is the alternative. Absent means "not shared for
+ * this reader, or not yet known" — both of which keep the composer enabled.
+ */
+const threadRoles = new Map<string, string>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -83,6 +91,18 @@ export function publishTurnActor(conversationId: string, name: string | null): v
   emit()
 }
 
+/**
+ * Record the reader's role in a shared thread, or clear it (private thread,
+ * access lost). Idempotent, so the seam's refreshes are free.
+ */
+export function publishThreadRole(conversationId: string, role: string | null): void {
+  const current = threadRoles.get(conversationId) ?? null
+  if (current === role) return
+  if (role === null) threadRoles.delete(conversationId)
+  else threadRoles.set(conversationId, role)
+  emit()
+}
+
 /** Imperative read, for code that is not in a render (effects, callbacks). */
 export function getThreadSharing(conversationId: string | null | undefined): ThreadSharing {
   if (!conversationId) return 'unknown'
@@ -94,9 +114,10 @@ export function getThreadSharing(conversationId: string | null | undefined): Thr
  * case's sharedness into the next.
  */
 export function resetThreadSharing(): void {
-  if (facts.size === 0 && turnActors.size === 0) return
+  if (facts.size === 0 && turnActors.size === 0 && threadRoles.size === 0) return
   facts.clear()
   turnActors.clear()
+  threadRoles.clear()
   emit()
 }
 
@@ -108,6 +129,19 @@ export function useTurnActorName(conversationId: string | null | undefined): str
   return useSyncExternalStore(
     subscribe,
     () => (conversationId ? (turnActors.get(conversationId) ?? null) : null),
+    () => null
+  )
+}
+
+/**
+ * The reader's own role in this conversation, or null when the thread is not
+ * shared for them (or the access read has not landed). The composer disables
+ * itself on `'viewer'`.
+ */
+export function useThreadRole(conversationId: string | null | undefined): string | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => (conversationId ? (threadRoles.get(conversationId) ?? null) : null),
     () => null
   )
 }
