@@ -22,6 +22,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { useConversationMemory } from '../hooks/use-conversation-memory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
@@ -228,6 +229,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   })))
   const reconnectToActiveJob = useChatStore((s) => s.reconnectToActiveJob)
   const { loadResearchPanelTab, isLoading, error } = useLoadJobData()
+  // Fetched here, not inside MemoryNotedChip: the merged footer's meta row only
+  // renders when it has something to hold, and "Piloti noted N" is one of those
+  // things — a memory-only turn (both chip flags off, no timestamp) must still
+  // show it rather than have the row unmount around it.
+  const { items: memoryItems } = useConversationMemory(projectId, conversationId)
 
   // Determine if we should show the action button
   // Show "View Progress" for active jobs, "View Report" for completed jobs
@@ -358,7 +364,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               reason={answerConfidenceReason}
             />
           )}
-          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+          <MemoryNotedChip items={memoryItems} />
         </div>
 
         {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
@@ -482,7 +488,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             withDivider={false}
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          {(showConfidenceChip || showAnswerFeedback || timestamp) && (
+          {(showConfidenceChip || showAnswerFeedback || timestamp || memoryItems.length > 0) && (
             <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
               {showConfidenceChip && (
                 <ConfidenceChip
@@ -491,7 +497,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   reason={answerConfidenceReason}
                 />
               )}
-              <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+              <MemoryNotedChip items={memoryItems} />
               <span className="flex-1" aria-hidden="true" />
               {showAnswerFeedback && messageId && (
                 <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
