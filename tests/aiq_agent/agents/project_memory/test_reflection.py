@@ -85,6 +85,73 @@ class TestSanitizeFindings:
         items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
         assert [i["content"] for i in items] == ["Budget capped at 2M."]
 
+    def test_keeps_a_correction_that_contradicts_a_digest_entry(self):
+        """A correction is NOT a restatement. The digest guard drops findings already
+        present in memory; a finding that negates one must still get through, or
+        memory can never be updated once a project fact changes."""
+        digest = (
+            "PROJECT_MEMORY v1\n"
+            '- [derived_fact | high | unverified] "Für Bergsteiggasse ist OIB-RL 2.1 nicht '
+            'anwendbar (betriebsanlage=false)"'
+        )
+        raw = [
+            {
+                "kind": "derived_fact",
+                "content": "Für Bergsteiggasse ist OIB-RL 2.1 anwendbar (betriebsanlage=true).",
+                "confidence": "high",
+            }
+        ]
+
+        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+
+        assert [i["content"] for i in items] == ["Für Bergsteiggasse ist OIB-RL 2.1 anwendbar (betriebsanlage=true)."]
+
+    def test_passes_through_a_supersedes_quote_present_in_the_digest(self):
+        """The correction has to RETIRE what it corrects, or the stale entry stays
+        live next to it and a later turn may read either one."""
+        digest = (
+            "PROJECT_MEMORY v1\n"
+            '- [derived_fact | high | unverified] "OIB-RL 2.1 ist für dieses Projekt nicht anwendbar"'
+        )
+        raw = [
+            {
+                "kind": "derived_fact",
+                "content": "OIB-RL 2.1 ist für dieses Projekt anwendbar (betriebsanlage=true).",
+                "confidence": "high",
+                "supersedes": "OIB-RL 2.1 ist für dieses Projekt nicht anwendbar",
+            }
+        ]
+
+        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+
+        assert items[0]["supersedes"] == "OIB-RL 2.1 ist für dieses Projekt nicht anwendbar"
+
+    def test_drops_a_supersedes_quote_that_is_not_in_the_digest(self):
+        """A supersede quote retires a real row, so a hallucinated or paraphrased
+        one must not reach the resolver — the finding is still recorded, it just
+        doesn't get to archive anything."""
+        digest = 'PROJECT_MEMORY v1\n- [decision | high | unverified] "Client chose a flat roof"'
+        raw = [
+            {
+                "kind": "constraint",
+                "content": "Budget capped at 2M.",
+                "confidence": "medium",
+                "supersedes": "An entry that was never in this project's memory",
+            }
+        ]
+
+        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+
+        assert [i["content"] for i in items] == ["Budget capped at 2M."]
+        assert "supersedes" not in items[0]
+
+    def test_no_supersedes_key_when_the_finding_replaces_nothing(self):
+        raw = [{"kind": "constraint", "content": "Budget capped at 2M.", "supersedes": ""}]
+
+        items = R._sanitize_findings(raw, has_project=True, memory_digest="(none)")
+
+        assert "supersedes" not in items[0]
+
     def test_caps_at_max_items(self):
         raw = [{"kind": "derived_fact", "content": f"Fact {i}."} for i in range(20)]
         items = R._sanitize_findings(raw, has_project=True)
@@ -92,6 +159,34 @@ class TestSanitizeFindings:
 
     def test_non_list_returns_empty(self):
         assert R._sanitize_findings({"findings": []}, has_project=True) == []
+
+
+class TestReflectionSystemPrompt:
+    """The stage sees existing memory and is told not to restate it. That rule alone
+    reads as "this topic is covered, skip it" when the turn actually OVERTURNS an
+    entry — so corrections have to be called out explicitly."""
+
+    def test_separates_restatements_from_corrections(self):
+        assert "RESTATEMENTS, not CORRECTIONS" in R.REFLECTION_SYSTEM_PROMPT
+
+    def test_instructs_to_record_corrections(self):
+        prompt = R.REFLECTION_SYSTEM_PROMPT
+        assert "CORRECTIONS ARE THE MOST VALUABLE THING YOU RECORD" in prompt
+        assert "no longer holds" in prompt
+        assert "Never skip a correction because its topic already appears in memory" in prompt
+
+    def test_instructs_to_retire_the_entry_it_corrects(self):
+        prompt = R.REFLECTION_SYSTEM_PROMPT
+        assert "RETIRE WHAT YOU CORRECT" in prompt
+        assert "VERBATIM into `supersedes`" in prompt
+        # Bounded on purpose: `supersedes` archives a row, so "related" is not enough.
+        assert "must leave `supersedes` as an empty string" in prompt
+
+    def test_supersedes_is_part_of_the_structured_output_contract(self):
+        """Strict json_schema output requires every field to be declared, or the
+        model has no sanctioned way to return a correction target."""
+        assert "supersedes" in R._ReflectionFinding.model_fields
+        assert "supersedes" in R.ReflectionOutput.model_json_schema()["$defs"]["_ReflectionFinding"]["required"]
 
 
 class TestSanitizeFindingsPii:
@@ -171,6 +266,58 @@ class TestRunMemoryReflection:
         assert recorded[0]["provenance_type"] == "distillation"
         # The existing memory digest and the answer both reach the prompt.
         assert llm.calls, "LLM should have been invoked"
+
+    @pytest.mark.asyncio
+    async def test_records_a_correction_with_its_supersede_target(self, monkeypatch):
+        """End to end: a turn that overturns an existing entry writes the corrected
+        finding AND tells the frontend which entry it replaces."""
+        recorded = []
+
+        def fake_insert(**kwargs):
+            recorded.append(kwargs)
+            return "id-1"
+
+        monkeypatch.setattr(R, "insert_memory_item", fake_insert)
+        digest = 'PROJECT_MEMORY v1\n- [derived_fact | high | unverified] "OIB-RL 2.1 ist nicht anwendbar"'
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "derived_fact", "content": "OIB-RL 2.1 ist anwendbar '
+            '(betriebsanlage=true).", "confidence": "high", '
+            '"supersedes": "OIB-RL 2.1 ist nicht anwendbar"}]}'
+        )
+
+        ids = await R.run_memory_reflection(
+            llm=llm,
+            query="Doch, es ist eine Betriebsanlage.",
+            answer="Dann ist OIB-RL 2.1 sehr wohl anwendbar.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=digest,
+        )
+
+        assert ids == ["id-1"]
+        assert recorded[0]["supersedes_content"] == "OIB-RL 2.1 ist nicht anwendbar"
+
+    @pytest.mark.asyncio
+    async def test_ordinary_finding_carries_no_supersede_target(self, monkeypatch):
+        recorded = []
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: (recorded.append(k), "id-1")[1])
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "Client chose a flat roof.", '
+            '"confidence": "high", "supersedes": ""}]}'
+        )
+
+        await R.run_memory_reflection(
+            llm=llm,
+            query="Flat or pitched?",
+            answer="You decided on a flat roof.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+
+        assert recorded[0]["supersedes_content"] is None
 
     @pytest.mark.asyncio
     async def test_requests_strict_json_schema_structured_output(self, monkeypatch):

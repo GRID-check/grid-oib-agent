@@ -292,7 +292,7 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). |
+| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired. |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
 | `POST` | `/api/internal/citation-events` | `x-grid-internal-token` | Backend citation-health emitter's per-turn batches into the `citation_events` ledger (`src/aiq_agent/common/citation_events.py`). One row per `(turnId, kind)`; conflicts are ignored so a retried flush cannot double-count. |
 | `POST` | `/api/internal/workflows/fire` | `x-grid-internal-token` | Scheduler-fired workflow run (`{ workflowId }`). Re-checks `enabled` + the org's workflows gate, then submits through the shared fire path (ADR-0023). |

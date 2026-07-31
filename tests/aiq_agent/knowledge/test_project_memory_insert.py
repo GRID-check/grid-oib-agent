@@ -32,6 +32,7 @@ def _patched_opener(monkeypatch, *, body=None, error=None):
             captured["url"] = request.full_url
             captured["headers"] = request.headers
             captured["method"] = request.get_method()
+            captured["payload"] = json.loads(request.data.decode("utf-8")) if request.data else None
             if error is not None:
                 raise error
             return _FakeResponse(json.dumps(body).encode("utf-8"))
@@ -59,6 +60,36 @@ def test_insert_returns_item_id(monkeypatch):
         )
     assert result == "item-1"
     assert captured["method"] == "POST"
+
+
+def test_insert_sends_the_supersedes_quote(monkeypatch):
+    """How the agent corrects memory instead of only appending to it: the entry
+    being replaced is quoted verbatim and the frontend retires it."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"item": {"id": "item-2"}}) as captured:
+        pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id=None,
+            kind="derived_fact",
+            content="OIB-RL 2.1 ist anwendbar.",
+            supersedes_content="  OIB-RL 2.1 ist nicht anwendbar  ",
+        )
+    assert captured["payload"]["supersedesContent"] == "OIB-RL 2.1 ist nicht anwendbar"
+
+
+def test_insert_omits_the_supersedes_quote_when_absent(monkeypatch):
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"item": {"id": "item-3"}}) as captured:
+        pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id=None,
+            kind="derived_fact",
+            content="x",
+            supersedes_content="   ",
+        )
+    assert "supersedesContent" not in captured["payload"]
 
 
 def test_insert_raises_without_token(monkeypatch):

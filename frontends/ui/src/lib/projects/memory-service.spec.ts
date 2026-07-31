@@ -40,7 +40,8 @@ vi.mock('@/lib/db/schema', () => ({
 }))
 
 import { getDb } from '@/lib/db'
-import { asDb } from '@/test-utils/db-fixtures'
+import type { ProjectMemoryItem } from '@/lib/db/schema'
+import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
 import {
   buildProjectMemoryDigest,
   createProjectMemoryItem,
@@ -448,6 +449,41 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
     return { set, values, insert, update, selectWhere }
   }
 
+  /**
+   * Same as `mockNearDupChain`, plus the transaction the supersede path runs
+   * (insert the replacement + retire the entry it replaces, atomically).
+   * `selectResults` feeds the selects in order: exact-dup, near-dup scan, and —
+   * when a `supersedesContent` quote has to be resolved — the resolve scan.
+   */
+  const mockSupersedeChain = (selectResults: unknown[][]) => {
+    const limit = vi.fn()
+    for (const rows of selectResults) limit.mockResolvedValueOnce(rows)
+    limit.mockResolvedValue([])
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const selectWhere = vi.fn().mockReturnValue({ orderBy })
+    const from = vi.fn().mockReturnValue({ where: selectWhere })
+
+    const updateReturning = vi.fn().mockResolvedValue([{ id: 'dup-1', confidence: 'high' }])
+    const set = vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning: updateReturning }) })
+    const update = vi.fn().mockReturnValue({ set })
+
+    const values = vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'new-1' }]) })
+    const insert = vi.fn().mockReturnValue({ values })
+
+    const txWhere = vi.fn().mockResolvedValue(undefined)
+    const txSet = vi.fn().mockReturnValue({ where: txWhere })
+    const tx = { insert, update: vi.fn().mockReturnValue({ set: txSet }) }
+    const transaction = vi.fn((run: (handle: typeof tx) => Promise<ProjectMemoryItem>) => run(tx))
+
+    vi.mocked(getDb).mockReturnValue(asDb({
+      select: vi.fn().mockReturnValue({ from }),
+      update,
+      insert,
+      transaction,
+    }))
+    return { set, values, insert, update, selectWhere, transaction, txSet, txWhere }
+  }
+
   it('merges a restated same-kind finding into the existing row instead of inserting', async () => {
     const { set, values } = mockNearDupChain([
       {
@@ -493,6 +529,173 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
     expect(result).toEqual({ id: 'new-1' })
     expect(values).toHaveBeenCalledTimes(1)
     expect(set).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The failure this guards is the nastiest one in the memory system: a
+   * correction is token-wise nearly identical to the claim it corrects
+   * ("... is not applicable" vs "... is applicable" score 0.91 Jaccard), so the
+   * paraphrase merge above fires — and a merge KEEPS THE OLD CONTENT, only
+   * bumping confidence and timestamps. The correction is dropped and the stale
+   * claim comes back looking freshly confirmed. Opposed polarity must therefore
+   * route to supersede, never to merge.
+   */
+  it('supersedes rather than merges when the finding negates the existing one', async () => {
+    const stale = makeMemoryItem({
+      id: 'stale-1',
+      kind: 'derived_fact',
+      content: 'For Bergsteiggasse, OIB-RL 2.1 is not applicable to this project',
+    })
+    const { values, set, transaction, txSet, txWhere } = mockSupersedeChain([[], [stale]])
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'For Bergsteiggasse, OIB-RL 2.1 is applicable to this project',
+      confidence: 'high',
+    })
+
+    // A new row, linked to what it replaces — NOT a refresh of the stale one.
+    expect(result).toEqual({ id: 'new-1' })
+    expect(set).not.toHaveBeenCalled()
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-1' }))
+    // The old entry is retired in the same transaction.
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(txSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
+    expect(txWhere).toHaveBeenCalledWith(and(eq('pm.id', 'stale-1'), eq('pm.status', 'active')))
+  })
+
+  /**
+   * Findings carry flag values verbatim, so a re-answered intake question can
+   * flip one token in an otherwise identical sentence — 0.89 Jaccard here, i.e.
+   * squarely inside the merge band. The flag is what changed the conclusion, so
+   * it counts as polarity too.
+   */
+  it('treats a flipped boolean flag as a contradiction, not a restatement', async () => {
+    const stale = makeMemoryItem({
+      id: 'stale-2',
+      kind: 'derived_fact',
+      content:
+        'For Bergsteiggasse (Wohnen + Buero, betriebsanlage=false) OIB-RL 2.1 is generally not ' +
+        'applicable and OIB-RL 2 remains decisive',
+    })
+    const { values, set } = mockSupersedeChain([[], [stale]])
+
+    await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content:
+        'For Bergsteiggasse (Wohnen + Buero, betriebsanlage=true) OIB-RL 2.1 is generally not ' +
+        'applicable and OIB-RL 2 remains decisive',
+    })
+
+    expect(set).not.toHaveBeenCalled()
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-2' }))
+  })
+
+  it('still merges a restatement that carries the same polarity', async () => {
+    const existing = makeMemoryItem({
+      id: 'dup-1',
+      kind: 'constraint',
+      content: 'The hall does not need a sprinkler system per the client',
+    })
+    const { values, set } = mockSupersedeChain([[], [existing]])
+
+    await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'constraint',
+      content: 'The hall does not need a sprinkler system per the client brief',
+      confidence: 'high',
+    })
+
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
+  })
+
+  /**
+   * The agent-driven path: reflection (and the `remember` tool) quote the entry
+   * they are overturning verbatim out of the digest they were shown. A rewrite
+   * that shares few tokens with the entry it replaces is invisible to the
+   * polarity check above, so the quote is what carries the intent.
+   */
+  it('retires the entry a caller quotes as superseded', async () => {
+    const stale = makeMemoryItem({
+      id: 'stale-3',
+      kind: 'constraint',
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
+    // exact-dup: none; near-dup scan: none (different kind); resolve scan: the entry.
+    const { values, txSet, txWhere } = mockSupersedeChain([[], [], [stale]])
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)' },
+    )
+
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-3' }))
+    expect(txSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
+    expect(txWhere).toHaveBeenCalledWith(and(eq('pm.id', 'stale-3'), eq('pm.status', 'active')))
+  })
+
+  it('ignores a quote that matches no active entry, and still records the finding', async () => {
+    const unrelated = makeMemoryItem({ id: 'other-1', content: 'The site is in Vienna district 17' })
+    const { values, transaction } = mockSupersedeChain([[], [], [unrelated]])
+
+    const result = await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'The garage is naturally ventilated.',
+      },
+      { supersedesContent: 'A note that was never written to this project at all' },
+    )
+
+    // Recorded as an ordinary new item — an unresolvable quote is never guessed at.
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledWith(expect.not.objectContaining({ supersedesId: expect.anything() }))
+    expect(transaction).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Design §3.2: never silently overwrite what a human curated. The correction
+   * is still recorded — it just doesn't get to retire the human's entry; both
+   * stay active for the user to resolve in the memory panel.
+   */
+  it.each([
+    ['pinned', makeMemoryItem({ id: 'human-1', pinned: true })],
+    ['user-confirmed', makeMemoryItem({ id: 'human-2', verification: 'user_confirmed' })],
+    ['user-authored', makeMemoryItem({ id: 'human-3', provenanceType: 'user' })],
+  ])('records the correction but will not retire a %s entry', async (_label, curated) => {
+    const { values, transaction } = mockSupersedeChain([[], [], [curated]])
+
+    const result = await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'A newer conclusion that overturns the curated note.',
+      },
+      { supersedesContent: curated.content },
+    )
+
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledWith(expect.not.objectContaining({ supersedesId: expect.anything() }))
+    expect(transaction).not.toHaveBeenCalled()
   })
 
   it('restricts the near-dup scan to active items of the same kind', async () => {

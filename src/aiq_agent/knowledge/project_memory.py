@@ -144,12 +144,21 @@ def insert_memory_item(
     confidence: str = "medium",
     conversation_id: str | None = None,
     provenance_type: str = "agent",
+    supersedes_content: str | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
     ``provenance_type`` distinguishes how the item was captured: ``agent`` for a
     deliberate in-turn ``remember`` call, ``distillation`` for the async
     post-answer reflection stage. It lets the UI label the two differently.
+
+    ``supersedes_content`` is the verbatim content of an existing entry this
+    finding makes obsolete, quoted back from the digest the caller was shown.
+    It is how the agent CORRECTS memory instead of only appending to it: the
+    frontend resolves the quote to an active item in the same scope, marks it
+    ``superseded`` and links the new row via ``supersedes_id``. An unresolvable
+    quote is ignored, and human-curated entries are never retired this way, so
+    passing it is always safe — the write still happens either way.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -182,6 +191,8 @@ def insert_memory_item(
         payload["organizationId"] = organization_id
     if conversation_id:
         payload["sourceConversationId"] = conversation_id
+    if supersedes_content and supersedes_content.strip():
+        payload["supersedesContent"] = supersedes_content.strip()[:2000]
 
     request = urllib.request.Request(
         f"{_internal_base_url()}/api/internal/memory",

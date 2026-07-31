@@ -92,8 +92,68 @@ const NEAR_DUP_CANDIDATE_LIMIT = 200
 /** Very short findings have jumpy token sets; keep them exact-dup only. */
 const NEAR_DUP_MIN_TOKENS = 3
 
+/**
+ * Negation particles whose presence flips what a finding asserts.
+ *
+ * A correction is token-wise almost identical to the claim it corrects:
+ * "OIB-RL 2.1 is not applicable" vs "OIB-RL 2.1 is applicable" score 0.91
+ * Jaccard, well over NEAR_DUP_JACCARD_THRESHOLD. Merging those keeps the OLD
+ * row and only refreshes its confidence and timestamps — so the correction is
+ * discarded and the stale claim survives looking freshly confirmed. Polarity is
+ * therefore checked BEFORE any merge: opposed polarity is a contradiction, and
+ * a contradiction supersedes instead of merging.
+ */
+const NEGATION_TOKENS = new Set([
+  // English
+  'not',
+  'no',
+  'never',
+  'without',
+  'cannot',
+  'none',
+  'neither',
+  'nor',
+  // German
+  'nicht',
+  'kein',
+  'keine',
+  'keinen',
+  'keinem',
+  'keiner',
+  'keines',
+  'nie',
+  'niemals',
+  'ohne',
+  'weder',
+])
+
+/**
+ * Boolean literals, which flip meaning the same way a negation does — findings
+ * routinely carry flag values verbatim ("betriebsanlage=false").
+ */
+const BOOLEAN_TOKENS = new Set(['true', 'false', 'yes', 'ja', 'nein', 'wahr', 'falsch'])
+
+function contentTokenList(content: string): string[] {
+  return normalizeContent(content).split(' ').filter(Boolean)
+}
+
 function contentTokens(content: string): Set<string> {
-  return new Set(normalizeContent(content).split(' ').filter(Boolean))
+  return new Set(contentTokenList(content))
+}
+
+/**
+ * A comparable summary of what a content asserts: negation PARITY (double
+ * negation reads positive again) plus the boolean literals it carries. Two
+ * contents whose signatures differ assert opposite things.
+ */
+function polaritySignature(content: string): string {
+  let negations = 0
+  const booleans: string[] = []
+  for (const token of contentTokenList(content)) {
+    if (NEGATION_TOKENS.has(token)) negations++
+    else if (BOOLEAN_TOKENS.has(token)) booleans.push(token)
+  }
+  return `${negations % 2}|${[...new Set(booleans)].sort().join(',')}`
 }
 
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
@@ -103,16 +163,27 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   return shared / (a.size + b.size - shared)
 }
 
+/** A near-identical existing item, and whether it asserts the OPPOSITE. */
+interface NearMatch {
+  item: ProjectMemoryItem
+  /** True when the two contents are near-identical but disagree in polarity. */
+  opposedPolarity: boolean
+}
+
 /**
  * Paraphrase-level dedup: finds an ACTIVE item in the same scope AND of the
  * same kind whose token set nearly matches the incoming content. Kind-exact
  * because a decision and a constraint about the same subject are different
  * findings even when they share most words. Pure JS over a bounded candidate
  * list — the §3.2 embed-based consolidation still supersedes this later.
+ *
+ * The match is classified rather than merged blindly: at this overlap the item
+ * is either the same fact restated (→ merge) or the same fact CORRECTED
+ * (→ supersede). See NEGATION_TOKENS.
  */
-async function findActiveNearDuplicate(
+async function findActiveNearMatch(
   values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>,
-): Promise<ProjectMemoryItem | null> {
+): Promise<NearMatch | null> {
   const incomingTokens = contentTokens(values.content)
   if (incomingTokens.size < NEAR_DUP_MIN_TOKENS) return null
   const db = getDb()
@@ -133,7 +204,66 @@ async function findActiveNearDuplicate(
       bestScore = score
     }
   }
+  if (!best) return null
+  return {
+    item: best,
+    opposedPolarity: polaritySignature(values.content) !== polaritySignature(best.content),
+  }
+}
+
+/**
+ * How closely a caller-named supersede target must match an existing item.
+ * The caller quotes the entry verbatim from the digest it was shown, so an
+ * exact normalized match is the common case; the fuzzy fallback tolerates
+ * re-wrapping and truncation but stays strict — resolving to the WRONG item
+ * would retire a finding that is still true.
+ */
+const SUPERSEDE_MATCH_THRESHOLD = 0.7
+
+/**
+ * Resolve the item a caller says its finding makes obsolete, from the verbatim
+ * content it quoted back. Kind-agnostic (a `derived_fact` may well overturn a
+ * `constraint`) and scope-exact. Returns null when nothing matches closely
+ * enough — an unresolvable quote is ignored, never guessed at.
+ */
+async function resolveSupersedeTarget(
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId'>,
+  supersedesContent: string,
+): Promise<ProjectMemoryItem | null> {
+  const db = getDb()
+  const candidates = await db
+    .select()
+    .from(projectMemory)
+    .where(and(memoryOwnerCondition(values), eq(projectMemory.status, 'active')))
+    .orderBy(desc(projectMemory.updatedAt))
+    .limit(NEAR_DUP_CANDIDATE_LIMIT)
+
+  const normalized = normalizeContent(supersedesContent)
+  if (!normalized) return null
+  const exact = candidates.find((candidate) => normalizeContent(candidate.content) === normalized)
+  if (exact) return exact
+
+  const wanted = contentTokens(supersedesContent)
+  if (wanted.size < NEAR_DUP_MIN_TOKENS) return null
+  let best: ProjectMemoryItem | null = null
+  let bestScore = SUPERSEDE_MATCH_THRESHOLD
+  for (const candidate of candidates) {
+    const score = jaccardSimilarity(wanted, contentTokens(candidate.content))
+    if (score >= bestScore) {
+      best = candidate
+      bestScore = score
+    }
+  }
   return best
+}
+
+/**
+ * Whether an agent may retire this item on its own. Design §3.2: never
+ * silently overwrite what a human curated — a pinned, user-confirmed, or
+ * user-authored item is only ever retired by a human, in the memory panel.
+ */
+function isAgentSupersedable(item: ProjectMemoryItem): boolean {
+  return !item.pinned && item.verification !== 'user_confirmed' && item.provenanceType !== 'user'
 }
 
 export async function listProjectMemory(
@@ -197,31 +327,95 @@ export async function listOrganizationMemory(
     .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
 }
 
-export async function createProjectMemoryItem(values: NewProjectMemoryItem): Promise<ProjectMemoryItem> {
+export interface CreateMemoryOptions {
+  /**
+   * Verbatim content of an existing entry the caller believes this finding
+   * makes obsolete, quoted back from the digest it was shown (the reflection
+   * stage and the `remember` tool both supply it). Resolved fuzzily against
+   * active items in the same scope; ignored when nothing matches closely
+   * enough or when the target is human-curated.
+   */
+  supersedesContent?: string | null
+}
+
+/** Refresh a duplicate in place: recency + the best-known confidence. */
+async function refreshDuplicate(
+  duplicate: ProjectMemoryItem,
+  values: NewProjectMemoryItem,
+): Promise<ProjectMemoryItem> {
+  const db = getDb()
+  const incoming = (values.confidence ?? 'medium') as ProjectMemoryConfidence
+  const best =
+    CONFIDENCE_RANK[incoming] > CONFIDENCE_RANK[duplicate.confidence] ? incoming : duplicate.confidence
+  const [updated] = await db
+    .update(projectMemory)
+    .set({ confidence: best, lastReferencedAt: new Date(), updatedAt: new Date() })
+    .where(eq(projectMemory.id, duplicate.id))
+    .returning()
+  return updated ?? duplicate
+}
+
+export async function createProjectMemoryItem(
+  values: NewProjectMemoryItem,
+  options: CreateMemoryOptions = {},
+): Promise<ProjectMemoryItem> {
   const db = getDb()
 
-  // Write-time de-duplication: a repeated finding refreshes the existing row
-  // (recency + best-known confidence) instead of adding a duplicate. Exact
-  // normalized equality first, then a same-kind paraphrase (token-overlap)
-  // pass so a restated finding merges too (design §3.2). This is the single
-  // writer, so an app-level check is race-safe enough here; a DB uniqueness
-  // constraint is a hardening follow-up (design §3.2).
-  const duplicate = (await findActiveDuplicate(values)) ?? (await findActiveNearDuplicate(values))
-  if (duplicate) {
-    const incoming = (values.confidence ?? 'medium') as ProjectMemoryConfidence
-    const best =
-      CONFIDENCE_RANK[incoming] > CONFIDENCE_RANK[duplicate.confidence] ? incoming : duplicate.confidence
-    const [updated] = await db
-      .update(projectMemory)
-      .set({ confidence: best, lastReferencedAt: new Date(), updatedAt: new Date() })
-      .where(eq(projectMemory.id, duplicate.id))
-      .returning()
-    return updated ?? duplicate
+  // Write-time consolidation (design §3.2). Three outcomes, in order:
+  //
+  //  1. Exact normalized duplicate → refresh in place, no new row.
+  //  2. Same-kind paraphrase → refresh in place IF it says the same thing;
+  //     if it says the OPPOSITE it is a correction, so it supersedes instead.
+  //  3. A caller-named supersede target → that entry is retired.
+  //
+  // Without (2)'s polarity split a correction scores as a duplicate and is
+  // silently dropped while the stale row gets a fresh timestamp — memory then
+  // can never be corrected, only appended to.
+  const exact = await findActiveDuplicate(values)
+  if (exact) return refreshDuplicate(exact, values)
+
+  const near = await findActiveNearMatch(values)
+  if (near && !near.opposedPolarity) return refreshDuplicate(near.item, values)
+
+  const candidate =
+    near?.item ??
+    (options.supersedesContent?.trim()
+      ? await resolveSupersedeTarget(values, options.supersedesContent)
+      : null)
+
+  let supersedeTarget: ProjectMemoryItem | null = null
+  if (candidate) {
+    if (isAgentSupersedable(candidate)) {
+      supersedeTarget = candidate
+    } else {
+      // Both stay active and the user resolves it in the memory panel — the
+      // new finding is still recorded, it just doesn't retire a human's entry.
+      console.warn(
+        `[memory] Not superseding human-curated item ${candidate.id} (pinned/user-confirmed/user-authored)`
+      )
+    }
   }
 
+  const insertValues: NewProjectMemoryItem = supersedeTarget
+    ? { ...values, supersedesId: supersedeTarget.id }
+    : values
+
   try {
-    const [item] = await db.insert(projectMemory).values(values).returning()
-    return item
+    if (!supersedeTarget) {
+      const [item] = await db.insert(projectMemory).values(insertValues).returning()
+      return item
+    }
+    // One transaction: the replacement must never land without the old entry
+    // being retired (two live contradictory entries), nor the retirement
+    // without the replacement (a fact silently disappearing from the digest).
+    return await db.transaction(async (tx) => {
+      const [item] = await tx.insert(projectMemory).values(insertValues).returning()
+      await tx
+        .update(projectMemory)
+        .set({ status: 'superseded', updatedAt: new Date() })
+        .where(and(eq(projectMemory.id, supersedeTarget.id), eq(projectMemory.status, 'active')))
+      return item
+    })
   } catch (err) {
     // Race backstop: a concurrent write may have inserted the same normalized
     // content between our check and this insert, tripping the partial unique
@@ -243,6 +437,7 @@ export async function createProjectMemoryItem(values: NewProjectMemoryItem): Pro
 export async function createProjectMemoryItemForProject(
   projectId: string,
   values: Omit<NewProjectMemoryItem, 'projectId' | 'organizationId' | 'scope'>,
+  options: CreateMemoryOptions = {},
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [project] = await db
@@ -252,12 +447,15 @@ export async function createProjectMemoryItemForProject(
     .limit(1)
   if (!project) return null
 
-  return createProjectMemoryItem({
-    ...values,
-    scope: 'project',
-    projectId,
-    organizationId: project.organizationId,
-  })
+  return createProjectMemoryItem(
+    {
+      ...values,
+      scope: 'project',
+      projectId,
+      organizationId: project.organizationId,
+    },
+    options,
+  )
 }
 
 /**
