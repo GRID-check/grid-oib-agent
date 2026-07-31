@@ -162,6 +162,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const { turn: spectatedTurn, live: spectatingLive } = useSpectatedTurn({
     conversationId: currentConversation?.id ?? null,
     enabled: isForeignTurn,
+    // Every frame restarts the staleness clock. This used to be derived from
+    // `answer.length` + `steps.length`, which stand still for the whole of a
+    // single long tool call (the reducer merges repeats into the step it
+    // already has) — so a six-minute `ris_search` looked like silence and the
+    // banner was torn down mid-turn.
+    onFrame: noteTurnActivity,
   })
 
   /*
@@ -182,18 +188,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     spectated answer stays on screen, which is the truthful thing to show.
 
     Any frame at all is evidence the turn is alive, which restarts the clock —
-    that is what lets the timeout be short without cutting off a long turn.
+    that is what lets the timeout be short without cutting off a long turn. That
+    wire is `onFrame` on the hook itself, below.
   */
   useEffect(() => {
     if (isForeignTurn && spectatedTurn?.failed) clearTurnInFlight()
   }, [isForeignTurn, spectatedTurn?.failed, clearTurnInFlight])
-
-  const spectatedProgress = spectatedTurn
-    ? `${spectatedTurn.answer.length}:${spectatedTurn.steps.length}`
-    : ''
-  useEffect(() => {
-    if (isForeignTurn && spectatedProgress) noteTurnActivity()
-  }, [isForeignTurn, spectatedProgress, noteTurnActivity])
 
   // One label, two renderings (the static banner and the live stream), so the
   // observer's headline cannot change wording just because frames started

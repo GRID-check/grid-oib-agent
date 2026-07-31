@@ -39,6 +39,20 @@ export interface UseSpectatedTurnOptions {
    * asker's own turn, for a private thread, and for a gated org.
    */
   enabled: boolean
+  /**
+   * Called once per frame delivered, as evidence that the turn is still alive.
+   *
+   * Deliberately NOT derived from `turn`: `applyNamedStep` merges a repeated
+   * frame into the step it already has, so a single long-running tool call moves
+   * neither `steps.length` nor `answer.length` for minutes at a time. A caller
+   * watching those two numbers therefore concludes a working turn has gone
+   * silent — which is the commonest deep-research shape, not an edge case.
+   *
+   * Called for the frame, not for the connection: a keepalive proves the socket
+   * is up, which is a different fact. Kept in a ref, so passing an unstable
+   * function does not tear the stream down.
+   */
+  onFrame?: () => void
 }
 
 export interface UseSpectatedTurnResult {
@@ -69,9 +83,14 @@ type LiveEvent =
   | { kind: 'revoked' }
 
 export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectatedTurnResult {
-  const { conversationId, enabled } = options
+  const { conversationId, enabled, onFrame } = options
   const [turn, setTurn] = useState<SpectatedTurnState | null>(null)
   const [live, setLive] = useState(false)
+
+  // Latest callback without it being an effect dependency: a caller that passes
+  // an inline arrow would otherwise close and reopen the stream on every render.
+  const onFrameRef = useRef(onFrame)
+  onFrameRef.current = onFrame
 
   /**
    * Frames the server has already sent us, so a reconnect that re-delivers one
@@ -154,6 +173,10 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
         }
 
         if (parsed.kind !== 'frame') return
+        // Before the dedupe, and before the reducer: a frame the reducer folds
+        // into an existing step, or drops as a replay, is still proof the turn
+        // is producing output.
+        onFrameRef.current?.()
         const seq = typeof parsed.seq === 'number' ? parsed.seq : 0
         // seq 0 means the publisher did not number this frame; take it rather than
         // dropping it, since the dedupe is an optimisation and a lost token is not.

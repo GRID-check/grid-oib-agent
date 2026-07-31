@@ -85,6 +85,12 @@ const TURN_BANNER_MAX_AGE_MS = 5 * 60_000
 /** How often the silence above is checked. Coarse, because the deadline is. */
 const TURN_SILENCE_POLL_MS = 30_000
 
+/**
+ * Floor between two access re-reads triggered by the window regaining focus on a
+ * thread that is not (yet) known to be shared. Alt-tabbing is not news.
+ */
+const UNSHARED_FOCUS_REREAD_MIN_MS = 30_000
+
 /** Debounce on the read receipt, so a burst of arrivals is one POST, not ten. */
 const MARK_READ_DEBOUNCE_MS = 1_200
 /** Retry spacing and budget for a failed read receipt, so a dropped POST does
@@ -759,7 +765,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     if (!sharedRef.current) {
       // Not shared (or not yet known): re-read the access fact only. This is what
       // makes "a colleague shared it with me while I had it open" converge without
-      // an event, and it is the ONLY request a private thread can cause.
+      // an event, and it is the ONLY request a private thread can cause. Its
+      // trigger is the effect below, NOT `useLiveEvents` — that one is gated on
+      // `shared`, so for years this branch could only be reached by a caller
+      // calling `refresh()` by hand.
       void loadAndRevalidate(false)
       return
     }
@@ -780,6 +789,42 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     onEvent,
     onRefresh: refresh,
   })
+
+  /*
+    The recovery route for a thread that is NOT known to be shared.
+
+    `useLiveEvents` owns the focus listener, the visibility listener and the
+    disconnected poll — and it is enabled on `shared`, which is exactly the flag
+    that is false or unknown here. So a thread whose access read never landed had
+    no route back at all once the short retry ladder was spent: no listener, no
+    poll, no subscription, and the ladder does not restart itself. The reader sat
+    on a thread the server considers shared, with none of the shared behaviour,
+    until they navigated away. The `!sharedRef.current` branch of `refresh` was
+    written for this and nothing could reach it.
+
+    One access read, on focus, at most every half minute, and no connection of any
+    kind — a private thread stays as quiet as NF-8 requires (this is the same
+    request the hook already makes on mount, not a new capability), and "a
+    colleague shared this while I had it open" finally converges.
+  */
+  useEffect(() => {
+    if (!enabled || shared || !conversationId) return
+    if (typeof window === 'undefined') return
+    let last = 0
+    const maybeReread = () => {
+      if (document.visibilityState === 'hidden') return
+      const now = Date.now()
+      if (now - last < UNSHARED_FOCUS_REREAD_MIN_MS) return
+      last = now
+      refresh()
+    }
+    window.addEventListener('focus', maybeReread)
+    document.addEventListener('visibilitychange', maybeReread)
+    return () => {
+      window.removeEventListener('focus', maybeReread)
+      document.removeEventListener('visibilitychange', maybeReread)
+    }
+  }, [enabled, shared, conversationId, refresh])
 
   // Turn-banner expiry as a TIMER, not only inside `refresh`: the disconnected
   // poll that drives `refresh` does not run while the live channel is healthy,

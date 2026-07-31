@@ -342,7 +342,15 @@ const FileChip: FC<{
   onOpen: (file: TrackedFile) => void
   onRemove: (id: string) => void
   onRetry: (id: string) => void
-}> = ({ file, onOpen, onRemove, onRetry }) => {
+  /**
+   * A reader who may not change this conversation (a viewer in a shared thread).
+   * Opening a file stays available — that is reading — but retry and remove are
+   * writes onto somebody else's thread and are not rendered at all. Disabled
+   * buttons would be the wrong shape here: there is no state in which this
+   * person could press them, so offering them greyed out is a promise.
+   */
+  readOnly?: boolean
+}> = ({ file, onOpen, onRemove, onRetry, readOnly = false }) => {
   const t = useTranslations('research')
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
@@ -390,7 +398,7 @@ const FileChip: FC<{
           <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
         </span>
       )}
-      {isFailed && (
+      {isFailed && !readOnly && (
         <button
           type="button"
           onClick={() => onRetry(file.id)}
@@ -401,15 +409,17 @@ const FileChip: FC<{
           <RotateCw className="size-3" aria-hidden="true" />
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => onRemove(file.id)}
-        aria-label={t('inputArea.removeFile', { name: file.fileName })}
-        title={t('inputArea.removeFile', { name: file.fileName })}
-        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
-      >
-        <X className="size-3" aria-hidden="true" />
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={() => onRemove(file.id)}
+          aria-label={t('inputArea.removeFile', { name: file.fileName })}
+          title={t('inputArea.removeFile', { name: file.fileName })}
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+        >
+          <X className="size-3" aria-hidden="true" />
+        </button>
+      )}
     </span>
   )
 }
@@ -1329,6 +1339,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 onOpen={setPreviewFile}
                 onRemove={deleteFile}
                 onRetry={retryFile}
+                readOnly={cannotContribute}
               />
             ))}
           </div>
@@ -1339,7 +1350,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             line), so this compact text link — under the chip strip, only when
             files exist — is the phone user's way to the browse/upload/delete
             list. Not another chip in the action row (keeps it un-bulked). */}
-        {attachedFilesCount > 0 && (
+        {/* Not for a viewer, for the same reason the desktop button beside the
+            paperclip is disabled for them: what it opens is the browse / upload /
+            per-file delete surface. This entry is `sm:hidden`, so leaving it out
+            of the gate left the whole write surface reachable on a phone while
+            the user guide said it was closed. */}
+        {attachedFilesCount > 0 && !cannotContribute && (
           <button
             type="button"
             onClick={() => setManageFilesOpen(true)}

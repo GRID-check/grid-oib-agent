@@ -425,6 +425,52 @@ describe('useSharedThread — reconciliation', () => {
     await waitFor(() => expect(storedMessages().map((m) => m.id)).toContain('m9'))
   })
 
+  test('a thread that is not shared yet still converges on focus', async () => {
+    // `useLiveEvents` owns the focus listener AND is gated on `shared`, so a
+    // thread that has not been shared for this reader had no listener, no poll
+    // and no subscription: once the short access-retry ladder was spent there
+    // was no route back at all. "Anna shared this while I had it open" could
+    // only be discovered by navigating away and returning.
+    routes.shared = false
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.shared).toBe(false)
+    // NF-8: the private path opened nothing.
+    expect(hub.subscribeToEvents).not.toHaveBeenCalled()
+
+    routes.shared = true
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() => expect(result.current.shared).toBe(true))
+    expect(getThreadSharing(CONVERSATION_ID)).toBe('shared')
+  })
+
+  test('does not re-read access on every alt-tab of a private thread', async () => {
+    // The listener above is on a floor, because focus fires constantly. NF-8 is
+    // "a user who never shares must not notice this feature exists", and a GET
+    // per window focus is very much noticeable.
+    routes.shared = false
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const before = requested().length
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      window.dispatchEvent(new Event('focus'))
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    // One read for the first focus, and nothing for the two that followed it.
+    await waitFor(() => expect(requested().length).toBe(before + 1))
+  })
+
   test('announces an arrival, but is silent about the history it opened with', async () => {
     routes.messages = [row('m1', { authorUserId: ANNA, createdAt: at(2) })]
 

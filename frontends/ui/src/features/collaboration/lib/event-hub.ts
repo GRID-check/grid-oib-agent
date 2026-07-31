@@ -116,10 +116,13 @@ export function subscribeToEvents(listener: Listener): () => void {
     if (listeners.size !== 0) return
     close()
     // Reset the ladder on a DELIBERATE teardown (never inside `close()` itself,
-    // which the error path calls before incrementing). Without this a tab that
-    // had ridden out one long outage began its next failure at the 30-second
-    // cap, so the first reconnect after a perfectly healthy period took half a
-    // minute.
+    // which the error path calls before incrementing) so the next subscriber
+    // starts from a clean count rather than inheriting the last one's.
+    //
+    // Belt and braces, not the load-bearing reset: `onopen` above already clears
+    // the count on every successful connect, so a tab that rode out a long
+    // outage and then ran healthy for an hour does NOT resume at the 30-second
+    // cap. An earlier version of this comment claimed it did. It did not.
     reconnectAttempts = 0
   }
 }

@@ -34,6 +34,16 @@ function frame(seq: number, payload: unknown) {
   return { kind: 'frame', seq, payload }
 }
 
+/** An intermediate frame for a named tool, which the reducer folds by name. */
+function namedStep(name: string, payload: string) {
+  return {
+    type: 'system_intermediate_message',
+    id: `step-${name}-${payload}`,
+    content: { name, payload },
+    status: 'in_progress',
+  }
+}
+
 function delta(text: string, parentId = 'turn-1') {
   return {
     type: 'system_response_message',
@@ -95,6 +105,29 @@ describe('useSpectatedTurn', () => {
     act(() => source.emit(frame(2, delta('ab drei Geschossen.'))))
 
     await waitFor(() => expect(result.current.turn?.answer).toBe('Ja, ab drei Geschossen.'))
+  })
+
+  it('reports every frame as activity, including ones that change nothing on screen', () => {
+    const onFrame = vi.fn()
+    const { result } = renderHook(() =>
+      useSpectatedTurn({ conversationId: 'conv_1', enabled: true, onFrame })
+    )
+    const source = FakeEventSource.instances[0]
+
+    // A single long-running tool call: the reducer merges each update into the
+    // step it already has, so `steps.length` and `answer.length` stand still.
+    // Watching those two numbers — which is what the caller used to do — reads
+    // this as minutes of silence and tears the turn banner down mid-turn.
+    act(() => source.emit(frame(1, namedStep('ris_search', 'Suche läuft'))))
+    act(() => source.emit(frame(2, namedStep('ris_search', 'noch immer'))))
+    act(() => source.emit(frame(3, namedStep('ris_search', 'und weiter'))))
+    // A replayed frame counts too: the socket delivered it, so the turn is alive.
+    act(() => source.emit(frame(3, namedStep('ris_search', 'und weiter'))))
+
+    // The premise: nothing a caller could derive from `turn` moved.
+    expect(result.current.turn?.steps).toHaveLength(1)
+    expect(result.current.turn?.answer).toBe('')
+    expect(onFrame).toHaveBeenCalledTimes(4)
   })
 
   it('closes and reports nothing when the server has no live channel', async () => {

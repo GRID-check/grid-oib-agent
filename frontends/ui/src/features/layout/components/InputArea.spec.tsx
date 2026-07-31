@@ -6,7 +6,11 @@ import type { ComposerPrefill } from '@/features/chat/types'
 import { InputArea } from './InputArea'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
-import { publishThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
+import {
+  publishThreadRole,
+  publishThreadSharing,
+  resetThreadSharing,
+} from '@/shared/collaboration/thread-sharing'
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
@@ -1496,8 +1500,7 @@ describe('InputArea', () => {
 
     test('says the message goes to the CHAT while the thread awaits a person, and how to reach Piloti', () => {
       mockAwaitingPending = [{ id: 'r-1' }]
-    publishThreadSharing('session-1', true)
-      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // A wait can only exist on a SHARED thread, and the composer reads the
       // awaiting state only there — a private thread must open no live channel.
       publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
@@ -1511,8 +1514,7 @@ describe('InputArea', () => {
     test('typing @Piloti while awaiting flips the line back to the agent', async () => {
       const user = userEvent.setup()
       mockAwaitingPending = [{ id: 'r-1' }]
-    publishThreadSharing('session-1', true)
-      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // A wait can only exist on a SHARED thread, and the composer reads the
       // awaiting state only there — a private thread must open no live channel.
       publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
@@ -1547,8 +1549,7 @@ describe('InputArea', () => {
       const user = userEvent.setup()
       // Even with a wait outstanding server-side, a gated org must see nothing.
       mockAwaitingPending = [{ id: 'r-1' }]
-    publishThreadSharing('session-1', true)
-      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // A wait can only exist on a SHARED thread, and the composer reads the
       // awaiting state only there — a private thread must open no live channel.
       publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated connectionMode="sse" />)
@@ -1583,8 +1584,7 @@ describe('InputArea', () => {
 
     test('a plain message while a person is awaited asks the server to rule', async () => {
       mockAwaitingPending = [{ id: 'r-1' }]
-    publishThreadSharing('session-1', true)
-      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // A wait can only exist on a SHARED thread, and the composer reads the
       // awaiting state only there — a private thread must open no live channel.
       publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
@@ -1606,8 +1606,7 @@ describe('InputArea', () => {
 
     test('a gated org never takes the ruled path, wait or no wait (NF-8)', async () => {
       mockAwaitingPending = [{ id: 'r-1' }]
-    publishThreadSharing('session-1', true)
-      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // A wait can only exist on a SHARED thread, and the composer reads the
       // awaiting state only there — a private thread must open no live channel.
       publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated connectionMode="sse" />)
@@ -1618,6 +1617,85 @@ describe('InputArea', () => {
       await user.click(screen.getByRole('button', { name: /send message/i }))
 
       expect(mockSendMessage).toHaveBeenCalledWith('Frage')
+    })
+  })
+
+  /**
+   * A viewer may read a shared thread and change nothing in it. The server
+   * enforces that; the composer's job is to stop offering controls whose only
+   * outcome is a rejection — and, for the file surface, controls whose outcome
+   * is NOT a rejection because they do not go through the message path at all.
+   */
+  describe('a viewer in a shared thread', () => {
+    const asViewer = () => {
+      publishThreadSharing('session-1', true)
+      publishThreadRole('session-1', 'viewer')
+    }
+
+    const withFiles = () => {
+      vi.mocked(useFileUpload).mockReturnValue({
+        uploadFiles: mockUploadFiles,
+        deleteFile: mockDeleteFile,
+        retryFile: mockRetryFile,
+        sessionFiles: [
+          { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
+          { id: 'file-2', fileName: 'kaputt.pdf', status: 'failed', collectionName: 'session-1' },
+        ],
+        isUploading: false,
+        error: null,
+        clearError: vi.fn(),
+      } as unknown as ReturnType<typeof useFileUpload>)
+    }
+
+    test('cannot attach, cannot change the Datengrundlage, cannot send', () => {
+      asViewer()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.getByRole('textbox')).toBeDisabled()
+      expect(screen.getByRole('button', { name: /attach files/i })).toBeDisabled()
+      // The scope chip and the deep-research pill persist onto the conversation,
+      // so they are writes too — `disabled` used to reach only the textarea and
+      // the send button.
+      expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
+    })
+
+    test('cannot remove or retry a file off somebody else’s thread', () => {
+      asViewer()
+      withFiles()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      // Reading stays: the chips are there and a finished file still opens.
+      expect(screen.getByText('doc.pdf')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /open .*doc\.pdf/i })).toBeInTheDocument()
+      // Writing does not.
+      expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+    })
+
+    test('has no route to the manage-files surface, on a phone either', () => {
+      asViewer()
+      withFiles()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      // The desktop button is disabled and the `sm:hidden` mobile text entry —
+      // which opens the same browse / upload / delete sheet — is not rendered.
+      expect(screen.getByRole('button', { name: /manage attached files/i })).toBeDisabled()
+      expect(screen.queryByRole('button', { name: /^manage \d/i })).not.toBeInTheDocument()
+    })
+
+    test('a collaborator keeps every one of those', () => {
+      publishThreadSharing('session-1', true)
+      publishThreadRole('session-1', 'collaborator')
+      withFiles()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.getByRole('textbox')).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: /attach files/i })).not.toBeDisabled()
+      expect(screen.getAllByRole('button', { name: /remove/i }).length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+      // Asserted here as well as by its absence above, so the viewer's version of
+      // this check cannot pass because the query itself stopped matching.
+      expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
     })
   })
 })

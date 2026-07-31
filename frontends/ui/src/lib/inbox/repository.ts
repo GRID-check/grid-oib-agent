@@ -82,7 +82,13 @@ export async function upsertInboxItems(values: NewInboxItem[]): Promise<InboxIte
         // for many rows — `excluded` is the row being inserted for THIS conflict.
         actorUserId: sql`excluded.actor_user_id`,
         anchorId: sql`excluded.anchor_id`,
-        payload: sql`excluded.payload`,
+        // MERGED, not replaced. The activity fan-out emits `{}` whenever the
+        // title lookup comes back null (a collapsed group, a thread renamed to
+        // nothing), and a straight `excluded.payload` let that one null wipe the
+        // subject off every recipient's row — permanently, because the row is
+        // never re-emitted with the title. `||` is jsonb concat: new keys win,
+        // absent keys are left alone.
+        payload: sql`${inboxItems.payload} || excluded.payload`,
         readAt: null,
         resolvedAt: null,
         archivedAt: null,
