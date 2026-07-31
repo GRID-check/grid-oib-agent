@@ -27,6 +27,16 @@
  * keys rejects events exactly like a missing one. Every entry below was read
  * off its call site — when you change a `metadata:` object there, change it
  * here in the same commit.
+ *
+ * **Registering metadata makes it REQUIRED, actor metadata included.** WorkOS
+ * generates the validator from what is registered here, and an entry with a
+ * `metadata` map yields `required: [action, actor, context, occurred_at,
+ * targets, metadata]` AND `actor: {required: [id, type, metadata]}` — the actor
+ * clause appearing even though nothing here declares an actor schema. That is
+ * why `recordAuditEvent` always sends both keys, `{}` when it has nothing to
+ * put in them (issues #274/#277); do not "simplify" either one back to
+ * `undefined`. Entries with no `metadata` map at all (`project.restored`) get
+ * the permissive generic schema instead, and accept the empty objects too.
  */
 
 /**
