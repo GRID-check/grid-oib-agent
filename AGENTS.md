@@ -51,7 +51,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | Infra typecheck (Pulumi + policy pack) | `task infra:types` |
 | Repo lint (pre-commit, all files) | `task lint:repo` |
 | UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
-| WorkOS authz drift | `cd frontends/ui && WORKOS_API_KEY=sk_… bun run provision:authz` (read-only; `-- --apply` reconciles) |
+| WorkOS authz drift | `WORKOS_API_KEY=sk_… task fe:provision:authz` (read-only; `-- --apply` reconciles) |
 
 `task --list` is the full, always-current list. CI calls these same tasks
 (`.github/workflows/ci.yml`), so `task verify` passing locally means the merge

@@ -128,6 +128,12 @@ tasks:
     cmds:
       - bun run screenshots -- {{.CLI_ARGS}}
 
+  fe:provision:authz:
+    desc: 'Check WorkOS authz drift against the catalog (add `-- --apply` to reconcile)'
+    dir: '{{.UI}}'
+    cmds:
+      - bun run provision:authz {{.CLI_ARGS}}
+
   fe:verify:
     desc: Everything CI runs for the frontend tier
     cmds:
