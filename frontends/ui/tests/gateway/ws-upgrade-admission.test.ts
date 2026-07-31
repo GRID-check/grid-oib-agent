@@ -253,7 +253,9 @@ describe('gateway WS-upgrade upstream failures', () => {
     const deadPort = await reservePort() // reserved, then released — nothing listens
     const port = await startGateway({ BACKEND_URL: `http://127.0.0.1:${deadPort}` })
 
-    await upgrade(port, 'session=dead-backend')
+    // Downgrading the severity must not change the outcome: the upgrade is
+    // still refused with a 502 so the client reconnects.
+    expect(await upgrade(port, 'session=dead-backend')).toBe(502)
 
     await waitForLog('[WS Proxy] Backend unreachable')
     expect(gatewayOutput).toContain('ECONNREFUSED')
