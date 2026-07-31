@@ -322,3 +322,37 @@ async def test_an_oversized_sample_list_is_refused_before_it_is_parsed(app):
         response = await client.post("/v1/feedback-digest", json=body)
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_reply_truncated_by_the_token_cap_is_recovered(app):
+    """Shared with the other JSON routes since issue #233: a digest cut off
+    mid-string is closed structurally rather than reported as malformed."""
+    content = (
+        '{"headline": "Die meisten Antworten wurden als hilfreich bewertet.", '
+        '"strengths": ["Energie-Fragen laufen gut."], '
+        '"concerns": ["Fluchtweg-Fragen werden ungenau'
+    )
+    mock_post = AsyncMock(return_value=_llm_response(content))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/feedback-digest", json=_BODY)
+
+    data = response.json()
+    assert data["error"] is None
+    assert data["headline"] == "Die meisten Antworten wurden als hilfreich bewertet."
+    assert data["strengths"] == ["Energie-Fragen laufen gut."]
+    assert data["concerns"] == ["Fluchtweg-Fragen werden ungenau"]
+
+
+@pytest.mark.asyncio
+async def test_request_constrains_the_endpoint_to_json(app):
+    """The digest asks the ENDPOINT for a JSON object, not only the model."""
+    mock_post = AsyncMock(return_value=_llm_response(_GOOD_REPLY))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            await client.post("/v1/feedback-digest", json=_BODY)
+
+    assert _sent_payload(mock_post)["response_format"] == {"type": "json_object"}

@@ -18,7 +18,7 @@
  *   - a solo thread produces NO events and NO notifications (NF-8).
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 
@@ -93,6 +93,7 @@ import {
   insertMessages,
   listMessagesForConversation,
   listVisibleConversations,
+  updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
 } from './repository'
@@ -100,6 +101,7 @@ import {
   createConversation,
   createConversationMessages,
   deleteConversation,
+  generateConversationTitle,
   getConversation,
   listConversationMessages,
   listConversations,
@@ -837,5 +839,81 @@ describe('read state (spec CC-18, IB-9)', () => {
 
     await expect(markConversationRead(session, CONVERSATION_ID)).rejects.toThrow(NotFoundError)
     expect(upsertConversationRead).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Naming a conversation is cosmetic, and its log severity has to say so
+ * (issue #233). The backend answers HTTP 200 for every LLM outcome it knows how
+ * to degrade from, so an `error` code on a 200 is a handled degradation: the
+ * chat keeps the provisional first-message name and nothing a user can see is
+ * broken. Logging that at ERROR made err2issue file a GitHub issue every time a
+ * model phrased its JSON slightly differently. A non-2xx is the opposite case —
+ * the endpoint broke its own always-200 contract — and stays at ERROR.
+ */
+describe('generating a conversation title — severity of a handled failure', () => {
+  const titleInput = { messages: [{ role: 'user' as const, content: 'Brandschutz im Stiegenhaus?' }] }
+
+  function backendReturns(body: unknown, ok = true, status = 200): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok,
+        status,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      })),
+    )
+  }
+
+  beforeEach(() => {
+    // The namer requires `owner`, which in practice is the person whose opening
+    // exchange is being named.
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(updateConversationMetaInOrg).mockResolvedValue({} as never)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('logs a handled generation failure as a WARNING, never an error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    backendReturns({ title: '', tags: [], error: 'llm_response_malformed' })
+
+    const result = await generateConversationTitle(session, CONVERSATION_ID, titleInput)
+
+    expect(result).toEqual({ title: '', tags: [], error: 'llm_response_malformed' })
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('[GenerateConversationTitle]'),
+      'llm_response_malformed',
+    )
+    // An empty title must never clobber the provisional first-message name.
+    expect(updateConversationMetaInOrg).not.toHaveBeenCalled()
+  })
+
+  it('keeps ERROR for a non-2xx, which breaks the always-200 contract', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    backendReturns({ detail: 'boom' }, false, 500)
+
+    const result = await generateConversationTitle(session, CONVERSATION_ID, titleInput)
+
+    expect(result).toEqual({ title: '', tags: [], error: 'backend_error' })
+    expect(error).toHaveBeenCalled()
+  })
+
+  it('persists a generated title with only known tag keys', async () => {
+    backendReturns({ title: 'Brandschutz Stiegenhaus', tags: ['brandschutz', 'nicht-existent'] })
+
+    const result = await generateConversationTitle(session, CONVERSATION_ID, titleInput)
+
+    expect(result).toEqual({ title: 'Brandschutz Stiegenhaus', tags: ['brandschutz'] })
+    expect(updateConversationMetaInOrg).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1', {
+      title: 'Brandschutz Stiegenhaus',
+      tags: ['brandschutz'],
+    })
   })
 })
