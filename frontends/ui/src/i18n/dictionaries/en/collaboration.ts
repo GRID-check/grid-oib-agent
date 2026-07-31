@@ -357,7 +357,15 @@ export const collaboration = {
     turnInFlightYou: 'Piloti is answering…',
     /** A colleague is composing. Human vocabulary, not the agent's (TypingPresence). */
     typing: '{names} is writing…',
+    /**
+     * Exactly two named typists. Without this the renderer picked `typing` — the
+     * commonest multi-typist case read "Anna Berger, Tobias Kern is writing…" in
+     * English and "… schreibt…" in German.
+     */
+    typingPair: '{names} are writing…',
     typingMany: '{names} and {count} others are writing…',
+    /** `typingMany` with an overflow of exactly one — reachable at three typists. */
+    typingManyOne: '{names} and 1 other are writing…',
     /** Joins two names in the typing line. */
     typingNameSeparator: ', ',
     /** The agent put a question to the asker; an observer is told, not offered it. */

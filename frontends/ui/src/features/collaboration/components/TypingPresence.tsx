@@ -12,9 +12,10 @@
  *
  * Renders nothing for an empty list, so a caller can mount it unconditionally.
  *
- * The announcement is `polite` and carries only the names, not "is typing": a
- * screen-reader user who hears somebody named every three seconds learns nothing
- * and loses the thread they were reading. The visible dots carry the verb.
+ * The announcement is `polite` and lives in one place: an `sr-only` region. The
+ * visible label is `aria-hidden`, because the same sentence in the tree twice is
+ * read twice — and a screen-reader user who hears the same names announced every
+ * few seconds loses the thread they were reading.
  */
 
 import type { FC } from 'react'
@@ -39,10 +40,15 @@ export const TypingPresence: FC<TypingPresenceProps> = ({ typists, className }) 
   const named = typists.slice(0, MAX_NAMED)
   const overflow = typists.length - named.length
   const names = named.map((person) => person.name).join(t('thread.typingNameSeparator'))
+  // Four shapes, because this i18n layer has interpolation but no plural rules and
+  // BOTH counts inflect: the named list ("Anna schreibt" vs "Anna, Tobias
+  // schreiben") and the overflow ("eine weitere Person" vs "{count} weitere
+  // Personen"). Picking on `overflow > 0` alone put two typists in the singular,
+  // which is the commonest multi-typist case there is.
   const label =
     overflow > 0
-      ? t('thread.typingMany', { names, count: overflow })
-      : t('thread.typing', { names })
+      ? t(overflow === 1 ? 'thread.typingManyOne' : 'thread.typingMany', { names, count: overflow })
+      : t(named.length > 1 ? 'thread.typingPair' : 'thread.typing', { names })
 
   return (
     <div
@@ -54,7 +60,12 @@ export const TypingPresence: FC<TypingPresenceProps> = ({ typists, className }) 
           <PersonAvatar key={person.userId} person={person} size="sm" />
         ))}
       </div>
-      <span className="text-muted-foreground text-xs">{label}</span>
+      {/* aria-hidden: the live region below is the single announcement. Without
+      this the identical sentence sits twice in the accessibility tree and a screen
+      reader reads the names, then reads them again. */}
+      <span className="text-muted-foreground text-xs" aria-hidden="true">
+        {label}
+      </span>
       <span className="flex items-center gap-0.5" aria-hidden="true">
         {[0, 1, 2].map((index) => (
           <span

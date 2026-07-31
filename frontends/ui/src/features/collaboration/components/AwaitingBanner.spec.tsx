@@ -56,6 +56,45 @@ describe('AwaitingBanner — the silence is explained (MN-8)', () => {
     expect(screen.getByText('Ist das Atrium ein eigener Abschnitt?')).toBeInTheDocument()
   })
 
+  test('keeps the question visible when several people are awaited', () => {
+    // It used to render only for a single request, so the moment a second person
+    // was asked, what they were asked vanished from the banner entirely.
+    render(
+      <AwaitingBanner
+        awaiting={state([
+          request({ id: 'r-1', note: 'Ist das Atrium ein eigener Abschnitt?' }),
+          request({
+            id: 'r-2',
+            person: person('u-tobias', 'Tobias Kern'),
+            note: 'Gilt hier OIB 2 oder 2.1?',
+          }),
+        ])}
+        onRelease={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Ist das Atrium ein eigener Abschnitt?')).toBeInTheDocument()
+    expect(screen.getByText('Gilt hier OIB 2 oder 2.1?')).toBeInTheDocument()
+  })
+
+  test('attributes each wait to the person who asked it, not to the oldest asker', () => {
+    render(
+      <AwaitingBanner
+        awaiting={state([
+          request({ id: 'r-1', requestedBy: person('u-matthias', 'Matthias Bigl') }),
+          request({
+            id: 'r-2',
+            person: person('u-tobias', 'Tobias Kern'),
+            requestedBy: person('u-lena', 'Lena Fuchs'),
+          }),
+        ])}
+        onRelease={vi.fn()}
+      />,
+    )
+    const rows = screen.getAllByTestId('awaiting-person')
+    expect(within(rows[0]).getByText('Asked by Matthias Bigl')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('Asked by Lena Fuchs')).toBeInTheDocument()
+  })
+
   test('carries an avatar for each awaited person', () => {
     render(
       <AwaitingBanner
