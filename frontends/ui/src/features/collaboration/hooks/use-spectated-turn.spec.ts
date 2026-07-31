@@ -160,3 +160,62 @@ describe('useSpectatedTurn', () => {
     expect(result.current.live).toBe(false)
   })
 })
+
+describe('reconnect policy', () => {
+  beforeEach(() => {
+    FakeEventSource.instances = []
+    vi.stubGlobal('EventSource', FakeEventSource)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('backs off, and gives up rather than hammering the route', () => {
+    // The server sends `retry: 2000`, so leaving reconnection to the browser
+    // means every observer of every running turn retries in lockstep twice a
+    // second — each attempt costing an authorization read and a fresh cache
+    // subscriber. The hook takes control instead.
+    vi.useFakeTimers()
+    try {
+      renderHook(() => useSpectatedTurn({ conversationId: 'conv_1', enabled: true }))
+      expect(FakeEventSource.instances).toHaveLength(1)
+
+      // Six failures, each given far more time than any backoff step needs.
+      for (let round = 0; round < 6; round += 1) {
+        const live = FakeEventSource.instances.at(-1)!
+        act(() => live.onerror?.())
+        expect(live.closed).toBe(true)
+        act(() => {
+          vi.advanceTimersByTime(60_000)
+        })
+      }
+
+      // One initial connection plus a bounded number of retries — never one per
+      // two seconds, and never unbounded.
+      expect(FakeEventSource.instances.length).toBeGreaterThan(1)
+      expect(FakeEventSource.instances.length).toBeLessThanOrEqual(5)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not reconnect after the effect is torn down', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderHook(() =>
+        useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
+      )
+      const live = FakeEventSource.instances.at(-1)!
+      act(() => live.onerror?.())
+      unmount()
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      // The pending retry must not open a stream for a thread nobody is watching.
+      expect(FakeEventSource.instances).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
