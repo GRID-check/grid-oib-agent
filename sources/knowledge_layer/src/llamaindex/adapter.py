@@ -172,8 +172,11 @@ MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
 # @required false
 # Per-request timeout for VLM captioning calls. The OpenAI SDK default (~600s,
 # with 2 built-in retries) lets one hung provider pin an enrichment worker for
-# up to ~20 minutes; 180s with a single retry bounds that to ~6 minutes.
-VLM_REQUEST_TIMEOUT_SECONDS = int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180"))
+# up to ~20 minutes; 180s with a single retry bounds one hung caption call to
+# ~6 minutes. Clamped like the sibling knobs: a misconfigured 0 or negative
+# value would fail every VLM request immediately and silently disable
+# captioning altogether.
+VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180")))
 
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer

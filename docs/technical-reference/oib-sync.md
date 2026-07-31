@@ -94,6 +94,28 @@ Only files that reach `FileStatus.SUCCESS` have their hash recorded. Failures an
 
 ---
 
+## Concurrency
+
+The admin route's executor runs more than one worker, so a corpus `sync()`, a
+ZIP member's `ingest_single()` and a delete can be in flight at the same time.
+Four locks keep that safe:
+
+| Lock | Protects |
+|------|----------|
+| `_SYNC_LOCK` | Single-flight `sync()` — a second sync waits instead of ingesting the same work list twice |
+| `_file_lock(basename)` | All corpus mutations for **one** document: `ingest_single`, `remove_uploaded_document`, `exclude_document`, and each file of a `sync()` (held from its delete/upload until its terminal status). Different documents stay fully concurrent |
+| `_REGISTRY_LOCK` | Registry read-modify-write |
+| `_EXCLUDED_LOCK` | Exclusion-set read-modify-write (`exclude`/`unexclude`/prune) |
+
+Every registry and exclusion write **reloads the file inside its lock** and
+merges. The lock alone would only serialize the saves: `sync()` loads the
+registry once and then runs for minutes, so saving that snapshot would drop
+hashes a concurrent ingestion recorded in the meantime (a lost hash means a
+wasteful re-ingest next run; a lost exclusion means a removed document coming
+back).
+
+---
+
 ## Collection Management
 
 `_ensure_collection(ingestor)`:
