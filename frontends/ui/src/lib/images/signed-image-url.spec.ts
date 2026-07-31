@@ -9,6 +9,7 @@ import {
 const ORG = 'org_01TEST'
 const DOC = 'doc-1'
 const NOW = Date.UTC(2026, 0, 15, 12, 34, 56)
+const DEFAULT_TEST_SECRET = 'test-signing-secret' // pragma: allowlist secret
 
 /** The query of a minted URL, ready to hand to the verifier. */
 function paramsOf(url: string): URLSearchParams {
@@ -20,7 +21,7 @@ describe('signed document image URLs', () => {
     vi.unstubAllEnvs()
   })
 
-  function withSecret(secret = 'test-signing-secret') {
+  function withSecret(secret = DEFAULT_TEST_SECRET) {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', secret)
   }
 
