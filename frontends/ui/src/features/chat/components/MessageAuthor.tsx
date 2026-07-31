@@ -34,6 +34,7 @@
 import { type FC } from 'react'
 import Image from 'next/image'
 import { avatarColorStyle, personInitials } from '@/components/ui/avatar-identity'
+import { isOptimizableAvatarUrl } from '@/lib/images/avatar-hosts'
 import { formatTime } from '@/shared/utils/format-time'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -99,20 +100,22 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
       data-testid="message-author"
     >
       {avatarUrl ? (
-        // The disc is a fixed 22px, so the size is declared rather than filled:
-        // the box is reserved before the photo arrives, and the image lazy-loads
-        // and decodes off the main thread the way next/image does everywhere.
-        // `unoptimized` is load-bearing — directory avatars come from whichever
-        // host the customer's IdP serves them from, and the optimizer only
-        // fetches hosts named in `images.remotePatterns`, so routing them
-        // through it would fail on every host we did not predict. Drop the prop
-        // the day those hosts are pinned; nothing else here has to change.
+        // The disc is a fixed 22px, so the size is declared rather than filled
+        // and the box is reserved before the photo arrives. Optimizing it means
+        // the optimizer fetches the avatar server-side and hands the browser a
+        // 22px WebP instead of whatever the IdP stored — which also means the
+        // browser never contacts the avatar CDN, so rendering a thread stops
+        // leaking every reader's IP to a third party.
+        //
+        // `unoptimized` stays as the fallback for a host we have not
+        // allow-listed (see `avatar-hosts.ts`): the optimizer refuses those, so
+        // an unrecognised host renders straight from source rather than broken.
         <Image
           src={avatarUrl}
           alt=""
           width={22}
           height={22}
-          unoptimized
+          unoptimized={!isOptimizableAvatarUrl(avatarUrl)}
           aria-hidden="true"
           className={cn(AVATAR_CLASS, 'object-cover')}
           data-testid="message-author-avatar"

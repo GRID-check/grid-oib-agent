@@ -42,6 +42,16 @@ export interface PdfViewerDialogProps {
    */
   isImage?: boolean
   /**
+   * Skip the Next image optimizer for `isImage` mode. Defaults to TRUE, which
+   * is the safe answer for any caller that has not thought about it: `src` here
+   * can be a presigned object-store URL on an un-allow-listed host, or this
+   * app's own cookie-authenticated corpus route — the optimizer fetches with a
+   * headerless internal request and would fail on both. Pass `false` only for a
+   * src the optimizer can actually serve, i.e. the same-origin signed image
+   * path from `/api/documents/[id]/preview`.
+   */
+  imageUnoptimized?: boolean
+  /**
    * Optional chip rendered inline before the title (WS-9 source preview:
    * the provenance-tinted document-type chip). Purely additive — omitted,
    * the header renders exactly as before.
@@ -61,7 +71,7 @@ export interface PdfViewerDialogProps {
   aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, headerChip, children, aside }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, headerChip, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   const src = page && !isImage ? `${baseSrc}#page=${page}` : baseSrc
@@ -110,17 +120,14 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
                     `w-auto h-auto` hands sizing back to CSS and keeps the image
                     at its natural size in the scroll frame, exactly as before.
                     The `w-auto` is not decoration — drop it and the browser
-                    sizes the image to the width="0" attribute. `unoptimized`
-                    because `src` is either this app's cookie-authenticated
-                    document route, which the optimizer would fetch server-side
-                    without the reader's session and take a 401 on, or a
-                    presigned storage link on a per-environment host. */}
+                    sizes the image to the width="0" attribute. */}
                 <Image
                   src={src}
                   alt={title ?? fileName}
                   width={0}
                   height={0}
-                  unoptimized
+                  sizes="95vw"
+                  unoptimized={imageUnoptimized}
                   className="mx-auto h-auto w-auto max-w-full"
                 />
               </div>

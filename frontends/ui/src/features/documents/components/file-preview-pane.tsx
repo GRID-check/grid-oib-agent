@@ -72,6 +72,13 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  /**
+   * The same-origin signed path for the same bytes, when the optimizer can
+   * serve them. Separate from `previewUrl` rather than replacing it: the PDF
+   * iframe and the "open in new tab" link want the object-store URL, and a
+   * format the optimizer rejects still has to render.
+   */
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -112,11 +119,16 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
     fetch(`/api/documents/${file.id}/preview`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data?.url) setPreviewUrl(data.url)
-        else setPreviewFailed(true)
+        if (data?.url) {
+          setPreviewUrl(data.url)
+          // Absent for PDFs and for image formats the optimizer cannot process;
+          // the renderer falls back to `url` unoptimized in both cases.
+          setPreviewImageUrl(typeof data.imageUrl === 'string' ? data.imageUrl : null)
+        } else setPreviewFailed(true)
       })
       .catch(() => {
         setPreviewUrl(null)
+        setPreviewImageUrl(null)
         setPreviewFailed(true)
       })
       .finally(() => setIsLoading(false))
@@ -263,8 +275,13 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           open={isLargePreviewOpen}
           onOpenChange={setIsLargePreviewOpen}
           fileName={file.filename}
-          src={previewUrl}
+          // The enlarged view is the other place a full-size original used to
+          // cross the wire whole, so it gets the optimizable path too when there
+          // is one. PDFs keep the object-store URL — the iframe wants the real
+          // document, not an image.
+          src={(isImage ? previewImageUrl : null) ?? previewUrl}
           isImage={isImage}
+          imageUnoptimized={!previewImageUrl}
         />
       )}
 
@@ -293,28 +310,35 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             file.contentType === 'application/pdf' ? (
               <iframe src={previewUrl} className="h-full w-full rounded border bg-background" title={file.filename} />
             ) : (
-              // A presigned preview URL carries no intrinsic dimensions, and the
-              // well it sits in is only bounded on mobile (`h-[50dvh]`) — at
-              // `@2xl` it grows with its content, where a `fill` child would
-              // collapse the column to nothing. So sizing stays with CSS: 0/0
+              // This is where the bytes actually were: the preview URL serves
+              // the FULL-SIZE original into a column a few hundred pixels wide,
+              // so a 4000px scan used to cross the wire whole. `previewImageUrl`
+              // is the same-origin signed path the optimizer can resize; it is
+              // null for the formats the optimizer would choke on (SVG and the
+              // exotic ones), which then fall back to the object-store URL
+              // unoptimized — the old behaviour, kept as the safe default.
+              //
+              // Sizing stays with CSS either way: the well is only bounded on
+              // mobile (`h-[50dvh]`) and grows with its content at `@2xl`, where
+              // a `fill` child would collapse the column to nothing. Hence 0/0
               // for the ratio next/image cannot know, plus an explicit `w-auto`
-              // so the browser sizes to the image and not to the width="0"
-              // attribute. `unoptimized` because the link is signed, short-lived
-              // and points at whichever object store the environment runs —
-              // nothing the optimizer can allow-list or usefully cache.
+              // so the browser sizes to the image and not to the width="0".
               <Image
-                src={previewUrl}
+                src={previewImageUrl ?? previewUrl}
                 alt={file.filename}
                 width={0}
                 height={0}
-                unoptimized
-                // A presigned link can be expired or unreachable by the time the
-                // browser fetches it, and the fetch above only proves the BFF
-                // handed one out. Fall back to the same failed state the fetch
-                // path uses so the user gets the caption and the retry button
-                // instead of a broken-image glyph.
+                sizes="(min-width: 1536px) 720px, 90vw"
+                unoptimized={!previewImageUrl}
+                // Either URL can be expired or unreachable by the time the
+                // browser fetches the bytes — a presigned link on its own TTL,
+                // or a signed image path whose window has rolled over — and the
+                // fetch above only proves the BFF handed one out. Fall back to
+                // the same failed state the fetch path uses so the user gets the
+                // caption and the retry button instead of a broken-image glyph.
                 onError={() => {
                   setPreviewUrl(null)
+                  setPreviewImageUrl(null)
                   setPreviewFailed(true)
                 }}
                 className="h-fit w-auto max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"

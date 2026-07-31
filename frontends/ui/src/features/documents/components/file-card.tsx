@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
+import { isOptimizerEligible } from '@/lib/images/optimizable'
 import type { FileItem } from './project-file-workspace'
 import { motion, springSnappy } from '@/components/motion'
 import { formatFileSize } from '@/lib/utils/format-file-size'
@@ -105,19 +106,21 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
 
   if (state === 'ready' && imgUrl) {
     return (
-      // `fill` against the card's positioned thumbnail well: the presigned URL
-      // announces no intrinsic dimensions, and this is the shape next/image
-      // gives you for that — it supplies the inset-0 sizing the plain tag used
-      // to spell out by hand. `unoptimized` because the URL is a short-lived
-      // signed link into whichever object store the environment runs (MinIO
-      // locally, S3 in prod): there is no stable host to allow-list, and a
-      // fresh signature per request would miss the optimizer cache every time.
-      // No `sizes` on purpose — with no srcset to generate it would do nothing.
+      // `fill` against the card's positioned thumbnail well: the URL announces
+      // no intrinsic dimensions, and this is the shape next/image gives you for
+      // that — it supplies the inset-0 sizing the plain tag used to spell out by
+      // hand. `sizes` describes the card's well so the optimizer picks a width
+      // for it rather than assuming the viewport.
+      //
+      // The thumbnail route hands back a same-origin signed path, which is what
+      // makes it optimizable at all; `unoptimized` covers the fallback to a
+      // presigned object-store URL when signing is unavailable.
       <Image
         src={imgUrl}
         alt=""
         fill
-        unoptimized
+        sizes="(min-width: 1280px) 240px, (min-width: 768px) 33vw, 50vw"
+        unoptimized={!isOptimizerEligible(imgUrl)}
         className="object-cover"
         // A url that resolves but won't render is a genuine failure, not "no thumbnail".
         onError={() => setState('error')}
