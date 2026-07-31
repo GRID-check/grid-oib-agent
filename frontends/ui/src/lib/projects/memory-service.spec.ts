@@ -389,7 +389,9 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       projectId: 'proj-1',
       organizationId: 'org-1',
       kind: 'derived_fact',
-      content: 'Racy content.',
+      // Long enough (>= NEAR_DUP_MIN_TOKENS) that the near-dup scan runs too,
+      // so all three selects mocked above are consumed in order.
+      content: 'Racy content wins the race.',
     })
 
     expect(result).toEqual({ id: 'winner-1' })

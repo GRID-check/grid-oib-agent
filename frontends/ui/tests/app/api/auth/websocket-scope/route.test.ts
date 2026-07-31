@@ -36,6 +36,10 @@ describe('/api/auth/websocket-scope', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.REQUIRE_AUTH
+    // Keep the reflection gate at its documented defaults (flags not enforced,
+    // GRID_MEMORY_REFLECTION_ENABLED unset → on) regardless of ambient env.
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_MEMORY_REFLECTION_ENABLED
     mockLoadProjectPromptView.mockResolvedValue(null)
   })
 
@@ -62,9 +66,9 @@ describe('/api/auth/websocket-scope', () => {
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
       // The route echoes the requested projectId so server.js can scope the socket.
       projectId: 'proj-1',
-      // Anonymous mode: no org → the WorkOS flag can't be evaluated, so
-      // reflection stays off (no env-var fallback; the flag is the only gate).
-      memoryReflectionEnabled: false,
+      // Anonymous mode: no org, and GRID_ENFORCE_FEATURE_FLAGS is off, so the
+      // GRID_MEMORY_REFLECTION_ENABLED fallback decides — and it defaults ON.
+      memoryReflectionEnabled: true,
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(null, {
