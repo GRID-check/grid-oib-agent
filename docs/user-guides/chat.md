@@ -6,13 +6,13 @@ On small screens (below the `md` breakpoint) the chat is mobile-first: the sessi
 
 ## Starting a conversation
 
-Click **New Session** in the sessions panel (left sidebar) or the quiet **New chat** button in the thread header to start a fresh conversation. On an empty thread the chat shows a time-of-day greeting (with your first name when available). Type your message in the composer at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).
+Click **New chat** in the chat-history panel (left) or the quiet **New chat** button in the thread header to start a fresh conversation. On an empty thread the chat shows a time-of-day greeting (with your first name when available). Type your message in the composer at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).
 
 ## Thread header
 
 The header is two floating pills, split by what they are for.
 
-**Left — where you are.** The sessions-panel toggle (the door to past chats) and a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels; this uses the same rename action as the sessions panel. The project name truncates before the session title does, because the project is already named by the composer's scope chip and the navigation rail, while the session title is the only place this thread is named at all. On a phone the project segment is dropped entirely.
+**Left — where you are.** The chat-history toggle (the door to past chats) and a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels; this uses the same rename action as the chat-history panel. The project name truncates before the session title does, because the project is already named by the composer's scope chip and the navigation rail, while the session title is the only place this thread is named at all. On a phone the project segment is dropped entirely.
 
 **Right — what is true about this chat, then what you can do to it,** separated by a hairline.
 
@@ -30,7 +30,7 @@ After the line is *action*. **New chat** is the only one kept in the open. The r
 
 | Menu entry | Appears when |
 |---|---|
-| **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the sessions panel |
+| **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the chat-history panel |
 | **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners |
 | **Research report** | this thread already has a report, one is running, or the panel is open |
 
@@ -51,16 +51,27 @@ The composer is a white card with the message field on top and a control row bel
 
 Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; selecting one shows a colored provenance chip inside the composer, and any manual change in the Data Sources panel takes you off the preset again.
 
-## Sessions panel
+## Chat history panel
 
-The left sidebar lists all conversations grouped by date (Today, Yesterday, or date). Each session shows a status icon:
+The history panel slides in from the left edge and covers the navigation rail for as long as it is open — it spans the full height of the window, because the chat route has no top bar for it to dock beneath. Close it with its **✕** or Escape; focus returns to the control that opened it.
 
-- **Spinner**: Active deep research job running for this session
-- **Document checkmark**: Session has a completed research report
-- **Ellipse**: Session has an expired research report
-- **Chat bubble**: Plain chat session with no deep research
+Its heading names the panel and its size (**Chat history · 12 chats**). Below that, two controls stay pinned while the list scrolls:
 
-Use the search field to filter sessions by title. Rename and delete controls appear on hover. The **Delete All** button clears all sessions for the current user. Navigation is blocked during shallow thinking (WebSocket stream) or HITL prompts; deep research does not block navigation.
+- **New chat** — starts a fresh conversation. Disabled while Piloti is still answering, and the panel then says so rather than leaving you to discover it.
+- **Search chats** — filters by title, and by the "Untitled chat" placeholder for chats that never got one, so what you see is what you can search. A live **n of N chats** count sits under the field and a **✕** inside it restores the full list; a query that matches nothing gets an empty state that quotes the query and offers the way back. On desktop the field takes focus when the panel opens, so you can open the panel and type. The field is hidden entirely in a project with no chats.
+
+The list groups chats by day (Today, Yesterday, then the date) with sticky day headings. A row in **Today** carries a relative time ("4 minutes ago"); every other row carries the time of day ("14:32"), because its day is already on the heading above it. Each row shows a status icon, and the row's accessible name says the same thing in words:
+
+- **Spinner**: a deep research job is running for this chat
+- **Document checkmark**: the chat has a finished research report
+- **Ellipse**: the chat's research report has expired
+- **Chat bubble**: a plain chat with no deep research
+
+Rename and delete appear on the row on hover or keyboard focus. With the `research-in-chat-history` flag on, a **Deep Research** section above the day groups lists this project's research runs — including headless/CLI ones that never touched this browser — each stating its status in words (*Running*, *Report ready*, *Failed*, *Cancelled*).
+
+The footer explains that chats live in this browser and that research reports may expire on the server, warns when browser storage is nearly full (and says what to do about it), and holds **Delete all chats** — the destructive bulk action, kept at the far end of the panel rather than above the list it deletes. It is scoped to the current project.
+
+Switching chats is blocked during shallow thinking (WebSocket stream) or a HITL prompt; deep research runs server-side and does not block navigation.
 
 ## Communication modes
 

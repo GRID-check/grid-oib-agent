@@ -289,7 +289,7 @@ describe('ChatToolbar', () => {
       )
 
       // The quiet navigation affordances stay available on the empty start screen.
-      expect(screen.getByRole('button', { name: 'Toggle sessions sidebar' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Chat history' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Open navigation' })).toBeInTheDocument()
 
       // The actions + thread identity are withheld until a chat starts.
@@ -349,7 +349,7 @@ describe('ChatToolbar', () => {
 
       render(<ChatToolbar />)
 
-      await user.click(screen.getByRole('button', { name: 'Toggle sessions sidebar' }))
+      await user.click(screen.getByRole('button', { name: 'Chat history' }))
 
       expect(mockToggleSessionsPanel).toHaveBeenCalledOnce()
     })

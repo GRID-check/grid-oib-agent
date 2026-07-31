@@ -57,6 +57,19 @@ export const formatRelativeTime = (isoDate: string, locale?: string): string => 
 }
 
 /**
+ * Localized time of day ("09:30" / "9:30 AM"). Used where the surrounding
+ * layout already states the DAY — the sessions panel groups rows under a day
+ * heading, so a row repeating "18 days ago" under "12 Jul 2026" says the same
+ * thing twice while the actual time of the chat goes missing.
+ */
+export const formatTimeOfDay = (isoDate: string, locale?: string): string => {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return isoDate
+
+  return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(date)
+}
+
+/**
  * Localized absolute date/time ("14 Jul 2026, 09:30"), used as the hover
  * tooltip that pins a relative timestamp to an exact moment.
  */
