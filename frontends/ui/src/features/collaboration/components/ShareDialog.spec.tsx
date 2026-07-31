@@ -271,7 +271,7 @@ describe('ShareDialog — per-person controls', () => {
     // the person had been removed, and the explanation appeared behind it.
     const user = userEvent.setup()
     revoke.mockResolvedValueOnce(false)
-    renderDialog()
+    renderDialog({ failure: { reason: 'last-owner', message: null } })
 
     await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
     await user.click(await screen.findByRole('menuitem', { name: /Remove access/ }))
@@ -279,6 +279,13 @@ describe('ShareDialog — per-person controls', () => {
 
     expect(revoke).toHaveBeenCalledWith('u-anna')
     expect(await screen.findByText('Remove Anna Weber?')).toBeInTheDocument()
+    // …and the reason has to be stated INSIDE the confirm. Radix aria-hidden's
+    // the outer dialog while a nested one is open and the overlay covers it, so
+    // an explanation left in the dialog body behind is neither seen nor
+    // announced — leaving a live button the user simply presses again.
+    expect(await screen.findByTestId('confirm-failure')).toHaveTextContent(
+      'This conversation must keep at least one owner. Make someone else an owner first.',
+    )
   })
 
   test('visibility-derived rows get NO controls — there is no per-person deny', () => {

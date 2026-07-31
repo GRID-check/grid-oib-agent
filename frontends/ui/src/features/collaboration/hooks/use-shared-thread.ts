@@ -360,7 +360,6 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     return lastSign > 0 && Date.now() - lastSign > TURN_BANNER_MAX_AGE_MS
   }, [])
 
-
   const base = conversationId ? `/api/conversations/${encodeURIComponent(conversationId)}` : null
 
   /**
@@ -469,7 +468,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    * conversation — later reads merge, so they cannot disturb an in-flight turn.
    */
   const load = useCallback(
-    async (replace: boolean): Promise<'ok' | 'denied'> => {
+    async (replace: boolean, generation?: number): Promise<'ok' | 'denied'> => {
       if (!enabled || !conversationId) {
         sharedRef.current = false
         setShared(false)
@@ -478,18 +477,38 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         return 'ok'
       }
 
-      const current = ++seq.current
+      // Take the caller's generation when it has one. `loadAndRevalidate` runs
+      // `load` TWICE, and if the second call minted its own ticket the
+      // unmount/switch guard (`seq.current += 1` in the effect cleanup) could
+      // never invalidate it — so a revalidation for the thread you just left
+      // wrote its access facts over the thread you are now in.
+      const current = generation ?? ++seq.current
       if (replace) setLoading(true)
       try {
         const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`)
         if (!response.ok) {
-          // A 403 from the feature gate or a 404 (no access) both mean "no shared
-          // behaviour here" — fall back to the local-first path rather than
-          // retrying, and never surface an error over a working thread. One
-          // exception: a thread that WAS shared for this reader and now denies
-          // access has been revoked mid-view, and a silent fallback would leave
-          // them reading a frozen thread with a live-looking composer. That case
-          // is flagged so the UI can say what happened.
+          /*
+            A refusal is authoritative; a blip is not.
+
+            403 (the feature gate) and 404 (no access, which is how denial is
+            spelled — spec SH-6) are real answers about this thread: fall back to
+            the local-first path, and if it WAS shared for this reader, say so,
+            because a silent fallback leaves them reading a frozen thread with a
+            live-looking composer.
+
+            Everything else — 5xx from a rolling deploy, a proxy error page, 429,
+            408 — is the transient case the retry ladder exists for, and it used
+            to land here too. That cleared `shared`, which switches off the live
+            subscription, the focus listener and the poll; told the reader they
+            had lost access; and published `private` to the composer's socket
+            gate on a guess. One 502 froze the thread for the session.
+          */
+          const authoritative = response.status === 401 || response.status === 403 || response.status === 404
+          if (current === seq.current && !authoritative) {
+            setLoading(false)
+            scheduleAccessRetry()
+            return 'ok'
+          }
           if (current === seq.current) {
             const wasShared = sharedRef.current
             sharedRef.current = false
@@ -591,7 +610,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    */
   const loadAndRevalidate = useCallback(
     async (replace: boolean) => {
-      if ((await load(replace)) === 'denied') await load(false)
+      const generation = ++seq.current
+      if ((await load(replace, generation)) === 'denied') await load(false, generation)
     },
     [load]
   )
@@ -619,6 +639,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     directoryRef.current = new Map()
     accessAttempt.current = 0
     cancelAccessRetry()
+    // Sharedness belongs to the conversation, not to the hook. It was never
+    // reset here — previously the failure path cleared it as a side effect, and
+    // now that a blip deliberately preserves the last known answer, an inherited
+    // `true` would follow the reader into a PRIVATE thread and open a live
+    // channel there (spec NF-8). "Not yet known" is the honest state on a switch.
+    sharedRef.current = false
+    setShared(false)
+    setMyRole(null)
     // Re-seed the revision watermark. It is per-hook-instance while `revision`
     // is per-conversation, so switching from a thread where a mention was sent
     // (revision 1) to a fresh one (revision 0) read as "declared stale" and

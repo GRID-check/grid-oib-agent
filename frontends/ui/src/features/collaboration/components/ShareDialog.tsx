@@ -698,11 +698,26 @@ export function ShareDialog({
               // the confirmation on REFUSAL too — the user watched the dialog
               // close like a success and the explanation appeared behind it.
               // ConfirmDialog keeps itself open when onConfirm throws.
-              await confirm.onConfirm()
+              const ok = await confirm.onConfirm()
+              if (!ok) throw new Error('sharing mutation refused')
               setPending(null)
             }}
           >
             {confirm.children}
+            {/*
+              The refusal has to be stated INSIDE the confirm. Keeping the
+              confirmation open on a refusal is only an improvement if the reader
+              can see why: Radix `aria-hidden`s the outer dialog while a nested
+              one is open, and the overlay covers it — so the failure Alert in the
+              body above is neither visible nor announced, and the user is left
+              looking at an unchanged dialog with a live button they will simply
+              press again. That is worse than the false success it replaced.
+            */}
+            {failure && (
+              <p role="alert" data-testid="confirm-failure" className="text-sm text-destructive">
+                {failureMessage(failure)}
+              </p>
+            )}
           </ConfirmDialog>
         )}
       </DialogContent>

@@ -650,6 +650,63 @@ describe('useSharedThread — reconciliation', () => {
     }
   })
 
+  test('a 502 is a blip, not a revocation', async () => {
+    // The retry ladder only ever covered a THROWN fetch. A 5xx resolves with
+    // `ok: false` and took the authoritative branch: it cleared `shared` — which
+    // switches off the live subscription, the focus listener and the poll — told
+    // the reader they had lost access, and published "private" to the composer's
+    // socket gate. One rolling deploy froze the thread for the session.
+    vi.useFakeTimers()
+    try {
+      let accessReads = 0
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === `/api/conversations/${CONVERSATION_ID}`) {
+          accessReads += 1
+          if (accessReads === 2) return new Response(null, { status: 502 })
+          return Response.json({
+            id: CONVERSATION_ID,
+            title: 'Brandschutz',
+            shared: true,
+            myRole: 'collaborator',
+            visibility: 'project',
+            myReadState: null,
+          })
+        }
+        if (url === `/api/conversations/${CONVERSATION_ID}/messages`) return Response.json([])
+        if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+        throw new Error(`unexpected request: ${url}`)
+      })
+
+      const { result } = renderHook(() =>
+        useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+      )
+      await vi.waitFor(() => expect(result.current.shared).toBe(true))
+
+      // An access re-read, via the event that triggers one.
+      await act(async () => {
+        await emit({
+          kind: 'resource.access.changed',
+          resourceType: 'conversation',
+          resourceId: CONVERSATION_ID,
+          change: 'visibility',
+        })
+      })
+
+      // Still shared, and emphatically NOT reported as a revocation.
+      expect(result.current.shared).toBe(true)
+      expect(result.current.accessLost).toBe(false)
+
+      const before = accessReads
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_100)
+      })
+      expect(accessReads).toBeGreaterThan(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('access revoked between the access read and the history read is still flagged', async () => {
     // The race the initial load used to drop: the access read says "shared", the
     // history read that follows it is denied. Nothing in the first read can know
