@@ -135,6 +135,86 @@ describe('reduceSpectatedFrame', () => {
     expect(state.done).toBe(true)
   })
 
+  it('reads the GenerateResponse `output` shape shallow answers use', () => {
+    // Not an exotic case: shallow/meta answers arrive as `{output}` rather than
+    // `{text}`, and `output` MUST win — `SystemResponseContent` has only optional
+    // fields, so it also matches `{output: …}` and would parse it to `{}`,
+    // silently discarding the answer.
+    const state = fold([
+      {
+        type: 'system_response_message',
+        id: 'g1',
+        parent_id: 'turn-1',
+        content: { output: 'Kurz: ja.' },
+        status: 'in_progress',
+      },
+    ])
+    expect(state.answer).toBe('Kurz: ja.')
+  })
+
+  it('reads a bare string content', () => {
+    const state = fold([
+      {
+        type: 'system_response_message',
+        id: 's1',
+        parent_id: 'turn-1',
+        content: 'Direkt als String.',
+        status: 'in_progress',
+      },
+    ])
+    expect(state.answer).toBe('Direkt als String.')
+  })
+
+  it('survives a response frame whose content carries no text at all', () => {
+    const before = fold([response('Bisher.', 'in_progress')])
+    const after = reduceSpectatedFrame(before, {
+      type: 'system_response_message',
+      id: 'empty',
+      parent_id: 'turn-1',
+      content: {},
+      status: 'in_progress',
+    })
+    expect(after.answer).toBe('Bisher.')
+  })
+
+  it('accumulates a legacy string intermediate step into one generic step', () => {
+    // Older backends send the step payload as a bare string with no function
+    // name. It still has to reach the Herleitung, and consecutive strings belong
+    // in ONE step rather than one step per line.
+    const state = fold([
+      { type: 'system_intermediate_message', id: 'l1', content: 'Suche läuft', status: 'in_progress' },
+      { type: 'system_intermediate_message', id: 'l2', content: 'Treffer geprüft', status: 'in_progress' },
+    ])
+    expect(state.steps).toHaveLength(1)
+    expect(state.steps[0].functionName).toBe('unknown')
+    expect(state.steps[0].content).toBe('Suche läuft\nTreffer geprüft\n')
+  })
+
+  it('starts a fresh generic step after a named one closed', () => {
+    const state = fold([
+      { type: 'system_intermediate_message', id: 'l1', content: 'Zuerst', status: 'in_progress' },
+      step('Function Start: web_search_tool', 'querying'),
+      { type: 'system_intermediate_message', id: 'l2', content: 'Danach', status: 'in_progress' },
+    ])
+    expect(state.steps).toHaveLength(3)
+    expect(state.steps.map((s) => s.functionName)).toEqual([
+      'unknown',
+      'web_search_tool',
+      'unknown',
+    ])
+  })
+
+  it('ignores a blank legacy step rather than opening an empty one', () => {
+    const before = fold([response('Etwas', 'in_progress')])
+    const after = reduceSpectatedFrame(before, {
+      type: 'system_intermediate_message',
+      id: 'blank',
+      content: '   ',
+      status: 'in_progress',
+    })
+    expect(after.steps).toHaveLength(0)
+  })
+
   it('is inert for a frame it cannot parse', () => {
     const before = fold([response('Etwas', 'in_progress')])
     for (const junk of [null, undefined, 42, 'nonsense', {}, { type: 'unknown_frame' }]) {
