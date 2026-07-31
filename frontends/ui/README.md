@@ -19,8 +19,9 @@ The Grid UI provides an accessible, feature-rich frontend for the AI-Q backend. 
 
 ## Prerequisites
 
-- Node.js
-- npm
+- Bun (installer + script runner: `bun install`, `bun run <script>`)
+- Node.js (the runtime — the app, the Next build and the `node` scripts)
+- npm (nested `npm run` invocations in some scripts)
 - AI-Q Blueprint running (default: `http://localhost:8000`)
 
 ## Quick Start

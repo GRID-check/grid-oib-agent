@@ -137,7 +137,10 @@ jobs:
         # DEV-CONTAINER contract; CI runners ship no such browser, so playwright-core
         # fetches its own here — the cache above keeps that to once per lockfile.
         working-directory: frontends/ui
-        run: npx playwright-core install chromium
+        # `--no-install`: playwright-core is a frozen direct dependency with a
+        # declared CLI binary, so a miss here means the install above is broken —
+        # fail instead of silently fetching a package from the network.
+        run: npx --no-install playwright-core install chromium
 
       - name: Cache the Turbopack dev compile
         # The harness runs `next dev`, which compiles each preview route on demand —

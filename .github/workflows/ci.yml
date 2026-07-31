@@ -33,6 +33,10 @@ jobs:
         id: filter
         with:
           filters: |
+            # Every filter also watches the shared tooling each job depends on:
+            # the root Taskfile (which defines the commands the jobs run) and the
+            # composite setup actions. Otherwise a change to `fe:verify`,
+            # `infra:types` or a setup action merges without its job running.
             backend:
               - 'src/**'
               - 'frontends/aiq_api/**'
@@ -42,14 +46,19 @@ jobs:
               - 'configs/**'
               - 'pyproject.toml'
               - 'uv.lock'
+              - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
+              - '.github/actions/**'
             infra:
               - 'deploy/**'
+              - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
+              - '.github/actions/**'
 
   backend-lint:
     name: Backend lint

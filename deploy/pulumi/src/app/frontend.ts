@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import {
   GridConfig,
   assertHpaTargetIsProportional,
+  assertMemoryFitsLimit,
   frontendImage,
   toResourceRequirements,
 } from "../config";
@@ -52,6 +53,9 @@ export function installFrontend(
     cfg.frontend.resources,
     cfg.frontend.hpaCpuTargetPercent,
   );
+  // Memory is forwarded to the container verbatim, so an unparseable quantity or
+  // an inverted request/limit pair otherwise only fails at admission time.
+  assertMemoryFitsLimit("frontend", cfg.frontend.resources);
 
   const deployment = new k8s.apps.v1.Deployment(
     "frontend",

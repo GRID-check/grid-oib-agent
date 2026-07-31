@@ -189,8 +189,8 @@ same tasks, so there is no second copy to drift:
 
 ```bash
 task setup        # one-time: backend venv, UI deps, Pulumi deps
-task verify       # the full merge gate — everything CI runs
-task verify:fast  # same, minus the slow production build
+task verify       # the full merge gate — repo lint + be:verify + fe:verify + infra:types
+task verify:fast  # same, minus only the slow production build
 
 task fe:types     # or fe:lint / fe:test / fe:build
 task be:test      # or be:lint

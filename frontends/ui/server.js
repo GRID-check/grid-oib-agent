@@ -381,19 +381,21 @@ const scopeCacheKey = (req, projectId, conversationId) =>
  * when the global in-flight ceiling shed this upgrade.
  */
 const resolveCollectionScope = (req, projectId, conversationId) => {
-  if (WS_SCOPE_CACHE_TTL_MS <= 0) {
-    return fetchCollectionScopeHeader(req, projectId, conversationId)
-  }
+  // The memo and the admission ceiling are INDEPENDENT bounds: disabling the
+  // memo (TTL <= 0, e.g. to force fresh auth) must not also disable the ceiling.
+  const cacheEnabled = WS_SCOPE_CACHE_TTL_MS > 0
+  const key = cacheEnabled ? scopeCacheKey(req, projectId, conversationId) : null
 
-  const key = scopeCacheKey(req, projectId, conversationId)
-  const cached = scopeCache.get(key)
-  if (cached && cached.expiresAt > Date.now()) {
-    return Promise.resolve(cached.result)
-  }
+  if (cacheEnabled) {
+    const cached = scopeCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve(cached.result)
+    }
 
-  // Coalesce concurrent upgrades for the same session onto one upstream call.
-  const pending = scopeInflight.get(key)
-  if (pending) return pending
+    // Coalesce concurrent upgrades for the same session onto one upstream call.
+    const pending = scopeInflight.get(key)
+    if (pending) return pending
+  }
 
   if (WS_UPGRADE_MAX_INFLIGHT > 0 && inflightScopeResolutions >= WS_UPGRADE_MAX_INFLIGHT) {
     return Promise.resolve({ ok: false, status: 503, header: null, data: null, rejected: true })
@@ -403,7 +405,7 @@ const resolveCollectionScope = (req, projectId, conversationId) => {
   const request = fetchCollectionScopeHeader(req, projectId, conversationId)
     .then((result) => {
       // Only successes are memoised — a transient failure must not be sticky.
-      if (result.ok) {
+      if (cacheEnabled && result.ok) {
         if (scopeCache.size > WS_SCOPE_CACHE_MAX_ENTRIES) scopeCache.clear()
         scopeCache.set(key, { expiresAt: Date.now() + WS_SCOPE_CACHE_TTL_MS, result })
       }
@@ -411,10 +413,10 @@ const resolveCollectionScope = (req, projectId, conversationId) => {
     })
     .finally(() => {
       inflightScopeResolutions -= 1
-      scopeInflight.delete(key)
+      if (cacheEnabled) scopeInflight.delete(key)
     })
 
-  scopeInflight.set(key, request)
+  if (cacheEnabled) scopeInflight.set(key, request)
   return request
 }
 

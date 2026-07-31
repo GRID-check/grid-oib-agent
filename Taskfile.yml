@@ -53,22 +53,24 @@ tasks:
   verify:
     desc: 'Full merge gate: everything CI runs. Passing here means passing in CI.'
     cmds:
-      - task: be:lint
-      - task: be:test
-      - task: fe:lint
-      - task: fe:types
-      - task: fe:test
-      - task: fe:build
+      # Delegate to the same per-tier task groups CI invokes, so there is one
+      # definition of each tier's gate rather than a second list here that can
+      # drift from the workflow (that drift is exactly what this file removes).
+      - task: lint:repo
+      - task: be:verify
+      - task: fe:verify
       - task: infra:types
 
   verify:fast:
-    desc: Lint + types + tests, skipping the production build (the slow step)
+    desc: Everything CI runs except the production build (the slow step)
     cmds:
-      - task: be:lint
-      - task: be:test
+      - task: lint:repo
+      - task: be:verify
+      # `fe:verify` minus `fe:build` — the only check this task omits.
       - task: fe:lint
       - task: fe:types
-      - task: fe:test
+      - task: fe:test:ci
+      - task: infra:types
 
   setup:
     desc: Install every toolchain this repo needs (backend venv + UI + infra)

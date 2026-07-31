@@ -82,11 +82,13 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   unaffected by the switch (it does NOT support the binary `bun.lockb`, which
   this repo does not use).
 - **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
-  CVEs; pip-audit/npm-audit; gitleaks full history; detect-secrets baseline;
+  CVEs; pip-audit + `bun audit`; gitleaks full history; detect-secrets baseline;
   Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced
   Security on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
-  instead.) Gaps: Semgrep + OSV-Scanner + pip-audit/npm-audit currently
-  non-blocking (Phase 1); no clean-as-you-code
+  instead.) Gaps: Semgrep + OSV-Scanner and both dependency audits (pip-audit and
+  `bun audit`) are currently non-blocking in
+  [`.github/workflows/security.yml`](../../.github/workflows/security.yml)
+  (Phase 1 — findings surface in the job log); no clean-as-you-code
   smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
   gate); actions tag-pinned not SHA-pinned (one `@main`); dev image pipes
   nodesource script to bash (dev only).

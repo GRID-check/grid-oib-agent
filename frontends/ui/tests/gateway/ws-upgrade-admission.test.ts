@@ -199,4 +199,22 @@ describe('gateway WS-upgrade admission gate', () => {
     expect(codes.filter((c) => c === 503)).toHaveLength(10)
     expect(codes.filter((c) => c === 101)).toHaveLength(2)
   })
+
+  it('still sheds when the memo is disabled', async () => {
+    // The memo and the ceiling are independent bounds: turning the memo off
+    // (e.g. to force fresh auth) must not remove the admission gate too.
+    const port = await startGateway({
+      GRID_WS_UPGRADE_MAX_INFLIGHT: '2',
+      GRID_WS_SCOPE_CACHE_TTL_MS: '0',
+    })
+    slowScope = true
+    scopeHits = 0
+
+    const codes = await Promise.all(
+      Array.from({ length: 12 }, (_, i) => upgrade(port, `session=nocache-${i}`))
+    )
+
+    expect(scopeHits).toBe(2)
+    expect(codes.filter((c) => c === 503)).toHaveLength(10)
+  })
 })

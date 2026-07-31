@@ -40,8 +40,8 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 
 | Check | Command |
 |-------|---------|
-| **Everything CI runs** | `task verify` |
-| Everything except the slow production build | `task verify:fast` |
+| **Everything CI runs** (repo lint + `be:verify` + `fe:verify` + `infra:types`) | `task verify` |
+| The same set, minus only the slow production build | `task verify:fast` |
 | First-time toolchain setup | `task setup` |
 | Frontend typecheck | `task fe:types` |
 | Frontend tests | `task fe:test` |

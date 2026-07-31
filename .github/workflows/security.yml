@@ -15,7 +15,8 @@ name: Security
 # Runs on every PR and push to the integration branches, plus a weekly scheduled
 # full scan to catch newly-disclosed advisories in code that has not changed.
 #
-# Phase 1 (current): Semgrep and OSV-Scanner are non-blocking (continue-on-error)
+# Phase 1 (current): Semgrep, OSV-Scanner and both dependency audits (pip-audit,
+# bun audit) are non-blocking (continue-on-error)
 # so findings surface in the job log without blocking merges while we tune noise
 # (see .semgrepignore / .gitleaks.toml). Once trusted, drop continue-on-error to
 # make them required checks.
@@ -134,7 +135,12 @@ jobs:
     name: Dependency audit
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
+      # No persisted checkout token: the steps below run PR-controlled setup
+      # actions and dependency install scripts, which must never find a
+      # repository credential in the workspace git config.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-python-env
       # Informational (does not block merges on transitive advisories); surfaces
       # in the job log and can be promoted to blocking once the baseline is clean.
@@ -148,6 +154,10 @@ jobs:
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
+      # Informational for the same reason as pip-audit above: Phase 1 keeps both
+      # audits advisory (docs/compliance/external-dependencies.md §C) so a new
+      # transitive advisory does not block unrelated merges. Promote both together
+      # once the baseline is clean.
       - name: Dependency audit (frontend)
         continue-on-error: true
         working-directory: frontends/ui

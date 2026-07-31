@@ -48,8 +48,9 @@ tasks, so there is no second copy to drift:
 - Frontend: `task fe:lint`, `task fe:types`, `task fe:test`, `task fe:build` —
   or all four as `task fe:verify`.
 - Infra: `task infra:types`.
-- Everything at once: `task verify` — this is the merge gate. `task verify:fast`
-  skips the production build.
+- Everything at once: `task verify` — this is the merge gate: repo lint plus the
+  same per-tier groups CI runs (`be:verify` with its coverage gate, `fe:verify`,
+  `infra:types`). `task verify:fast` omits only the production build.
 - Repo-wide hooks: `task lint:repo` (`pre-commit run --all-files`) — ruff,
   detect-secrets, markdown-link-check and more, configured in
   [`.pre-commit-config.yaml`](.pre-commit-config.yaml).
