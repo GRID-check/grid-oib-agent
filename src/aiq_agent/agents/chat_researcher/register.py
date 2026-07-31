@@ -1087,8 +1087,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # deep-research job stubs carry no answer; meta/error turns and
         # insufficiency answers ("I don't have enough information …") have nothing
         # durable to record and would only invite spurious findings (audit gap).
-        # Runtime on/off is solely the `memory-reflection` WorkOS feature flag,
-        # forwarded as a request header (no env-var fallback).
+        # Runtime on/off is decided by the BFF (`isMemoryReflectionEnabled`):
+        # the `memory-reflection` WorkOS feature flag when flag enforcement is
+        # on, otherwise `GRID_MEMORY_REFLECTION_ENABLED` (default ON) — forwarded
+        # as a request header.
         if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
             answer_text = response_content if isinstance(response_content, str) else str(response_content)
             if _reflection_answer_is_substantive(result, answer_text):

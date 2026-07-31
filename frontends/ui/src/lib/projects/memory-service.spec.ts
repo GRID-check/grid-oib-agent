@@ -371,7 +371,8 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     // 23505; the second de-dup check finds the winning row.
     const limit = vi
       .fn()
-      .mockResolvedValueOnce([]) // pre-insert check: no duplicate
+      .mockResolvedValueOnce([]) // exact-dup pre-check: no duplicate
+      .mockResolvedValueOnce([]) // near-dup scan: no candidates
       .mockResolvedValueOnce([{ id: 'winner-1' }]) // post-violation re-check
     const orderBy = vi.fn().mockReturnValue({ limit })
     const selectWhere = vi.fn().mockReturnValue({ orderBy })
@@ -388,7 +389,9 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       projectId: 'proj-1',
       organizationId: 'org-1',
       kind: 'derived_fact',
-      content: 'Racy content.',
+      // Long enough (>= NEAR_DUP_MIN_TOKENS) that the near-dup scan runs too,
+      // so all three selects mocked above are consumed in order.
+      content: 'Racy content wins the race.',
     })
 
     expect(result).toEqual({ id: 'winner-1' })
@@ -411,6 +414,107 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     // Higher incoming confidence wins on the refresh.
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
     expect(result).toEqual({ id: 'dup-1', confidence: 'high' })
+  })
+})
+
+describe('createProjectMemoryItem paraphrase de-duplication', () => {
+  /**
+   * The exact-dup select misses (content is restated, not normalized-equal),
+   * then the near-dup candidate scan returns the scope's recent active items.
+   */
+  const mockNearDupChain = (candidates: unknown[]) => {
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce([]) // exact-dup: nothing normalized-equal
+      .mockResolvedValueOnce(candidates) // near-dup candidate scan
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const selectWhere = vi.fn().mockReturnValue({ orderBy })
+    const from = vi.fn().mockReturnValue({ where: selectWhere })
+
+    const updateReturning = vi.fn().mockResolvedValue([{ id: 'dup-1', confidence: 'high' }])
+    const updateWhere = vi.fn().mockReturnValue({ returning: updateReturning })
+    const set = vi.fn().mockReturnValue({ where: updateWhere })
+    const update = vi.fn().mockReturnValue({ set })
+
+    const insertReturning = vi.fn().mockResolvedValue([{ id: 'new-1' }])
+    const values = vi.fn().mockReturnValue({ returning: insertReturning })
+    const insert = vi.fn().mockReturnValue({ values })
+
+    vi.mocked(getDb).mockReturnValue(asDb({
+      select: vi.fn().mockReturnValue({ from }),
+      update,
+      insert,
+    }))
+    return { set, values, insert, update, selectWhere }
+  }
+
+  it('merges a restated same-kind finding into the existing row instead of inserting', async () => {
+    const { set, values } = mockNearDupChain([
+      {
+        id: 'dup-1',
+        kind: 'constraint',
+        confidence: 'medium',
+        content: 'The client requires fire resistance class REI 90 for the hall',
+      },
+    ])
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'constraint',
+      content: 'Client requires fire resistance class REI 90 for the hall building',
+      confidence: 'high',
+    })
+
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
+    expect(result).toEqual({ id: 'dup-1', confidence: 'high' })
+  })
+
+  it('inserts when a topically similar finding shares too few tokens', async () => {
+    const { values, set } = mockNearDupChain([
+      {
+        id: 'other-1',
+        kind: 'constraint',
+        confidence: 'medium',
+        content: 'The client requires a sprinkler system in the underground garage',
+      },
+    ])
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'constraint',
+      content: 'Client requires fire resistance class REI 90 for the hall building',
+    })
+
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledTimes(1)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('restricts the near-dup scan to active items of the same kind', async () => {
+    const { selectWhere } = mockNearDupChain([])
+
+    await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'decision',
+      content: 'The client decided on a steel frame construction for the hall',
+    })
+
+    // Second select = the near-dup scan; kind is filtered in SQL, not in JS.
+    expect(selectWhere).toHaveBeenNthCalledWith(
+      2,
+      and(
+        and(eq('pm.scope', 'project'), eq('pm.projectId', 'proj-1')),
+        eq('pm.status', 'active'),
+        eq('pm.kind', 'decision'),
+      ),
+    )
   })
 })
 

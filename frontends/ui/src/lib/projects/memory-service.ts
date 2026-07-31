@@ -47,6 +47,19 @@ function normalizedContentEquals(content: string) {
   return sql`btrim(regexp_replace(lower(${projectMemory.content}), '[^a-z0-9]+', ' ', 'g')) = ${normalizeContent(content)}`
 }
 
+/** Scope-exact owner condition shared by both dedup passes. */
+function memoryOwnerCondition(
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId'>,
+) {
+  return values.scope === 'organization'
+    ? and(
+        eq(projectMemory.scope, 'organization'),
+        eq(projectMemory.organizationId, values.organizationId),
+        isNull(projectMemory.projectId),
+      )
+    : and(eq(projectMemory.scope, 'project'), eq(projectMemory.projectId, values.projectId as string))
+}
+
 /**
  * The write-time de-duplication gate (a pragmatic first slice of design §3.2).
  * Finds an existing ACTIVE item in the same scope whose content normalizes to
@@ -58,21 +71,69 @@ async function findActiveDuplicate(
   values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content'>,
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
-  const ownerCondition =
-    values.scope === 'organization'
-      ? and(
-          eq(projectMemory.scope, 'organization'),
-          eq(projectMemory.organizationId, values.organizationId),
-          isNull(projectMemory.projectId),
-        )
-      : and(eq(projectMemory.scope, 'project'), eq(projectMemory.projectId, values.projectId as string))
   const [existing] = await db
     .select()
     .from(projectMemory)
-    .where(and(ownerCondition, eq(projectMemory.status, 'active'), normalizedContentEquals(values.content)))
+    .where(and(memoryOwnerCondition(values), eq(projectMemory.status, 'active'), normalizedContentEquals(values.content)))
     .orderBy(desc(projectMemory.updatedAt))
     .limit(1)
   return existing ?? null
+}
+
+/**
+ * Token overlap above which two same-kind findings are the same fact restated
+ * (paraphrase-level dedup, design §3.2). Deliberately high: a false positive
+ * merges two distinct findings and loses one; a false negative only costs a
+ * redundant row the user can prune.
+ */
+const NEAR_DUP_JACCARD_THRESHOLD = 0.8
+/** Bound on the candidate scan (most recently updated active items in scope). */
+const NEAR_DUP_CANDIDATE_LIMIT = 200
+/** Very short findings have jumpy token sets; keep them exact-dup only. */
+const NEAR_DUP_MIN_TOKENS = 3
+
+function contentTokens(content: string): Set<string> {
+  return new Set(normalizeContent(content).split(' ').filter(Boolean))
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0
+  let shared = 0
+  for (const token of a) if (b.has(token)) shared++
+  return shared / (a.size + b.size - shared)
+}
+
+/**
+ * Paraphrase-level dedup: finds an ACTIVE item in the same scope AND of the
+ * same kind whose token set nearly matches the incoming content. Kind-exact
+ * because a decision and a constraint about the same subject are different
+ * findings even when they share most words. Pure JS over a bounded candidate
+ * list — the §3.2 embed-based consolidation still supersedes this later.
+ */
+async function findActiveNearDuplicate(
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>,
+): Promise<ProjectMemoryItem | null> {
+  const incomingTokens = contentTokens(values.content)
+  if (incomingTokens.size < NEAR_DUP_MIN_TOKENS) return null
+  const db = getDb()
+  const candidates = await db
+    .select()
+    .from(projectMemory)
+    .where(
+      and(memoryOwnerCondition(values), eq(projectMemory.status, 'active'), eq(projectMemory.kind, values.kind)),
+    )
+    .orderBy(desc(projectMemory.updatedAt))
+    .limit(NEAR_DUP_CANDIDATE_LIMIT)
+  let best: ProjectMemoryItem | null = null
+  let bestScore = NEAR_DUP_JACCARD_THRESHOLD
+  for (const candidate of candidates) {
+    const score = jaccardSimilarity(incomingTokens, contentTokens(candidate.content))
+    if (score >= bestScore) {
+      best = candidate
+      bestScore = score
+    }
+  }
+  return best
 }
 
 export async function listProjectMemory(
@@ -140,10 +201,12 @@ export async function createProjectMemoryItem(values: NewProjectMemoryItem): Pro
   const db = getDb()
 
   // Write-time de-duplication: a repeated finding refreshes the existing row
-  // (recency + best-known confidence) instead of adding a duplicate. This is
-  // the single writer, so an app-level check is race-safe enough here; a DB
-  // uniqueness constraint is a hardening follow-up (design §3.2).
-  const duplicate = await findActiveDuplicate(values)
+  // (recency + best-known confidence) instead of adding a duplicate. Exact
+  // normalized equality first, then a same-kind paraphrase (token-overlap)
+  // pass so a restated finding merges too (design §3.2). This is the single
+  // writer, so an app-level check is race-safe enough here; a DB uniqueness
+  // constraint is a hardening follow-up (design §3.2).
+  const duplicate = (await findActiveDuplicate(values)) ?? (await findActiveNearDuplicate(values))
   if (duplicate) {
     const incoming = (values.confidence ?? 'medium') as ProjectMemoryConfidence
     const best =

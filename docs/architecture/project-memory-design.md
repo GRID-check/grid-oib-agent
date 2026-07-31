@@ -154,12 +154,15 @@ Enablement (two gates):
 - **Capability** — the config key `memory_reflection_llm` must point at an LLM,
   or the stage is compiled out entirely (unset by default historically; now set
   to `card_llm` in `config_oib_openrouter.yml`).
-- **Runtime** — each turn is gated solely by the `memory-reflection` **WorkOS
-  feature flag**, evaluated per-organization by the BFF at the WS upgrade
-  (`isOrgFeatureEnabled`) and forwarded to the backend as the
-  `x-grid-feature-memory-reflection` header. There is no env-var fallback:
-  anonymous/non-WorkOS deployments (no org to evaluate the flag against)
-  cannot enable reflection. Fail-closed: absent header → off.
+- **Runtime** — each turn is gated by `isMemoryReflectionEnabled`
+  (`frontends/ui/src/lib/workos/feature-flags.ts`), evaluated by the BFF at the
+  WS upgrade and forwarded to the backend as the
+  `x-grid-feature-memory-reflection` header (fail-closed: absent header → off).
+  With `GRID_ENFORCE_FEATURE_FLAGS=true` the per-org `memory-reflection`
+  **WorkOS feature flag** is the source of truth. Without enforcement the gate
+  follows `GRID_MEMORY_REFLECTION_ENABLED` and **defaults ON** — reflection is
+  a shipped core capability, not a dark-launched product gate, so it behaves
+  like every non-dark feature in environments without the flag product.
 
 Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
 - **Project scope only** — the autonomous stage never writes `organization`-scoped
@@ -183,12 +186,14 @@ User-informing: both in-turn and reflection writes surface under each answer as 
 fed by `GET /api/projects/{id}/memory?conversationId=…`), labelling in-turn
 (`agent`) vs reflection (`distillation`) provenance.
 
-De-duplication: `createProjectMemoryItem` runs a write-time normalized-content
-check on every write (both the tool and this stage) — a normalized-equal active
-item is refreshed in place instead of duplicated — backed by two partial UNIQUE
-indexes on normalized content (migration `0010_project_memory_dedup.sql`) that
-close the race window. This is a pragmatic slice of the §3.2 gate; semantic
-(paraphrase) consolidation and contradiction adjudication remain follow-ups. See
+De-duplication: `createProjectMemoryItem` runs a two-pass write-time check on
+every write (both the tool and this stage) — a normalized-equal active item is
+refreshed in place instead of duplicated, and a same-kind **paraphrase** (token
+Jaccard ≥ 0.8 over a bounded candidate scan) merges the same way — backed by
+two partial UNIQUE indexes on normalized content (migration
+`0010_project_memory_dedup.sql`) that close the race window. This is a
+pragmatic slice of the §3.2 gate; embed-based consolidation and contradiction
+adjudication remain follow-ups. See
 [memory-reflection-audit.md](./memory-reflection-audit.md).
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
