@@ -53,6 +53,19 @@ const MODEL_GROUP_METADATA = /** @type {const} */ ({
   ingest_vlm: 'string',
 })
 
+/**
+ * `created` and `rotated` come off ONE call site
+ * (`lib/llm-credentials/service.ts` picks the action by whether `rotatedFrom`
+ * is set), so they carry the same metadata by construction.
+ */
+const LLM_CREDENTIAL_WRITE_METADATA = /** @type {const} */ ({
+  provider: 'string',
+  secretBackend: 'string', // pragma: allowlist secret (a metadata KEY and its type name, not a credential)
+  keyFingerprint: 'string',
+  supersededCredentialId: 'string',
+  rotatedFrom: 'string',
+})
+
 export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'org.created': {
     targets: [{ type: 'organization' }],
@@ -86,23 +99,11 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   },
   'llm_credential.created': {
     targets: [{ type: 'llm_credential' }],
-    metadata: {
-      provider: 'string',
-      secretBackend: 'string',
-      keyFingerprint: 'string',
-      supersededCredentialId: 'string',
-      rotatedFrom: 'string',
-    },
+    metadata: LLM_CREDENTIAL_WRITE_METADATA,
   },
   'llm_credential.rotated': {
     targets: [{ type: 'llm_credential' }],
-    metadata: {
-      provider: 'string',
-      secretBackend: 'string',
-      keyFingerprint: 'string',
-      supersededCredentialId: 'string',
-      rotatedFrom: 'string',
-    },
+    metadata: LLM_CREDENTIAL_WRITE_METADATA,
   },
   'llm_credential.revoked': {
     targets: [{ type: 'llm_credential' }],
