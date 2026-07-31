@@ -130,7 +130,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontends/ui/bun.lock') }}
 
       - name: Install Chromium for playwright-core
         # The `/opt/pw-browsers` pre-install in docs/ux/visual-screenshots.md is the
@@ -148,9 +148,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: frontends/ui/.next/dev/cache
-          key: turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}-${{ github.sha }}
+          key: turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/package-lock.json') }}-
+            turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/bun.lock') }}-
             turbopack-dev-${{ runner.os }}-
 
       - name: Capture screenshots for the new targets

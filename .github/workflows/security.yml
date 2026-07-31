@@ -112,7 +112,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
-      # Reads the lockfiles in the tree (uv.lock, frontends/ui/package-lock.json)
+      # Reads the lockfiles in the tree (uv.lock, frontends/ui/bun.lock)
       # and reports known-vulnerable versions against the OSV database.
       # The runnable action lives in a subdirectory (the repo root action.yml is
       # metadata only), and there is no floating v2 tag, so pin an exact release.
