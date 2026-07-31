@@ -209,6 +209,7 @@ export const collaboration: typeof en.collaboration = {
     },
     errors: {
       loadFailed: 'Ihr Postfach konnte nicht geladen werden.',
+      actionFailed: 'Die Aktion konnte nicht ausgeführt werden. Ihr Postfach ist aktuell.',
       tryAgain: 'Erneut versuchen',
     },
     types: {
@@ -227,6 +228,10 @@ export const collaboration: typeof en.collaboration = {
       conversationActivity: {
         titleOne: '1 neue Nachricht',
         titleMany: '{count} neue Nachrichten',
+        body: 'in {subject}',
+      },
+      unknown: {
+        title: 'Es gibt etwas Neues',
         body: 'in {subject}',
       },
     },

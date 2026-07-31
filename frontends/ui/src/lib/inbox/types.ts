@@ -84,3 +84,22 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'conversation.shared_with_you': { icon: 'user-plus', i18nKey: 'conversationShared', tone: 'info' },
   'conversation.activity': { icon: 'message-square', i18nKey: 'conversationActivity', tone: 'info' },
 }
+
+/**
+ * What a row renders as when its type is not in the map above.
+ *
+ * That map is exhaustive over `InboxItemType` at compile time, but `type` is a
+ * `text` column: a row written by a newer deploy, or read across a rollback,
+ * carries a value this build has never heard of. Indexing the map for it yields
+ * `undefined`, and reading `.icon` off that took the whole inbox route down with
+ * a TypeError — one unrecognised row costing the user every other row they had.
+ *
+ * So: a neutral row that says something happened and links where the item
+ * points. It is deliberately vague, because this build genuinely does not know
+ * what the row means; it is not a substitute for registering the type.
+ */
+export const UNKNOWN_TYPE_PRESENTATION: InboxTypePresentation = {
+  icon: 'message-square',
+  i18nKey: 'unknown',
+  tone: 'info',
+}

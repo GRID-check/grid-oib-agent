@@ -308,6 +308,12 @@ export const collaboration = {
     },
     errors: {
       loadFailed: 'Your inbox could not be loaded.',
+      /**
+       * A refused ACTION, which is a different fact from a failed load — and the
+       * commonest cause is benign (a row a second tab already archived). Kept
+       * separate so a working list is never replaced by a load-failure sentence.
+       */
+      actionFailed: 'That action could not be completed. Your inbox is up to date.',
       tryAgain: 'Try again',
     },
     /**
@@ -336,6 +342,15 @@ export const collaboration = {
       conversationActivity: {
         titleOne: '1 new message',
         titleMany: '{count} new messages',
+        body: 'in {subject}',
+      },
+      /**
+       * A row whose type this build does not know — written by a newer deploy, or
+       * read across a rollback. Deliberately vague: claiming more than "something
+       * happened" would be inventing a meaning nobody here has.
+       */
+      unknown: {
+        title: 'Something happened',
         body: 'in {subject}',
       },
     },

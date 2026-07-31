@@ -43,8 +43,46 @@ describe('InboxItemRow — registry-driven rendering (IB-6)', () => {
     // …and when: a rendered, machine-readable timestamp (the exact relative
     // wording depends on how long ago the fixture is, so assert the element).
     const time = document.querySelector('time')
-    expect(time).toHaveAttribute('datetime', base.createdAt)
+    expect(time).toHaveAttribute('datetime', base.updatedAt)
     expect(time?.textContent?.trim()).not.toBe('')
+  })
+
+  test('times the row by when it last changed, not when it was created', () => {
+    // The list is ORDERED by updatedAt, so a grouped row that just absorbed a
+    // message sorts to the top — and used to arrive there saying "5 days ago".
+    render(
+      <InboxItemRow
+        item={item({
+          type: 'conversation.activity',
+          count: 3,
+          createdAt: '2026-07-24T09:00:00Z',
+          updatedAt: '2026-07-29T09:00:00Z',
+        })}
+      />,
+    )
+    expect(document.querySelector('time')).toHaveAttribute('datetime', '2026-07-29T09:00:00Z')
+  })
+
+  test('renders a neutral row for a type this build does not know', () => {
+    // `type` is a text column and the presentation map is exhaustive only at
+    // compile time: a row from a newer deploy used to throw and take the whole
+    // inbox route down with it.
+    render(<InboxItemRow item={item({ type: 'conversation.reaction' as never })} />)
+    expect(screen.getByText('Something happened')).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toBeInTheDocument()
+  })
+
+  test('a modified click does not spend the row\'s read state', () => {
+    // Cmd/middle-clicking rows into background tabs is the triage gesture; it
+    // used to mark every one of them read and remove them under the cursor.
+    const onOpen = vi.fn()
+    render(<InboxItemRow item={item()} onOpen={onOpen} />)
+    const link = screen.getByRole('link')
+    fireEvent.click(link, { metaKey: true })
+    fireEvent.click(link, { ctrlKey: true })
+    expect(onOpen).not.toHaveBeenCalled()
+    fireEvent.click(link)
+    expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
   test('links to the target at the exact spot', () => {

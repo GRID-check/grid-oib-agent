@@ -37,7 +37,11 @@ import {
 import { useI18n, useLocale, useTranslations } from '@/i18n'
 import { getByPath } from '@/i18n/translate'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
-import { INBOX_TYPE_PRESENTATION, type InboxItemView } from '@/lib/inbox/types'
+import {
+  INBOX_TYPE_PRESENTATION,
+  UNKNOWN_TYPE_PRESENTATION,
+  type InboxItemView,
+} from '@/lib/inbox/types'
 import { Badge } from '@/components/ui/badge'
 import { easeQuiet, motion } from '@/components/motion'
 import { cn } from '@/lib/utils'
@@ -86,7 +90,14 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
   const { dictionary } = useI18n()
   const { locale } = useLocale()
 
-  const presentation = INBOX_TYPE_PRESENTATION[item.type]
+  /*
+    `INBOX_TYPE_PRESENTATION` is exhaustive over `InboxItemType` at COMPILE time,
+    and rows come from a `text` column. A row written by a newer deploy — or read
+    across a rollback — therefore has a type this map does not know, and indexing
+    it produced `undefined.icon`: a TypeError that took down the whole /app/inbox
+    route, not just its own row. One unknown row must cost one unremarkable row.
+  */
+  const presentation = INBOX_TYPE_PRESENTATION[item.type] ?? UNKNOWN_TYPE_PRESENTATION
   const Icon = ICONS[presentation.icon]
 
   const inert = item.state === 'inert'
@@ -176,7 +187,17 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
             // overlay with `z-10`).
             <Link
               href={item.href}
-              onClick={() => onOpen?.(item)}
+              // Only a plain primary click counts as "opened". Cmd/ctrl/middle
+              // click is the natural triage gesture — open three rows in
+              // background tabs — and it used to spend the read state of all
+              // three and, under the "needs me" filter, delete them from under
+              // the cursor while the user was still clicking.
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                if (event.button !== 0) return
+                onOpen?.(item)
+              }}
+              onAuxClick={(event) => event.stopPropagation()}
               className={cn(
                 'min-w-0 rounded-sm text-sm leading-snug outline-none',
                 'after:absolute after:inset-0 after:content-[""]',
@@ -207,12 +228,16 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
         )}
 
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {/* `updatedAt`, which is what the list is ORDERED by. A grouped row
+              that just absorbed a new message sorts to the top, and showing its
+              `createdAt` put "5 days ago" at the head of the list. The title
+              carries the absolute moment for both. */}
           <time
             className="text-xs text-muted-foreground"
-            dateTime={item.createdAt}
-            title={formatAbsoluteTime(item.createdAt, locale)}
+            dateTime={item.updatedAt}
+            title={formatAbsoluteTime(item.updatedAt, locale)}
           >
-            {formatRelativeTime(item.createdAt, locale)}
+            {formatRelativeTime(item.updatedAt, locale)}
           </time>
           {resolved && item.actionable && (
             <Badge variant="success" className="gap-1">
