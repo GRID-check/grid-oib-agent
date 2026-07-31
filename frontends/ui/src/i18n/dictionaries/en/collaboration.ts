@@ -355,6 +355,14 @@ export const collaboration = {
     /** Observers see who the agent is working for (spec CC-13). */
     turnInFlight: 'Piloti is answering {name}’s question…',
     turnInFlightYou: 'Piloti is answering…',
+    /** A colleague is composing. Human vocabulary, not the agent's (TypingPresence). */
+    typing: '{names} is writing…',
+    typingMany: '{names} and {count} others are writing…',
+    /** Joins two names in the typing line. */
+    typingNameSeparator: ', ',
+    /** The agent put a question to the asker; an observer is told, not offered it. */
+    spectatorPrompt: 'Piloti asked a question and is waiting for an answer: “{question}”',
+    spectatorFailed: 'This turn ended with an error.',
     composerBusy: 'Piloti is answering {name}’s question — you can send once it finishes.',
     /** Access was revoked while the reader had the thread open. */
     accessLost: 'You no longer have access to this conversation. What you see is a local copy and will not update.',

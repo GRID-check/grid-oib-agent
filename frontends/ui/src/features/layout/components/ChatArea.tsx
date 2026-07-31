@@ -47,6 +47,9 @@ import { useMessageAnchor } from '@/features/collaboration/hooks/use-message-anc
 import { MentionPeopleProvider } from '@/features/collaboration/context/mention-people'
 import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
 import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
+import { useSpectatedTurn } from '@/features/collaboration/hooks/use-spectated-turn'
+import { SpectatedTurn } from '@/features/collaboration/components/SpectatedTurn'
+import { TypingPresence } from '@/features/collaboration/components/TypingPresence'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
@@ -132,6 +135,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     loading: sharedLoading,
     accessLost,
     turnInFlight,
+    typists,
     unreadAfterMessageId,
     lastArrival,
     participants,
@@ -144,6 +148,32 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     enabled: canCollaborate,
     currentUserId,
   })
+
+  // ── Watching a colleague's turn (ADR-0039) ──────────────────────────────────
+  // Only for a turn that is NOT this reader's: the asker already has the frames
+  // on their own agent socket, and a second copy would render the answer twice.
+  // Everything else — a private thread, a gated org, no turn running — resolves
+  // to `enabled: false`, and the hook then opens no connection at all.
+  const isForeignTurn = Boolean(
+    shared && turnInFlight && turnInFlight.actorUserId !== currentUserId && !isStreaming
+  )
+  const { turn: spectatedTurn, live: spectatingLive } = useSpectatedTurn({
+    conversationId: currentConversation?.id ?? null,
+    enabled: isForeignTurn,
+  })
+
+  // One label, two renderings (the static banner and the live stream), so the
+  // observer's headline cannot change wording just because frames started
+  // arriving.
+  const turnInFlightLabel = useMemo(() => {
+    if (!turnInFlight) return ''
+    if (turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId) {
+      return tCollaboration('thread.turnInFlightYou')
+    }
+    return tCollaboration('thread.turnInFlight', {
+      name: authorOf(turnInFlight.actorUserId)?.name ?? tCollaboration('inbox.unknownActor'),
+    })
+  }, [turnInFlight, currentUserId, authorOf, tCollaboration])
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
   // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
@@ -832,20 +862,30 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               this an observer sees a thread where nothing appears to be happening
               and a composer that will not take their question. Suppressed while
               this client is itself streaming — the asker already has the typing
-              indicator and the Herleitung. */}
+              indicator and the Herleitung.
+
+              Two renderings of the same fact, and the LIVE one is preferred: when
+              the agent's frames are reaching this observer (ADR-0039) they watch
+              the answer being written, and the banner is what remains when they
+              are not — a gated org, no shared cache tier, a dropped stream, or the
+              first moments before the first token. `spectatingLive` is the switch,
+              and it only turns on once there is something to show, so the banner is
+              never replaced by an empty box. */}
               {shared && turnInFlight && !isStreaming && !showTypingPlaceholder && (
-                <TurnInFlightBanner
-                  label={
-                    turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId
-                      ? tCollaboration('thread.turnInFlightYou')
-                      : tCollaboration('thread.turnInFlight', {
-                          name:
-                            authorOf(turnInFlight.actorUserId)?.name ??
-                            tCollaboration('inbox.unknownActor'),
-                        })
-                  }
-                />
+                spectatingLive && spectatedTurn ? (
+                  <SpectatedTurn
+                    turn={spectatedTurn}
+                    label={turnInFlightLabel}
+                  />
+                ) : (
+                  <TurnInFlightBanner label={turnInFlightLabel} />
+                )
               )}
+
+              {/* A colleague at a keyboard. Distinct vocabulary from the agent's
+              banner above (see TypingPresence), and independent of it: somebody may
+              well start writing while Piloti is still answering. */}
+              {shared && <TypingPresence typists={typists} />}
 
               {/* A colleague writing while you are reading is a change you must be able
               to learn about without eyes. Polite, so it never interrupts. Keyed on
@@ -1149,12 +1189,14 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
  * "Piloti is answering <name>'s question" — the observer's view of a turn that is
  * not theirs (spec CC-13).
  *
- * Phase 1 deliberately shows turn STATE, not the streaming tokens: mirroring the
- * agent's frames to every participant needs a relay out of the Python tier
- * (ADR-0033 §7). What matters is that the wait is explained — without this, a
- * second participant sees a thread where nothing is happening and a composer that
- * will not take their question, which reads as a broken product rather than a busy
- * one.
+ * This is now the FALLBACK rather than the whole story: with the frame relay in
+ * place (ADR-0039) an observer watches the answer being written, and `SpectatedTurn`
+ * renders it. The banner is what remains when the frames cannot reach them — no
+ * shared cache tier, a dropped stream, or simply the first moments before the first
+ * token. It is not a lesser version of the feature: what matters most is that the
+ * wait is explained, because without it a second participant sees a thread where
+ * nothing is happening and a composer that will not take their question, which reads
+ * as a broken product rather than a busy one.
  *
  * It says *the assistant is working*, not *somebody is typing*: the Piloti glyph
  * plus the shimmering label — this app's own vocabulary for a turn in progress

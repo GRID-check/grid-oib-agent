@@ -47,6 +47,30 @@ export type CollaborationEvent =
       awaitingUserIds: string[]
     }
   | {
+      /**
+       * Somebody is composing in this thread — the one event here that is
+       * **presence, not a hint**, and the exception is deliberate.
+       *
+       * There is no "who is typing" endpoint and there must not be one: the fact
+       * is true for a few seconds, it is worthless a moment later, and storing it
+       * would buy a second source of truth for something Postgres should never
+       * hear about. So it follows the same shape `conversation.turn` uses for its
+       * banner — a claim with an expiry rather than a claim with a fetch behind
+       * it. `ttlMs` is how long a receiver may keep believing it without a
+       * refresh; a dropped `typing: false` therefore self-heals, and a dead
+       * channel degrades to today's behaviour (no indicator) rather than to a
+       * stuck one.
+       */
+      kind: 'conversation.typing'
+      conversationId: string
+      /** Who is composing. Never the receiver — the publisher drops its own echo. */
+      userId: string
+      /** False ends the claim early (sent, cleared the box, left the thread). */
+      typing: boolean
+      /** How long `typing: true` stays believable without a refresh. */
+      ttlMs: number
+    }
+  | {
       kind: 'resource.access.changed'
       resourceType: ShareableResourceType
       resourceId: string

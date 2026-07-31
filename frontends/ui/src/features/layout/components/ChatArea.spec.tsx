@@ -103,6 +103,7 @@ const INERT_SHARED_THREAD = {
   loading: false,
   connected: false,
   turnInFlight: null as { actorUserId: string | null } | null,
+  typists: [] as Array<{ userId: string; name: string; profilePictureUrl?: string | null }>,
   participants: [] as Array<{ userId: string; name: string }>,
   unreadAfterMessageId: null as string | null,
   lastArrival: null as { messageId: string; authorUserId: string | null; authorName: string | null } | null,

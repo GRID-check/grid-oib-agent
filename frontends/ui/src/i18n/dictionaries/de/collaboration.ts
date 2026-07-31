@@ -241,6 +241,11 @@ export const collaboration: typeof en.collaboration = {
     groupedAria: 'Fortsetzung von {name}',
     turnInFlight: 'Piloti beantwortet die Frage von {name}…',
     turnInFlightYou: 'Piloti antwortet…',
+    typing: '{names} schreibt…',
+    typingMany: '{names} und {count} weitere schreiben…',
+    typingNameSeparator: ', ',
+    spectatorPrompt: 'Piloti hat eine Rückfrage gestellt und wartet auf eine Antwort: „{question}“',
+    spectatorFailed: 'Dieser Durchgang endete mit einem Fehler.',
     composerBusy:
       'Piloti beantwortet gerade die Frage von {name} – Sie können senden, sobald das erledigt ist.',
     accessLost:

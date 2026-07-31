@@ -538,6 +538,11 @@ time, and it is expensive. Two people in one thread therefore need explicit rule
   be chosen (see OQ-4): **queue** the second question and run it after, or **block**
   with an explanatory state and let the sender retry.
 
+  > *As built:* **block** with an explanatory state. Beyond the requirement, an
+  > observer now watches the turn itself — the reasoning chain and the answer as it
+  > streams — rather than only being told one is running (ADR-0039). The "who asked"
+  > strip remains as the fallback where live delivery is unavailable.
+
 - **CC-14 (MUST).** Cancellation is **owner-or-asker**: the person whose turn is
   running, and any `owner` of the conversation, may cancel it. A cancellation is
   visible to all participants with its actor.
