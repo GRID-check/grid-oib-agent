@@ -126,7 +126,7 @@ def _override_setting(monkeypatch, values):
     """Patch the platform retrieval-settings resolver: only the listed keys are
     overridden, every other key falls through to its config fallback — exactly
     what the real resolver does for unpinned keys."""
-    import aiq_agent.common.retrieval_settings as retrieval_settings
+    from aiq_agent.common import retrieval_settings
 
     def fake_get(key, fallback):
         return values.get(key, fallback)
@@ -166,7 +166,7 @@ class TestPlatformMaxResultsOverride:
         assert second_kwargs["search_depth"] == "advanced"
 
     async def test_resolver_failure_falls_back_to_config(self, fake_langchain_tavily, monkeypatch):
-        import aiq_agent.common.retrieval_settings as retrieval_settings
+        from aiq_agent.common import retrieval_settings
 
         def boom(key, fallback):
             raise RuntimeError("BFF unreachable")

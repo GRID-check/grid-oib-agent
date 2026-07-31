@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.surface_documents import MAX_SURFACED_FILES
+from aiq_agent.cards.surface_documents import SurfaceDocumentsConfig
 from aiq_agent.cards.surface_documents import _aggregate_surfaced
 from aiq_agent.cards.surface_documents import _source_for_collection
 from aiq_agent.cards.surface_documents import _target_collections
-from aiq_agent.cards.surface_documents import SurfaceDocumentsConfig
 from aiq_agent.cards.surface_documents import surface_documents
 
 
@@ -156,8 +156,6 @@ class TestPlatformCounts:
         return retriever, registry
 
     async def test_platform_override_reaches_retriever_and_caps_grid(self, monkeypatch):
-        from aiq_agent.common.retrieval_settings import get_retrieval_setting
-
         def fake_get(key, fallback):
             return {"surface.chunk_top_k": 6, "surface.max_files": 1}[key]
 
@@ -174,8 +172,6 @@ class TestPlatformCounts:
         assert "plan.pdf" in output
 
     async def test_resolver_failure_falls_back_to_constants(self, monkeypatch):
-        from aiq_agent.common.retrieval_settings import get_retrieval_setting
-
         def boom(key, fallback):
             raise RuntimeError("BFF unreachable")
 
