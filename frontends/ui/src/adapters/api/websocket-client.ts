@@ -111,11 +111,42 @@ export interface NATWebSocketClientCallbacks {
 
 /** Options for NAT WebSocket client */
 /**
- * Ceiling for the reconnect curve. With the default 3 attempts the curve never
- * reaches it; it exists so raising `reconnectAttempts` can't produce an
- * unbounded delay.
+ * Ceiling for the reconnect curve, so the exponential growth flattens into a
+ * steady retry cadence instead of running away.
  */
 const MAX_RECONNECT_DELAY_MS = 30_000
+
+/**
+ * How many reconnect attempts before the client gives up and raises
+ * `CONNECTION_FAILED` ("Unable to connect to the server").
+ *
+ * THIS NUMBER IS A DEPLOY BUDGET, not a network-flakiness budget. The socket
+ * that carries a chat is terminated by its serving pod, so an ordinary rolling
+ * update severs it by design — the frontend pod drains and exits, and (with
+ * conversation affinity, ADR-0028) the aiq-agent replica that conversation is
+ * pinned to restarts too. Nothing at the edge can hide that: retries and Envoy's
+ * drain (deploy/pulumi) cover the endpoint-programming race, but not the window
+ * where the owning pod genuinely is not running. The client has to outlast it.
+ *
+ * At 3 attempts (base 1s, factor 2, equal jitter) the whole budget was
+ * ~4-7 SECONDS. Every deploy therefore ended with this banner in front of every
+ * open chat, and the "Try again" it offers is exactly what the client had just
+ * stopped doing.
+ *
+ * Sizing against `deploy/pulumi/src/platform/rollout.ts`: a frontend pod spends
+ * up to its 60s grace period draining, and an aiq-agent replica up to 90s
+ * draining plus a cold start (heavy image, Dask spin-up, Chroma open). 12
+ * attempts on the curve below — 1, 2, 4, 8, 16, then 30s repeating, halved-to-
+ * full by jitter — spans ~2 to ~4 minutes, which covers a healthy roll of both
+ * tiers with room to spare.
+ *
+ * The upper bound is deliberate: a rollout that is genuinely wedged
+ * (`ProgressDeadlineExceeded`) must still surface as a failure rather than an
+ * indicator that spins forever. Note the user is NOT kept in the dark meanwhile
+ * — the first close already fires `onConnectionChange('disconnected')`; only the
+ * terminal error card waits for the budget to run out.
+ */
+const DEFAULT_RECONNECT_ATTEMPTS = 12
 
 export interface NATWebSocketClientOptions {
   /** Conversation/session ID */
@@ -124,7 +155,10 @@ export interface NATWebSocketClientOptions {
   projectId?: string
   /** Callback functions */
   callbacks: NATWebSocketClientCallbacks
-  /** Number of reconnection attempts (default: 3) */
+  /**
+   * Number of reconnection attempts before `CONNECTION_FAILED`
+   * (default: `DEFAULT_RECONNECT_ATTEMPTS` — sized to outlast a rolling deploy).
+   */
   reconnectAttempts?: number
   /**
    * Base of the reconnect backoff curve in ms (default: 1000). The actual wait
@@ -182,7 +216,7 @@ export class NATWebSocketClient {
 
   constructor(options: NATWebSocketClientOptions) {
     this.options = {
-      reconnectAttempts: 3,
+      reconnectAttempts: DEFAULT_RECONNECT_ATTEMPTS,
       reconnectDelay: 1000,
       ...options,
     }
@@ -638,7 +672,7 @@ export class NATWebSocketClient {
   private handleReconnect = (): void => {
     const { reconnectAttempts, reconnectDelay } = this.options
 
-    if (this.reconnectCount >= (reconnectAttempts || 3)) {
+    if (this.reconnectCount >= (reconnectAttempts || DEFAULT_RECONNECT_ATTEMPTS)) {
       // All retries exhausted -- notify with final disconnected status
       this.options.callbacks.onConnectionChange?.('disconnected', { intentional: false })
       this.options.callbacks.onError?.({

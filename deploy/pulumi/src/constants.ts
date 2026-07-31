@@ -46,6 +46,28 @@ export const PORT = {
  */
 export const EDGE_TIMEOUT = "3600s";
 
+/**
+ * Edge retry budget for requests that never reached a live upstream.
+ *
+ * A rolling update moves endpoints around: for the few seconds between a pod
+ * being marked for deletion and Envoy's cluster losing that endpoint, a request
+ * can be dispatched at a socket that is already gone. Without a retry the
+ * browser sees that as a failed request — a blank panel, a failed BFF call, or
+ * a WebSocket upgrade that never completes — even though a healthy replica was
+ * sitting right there. Retrying is what turns "there was a deploy" into
+ * "nothing happened".
+ *
+ * Small and fast on purpose: this covers an endpoint-programming race, which
+ * resolves in well under a second. It is NOT a substitute for capacity, and it
+ * is deliberately not a retry-on-5xx budget — see the trigger list in
+ * `httproutes.ts` for why only never-dispatched failures are retried.
+ */
+export const EDGE_RETRY = {
+  numRetries: 3,
+  baseInterval: "100ms",
+  maxInterval: "1s",
+} as const;
+
 /** Resource envelope for short-lived bootstrap Jobs (waiters, DDL, buckets). */
 export const BOOTSTRAP_JOB_RESOURCES = {
   requests: { cpu: "25m", memory: "64Mi" },
