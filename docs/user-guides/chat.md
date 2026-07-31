@@ -63,7 +63,7 @@ When collaboration is enabled (ADR-0032…0036), a chat can have a named audienc
 
 **Read-only and revoked access.** Someone with view-only access reads along but cannot send; the composer says so instead of silently rejecting. If access to a shared chat is revoked while it is open, a notice explains that what remains is a local copy that no longer updates. While a colleague's turn is running, the composer is locked with a hint rather than letting two people write into one thread at once.
 
-**The inbox.** The inbox (nav entry with a live count badge, and an "Inbox" pill on org-level pages) lists everything that needs a person: mention requests, answers, and shares. Items deep-link into the right chat, highlight the message, and are marked read as you open them; resolved items carry a *Beantwortet* chip, the list can be filtered or archived, and the badge count also rides on the chat's own navigation on phones.
+**The inbox.** The inbox (nav entry with a live count badge, and an "Inbox" pill on org-level pages) lists everything that needs a person: mention requests, answers, and shares. Items deep-link into the right chat, highlight the message, and are marked read as you open them; resolved items carry an *Answered* chip, the list can be filtered or archived, and the badge count also rides on the chat's own navigation on phones.
 
 ## Chat history panel
 

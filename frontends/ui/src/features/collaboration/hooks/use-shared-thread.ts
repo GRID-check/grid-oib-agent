@@ -355,13 +355,13 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    * conversation — later reads merge, so they cannot disturb an in-flight turn.
    */
   const load = useCallback(
-    async (replace: boolean) => {
+    async (replace: boolean): Promise<'ok' | 'denied'> => {
       if (!enabled || !conversationId) {
         sharedRef.current = false
         setShared(false)
         setMyRole(null)
         setLoading(false)
-        return
+        return 'ok'
       }
 
       const current = ++seq.current
@@ -386,10 +386,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
             // behaviour behaves like a private one, connect-on-mount included.
             publishThreadSharing(conversationId, false)
           }
-          return
+          return 'ok'
         }
         const facts = (await response.json()) as ConversationAccessFacts
-        if (current !== seq.current) return
+        if (current !== seq.current) return 'ok'
 
         // A successful access read heals any earlier revocation signal.
         setAccessLost(false)
@@ -416,10 +416,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         // write, no subscription — the local-first path owns this thread.
         if (!isShared) {
           setLoading(false)
-          return
+          return 'ok'
         }
 
-        await Promise.all([
+        const [, messages] = await Promise.all([
           loadRoster(conversationId, current),
           loadMessages(conversationId, current, replace),
         ])
@@ -437,6 +437,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
             )
           }
         }
+        // Report a denied history read to the caller: the access fact we just read
+        // said "shared", so the denial means access went away BETWEEN the two
+        // requests, and nothing above has flagged it yet.
+        return messages === 'denied' ? 'denied' : 'ok'
       } catch {
         if (current === seq.current) {
           sharedRef.current = false
@@ -446,11 +450,27 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
           // how the two-participant collision comes back. Left `unknown`, so the
           // composer opens its socket on intent instead of on mount.
         }
+        return 'ok'
       } finally {
         if (current === seq.current) setLoading(false)
       }
     },
     [conversationId, enabled, loadMessages, loadRoster]
+  )
+
+  /**
+   * `load`, plus the bounded revalidation `refresh` already does by hand: a
+   * denied history read on a thread the access read called shared is a
+   * revocation that landed between the two requests, so re-read the access fact
+   * ONCE — that second read is what clears `shared`/`myRole` and raises
+   * `accessLost` instead of leaving a live-looking composer over a frozen
+   * thread. Its own outcome is deliberately ignored, so this can never loop.
+   */
+  const loadAndRevalidate = useCallback(
+    async (replace: boolean) => {
+      if ((await load(replace)) === 'denied') await load(false)
+    },
+    [load]
   )
 
   // Open / switch conversation: reset every per-conversation fact, then load.
@@ -467,8 +487,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     setAccessLost(false)
     setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
-    void load(true)
-  }, [load])
+    void loadAndRevalidate(true)
+  }, [loadAndRevalidate])
 
   const onEvent = useCallback(
     (event: CollaborationEvent) => {
@@ -502,11 +522,11 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         // Sharing this thread (or losing it) changes which PATH applies, so the
         // access fact has to be re-read, not just the messages.
         if (event.resourceType === 'conversation' && event.resourceId === conversationId) {
-          void load(false)
+          void loadAndRevalidate(false)
         }
       }
     },
-    [conversationId, load, loadMessages]
+    [conversationId, loadAndRevalidate, loadMessages]
   )
 
   const refresh = useCallback(() => {
@@ -522,7 +542,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       // Not shared (or not yet known): re-read the access fact only. This is what
       // makes "a colleague shared it with me while I had it open" converge without
       // an event, and it is the ONLY request a private thread can cause.
-      void load(false)
+      void loadAndRevalidate(false)
       return
     }
     if (conversationId) {
@@ -533,7 +553,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         if (outcome === 'denied') void load(false)
       })
     }
-  }, [conversationId, load, loadMessages])
+  }, [conversationId, load, loadAndRevalidate, loadMessages])
 
   const { connected } = useLiveEvents({
     // No subscription at all until the server has confirmed the thread is shared:

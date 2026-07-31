@@ -123,6 +123,10 @@ export function useSharing(
 
   const refresh = useCallback(async () => {
     if (!enabled || !base) {
+      // Invalidate any read still in flight: without this bump its `current`
+      // would still match and it would write the abandoned resource's state back
+      // over the cleared one.
+      seq.current += 1
       cancelRetry()
       setState(null)
       setLoading(false)
@@ -382,6 +386,10 @@ export function useMentionCandidates(
 
   const refresh = useCallback(async () => {
     if (!enabled || !conversationId) {
+      // Same reason as in `useSharing`: bump the sequence so a candidates read
+      // still in flight for the previous conversation fails its guard instead of
+      // repopulating the picker we just cleared.
+      seq.current += 1
       cancelRetry()
       setData(null)
       setLoading(false)
