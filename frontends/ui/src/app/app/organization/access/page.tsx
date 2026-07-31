@@ -57,9 +57,9 @@ export default async function OrganizationAccessPage(): Promise<JSX.Element> {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ShieldAlert className="text-muted-foreground size-4" aria-hidden />
-              {t('notAdmin.title')}
+              {t('access.notAllowed.title')}
             </CardTitle>
-            <CardDescription>{t('notAdmin.description')}</CardDescription>
+            <CardDescription>{t('access.notAllowed.description')}</CardDescription>
           </CardHeader>
         </Card>
       </div>

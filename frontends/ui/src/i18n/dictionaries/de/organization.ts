@@ -60,21 +60,37 @@ export const organization: typeof en.organization = {
       columnStatus: 'Status',
       noRole: 'Keine Rolle',
       empty: 'Dieser Organisation ist noch niemand beigetreten.',
+      loadError:
+        'Das Mitgliederverzeichnis konnte gerade nicht geladen werden. Rollen lassen sich unten trotzdem ändern.',
     },
     roles: {
       title: 'Rollen',
       description: 'Die Rollen, die diese Organisation vergeben kann, und was jede davon freischaltet.',
-      tierOrg: 'Organisationsrollen',
-      tierProject: 'Projektrollen',
-      tierWorkflow: 'Workflow-Rollen',
-      permissionCount: '{count} Berechtigungen',
+      // Singular/Plural wird in der Komponente gewählt — dieses i18n hat kein ICU.
+      permissionCountOne: '1 Berechtigung',
+      permissionCountOther: '{count} Berechtigungen',
+      platformNotice:
+        'Nur für Plattform-Personal. Diese Rollen liegen in der Organisation „GRID Platform“ und können hier nicht vergeben werden.',
     },
     permissions: {
       title: 'Berechtigungen',
       description:
         'Jede Berechtigung, die die Organisation kennt, und die Rollen, die sie vergeben.',
+      columnPermission: 'Berechtigung',
       grantedBy: 'Vergeben durch',
       noRoles: 'Keine Rolle vergibt dies',
+      deprecated: 'Veraltet',
+    },
+    tiers: {
+      org: 'Organisation',
+      project: 'Projekt',
+      workflow: 'Workflow',
+      platform: 'Plattform',
+    },
+    notAllowed: {
+      title: 'Du kannst hier keine Personen verwalten',
+      description:
+        'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
     },
   },
   overview: {

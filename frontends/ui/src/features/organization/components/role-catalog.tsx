@@ -116,7 +116,9 @@ export function RoleCatalog({ roles = ROLES }: RoleCatalogProps): JSX.Element {
                     {/* The count IS the heading: "0 permissions" is how a role
                         that grants nothing says so, with no empty list under it. */}
                     <p className="text-muted-foreground mt-3 text-xs font-medium uppercase tracking-wide">
-                      {t('access.roles.permissionCount', { count: role.permissions.length })}
+                      {role.permissions.length === 1
+                        ? t('access.roles.permissionCountOne')
+                        : t('access.roles.permissionCountOther', { count: role.permissions.length })}
                     </p>
                     {role.permissions.length > 0 ? (
                       <ul className="mt-1.5 flex flex-col gap-1">

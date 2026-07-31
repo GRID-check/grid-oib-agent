@@ -35,10 +35,17 @@ describe('RoleCatalog', () => {
 
     const group = screen.getByTestId('role-tier-org')
     expect(
-      within(group).getByText(t('access.roles.permissionCount', { count: 0 }))
+      within(group).getByText(t('access.roles.permissionCountOther', { count: 0 }))
     ).toBeInTheDocument()
     // One list — the roles themselves. No orphan permission list.
     expect(within(group).getAllByRole('list')).toHaveLength(1)
+  })
+
+  test('one permission reads as singular, not "1 permissions"', () => {
+    render(<RoleCatalog roles={[role({ permissions: ['org:budgets:manage'] })]} />)
+
+    const group = screen.getByTestId('role-tier-org')
+    expect(within(group).getByText(t('access.roles.permissionCountOne'))).toBeInTheDocument()
   })
 
   test('a permission the catalog no longer defines still shows its slug', () => {
