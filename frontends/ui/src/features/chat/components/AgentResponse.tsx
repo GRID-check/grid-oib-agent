@@ -290,6 +290,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
   const hasCards = cards && cards.length > 0
 
+  // What the merged footer's meta row would actually hold. The flags alone are
+  // not the answer: `showConfidenceChip` is on by default but the chip renders
+  // nothing without a level, and the feedback row needs a `messageId` — gating
+  // the row on the flags let it mount as an empty band (bare spacer + its own
+  // gap) on a meta turn that has neither.
+  const hasConfidence =
+    showConfidenceChip &&
+    (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
+  const hasFeedback = showAnswerFeedback && Boolean(messageId)
+  const hasMetaRow = hasConfidence || hasFeedback || Boolean(timestamp) || memoryItems.length > 0
+
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
   if ((!content || !content.trim() || content === 'null') && !hasCards) {
@@ -488,9 +499,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             withDivider={false}
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          {(showConfidenceChip || showAnswerFeedback || timestamp || memoryItems.length > 0) && (
+          {hasMetaRow && (
             <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
-              {showConfidenceChip && (
+              {hasConfidence && (
                 <ConfidenceChip
                   confidence={answerConfidence}
                   cappedReason={answerConfidenceCappedReason}
@@ -499,7 +510,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               )}
               <MemoryNotedChip items={memoryItems} />
               <span className="flex-1" aria-hidden="true" />
-              {showAnswerFeedback && messageId && (
+              {hasFeedback && messageId && (
                 <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
               )}
               {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp)}</span>}

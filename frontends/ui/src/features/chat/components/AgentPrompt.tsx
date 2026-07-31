@@ -111,7 +111,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
         <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
           {/* Agent icon and label */}
           <div
-            className={`flex items-center gap-2 transition-opacity duration-300 ${isResponded ? 'opacity-75' : ''}`}
+            className={`flex items-center gap-2 transition-opacity duration-300 motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
             <MessageSquare className="h-5 w-5 text-muted-foreground" />
             <span className="text-sm font-semibold text-muted-foreground">
@@ -121,7 +121,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
 
           {/* Content - rendered as markdown */}
           <div
-            className={`prose prose-sm max-w-none transition-opacity duration-300 ${isResponded ? 'opacity-75' : ''}`}
+            className={`prose prose-sm max-w-none transition-opacity duration-300 motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
             <MarkdownRenderer content={displayContent} />
           </div>

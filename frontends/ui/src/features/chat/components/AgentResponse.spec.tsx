@@ -351,6 +351,15 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
     })
 
+    test('renders no empty meta row when the flags are on but nothing has content', () => {
+      // Flags default to on, but there is no confidence level, no messageId for
+      // the thumbs row, no timestamp and no memory — the row would be a bare
+      // spacer plus its own gap, so it must not mount.
+      const { container } = render(<AgentResponse content="Answer" />)
+
+      expect(container.querySelector('[class*="animation-delay"]')).toBeNull()
+    })
+
     test('holds confidence, memory, the thumbs row and the timestamp in ONE row', () => {
       memory.items = [memoryItem]
 

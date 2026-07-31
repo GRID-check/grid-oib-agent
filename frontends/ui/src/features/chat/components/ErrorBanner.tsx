@@ -38,7 +38,15 @@ export interface ErrorBannerProps {
 }
 
 /**
- * Error banner for displaying connection, file, auth, and system errors
+ * Error banner for displaying connection, file, auth, and system errors.
+ *
+ * Motion: the banner arrives in the transcript with the same entrance every
+ * other chat turn uses — a 200ms fade-and-rise (`animate-in fade-in-0
+ * slide-in-from-bottom-1 duration-200`) on mount only, never on re-render, so a
+ * banner that appears mid-conversation reads as the same class of object as the
+ * answer beside it. Dropped entirely under `prefers-reduced-motion` via
+ * `motion-reduce:animate-none` (design language §Motion vocabulary): the banner
+ * is fully legible without it, so no information depends on the animation.
  */
 export const ErrorBanner: FC<ErrorBannerProps> = ({
   code,
