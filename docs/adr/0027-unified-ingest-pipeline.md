@@ -25,7 +25,7 @@ We will introduce a new module `processing.py` in the llamaindex package that ow
 
 1. `render_visual_pages_no_vlm(pdf_path, max_dim, min_text_chars, min_paths, max_pages)` — the existing visual-page detection + pypdfium2 render, without any VLM call. Returns raw `(image_bytes, page_number, width, height)` dicts.
 
-2. `vlm_cache_key(image_bytes, prompt_type)` + `_cached_vlm_call(image_bytes, prompt_type, live_call, *args, **kwargs)` — content-hash VLM caching via `aiq_agent.common.cache` (shared Dragonfly/Redis store, ADR-0020). SHA-256 of image bytes + prompt type → `vlm:caption:{type}:{hash}`. TTL of 30 days. Fail-open on store errors.
+2. `vlm_cache_key(image_bytes, prompt_type)` + `_cached_vlm_call(image_bytes, prompt_type, live_call, *args, **kwargs)` — content-hash VLM caching via `aiq_agent.common.cache` (shared Dragonfly/Redis store, ADR-0020). SHA-256 of image bytes + prompt type → `vlm:caption:{type}:{hash}` (later model-keyed to `vlm:caption:{model}:{type}:{hash}` — see Follow-ups). TTL of 30 days. Fail-open on store errors.
 
 3. `enrich_vlm_batch(images, drawing_pages, vlm_model, vlm_base_url, vlm_api_key, extract_charts)` — runs ALL VLM calls for a single file concurrently with `ThreadPoolExecutor` (4 workers), using the content-hash cache. Returns `(image_results, drawing_pages_with_captions)`.
 
@@ -73,8 +73,22 @@ New `assertFileSizeAllowed(file.size)` function in the BFF documents service, ca
 
 ## Open Questions / Follow-ups
 
-- `VLM_BATCH_WORKERS = 4` is hardcoded in `processing.py`. If providers enforce tight rate limits, this may need to be env-configurable.
-- The content-hash VLM cache key does not include the VLM model name. Switching models invalidates stale entries only at the 30-day TTL boundary. A follow-up could model-key the cache.
+- ~~`VLM_BATCH_WORKERS = 4` is hardcoded in `processing.py`.~~ **Resolved**
+  (2026-07 pipeline hardening): now `AIQ_VLM_BATCH_WORKERS` (default 4).
+- ~~The content-hash VLM cache key does not include the VLM model name.~~
+  **Resolved** (2026-07 pipeline hardening): the key is now
+  `vlm:caption:{model}:{prompt_type}:{sha256(bytes)}`, so model switches and
+  per-org `ingest_vlm` overrides never serve stale/shared captions. The same
+  hardening also: routes standalone image uploads through the cache, skips
+  failure-placeholder captions instead of indexing them and never caches them
+  (so a transient provider error is not replayed from cache for the TTL and
+  re-ingest can recover the file), adds a truncation
+  retry on `finish_reason == "length"`, sets an explicit VLM client timeout
+  (`AIQ_VLM_TIMEOUT_SECONDS`), dedupes identical embedded rasters, scopes the
+  end-of-job summary reconciliation to the job's own files, and raises the
+  embedding batch size (`AIQ_EMBED_BATCH_SIZE`, default 64). See
+  `docs/architecture/backend-deep-dive.md` §"Multimodal & visual/vector-drawing
+  ingestion".
 
 ## References
 
