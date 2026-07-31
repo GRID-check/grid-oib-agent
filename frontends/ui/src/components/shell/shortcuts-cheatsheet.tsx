@@ -126,19 +126,29 @@ function splitColumns(sections: ShortcutSection[]): [ShortcutSection[], Shortcut
   return columns
 }
 
-/** One shortcut: icon + what it does on the left, the keys on the right. */
-function Row({ row, mod }: { row: ShortcutRow; mod: string }) {
+/**
+ * Resolve a row's label from whichever dictionary owns it. Built once in the
+ * sheet and passed down, so a row does not construct three translators of
+ * which two go unused.
+ */
+function useLabelResolver(): (label: ShortcutRow['label']) => string {
   const tNav = useTranslations('nav')
   const tCollab = useTranslations('collaboration')
   const tItems = useTranslations('shortcuts.cheatsheet.items')
-  const Icon = row.icon
 
-  const label =
-    row.label.namespace === 'nav'
-      ? tNav(row.label.key)
-      : row.label.namespace === 'collaboration'
-        ? tCollab(row.label.key)
-        : tItems(row.label.key)
+  return React.useCallback(
+    (label) => {
+      if (label.namespace === 'nav') return tNav(label.key)
+      if (label.namespace === 'collaboration') return tCollab(label.key)
+      return tItems(label.key)
+    },
+    [tNav, tCollab, tItems],
+  )
+}
+
+/** One shortcut: icon + what it does on the left, the keys on the right. */
+function Row({ row, mod, label }: { row: ShortcutRow; mod: string; label: string }) {
+  const Icon = row.icon
 
   return (
     <div
@@ -173,6 +183,7 @@ export function ShortcutsCheatsheet({
 }: ShortcutsCheatsheetProps) {
   const t = useTranslations('shortcuts.cheatsheet')
   const tGroups = useTranslations('shortcuts.cheatsheet.groups')
+  const resolveLabel = useLabelResolver()
   const mod = useModifierLabel()
 
   // Recomputed only when the capability flags change — the registry is pure.
@@ -221,7 +232,7 @@ export function ShortcutsCheatsheet({
                     </h3>
                     <div className="divide-y divide-border rounded-xl border border-border bg-card">
                       {section.rows.map((row) => (
-                        <Row key={row.id} row={row} mod={mod} />
+                        <Row key={row.id} row={row} mod={mod} label={resolveLabel(row.label)} />
                       ))}
                     </div>
                     {section.note && (

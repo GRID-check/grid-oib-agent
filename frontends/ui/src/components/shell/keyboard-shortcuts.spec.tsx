@@ -120,11 +120,13 @@ describe('KeyboardShortcuts', () => {
     // Flag-gated sections stay out until their flag is on.
     expect(screen.queryByText('Workflows')).toBeNull()
     expect(screen.queryByText('Knowledge')).toBeNull()
-    // The keycaps show the leader sequence, not a bare letter.
+    // The keycaps show the leader sequence, not a bare letter. Asserted
+    // against the <kbd> elements rather than the row text — the label "Files"
+    // contains an F, so a text assertion would pass without a keycap.
     const filesRow = document.querySelector('[data-shortcut="jump-f"]')
-    expect(filesRow?.textContent).toContain('G')
+    const caps = Array.from(filesRow?.querySelectorAll('kbd') ?? []).map((cap) => cap.textContent)
+    expect(caps).toEqual(['G', 'F'])
     expect(filesRow?.textContent).toContain('then')
-    expect(filesRow?.textContent).toContain('F')
   })
 
   test('a gated-off shortcut group row disappears with its feature', async () => {
@@ -180,6 +182,32 @@ describe('KeyboardShortcuts', () => {
 
     fireEvent.keyDown(window, { key: 'g' })
     fireEvent.keyDown(window, { key: 'a' })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  test('a lone modifier keypress does not spend the armed leader', async () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    // Reaching for a capital letter fires a Shift keydown of its own. It
+    // cannot complete a sequence, so it must not cost the user their `g`.
+    fireEvent.keyDown(window, { key: 'Shift', shiftKey: true })
+    fireEvent.keyDown(window, { key: 'CapsLock' })
+    fireEvent.keyDown(window, { key: 'p' })
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/app/projects'))
+  })
+
+  test('Escape cancels a pending leader sequence', () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    // Escape is a real key, not a modifier: it means "never mind". Ignoring
+    // every multi-character key would leave the leader armed here, so a `p`
+    // typed straight after a cancel would still navigate.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(window, { key: 'p' })
+
     expect(push).not.toHaveBeenCalled()
   })
 

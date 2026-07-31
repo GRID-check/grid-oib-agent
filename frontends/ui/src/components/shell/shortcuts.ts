@@ -98,6 +98,38 @@ export const LEADER_KEY = 'g'
 export const LEADER_TIMEOUT_MS = 1500
 
 /**
+ * Keys that are modifiers in their own right. `keydown` fires for these on
+ * their own — tapping Shift or CapsLock while a leader is armed produces an
+ * event whose `key` names the modifier — and none of them can ever complete a
+ * sequence. They must therefore be ignored rather than spend the armed leader,
+ * or a stray Shift silently costs the user their `g`.
+ *
+ * `AltGraph` and `OS` are legacy spellings still emitted by older engines.
+ */
+const MODIFIER_KEYS: ReadonlySet<string> = new Set([
+  'Alt',
+  'AltGraph',
+  'CapsLock',
+  'Control',
+  'Fn',
+  'FnLock',
+  'Hyper',
+  'Meta',
+  'NumLock',
+  'OS',
+  'ScrollLock',
+  'Shift',
+  'Super',
+  'Symbol',
+  'SymbolLock',
+])
+
+/** Whether a `KeyboardEvent.key` names a modifier rather than a real key. */
+export function isModifierKey(key: string): boolean {
+  return MODIFIER_KEYS.has(key)
+}
+
+/**
  * Which capabilities are available to this user. A superset of the section
  * flags, because two jump targets live outside the project IA.
  */
@@ -157,9 +189,6 @@ function globalJumpTargets(flags: ShortcutFlags): JumpTarget[] {
 /**
  * Every `g …` target available to this user, in reading order: the app-wide
  * doorways first, then the project sections in rail order.
- *
- * Throws in development if two targets claim the same key — a flag combination
- * that collides would otherwise silently shadow one destination.
  */
 export function jumpTargets(flags: ShortcutFlags): JumpTarget[] {
   const sections: JumpTarget[] = jumpSections(flags).map((section) => ({
@@ -176,19 +205,26 @@ export function jumpTargets(flags: ShortcutFlags): JumpTarget[] {
     icon: section.icon,
   }))
 
-  const targets = [...globalJumpTargets(flags), ...sections]
+  return [...globalJumpTargets(flags), ...sections]
+}
 
-  if (process.env.NODE_ENV !== 'production') {
-    const seen = new Set<string>()
-    for (const target of targets) {
-      if (seen.has(target.key)) {
-        throw new Error(`[shortcuts] duplicate leader key "${LEADER_KEY} ${target.key}"`)
-      }
-      seen.add(target.key)
-    }
+if (process.env.NODE_ENV !== 'production') {
+  // Guard the registry once, at import — not inside `jumpTargets`, which runs
+  // on every completed leader sequence: a misconfiguration should surface as a
+  // loud module-load failure, never as an exception thrown from a `keydown`
+  // handler. Checking the widest set is sufficient, because flags only decide
+  // MEMBERSHIP: a key that collides for any user collides here too.
+  const keys = jumpTargets({
+    canViewOrganization: true,
+    showKnowledge: true,
+    showWorkflows: true,
+    canAccessArchiv: true,
+    canCollaborate: true,
+  }).map((target) => target.key)
+  const duplicate = keys.find((key, index) => keys.indexOf(key) !== index)
+  if (duplicate) {
+    throw new Error(`[shortcuts] duplicate leader key "${LEADER_KEY} ${duplicate}"`)
   }
-
-  return targets
 }
 
 /**
