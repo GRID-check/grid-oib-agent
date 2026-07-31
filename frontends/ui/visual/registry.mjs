@@ -284,6 +284,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="source-list-preview"]',
   },
   {
+    id: 'budget-usage',
+    mobile: true,
+    path: '/dev/budget-usage',
+    description:
+      'Organization spend card (ADR-0015) after the dataviz pass. Three forms for three questions: two meters for "am I about to be cut off" (fill carries STATE, not model identity — accent within the limit, critical status step at or over it, with a limit tick only in the over state), a full-width stacked bar plus its always-open table for "where is the money going", and the 30-day trend for "is it getting worse". The fixture deliberately shows one meter within its limit and one over it, and enough models to exercise the 8-slot palette plus the neutral Other fold. The table is not a toggle: light-mode aqua/yellow/magenta fall under 3:1 contrast, so a text path to every value is obligatory, not optional.',
+    waitFor: '[data-testid="spend-composition"]',
+  },
+  {
     id: 'citation-health',
     mobile: true,
     path: '/dev/citation-health',
