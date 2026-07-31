@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 # exceeds MAX_SURFACED_FILES so a file's best chunk is never starved by the cap.
 # Both are build-time defaults: the platform owner can tune them live in
 # Platform → Retrieval (surface.chunk_top_k / surface.max_files).
-_CHUNK_TOP_K = 24
-# Files shown in the grid. A tight, scannable set — the grid is a "here are the
+_CHUNK_TOP_K = 40
+# Files shown in the grid. A scannable set — the grid is a "here are the
 # relevant documents" affordance, not an exhaustive search results page.
-MAX_SURFACED_FILES = 8
+MAX_SURFACED_FILES = 12
 # Minimum best-chunk relevance (0..1) for a file to be worth surfacing. A cheap,
 # deterministic quality gate so weak vector hits never fill the grid with
 # irrelevant files — the user should only see documents that are actually a good

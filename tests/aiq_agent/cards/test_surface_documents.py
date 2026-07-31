@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from aiq_agent.cards.models import grid_card_adapter
+from aiq_agent.cards.surface_documents import _CHUNK_TOP_K
 from aiq_agent.cards.surface_documents import MAX_SURFACED_FILES
 from aiq_agent.cards.surface_documents import SurfaceDocumentsConfig
 from aiq_agent.cards.surface_documents import _aggregate_surfaced
@@ -187,7 +188,7 @@ class TestPlatformCounts:
         async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
             await info.single_fn(info.input_schema(query="Lageplan"))
 
-        assert retriever.calls == [{"collection": "proj_test", "top_k": 24}]
+        assert retriever.calls == [{"collection": "proj_test", "top_k": _CHUNK_TOP_K}]
         card = registry.add.call_args.args[0]
         assert len(card["documents"]) == 3
         # The resolver's cache is process-global; do not leave this outage in it.

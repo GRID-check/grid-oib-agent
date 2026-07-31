@@ -33,8 +33,8 @@ interface SettingFixture {
 }
 
 const PINNED: Record<string, { value: number; note: string }> = {
-  'knowledge.top_k': { value: 12, note: 'mehr Kontext für Querschnittsfragen' },
-  'web.max_results': { value: 7, note: 'breitere Websuche' },
+  'knowledge.top_k': { value: 20, note: 'mehr Kontext für Querschnittsfragen' },
+  'web.max_results': { value: 10, note: 'breitere Websuche' },
 }
 
 const SETTINGS: SettingFixture[] = DEFINITIONS.map((definition) => {

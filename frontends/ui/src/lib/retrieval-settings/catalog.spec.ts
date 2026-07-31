@@ -27,15 +27,15 @@ describe('retrieval settings catalog', () => {
 
   it('pins every default to the value the tools ship with', () => {
     expect(retrievalSettingDefaults()).toEqual({
-      'knowledge.top_k': 8,
-      'knowledge.max_chunks_per_document': 2,
-      'surface.chunk_top_k': 24,
-      'surface.max_files': 8,
-      'web.max_results': 5,
-      'web.advanced_max_results': 2,
-      'ris.max_results': 10,
+      'knowledge.top_k': 16,
+      'knowledge.max_chunks_per_document': 5,
+      'surface.chunk_top_k': 40,
+      'surface.max_files': 12,
+      'web.max_results': 8,
+      'web.advanced_max_results': 4,
+      'ris.max_results': 20,
       'ris.page_size': 20,
-      'ris_catalog.max_matches': 5,
+      'ris_catalog.max_matches': 8,
     })
   })
 

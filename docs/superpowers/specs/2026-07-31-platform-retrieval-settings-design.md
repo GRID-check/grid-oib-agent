@@ -38,15 +38,15 @@ deployment behaves exactly as today.
 
 | Key | Today (default source) | Default | Bounds |
 |---|---|---|---|
-| `knowledge.top_k` | YAML `top_k: 8` | 8 | 1–50 |
-| `knowledge.max_chunks_per_document` | YAML `max_chunks_per_document: 2` | 2 | 0–10 |
-| `surface.chunk_top_k` | `_CHUNK_TOP_K = 24` | 24 | 1–100 |
-| `surface.max_files` | `MAX_SURFACED_FILES = 8` | 8 | 1–30 |
-| `web.max_results` | YAML `web_search_tool.max_results: 5` | 5 | 1–10 |
-| `web.advanced_max_results` | YAML `advanced_web_search_tool.max_results: 2` | 2 | 1–10 |
-| `ris.max_results` | YAML `ris_search_tool.max_results: 10` | 10 | 1–50 |
+| `knowledge.top_k` | YAML `top_k: 16` | 16 | 1–50 |
+| `knowledge.max_chunks_per_document` | YAML `max_chunks_per_document: 5` | 5 | 0–10 |
+| `surface.chunk_top_k` | `_CHUNK_TOP_K = 40` | 40 | 1–100 |
+| `surface.max_files` | `MAX_SURFACED_FILES = 12` | 12 | 1–30 |
+| `web.max_results` | YAML `web_search_tool.max_results: 8` | 8 | 1–10 |
+| `web.advanced_max_results` | YAML `advanced_web_search_tool.max_results: 4` | 4 | 1–10 |
+| `ris.max_results` | YAML `ris_search_tool.max_results: 20` | 20 | 1–50 |
 | `ris.page_size` | YAML `ris_search_tool.page_size: 20` | 20 | 10–100, only {10, 20, 50, 100} |
-| `ris_catalog.max_matches` | YAML `ris_catalog_lookup_tool.max_matches: 5` | 5 | 1–20 |
+| `ris_catalog.max_matches` | YAML `ris_catalog_lookup_tool.max_matches: 8` | 8 | 1–20 |
 
 The catalog (key, label, description, default, bounds, group) is defined once in
 `frontends/ui/src/lib/retrieval-settings/catalog.ts` and drives the zod schema,

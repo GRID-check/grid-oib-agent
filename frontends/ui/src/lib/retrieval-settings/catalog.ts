@@ -38,7 +38,7 @@ const RIS_PAGE_SIZES = [10, 20, 50, 100] as const
 export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   {
     key: 'knowledge.top_k',
-    defaultValue: 8,
+    defaultValue: 16,
     min: 1,
     max: 50,
     label: 'Wissensdatenbank: Treffer gesamt',
@@ -47,7 +47,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'knowledge.max_chunks_per_document',
-    defaultValue: 2,
+    defaultValue: 5,
     min: 0,
     max: 10,
     label: 'Wissensdatenbank: Chunks pro Dokument',
@@ -55,7 +55,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'surface.chunk_top_k',
-    defaultValue: 24,
+    defaultValue: 40,
     min: 1,
     max: 100,
     label: 'Dokumente-Card: Chunks pro Kollektion',
@@ -63,7 +63,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'surface.max_files',
-    defaultValue: 8,
+    defaultValue: 12,
     min: 1,
     max: 30,
     label: 'Dokumente-Card: Dateien maximal',
@@ -71,7 +71,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'web.max_results',
-    defaultValue: 5,
+    defaultValue: 8,
     min: 1,
     max: 10,
     label: 'Websuche: Ergebnisse',
@@ -79,7 +79,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'web.advanced_max_results',
-    defaultValue: 2,
+    defaultValue: 4,
     min: 1,
     max: 10,
     label: 'Websuche (erweitert): Ergebnisse',
@@ -87,7 +87,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'ris.max_results',
-    defaultValue: 10,
+    defaultValue: 20,
     min: 1,
     max: 50,
     label: 'RIS-Suche: Ergebnisse',
@@ -104,7 +104,7 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'ris_catalog.max_matches',
-    defaultValue: 5,
+    defaultValue: 8,
     min: 1,
     max: 20,
     label: 'RIS-Katalog: Treffer',
