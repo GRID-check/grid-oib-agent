@@ -284,3 +284,27 @@ describe('MentionPicker — selection', () => {
     expect(last().activeOptionId).toBe(screen.getAllByRole('option')[1].id)
   })
 })
+
+describe('search folds diacritics', () => {
+  test('finds Müller by typing muller', () => {
+    // The primary product language is German, and typing the umlaut is exactly
+    // what someone reaching for the picker is trying to avoid.
+    const groups = filterMentionCandidates(
+      [person('u-m', 'Sabine Müller')],
+      'muller',
+      true,
+      'Piloti',
+    )
+    expect(groups.visible).toHaveLength(1)
+  })
+
+  test('typing the umlaut still works', () => {
+    const groups = filterMentionCandidates(
+      [person('u-m', 'Sabine Müller')],
+      'müller',
+      true,
+      'Piloti',
+    )
+    expect(groups.visible).toHaveLength(1)
+  })
+})

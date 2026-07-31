@@ -111,15 +111,30 @@ export const mentionOptionDomId = (candidate: MentionCandidate): string =>
 const isBlocked = (candidate: MentionCandidate, canInvite: boolean): boolean =>
   candidate.needsInvite && !canInvite
 
+/**
+ * Lower-case and strip diacritics, so the search works in the language the
+ * product is actually used in. Without the folding, `@muller` never found
+ * "Müller" and `@jurgen` never found "Jürgen" — and typing the umlaut is exactly
+ * what somebody reaching for a picker is trying to avoid.
+ *
+ * NFD splits a letter from its combining mark; the mark is then dropped.
+ * Deliberately not `localeCompare`-based: this must produce an INDEX that maps
+ * back onto the original string for the highlight below, so it has to be a
+ * character-for-character transform.
+ */
+function fold(value: string): string {
+  return value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase()
+}
+
 function matches(candidate: MentionCandidate, query: string, agentLabel: string): boolean {
   if (!query) return true
-  const needle = query.toLocaleLowerCase()
+  const needle = fold(query)
   const haystacks = [
     candidate.person.name,
     candidate.person.email ?? '',
     candidate.isAgent ? agentLabel : '',
   ]
-  return haystacks.some((value) => value.toLocaleLowerCase().includes(needle))
+  return haystacks.some((value) => fold(value).includes(needle))
 }
 
 /**
@@ -152,17 +167,38 @@ export function filterMentionCandidates(
  * already tinted when selected, and a second colour would fight it.
  */
 function HighlightedName({ name, query }: { name: string; query: string }): JSX.Element {
-  const at = query ? name.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) : -1
+  // Folding can change a string's LENGTH (a decomposed umlaut loses its mark, ß
+  // and ﬁ do not map one-to-one), so an offset found in the folded string cannot
+  // be used to slice the original — that emphasised the wrong characters. Fold
+  // character by character and keep a map back to the source offsets.
+  const { folded, offsets } = foldWithOffsets(name)
+  const needle = fold(query)
+  const at = needle ? folded.indexOf(needle) : -1
   if (at < 0) return <>{name}</>
+  const from = offsets[at]
+  const to = offsets[at + needle.length]
   return (
     <>
-      {name.slice(0, at)}
-      <mark className="bg-transparent font-semibold text-foreground">
-        {name.slice(at, at + query.length)}
-      </mark>
-      {name.slice(at + query.length)}
+      {name.slice(0, from)}
+      <mark className="bg-transparent font-semibold text-foreground">{name.slice(from, to)}</mark>
+      {name.slice(to)}
     </>
   )
+}
+
+/** The folded string plus, per folded character, the offset it came from. */
+function foldWithOffsets(value: string): { folded: string; offsets: number[] } {
+  let folded = ''
+  const offsets: number[] = []
+  let offset = 0
+  for (const character of value) {
+    const piece = fold(character)
+    for (let index = 0; index < piece.length; index += 1) offsets.push(offset)
+    folded += piece
+    offset += character.length
+  }
+  offsets.push(offset)
+  return { folded, offsets }
 }
 
 function CandidateAvatar({

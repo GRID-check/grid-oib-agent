@@ -160,3 +160,33 @@ describe('splitMentionSegments — rendering', () => {
     expect(splitMentionSegments('', [anna])).toEqual([])
   })
 })
+
+describe('boundaries', () => {
+  test('a recorded display does not match inside a longer name', () => {
+    // `@Tom` used to pill the first four letters of `@Tommy` and keep Tom
+    // addressed by a message that no longer mentions him.
+    const segments = splitMentionSegments('Frage an @Tommy Berger', [
+      { targetId: 'u-tom', display: 'Tom' },
+    ])
+    expect(segments.every((segment) => segment.kind === 'text')).toBe(true)
+  })
+
+  test('a mention still stands inside brackets and quotes', () => {
+    // German prose puts names in brackets and quotation marks. Requiring
+    // whitespace before the `@` silently dropped the mention: no request, no
+    // inbox item, and the agent answered instead.
+    for (const text of ['(@Anna Berger)', '„@Anna Berger“', '[@Anna Berger]']) {
+      const segments = splitMentionSegments(text, [
+        { targetId: 'u-anna', display: 'Anna Berger' },
+      ])
+      expect(segments.some((segment) => segment.kind === 'mention')).toBe(true)
+    }
+  })
+
+  test('an email address is still never a mention', () => {
+    const segments = splitMentionSegments('schreib an anna@Berger.example', [
+      { targetId: 'u-berger', display: 'Berger.example' },
+    ])
+    expect(segments.every((segment) => segment.kind === 'text')).toBe(true)
+  })
+})

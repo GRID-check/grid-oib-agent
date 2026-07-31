@@ -60,9 +60,31 @@ export type MentionSegment =
  */
 const MAX_QUERY_LENGTH = 64
 
+/**
+ * Characters that may sit immediately before an `@` and still leave it a mention.
+ *
+ * Whitespace alone was too strict: a user who writes `(@Anna Berger)` — brackets,
+ * quotes and dashes around a name are ordinary German prose — got no picker while
+ * typing and, worse, no mention at all when they sent, because the reconcile pass
+ * uses this same rule. The message then went to the agent with nobody asked.
+ *
+ * Deliberately only OPENING marks. `-` and `/` are left out: they appear inside
+ * addresses and identifiers, which is the case the boundary exists to exclude.
+ */
+const OPENING_MARKS = new Set(['(', '[', '{', '<', '"', "'", '„', '“', '«', '‚', '‘', '‹', '–', '—'])
+
 /** A mention token only starts at a word boundary — never inside `a@b.com`. */
 function isBoundary(character: string | undefined): boolean {
-  return character === undefined || /\s/.test(character)
+  return character === undefined || /\s/.test(character) || OPENING_MARKS.has(character)
+}
+
+/**
+ * …and only ENDS at one. Without this, a recorded `@Tom` still matched inside
+ * `@Tommy`: the pill was drawn over the first four letters of somebody else's
+ * name, and Tom stayed addressed by a message that no longer mentions him.
+ */
+function endsAtBoundary(character: string | undefined): boolean {
+  return character === undefined || !/[\p{L}\p{N}_]/u.test(character)
 }
 
 /**
@@ -133,7 +155,11 @@ function scanOccurrences(text: string, displays: readonly string[]): Occurrence[
   let index = 0
   while (index < text.length) {
     if (text[index] === '@' && isBoundary(text[index - 1])) {
-      const match = ordered.find((display) => text.startsWith(display, index + 1))
+      const match = ordered.find(
+        (display) =>
+          text.startsWith(display, index + 1) &&
+          endsAtBoundary(text[index + 1 + display.length]),
+      )
       if (match) {
         found.push({ start: index, end: index + 1 + match.length, display: match })
         index += 1 + match.length
