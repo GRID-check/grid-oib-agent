@@ -48,14 +48,23 @@ function requestContext(request?: Request): { location: string; userAgent?: stri
   return { location: forwarded || 'unknown', userAgent }
 }
 
-function compactMetadata(
-  metadata: AuditEventInput['metadata'],
-): AuditMetadata | undefined {
-  if (!metadata) return undefined
-  const entries = Object.entries(metadata).filter(
+/**
+ * Nulls out, and ALWAYS an object — never `undefined`.
+ *
+ * WorkOS generates the validator from what `createSchema` registers, and
+ * registering a `metadata` property map makes metadata REQUIRED in the
+ * generated schema (`required: [action, actor, context, occurred_at, targets,
+ * metadata]`) — an event that omits it is rejected outright. The map itself
+ * stays permissive (no `required` inside it, no `additionalProperties: false`),
+ * so `{}` validates for every action, including the ones that register no
+ * metadata at all. Sending the empty object costs nothing and removes a whole
+ * rejection class; see the actor note in `recordAuditEvent`.
+ */
+function compactMetadata(metadata: AuditEventInput['metadata']): AuditMetadata {
+  const entries = Object.entries(metadata ?? {}).filter(
     (entry): entry is [string, string | number | boolean] => entry[1] != null,
   )
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+  return Object.fromEntries(entries)
 }
 
 /** Emit one WorkOS Audit Log event. Never throws. */
@@ -69,6 +78,19 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
         type: 'user',
         id: input.actor.userId,
         name: input.actor.email ?? undefined,
+        // Required, and empty on purpose. The validator WorkOS generates for an
+        // action that registers a metadata map also marks `actor.metadata`
+        // required — `actor: {required: [id, type, metadata]}` with an EMPTY
+        // property map — even though the app never registers an actor schema
+        // and `createSchema` is never passed one. Omitting it is what issues
+        // #274/#277 were: every emit rejected with "Invalid Audit Log event:
+        // incorrect or missing metadata keys", pointing at `/actor`, on the one
+        // path that deliberately swallows its errors — so the trail lost
+        // `resource.shared` and `platform.model_defaults.updated` events while
+        // the mutations themselves succeeded. The property map is empty and
+        // unconstrained, so `{}` satisfies it; the actor's identity is already
+        // carried by `id` and `name`.
+        metadata: {},
       },
       targets: [
         {
