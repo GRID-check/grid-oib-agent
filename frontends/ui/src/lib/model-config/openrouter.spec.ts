@@ -350,6 +350,42 @@ describe('fetchZdrModelIds', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('fails CLOSED when a cached entry is not a model id (the array shape is not enough)', async () => {
+    // `getCached` casts, so a nonempty array of the wrong element type reaches
+    // us as `string[]`. Unchecked, `new Set([null])` is a `Set<string>` that
+    // holds no string, and `has(baseModelId(...))` silently matches nothing.
+    const { store, entries } = memoryCacheStore()
+    setCacheStore(store)
+    entries.set('openrouter:zdr-endpoints:v2', JSON.stringify([null, 'anthropic/claude-sonnet-4.5']))
+    vi.stubGlobal('fetch', vi.fn())
+
+    await expect(fetchZdrModelIds()).rejects.toThrow('unusable')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A cache entry that is not even JSON is a different case from the two above:
+   * `getCached` cannot decode it, so it never becomes a value we could trust or
+   * distrust — it falls back to the loader, which IS the authoritative source
+   * and itself fails closed on upstream failure. Re-fetching the real listing
+   * is the correct outcome, so no strict cache-read mode is warranted here.
+   */
+  it('re-reads upstream when the cached payload is not decodable', async () => {
+    const { store, entries } = memoryCacheStore()
+    setCacheStore(store)
+    entries.set('openrouter:zdr-endpoints:v2', '{')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 'anthropic/claude-sonnet-4.5' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const ids = await fetchZdrModelIds()
+    expect(ids).toBeInstanceOf(Set)
+    expect([...ids]).toEqual(['anthropic/claude-sonnet-4.5'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('fails CLOSED — throws on upstream error (never an empty allowlist)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
     await expect(fetchZdrModelIds()).rejects.toThrow('HTTP 503')

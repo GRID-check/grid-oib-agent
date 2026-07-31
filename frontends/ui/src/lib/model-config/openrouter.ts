@@ -183,8 +183,15 @@ export async function fetchZdrModelIds(): Promise<Set<string>> {
 
   // A cache entry we cannot read is not an empty allowlist — same fail-CLOSED
   // contract as the upstream failure above, so a foreign payload can never
-  // quietly widen (or silently empty) the ZDR filter.
-  if (!Array.isArray(ids) || ids.length === 0) {
+  // quietly widen (or silently empty) the ZDR filter. Every element is checked,
+  // not just the array-ness: `getCached` casts rather than validates, so a
+  // foreign payload like `[null]` would otherwise reach callers inside a
+  // `Set<string>` that does not hold strings.
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.some((id) => typeof id !== 'string' || !OPENROUTER_MODEL_ID_PATTERN.test(id))
+  ) {
     throw new Error('OpenRouter ZDR model listing is unusable')
   }
   return new Set(ids)
