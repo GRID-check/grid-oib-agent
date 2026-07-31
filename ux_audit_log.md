@@ -442,6 +442,15 @@ from evidence rather than from a re-audit.
 **Baseline (pre-change):** `tsc --noEmit` 0 · `eslint src` 0 · vitest
 358 files / 4416 passed / 7 skipped / 0 failed.
 
+**At the end of the round:** `tsc --noEmit` 0 · `eslint src` 0 · vitest
+361 files / 4488 passed / 7 skipped / 0 failed. Re-measured, because between
+those two numbers the branch spent one commit red: `75b308b`, a commit about
+turn expiry, swept up a working tree in which another process had reverted
+`ShareDialog.tsx` for an experiment, and silently deleted the `if (!ok) throw`
+that `ab014c7`'s own test asserts. Nobody re-ran the suite; the branch was
+pushed red. Restored in `c72784d`. The lesson is in the method, not the fix:
+`git add -A` is not safe in a tree somebody else is reading.
+
 ### Fixed this round
 
 - Typing line grammar (two typists read as one person, in both languages), and
@@ -458,7 +467,10 @@ from evidence rather than from a re-audit.
   the read state; a refused mutation replaced the list with a load-failure
   message; `aria-live` wrapped all fifty rows.
 - Sharing: a refused Remove/Leave/Take-ownership closed its confirmation like a
-  success; "Try again" was invisible; a mutation could be overwritten by a read
+  success — and now says WHY, inside the confirmation rather than behind it
+  (Radix `aria-hidden`s the dialog underneath and the overlay covers it, so the
+  first attempt at this put the explanation somewhere neither visible nor
+  announced); "Try again" was invisible; a mutation could be overwritten by a read
   issued before it; "Take ownership" was offered to existing owners and wrote a
   false audit record; escalation published no access-changed event; a no-op role
   PATCH; a clamped German error title.
@@ -467,8 +479,11 @@ from evidence rather than from a re-audit.
 - Shared thread: one failed access read froze the thread permanently (it also
   disabled the live channel, the focus listener and the poll that would have
   recovered it); the five-minute turn backstop erased a colleague's answer
-  mid-write on any longer turn; a turn that ended without a persisted assistant
-  message left every observer's composer locked.
+  mid-write on any longer turn; a turn that FAILED without a persisted assistant
+  message left every observer's composer locked. Narrowed deliberately: a
+  CANCELLED turn publishes no terminal frame at all from the Python tier (see
+  carried-forward item 8), so nothing clears it there and the silence deadline
+  is what recovers the composer. That path is not fixed, only bounded.
 - A shared thread past 1000 messages showed the *oldest* 1000, forever.
 - A viewer could still upload files and rewrite the conversation's data sources.
 - No rate limit on the typing endpoint (the highest-frequency route).
@@ -528,9 +543,10 @@ bug — it closes the ticket.
 - **Resetting `count` on read made two schema comments false.** Both
   `lib/inbox/types.ts` and `lib/db/schema/inbox.ts` documented the counter as
   `≥ 1`; it is now `0` on a row that has been read with nothing new since. Both
-  comments corrected. **Follow-up:** a read row of a counted type still renders
-  through `titleOne`, so it reads "1 new message" where it should say nothing
-  about a count at all. That needs a copy decision, not a code change.
+  comments corrected. (The follow-up recorded here — a read row rendering through
+  `titleOne` and claiming "1 new message" — was closed later in the same round by
+  the three-case picker and a `titleNone` key. Left in place as the record of how
+  it was found, not as an open item.)
 - **The event-hub entry above overstates what was fixed.** `onopen` already reset
   the reconnect budget, so "a tab that had ridden out one long outage began its
   next failure at the 30-second cap" cannot happen — riding out an outage means a
@@ -576,7 +592,88 @@ replaced:
   `@Tom` still matched inside `@Tom-Meier`; and ASCII `'`/`"` were treated as
   opening marks, which made a quoted email local part a mention candidate.
 
-Still outstanding from that review and recorded rather than fixed: several
-changes landed without tests — notably the viewer read-only gate, the
-private-thread live-channel gate, and every server-side change in the branch —
-and six added tests would still pass if their fix were reverted.
+Still outstanding at that point: several changes had landed without tests —
+notably the viewer read-only gate, the private-thread live-channel gate, and
+every server-side change in the branch. That is what the next pass measured.
+
+### Third review pass — measuring the tests instead of trusting them
+
+The previous passes read code. This one ran an experiment: revert each change
+in a throwaway worktree, run the suite, and record whether anything went red.
+That is the only way to tell a test that guards a behaviour from a test that
+merely accompanies it.
+
+**Result: 24 of 33 new or modified tests are load-bearing** — several against
+two or three independent mutations each. The mention-boundary and reconnect
+tests are the strongest in the branch.
+
+**And two systematic holes, both invisible to a reading review:**
+
+- **Everything server-side was unobserved.** Every change under `src/lib/**` —
+  the message window, the upsert semantics, the read resets, `canEscalate`, the
+  escalation publish, the fan-out title, the typing rate limit — could be
+  reverted with the whole suite green. These are exactly the changes whose
+  failure mode is silent: wrong data, missing audit truth, an unbounded
+  endpoint.
+- **Component-to-component wiring was unobserved.** `ChatArea`'s banner wires,
+  `InputArea`'s two gates and its `bumpThreadRevision` publisher could each be
+  deleted with 4442 tests passing. In every case the *hook* was tested and the
+  *wire to it* was not — the shape that reads as covered and is not.
+
+Both are now closed, each test verified against the mutation that must redden
+it. `event-hub.ts` and `confirm-dialog.tsx` — the shared `/api/stream`
+connection and the shared confirm anatomy, neither of which had a spec at all —
+got their first ones.
+
+Nine tests were found **vacuous** and are recorded rather than quietly deleted:
+an `updatedAt` assertion whose fixture had `createdAt === updatedAt`; a
+teardown test whose named subject was redundant with a second guard; and five
+`InputArea` edits that only *accommodated* a new gate rather than asserting it.
+The fixture is fixed; the accommodations are now real assertions.
+
+**Two mock leaks in `InputArea.spec.tsx`**, found by a new test failing for a
+reason that had nothing to do with it. `mockReturnValue` and `mockResolvedValue`
+are permanent, and `vi.clearAllMocks()` does not undo them — so from the
+drag-overlay test onward every remaining test rendered the composer behind a
+full-bleed "Unsupported file type" overlay, and from the refused-mention test
+onward every send resolved to a refusal. Neither cost anything for months,
+because every downstream assertion was `toHaveBeenCalledWith`, which a refused
+send satisfies exactly as well as a successful one.
+
+### Fourth pass — the classes behind the instances
+
+An adversarial read of the branch *as a whole* asked a different question: not
+"is this fix right" but "did fixing it fix anything more than itself".
+
+- **Reconnect budget never reset** — fixed twice as an instance, not at all as a
+  class: there were four independent hand-rolled ladders, each with its own
+  counter, reset rule, budget and timer, and each had got the reset wrong at
+  least once. `createRetryLadder` now owns the position *and* the timer, so the
+  rule — evidence that it works starts the ladder over — is an invariant rather
+  than four chances to forget.
+- **The turn heartbeat was derived from what was on screen** (`answer.length` +
+  `steps.length`). The reducer merges a repeated frame into the step it already
+  has, so a single long tool call moves neither number and the sliding deadline
+  fired anyway, mid-turn, on the commonest deep-research shape. Liveness now
+  comes from the frame arriving, which is the actual evidence.
+- **A thread not known to be shared had no recovery route at all.** The focus
+  listener, the poll and the subscription are all owned by `useLiveEvents`,
+  which is gated on `shared` — so once the short access ladder was spent nothing
+  re-read, and the `!shared` branch of `refresh`, written for exactly this, was
+  unreachable. One access read on focus, floored at 30s, no connection.
+- **The viewer gate was half-applied**: it reached the paperclip and the
+  popovers but not the file chips or the `sm:hidden` manage-files entry, while
+  the user guide had already been rewritten to claim the whole control row was
+  closed. On a phone that sentence was false.
+- **`excluded.payload` was a data-loss bug**, not a fold fix: one null title
+  lookup wiped the subject off every recipient's row permanently. Merged with
+  jsonb `||` now.
+- **A committed escalation could 500** on the participant read that follows it,
+  making a durable write look like a failure the caller would retry.
+
+Recorded rather than fixed: the polymorphic substrate is still worked *around*
+in the places that hardcode `resource_type = 'conversation'` instead of going
+through the descriptor — which is the very rule
+`docs/architecture/adding-a-shareable-resource-type.md` §5 states, on this same
+branch. Writing a debt register and then paying into it is the worst of both;
+that file's register is where the next round should start.
