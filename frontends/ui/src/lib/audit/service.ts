@@ -8,58 +8,22 @@
  * (`adminPortal.generateLink({ intent: 'audit_logs' })`), and the existing
  * `widgets:audit-log-streaming:manage` widget configures streams.
  *
- * Event ACTIONS must exist as Audit Log schemas in the WorkOS environment —
- * `npm run provision:audit-schemas` creates them idempotently
- * (docs/deployment/workos-provisioning.md). Until then WorkOS may reject the
- * events; the emitter is deliberately non-throwing either way, because an
- * audit hiccup must never take the privileged mutation down with it — the
- * domain tables (budget_policies supersede chain, org_model_config_versions)
- * remain the system of record for WHAT changed.
+ * Event ACTIONS must exist as Audit Log schemas in the WorkOS environment, or
+ * WorkOS rejects the event. Action AND schema live together in `./schemas.mjs`
+ * (one list, so they cannot drift), and the deploy reconciles them into the
+ * environment — `npm run provision:audit-schemas` does it by hand
+ * (docs/deployment/workos-provisioning.md). The emitter is deliberately
+ * non-throwing regardless, because an audit hiccup must never take the
+ * privileged mutation down with it — the domain tables (budget_policies
+ * supersede chain, org_model_config_versions) remain the system of record for
+ * WHAT changed.
  */
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
+import { AUDIT_ACTIONS } from './schemas.mjs'
 
-export const AUDIT_ACTIONS = [
-  'org.created',
-  'org.settings.updated',
-  'budget.policy.set',
-  'budget.policy.cleared',
-  'model_config.version.activated',
-  'model_config.zdr.updated',
-  'llm_credential.created',
-  'llm_credential.rotated',
-  'llm_credential.revoked',
-  'llm_credential.verified',
-  'llm_credential.mode_changed',
-  'compliance.hold.created',
-  'compliance.hold.released',
-  'platform.access.break_glass',
-  // A fleet-wide default-model change: it re-points every organization that
-  // has not chosen its own model, so it belongs in the platform org's trail.
-  'platform.model_defaults.updated',
-  'platform.norm_registry.updated',
-  'project.created',
-  'project.deleted',
-  'project.restored',
-  'project.role.assigned',
-  'project.role.removed',
-  'document.uploaded',
-  'document.deleted',
-  'archiv.document.uploaded',
-  'archiv.document.deleted',
-  // Sharing (ADR-0032). Access-control changes on a resource are privileged
-  // mutations and get the same trail as project role grants.
-  'resource.shared',
-  'resource.share.revoked',
-  'resource.share.role_changed',
-  'resource.visibility.changed',
-  // A project admin taking ownership of a resource they were not party to.
-  // Distinct from `resource.shared` on purpose: it is the one path by which
-  // someone gains access to a PRIVATE resource without being invited, so it must
-  // be visible as such in the trail (spec SH-10, SH-14).
-  'resource.ownership.escalated',
-] as const
+export { AUDIT_ACTIONS }
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
 /** Flat primitives only — the WorkOS metadata contract. */

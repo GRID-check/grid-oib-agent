@@ -6,6 +6,7 @@
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
  *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
  *               (Deployment + HPA), purger, workflow-scheduler, a migration Job
+ *               and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app and the public S3 endpoint
  *
@@ -29,6 +30,7 @@ import { installSeaweedFS } from "./src/data/seaweedfs";
 import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
+import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { installBackend } from "./src/app/backend";
 import { installFrontend } from "./src/app/frontend";
 import { installWorkers } from "./src/app/workers";
@@ -98,6 +100,14 @@ const secrets = buildSecrets(wiring);
 // grid_app DB is created at cluster bootstrap; run drizzle migrations before
 // the frontend/workers that read it.
 const migrations = runMigrations(wiring, cfg, secrets, [postgres.cluster, postgres.initJob]);
+
+// WorkOS must know every audit action the code emits, or it rejects the events
+// and the trail silently thins out (issues #255/#256). Reconciled per deploy so
+// the environment follows the code; skipped when auth is off, because then
+// there is no WorkOS environment and no key to reconcile against.
+if (cfg.auth.requireAuth) {
+  reconcileAuditSchemas(wiring, cfg, secrets, [ns]);
+}
 
 // ── App workloads ──────────────────────────────────────────────────────────
 const backend = installBackend(wiring, cfg, secrets, [

@@ -134,6 +134,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/purger ./purger
 COPY --from=builder --chown=nextjs:nodejs /app/scheduler ./scheduler
 COPY --from=builder --chown=nextjs:nodejs /app/observability ./observability
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+# The only `src/` file the runtime needs: the audit action+schema registry the
+# deploy-time provisioning script reconciles into WorkOS. It is shared with the
+# app (which reaches it through the bundle, not from disk), so it lives in
+# lib/audit rather than being duplicated into scripts/.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/lib/audit/schemas.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 

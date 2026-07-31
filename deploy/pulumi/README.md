@@ -14,7 +14,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 |-------|-----------|
 | Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), (metrics-server only on bare clusters) |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
-| App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job |
+| App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 
 ## Prerequisites
@@ -237,8 +237,9 @@ src/platform/            provider, namespace, cert-manager, gateway (Envoy),
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + npm ci)
 src/data/                postgres (CNPG), dragonfly, seaweedfs
-src/app/                 config (Secret + env), migrations Job, backend,
-                         frontend (+HPA), workers, httproutes
+src/app/                 config (Secret + env), migrations Job,
+                         audit-schemas Job, backend, frontend (+HPA),
+                         workers, httproutes
 ```
 
 ## Notes
@@ -247,5 +248,11 @@ src/app/                 config (Secret + env), migrations Job, backend,
   `--secret` config, so it stays encrypted in state and is only materialised
   inside the `grid-secrets` Kubernetes Secret.
 - **Migrations** run once in a Job (not per frontend pod) so replicas never race.
+- **WorkOS audit schemas** are reconciled by their own one-shot Job, for the
+  same reason and with the same shape: an action the code emits without a
+  registered schema is rejected by WorkOS and the audit trail silently thins
+  out (issues #255/#256). The script reads before it writes, so a deploy that
+  changes nothing writes nothing. Nothing depends on the Job — an audit outage
+  must not block a release. See `docs/deployment/workos-provisioning.md` §5.
 - **SeaweedFS** is intentionally the proven single-node topology on a durable
   PVC; the scale-out path is documented in the operator guide.

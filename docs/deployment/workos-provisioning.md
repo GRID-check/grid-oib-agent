@@ -192,23 +192,49 @@ change, which is the property that silently broke for `org:audit:view` and
 
 The app emits every privileged admin action as a **WorkOS Audit Log event**
 (`frontends/ui/src/lib/audit/service.ts`) — no app-side audit table.
-Actions emitted (registry: `AUDIT_ACTIONS` in that file): `org.created`,
-`org.settings.updated`, `budget.policy.set`, `budget.policy.cleared`,
-`model_config.version.activated`, `compliance.hold.created`,
-`compliance.hold.released`, `platform.access.break_glass` (lands in the GRID
-Platform org's trail, throttled to once per actor per hour),
-`project.created`, `project.deleted`, `project.restored`,
-`project.role.assigned`, `project.role.removed` (FGA access-control
-changes), `document.uploaded`, `archiv.document.uploaded`,
-`archiv.document.deleted` (data provenance; the last two are ADR-0024 — re-run
-`provision:audit-schemas` after that change). Deliberately NOT audited:
-high-frequency content activity (memory items, profile edits, conversation
-messages, renames, user preferences) — it would drown the admin trail.
 
-- **Provision the event schemas** (validates incoming events; also creates
-  the actions): `WORKOS_API_KEY=sk_… npm run provision:audit-schemas`
-  (from `frontends/ui`; idempotent — rerunning adds identical versions).
-  ⚠️ Not yet run against Staging — run it once before expecting events.
+**The registry is `frontends/ui/src/lib/audit/schemas.mjs`**, and it is not a
+list of action names: each action is stored WITH the schema WorkOS validates
+its events against, and `AUDIT_ACTIONS` is derived from those keys. That is
+deliberate. The two used to be separate lists — actions in `service.ts`,
+schemas in the provisioning script — and they drifted by nine actions (the
+whole `resource.*` sharing family, `model_config.zdr.updated`,
+`platform.model_defaults.updated`, `platform.norm_registry.updated`,
+`document.deleted`). WorkOS rejects an event whose action has no schema
+(`Invalid Audit Log event: event 'resource.shared', version '1' has not been
+configured in this environment`), the emitter never throws, and the only trace
+was an ERROR log per privileged mutation — issues #255/#256. Now `tsc` refuses
+to compile a `recordAuditEvent` call whose action has no schema, and
+`src/lib/audit/schemas.spec.ts` is the offline CI gate.
+
+Broadly the trail covers: org creation/settings, budgets, model configuration
+(org versions, ZDR, fleet defaults), BYOK credentials, legal holds,
+break-glass platform access (lands in the GRID Platform org's trail, throttled
+to once per actor per hour), project lifecycle and role grants, document and
+Archiv uploads/deletes, and the sharing/ownership changes from ADR-0032.
+Deliberately NOT audited: high-frequency content activity (memory items,
+profile edits, conversation messages, renames, user preferences) — it would
+drown the admin trail.
+
+- **Schemas are reconciled on every deploy.** The Kubernetes Job
+  `grid-app-audit-schemas` (`deploy/pulumi/src/app/audit-schemas-job.ts`) runs
+  `node scripts/provision-workos-audit-schemas.mjs --apply` from the frontend
+  image, against the deployment's own `WORKOS_API_KEY`. It reads first and
+  writes only what is missing or actually changed, so an unchanged registry
+  writes nothing (schema versions are append-only in WorkOS — an
+  unconditional re-create would mint a new version of all ~30 schemas per
+  rollout). Nothing depends on the Job: a WorkOS outage must not hold back a
+  release, so a failure shows up as a failed Job, not a failed deploy.
+- **Manual escape hatch** (a fresh environment, or a key the cluster does not
+  hold — from `frontends/ui`):
+
+  ```bash
+  WORKOS_API_KEY=sk_… npm run provision:audit-schemas            # read-only drift check
+  WORKOS_API_KEY=sk_… npm run provision:audit-schemas -- --apply # reconcile
+  ```
+
+  Same convention as `provision:authz`: check is the default, exits non-zero on
+  drift, and names every action whose schema is missing or different.
 - **Viewing** is native: the org page's "View audit logs" opens the WorkOS
   Admin Portal audit-logs viewer (`adminPortal.generateLink`,
   `intent: 'audit_logs'`); exports (CSV) and SIEM **streaming** (Datadog,
@@ -291,8 +317,12 @@ free-text check has been smoke-tested against a configured LLM.
 5. Add the owner's user to GRID Platform with the `org-platform-owner` role
    (membership assignment stays a dashboard/API action).
 6. Add the production web origin to AuthKit CORS and redirect URIs.
-7. Provision the Audit Log schemas: `WORKOS_API_KEY=<prod key> npm run
-   provision:audit-schemas` (from `frontends/ui`).
+7. Audit Log schemas (§5): nothing to do if the environment is the one the
+   cluster deploys against — the `grid-app-audit-schemas` Job reconciles them
+   on the next rollout. Otherwise run it by hand:
+   `WORKOS_API_KEY=<prod key> npm run provision:audit-schemas -- --apply`
+   (from `frontends/ui`), then re-run without `--apply` to confirm it reports
+   "WorkOS matches the audit registry."
 8. Create the feature flags (§6), target the intended orgs, then set
    `GRID_ENFORCE_FEATURE_FLAGS=true`.
 9. BYOK (ADR-0022): WorkOS Vault needs no per-environment setup — objects
