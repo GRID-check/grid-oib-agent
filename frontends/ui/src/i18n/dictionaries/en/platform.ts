@@ -496,6 +496,7 @@ export const platform = {
     label: 'Platform sections',
     overview: 'Overview',
     models: 'Models',
+    retrieval: 'Retrieval',
     quality: 'Answer quality',
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
@@ -591,6 +592,10 @@ export const platform = {
       title: 'Models',
       subtitle: 'The default model every organization runs on until it picks its own.',
     },
+    retrieval: {
+      title: 'Retrieval',
+      subtitle: 'How many hits each search fetches and merges — fleet-wide, effective on the next request.',
+    },
     quality: {
       title: 'Answer quality',
       subtitle: 'How well answers are grounded, what users thought of them, and the execution timeline behind any turn that was not.',
@@ -644,6 +649,34 @@ export const platform = {
     confirmDescription:
       'Every organization that has not picked its own model for these parts of the agent switches over on its next message. Organizations with their own choice are unaffected.',
     confirmSave: 'Change defaults',
+  },
+  /** Platform → retrieval: the fleet-wide retrieval depths (chunks/results per search). */
+  retrieval: {
+    title: 'Retrieval depths',
+    description:
+      'How many chunks and results the individual searches fetch and merge. Changing one here applies to every organization — on its next request, with no deployment.',
+    // Per-setting state.
+    pinnedBadge: 'Adjusted',
+    defaultBadge: 'Default',
+    defaultHint: 'Default: {value}',
+    rangeHint: '{min}–{max}',
+    reset: 'Back to default',
+    updatedBy: 'by {email}',
+    // Save.
+    unsavedChanges: 'Unsaved changes.',
+    note: 'Note',
+    notePlaceholder: 'Why this change? (optional)',
+    save: 'Save settings',
+    saving: 'Saving…',
+    discard: 'Discard',
+    saved: 'Retrieval settings saved.',
+    saveError: 'Could not save the retrieval settings.',
+    loadError: 'Could not load the retrieval settings.',
+    invalidValue: 'Invalid value',
+    confirmTitle: 'Change retrieval depth for every organization?',
+    confirmDescription:
+      'More hits deepen every organization’s research, but also raise latency and token cost per request. The change applies on the next request.',
+    confirmSave: 'Change settings',
   },
   stats: {
     organizations: 'Organizations',

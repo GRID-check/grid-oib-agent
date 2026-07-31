@@ -279,6 +279,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-models-preview"]',
   },
   {
+    id: 'platform-retrieval',
+    mobile: true,
+    path: '/dev/platform-retrieval',
+    description:
+      'Platform retrieval settings — the fleet-wide retrieval counts (knowledge chunks, surfaced files, web/RIS results) every query resolves against. Shows both per-key states: pinned to a platform value and still on the build-time config default.',
+    waitFor: '[data-testid="platform-retrieval-preview"]',
+  },
+  {
     id: 'platform-maintenance',
     mobile: true,
     path: '/dev/platform-maintenance',

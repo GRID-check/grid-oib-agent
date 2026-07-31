@@ -1,0 +1,75 @@
+[
+  {
+    "key": "knowledge.top_k",
+    "defaultValue": 8,
+    "min": 1,
+    "max": 50,
+    "label": "Wissensdatenbank: Treffer gesamt",
+    "description": "Chunks pro Kollektion und Obergrenze nach dem Zusammenführen aller Kollektionen (knowledge_search)."
+  },
+  {
+    "key": "knowledge.max_chunks_per_document",
+    "defaultValue": 2,
+    "min": 0,
+    "max": 10,
+    "label": "Wissensdatenbank: Chunks pro Dokument",
+    "description": "Diversitäts-Kappe pro Dokument im Merge. 0 deaktiviert die Kappe."
+  },
+  {
+    "key": "surface.chunk_top_k",
+    "defaultValue": 24,
+    "min": 1,
+    "max": 100,
+    "label": "Dokumente-Card: Chunks pro Kollektion",
+    "description": "Chunks, die die Dokumente-Card pro Projekt-/Archiv-Kollektion abruft."
+  },
+  {
+    "key": "surface.max_files",
+    "defaultValue": 8,
+    "min": 1,
+    "max": 30,
+    "label": "Dokumente-Card: Dateien maximal",
+    "description": "Maximale Anzahl Dateien im Grid der Dokumente-Card."
+  },
+  {
+    "key": "web.max_results",
+    "defaultValue": 5,
+    "min": 1,
+    "max": 10,
+    "label": "Websuche: Ergebnisse",
+    "description": "Ergebnisse der Standard-Websuche (Tavily)."
+  },
+  {
+    "key": "web.advanced_max_results",
+    "defaultValue": 2,
+    "min": 1,
+    "max": 10,
+    "label": "Websuche (erweitert): Ergebnisse",
+    "description": "Ergebnisse der erweiterten Websuche."
+  },
+  {
+    "key": "ris.max_results",
+    "defaultValue": 10,
+    "min": 1,
+    "max": 50,
+    "label": "RIS-Suche: Ergebnisse",
+    "description": "Gesetzestreffer, die die RIS-Suche dem Agenten zurückgibt."
+  },
+  {
+    "key": "ris.page_size",
+    "defaultValue": 20,
+    "min": 10,
+    "max": 100,
+    "allowedValues": [10, 20, 50, 100],
+    "label": "RIS-Suche: Seitengröße",
+    "description": "Vom RIS abgefragte Treffer pro Seite (nur 10, 20, 50 oder 100)."
+  },
+  {
+    "key": "ris_catalog.max_matches",
+    "defaultValue": 5,
+    "min": 1,
+    "max": 20,
+    "label": "RIS-Katalog: Treffer",
+    "description": "Treffer der Normen-Katalogsuche (ris_catalog_lookup)."
+  }
+]

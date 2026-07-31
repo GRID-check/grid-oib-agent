@@ -22,6 +22,7 @@ import {
   DatabaseZap,
   Scale,
   ShieldCheck,
+  SlidersHorizontal,
   Workflow,
   type LucideIcon,
 } from 'lucide-react'
@@ -32,6 +33,7 @@ import { useTranslations } from '@/i18n'
 export const PLATFORM_SECTIONS = [
   { key: 'overview', href: '/app/platform', icon: Building2 },
   { key: 'models', href: '/app/platform/models', icon: Cpu },
+  { key: 'retrieval', href: '/app/platform/retrieval', icon: SlidersHorizontal },
   { key: 'quality', href: '/app/platform/quality', icon: ShieldCheck },
   { key: 'knowledge', href: '/app/platform/knowledge', icon: BookOpenCheck },
   { key: 'norms', href: '/app/platform/norms', icon: Scale },
