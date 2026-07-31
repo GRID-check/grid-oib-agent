@@ -10,6 +10,14 @@
  * Values must be JSON-serializable — the shared backend round-trips through
  * JSON, and anything that only works with the in-process store would break the
  * moment a second replica appears.
+ *
+ * **`Set`, `Map` and `Date` are NOT JSON-serializable, and `getCached<T>` casts
+ * rather than validates**, so caching one type-checks and then hands every cache
+ * HIT a `{}` (or a string) wearing the declared type. Cache the array/plain
+ * shape and rebuild the collection at the boundary — see `enabledSlugsForOrg`
+ * (`@/lib/workos/feature-flags`), `loadOrganizationDirectory`
+ * (`@/lib/sharing/directory`) and `fetchZdrModelIds`
+ * (`@/lib/model-config/openrouter`).
  */
 
 export interface CacheStore {
