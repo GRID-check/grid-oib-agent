@@ -1495,7 +1495,7 @@ describe('InputArea', () => {
       mockAwaitingPending = [{ id: 'r-1' }]
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
-      expect(addressee()).toHaveTextContent('Goes to the chat')
+      expect(addressee()).toHaveTextContent('Goes to everyone in the chat')
       expect(screen.getByTestId('composer-agent-hint')).toHaveTextContent(
         'Type @Piloti to ask Piloti',
       )

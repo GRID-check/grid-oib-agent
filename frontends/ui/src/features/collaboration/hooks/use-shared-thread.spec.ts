@@ -358,13 +358,21 @@ describe('useSharedThread — reconciliation', () => {
     expect(storedMessages().filter((m) => m.id === 'm2')).toHaveLength(1)
   })
 
-  test('ignores the echo of our own write instead of refetching for it', async () => {
+  /**
+   * A self-authored event is NOT skipped: the same event fires for a message we
+   * sent from a second device, where this tab holds no optimistic echo of it. The
+   * id-keyed merge is what makes the re-read free on the device that wrote it, so
+   * the refetch is the cheap way to be correct on the other one.
+   */
+  test('re-reads for our own write too — the second device has no echo', async () => {
     renderHook(() =>
       useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
     )
     await waitFor(() => expect(storedMessages()).toHaveLength(1))
     const before = requested().length
 
+    // Written elsewhere by us: only the server knows about it.
+    routes.messages = [...routes.messages, row('mine', { authorUserId: ME, createdAt: at(3) })]
     await emit({
       kind: 'conversation.message',
       conversationId: CONVERSATION_ID,
@@ -372,7 +380,12 @@ describe('useSharedThread — reconciliation', () => {
       messageId: 'mine',
     })
 
-    expect(requested()).toHaveLength(before)
+    expect(requested().slice(before)).toContain(
+      `/api/conversations/${CONVERSATION_ID}/messages`,
+    )
+    await waitFor(() => expect(storedMessages()).toHaveLength(2))
+    // …and the echo case stays a no-op on screen: one row, not two.
+    expect(storedMessages().filter((m) => m.id === 'mine')).toHaveLength(1)
   })
 
   test('ignores events for a different conversation', async () => {
