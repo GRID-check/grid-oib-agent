@@ -229,6 +229,7 @@ export const collaboration: typeof en.collaboration = {
       conversationActivity: {
         titleOne: '1 neue Nachricht',
         titleMany: '{count} neue Nachrichten',
+        titleNone: 'Neue Nachrichten',
         body: 'in {subject}',
       },
       unknown: {

@@ -10,8 +10,11 @@
  * know whether an update arrived by push or by poll.
  *
  * Accessibility notes that are requirements, not polish:
- *   - the row container is `aria-live="polite"`, so a screen-reader user learns
- *     that something arrived without watching the badge (NF-3);
+ *   - a small `role="status"` region carries the announcement — NOT the row
+ *     container, which would read the whole list aloud on every filter change
+ *     and every archive. It states the count of things needing attention (NF-3);
+ *     an arrival that leaves that count unchanged is currently not announced,
+ *     which is a known narrowing of NF-3 rather than the intent;
  *   - the filter is a `role="group"` of `aria-pressed` toggles rather than two
  *     unlabelled buttons;
  *   - the empty state differs per filter, because "nothing needs you" and "your

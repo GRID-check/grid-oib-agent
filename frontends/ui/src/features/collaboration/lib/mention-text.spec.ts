@@ -183,6 +183,22 @@ describe('boundaries', () => {
     }
   })
 
+  test('a recorded display does not match inside a double-barrelled name', () => {
+    const segments = splitMentionSegments('Frage an @Tom-Meier', [
+      { targetId: 'u-tom', display: 'Tom' },
+    ])
+    expect(segments.every((segment) => segment.kind === 'text')).toBe(true)
+  })
+
+  test('a quoted email local part is not a mention candidate', () => {
+    // `"` opens a quoted local part, so treating it as an opening mark would
+    // have made `"Berger"@example.com` a boundary the scanner accepts.
+    const segments = splitMentionSegments('schreib an "Berger"@example.com', [
+      { targetId: 'u-b', display: 'example.com' },
+    ])
+    expect(segments.every((segment) => segment.kind === 'text')).toBe(true)
+  })
+
   test('an email address is still never a mention', () => {
     const segments = splitMentionSegments('schreib an anna@Berger.example', [
       { targetId: 'u-berger', display: 'Berger.example' },

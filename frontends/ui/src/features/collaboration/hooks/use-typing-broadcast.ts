@@ -116,6 +116,15 @@ export function useTypingBroadcast(
     lastKeystrokeAtRef.current = now
     if (heartbeatRef.current === null) {
       heartbeatRef.current = setInterval(() => {
+        // `enabled` can go false mid-draft — the reader downgraded to viewer by a
+        // live access change, the thread unshared, the flag revoked. `onTyping`
+        // checks it; the heartbeat did not, so it went on publishing "typing" for
+        // up to TYPING_IDLE_MS afterwards. A viewer's draft can never become a
+        // message, so that is exactly the claim the server must never carry.
+        if (!enabledRef.current) {
+          onStoppedTyping()
+          return
+        }
         if (Date.now() - lastKeystrokeAtRef.current > TYPING_IDLE_MS) {
           onStoppedTyping()
           return
@@ -147,8 +156,12 @@ export function useTypingBroadcast(
   useEffect(() => {
     const previous = previousConversationRef.current
     previousConversationRef.current = conversationId
-    if (previous === conversationId || lastPublishedAtRef.current === 0) return
+    if (previous === conversationId) return
+    // Before the claim guard, not after: the heartbeat must stop on a switch
+    // whether or not a claim is outstanding. The two happen to be set together
+    // today, so this was an invariant held by convention rather than by code.
     stopHeartbeat()
+    if (lastPublishedAtRef.current === 0) return
     lastPublishedAtRef.current = 0
     if (!previous) return
     // Same request as every other withdrawal — `publish` takes the conversation

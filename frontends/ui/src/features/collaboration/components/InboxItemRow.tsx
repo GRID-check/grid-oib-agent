@@ -121,7 +121,14 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
   }
 
   const titleLeaf =
-    pickKey(dictionary, presentation.i18nKey, item.count > 1 ? ['titleMany', 'title'] : ['titleOne', 'title']) ??
+    pickKey(
+      dictionary,
+      presentation.i18nKey,
+      // `count` is occurrences SINCE THE ROW WAS LAST READ, so 0 is the ordinary
+      // state of a read row — and picking `titleOne` for it made a group of
+      // twenty that had been read claim "1 new message". Three cases, not two.
+      item.count > 1 ? ['titleMany', 'title'] : item.count === 1 ? ['titleOne', 'title'] : ['titleNone', 'titleOne', 'title'],
+    ) ??
     'title'
   const title = t(`inbox.types.${presentation.i18nKey}.${titleLeaf}`, vars)
   const bodyLeaf = pickKey(dictionary, presentation.i18nKey, ['body'])

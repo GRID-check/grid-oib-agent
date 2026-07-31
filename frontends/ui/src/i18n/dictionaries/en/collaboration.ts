@@ -343,6 +343,8 @@ export const collaboration = {
       conversationActivity: {
         titleOne: '1 new message',
         titleMany: '{count} new messages',
+        /** Read, with nothing new since — the counter has been spent. */
+        titleNone: 'New messages',
         body: 'in {subject}',
       },
       /**

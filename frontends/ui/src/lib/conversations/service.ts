@@ -806,7 +806,14 @@ interface FanOutInput {
   turnStartedFor: readonly string[]
   /** Whether to fold an ambient "activity in this thread" item (CC-20). */
   emitAmbient: boolean
-  /** The thread's title, when the caller already has the row. Saves a read. */
+  /**
+   * The thread's title, when the caller already holds the row.
+   *
+   * Passed by the internal persist path, which has the conversation in hand;
+   * the session path resolves it through `requireResourceAccess`, whose probe
+   * carries no title, so that one pays a read. Do not leave this unpassed where
+   * the row IS available — a field nobody supplies is just a slower default.
+   */
   title?: string | null
 }
 
@@ -978,6 +985,7 @@ export async function persistInternalConversationMessages(
     rows,
     turnStartedFor: [],
     emitAmbient: false,
+    title: conversation.title,
   })
 
   return rows

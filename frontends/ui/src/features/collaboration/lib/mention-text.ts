@@ -71,7 +71,7 @@ const MAX_QUERY_LENGTH = 64
  * Deliberately only OPENING marks. `-` and `/` are left out: they appear inside
  * addresses and identifiers, which is the case the boundary exists to exclude.
  */
-const OPENING_MARKS = new Set(['(', '[', '{', '<', '"', "'", '„', '“', '«', '‚', '‘', '‹', '–', '—'])
+const OPENING_MARKS = new Set(['(', '[', '{', '<', '„', '“', '«', '‚', '‘', '‹'])
 
 /** A mention token only starts at a word boundary — never inside `a@b.com`. */
 function isBoundary(character: string | undefined): boolean {
@@ -84,7 +84,10 @@ function isBoundary(character: string | undefined): boolean {
  * name, and Tom stayed addressed by a message that no longer mentions him.
  */
 function endsAtBoundary(character: string | undefined): boolean {
-  return character === undefined || !/[\p{L}\p{N}_]/u.test(character)
+  // `-` counts as part of a name, not as a boundary: without it a recorded
+  // `@Tom` still matched inside `@Tom-Meier`, which is the same defect this
+  // function was added to fix for `@Tommy`. Double-barrelled names are ordinary.
+  return character === undefined || !/[\p{L}\p{N}_-]/u.test(character)
 }
 
 /**

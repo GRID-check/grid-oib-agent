@@ -71,18 +71,16 @@ const ACCESS_RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
  * instead — a dropped `ended` must not leave every observer staring at a spinner
  * for the rest of the session.
  *
- * This is a BACKSTOP, not a timeout, and it was five minutes — shorter than a
- * deep-research turn routinely runs. An observer watching a colleague's answer
- * being written had it erased mid-sentence at the five-minute mark: the banner
- * cleared, which tore down the live stream with it, and the thread went quiet
- * until the finished answer landed minutes later with no explanation of the gap.
- *
- * The real cure for a stuck banner is the terminal frame, which the observer's
- * own stream already sees — see `clearTurnInFlight`, which the thread calls when
- * the spectated turn reports it is done. This number only has to be longer than
- * the longest turn anybody legitimately waits through.
+ * It is a SLIDING deadline, not a fixed one. Five minutes of *silence* is the
+ * bar — not five minutes of turn. A fixed five minutes erased a colleague's
+ * answer mid-sentence on any longer turn (deep research routinely is); a fixed
+ * thirty minutes would have made every path that produces no evidence of life —
+ * a deployment with no shared cache tier, the reader's own turn, a spent
+ * reconnect budget — wait six times longer behind a locked composer. So the
+ * clock restarts on evidence the turn is alive (`noteTurnActivity`), and the
+ * short bar applies to a turn that has genuinely gone quiet.
  */
-const TURN_BANNER_MAX_AGE_MS = 30 * 60_000
+const TURN_BANNER_MAX_AGE_MS = 5 * 60_000
 
 /** Debounce on the read receipt, so a burst of arrivals is one POST, not ten. */
 const MARK_READ_DEBOUNCE_MS = 1_200
@@ -172,6 +170,12 @@ export interface UseSharedThreadResult {
    */
   clearTurnInFlight: () => void
   /**
+   * Report that the turn is demonstrably still running, restarting the staleness
+   * clock. Fed by the observer's spectated stream, which is the only thing that
+   * can see a long turn making progress.
+   */
+  noteTurnActivity: () => void
+  /**
    * Colleagues composing right now, resolved to directory entries so the caller
    * can name them. Never includes the reader (the publisher drops its own echo),
    * and empties itself when the claims expire — a chat where somebody is
@@ -211,7 +215,7 @@ export interface UseSharedThreadResult {
 
 const INERT: Omit<
   UseSharedThreadResult,
-  'refresh' | 'authorOf' | 'setEngagement' | 'clearTurnInFlight'
+  'refresh' | 'authorOf' | 'setEngagement' | 'clearTurnInFlight' | 'noteTurnActivity'
 > = {
   shared: false,
   myRole: null,
@@ -271,6 +275,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const [accessLost, setAccessLost] = useState(false)
   const [participants, setParticipants] = useState<DirectoryPerson[]>([])
   const [turnInFlight, setTurnInFlight] = useState<SharedThreadTurn | null>(null)
+  /** Bumped by {@link noteTurnActivity}; only its identity matters. */
+  const [turnHeartbeat, setTurnHeartbeat] = useState(0)
   /**
    * userId → the moment their typing claim stops being believable. A map rather
    * than a list because a refresh from the same person must move their expiry
@@ -592,11 +598,23 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     directoryRef.current = new Map()
     accessAttempt.current = 0
     cancelAccessRetry()
+    // Re-seed the revision watermark. It is per-hook-instance while `revision`
+    // is per-conversation, so switching from a thread where a mention was sent
+    // (revision 1) to a fresh one (revision 0) read as "declared stale" and
+    // fired a second, racing load on every switch.
+    lastRevisionRef.current = revisionRef.current
     void loadAndRevalidate(true)
     // Switching conversation (or unmounting) abandons a retry in flight —
     // otherwise a retry for the thread you just left writes over the one you
-    // are in.
-    return cancelAccessRetry
+    // are in. The `seq` bump matters for UNMOUNT specifically: a load already
+    // in flight lands after this cleanup and would otherwise schedule a fresh
+    // timer that `cancelAccessRetry` has already run past, chaining fetches for
+    // a conversation nobody is viewing. (A switch is safe without it, because
+    // the effect body's own load bumps `seq` first.)
+    return () => {
+      seq.current += 1
+      cancelAccessRetry()
+    }
   }, [loadAndRevalidate, cancelAccessRetry])
 
   /*
@@ -615,6 +633,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   */
   const revision = useThreadRevision(conversationId)
   const lastRevisionRef = useRef(revision)
+  const revisionRef = useRef(revision)
+  revisionRef.current = revision
   useEffect(() => {
     if (revision === lastRevisionRef.current) return
     lastRevisionRef.current = revision
@@ -716,11 +736,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   // poll that drives `refresh` does not run while the live channel is healthy,
   // so a dropped `ended` event on a good connection would otherwise leave the
   // banner up for the rest of the session.
+  // `turnHeartbeat` is in the deps so every piece of evidence that the turn is
+  // alive restarts the clock — that is what makes this a silence timeout rather
+  // than a turn-length one.
   useEffect(() => {
     if (!turnInFlight) return
     const timer = setTimeout(() => setTurnInFlight(null), TURN_BANNER_MAX_AGE_MS)
     return () => clearTimeout(timer)
-  }, [turnInFlight])
+  }, [turnInFlight, turnHeartbeat])
 
   // Expire typing claims. Runs only while somebody is claimed to be typing, so a
   // quiet thread costs nothing, and it is the ONLY thing that clears the list
@@ -873,6 +896,15 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const clearTurnInFlight = useCallback(() => setTurnInFlight(null), [])
 
   /**
+   * Evidence the turn is still running, which restarts the staleness clock.
+   *
+   * The observer's spectated stream is the only thing that sees a long turn
+   * making progress — there is no "is a turn running" endpoint — so it is what
+   * feeds this.
+   */
+  const noteTurnActivity = useCallback(() => setTurnHeartbeat((beat) => beat + 1), [])
+
+  /**
    * The reader's own role, same channel and same reason: a viewer's send is
    * rejected server-side, so the composer must be read-only BEFORE the attempt.
    * Cleared the moment the thread is no longer shared for this reader.
@@ -891,6 +923,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       accessLost,
       turnInFlight,
       clearTurnInFlight,
+      noteTurnActivity,
       typists,
       participants,
       authorOf,
@@ -909,6 +942,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       accessLost,
       turnInFlight,
       clearTurnInFlight,
+      noteTurnActivity,
       typists,
       participants,
       authorOf,
@@ -925,5 +959,5 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   // could act on, so a gated org cannot render a collaboration affordance.
   return enabled && conversationId
     ? result
-    : { ...INERT, authorOf, refresh, setEngagement, clearTurnInFlight }
+    : { ...INERT, authorOf, refresh, setEngagement, clearTurnInFlight, noteTurnActivity }
 }

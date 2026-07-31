@@ -531,9 +531,52 @@ bug — it closes the ticket.
   comments corrected. **Follow-up:** a read row of a counted type still renders
   through `titleOne`, so it reads "1 new message" where it should say nothing
   about a count at all. That needs a copy decision, not a code change.
+- **The event-hub entry above overstates what was fixed.** `onopen` already reset
+  the reconnect budget, so "a tab that had ridden out one long outage began its
+  next failure at the 30-second cap" cannot happen — riding out an outage means a
+  successful open. The added reset covers a narrower case: the last listener
+  unsubscribing while the ladder is mid-flight, so a later subscriber inherits the
+  count. The code is right; the claim was not.
 - **The newest-N message window needed a tiebreaker.** Ordering by `created_at`
   alone leaves two messages written in the same instant in an undefined order —
   spec CC-11 forbids exactly that — and it made the window boundary
   non-deterministic, which the previous oldest-N read had not exposed. `id` is
   now the tiebreak.
 
+### Second review pass — defects found in the corrections themselves
+
+An adversarial read of the whole branch diff (rather than of the original code)
+found more, including one regression that was strictly worse than the bug it
+replaced:
+
+- **Clearing the turn banner on the terminal frame erased the answer.** `done`
+  strictly precedes persistence, and the entire live view is gated on the flag
+  being cleared — so on every normal turn the observer watched the answer
+  complete and then vanish until the persisted copy arrived, and on the exact
+  failure the change was written for (no persisted message at all) they were left
+  with nothing where they previously kept the finished answer. Now only `failed`
+  clears it.
+- **The 30-minute backstop was six times worse everywhere the cure did not
+  reach** — a deployment with no shared cache tier, the reader's own turn, a
+  spent reconnect budget. It is a SLIDING five-minute deadline instead: the clock
+  restarts on evidence the turn is alive, so a long turn is never cut off and a
+  genuinely silent one recovers quickly.
+- **The revision watermark was per-hook while the revision is per-conversation**,
+  so every conversation switch fired a second, racing load.
+- **The access-retry timer could outlive unmount**, chaining fetches for a
+  conversation nobody is viewing.
+- **The typing heartbeat had no `enabled` guard**, so a reader downgraded to
+  viewer mid-draft kept broadcasting "typing" for up to 45 seconds — the one
+  claim the presence endpoint exists to refuse.
+- **The typing rate limit sat above the cheap exit**, so typing in a private
+  thread spent the budget that shedding a shared thread's presence depends on.
+- **`count: 0` reached the renderer**, which picked `titleOne` for it: a read
+  group of twenty claimed "1 new message". Three cases now, not two.
+- **The mention boundary fix was half-right**: `-` counted as a boundary, so
+  `@Tom` still matched inside `@Tom-Meier`; and ASCII `'`/`"` were treated as
+  opening marks, which made a quoted email local part a mention candidate.
+
+Still outstanding from that review and recorded rather than fixed: several
+changes landed without tests — notably the viewer read-only gate, the
+private-thread live-channel gate, and every server-side change in the branch —
+and six added tests would still pass if their fix were reverted.
