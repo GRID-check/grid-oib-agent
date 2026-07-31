@@ -1779,6 +1779,17 @@ describe('InputArea', () => {
       expect(screen.queryByRole('button', { name: /^manage \d/i })).not.toBeInTheDocument()
     })
 
+    test('is not invited to mention anybody either', () => {
+      // Caught by looking at the screenshot rather than the code: the whole
+      // control row was correctly dimmed and this one link sat above "Sie können
+      // hier mitlesen", live and underlined, offering to type an `@` into a
+      // disabled textarea. It was gated on the collaboration flag alone.
+      asViewer()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
+    })
+
     test('a collaborator keeps every one of those', () => {
       publishThreadSharing('session-1', true)
       publishThreadRole('session-1', 'collaborator')
@@ -1789,9 +1800,10 @@ describe('InputArea', () => {
       expect(screen.getByRole('button', { name: /attach files/i })).not.toBeDisabled()
       expect(screen.getAllByRole('button', { name: /remove/i }).length).toBeGreaterThan(0)
       expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
-      // Asserted here as well as by its absence above, so the viewer's version of
-      // this check cannot pass because the query itself stopped matching.
+      // Asserted here as well as by their absence above, so the viewer's version
+      // of those checks cannot pass because the query itself stopped matching.
       expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
+      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
     })
   })
 })

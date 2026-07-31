@@ -929,6 +929,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * the user somewhere sensible if they change their mind — one backspace.
    */
   const handleMentionSomeone = useCallback(() => {
+    // Belt and braces with the `undefined` handler at the call site: this one is
+    // reachable by anything holding a stale reference, and it writes to the
+    // conversation's draft.
+    if (cannotContribute) return
     const el = textareaRef.current
     const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
     const next = `${base}@`
@@ -943,7 +947,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       el?.focus()
       el?.setSelectionRange(next.length, next.length)
     })
-  }, [message, handleValueChange])
+  }, [message, handleValueChange, cannotContribute])
 
   const syncMentionQueryFromElement = useCallback(
     (element: HTMLTextAreaElement) => {
@@ -1575,7 +1579,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // thread, because mentioning somebody is how a thread starts being
               // shared (the picker offers "Wird eingeladen"). This is the discovery
               // path into the feature, not a reward for already having used it.
-              onMentionSomeone={handleMentionSomeone}
+              //
+              // But NOT to someone who may not write here. A screenshot of the
+              // read-only composer caught this: the whole control row was dimmed
+              // and this one link sat above "Sie können hier mitlesen", live and
+              // underlined, offering to type an `@` into a disabled textarea.
+              // Same class as the paperclip and the Datengrundlage popover.
+              onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
             />
           )}
 
