@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import Image from 'next/image'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
 import { AlertCircle, ChevronDown, Download, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
@@ -292,13 +293,22 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             file.contentType === 'application/pdf' ? (
               <iframe src={previewUrl} className="h-full w-full rounded border bg-background" title={file.filename} />
             ) : (
-              // A runtime preview URL (object URL / presigned storage link)
-              // whose dimensions are unknown — next/image cannot optimize it.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              // A presigned preview URL carries no intrinsic dimensions, and the
+              // well it sits in is only bounded on mobile (`h-[50dvh]`) — at
+              // `@2xl` it grows with its content, where a `fill` child would
+              // collapse the column to nothing. So sizing stays with CSS: 0/0
+              // for the ratio next/image cannot know, plus an explicit `w-auto`
+              // so the browser sizes to the image and not to the width="0"
+              // attribute. `unoptimized` because the link is signed, short-lived
+              // and points at whichever object store the environment runs —
+              // nothing the optimizer can allow-list or usefully cache.
+              <Image
                 src={previewUrl}
                 alt={file.filename}
-                className="h-fit max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"
+                width={0}
+                height={0}
+                unoptimized
+                className="h-fit w-auto max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"
               />
             )
           ) : (

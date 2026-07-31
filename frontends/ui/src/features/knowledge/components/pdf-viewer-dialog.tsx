@@ -8,6 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
+import Image from 'next/image'
 import { ExternalLink } from 'lucide-react'
 import {
   Dialog,
@@ -35,7 +36,7 @@ export interface PdfViewerDialogProps {
    */
   src?: string
   /**
-   * Render the source as an image (`<img>` in a scrollable frame) instead of
+   * Render the source as an image (next/image in a scrollable frame) instead of
    * the PDF iframe. Lets the Files preview pane reuse this dialog to enlarge
    * standalone image uploads (FB-15a). The `#page=N` fragment does not apply.
    */
@@ -104,10 +105,24 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
           {open &&
             (isImage ? (
               <div className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken">
-                {/* Streamed from the knowledge-base document route at arbitrary
-                    intrinsic size — next/image cannot optimize it. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
+                {/* The source streams at whatever size it happens to be, so
+                    there is no intrinsic ratio to declare: 0/0 plus explicit
+                    `w-auto h-auto` hands sizing back to CSS and keeps the image
+                    at its natural size in the scroll frame, exactly as before.
+                    The `w-auto` is not decoration — drop it and the browser
+                    sizes the image to the width="0" attribute. `unoptimized`
+                    because `src` is either this app's cookie-authenticated
+                    document route, which the optimizer would fetch server-side
+                    without the reader's session and take a 401 on, or a
+                    presigned storage link on a per-environment host. */}
+                <Image
+                  src={src}
+                  alt={title ?? fileName}
+                  width={0}
+                  height={0}
+                  unoptimized
+                  className="mx-auto h-auto w-auto max-w-full"
+                />
               </div>
             ) : (
               <iframe

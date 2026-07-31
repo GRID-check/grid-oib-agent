@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import Image from 'next/image'
 import type { FileItem } from './project-file-workspace'
 import { motion, springSnappy } from '@/components/motion'
 import { formatFileSize } from '@/lib/utils/format-file-size'
@@ -104,14 +105,20 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
 
   if (state === 'ready' && imgUrl) {
     return (
-      // A runtime object URL from the scope-aware thumbnail route, with no
-      // intrinsic dimensions known at build time — next/image cannot optimize
-      // a blob: source.
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
+      // `fill` against the card's positioned thumbnail well: the presigned URL
+      // announces no intrinsic dimensions, and this is the shape next/image
+      // gives you for that — it supplies the inset-0 sizing the plain tag used
+      // to spell out by hand. `unoptimized` because the URL is a short-lived
+      // signed link into whichever object store the environment runs (MinIO
+      // locally, S3 in prod): there is no stable host to allow-list, and a
+      // fresh signature per request would miss the optimizer cache every time.
+      // No `sizes` on purpose — with no srcset to generate it would do nothing.
+      <Image
         src={imgUrl}
         alt=""
-        className="absolute inset-0 h-full w-full object-cover"
+        fill
+        unoptimized
+        className="object-cover"
         // A url that resolves but won't render is a genuine failure, not "no thumbnail".
         onError={() => setState('error')}
       />

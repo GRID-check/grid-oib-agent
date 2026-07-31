@@ -32,6 +32,7 @@
 'use client'
 
 import { type FC } from 'react'
+import Image from 'next/image'
 import { avatarColorStyle, personInitials } from '@/components/ui/avatar-identity'
 import { formatTime } from '@/shared/utils/format-time'
 import { useTranslations } from '@/i18n'
@@ -98,10 +99,20 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
       data-testid="message-author"
     >
       {avatarUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- directory avatars are arbitrary remote hosts; next/image would need every one allow-listed.
-        <img
+        // The disc is a fixed 22px, so the size is declared rather than filled:
+        // the box is reserved before the photo arrives, and the image lazy-loads
+        // and decodes off the main thread the way next/image does everywhere.
+        // `unoptimized` is load-bearing — directory avatars come from whichever
+        // host the customer's IdP serves them from, and the optimizer only
+        // fetches hosts named in `images.remotePatterns`, so routing them
+        // through it would fail on every host we did not predict. Drop the prop
+        // the day those hosts are pinned; nothing else here has to change.
+        <Image
           src={avatarUrl}
           alt=""
+          width={22}
+          height={22}
+          unoptimized
           aria-hidden="true"
           className={cn(AVATAR_CLASS, 'object-cover')}
           data-testid="message-author-avatar"
