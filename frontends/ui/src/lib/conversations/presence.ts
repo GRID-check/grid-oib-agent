@@ -31,6 +31,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { publishToUsers } from '@/lib/events/bus'
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
+import { consumeRateLimit, TYPING_RATE_LIMIT } from '@/lib/sharing/rate-limit'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 // The cadence pair lives in a client-safe module so the composer can import it
@@ -57,6 +58,12 @@ export async function publishTypingPresence(
   if (!isCollaborationEnabled(session)) return
 
   const access = await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
+
+  // Shed silently past the bound rather than refusing: the caller is already
+  // told only that the request was accepted, and a presence claim nobody
+  // receives is exactly what happens when the channel drops one anyway.
+  const limit = await consumeRateLimit(TYPING_RATE_LIMIT, session.userId)
+  if (!limit.allowed) return
 
   const shared = isShared(
     access.visibility,

@@ -37,7 +37,7 @@ export const collaboration = {
       private: 'Private',
       project: 'Project',
       organization: 'Organization',
-      sharedOne: 'Shared with 1',
+      sharedOne: 'Shared with 1 person',
       sharedMany: 'Shared with {count}',
       ariaLabel: 'Access: {label}',
     },
@@ -211,7 +211,8 @@ export const collaboration = {
      */
     engagement: {
       mentionLabel: 'Piloti answers when mentioned',
-      mentionHint: 'Two of you are talking here, so a plain message goes to everyone in the chat.',
+      mentionHint:
+        'Several of you are talking here, so a plain message goes to everyone in the chat.',
       switchToAsk: 'Let Piloti answer everything',
       /**
        * The OFFER, shown while the thread is still in `ask`. Phrased as a

@@ -737,6 +737,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   })
 
   const isDisabledByAuth = !isAuthenticated
+  /*
+    One gate for "may this person change anything about this conversation".
+
+    `disabled` below only ever reached the textarea and the send button, so a
+    viewer in a shared thread — whose whole point is that they may read and not
+    write — still had a live paperclip, a live drop zone, and a live
+    *Datengrundlage* popover whose toggles persist onto the conversation. They
+    could not send a message but they could rewrite which sources the next
+    person's turn would use, and upload files into the thread.
+  */
+  const cannotContribute = isDisabledByAuth || isViewerInSharedThread
   const disabled =
     isDisabledByAuth ||
     (isBusy && !isResponseMode) ||
@@ -1152,7 +1163,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
-      if (files.length === 0 || isDisabledByAuth || isUploading || isBusy) return
+      if (files.length === 0 || cannotContribute || isUploading || isBusy) return
 
       const sessionId = ensureSession()
       if (!sessionId) {
@@ -1167,12 +1178,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, sessionId)
     },
-    [ensureSession, uploadFiles, isDisabledByAuth, isUploading, isBusy]
+    [ensureSession, uploadFiles, cannotContribute, isUploading, isBusy]
   )
 
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: handleFilesSelected,
-    disabled: isDisabledByAuth || isUploading || isBusy,
+    disabled: cannotContribute || isUploading || isBusy,
   })
 
   const handleFileChange = useCallback(
@@ -1395,7 +1406,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                disabled={isDisabledByAuth}
+                disabled={cannotContribute}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
                 className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1449,7 +1460,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                disabled={isDisabledByAuth}
+                disabled={cannotContribute}
                 aria-label={tChat('composer.sourcesAria', {
                   enabled: enabledSourcesCount,
                   total: totalSourcesCount,
@@ -1491,7 +1502,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             aria-pressed={deepResearchIntent}
             aria-label={tChat('composer.deepResearchAria')}
             title={tChat('composer.deepResearchHint')}
-            disabled={isDisabledByAuth}
+            disabled={cannotContribute}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
               'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
@@ -1540,7 +1551,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 // Mobile reaches the same dialog via the "manage" text entry
                 // under the chip strip.
                 className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
-                disabled={isDisabledByAuth || !knowledgeLayerAvailable}
+                disabled={cannotContribute || !knowledgeLayerAvailable}
                 onClick={() => setManageFilesOpen(true)}
                 aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
                 title={
@@ -1571,7 +1582,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               size="icon"
               className="text-subtle size-[34px] rounded-lg"
               onClick={handleAttachClick}
-              disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
+              disabled={cannotContribute || isUploading || isBusy || !knowledgeLayerAvailable}
               aria-label={t('inputArea.attachFiles')}
               title={
                 isBusy
