@@ -129,6 +129,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const {
     shared,
     myRole,
+    loading: sharedLoading,
+    accessLost,
     turnInFlight,
     unreadAfterMessageId,
     lastArrival,
@@ -256,16 +258,24 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // Where the reader left off (spec CC-19). Anchored on the server-held read mark,
   // then advanced past the reader's OWN messages — a separator whose first item is
   // your own message would be telling you that you have not read yourself.
+  //
+  // The anchor is resolved against the FULL message list, not the displayable
+  // subset: the read receipt marks the newest mapped message, which may be a full
+  // report (rendered in the details panel, not here), and an anchor that cannot be
+  // found would silently drop the divider on the next open.
   const unreadDividerBeforeId = useMemo(() => {
     if (!shared || !unreadAfterMessageId) return null
-    const anchorIndex = displayableMessages.findIndex((m) => m.id === unreadAfterMessageId)
+    const all = messages ?? []
+    const anchorIndex = all.findIndex((m) => m.id === unreadAfterMessageId)
     if (anchorIndex < 0) return null
-    for (const message of displayableMessages.slice(anchorIndex + 1)) {
+    const displayableIds = new Set(displayableMessages.map((m) => m.id))
+    for (const message of all.slice(anchorIndex + 1)) {
+      if (!displayableIds.has(message.id)) continue
       const mine = authorship.get(message.id)?.author.isYou === true
       if (!mine) return message.id
     }
     return null
-  }, [shared, unreadAfterMessageId, displayableMessages, authorship])
+  }, [shared, unreadAfterMessageId, messages, displayableMessages, authorship])
 
   // ── The hand-back offer (ADR-0034 addendum, the last transition) ────────────
   // The state machine is: asking Piloti → tag a human → waiting → they answer →
@@ -342,12 +352,17 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    * has to stay honestly authored: a button that fired a turn would either put words
    * under the user's name that they did not write, or produce an answer to a question
    * nobody can see, in a thread several people read as a shared record.
+   *
+   * The `@Piloti` token rides along as a STRUCTURED mention: without it the
+   * prefill would send as plain text and route by the engagement mode instead of
+   * to the agent (MN-3 — a mention is never re-derived from text).
    */
   const handleHandback = useCallback(() => {
     if (!handback) return
-    setComposerPrefill(
-      `@${tCollaboration('mentions.picker.agentName')} ${tCollaboration('mentions.handback.prefill')}`
-    )
+    const agentName = tCollaboration('mentions.picker.agentName')
+    setComposerPrefill(`@${agentName} ${tCollaboration('mentions.handback.prefill')}`, [
+      { targetId: AGENT_MENTION_ID, display: agentName },
+    ])
     setHandbackDismissedFor(handback.anchorId)
   }, [handback, setComposerPrefill, tCollaboration])
 
@@ -356,26 +371,29 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    *
    * Pre-fills rather than sending, for the same reason the hand-back offer does:
    * the message stays honestly authored, and a turn with no user-authored question
-   * produces "Based on the discussion above…". `@Piloti` is what releases the wait
-   * server-side, so no separate release call is needed — the ruling does it.
+   * produces "Based on the discussion above…". A STRUCTURED `@Piloti` mention is
+   * what releases the wait server-side — bare `@Piloti` text would not, so the
+   * mention travels with the prefill.
    */
   const handleAskAgent = useCallback(() => {
-    setComposerPrefill(`@${tCollaboration('mentions.picker.agentName')} `)
+    const agentName = tCollaboration('mentions.picker.agentName')
+    setComposerPrefill(`@${agentName} `, [{ targetId: AGENT_MENTION_ID, display: agentName }])
   }, [setComposerPrefill, tCollaboration])
 
   /**
    * "Rückfrage an Matthias" — the reader was asked something they cannot answer
    * without more information.
    *
-   * Pre-fills `@{asker} `, which routes the message as a mention: the asker's own
-   * request closes as `asked_back` rather than as an answer they never gave, and
-   * the thread keeps waiting — on them. Typing the same question as plain text
-   * instead settles the request, tells the asker "they answered", and hands the
-   * thread back to Piloti in the middle of a human conversation.
+   * Pre-fills `@{asker} ` WITH its structured mention, which routes the message
+   * as a mention: the asker's own request closes as `asked_back` rather than as
+   * an answer they never gave, and the thread keeps waiting — on them. A
+   * text-only prefill would send the same question as plain text, settle the
+   * request, tell the asker "they answered", and hand the thread back to Piloti
+   * in the middle of a human conversation.
    */
   const handleAskBack = useCallback(
     (asker: { userId: string; name: string }) => {
-      setComposerPrefill(`@${asker.name} `)
+      setComposerPrefill(`@${asker.name} `, [{ targetId: asker.userId, display: asker.name }])
     },
     [setComposerPrefill]
   )
@@ -583,10 +601,24 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
           aria-label={t('chatArea.ariaMessages')}
         >
-          {!hasHydrated ? (
+          {/* Access revoked while viewing: the fallback shows the local copy, so
+              without this the thread simply freezes with no explanation. */}
+          {accessLost && (
+            <div
+              role="status"
+              className="mx-auto mt-3 w-full max-w-3xl px-4 text-sm text-muted-foreground"
+            >
+              {tCollaboration('thread.accessLost')}
+            </div>
+          )}
+          {!hasHydrated || (shared && sharedLoading && isEmpty) ? (
             // Hydration skeleton (C5): the persisted thread hasn't rehydrated yet.
             // Show a lightweight grey-bubble placeholder — never flash WelcomeState
-            // for a returning user whose conversation is about to load in.
+            // for a returning user whose conversation is about to load in. The same
+            // holds for a first-time RECIPIENT of a shared thread: the conversation
+            // is materialised empty and the server history lands a moment later, so
+            // without the second clause a shared-thread invitee got a flash of the
+            // "private workspace" welcome before their colleague's messages snapped in.
             <MessageListSkeleton />
           ) : isEmpty ? (
             <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
@@ -816,8 +848,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               )}
 
               {/* A colleague writing while you are reading is a change you must be able
-              to learn about without eyes. Polite, so it never interrupts. */}
-              <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+              to learn about without eyes. Polite, so it never interrupts. Keyed on
+              the message id so a SECOND arrival from the same person is a fresh
+              node — identical text in a mutated region is not re-announced. */}
+              <div
+                key={lastArrival?.messageId ?? 'none'}
+                className="sr-only"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
                 {shared && lastArrival
                   ? tCollaboration('thread.authorAria', {
                       name:

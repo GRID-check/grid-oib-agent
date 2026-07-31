@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { toast } from 'sonner'
+import type { ComposerPrefill } from '@/features/chat/types'
 import { InputArea } from './InputArea'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
@@ -23,7 +24,7 @@ let mockConversationMessages: unknown[] | undefined = []
 // Active session id (null models the "new session draft" state with no id yet).
 let mockCurrentSessionId: string | null = 'session-1'
 // One-shot prefill queued from a deep link / chip.
-let mockComposerPrefill: string | null = null
+let mockComposerPrefill: ComposerPrefill | null = null
 // Real-ish per-session draft store, so component tests exercise genuine
 // save/restore/clear behaviour rather than asserting on spy calls alone.
 let mockDrafts: Record<string, string> = {}
@@ -973,7 +974,7 @@ describe('InputArea', () => {
     })
 
     test('a prefill fills an empty composer and becomes the session draft', () => {
-      mockComposerPrefill = 'prefilled question'
+      mockComposerPrefill = { text: 'prefilled question' }
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -983,7 +984,7 @@ describe('InputArea', () => {
 
     test('a prefill does not clobber an existing non-empty draft', () => {
       mockDrafts = { 'session-1': 'my own in-progress text' }
-      mockComposerPrefill = 'chip suggestion'
+      mockComposerPrefill = { text: 'chip suggestion' }
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 

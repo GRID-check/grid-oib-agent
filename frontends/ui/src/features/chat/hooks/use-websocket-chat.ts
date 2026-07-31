@@ -97,6 +97,8 @@ export interface SendMessageOptions {
 export interface SendMessageFailure {
   reason: string | null
   message: string | null
+  /** The mention target the refusal names, when the server supplied one. */
+  targetId?: string | null
 }
 
 /** What a mention send resolves to — the server's ruling, or why it was refused. */
@@ -115,8 +117,15 @@ export function sendSucceeded(result: boolean | SendMessageOutcome): boolean {
 /** Read the standard error envelope so the composer can name the reason. */
 async function readSendFailure(response: Response): Promise<SendMessageFailure> {
   try {
-    const body = (await response.json()) as { error?: string; details?: { reason?: string } | null }
-    return { reason: body.details?.reason ?? null, message: body.error ?? null }
+    const body = (await response.json()) as {
+      error?: string
+      details?: { reason?: string; targetId?: string } | null
+    }
+    return {
+      reason: body.details?.reason ?? null,
+      message: body.error ?? null,
+      targetId: body.details?.targetId ?? null,
+    }
   } catch {
     return { reason: null, message: null }
   }
