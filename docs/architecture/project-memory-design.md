@@ -107,6 +107,29 @@ Before persisting a new item:
   user-confirmed. **Never silently overwrite a `user_confirmed` item.**
 - This is the single most important component. Skip it and memory rots.
 
+**Built (2026-07-31), without embeddings.** Contradiction handling arrives via two
+detectors, both in `createProjectMemoryItem`:
+1. **Polarity split on the paraphrase match.** A correction is token-wise nearly
+   identical to the claim it corrects ("… is not applicable" vs "… is applicable"
+   score 0.91 Jaccard), so it landed in the *merge* branch — and a merge keeps the
+   OLD content, refreshing only confidence and timestamps. Corrections were being
+   silently discarded while the stale row came back looking freshly confirmed.
+   Matches are now compared on negation parity plus boolean literals: same
+   polarity → merge, opposed → supersede.
+2. **An explicit target.** The writer may quote the entry it overturns verbatim
+   (`supersedesContent`); the quote is resolved against active items in scope
+   (exact normalized match, else ≥ 0.7 Jaccard) and ignored when nothing matches
+   — never guessed at. This covers corrections phrased too differently for (1).
+
+Either way the replacement insert and the `superseded` marking run in ONE
+transaction, so memory is never left with two live contradictory entries nor with
+a fact silently deleted. The `user_confirmed` rule is honoured and widened: an
+agent may not retire a pinned, `user_confirmed`, or user-authored entry at all —
+the correction is still recorded, both stay active, and the user resolves it in
+the panel. Still outstanding from this section: embedding-based similarity (so
+semantically-distant contradictions are caught without a quote) and LLM
+adjudication of genuine two-sided conflicts.
+
 ### 3.3 Serve — how it reaches the agent (two channels)
 - **Always-on "core memory" digest**: pinned + top-salience items, compacted to a
   small budget, delivered as a header `x-grid-project-memory` (sibling to
@@ -118,6 +141,17 @@ Before persisting a new item:
 Injection format tags each item so the model treats it correctly, e.g.:
 `[decision · user-confirmed] Client chose the Fluchttunnel option (conv #3).`
 `[open_question · unverified] Is the Aufzug a Feuerwehraufzug?`
+
+**Precedence — memory never outranks the live turn.** The digest is concatenated
+into `project_context` (`compose_project_context`), whose answering prompt tells
+the model to treat confirmed facts as *binding constraints it must never
+contradict*. That rule is meant for the intake profile; inherited by agent-authored
+`unverified` notes it turns stale memory into something the agent defends. The
+answering prompt (`shallow_researcher/prompts/researcher.j2`) therefore carves
+`PROJECT_MEMORY` out explicitly: prior notes, not confirmed facts and not law;
+`user_confirmed` alone carries a confirmed fact's weight; entries run pinned-first
+then newest-first; the current conversation always wins; and a memory entry is
+never a citable source for a legal requirement.
 
 ### 3.4 Maintain — keep it small and fresh
 - `last_referenced_at` + salience decay → low-value items sink out of the digest.
@@ -175,6 +209,26 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   dropped. This is a soft guard, not the §3.2 consolidation gate (still a
   follow-up), so it does not catch semantic paraphrase or items outside the
   bounded digest.
+- **Corrections are exempt from that guard, on purpose.** "Don't restate what is
+  already in memory" reads as "this topic is covered, skip it" precisely when a
+  turn *overturns* an entry, which is the one case memory must not miss. The
+  prompt therefore separates the two explicitly: restatements are barred,
+  corrections are the highest-value thing the stage records, and it is told to
+  write what holds NOW plus the fact that changed it. (The substring digest
+  guard does not block them — a negated finding is not a substring of the entry
+  it negates.)
+- **Reflection can retire what it corrects**, not only append. Each finding
+  carries a `supersedes` field (part of the strict structured-output contract, so
+  the model has a sanctioned way to return one): the verbatim content of the entry
+  it replaces, copied from the digest it was shown. `_sanitize_findings` honours
+  it ONLY when it matches one COMPLETE entry of the shown digest (normalized
+  equality against the parsed entry contents, not a substring test — a truncated
+  quote like "Client chose a flat" for "Client chose a flat roof" would otherwise
+  still resolve through the ≥ 0.7 Jaccard fallback). A hallucinated, paraphrased
+  or truncated quote is dropped and the finding recorded as an ordinary new item,
+  so a fabricated quote can never archive a real row. The in-turn `remember` tool
+  takes the same argument. Resolution, the human-curation guard, and the atomic
+  swap all live in the single writer (§3.2).
 - **PII/secret filter** (audit finding S4, closed) — a finding whose content
   matches a coarse PII/secret shape (email, phone, IBAN, SSN-shaped digits,
   password/API-key/government-ID keywords) is dropped entirely rather than
@@ -189,12 +243,12 @@ fed by `GET /api/projects/{id}/memory?conversationId=…`), labelling in-turn
 De-duplication: `createProjectMemoryItem` runs a two-pass write-time check on
 every write (both the tool and this stage) — a normalized-equal active item is
 refreshed in place instead of duplicated, and a same-kind **paraphrase** (token
-Jaccard ≥ 0.8 over a bounded candidate scan) merges the same way — backed by
-two partial UNIQUE indexes on normalized content (migration
+Jaccard ≥ 0.8 over a bounded candidate scan) merges the same way **unless it
+asserts the opposite**, in which case it supersedes rather than merges (§3.2) —
+backed by two partial UNIQUE indexes on normalized content (migration
 `0010_project_memory_dedup.sql`) that close the race window. This is a
-pragmatic slice of the §3.2 gate; embed-based consolidation and contradiction
-adjudication remain follow-ups. See
-[memory-reflection-audit.md](./memory-reflection-audit.md).
+pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
+See [memory-reflection-audit.md](./memory-reflection-audit.md).
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
 

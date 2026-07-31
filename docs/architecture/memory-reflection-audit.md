@@ -36,6 +36,7 @@ privacy/GDPR, UX, backend/SRE, adversarial user, end-user architect.
 | S2 | MED-HIGH | Prompt-injectable: the reflection LLM's output is the sole driver of writes, fed user/answer/digest text. | **Reduced** — project-scope-only bounds blast radius to the current project; prompt now tells it not to treat embedded instructions as findings; digest-dedup drops echoed items. Residual: a semantically valid attacker-chosen *project* finding can still be written (same as the `remember` tool). |
 | INFORM | HIGH (UX/trust) | Reflection-phase writes are surfaced to the user **nowhere** — no tool step (it's not a tool call), no WS event, no toast/badge; the memory panel fetches once on mount and never refreshes. | **Built.** A per-turn "Grid hat sich N gemerkt" chip (reusable `Chip` primitive) polls conversation-scoped memory after each answer and lists items in a popover, labelling in-turn (`agent`) vs reflection (`distillation`) provenance. Panel auto-refresh remains a nice-to-have. |
 | DEDUP | HIGH (correctness) | No write-time consolidation (design §3.2 unbuilt); no uniqueness constraint; digest is bounded (20 items / 1800 chars) so reflection is blind to older items; in-turn `remember` writes aren't in the pre-turn digest → double-store. | **Reduced** — write-time normalized de-duplication now runs on **every** write (`createProjectMemoryItem`): a normalized-equal active item updates in place instead of inserting a duplicate. Full embed/contradiction gate + a DB uniqueness constraint remain follow-ups. |
+| STALE | HIGH (correctness) | **Memory could not be corrected, only appended to.** Three compounding causes: (a) the answering prompt put the digest inside `<project_context>`, whose "treat confirmed facts as binding constraints — never contradict them" rule then covered agent-authored `unverified` notes; (b) the reflection prompt's "never restate what is already in memory" rule reads as "topic covered, skip it" exactly when a turn *overturns* an entry; (c) the paraphrase merge scored a correction as a duplicate (~0.9 Jaccard against the claim it negates) and merges keep the OLD content — so the correction was discarded and the stale row got a fresh timestamp and possibly a confidence bump. | **Fixed.** (a) `researcher.j2` carves `PROJECT_MEMORY` out of the binding-facts rule: prior notes, not confirmed facts, not citable as legal basis, and the live turn always wins. (b) the reflection prompt separates restatements from corrections and calls corrections the highest-value finding. (c) opposed polarity now routes to supersede instead of merge, and both writers can name the entry they overturn (`supersedesContent`) — retirement + replacement in one transaction, never touching human-curated entries. |
 | GATE | MED | Reflection ran on error/meta/insufficiency answers (only job stubs were skipped). | **Fixed** — `_reflection_answer_is_substantive` skips meta/error intent, canned error/empty answers, and insufficiency ("I don't have enough information …"). |
 | PROV | LOW | Reflection vs in-turn agent writes were indistinguishable in the UI (both `provenanceType:'agent'`). | **Fixed** — reflection writes are tagged `distillation`; the chip labels them "nach der Antwort ergänzt". |
 | S3 | MED (config) | Anonymous mode (`REQUIRE_AUTH=false`) trusts client `projectId` unchecked → cross-tenant project write primitive. | **Open (pre-existing, independent of reflection).** Deploy with auth on. |
@@ -87,10 +88,26 @@ Round 3:
    concurrent race cannot create a duplicate; `createProjectMemoryItem` catches
    the `23505` violation and returns the winning row.
 
+Round 6:
+11. **Memory can be corrected (STALE).** Prompt-side: the answering prompt no
+    longer presents the digest as binding fact, and the reflection prompt treats
+    corrections as its highest-value output. Write-side: opposed-polarity matches
+    supersede instead of merging, and both writers may quote the entry they
+    overturn (`supersedesContent` → `status='superseded'` + `supersedes_id`, one
+    transaction). Reflection only passes a quote it can find in the digest it was
+    shown; the frontend refuses to retire pinned / `user_confirmed` /
+    user-authored entries either way.
+
 ## Follow-ups (require product decisions / larger surface)
 - **DEDUP hardening**: the §3.2 embed/contradiction consolidation gate (semantic
   paraphrase, not just normalized-equal) and a per-project row cap. (Normalized
-  dedup + the DB unique index cover exact/near-exact duplicates today.)
+  dedup + the DB unique index cover exact/near-exact duplicates today; the
+  polarity split catches contradictions only when the wording is close enough to
+  match, or when the writer quotes its target explicitly.)
+- **STALE follow-on**: a superseded entry vanishes from the panel (it filters
+  `status !== 'superseded'`), so a user cannot see or undo an agent's correction.
+  Surfacing "replaced an earlier note" — in the panel and on the memory chip —
+  is the natural next step now that `supersedes_id` is populated.
 - **INFORM polish**: live memory-panel refresh/badge when the panel is open.
 - **S1 (remember tool)**: a proper org-admin permission gate (with role
   propagation) so org writes can be *enabled* safely rather than all-or-nothing.

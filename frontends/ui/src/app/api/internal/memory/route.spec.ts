@@ -101,7 +101,8 @@ describe('POST /api/internal/memory', () => {
         kind: 'derived_fact',
         content: 'The roof load is 2 kN/m2.',
         provenanceType: 'agent',
-      })
+      }),
+      expect.objectContaining({ supersedesContent: undefined })
     )
   })
 
@@ -116,8 +117,65 @@ describe('POST /api/internal/memory', () => {
     expect(response.status).toBe(201)
     expect(createProjectMemoryItemForProject).toHaveBeenCalledWith(
       PROJECT_ID,
-      expect.objectContaining({ provenanceType: 'distillation' })
+      expect.objectContaining({ provenanceType: 'distillation' }),
+      expect.objectContaining({ supersedesContent: undefined })
     )
+  })
+
+  /**
+   * The agent correcting its own memory: it quotes the outdated entry verbatim
+   * out of the digest, and the service resolves that quote to the row it
+   * retires. Without this passing through, reflection can only ever append —
+   * the stale entry stays live next to its own correction.
+   */
+  it('threads a supersedes quote through to the write path', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockImplementation(
+      async (_projectId, _values, options) => {
+        options?.onSuperseded?.('item-old')
+        return makeMemoryItem({ id: 'item-new', supersedesId: 'item-old' })
+      }
+    )
+
+    const response = await POST(
+      makeRequest(
+        { ...validProjectPayload, supersedesContent: 'OIB-RL 2.1 is not applicable here' },
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(201)
+    expect(createProjectMemoryItemForProject).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({ kind: 'derived_fact' }),
+      expect.objectContaining({ supersedesContent: 'OIB-RL 2.1 is not applicable here' })
+    )
+    // The caller is told which entry was actually retired (null when the quote
+    // resolved to nothing, or to an entry an agent may not touch).
+    expect((await response.json()).supersededId).toBe('item-old')
+  })
+
+  /**
+   * A duplicate/paraphrase refresh returns an EXISTING row, and that row may
+   * already carry a `supersedesId` from an earlier correction. Deriving the
+   * response from the row would then claim this request retired an entry it
+   * never touched — the id must come from the write itself.
+   */
+  it('reports no retirement when the write refreshed a row that was already a correction', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(
+      makeMemoryItem({ id: 'item-existing', supersedesId: 'retired-last-week' })
+    )
+
+    const response = await POST(
+      makeRequest(
+        { ...validProjectPayload, supersedesContent: 'OIB-RL 2.1 is not applicable here' },
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(201)
+    expect((await response.json()).supersededId).toBeNull()
   })
 
   it('denies agent org-scoped writes by default (403), before touching the DB', async () => {
@@ -194,7 +252,8 @@ describe('POST /api/internal/memory', () => {
     expect(response.status).toBe(201)
     expect(organizationExists).toHaveBeenCalledWith('org-1')
     expect(createProjectMemoryItem).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: 'organization', organizationId: 'org-1', projectId: null })
+      expect.objectContaining({ scope: 'organization', organizationId: 'org-1', projectId: null }),
+      expect.objectContaining({ supersedesContent: undefined })
     )
   })
 })

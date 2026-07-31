@@ -410,7 +410,14 @@ class TestShallowResearcherAgent:
         assert "[ESCALATE_TO_DEEP]" in agent.system_prompt
         assert "exactly as written" in agent.system_prompt
 
-    def _render_default_prompt(self, mock_llm_provider, real_tool, *, requires_sources: bool) -> str:
+    def _render_default_prompt(
+        self,
+        mock_llm_provider,
+        real_tool,
+        *,
+        requires_sources: bool,
+        project_context: str | None = None,
+    ) -> str:
         from aiq_agent.common import render_prompt_template
 
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
@@ -420,7 +427,7 @@ class TestShallowResearcherAgent:
             user_info=None,
             current_datetime="2026-07-15",
             available_documents=[],
-            project_context=None,
+            project_context=project_context,
             ris_catalog=None,
             requires_sources=requires_sources,
         )
@@ -434,6 +441,27 @@ class TestShallowResearcherAgent:
         # The marker-mandate blocks are omitted on meta turns.
         assert "<insufficient_answer_marker>" not in rendered
         assert "<confidence_marker>" not in rendered
+
+    def test_project_memory_is_framed_as_fallible_not_binding(self, mock_llm_provider, real_tool):
+        """The digest rides inside <project_context>, whose "binding constraints —
+        never contradict them" rule is meant for CONFIRMED profile facts. Without an
+        explicit carve-out, agent-authored `unverified` notes inherit that weight and
+        the agent defends stale memory instead of accepting a correction."""
+        rendered = self._render_default_prompt(
+            mock_llm_provider,
+            real_tool,
+            requires_sources=True,
+            project_context=(
+                "PROJECT_MEMORY v1\n"
+                '- [derived_fact | high | unverified] "Für Bergsteiggasse ist OIB-RL 2.1 nicht anwendbar"'
+            ),
+        )
+
+        assert "not** confirmed project facts" in rendered
+        assert "The current conversation outranks memory, always." in rendered
+        assert "never argue the user out of their own correction" in rendered
+        # Memory must never be laundered into a legal citation.
+        assert "never a source for a legal requirement" in rendered
 
     def test_research_turn_prompt_keeps_marker_mandate(self, mock_llm_provider, real_tool):
         """requires_sources=True keeps the marker mandate and omits the suppression note."""
