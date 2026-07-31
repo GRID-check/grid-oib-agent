@@ -49,6 +49,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
           showKnowledge={isProjectKnowledgePageEnabled(session)}
           showWorkflows={isWorkflowsEnabled(session)}
           canAccessArchiv={navFlags.canAccessArchiv}
+          canCollaborate={navFlags.canCollaborate}
         />
       )
     }

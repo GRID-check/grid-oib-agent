@@ -76,12 +76,30 @@ export interface ProjectSection {
   inRail: boolean
   /** Appears in the ⌘K palette's "current project" group. */
   inPalette: boolean
+  /**
+   * Second key of the `g …` leader sequence that jumps here (lowercase, one
+   * character). Declared alongside the destination on purpose: the shortcut
+   * registry (`shortcuts.ts`) derives both the binding and the cheatsheet row
+   * from this field, so a section can never gain a rail entry and silently
+   * keep an undocumented — or stale — hotkey. Omit for destinations that
+   * deliberately have no jump (the intake wizard is reached from the project
+   * shell, not from muscle memory).
+   */
+  shortcutKey?: string
 }
 
 // Ordered once; both surfaces derive their lists by filtering this array, so
 // the shared order (and any future insertion) stays consistent everywhere.
 const PROJECT_SECTIONS: readonly ProjectSection[] = [
-  { key: 'chat', segment: 'chat', icon: MessageSquare, i18nKey: 'chat', inRail: true, inPalette: true },
+  {
+    key: 'chat',
+    segment: 'chat',
+    icon: MessageSquare,
+    i18nKey: 'chat',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'c',
+  },
   {
     key: 'workflows',
     segment: 'workflows',
@@ -90,8 +108,17 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     gate: 'showWorkflows',
     inRail: true,
     inPalette: true,
+    shortcutKey: 'w',
   },
-  { key: 'files', segment: 'files', icon: Folder, i18nKey: 'files', inRail: true, inPalette: true },
+  {
+    key: 'files',
+    segment: 'files',
+    icon: Folder,
+    i18nKey: 'files',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'f',
+  },
   {
     key: 'knowledge',
     segment: 'knowledge',
@@ -101,8 +128,17 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     // Palette-only: the rail's project IA does not carry a Knowledge section.
     inRail: false,
     inPalette: true,
+    shortcutKey: 'k',
   },
-  { key: 'history', segment: 'history', icon: Clock, i18nKey: 'history', inRail: true, inPalette: true },
+  {
+    key: 'history',
+    segment: 'history',
+    icon: Clock,
+    i18nKey: 'history',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'h',
+  },
   {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a
     // cross-project doorway, not a project subpage. Kept last so it hugs the
@@ -115,6 +151,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     gate: 'canAccessArchiv',
     inRail: true,
     inPalette: true,
+    shortcutKey: 'a',
   },
   {
     // The inbox (ADR-0035): one per user per organization, so — like the Archiv —
@@ -134,6 +171,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     gate: 'canCollaborate',
     inRail: true,
     inPalette: false,
+    shortcutKey: 'i',
   },
   {
     // The intake wizard ("Setup"). Palette-only — the rail reaches it via the
@@ -160,6 +198,7 @@ export const PROJECT_SETTINGS_SECTION: ProjectSection = {
   i18nKey: 'settings',
   inRail: true,
   inPalette: true,
+  shortcutKey: 's',
 }
 
 function isVisible(section: ProjectSection, flags: ProjectSectionFlags): boolean {
@@ -182,5 +221,17 @@ export function railSections(flags: ProjectSectionFlags): ProjectSection[] {
 export function paletteSections(flags: ProjectSectionFlags): ProjectSection[] {
   return [...PROJECT_SECTIONS, PROJECT_SETTINGS_SECTION].filter(
     (section) => section.inPalette && isVisible(section, flags),
+  )
+}
+
+/**
+ * The destinations reachable with a `g …` leader sequence, in rail order with
+ * Settings last, flag-gated sections filtered out. Membership is decided by the
+ * section declaring a {@link ProjectSection.shortcutKey} — so the hotkey and the
+ * cheatsheet row are both consequences of the IA, not a parallel list.
+ */
+export function jumpSections(flags: ProjectSectionFlags): ProjectSection[] {
+  return [...PROJECT_SECTIONS, PROJECT_SETTINGS_SECTION].filter(
+    (section) => section.shortcutKey && isVisible(section, flags),
   )
 }

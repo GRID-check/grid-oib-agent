@@ -9,10 +9,14 @@
  * user turns shortcuts off this component registers ZERO listeners and
  * renders nothing, so the whole feature is inert.
  *
- * Shortcut set (deliberately small):
+ * What it binds:
  *   ⌘K / Ctrl+K   open the command palette
  *   ?             open the shortcuts cheatsheet
- *   g then p      go to the projects list (leader-key style)
+ *   g then <key>  jump to a destination — the set comes from the shortcut
+ *                 registry (`shortcuts.ts`), which derives it from the same
+ *                 IA the rail and the ⌘K palette render, so a new section
+ *                 arrives with its hotkey and its cheatsheet row already
+ *                 correct. This used to be a single hard-coded `g p`.
  *
  * Plain-key shortcuts never fire while the user is typing (input, textarea,
  * select, contenteditable) and never when a modifier is held, so nothing
@@ -21,14 +25,12 @@
  */
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 
 import { useShortcutsPreference } from '@/hooks/use-shortcuts-preference'
-import { CommandPalette } from './command-palette'
+import { CommandPalette, projectIdFromPathname } from './command-palette'
 import { ShortcutsCheatsheet } from './shortcuts-cheatsheet'
-
-/** How long a pending leader key (`g`) stays armed. */
-const LEADER_TIMEOUT_MS = 1500
+import { LEADER_KEY, LEADER_TIMEOUT_MS, resolveJump, type ShortcutFlags } from './shortcuts'
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -48,6 +50,8 @@ export interface KeyboardShortcutsProps {
   showWorkflows?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
   canAccessArchiv?: boolean
+  /** Whether the collaboration surfaces are reachable (`collaboration`, ADR-0032…0035). */
+  canCollaborate?: boolean
 }
 
 export function KeyboardShortcuts({
@@ -56,12 +60,25 @@ export function KeyboardShortcuts({
   showKnowledge = false,
   showWorkflows = false,
   canAccessArchiv = false,
+  canCollaborate = false,
 }: KeyboardShortcutsProps) {
   const { enabled } = useShortcutsPreference()
   const router = useRouter()
+  const pathname = usePathname() ?? ''
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [cheatsheetOpen, setCheatsheetOpen] = React.useState(false)
   const leaderArmedAtRef = React.useRef<number | null>(null)
+
+  const flags: ShortcutFlags = React.useMemo(
+    () => ({ canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate }),
+    [canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate],
+  )
+
+  // The handler reads the live path (a jump to "Files" means the project the
+  // user is looking at), so keep it in a ref rather than re-registering the
+  // listener on every navigation.
+  const projectIdRef = React.useRef<string | null>(null)
+  projectIdRef.current = projectIdFromPathname(pathname)
 
   React.useEffect(() => {
     // Inner gate: shortcuts off → zero listeners.
@@ -95,25 +112,32 @@ export function KeyboardShortcuts({
         return
       }
 
-      // Leader sequence: `g` arms, then `p` navigates to the projects list.
+      // Leader sequence: `g` arms, the next key picks the destination. An
+      // unbound second key (or a target that needs a project the user is not
+      // in) simply disarms — never a navigation the user did not ask for.
       const armedAt = leaderArmedAtRef.current
       if (armedAt !== null && Date.now() - armedAt <= LEADER_TIMEOUT_MS) {
+        // A bare modifier keydown (Shift, CapsLock, …) cannot complete the
+        // sequence — leave the leader armed rather than making the user press
+        // `g` again just because they reached for a capital letter.
+        if (event.key.length !== 1) return
         leaderArmedAtRef.current = null
-        if (event.key.toLowerCase() === 'p') {
+        const href = resolveJump(event.key, flags, projectIdRef.current)
+        if (href) {
           event.preventDefault()
-          router.push('/app/projects')
+          router.push(href)
         }
         return
       }
 
-      if (event.key.toLowerCase() === 'g' && !event.shiftKey) {
+      if (event.key.toLowerCase() === LEADER_KEY && !event.shiftKey) {
         leaderArmedAtRef.current = Date.now()
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [enabled, router])
+  }, [enabled, router, flags])
 
   // Inner gate: nothing rendered either — the feature is fully inert.
   if (!enabled) return null
@@ -129,7 +153,15 @@ export function KeyboardShortcuts({
         showWorkflows={showWorkflows}
         canAccessArchiv={canAccessArchiv}
       />
-      <ShortcutsCheatsheet open={cheatsheetOpen} onOpenChange={setCheatsheetOpen} />
+      <ShortcutsCheatsheet
+        open={cheatsheetOpen}
+        onOpenChange={setCheatsheetOpen}
+        canViewOrganization={canViewOrganization}
+        showKnowledge={showKnowledge}
+        showWorkflows={showWorkflows}
+        canAccessArchiv={canAccessArchiv}
+        canCollaborate={canCollaborate}
+      />
     </>
   )
 }
