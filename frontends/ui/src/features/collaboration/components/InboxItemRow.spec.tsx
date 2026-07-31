@@ -27,7 +27,10 @@ const base: InboxItemView = {
   href: '/app/projects/p1/chat?session=c1#m-9',
   subject: 'Atrium – Rauchabschnitte',
   excerpt: 'Ist die Annahme richtig?',
-  createdAt: '2026-07-29T09:00:00Z',
+  // Deliberately DIFFERENT moments: the row is timed by `updatedAt`, and while
+  // the two matched here every assertion about which one the <time> carries was
+  // true of both.
+  createdAt: '2026-07-24T09:00:00Z',
   updatedAt: '2026-07-29T09:00:00Z',
 }
 
@@ -107,6 +110,20 @@ describe('InboxItemRow — registry-driven rendering (IB-6)', () => {
   test('a single occurrence of a counted type uses the one-variant', () => {
     render(<InboxItemRow item={item({ type: 'conversation.activity', actionable: false, count: 1 })} />)
     expect(screen.getByText('1 new message')).toBeInTheDocument()
+  })
+
+  test('a read group with a spent counter does not claim one new message', () => {
+    // `count` is occurrences SINCE THE ROW WAS LAST READ, so 0 is the ordinary
+    // state of a read row — not an impossible one. Picking the one-variant for it
+    // made a group of twenty the user had just read say "1 new message" while it
+    // sat there with nothing new in it at all. Three cases, not two.
+    render(
+      <InboxItemRow
+        item={item({ type: 'conversation.activity', actionable: false, state: 'read', count: 0 })}
+      />,
+    )
+    expect(screen.getByText('New messages')).toBeInTheDocument()
+    expect(screen.queryByText('1 new message')).not.toBeInTheDocument()
   })
 
   test('falls back to the placeholder copy for an unresolvable actor and an untitled target', () => {

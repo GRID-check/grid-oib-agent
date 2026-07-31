@@ -168,6 +168,34 @@ describe('resolveResourceAccess — effective role is the STRONGEST applicable',
     ).rejects.toBeInstanceOf(NotFoundError)
   })
 
+  it('withholds canEscalate from a project admin who ALREADY owns the resource', async () => {
+    // An audit-integrity claim, not a cosmetic one: offering the button to an
+    // owner let them "take ownership" of something they already owned, writing
+    // `resource.ownership.escalated` with `previousRole: 'owner'` — a permanent
+    // record of an escalation that never happened, in the very log spec SH-10
+    // exists to keep trustworthy.
+    stubConversation({ visibility: 'private', createdBy: 'user_creator' })
+    stubContainer('project-admin')
+    stubGrant('owner')
+
+    const access = await resolveResourceAccess(session, 'conversation', 'conv_1')
+    expect(access.role).toBe('owner')
+    expect(access.canEscalate).toBe(false)
+  })
+
+  it('still offers canEscalate to that same admin when their grant is only collaborator', async () => {
+    // The other half of the rule: ownership is what withholds escalation, not
+    // holding a grant, so a project admin party to the thread as a collaborator
+    // keeps the capability spec SH-10 gives them.
+    stubConversation({ visibility: 'private', createdBy: 'user_creator' })
+    stubContainer('project-admin')
+    stubGrant('collaborator')
+
+    const access = await resolveResourceAccess(session, 'conversation', 'conv_1')
+    expect(access.role).toBe('collaborator')
+    expect(access.canEscalate).toBe(true)
+  })
+
   it('maps a project admin to collaborator under project visibility', async () => {
     stubConversation({ visibility: 'project' })
     stubContainer('project-admin')

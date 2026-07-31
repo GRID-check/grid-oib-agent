@@ -515,10 +515,21 @@ export async function escalateToOwner(
   // Every other mutation in this module publishes; this one did not, so an owner
   // watching the same thread kept seeing a roster without the new owner in it
   // until a focus event or the disconnected poll came round a minute later.
-  await publishToUsers(
-    await resolveParticipants(session.organizationId, resourceType, resourceId),
-    { kind: 'resource.access.changed', resourceType, resourceId, change: 'granted' },
-  )
+  //
+  // Best-effort, like the conversation fan-out: the grant and its audit record
+  // are already committed by the time we get here, and the participant lookup
+  // this needs is two further reads that are no part of them. Letting either
+  // throw answered 500 for an escalation that had in fact succeeded, so the
+  // admin retried an act already in the audit log. Live delivery is latency, not
+  // mechanism — the roster is one plain fetch away either way.
+  try {
+    await publishToUsers(
+      await resolveParticipants(session.organizationId, resourceType, resourceId),
+      { kind: 'resource.access.changed', resourceType, resourceId, change: 'granted' },
+    )
+  } catch (error) {
+    console.warn('[sharing] escalation fan-out failed (non-fatal):', error)
+  }
 
   return getSharingState(session, resourceType, resourceId)
 }

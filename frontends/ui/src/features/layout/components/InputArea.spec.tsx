@@ -7,10 +7,21 @@ import { InputArea } from './InputArea'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
 import {
+  bumpThreadRevision,
   publishThreadRole,
   publishThreadSharing,
   resetThreadSharing,
 } from '@/shared/collaboration/thread-sharing'
+import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
+
+// Only the one publisher is stubbed; the rest of the seam is the real module,
+// because these tests drive it (`publishThreadSharing`, `publishThreadRole`) as
+// the production code does. `bumpThreadRevision` has no observable effect inside
+// this component, so a spy is the only way to see the wire at all.
+vi.mock('@/shared/collaboration/thread-sharing', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/shared/collaboration/thread-sharing')>()),
+  bumpThreadRevision: vi.fn(),
+}))
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
@@ -299,6 +310,40 @@ describe('InputArea', () => {
     mockAwaitingPending = []
     resetThreadSharing()
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
+    //
+    // The two file mocks below were NOT in this list, and both are set by tests
+    // with `mockReturnValue`, which is permanent. So from the drag-overlay test
+    // onwards every remaining test in this file rendered the composer behind a
+    // full-bleed "Unsupported file type" overlay, and from the file-chip test
+    // onwards every one of them had two attachments. None of them noticed,
+    // because none of them queried anything the overlay covered — until one did,
+    // and the failure pointed at the new test rather than at the leak.
+    vi.mocked(useFileDragDrop).mockReturnValue({
+      isDragging: false,
+      isUnsupportedDrag: false,
+      dragHandlers: {
+        onDragEnter: vi.fn(),
+        onDragLeave: vi.fn(),
+        onDragOver: vi.fn(),
+        onDrop: vi.fn(),
+      },
+    })
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+    // Same reason, one level down: three tests give `mockSendMessage` a
+    // `mockResolvedValue`, and the last of those makes EVERY later send in this
+    // file resolve to a refusal. The assertions downstream are all
+    // `toHaveBeenCalledWith`, which a refused send satisfies just as well as a
+    // successful one — so the leak cost nothing until a test looked at what the
+    // send actually did.
+    mockSendMessage.mockReset()
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
       sendMessage: mockSendMessage,
@@ -1617,6 +1662,57 @@ describe('InputArea', () => {
       await user.click(screen.getByRole('button', { name: /send message/i }))
 
       expect(mockSendMessage).toHaveBeenCalledWith('Frage')
+    })
+
+    test('asks the awaiting endpoint nothing at all on a thread that is not shared (NF-8)', () => {
+      // `useAwaitingState` subscribes to the shared event channel, so gating it
+      // on the collaboration flag alone had a solo user in a flag-on org opening
+      // a permanent `/api/stream` connection and polling `/awaiting` for a
+      // conversation that cannot be waiting on anybody. NF-8 is the stricter
+      // promise: a user who never shares must not notice this feature exists.
+      mockAwaitingPending = [{ id: 'r-1' }]
+      publishThreadSharing('session-1', false)
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(vi.mocked(useAwaitingState)).toHaveBeenCalledWith(null, false)
+    })
+
+    test('asks it once the thread IS shared', () => {
+      publishThreadSharing('session-1', true)
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(vi.mocked(useAwaitingState)).toHaveBeenCalledWith('session-1', true)
+    })
+
+    test('declares the thread stale after sending a mention', async () => {
+      // The consumer side of this wire is well covered in `use-shared-thread`;
+      // the PUBLISHER was not, so the whole first-`@`-in-a-private-thread fix
+      // could be deleted here with every test still green. Sending a mention is
+      // what makes a private thread shared server-side, and the seam has no
+      // other way to hear about it.
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      await user.keyboard('schaust du drauf?')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      await waitFor(() => expect(vi.mocked(bumpThreadRevision)).toHaveBeenCalledWith('session-1'))
+    })
+
+    test('…and not after an ordinary message, which changes nothing server-side', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('Kurze Frage')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(vi.mocked(bumpThreadRevision)).not.toHaveBeenCalled()
     })
   })
 

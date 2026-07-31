@@ -807,12 +807,17 @@ interface FanOutInput {
   /** Whether to fold an ambient "activity in this thread" item (CC-20). */
   emitAmbient: boolean
   /**
-   * The thread's title, when the caller already holds the row.
+   * The thread's title, when the caller already holds the row. Consulted only on
+   * the ambient path, which is the only thing that needs a title at all.
    *
-   * Passed by the internal persist path, which has the conversation in hand;
-   * the session path resolves it through `requireResourceAccess`, whose probe
-   * carries no title, so that one pays a read. Do not leave this unpassed where
-   * the row IS available — a field nobody supplies is just a slower default.
+   * It saves no read TODAY, and wiring one up would cost more than it saves: the
+   * only caller that emits ambient items is the session path, and it does not
+   * hold the row — `requireResourceAccess` answers with a probe that carries no
+   * title, so supplying this would mean reading the conversation up front, which
+   * is the very read this field exists to avoid, paid on every send including the
+   * solo threads that return before any of this. The internal persist path does
+   * hold the row and passes it, so the day that path emits an ambient item it
+   * cannot quietly start paying for a second read.
    */
   title?: string | null
 }

@@ -5,6 +5,8 @@ import { ChatArea } from './ChatArea'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
 import type { ChatMessage, ThinkingStep } from '@/features/chat/types'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { UseSpectatedTurnOptions } from '@/features/collaboration/hooks/use-spectated-turn'
+import type { SpectatedTurnState } from '@/features/collaboration/lib/spectator-frames'
 
 /**
  * The store slice and the messages ChatArea reads, as these tests fixture them.
@@ -97,6 +99,19 @@ vi.mock('@/features/chat', () => ({
 // own behaviour — what it fetches and when — is covered in
 // features/collaboration/hooks/use-shared-thread.spec.ts. The default is the INERT
 // result, which is what every pre-collaboration test in this file relies on.
+/**
+ * The two calls ChatArea makes back INTO the shared thread.
+ *
+ * `clearTurnInFlight` really does drop the turn from the fixture rather than only
+ * recording that it was called: everything the observer is watching is gated on
+ * `turnInFlight`, so the CONSEQUENCE of an unwanted clear — a thread that goes
+ * blank — is the defect, and a spy that changes nothing cannot show it.
+ */
+const mockClearTurnInFlight = vi.fn(() => {
+  mockSharedThread = { ...mockSharedThread, turnInFlight: null }
+})
+const mockNoteTurnActivity = vi.fn()
+
 const INERT_SHARED_THREAD = {
   shared: false,
   myRole: null as 'viewer' | 'collaborator' | 'owner' | null,
@@ -112,12 +127,42 @@ const INERT_SHARED_THREAD = {
   engagementSuggestion: null as 'ask' | 'mention' | null,
   setEngagement: async (_mode: 'ask' | 'mention') => true,
   refresh: () => {},
+  clearTurnInFlight: mockClearTurnInFlight,
+  noteTurnActivity: mockNoteTurnActivity,
 }
 let mockSharedThread = { ...INERT_SHARED_THREAD }
 
 vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
   useSharedThread: () => mockSharedThread,
 }))
+
+// ADR-0039's frame relay, mocked so this spec can hand ChatArea a turn in any
+// state — streaming, done, failed — with no server and no EventSource. What the
+// hook does with the socket is covered in
+// features/collaboration/hooks/use-spectated-turn.spec.ts; what nothing covered
+// until now is how ChatArea wires the RESULT back to the turn banner, which is
+// the last describe in this file.
+let mockSpectated: { turn: SpectatedTurnState | null; live: boolean } = { turn: null, live: false }
+/** The most recent options. `onFrame` is a wire, so it is asserted by calling it. */
+let mockSpectatedOptions: UseSpectatedTurnOptions | null = null
+
+vi.mock('@/features/collaboration/hooks/use-spectated-turn', () => ({
+  useSpectatedTurn: (options: UseSpectatedTurnOptions) => {
+    mockSpectatedOptions = options
+    return mockSpectated
+  },
+}))
+
+/** A turn as the reducer would have folded it; only the terminal flags matter here. */
+const spectatedTurn = (overrides: Partial<SpectatedTurnState> = {}): SpectatedTurnState => ({
+  parentId: 'turn-1',
+  answer: '',
+  steps: [],
+  waitingOn: null,
+  done: false,
+  failed: false,
+  ...overrides,
+})
 
 // The derived hand-off state behind the hand-back offer. Mocked at the hook
 // boundary: the offer must never compute a wait locally (ADR-0034), so what it
@@ -1196,5 +1241,107 @@ describe('ChatArea — the engagement notice is reachable', () => {
     expect(
       screen.queryByRole('button', { name: 'Let Piloti answer everything' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The three wires from the spectated stream back to the turn banner (ADR-0039).
+ *
+ * `useSpectatedTurn` is thoroughly tested; every wire OUT of it was invisible here
+ * — both effects could be disabled outright and all 47 tests in this file stayed
+ * green. That is how the `done` clear below shipped once already: an unobserved
+ * wire is one somebody will rewrite from first principles, and the first principle
+ * ("the turn is over, so clear it") is the wrong one.
+ */
+describe('ChatArea — the spectated stream feeds the turn banner', () => {
+  const ANNA = 'user_anna'
+
+  const setThread = (messages: MessageFixture[]) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: ChatStoreFixture = {
+        currentConversation: { id: 's_conv_1', messages },
+        isLoading: false,
+        isStreaming: false,
+        hasHydrated: true,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        setComposerPrefill: mockSetComposerPrefill,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      }
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    })
+  }
+
+  // Anna asked and the agent is answering HER: the reader is an observer, which is
+  // the only situation in which any of this is enabled.
+  beforeEach(() => {
+    mockAwaitingPending = []
+    mockSpectated = { turn: null, live: false }
+    mockSpectatedOptions = null
+    mockSharedThread = {
+      ...INERT_SHARED_THREAD,
+      shared: true,
+      turnInFlight: { actorUserId: ANNA },
+      participants: [
+        { userId: 'user-1', name: 'Max Mustermann' },
+        { userId: ANNA, name: 'Anna Berger' },
+      ],
+      authorOf: (userId?: string | null) =>
+        userId === ANNA ? { userId: ANNA, name: 'Anna Berger' } : null,
+    }
+    setThread([
+      { id: 'm1', role: 'user', messageType: 'user', content: 'question', authorUserId: ANNA },
+    ])
+  })
+
+  test('a failed turn clears the banner — nothing else ever will', () => {
+    mockSpectated = { turn: spectatedTurn({ failed: true, done: true }), live: true }
+
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    // A turn that dies without persisting an assistant message never publishes
+    // `ended` — that event is a side effect of the write that did not happen — so
+    // this call is the only thing that unlocks every observer's composer before
+    // the staleness clock runs out minutes later.
+    expect(mockClearTurnInFlight).toHaveBeenCalled()
+  })
+
+  test('a DONE turn keeps it, so the finished answer survives until the message lands', () => {
+    mockSpectated = {
+      turn: spectatedTurn({ answer: 'Ja, ab drei Geschossen.', done: true }),
+      live: true,
+    }
+
+    const { rerender } = render(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+
+    // `done` is terminal for the STREAM, not for the turn: it strictly precedes
+    // persistence. Clearing here unmounted the completed answer the observer was
+    // reading and left them blank until the persisted message landed a round trip
+    // later — and in the very case the clear was written for, a turn that never
+    // persists at all, it threw a finished answer away and put nothing in its
+    // place. The persisted message's own `ended` is what clears this.
+    expect(mockClearTurnInFlight).not.toHaveBeenCalled()
+
+    // The consequence, not merely the call: the fixture's clear genuinely drops
+    // the turn, and ChatArea is memoized, so a re-render (a fresh onSignIn stands
+    // in for the store subscription) is where a `done` clear becomes a blank
+    // thread rather than an answer.
+    rerender(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Ja, ab drei Geschossen.')
+  })
+
+  test('every frame restarts the staleness clock', () => {
+    render(<ChatArea isAuthenticated canCollaborate />)
+
+    expect(mockNoteTurnActivity).not.toHaveBeenCalled()
+    // The heartbeat has to be the FRAME. Derived from `answer.length` +
+    // `steps.length` — what this used to be — it stands still for the whole of a
+    // single long tool call, because the reducer merges repeated frames into the
+    // step it already has: a six-minute search looked like silence and the banner
+    // was torn down mid-turn.
+    mockSpectatedOptions?.onFrame?.()
+
+    expect(mockNoteTurnActivity).toHaveBeenCalledTimes(1)
   })
 })
