@@ -148,6 +148,36 @@ function pickBackendWsTarget(conversationId) {
   return BACKEND_POD_WS_TEMPLATE.replace('{i}', String(hashToIndex(String(conversationId), BACKEND_REPLICAS)))
 }
 
+// ── Upstream reachability ──
+// Socket-level failures reaching the aiq-agent Service. Every one of these
+// means "the backend was not there for this attempt", which during a rolling
+// deploy, a node drain or a pod restart is the expected state for a few
+// seconds: the chat client reconnects and the next upgrade lands on a ready
+// pod. Recording them at ERROR files one GitHub issue per reconnect
+// (issues #270 ECONNREFUSED, #272 EPERM) for an outcome that is already
+// handled — the upgrade is refused with a 502 and the socket destroyed.
+//
+// So they are logged at WARN, which keeps them in the dashboard in full while
+// the err2issue exporter (ADR-0031) leaves them alone; volume is what
+// distinguishes a rollout from an outage, and the dashboard shows volume where
+// a per-occurrence severity cannot. Anything NOT on this list — an invalid
+// header, a protocol error, a bug in the proxy — stays ERROR.
+//
+// Classified on `err.code` rather than the message, because the code is the
+// structured field Node guarantees; message text is not.
+const TRANSIENT_UPSTREAM_CODES = new Set([
+  'ECONNREFUSED', // no ready endpoint behind the Service (rollout, restart)
+  'ECONNRESET', // the pod went away mid-handshake
+  'EPERM', // connect blocked locally (NetworkPolicy/CNI reject during churn)
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND', // pod DNS not resolvable yet (StatefulSet scale-up)
+  'ETIMEDOUT',
+  'EPIPE',
+])
+
+const isTransientUpstreamFailure = (err) => TRANSIENT_UPSTREAM_CODES.has(err?.code)
+
 // ── WS-upgrade rate limiter (ADR-0020) ──
 // Every upgrade triggers session resolution, FGA checks, and budget reads in
 // the BFF, so a reconnect storm amplifies straight into WorkOS and Postgres.
@@ -648,7 +678,17 @@ const startServer = async () => {
           { target: pickBackendWsTarget(conversationId), changeOrigin: true },
           (err) => {
             if (err) {
-              console.error('[WS Proxy] Error:', err.message)
+              // See TRANSIENT_UPSTREAM_CODES: backend-not-there is a WARN, so a
+              // rollout does not file an issue per reconnect. Everything else
+              // is still an ERROR.
+              if (isTransientUpstreamFailure(err)) {
+                console.warn(
+                  '[WS Proxy] Backend unreachable (%s), rejecting upgrade',
+                  err.code
+                )
+              } else {
+                console.error('[WS Proxy] Error:', err.message)
+              }
               try {
                 socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
               } catch {}
