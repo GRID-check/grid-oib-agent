@@ -87,10 +87,15 @@ describe('useConnectionRecovery', () => {
     vi.clearAllMocks()
     storeMock.__setHasError(false)
     mockCheckHealth.mockResolvedValue(false)
+    // The poll delay carries equal jitter (see `applyJitter`). Pin the random
+    // source to the top of the window so the backoff assertions below stay
+    // exact rather than merely "fired at or before N".
+    vi.spyOn(Math, 'random').mockReturnValue(1)
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('does nothing when no connection errors exist', () => {
@@ -142,6 +147,28 @@ describe('useConnectionRecovery', () => {
       vi.advanceTimersByTime(20_000)
     })
     expect(mockCheckHealth).toHaveBeenCalledTimes(3)
+  })
+
+  it('jitters the poll so clients that failed together do not poll together', async () => {
+    // Regression: a rolling deploy puts every affected client into the error
+    // state at the same instant. Without jitter they all poll on an identical
+    // schedule, so the recovery traffic arrives as a spike.
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    storeMock.__setHasError(true)
+    mockCheckHealth.mockResolvedValue(false)
+
+    renderHook(() => useConnectionRecovery(onRecovered))
+
+    // Bottom of the window is half the nominal 5s delay.
+    await act(async () => {
+      vi.advanceTimersByTime(2_499)
+    })
+    expect(mockCheckHealth).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(mockCheckHealth).toHaveBeenCalledTimes(1)
   })
 
   it('dismisses errors and calls onRecovered when health check succeeds', async () => {

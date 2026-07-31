@@ -6,6 +6,7 @@
  * and error message types for full HITL (human-in-the-loop) support.
  */
 
+import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
 import { getWebSocketUrl } from './config'
 import {
@@ -109,6 +110,13 @@ export interface NATWebSocketClientCallbacks {
 }
 
 /** Options for NAT WebSocket client */
+/**
+ * Ceiling for the reconnect curve. With the default 3 attempts the curve never
+ * reaches it; it exists so raising `reconnectAttempts` can't produce an
+ * unbounded delay.
+ */
+const MAX_RECONNECT_DELAY_MS = 30_000
+
 export interface NATWebSocketClientOptions {
   /** Conversation/session ID */
   conversationId: string
@@ -118,7 +126,11 @@ export interface NATWebSocketClientOptions {
   callbacks: NATWebSocketClientCallbacks
   /** Number of reconnection attempts (default: 3) */
   reconnectAttempts?: number
-  /** Delay between reconnection attempts in ms (default: 1000) */
+  /**
+   * Base of the reconnect backoff curve in ms (default: 1000). The actual wait
+   * is exponential in the attempt number with equal jitter applied, capped at
+   * `MAX_RECONNECT_DELAY_MS` — not a fixed interval.
+   */
   reconnectDelay?: number
   /** Override WebSocket URL (uses same-origin by default, proxied through UI server) */
   websocketUrl?: string
@@ -638,13 +650,21 @@ export class NATWebSocketClient {
 
     this.reconnectCount++
 
+    // Exponential + equal jitter rather than a fixed delay. A rolling deploy
+    // drops every socket on a pod at the same instant; a fixed delay brings all
+    // of those clients back in lockstep, and each WS upgrade costs a session
+    // resolution + FGA checks + budget reads (ADR-0020). `reconnectDelay` is
+    // the base of the curve, not the whole delay.
     this.clearReconnectTimer()
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       if (!this.isIntentionallyClosed) {
         this.connect()
       }
-    }, reconnectDelay || 1000)
+    }, backoffWithJitter(this.reconnectCount - 1, {
+      baseMs: reconnectDelay || 1000,
+      maxMs: MAX_RECONNECT_DELAY_MS,
+    }))
   }
 
   private clearReconnectTimer = (): void => {
