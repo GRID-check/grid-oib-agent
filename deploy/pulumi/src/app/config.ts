@@ -367,3 +367,12 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
 export function migrationEnv(): EnvVar[] {
   return [sref("GRID_APP_DATABASE_URL")];
 }
+
+/**
+ * Minimal env for the WorkOS audit-schema reconciliation Job. The API key alone
+ * — the script talks to nothing else, and the environment it provisions is the
+ * one that key belongs to.
+ */
+export function auditSchemaEnv(): EnvVar[] {
+  return [sref("WORKOS_API_KEY")];
+}
