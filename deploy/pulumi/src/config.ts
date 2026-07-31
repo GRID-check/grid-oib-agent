@@ -315,6 +315,19 @@ export interface GridConfig {
     enabled: boolean;
   };
 
+  memory: {
+    /**
+     * Runtime gate for the post-answer memory-reflection stage (the agent's
+     * cross-chat learning loop, `docs/architecture/project-memory-design.md`
+     * §3.5). Reaches the frontend as `GRID_MEMORY_REFLECTION_ENABLED`, which
+     * the BFF only consults while `enforceFeatureFlags` is off; with
+     * enforcement on, the per-org `memory-reflection` WorkOS flag decides
+     * instead. Unlike collaboration this is **default-on**: reflection is a
+     * shipped core capability, not a dark-launched product gate.
+     */
+    reflectionEnabled: boolean;
+  };
+
   observability: {
     /**
      * Whether the observability tier (OTel Collector + Aspire dashboard) is
@@ -792,6 +805,10 @@ export function loadConfig(): GridConfig {
 
     collaboration: {
       enabled: bool(cfg, "collaborationEnabled", false),
+    },
+
+    memory: {
+      reflectionEnabled: bool(cfg, "memoryReflectionEnabled", true),
     },
 
     observability: {

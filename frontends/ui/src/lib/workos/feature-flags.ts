@@ -12,6 +12,7 @@
 
 import { getWorkOS } from './client'
 import { getCached, invalidateCached } from '@/lib/cache'
+import { enforcementOn } from '@/lib/authz/feature-flags'
 
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
@@ -63,6 +64,26 @@ export async function isOrgFeatureEnabled(
     console.warn(`[FeatureFlags] evaluation of "${slug}" failed; using default (${defaultValue})`, error)
     return defaultValue
   }
+}
+
+/**
+ * Whether the async post-answer memory-reflection stage runs for this org.
+ *
+ * With WorkOS flag enforcement on (GRID_ENFORCE_FEATURE_FLAGS=true) the
+ * per-org `memory-reflection` flag is the source of truth (fail-closed).
+ * Without enforcement the stage follows GRID_MEMORY_REFLECTION_ENABLED and
+ * defaults ON — memory reflection is a shipped core capability, not a
+ * dark-launched product gate, so it stays available in environments without
+ * the flag product like every non-dark feature. The backend still no-ops
+ * when no `memory_reflection_llm` is configured (the capability bit).
+ */
+export async function isMemoryReflectionEnabled(
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (enforcementOn()) {
+    return isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, organizationId)
+  }
+  return (process.env.GRID_MEMORY_REFLECTION_ENABLED ?? 'true').toLowerCase() !== 'false'
 }
 
 /** Test hook: clear a specific org's flag cache entry. */
