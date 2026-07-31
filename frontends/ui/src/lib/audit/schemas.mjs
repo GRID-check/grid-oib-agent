@@ -139,6 +139,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'norm_registry' }],
     metadata: { entries: 'number', version: 'number' },
   },
+  // A fleet-wide retrieval-count change: every organization's retrieval depth
+  // shifts on the next turn, so it belongs in the platform org's trail. The
+  // whole `{key: value}` settings map is serialized into `settings`.
+  'platform.retrieval_settings.updated': {
+    targets: [{ type: 'platform_retrieval_settings' }],
+    metadata: { settings: 'string', changed: 'number', note: 'string' },
+  },
   'project.created': {
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },

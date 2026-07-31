@@ -426,6 +426,13 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         Returns:
             str: Numbered document references with citation URLs and fetch instructions.
         """
+        # Platform-tunable counts (Platform → Retrieval), resolved per call;
+        # fail-open to the YAML build-time values.
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        max_results = get_retrieval_setting("ris.max_results", tool_config.max_results)
+        page_size = get_retrieval_setting("ris.page_size", tool_config.page_size)
+
         if (
             tool_config.catalog_shortcut
             and _CATALOG_AVAILABLE
@@ -449,7 +456,7 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                 detected_land = extract_bundesland(bundesland) or extract_bundesland(query)
                 matches = focus_entries(matches, detected_land)
                 if matches:
-                    shown = matches[: tool_config.max_results]
+                    shown = matches[:max_results]
                     lines = [
                         f"Curated RIS catalog match(es) for '{query}' - verified pointers, no live search performed:",
                         "",
@@ -513,7 +520,7 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                 application=effective["application"],
                 params=params,
                 page=page,
-                page_size=tool_config.page_size,
+                page_size=page_size,
             )
         except RisError as exc:
             return f"Error: RIS search failed - {exc}"
@@ -528,7 +535,7 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                 "application (e.g. LrKons for state building law with a bundesland), or drop filters."
             )
 
-        shown = result.hits[: tool_config.max_results]
+        shown = result.hits[:max_results]
         total_pages = max(1, -(-result.total // result.page_size)) if result.total else 1
         lines = [
             f"Found {result.total or len(shown)} RIS document(s) "
@@ -642,7 +649,10 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         # filter the catalog-order head (Wien, NÖ, ...) would crowd Tirol out of
         # max_matches entirely.
         matches = focus_entries(match_entries(catalog, topic), extract_bundesland(topic))
-        matches = matches[: tool_config.max_matches]
+        # Platform-tunable cap (Platform → Retrieval), resolved per call.
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        matches = matches[: get_retrieval_setting("ris_catalog.max_matches", tool_config.max_matches)]
         if not matches:
             return (
                 f"No curated RIS catalog entry matches '{topic}'. The catalog covers only the core "

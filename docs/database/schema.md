@@ -302,6 +302,26 @@ organizations. Resolution at
 runtime is per group: org override → platform default → YAML. Schema:
 `frontends/ui/src/lib/db/schema/platform-model-defaults.ts`.
 
+## platform_retrieval_settings (migration 0029)
+
+The platform-controlled retrieval counts — how many chunks and results each
+retrieval tool fetches per query, for every organization at once (see
+`docs/architecture/backend-deep-dive.md` §Retrieval settings). Global: no
+`organization_id`, one row per `key` (PK: `knowledge.top_k`,
+`knowledge.max_chunks_per_document`, `surface.chunk_top_k`,
+`surface.max_files`, `web.max_results`, `web.advanced_max_results`,
+`ris.max_results`, `ris.page_size`, `ris_catalog.max_matches`), carrying the
+catalog-validated integer `value`, an optional `note`, and
+`updated_by`/`updated_by_email`. **No row = that count falls through to the
+build-time config/YAML default.** A save replaces the whole set — keys omitted
+from the payload are deleted, which is how a count is handed back to the
+default. The BFF serves the pinned set to the backend over
+`GET /api/internal/retrieval-settings` (TTL-cached, fail-open); the catalog of
+keys, bounds and boot defaults is the single source of truth at
+`frontends/ui/src/lib/retrieval-settings/catalog.ts` (mirrored in the backend
+resolver `src/aiq_agent/common/retrieval_settings.py`, parity-tested). Schema:
+`frontends/ui/src/lib/db/schema/platform-retrieval-settings.ts`.
+
 ## org_model_configs / org_model_config_versions (migration 0012)
 
 Org-level runtime model configuration (ADR-0014). `org_model_configs` holds

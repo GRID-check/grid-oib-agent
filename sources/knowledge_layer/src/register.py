@@ -820,6 +820,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         Returns:
             str: Formatted string containing relevant document excerpts with citations.
         """
+        # Platform-tunable counts (Platform → Retrieval), resolved per call so
+        # an admin save takes effect without a redeploy; fail-open to the YAML
+        # build-time values above.
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        effective_top_k = get_retrieval_setting("knowledge.top_k", top_k)
+        effective_max_per_document = get_retrieval_setting("knowledge.max_chunks_per_document", max_per_document)
+
         # Resolve the per-session collection (UI uploads for this conversation).
         try:
             ctx = Context.get()
@@ -840,7 +848,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
-            result = await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
+            result = await retriever.retrieve(
+                query=query, collection_name=coll, top_k=effective_top_k, filters=coll_filters
+            )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
             for chunk in getattr(result, "chunks", []) or []:
@@ -856,7 +866,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             # Merge by score (comparable across collections) with a per-document
             # diversity cap so cross-cutting questions span multiple documents.
-            merged = _merge_results(results, query, top_k, retriever.backend_name, max_per_document)
+            merged = _merge_results(results, query, effective_top_k, retriever.backend_name, effective_max_per_document)
 
             # Format for LLM. _format_results does the (now batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
@@ -885,6 +895,6 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         description=(
             "Search the knowledge base for relevant documents. "
             "Use this to find information from ingested PDFs, documents, and other files. "
-            f"Returns up to {top_k} relevant excerpts with citations, {diversity_clause}"
+            f"Returns up to {top_k} relevant excerpts with citations (platform-configurable), {diversity_clause}"
         ),
     )
