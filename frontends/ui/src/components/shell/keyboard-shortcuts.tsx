@@ -117,6 +117,10 @@ export function KeyboardShortcuts({
       // in) simply disarms — never a navigation the user did not ask for.
       const armedAt = leaderArmedAtRef.current
       if (armedAt !== null && Date.now() - armedAt <= LEADER_TIMEOUT_MS) {
+        // A bare modifier keydown (Shift, CapsLock, …) cannot complete the
+        // sequence — leave the leader armed rather than making the user press
+        // `g` again just because they reached for a capital letter.
+        if (event.key.length !== 1) return
         leaderArmedAtRef.current = null
         const href = resolveJump(event.key, flags, projectIdRef.current)
         if (href) {

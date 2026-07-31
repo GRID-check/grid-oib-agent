@@ -195,6 +195,17 @@ describe('KeyboardShortcuts', () => {
     expect(push).not.toHaveBeenCalled()
   })
 
+  test('a bare modifier keypress does not spend the armed leader', async () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    // Reaching for a modifier is not a completion — the leader stays armed.
+    fireEvent.keyDown(window, { key: 'Shift', shiftKey: true })
+    fireEvent.keyDown(window, { key: 'p' })
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/app/projects'))
+  })
+
   test('plain-key shortcuts do not fire while typing in an input', async () => {
     render(
       <>
