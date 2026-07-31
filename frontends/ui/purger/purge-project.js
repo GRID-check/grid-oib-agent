@@ -100,8 +100,24 @@ async function purgeProject(tx, entry, deps) {
     if (!isNotFound(error)) throw error
   }
 
-  // 4. grid_app rows: conversations explicitly (messages cascade), then the
-  //    project row (documents / folders / project-scoped memory cascade).
+  // 4. grid_app rows: the collaboration rows FIRST, then conversations
+  //    (messages and conversation_reads cascade), then the project row
+  //    (documents / folders / project-scoped memory cascade).
+  //
+  //    The collaboration tables address their target as a polymorphic
+  //    `(resource_type, resource_id)` pair with no foreign key (ADR-0032), so
+  //    nothing about them cascades — deleting the conversations first simply
+  //    orphaned every grant, every open mention request and every inbox item
+  //    for good. The rows are invisible to access checks, but they keep
+  //    inflating roster counts and leave permanently redacted entries in
+  //    people's inboxes, for a project that no longer exists.
+  //    The ids were already gathered above, before anything was destroyed.
+  const conversationIds = conversations.map((c) => c.id)
+  if (conversationIds.length > 0) {
+    await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN ${tx(conversationIds)}`
+    await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN ${tx(conversationIds)}`
+    await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN ${tx(conversationIds)}`
+  }
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

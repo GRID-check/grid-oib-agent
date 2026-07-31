@@ -133,3 +133,41 @@ describe('purgeProject', () => {
     await expect(purgeProject(tx, entry, deps)).resolves.toBeUndefined()
   })
 })
+
+describe('collaboration rows', () => {
+  it('purges grants, mention requests and inbox items BEFORE the conversations they point at', async () => {
+    // Those three tables address their target as a polymorphic
+    // (resource_type, resource_id) pair with no foreign key, so nothing about
+    // them cascades. Deleting the conversations first orphaned every one of
+    // them permanently — leaving redacted rows in people's inboxes for a
+    // project that no longer exists.
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [{ id: 'c1' }, { id: 'c2' }],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
+    const table = (name) => deletes.findIndex((call) => call.text.includes(name))
+
+    expect(table('inbox_items')).toBeGreaterThanOrEqual(0)
+    expect(table('mention_requests')).toBeGreaterThanOrEqual(0)
+    expect(table('resource_shares')).toBeGreaterThanOrEqual(0)
+    for (const name of ['inbox_items', 'mention_requests', 'resource_shares']) {
+      expect(table(name)).toBeLessThan(table('FROM conversations'))
+    }
+  })
+
+  it('skips the collaboration deletes when the project held no conversations', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
+    expect(deletes.some((call) => call.text.includes('inbox_items'))).toBe(false)
+  })
+})
