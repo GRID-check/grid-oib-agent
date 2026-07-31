@@ -45,7 +45,7 @@ deployment behaves exactly as today.
 | `web.max_results` | YAML `web_search_tool.max_results: 5` | 5 | 1–10 |
 | `web.advanced_max_results` | YAML `advanced_web_search_tool.max_results: 2` | 2 | 1–10 |
 | `ris.max_results` | YAML `ris_search_tool.max_results: 10` | 10 | 1–50 |
-| `ris.page_size` | YAML `ris_search_tool.page_size: 20` | 20 | 1–100 |
+| `ris.page_size` | YAML `ris_search_tool.page_size: 20` | 20 | 10–100, only {10, 20, 50, 100} |
 | `ris_catalog.max_matches` | YAML `ris_catalog_lookup_tool.max_matches: 5` | 5 | 1–20 |
 
 The catalog (key, label, description, default, bounds, group) is defined once in
@@ -102,7 +102,8 @@ Whole-set upsert in one transaction on save (mirror
   `null` means "inherit build-time default". `platformApiRoute` + platform-owner
   permission from the authz catalog.
 - `PUT /api/platform/retrieval-settings` → zod-validated partial map; values
-  clamped to catalog bounds; audit event `platform.retrieval_settings.updated`
+  outside the catalog bounds (or outside a key's discrete `allowedValues`) are
+  rejected, not clamped; audit event `platform.retrieval_settings.updated`
   (registered in `lib/audit/schemas.mjs`).
 - `GET /api/internal/retrieval-settings` → `{ settings: Record<key, number> }`
   with only rows present in the DB; token-guarded via `internalApiRoute` like
@@ -155,9 +156,9 @@ Whole-set upsert in one transaction on save (mirror
 ## Error handling
 
 - BFF down/unreachable → backend logs a warning, uses build-time defaults.
-- Invalid/stale value in DB (e.g. bounds tightened later) → backend clamps via
-  `_BOUNDS`, never crashes retrieval.
-- PUT with out-of-bounds or unknown keys → 400 with field errors (zod).
+- Invalid/stale value in DB (e.g. bounds tightened later) → backend drops it via
+  `_BOUNDS` and uses the build-time fallback, never crashes retrieval.
+- PUT with out-of-bounds or unknown keys → 422 with field errors.
 - Non-platform-owner access → 403 via `platformApiRoute` permission check.
 
 ## Testing

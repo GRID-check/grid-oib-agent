@@ -183,6 +183,7 @@ export const PlatformRetrievalSettings: FC = () => {
                 )}
                 {definition.allowedValues ? (
                   <select
+                    disabled={saving}
                     className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
                     aria-label={definition.label}
                     value={value ?? definition.defaultValue}
@@ -199,6 +200,7 @@ export const PlatformRetrievalSettings: FC = () => {
                 ) : (
                   <Input
                     type="number"
+                    disabled={saving}
                     className="w-24"
                     aria-label={definition.label}
                     min={definition.min}
@@ -216,6 +218,7 @@ export const PlatformRetrievalSettings: FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={saving}
                     title={t('retrieval.reset')}
                     aria-label={`${t('retrieval.reset')}: ${definition.label}`}
                     onClick={() => setDraft((prev) => ({ ...prev, [definition.key]: definition.defaultValue }))}
@@ -236,6 +239,7 @@ export const PlatformRetrievalSettings: FC = () => {
             <Label htmlFor="platform-retrieval-settings-note">{t('retrieval.note')}</Label>
             <Input
               id="platform-retrieval-settings-note"
+              disabled={saving}
               value={note}
               onChange={(event) => setNote(event.target.value)}
               placeholder={t('retrieval.notePlaceholder')}
