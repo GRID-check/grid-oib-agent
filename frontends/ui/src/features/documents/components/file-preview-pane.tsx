@@ -308,6 +308,15 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                 width={0}
                 height={0}
                 unoptimized
+                // A presigned link can be expired or unreachable by the time the
+                // browser fetches it, and the fetch above only proves the BFF
+                // handed one out. Fall back to the same failed state the fetch
+                // path uses so the user gets the caption and the retry button
+                // instead of a broken-image glyph.
+                onError={() => {
+                  setPreviewUrl(null)
+                  setPreviewFailed(true)
+                }}
                 className="h-fit w-auto max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"
               />
             )
