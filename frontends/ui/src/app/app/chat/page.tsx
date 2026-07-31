@@ -1,7 +1,6 @@
 import { type ReactNode } from 'react'
 import { redirect } from 'next/navigation'
-import { getGridSession } from '@/lib/auth/session'
-import type { AuthorizedSession } from '@/lib/auth/types'
+import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
 
@@ -17,20 +16,17 @@ interface ChatRedirectPageProps {
  * must hold, and `requireResourceAccess` answers `NotFoundError` for "missing"
  * and "not yours" alike (spec SH-6), so a probe learns nothing either way.
  * Every failure degrades to `null` — the caller sends the reader to their
- * projects rather than an error screen.
+ * projects rather than an error screen. That includes the signed-out and
+ * no-organization cases, which is why the session comes from the API-safe
+ * `requireAuthorizedSession` (it throws) rather than the page variant (it
+ * redirects, and a redirect thrown in here would be caught below).
  */
 async function resolveChatTarget(conversationId: string): Promise<string | null> {
   try {
-    const user = await getGridSession()
-    if (!user?.organizationId) return null
+    const session = await requireAuthorizedSession()
     const tenancy = await findConversationTenancy(conversationId)
     if (!tenancy?.projectId) return null
-    await requireResourceAccess(
-      user as AuthorizedSession,
-      'conversation',
-      conversationId,
-      'viewer',
-    )
+    await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
     return `/app/projects/${encodeURIComponent(tenancy.projectId)}/chat?session=${encodeURIComponent(conversationId)}`
   } catch {
     return null

@@ -89,6 +89,12 @@ export const collaboration = {
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',
+      /**
+       * The failure alert's own dismiss control. Distinct from `sharing.close`
+       * (the dialog's): both sit inside the same dialog, and two controls with
+       * the accessible name "Close" cannot be told apart by name alone.
+       */
+      dismiss: 'Dismiss this message',
     },
     resourceTypes: {
       conversation: 'Conversation',

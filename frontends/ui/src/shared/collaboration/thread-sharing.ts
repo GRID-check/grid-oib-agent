@@ -29,6 +29,7 @@
  */
 
 import { useSyncExternalStore } from 'react'
+import type { ResourceRole } from '@/lib/sharing/types'
 
 /** What the server has told us about one conversation, if anything. */
 export type ThreadSharing = 'unknown' | 'private' | 'shared'
@@ -54,7 +55,7 @@ const turnActors = new Map<string, string>()
  * bubble only the viewer sees is the alternative. Absent means "not shared for
  * this reader, or not yet known" — both of which keep the composer enabled.
  */
-const threadRoles = new Map<string, string>()
+const threadRoles = new Map<string, ResourceRole>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -95,7 +96,7 @@ export function publishTurnActor(conversationId: string, name: string | null): v
  * Record the reader's role in a shared thread, or clear it (private thread,
  * access lost). Idempotent, so the seam's refreshes are free.
  */
-export function publishThreadRole(conversationId: string, role: string | null): void {
+export function publishThreadRole(conversationId: string, role: ResourceRole | null): void {
   const current = threadRoles.get(conversationId) ?? null
   if (current === role) return
   if (role === null) threadRoles.delete(conversationId)
@@ -138,7 +139,7 @@ export function useTurnActorName(conversationId: string | null | undefined): str
  * shared for them (or the access read has not landed). The composer disables
  * itself on `'viewer'`.
  */
-export function useThreadRole(conversationId: string | null | undefined): string | null {
+export function useThreadRole(conversationId: string | null | undefined): ResourceRole | null {
   return useSyncExternalStore(
     subscribe,
     () => (conversationId ? (threadRoles.get(conversationId) ?? null) : null),

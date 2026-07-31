@@ -84,6 +84,7 @@ export const collaboration: typeof en.collaboration = {
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',
       tryAgain: 'Erneut versuchen',
+      dismiss: 'Diese Meldung ausblenden',
     },
     resourceTypes: {
       conversation: 'Chat',

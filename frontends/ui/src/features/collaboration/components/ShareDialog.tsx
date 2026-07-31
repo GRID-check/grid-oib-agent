@@ -111,7 +111,7 @@ const canLeave = (state: ResourceSharingState, currentUserId: string): boolean =
   state.myRole !== 'owner' ||
   state.entries.some((entry) => entry.role === 'owner' && entry.person.userId !== currentUserId)
 
-  /** A consequential change waiting for explicit confirmation. */
+/** A consequential change waiting for explicit confirmation. */
 type PendingConfirm =
   | { kind: 'visibility'; next: ResourceVisibility }
   | { kind: 'remove'; entry: ResourceAccessEntry }
@@ -434,7 +434,10 @@ export function ShareDialog({
                   variant="ghost"
                   size="icon"
                   className="absolute right-2 top-2 size-6"
-                  aria-label={t('sharing.close')}
+                  // Not `sharing.close`: the dialog's own Close button carries
+                  // that name, and two "Close" controls in one dialog are
+                  // indistinguishable to anyone reading by accessible name.
+                  aria-label={t('sharing.errors.dismiss')}
                   onClick={sharing.dismissFailure}
                 >
                   <X className="size-3.5" aria-hidden />
