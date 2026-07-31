@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 # Chunks retrieved per in-scope collection before per-file aggregation. Comfortably
 # exceeds MAX_SURFACED_FILES so a file's best chunk is never starved by the cap.
+# Both are build-time defaults: the platform owner can tune them live in
+# Platform → Retrieval (surface.chunk_top_k / surface.max_files).
 _CHUNK_TOP_K = 24
 # Files shown in the grid. A tight, scannable set — the grid is a "here are the
 # relevant documents" affordance, not an exhaustive search results page.
@@ -152,11 +154,18 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
 
         retriever = get_active_retriever()
 
+        # Platform-tunable counts (Platform → Retrieval), resolved per call;
+        # fail-open to the module constants.
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        chunk_top_k = get_retrieval_setting("surface.chunk_top_k", _CHUNK_TOP_K)
+        max_files = get_retrieval_setting("surface.max_files", MAX_SURFACED_FILES)
+
         async def _retrieve(collection: str) -> list[tuple[object, str]]:
             source = _source_for_collection(collection)
             try:
                 result = await retriever.retrieve(
-                    query=query, collection_name=collection, top_k=_CHUNK_TOP_K, filters=None
+                    query=query, collection_name=collection, top_k=chunk_top_k, filters=None
                 )
             except Exception:
                 # Fail-open per collection: one unreachable store never sinks the rest.
@@ -168,7 +177,7 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
         gathered = await asyncio.gather(*(_retrieve(collection) for collection in targets))
         hits: list[tuple[object, str]] = [hit for group in gathered for hit in group]
 
-        documents = _aggregate_surfaced(hits, MAX_SURFACED_FILES)
+        documents = _aggregate_surfaced(hits, max_files)
         if not documents:
             return (
                 f"I searched the project and Büroarchiv documents for '{query}' but found no "

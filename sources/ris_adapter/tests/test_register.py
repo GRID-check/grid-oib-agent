@@ -847,3 +847,87 @@ class TestRisSearchCatalogShortcut:
             await _call(info, query="bauordnung wien")
 
         assert len(fake_client.search_calls) == 1
+
+
+def _override_setting(monkeypatch, values):
+    """Patch the platform retrieval-settings resolver: only the listed keys are
+    overridden, every other key falls through to its config fallback — exactly
+    what the real resolver does for unpinned keys."""
+    import aiq_agent.common.retrieval_settings as retrieval_settings
+
+    def fake_get(key, fallback):
+        return values.get(key, fallback)
+
+    monkeypatch.setattr(retrieval_settings, "get_retrieval_setting", fake_get)
+
+
+class TestPlatformRetrievalSettings:
+    """The ris_search / ris_catalog_lookup counts come from Platform → Retrieval
+    when pinned there, and fall back to the YAML config values otherwise."""
+
+    async def test_platform_max_results_overrides_config(self, fake_client, monkeypatch):
+        fake_client.search_result = RisSearchResult(
+            hits=[_sample_hit() for _ in range(5)], total=5, page=1, page_size=20
+        )
+        _override_setting(monkeypatch, {"ris.max_results": 3})
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="Garage Stellplatz")
+
+        assert output.count("--- Result") == 3
+
+    async def test_platform_page_size_reaches_the_client(self, fake_client, monkeypatch):
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=50)
+        _override_setting(monkeypatch, {"ris.page_size": 50})
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="Garage Stellplatz")
+
+        assert fake_client.search_calls[0]["page_size"] == 50
+
+    async def test_resolver_failure_falls_back_to_config(self, fake_client, monkeypatch):
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        import aiq_agent.common.retrieval_settings as retrieval_settings
+
+        def boom(key, fallback):
+            raise RuntimeError("BFF unreachable")
+
+        monkeypatch.setattr(retrieval_settings, "get_retrieval_setting", boom)
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="Garage Stellplatz")
+
+        assert "Garagengesetz" in output
+        assert fake_client.search_calls[0]["page_size"] == 20
+
+    async def test_catalog_shortcut_respects_platform_max_results(self, fake_client, monkeypatch):
+        catalog = NormRegistry(
+            entries=[
+                _catalog_entry(),
+                _catalog_entry(
+                    id="bo-noe", short="BO NÖ", bundesland="Niederösterreich", document_number="NOR87654321"
+                ),
+            ]
+        )
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: catalog)
+        _override_setting(monkeypatch, {"ris.max_results": 1})
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="bauordnung")
+
+        assert "NOR12345678" in output
+        assert "NOR87654321" not in output
+        assert fake_client.search_calls == []
+
+    async def test_catalog_lookup_respects_platform_max_matches(self, fake_catalog, monkeypatch):
+        fake_catalog.entries.append(
+            _catalog_entry(id="bo-noe", short="BO NÖ", bundesland="Niederösterreich", document_number="NOR87654321")
+        )
+        _override_setting(monkeypatch, {"ris_catalog.max_matches": 1})
+
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
+            output = await _call(info, topic="bauordnung")
+
+        assert "1 verified match(es)" in output
+        assert "NOR12345678" in output
+        assert "NOR87654321" not in output

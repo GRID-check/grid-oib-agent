@@ -6,12 +6,15 @@ and how it aggregates chunks to one best entry per file — plus the card schema
 """
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.surface_documents import MAX_SURFACED_FILES
 from aiq_agent.cards.surface_documents import _aggregate_surfaced
 from aiq_agent.cards.surface_documents import _source_for_collection
 from aiq_agent.cards.surface_documents import _target_collections
+from aiq_agent.cards.surface_documents import SurfaceDocumentsConfig
+from aiq_agent.cards.surface_documents import surface_documents
 
 
 def _chunk(file_name, score, content="passage", page=1):
@@ -123,3 +126,70 @@ class TestDocumentGridCardSchema:
         ]
         out = validate_cards(raw)
         assert [c["type"] for c in out] == ["summary"]
+
+
+class TestPlatformCounts:
+    """The surfaced chunk/file counts come from Platform → Retrieval when pinned
+    there, and fall back to the module constants otherwise."""
+
+    def _make_env(self, monkeypatch):
+        import aiq_agent.cards.surface_documents as surface_module
+
+        chunks = [
+            _chunk("plan.pdf", 0.9, content="Lageplan"),
+            _chunk("schnitt.pdf", 0.85, content="Schnitt A-A"),
+            _chunk("ansicht.pdf", 0.8, content="Ansicht Süd"),
+        ]
+        retriever = SimpleNamespace(calls=[], chunks=chunks)
+
+        async def retrieve(query, collection_name, top_k, filters):
+            retriever.calls.append({"collection": collection_name, "top_k": top_k})
+            return SimpleNamespace(chunks=retriever.chunks)
+
+        retriever.retrieve = retrieve
+        registry = SimpleNamespace(add=MagicMock())
+
+        monkeypatch.setattr("aiq_agent.knowledge.scoping.get_collection_scope_from_context", lambda: ["proj_test"])
+        monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: retriever)
+        monkeypatch.setattr("aiq_agent.cards.registry.get_card_registry", lambda: registry)
+        monkeypatch.setattr(surface_module, "_fetch_document_metadata", _async_noop_metadata)
+        return retriever, registry
+
+    async def test_platform_override_reaches_retriever_and_caps_grid(self, monkeypatch):
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        def fake_get(key, fallback):
+            return {"surface.chunk_top_k": 6, "surface.max_files": 1}[key]
+
+        monkeypatch.setattr("aiq_agent.common.retrieval_settings.get_retrieval_setting", fake_get)
+
+        retriever, registry = self._make_env(monkeypatch)
+
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            output = await info.single_fn("Lageplan")
+
+        assert retriever.calls == [{"collection": "proj_test", "top_k": 6}]
+        card = registry.add.call_args.args[0]
+        assert [doc["file_name"] for doc in card["documents"]] == ["plan.pdf"]
+        assert "plan.pdf" in output
+
+    async def test_resolver_failure_falls_back_to_constants(self, monkeypatch):
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        def boom(key, fallback):
+            raise RuntimeError("BFF unreachable")
+
+        monkeypatch.setattr("aiq_agent.common.retrieval_settings.get_retrieval_setting", boom)
+
+        retriever, registry = self._make_env(monkeypatch)
+
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            await info.single_fn("Lageplan")
+
+        assert retriever.calls == [{"collection": "proj_test", "top_k": 24}]
+        card = registry.add.call_args.args[0]
+        assert len(card["documents"]) == 3
+
+
+async def _async_noop_metadata(collections):
+    return {}

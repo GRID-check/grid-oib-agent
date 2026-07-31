@@ -120,3 +120,61 @@ class TestDomainFilterKwargs:
         kwargs = _construction_kwargs(fake_langchain_tavily)
         assert "include_domains" not in kwargs
         assert "exclude_domains" not in kwargs
+
+
+def _override_setting(monkeypatch, values):
+    """Patch the platform retrieval-settings resolver: only the listed keys are
+    overridden, every other key falls through to its config fallback — exactly
+    what the real resolver does for unpinned keys."""
+    import aiq_agent.common.retrieval_settings as retrieval_settings
+
+    def fake_get(key, fallback):
+        return values.get(key, fallback)
+
+    monkeypatch.setattr(retrieval_settings, "get_retrieval_setting", fake_get)
+
+
+class TestPlatformMaxResultsOverride:
+    """The web-search result count comes from Platform → Retrieval when pinned
+    there, and falls back to the YAML config value otherwise."""
+
+    async def test_platform_override_builds_a_one_off_client(self, fake_langchain_tavily, monkeypatch):
+        _override_setting(monkeypatch, {"web.max_results": 7})
+
+        output = await _run_search(TavilyWebSearchToolConfig(max_results=5))
+
+        assert fake_langchain_tavily.call_count == 2
+        _, second_kwargs = fake_langchain_tavily.call_args_list[1]
+        assert second_kwargs["max_results"] == 7
+        assert "https://a.example" in output
+
+    async def test_no_override_reuses_the_shared_client(self, fake_langchain_tavily):
+        output = await _run_search(TavilyWebSearchToolConfig(max_results=5))
+
+        kwargs = _construction_kwargs(fake_langchain_tavily)
+        assert kwargs["max_results"] == 5
+        assert "https://a.example" in output
+
+    async def test_advanced_search_uses_the_advanced_key(self, fake_langchain_tavily, monkeypatch):
+        _override_setting(monkeypatch, {"web.advanced_max_results": 4})
+
+        await _run_search(TavilyWebSearchToolConfig(max_results=2, advanced_search=True))
+
+        assert fake_langchain_tavily.call_count == 2
+        _, second_kwargs = fake_langchain_tavily.call_args_list[1]
+        assert second_kwargs["max_results"] == 4
+        assert second_kwargs["search_depth"] == "advanced"
+
+    async def test_resolver_failure_falls_back_to_config(self, fake_langchain_tavily, monkeypatch):
+        import aiq_agent.common.retrieval_settings as retrieval_settings
+
+        def boom(key, fallback):
+            raise RuntimeError("BFF unreachable")
+
+        monkeypatch.setattr(retrieval_settings, "get_retrieval_setting", boom)
+
+        output = await _run_search(TavilyWebSearchToolConfig(max_results=5))
+
+        kwargs = _construction_kwargs(fake_langchain_tavily)
+        assert kwargs["max_results"] == 5
+        assert "https://a.example" in output
