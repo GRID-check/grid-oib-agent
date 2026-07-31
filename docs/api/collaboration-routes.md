@@ -79,8 +79,8 @@ Refusals worth handling in the UI:
 | Status | `details.reason` | Cause |
 |---|---|---|
 | `400` | `container-access-required` | The invitee is not a member of the container project. Sharing never grants project access (spec SH-5) |
-| `409` | — | The roster cap (`SHARE_ROSTER_LIMIT`) is reached |
-| `403` | — | Sharing rate limit for this actor |
+| `409` | `roster-full` | The roster cap (`SHARE_ROSTER_LIMIT`) is reached |
+| `403` | `rate-limited` | Sharing rate limit for this actor |
 
 ### `PATCH /api/sharing/{resourceType}/{resourceId}/grants`
 

@@ -24,7 +24,7 @@ Before the line is *status*, and none of it is clickable. Who can read the chat 
 
 Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the thread's own progress banner.
 
-Either way the full picture (the rule *and* anyone individually invited) is in the sharing surface, one click away in the menu.
+Either way the full picture (the rule *and* anyone individually invited) is in the sharing surface, one click away in the menu. On small screens the faces and the access chip are hidden below the `sm` breakpoint, so the same picture also lives at the top of the **…** menu, where it is never further than one tap away.
 
 After the line is *action*. **New chat** is the only one kept in the open. The rest live in the **…** menu, and each appears only when it is real:
 
@@ -50,6 +50,20 @@ The composer is a white card with the message field on top and a control row bel
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
 Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; selecting one shows a colored provenance chip inside the composer, and any manual change in the Data Sources panel takes you off the preset again.
+
+## Sharing, mentions, and the inbox (collaboration)
+
+When collaboration is enabled (ADR-0032…0036), a chat can have a named audience, and a message can address a person or the agent explicitly. Everything in this section is off unless an administrator switched collaboration on — without it the chat behaves exactly as described above.
+
+**Sharing.** The **Share** entry in the **…** menu opens the sharing dialog for every participant, not only owners. It shows the audience as a rule or a list: a visibility choice (*Only me / Everyone in this project / Everyone in this organization*), then the people with access grouped by role (*Owners / Can contribute / Can view*), each row stating why they are there (for example "invited by {name}"). Owners can change roles, remove people, or take ownership — with a confirmation step, because ownership changes are audited. Invite search covers the whole organization; a colleague who is not in the project yet is listed as blocked with the reason, because sharing a chat never grants access to the project itself. Anyone can **Leave** the conversation — owners too, as long as another owner remains; the last owner is protected server-side. If the sharing settings fail to load, the dialog opens with a retry rather than the Share entry silently disappearing.
+
+**Mentions.** Typing `@` in the composer opens the person picker: Piloti (the agent) pinned first, then the people in this conversation, then colleagues elsewhere in the project who would need an invitation. ↑↓ choose, Enter inserts, Esc closes — and the picker works from the very first message of a chat. Below the composer an addressee line states truthfully who the next message goes to — *Goes to Piloti*, *Goes to {name}*, or *Goes to everyone in the chat* — and doubles as the discoverable way to mention someone.
+
+**Waiting for a person.** A message that addresses a person by name hands the thread over to them: the agent deliberately stays silent until they answer, and a banner says who is being waited for. The banner always offers an escape — **Continue without waiting**, **Ask Piloti instead** (pre-fills an agent mention), or **Ask {name} back** (re-mentions the asker) — and those offers really route as mentions, so the agent is asked rather than the text sitting in the chat. When the awaited person answers, a transient offer appears — "{name} replied — let Piloti carry on?" — which pre-fills the composer with an agent mention so Piloti actually picks the thread back up. In a thread with several people talking, a plain message is a remark for everyone, and the addressee line says so; an offer can switch the thread to *answer only when mentioned* mode.
+
+**Read-only and revoked access.** Someone with view-only access reads along but cannot send; the composer says so instead of silently rejecting. If access to a shared chat is revoked while it is open, a notice explains that what remains is a local copy that no longer updates. While a colleague's turn is running, the composer is locked with a hint rather than letting two people write into one thread at once.
+
+**The inbox.** The inbox (nav entry with a live count badge, and an "Inbox" pill on org-level pages) lists everything that needs a person: mention requests, answers, and shares. Items deep-link into the right chat, highlight the message, and are marked read as you open them; resolved items carry a *Beantwortet* chip, the list can be filtered or archived, and the badge count also rides on the chat's own navigation on phones.
 
 ## Chat history panel
 
