@@ -66,7 +66,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   const StatusIcon = errorMeta.status === 'error' ? XCircle : AlertTriangle
 
   return (
-    <div className="flex w-full flex-col gap-1">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-200 motion-reduce:animate-none">
       <Alert variant={variant} className="relative">
         <StatusIcon />
         <AlertTitle>{displayTitle}</AlertTitle>

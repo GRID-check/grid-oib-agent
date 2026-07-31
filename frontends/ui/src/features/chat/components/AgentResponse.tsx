@@ -464,48 +464,43 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           )}
         </div>
 
-        {/* "Belegt durch": provenance chips for sources this answer carries.
-            Sits on the tinted shell below the answer body, divided by the
-            body's hairline. */}
-        <div className="px-[22px] pb-3.5 pt-3">
+        {/* Provenance footer — ONE tinted zone under the body's hairline that
+            holds two things: the sources block, then a single meta row with
+            the confidence + memory pills left and the thumbs feedback +
+            timestamp right. This replaces the old stack of three separated
+            bands (sources row, chip row, divided feedback row) plus a
+            timestamp floating outside the card — same information, one
+            hairline, no band-on-band clutter. The sources row must not draw
+            its own divider here (the body hairline already separates), so it
+            takes withDivider={false}. */}
+        <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
           <AnswerSourcesRow
             documents={documents}
             anchorPrefix={anchorPrefix}
             routingDecision={routingDecision}
             isStreaming={isStreaming}
+            withDivider={false}
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          {/* Footer chips: self-assessed confidence + what Piloti recorded */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {showConfidenceChip && (
-              <ConfidenceChip
-                confidence={answerConfidence}
-                cappedReason={answerConfidenceCappedReason}
-                reason={answerConfidenceReason}
-              />
-            )}
-            <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
-          </div>
+          {(showConfidenceChip || showAnswerFeedback || timestamp) && (
+            <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
+              {showConfidenceChip && (
+                <ConfidenceChip
+                  confidence={answerConfidence}
+                  cappedReason={answerConfidenceCappedReason}
+                  reason={answerConfidenceReason}
+                />
+              )}
+              <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+              <span className="flex-1" aria-hidden="true" />
+              {showAnswerFeedback && messageId && (
+                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+              )}
+              {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp)}</span>}
+            </div>
+          )}
         </div>
-
-        {/* Per-answer thumbs feedback (WS-7) — own row with a divider so it
-            reads as its own thing, not a trailing afterthought */}
-        {showAnswerFeedback && messageId && (
-          <>
-            <div className="mx-[22px] border-t border-border/70" />
-            <AnswerFeedback
-              messageId={messageId}
-              conversationId={conversationId}
-              className="px-[22px] pb-[16px] pt-[14px]"
-            />
-          </>
-        )}
       </div>
-
-      {/* Timestamp outside the card, right-aligned */}
-      {timestamp && (
-        <span className="text-subtle mr-3 mt-1 self-end text-xs">{formatTime(timestamp)}</span>
-      )}
     </div>
     </AnswerCitations>
   )
