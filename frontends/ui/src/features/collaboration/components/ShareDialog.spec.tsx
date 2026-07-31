@@ -13,7 +13,12 @@ import type {
 // The candidate hook is already built and tested; this spec is about the controls
 // and the refusals, so it is stubbed. The sharing state itself arrives as a prop.
 vi.mock('../hooks/use-sharing', () => ({
-  useShareCandidates: vi.fn(() => ({ candidates: [], loading: false })),
+  useShareCandidates: vi.fn(() => ({
+    candidates: [],
+    loading: false,
+    error: false,
+    reload: vi.fn(),
+  })),
 }))
 
 import { useShareCandidates } from '../hooks/use-sharing'
@@ -63,6 +68,22 @@ const changeRole = vi.fn(async () => true)
 const revoke = vi.fn(async () => true)
 const escalate = vi.fn(async () => true)
 const refresh = vi.fn()
+const dismissFailure = vi.fn()
+const reloadCandidates = vi.fn()
+
+/**
+ * The candidate hook's real shape, so a spec only states the fields it cares
+ * about while `error`/`reload` stay checked against the hook.
+ */
+type CandidatesResult = ReturnType<typeof useShareCandidates>
+
+const candidatesResult = (overrides: Partial<CandidatesResult> = {}): CandidatesResult => ({
+  candidates: [],
+  loading: false,
+  error: false,
+  reload: reloadCandidates,
+  ...overrides,
+})
 
 function sharing(overrides: Partial<UseSharingResult> = {}): UseSharingResult {
   return {
@@ -70,6 +91,7 @@ function sharing(overrides: Partial<UseSharingResult> = {}): UseSharingResult {
     loading: false,
     loadError: false,
     failure: null,
+    dismissFailure,
     saving: false,
     refresh,
     setVisibility,
@@ -106,7 +128,7 @@ const candidate = (
 })
 
 beforeEach(() => {
-  useShareCandidatesMock.mockReturnValue({ candidates: [], loading: false })
+  useShareCandidatesMock.mockReturnValue(candidatesResult())
 })
 
 describe('ShareDialog — loading and load failure', () => {
@@ -282,10 +304,11 @@ describe('ShareDialog — per-person controls', () => {
 
 describe('ShareDialog — invite', () => {
   test('invites a candidate as a contributor', async () => {
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [candidate('u-sabine', 'Sabine Gruber')],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [candidate('u-sabine', 'Sabine Gruber')],
+      }),
+    )
     const user = userEvent.setup()
     renderDialog()
 
@@ -294,10 +317,11 @@ describe('ShareDialog — invite', () => {
   })
 
   test('filters candidates by name or email', async () => {
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [candidate('u-sabine', 'Sabine Gruber'), candidate('u-klaus', 'Klaus Berger')],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [candidate('u-sabine', 'Sabine Gruber'), candidate('u-klaus', 'Klaus Berger')],
+      }),
+    )
     const user = userEvent.setup()
     renderDialog()
 
@@ -308,10 +332,11 @@ describe('ShareDialog — invite', () => {
   })
 
   test('a colleague outside the project is SHOWN, disabled, with the reason (SH-19)', () => {
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true })],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true })],
+      }),
+    )
     renderDialog()
 
     // Never hidden: an invite picker that silently omits a colleague reads as a bug.
@@ -334,13 +359,14 @@ describe('ShareDialog — invite', () => {
   })
 
   test('the blocked-row reason is stated once, however many rows are blocked', () => {
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [
-        candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true }),
-        candidate('u-tom', 'Tom Fischer', { needsProjectAccess: true }),
-      ],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [
+          candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true }),
+          candidate('u-tom', 'Tom Fischer', { needsProjectAccess: true }),
+        ],
+      }),
+    )
     renderDialog()
 
     expect(screen.getAllByTestId('share-candidate')).toHaveLength(2)
@@ -348,10 +374,11 @@ describe('ShareDialog — invite', () => {
   })
 
   test('no note when nothing is blocked — it explains a state that is not on screen', () => {
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [candidate('u-sabine', 'Sabine Gruber')],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [candidate('u-sabine', 'Sabine Gruber')],
+      }),
+    )
     renderDialog()
 
     expect(screen.queryByTestId('share-blocked-note')).toBeNull()
@@ -366,13 +393,14 @@ describe('ShareDialog — invite', () => {
    * — so the invite list is only ever "who else could be added".
    */
   test('a person who already has access is not repeated in the invite list', () => {
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [
-        candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true }),
-        candidate('u-sabine', 'Sabine Gruber'),
-      ],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [
+          candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true }),
+          candidate('u-sabine', 'Sabine Gruber'),
+        ],
+      }),
+    )
     renderDialog()
 
     // Only the person who is NOT on the roster is offered.
@@ -389,15 +417,16 @@ describe('ShareDialog — invite', () => {
     // Includes the harder case: a project member whose access is DERIVED, so the
     // server does not flag them `alreadyHasAccess` — the roster is still where they
     // are accounted for.
-    useShareCandidatesMock.mockReturnValue({
-      candidates: [
-        candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true }),
-        candidate('u-klaus', 'Klaus Berger'),
-        candidate('u-sabine', 'Sabine Gruber'),
-        candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true }),
-      ],
-      loading: false,
-    })
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [
+          candidate('u-anna', 'Anna Weber', { alreadyHasAccess: true }),
+          candidate('u-klaus', 'Klaus Berger'),
+          candidate('u-sabine', 'Sabine Gruber'),
+          candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true }),
+        ],
+      }),
+    )
     renderDialog({
       state: sharingState({
         visibility: 'project',
@@ -472,7 +501,15 @@ describe('ShareDialog — leaving and escalation', () => {
       ),
     ).toBeInTheDocument()
 
+    // Taking ownership over someone else's conversation is consequential and
+    // audited, so it runs through the same explicit confirm as every other one.
     await user.click(screen.getByRole('button', { name: 'Take ownership' }))
+    expect(await screen.findByText('Take ownership?')).toBeInTheDocument()
+    expect(escalate).not.toHaveBeenCalled()
+
+    // The confirm button carries the same label; the last match is the dialog's.
+    const confirms = screen.getAllByRole('button', { name: 'Take ownership' })
+    await user.click(confirms[confirms.length - 1])
     expect(escalate).toHaveBeenCalledOnce()
   })
 

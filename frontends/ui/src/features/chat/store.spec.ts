@@ -2522,7 +2522,22 @@ describe('useChatStore', () => {
     test('setComposerPrefill queues text for the composer', () => {
       useChatStore.getState().setComposerPrefill('Ask about OIB 2 fire resistance')
 
-      expect(useChatStore.getState().composerPrefill).toBe('Ask about OIB 2 fire resistance')
+      expect(useChatStore.getState().composerPrefill).toEqual({
+        text: 'Ask about OIB 2 fire resistance',
+      })
+    })
+
+    test('setComposerPrefill carries structured mentions alongside the text', () => {
+      // The hand-off banner's prefill renders `@Piloti …`: the mention must
+      // travel with the text or the send routes as a plain message (MN-3).
+      useChatStore
+        .getState()
+        .setComposerPrefill('@Piloti ', [{ targetId: 'agent:piloti', display: 'Piloti' }])
+
+      expect(useChatStore.getState().composerPrefill).toEqual({
+        text: '@Piloti ',
+        mentions: [{ targetId: 'agent:piloti', display: 'Piloti' }],
+      })
     })
 
     test('consumeComposerPrefill returns the queued text and clears it (one-shot)', () => {
@@ -2531,7 +2546,7 @@ describe('useChatStore', () => {
       const first = useChatStore.getState().consumeComposerPrefill()
       const second = useChatStore.getState().consumeComposerPrefill()
 
-      expect(first).toBe('Draft question')
+      expect(first).toEqual({ text: 'Draft question' })
       expect(second).toBeNull()
       expect(useChatStore.getState().composerPrefill).toBeNull()
     })
@@ -2545,7 +2560,7 @@ describe('useChatStore', () => {
       // with "nothing queued" -- consume returns it once, then null.
       useChatStore.getState().setComposerPrefill('')
 
-      expect(useChatStore.getState().consumeComposerPrefill()).toBe('')
+      expect(useChatStore.getState().consumeComposerPrefill()).toEqual({ text: '' })
       expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
     })
   })

@@ -193,13 +193,17 @@ export async function grantResourceAccess(
   // Rate limit BEFORE any write (spec SH-16, NF-5).
   const limit = await consumeRateLimit(SHARE_RATE_LIMIT, `${session.userId}`)
   if (!limit.allowed) {
-    throw new ForbiddenError('Too many sharing changes. Please wait a few minutes and try again.')
+    throw new ForbiddenError('Too many sharing changes. Please wait a few minutes and try again.', {
+      reason: SHARING_ERROR_REASONS.rateLimited,
+    })
   }
 
   // Roster cap — a "share with everyone" action is not a feature (spec SH-16).
   const existing = await countGrantsForResource(resourceType, resourceId)
   if (existing >= SHARE_ROSTER_LIMIT) {
-    throw new ConflictError(`This resource already has the maximum of ${SHARE_ROSTER_LIMIT} people.`)
+    throw new ConflictError(`This resource already has the maximum of ${SHARE_ROSTER_LIMIT} people.`, {
+      reason: SHARING_ERROR_REASONS.rosterFull,
+    })
   }
 
   await assertInviteeCanReachContainer(session, resourceType, resourceId, input.subjectUserId)

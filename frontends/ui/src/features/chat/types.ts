@@ -6,6 +6,7 @@
 
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
+import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { SourceKind } from './lib/source-kinds'
 
 /** Message role types */
@@ -27,6 +28,12 @@ export type DeepResearchBannerType = 'starting' | 'success' | 'failure' | 'cance
 
 /** File upload status types for banner messages */
 export type FileUploadStatusType = 'uploaded' | 'pending_warning'
+
+/** A queued composer prefill: the text plus any structured mentions it renders. */
+export interface ComposerPrefill {
+  text: string
+  mentions?: DraftMention[]
+}
 
 /** Status types for status card messages */
 export type StatusType =
@@ -634,8 +641,14 @@ export interface ChatState {
    * One-shot draft text queued for the chat composer (InputArea). Set by deep
    * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
    * by the composer. Null when there is nothing to prefill.
+   *
+   * `mentions` carries the STRUCTURED references a prefill renders as `@…`
+   * tokens (e.g. the hand-off banner's "ask Piloti instead"): without them the
+   * tokens are dead text and the send routes as a plain message, which is not
+   * what the button that queued the prefill promised (spec MN-3 — a mention is
+   * never re-derived from text).
    */
-  composerPrefill: string | null
+  composerPrefill: ComposerPrefill | null
   /**
    * Per-session composer drafts: the user's own in-progress, unsent text keyed
    * by conversation id. Distinct from `composerPrefill` (one-shot, external):
@@ -1093,9 +1106,9 @@ export interface ChatActions {
   setProjectId: (projectId: string | null) => void
 
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
-  consumeComposerPrefill: () => string | null
+  consumeComposerPrefill: () => ComposerPrefill | null
   /** Register the live chat send callback (called by InputArea on mount). */
   setChatSendFn: (fn: ((content: string) => void) | null) => void
   /** Resend the current conversation's last user message (retry affordance). */

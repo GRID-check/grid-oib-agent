@@ -29,6 +29,7 @@ import {
   AtSign,
   Check,
   ChevronDown,
+  Eye,
   FileText,
   Layers,
   Loader2,
@@ -78,7 +79,7 @@ import {
   type MentionPickerHandle,
 } from '@/features/collaboration/components/MentionPicker'
 import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
-import { useTurnActorName } from '@/shared/collaboration/thread-sharing'
+import { useThreadRole, useTurnActorName } from '@/shared/collaboration/thread-sharing'
 import {
   findMentionQuery,
   humanMentions,
@@ -129,7 +130,14 @@ function mentionRefusalMessage(
 ): string | null {
   const reason = outcome?.failure?.reason
   if (!reason) return null
-  const name = taggedHumans[0]?.display ?? ''
+  // Name the person the SERVER refused (the refusal carries their targetId) —
+  // tagging two people and hearing the first one's name when the second was
+  // refused blames the wrong colleague.
+  const refused = outcome?.failure?.targetId
+  const name =
+    (refused ? taggedHumans.find((mention) => mention.targetId === refused)?.display : undefined) ??
+    taggedHumans[0]?.display ??
+    ''
   switch (reason) {
     case MENTION_ERROR_REASONS.inviteRequiresOwner:
       return tCollab('mentions.errors.inviteRequiresOwner', { name })
@@ -702,9 +710,27 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // 1. Not authenticated
   // 2. Session is busy AND not in HITL response mode (user must be able to type approve/reject)
   // 3. Deep research has completed/failed
+  // 4. A colleague's turn is running in this shared thread (the socket registry is
+  //    one slot per conversation — a second send collides with it), or the reader
+  //    only has the viewer role (the server would reject the send anyway)
+
+  // Whose question Piloti is answering, when it is not this reader's — published by
+  // the ADR-0033 seam so the composer does not pay for a second roster read.
+  const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
+
+  // The reader's own role in a shared thread: a viewer's send is rejected
+  // server-side, so the composer is read-only BEFORE the attempt (a ghost bubble
+  // only the viewer would see is the alternative).
+  const myThreadRole = useThreadRole(canCollaborate ? currentSessionId : null)
+  const isViewerInSharedThread = myThreadRole === 'viewer'
 
   const isDisabledByAuth = !isAuthenticated
-  const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionSuccessful
+  const disabled =
+    isDisabledByAuth ||
+    (isBusy && !isResponseMode) ||
+    isResearchSessionSuccessful ||
+    Boolean(otherPersonsTurnName) ||
+    isViewerInSharedThread
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
@@ -741,12 +767,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       consumeComposerPrefill()
       return
     }
-    const text = consumeComposerPrefill()
-    if (text === null) return
-    setMessage(text)
+    const prefill = consumeComposerPrefill()
+    if (prefill === null) return
+    setMessage(prefill.text)
+    // A prefill that renders `@…` tokens carries the structured mentions with
+    // it (e.g. the hand-off banner's "ask Piloti instead") — without seeding
+    // them here the tokens would send as dead plain text and route to the
+    // wrong addressee (spec MN-3).
+    if (prefill.mentions && prefill.mentions.length > 0) setMentions(prefill.mentions)
     // Persist the prefill as the session's draft too, so it survives a reload
     // just like typed text (only possible once a session exists).
-    if (currentSessionId) setComposerDraft(currentSessionId, text)
+    if (currentSessionId) setComposerDraft(currentSessionId, prefill.text)
     requestAnimationFrame(() => {
       const el = textareaRef.current
       if (!el) return
@@ -806,6 +837,31 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setMentionDismissed(false)
   }, [])
 
+  // Declared here rather than beside the other handlers below: `handleMentionSomeone`
+  // lists it as a dependency, so a later `const` would be read in its own TDZ.
+  const handleValueChange = useCallback(
+    (value: string, caret: number | null = value.length) => {
+      if (isDisabledByAuth) return // Don't allow typing when not authenticated
+
+      // Persist a session as soon as the user starts interacting via typed input.
+      // This keeps logo-triggered "new session" drafts out of history until touched.
+      let sessionId = currentConversation?.id
+      if (!sessionId && value.trim().length > 0) {
+        sessionId = ensureSession()
+        // ensureSession just activated a brand-new session; mark its id as the
+        // loaded draft so the draft-sync effect doesn't reset the text we set here.
+        if (sessionId) loadedDraftSessionRef.current = sessionId
+      }
+
+      setMessage(value)
+      // Persist the draft under the active session (once one exists) so it
+      // survives navigating away/back and a reload.
+      if (sessionId) setComposerDraft(sessionId, value)
+      syncMentionQuery(value, caret)
+    },
+    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
+  )
+
   /**
    * Start a mention from the composer's addressee line — the only affordance that
    * teaches `@` exists (spec MN-3 had no discovery story at all).
@@ -819,16 +875,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     const el = textareaRef.current
     const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
     const next = `${base}@`
-    setMessage(next)
+    // Route through handleValueChange, not a bare setMessage: a fresh thread
+    // gets its session (and the draft) here, and `syncMentionQuery` runs inside
+    // it — the one path that cannot drift from what typing `@` by hand does.
+    handleValueChange(next, next.length)
     setMentionDismissed(false)
-    syncMentionQuery(next, next.length)
     // Focus AFTER the value lands, so the caret is at the end of the fragment the
     // picker is filtering on.
     requestAnimationFrame(() => {
       el?.focus()
       el?.setSelectionRange(next.length, next.length)
     })
-  }, [message, syncMentionQuery])
+  }, [message, handleValueChange])
 
   const syncMentionQueryFromElement = useCallback(
     (element: HTMLTextAreaElement) => {
@@ -870,10 +928,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate,
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
-
-  // Whose question Piloti is answering, when it is not this reader's — published by
-  // the ADR-0033 seam so the composer does not pay for a second roster read.
-  const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
 
   /**
    * The picker opens only where collaboration is on, and then only once the
@@ -1035,29 +1089,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       handleSubmit()
     },
     [handleSubmit, mentionPickerOpen]
-  )
-
-  const handleValueChange = useCallback(
-    (value: string, caret: number | null = value.length) => {
-      if (isDisabledByAuth) return // Don't allow typing when not authenticated
-
-      // Persist a session as soon as the user starts interacting via typed input.
-      // This keeps logo-triggered "new session" drafts out of history until touched.
-      let sessionId = currentConversation?.id
-      if (!sessionId && value.trim().length > 0) {
-        sessionId = ensureSession()
-        // ensureSession just activated a brand-new session; mark its id as the
-        // loaded draft so the draft-sync effect doesn't reset the text we set here.
-        if (sessionId) loadedDraftSessionRef.current = sessionId
-      }
-
-      setMessage(value)
-      // Persist the draft under the active session (once one exists) so it
-      // survives navigating away/back and a reload.
-      if (sessionId) setComposerDraft(sessionId, value)
-      syncMentionQuery(value, caret)
-    },
-    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
   )
 
   /**
@@ -1679,13 +1710,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         )}
 
         {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
-            already locked by `isBusy`, and without a line here that lock is
-            unexplained — a colleague sees a dead input and no reason for it. The
-            string existed for exactly this and nothing rendered it. Only when the
-            turn belongs to someone else: the asker has their own typing indicator
-            and Herleitung, so telling them "Piloti is answering your question"
-            would be noise. */}
-        {canCollaborate && isBusy && otherPersonsTurnName && (
+            locked on the same fact (`otherPersonsTurnName` disables it above), and
+            without a line here that lock is unexplained — a colleague sees a dead
+            input and no reason for it. Only when the turn belongs to someone else:
+            the asker has their own typing indicator and Herleitung, so telling them
+            "Piloti is answering your question" would be noise. */}
+        {canCollaborate && otherPersonsTurnName && (
           <p
             data-testid="composer-busy-hint"
             className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
@@ -1693,6 +1723,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           >
             <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
             <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
+          </p>
+        )}
+
+        {/* Read-only participant: the composer is disabled on the same fact, and
+            this line is why. */}
+        {canCollaborate && isViewerInSharedThread && (
+          <p
+            data-testid="composer-viewer-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>{tCollab('thread.viewerNotice')}</span>
           </p>
         )}
 

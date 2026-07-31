@@ -15,6 +15,10 @@ export const collaboration = {
     action: 'Share',
     close: 'Close',
     visibilityHeading: 'Who can see this',
+    /** Screen-reader text while the sharing state is being fetched. */
+    loading: 'Loading sharing settings…',
+    /** Small label above the access chip inside the mobile thread menu. */
+    audienceHeading: 'Audience',
     visibility: {
       private: 'Only me',
       privateHint: 'Just you, plus anyone you invite by name.',
@@ -22,6 +26,11 @@ export const collaboration = {
       projectHint: 'Every member of this project can read and contribute.',
       organization: 'Everyone in the organization',
       organizationHint: 'Every member of your organization can read and contribute.',
+      /** What narrowing away from a blanket rule costs, stated in the confirm. */
+      narrowLoss: {
+        project: 'Everyone in this project loses access to this conversation.',
+        organization: 'Everyone in the organization loses access to this conversation.',
+      },
     },
     /** The access chip shown wherever a resource is listed. */
     chip: {
@@ -50,6 +59,8 @@ export const collaboration = {
       label: 'Invite someone',
       placeholder: 'Search by name or email…',
       empty: 'Nobody left to invite.',
+      /** A typed search that matched nobody — distinct from an exhausted list. */
+      noResults: 'No match for “{query}”',
       submit: 'Invite',
       /** Shown on org members who are not in the project (spec SH-19). */
       needsProjectAccess: 'Not in this project yet',
@@ -65,6 +76,7 @@ export const collaboration = {
     leaveConfirm: 'Leave this conversation?',
     leaveConfirmHint: 'You lose access. Everyone else keeps theirs.',
     escalate: 'Take ownership',
+    escalateConfirm: 'Take ownership?',
     escalateHint:
       'As a project admin you can take ownership of this conversation. This is recorded in the audit trail.',
     errors: {
@@ -73,9 +85,16 @@ export const collaboration = {
         'That person is not a member of this project yet. Add them to the project first.',
       organizationMembershipRequired: 'That person is not a member of this organization.',
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
+      rosterFull: 'This conversation already has the maximum number of people. Remove someone before inviting more.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',
+      /**
+       * The failure alert's own dismiss control. Distinct from `sharing.close`
+       * (the dialog's): both sit inside the same dialog, and two controls with
+       * the accessible name "Close" cannot be told apart by name alone.
+       */
+      dismiss: 'Dismiss this message',
     },
     resourceTypes: {
       conversation: 'Conversation',
@@ -127,7 +146,7 @@ export const collaboration = {
       cannotInvite: 'Only an owner can bring new people into this conversation.',
       /** Screen-reader + footer affordances for the combobox. */
       resultsAria: 'People you can mention',
-      keyboardHint: '↑↓ to choose · ↵ to insert · esc to close',
+      keyboardHint: '↑↓ to choose · ↵ to insert · Esc to close',
       badgeAgent: 'Assistant',
       /** The inserted token in the composer. */
       chipRemove: 'Remove mention of {name}',
@@ -159,7 +178,7 @@ export const collaboration = {
        * While the thread is waiting on a named person, a plain message is a
        * remark to the people in it — not a question for the agent.
        */
-      toThread: 'Goes to the chat',
+      toThread: 'Goes to everyone in the chat',
       /** How to get back to the agent from the waiting state. */
       agentHint: 'Type @Piloti to ask Piloti',
       /**
@@ -192,7 +211,7 @@ export const collaboration = {
      */
     engagement: {
       mentionLabel: 'Piloti answers when mentioned',
-      mentionHint: 'Two of you are talking here, so a plain message goes to the chat.',
+      mentionHint: 'Two of you are talking here, so a plain message goes to everyone in the chat.',
       switchToAsk: 'Let Piloti answer everything',
       /**
        * The OFFER, shown while the thread is still in `ask`. Phrased as a
@@ -201,7 +220,7 @@ export const collaboration = {
        * here.
        */
       offerHint: 'Several of you are talking here. Should Piloti wait to be mentioned?',
-      switchToMention: 'Only when mentioned',
+      switchToMention: 'Answer only when mentioned',
       failed: 'That could not be changed.',
     },
     /** The banner every participant sees while the thread waits (spec MN-8). */
@@ -244,14 +263,13 @@ export const collaboration = {
       action: 'Let Piloti carry on',
       dismiss: 'Not now',
       /** Inserted after `@Piloti ` into the composer, for the user to edit or send. */
-      prefill: 'please carry on from here.',
+      prefill: '— please carry on from here.',
     },
     errors: {
       inviteRequiresOwner:
         'You can only mention people who are already in this conversation. Ask an owner to invite {name}.',
       containerAccessRequired: '{name} is not a member of this project.',
       rateLimited: 'Too many mentions. Please wait a few minutes.',
-      tooMany: 'You can mention at most {count} people in one message.',
       releaseFailed: 'The wait could not be released.',
     },
   },
@@ -338,6 +356,10 @@ export const collaboration = {
     turnInFlight: 'Piloti is answering {name}’s question…',
     turnInFlightYou: 'Piloti is answering…',
     composerBusy: 'Piloti is answering {name}’s question — you can send once it finishes.',
+    /** Access was revoked while the reader had the thread open. */
+    accessLost: 'You no longer have access to this conversation. What you see is a local copy and will not update.',
+    /** Read-only role in a shared thread. */
+    viewerNotice: 'You can read along here. An owner can give you write access from the sharing dialog.',
     unreadDivider: 'New',
     authorYou: 'You',
     /** Marks a message written by a colleague rather than by the agent. */

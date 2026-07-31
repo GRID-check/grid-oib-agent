@@ -902,8 +902,12 @@ describe('ChatArea — the awaiting banner is reachable', () => {
     await user.click(screen.getByRole('button', { name: 'Ask Piloti instead' }))
 
     // `@Piloti` is what releases the wait server-side, so the ruling does it —
-    // no separate release call, and the message stays honestly authored.
-    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti ')
+    // no separate release call, and the message stays honestly authored. The
+    // token travels as a STRUCTURED mention: as plain text it would send as a
+    // remark to the chat and the wait would persist (spec MN-3).
+    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti ', [
+      { targetId: 'agent:piloti', display: 'Piloti' },
+    ])
   })
 })
 
@@ -1015,7 +1019,11 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
     await user.click(screen.getByRole('button', { name: 'Let Piloti carry on' }))
 
-    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti please carry on from here.')
+    // Structured, for the same reason as the awaiting banner: a plain-text
+    // `@Piloti` here would have been a remark to the chat, not a hand-back.
+    expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti — please carry on from here.', [
+      { targetId: 'agent:piloti', display: 'Piloti' },
+    ])
     // And it steps aside — the composer now holds the offer.
     expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
   })

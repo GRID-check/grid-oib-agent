@@ -358,13 +358,21 @@ describe('useSharedThread — reconciliation', () => {
     expect(storedMessages().filter((m) => m.id === 'm2')).toHaveLength(1)
   })
 
-  test('ignores the echo of our own write instead of refetching for it', async () => {
+  /**
+   * A self-authored event is NOT skipped: the same event fires for a message we
+   * sent from a second device, where this tab holds no optimistic echo of it. The
+   * id-keyed merge is what makes the re-read free on the device that wrote it, so
+   * the refetch is the cheap way to be correct on the other one.
+   */
+  test('re-reads for our own write too — the second device has no echo', async () => {
     renderHook(() =>
       useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
     )
     await waitFor(() => expect(storedMessages()).toHaveLength(1))
     const before = requested().length
 
+    // Written elsewhere by us: only the server knows about it.
+    routes.messages = [...routes.messages, row('mine', { authorUserId: ME, createdAt: at(3) })]
     await emit({
       kind: 'conversation.message',
       conversationId: CONVERSATION_ID,
@@ -372,7 +380,12 @@ describe('useSharedThread — reconciliation', () => {
       messageId: 'mine',
     })
 
-    expect(requested()).toHaveLength(before)
+    expect(requested().slice(before)).toContain(
+      `/api/conversations/${CONVERSATION_ID}/messages`,
+    )
+    await waitFor(() => expect(storedMessages()).toHaveLength(2))
+    // …and the echo case stays a no-op on screen: one row, not two.
+    expect(storedMessages().filter((m) => m.id === 'mine')).toHaveLength(1)
   })
 
   test('ignores events for a different conversation', async () => {
@@ -497,6 +510,46 @@ describe('useSharedThread — reconciliation', () => {
     await waitFor(() =>
       expect(requested().slice(before)).toContain(`/api/conversations/${CONVERSATION_ID}`)
     )
+  })
+
+  test('access revoked between the access read and the history read is still flagged', async () => {
+    // The race the initial load used to drop: the access read says "shared", the
+    // history read that follows it is denied. Nothing in the first read can know
+    // that, so the denial has to escalate to a second access read — otherwise the
+    // reader keeps a live-looking composer over a thread they can no longer read.
+    let accessReads = 0
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `/api/conversations/${CONVERSATION_ID}`) {
+        accessReads += 1
+        if (accessReads === 1) {
+          return Response.json({
+            id: CONVERSATION_ID,
+            title: 'Brandschutz',
+            shared: true,
+            myRole: 'collaborator',
+            visibility: 'project',
+            myReadState: null,
+          })
+        }
+        return new Response(null, { status: 403 })
+      }
+      if (url === `/api/conversations/${CONVERSATION_ID}/messages`) {
+        return new Response(null, { status: 403 })
+      }
+      if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    expect(result.current.shared).toBe(false)
+    // Exactly one revalidation: the second read is never escalated again, so a
+    // server that keeps denying cannot turn this into a request loop.
+    expect(accessReads).toBe(2)
   })
 })
 

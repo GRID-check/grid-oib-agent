@@ -76,6 +76,8 @@ export interface UseSharingResult {
   loadError: boolean
   /** Set by the most recent mutation; cleared when the next one starts. */
   failure: SharingFailure | null
+  /** Dismiss the current mutation failure without starting a new mutation. */
+  dismissFailure: () => void
   saving: boolean
   refresh: () => void
   setVisibility: (visibility: ResourceVisibility) => Promise<boolean>
@@ -121,6 +123,10 @@ export function useSharing(
 
   const refresh = useCallback(async () => {
     if (!enabled || !base) {
+      // Invalidate any read still in flight: without this bump its `current`
+      // would still match and it would write the abandoned resource's state back
+      // over the cleared one.
+      seq.current += 1
       cancelRetry()
       setState(null)
       setLoading(false)
@@ -230,6 +236,7 @@ export function useSharing(
     loading,
     loadError,
     failure,
+    dismissFailure: () => setFailure(null),
     saving,
     refresh: restart,
     setVisibility: async (visibility) =>
@@ -251,17 +258,22 @@ export function useShareCandidates(
   resourceType: ShareableResourceType,
   resourceId: string | null,
   enabled: boolean,
-): { candidates: ShareCandidate[]; loading: boolean } {
+): { candidates: ShareCandidate[]; loading: boolean; error: boolean; reload: () => void } {
   const [candidates, setCandidates] = useState<ShareCandidate[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  // Bumped by `reload`: the effect re-runs without the dialog closing.
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!enabled || !resourceId) {
       setCandidates([])
+      setError(false)
       return
     }
     let cancelled = false
     setLoading(true)
+    setError(false)
     void (async () => {
       try {
         const response = await fetch(
@@ -272,7 +284,12 @@ export function useShareCandidates(
         if (cancelled) return
         setCandidates(Array.isArray(data) ? data : (data.candidates ?? []))
       } catch {
-        if (!cancelled) setCandidates([])
+        // A failed load must not pose as "nobody left to invite" — that is a
+        // false statement about the org, so the failure gets its own surface.
+        if (!cancelled) {
+          setCandidates([])
+          setError(true)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -280,9 +297,9 @@ export function useShareCandidates(
     return () => {
       cancelled = true
     }
-  }, [resourceType, resourceId, enabled])
+  }, [resourceType, resourceId, enabled, attempt])
 
-  return { candidates, loading }
+  return { candidates, loading, error, reload: () => setAttempt((current) => current + 1) }
 }
 
 /**
@@ -352,32 +369,84 @@ export function useMentionCandidates(
 ): { data: MentionCandidatesResponse | null; loading: boolean } {
   const [data, setData] = useState<MentionCandidatesResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const seq = useRef(0)
+  // Same new-thread race as the sharing read above: the conversation reaches
+  // the server only with its first persisted message, so the first candidates
+  // read 404s. Without the ladder that 404 was permanent for the thread — the
+  // picker stayed dead until a reload, for exactly the first-time user `@`
+  // exists to teach.
+  const attempt = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
+  const cancelRetry = useCallback(() => {
+    if (retryTimer.current === null) return
+    clearTimeout(retryTimer.current)
+    retryTimer.current = null
+  }, [])
+
+  const refresh = useCallback(async () => {
     if (!enabled || !conversationId) {
+      // Same reason as in `useSharing`: bump the sequence so a candidates read
+      // still in flight for the previous conversation fails its guard instead of
+      // repopulating the picker we just cleared.
+      seq.current += 1
+      cancelRetry()
       setData(null)
+      setLoading(false)
       return
     }
-    let cancelled = false
-    setLoading(true)
-    void (async () => {
-      try {
-        const response = await fetch(
-          `/api/conversations/${encodeURIComponent(conversationId)}/mention-candidates`,
-        )
-        if (!response.ok) throw new Error(`candidates ${response.status}`)
-        if (cancelled) return
-        setData((await response.json()) as MentionCandidatesResponse)
-      } catch {
-        if (!cancelled) setData(null)
-      } finally {
-        if (!cancelled) setLoading(false)
+    const current = ++seq.current
+    try {
+      const response = await fetch(
+        `/api/conversations/${encodeURIComponent(conversationId)}/mention-candidates`,
+      )
+      if (!response.ok) throw new Error(`candidates ${response.status}`)
+      if (current !== seq.current) return
+      setData((await response.json()) as MentionCandidatesResponse)
+      attempt.current = 0
+      cancelRetry()
+      setLoading(false)
+    } catch {
+      if (current !== seq.current) return
+      const delay = RETRY_DELAYS_MS[attempt.current]
+      if (delay === undefined) {
+        setData(null)
+        setLoading(false)
+        return
       }
-    })()
-    return () => {
-      cancelled = true
+      attempt.current += 1
+      cancelRetry()
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null
+        void refresh()
+      }, delay)
+      // `loading` stays true across the ladder, so the picker shows its
+      // loading state rather than vanishing for a thread this young.
     }
-  }, [conversationId, enabled])
+  }, [conversationId, enabled, cancelRetry])
+
+  /**
+   * External triggers (focus, reconnect poll) read again from the top — new
+   * evidence must not inherit the exhaustion of an attempt made minutes ago.
+   */
+  const restart = useCallback(() => {
+    attempt.current = 0
+    cancelRetry()
+    void refresh()
+  }, [refresh, cancelRetry])
+
+  useEffect(() => {
+    attempt.current = 0
+    cancelRetry()
+    setLoading(Boolean(enabled && conversationId))
+    void refresh()
+    return cancelRetry
+  }, [refresh, enabled, conversationId, cancelRetry])
+
+  useLiveEvents({
+    enabled: enabled && Boolean(conversationId),
+    onRefresh: restart,
+  })
 
   return { data, loading }
 }

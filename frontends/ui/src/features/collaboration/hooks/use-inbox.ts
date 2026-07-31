@@ -124,11 +124,18 @@ export function useInboxList(enabled: boolean, pendingOnly: boolean): UseInboxLi
   const mutate = useCallback(
     async (input: RequestInfo, init: RequestInit) => {
       try {
-        await fetch(input, init)
+        const response = await fetch(input, init)
+        if (response.ok) {
+          // The mutation landed; the refresh below re-reads the truth.
+          await refresh()
+          return
+        }
+        // A refusal (e.g. a 404 for an item another tab already archived) must
+        // not look like a no-op: surface it instead of refreshing it away.
+        setError(true)
       } catch {
-        // Swallow: the refresh below re-reads the truth either way.
+        setError(true)
       }
-      await refresh()
     },
     [refresh],
   )
