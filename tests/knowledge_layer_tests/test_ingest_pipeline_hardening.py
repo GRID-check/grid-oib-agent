@@ -118,6 +118,46 @@ class TestCachedVlmCall:
 
         assert result == "live caption"
 
+    @pytest.mark.parametrize(
+        "failed_result",
+        [
+            ("image", "[Image - analysis failed: provider 503]"),
+            ("[Drawing - analysis failed: timeout]", {}),
+            "[Drawing - VLM not configured]",
+        ],
+    )
+    def test_failure_placeholder_is_never_cached(self, cache_store, failed_result):
+        """A transient provider failure must not be cached for the TTL.
+
+        Both failure paths treat the file as retryable via re-ingest, which only
+        holds if the placeholder was not stored — otherwise the retry replays
+        the failure from cache without ever reaching the VLM again.
+        """
+        calls = []
+
+        def live():
+            calls.append(1)
+            return failed_result
+
+        assert processing._cached_vlm_call(b"img", "drawing", live, model="m") == failed_result
+        assert processing._cached_vlm_call(b"img", "drawing", live, model="m") == failed_result
+
+        assert len(calls) == 2
+        assert cache_store == {}
+
+    def test_successful_result_is_cached(self, cache_store):
+        calls = []
+
+        def live():
+            calls.append(1)
+            return ("image", "A red rectangle.")
+
+        processing._cached_vlm_call(b"img", "image:charts=False", live, model="m")
+        processing._cached_vlm_call(b"img", "image:charts=False", live, model="m")
+
+        assert len(calls) == 1
+        assert list(cache_store) == [processing.vlm_cache_key(b"img", "image:charts=False", "m")]
+
 
 # =============================================================================
 # enrich_vlm_batch — failures are skipped, never indexed

@@ -593,7 +593,10 @@ cache key is `vlm:caption:{model}:{prompt_type}:{sha256(image_bytes)}` with a
 30-day TTL — the model is part of the identity, so a model switch (deployment-
 wide or per-org `ingest_vlm` override) never serves stale captions and two orgs
 on different models never share output. Re-ingesting a changed PDF only
-re-captions its new/modified pages. Both VLM call sites construct their OpenAI
+re-captions its new/modified pages. **Failure placeholders are never cached** —
+a failed analysis (`processing.is_failed_caption`) is returned to the caller but
+not stored, so the re-ingest that recovers the file actually reaches the VLM
+again instead of replaying a transient provider error for the 30-day TTL. Both VLM call sites construct their OpenAI
 client with an explicit timeout (`AIQ_VLM_TIMEOUT_SECONDS`, default 180s) and a
 single retry — previously SDK defaults (≈600s × 2 retries) let one hung
 provider park an ingest worker for ~20 minutes. A response clipped at

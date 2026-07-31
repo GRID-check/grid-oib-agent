@@ -80,7 +80,9 @@ New `assertFileSizeAllowed(file.size)` function in the BFF documents service, ca
   `vlm:caption:{model}:{prompt_type}:{sha256(bytes)}`, so model switches and
   per-org `ingest_vlm` overrides never serve stale/shared captions. The same
   hardening also: routes standalone image uploads through the cache, skips
-  failure-placeholder captions instead of indexing them, adds a truncation
+  failure-placeholder captions instead of indexing them and never caches them
+  (so a transient provider error is not replayed from cache for the TTL and
+  re-ingest can recover the file), adds a truncation
   retry on `finish_reason == "length"`, sets an explicit VLM client timeout
   (`AIQ_VLM_TIMEOUT_SECONDS`), dedupes identical embedded rasters, scopes the
   end-of-job summary reconciliation to the job's own files, and raises the

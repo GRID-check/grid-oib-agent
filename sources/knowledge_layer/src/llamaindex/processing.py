@@ -92,6 +92,20 @@ def is_failed_caption(caption: str | None) -> bool:
     return bool(caption) and caption.strip().lower().startswith(_FAILURE_CAPTION_PREFIXES)
 
 
+def _result_carries_failed_caption(result: Any) -> bool:
+    """True when a cached-call result carries a failure placeholder caption.
+
+    The two VLM call shapes differ — ``(content_type, caption)`` for images,
+    ``(caption, fields)`` for drawings — so every string member is checked
+    rather than a fixed position.
+    """
+    if isinstance(result, str):
+        return is_failed_caption(result)
+    if isinstance(result, (list, tuple)):
+        return any(isinstance(part, str) and is_failed_caption(part) for part in result)
+    return False
+
+
 def vlm_cache_key(image_bytes: bytes, prompt_type: str, model: str = "") -> str:
     """Content-hash cache key for a VLM analysis result.
 
@@ -126,6 +140,11 @@ def _cached_vlm_call(
     hiccup must never block ingest nor masquerade as a VLM analysis failure).
     ``model`` scopes the cache entry to the VLM that produced it (see
     ``vlm_cache_key``).
+
+    Failure placeholders are returned to the caller but never stored: a
+    transient provider error would otherwise be cached for the full TTL, so the
+    re-ingest that is supposed to recover the file would replay the failure
+    from cache without ever calling the VLM again.
     """
     key = vlm_cache_key(image_bytes, prompt_type, model)
     try:
@@ -137,6 +156,9 @@ def _cached_vlm_call(
         logger.debug("VLM cache HIT for %s", key[:60])
         return cached
     result = live_call(*args, **kwargs)
+    if _result_carries_failed_caption(result):
+        logger.debug("VLM analysis failed; not caching placeholder for %s", key[:60])
+        return result
     try:
         set_json(key, result, _VLM_CACHE_TTL_SECONDS)
     except Exception:
