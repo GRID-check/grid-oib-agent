@@ -41,7 +41,13 @@ export interface ModelValidationResult {
 
 const CATALOG_TTL_MS = 5 * 60 * 1000
 const CATALOG_CACHE_KEY = 'openrouter:catalog'
-const ZDR_CACHE_KEY = 'openrouter:zdr-endpoints'
+/**
+ * `:v2` because the payload shape changed: this key used to hold a `Set`, which
+ * `JSON.stringify` flattens to `{}`. Entries written by the old code are still
+ * live in a shared Dragonfly for up to CATALOG_TTL_MS after a deploy, so the new
+ * reader must not find them.
+ */
+const ZDR_CACHE_KEY = 'openrouter:zdr-endpoints:v2'
 
 function baseUrl(): string {
   return (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '')
@@ -148,9 +154,16 @@ function collectZdrModelIds(node: unknown, into: Set<string>, depth = 0): void {
  * and account-independent, so it is the correct source for a per-organization
  * ZDR filter in a multi-tenant deployment; the account-wide `/models/user`
  * privacy filter is not.)
+ *
+ * **The cache stores the ARRAY, and the `Set` is rebuilt on the way out.**
+ * `getCached` round-trips through JSON (it has to — the shared store is
+ * Dragonfly), and `JSON.stringify(new Set(['a']))` is `'{}'`. Caching the `Set`
+ * itself type-checked fine and returned a real `Set` on the miss, then handed
+ * every cache HIT a prototype-less `{}` that blew up on `.has(...)`. Same
+ * pattern as `enabledSlugsForOrg` in `@/lib/workos/feature-flags`.
  */
 export async function fetchZdrModelIds(): Promise<Set<string>> {
-  return getCached(ZDR_CACHE_KEY, CATALOG_TTL_MS, async () => {
+  const ids = await getCached<string[]>(ZDR_CACHE_KEY, CATALOG_TTL_MS, async () => {
     const headers: Record<string, string> = { Accept: 'application/json' }
     const apiKey = process.env.OPENROUTER_API_KEY
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`
@@ -160,13 +173,28 @@ export async function fetchZdrModelIds(): Promise<Set<string>> {
       throw new Error(`OpenRouter ZDR endpoint listing request failed: HTTP ${response.status}`)
     }
     const body = (await response.json()) as { data?: unknown }
-    const ids = new Set<string>()
-    collectZdrModelIds(body.data ?? body, ids)
-    if (ids.size === 0) {
+    const collected = new Set<string>()
+    collectZdrModelIds(body.data ?? body, collected)
+    if (collected.size === 0) {
       throw new Error('OpenRouter ZDR endpoint listing contained no model ids')
     }
-    return ids
+    return [...collected]
   })
+
+  // A cache entry we cannot read is not an empty allowlist — same fail-CLOSED
+  // contract as the upstream failure above, so a foreign payload can never
+  // quietly widen (or silently empty) the ZDR filter. Every element is checked,
+  // not just the array-ness: `getCached` casts rather than validates, so a
+  // foreign payload like `[null]` would otherwise reach callers inside a
+  // `Set<string>` that does not hold strings.
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.some((id) => typeof id !== 'string' || !OPENROUTER_MODEL_ID_PATTERN.test(id))
+  ) {
+    throw new Error('OpenRouter ZDR model listing is unusable')
+  }
+  return new Set(ids)
 }
 
 /** Keep only catalog models whose base id has a Zero-Data-Retention endpoint. */
