@@ -144,7 +144,12 @@ export async function resolveResourceAccess(
     reason,
     visibility,
     container,
-    canEscalate: projectRole === 'project-admin',
+    // Escalation is for a project admin who is NOT already an owner. Offering it
+    // to somebody who owns the thread (their own thread, most often) gave them a
+    // button that upserts a redundant grant, consumes a roster slot, and writes
+    // `resource.ownership.escalated` with `previousRole: 'owner'` — an audit
+    // record of an escalation that did not happen.
+    canEscalate: projectRole === 'project-admin' && !roleSatisfies(role, 'owner'),
   }
 }
 

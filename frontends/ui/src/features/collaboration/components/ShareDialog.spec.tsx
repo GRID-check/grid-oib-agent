@@ -265,6 +265,22 @@ describe('ShareDialog — per-person controls', () => {
     expect(revoke).toHaveBeenCalledWith('u-anna')
   })
 
+  test('a refused removal keeps its confirmation open instead of closing like a success', async () => {
+    // Every sharing mutation resolves to a boolean rather than throwing, so the
+    // confirm used to close on refusal too — the dialog dismissed itself as if
+    // the person had been removed, and the explanation appeared behind it.
+    const user = userEvent.setup()
+    revoke.mockResolvedValueOnce(false)
+    renderDialog()
+
+    await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Remove access/ }))
+    await user.click(screen.getByRole('button', { name: 'Remove access' }))
+
+    expect(revoke).toHaveBeenCalledWith('u-anna')
+    expect(await screen.findByText('Remove Anna Weber?')).toBeInTheDocument()
+  })
+
   test('visibility-derived rows get NO controls — there is no per-person deny', () => {
     renderDialog({
       state: sharingState({

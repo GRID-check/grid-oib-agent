@@ -177,8 +177,14 @@ export function useSharing(
   const restart = useCallback(() => {
     attempt.current = 0
     cancelRetry()
+    // Clearing the failure and showing the skeleton is what makes "try again"
+    // legible: without it the same destructive alert simply stayed on screen for
+    // the whole retry ladder, and if the retry failed too nothing on screen ever
+    // changed — a button that reads as broken.
+    setLoadError(false)
+    setLoading(Boolean(enabled && base))
     void refresh()
-  }, [refresh, cancelRetry])
+  }, [refresh, cancelRetry, enabled, base])
 
   useEffect(() => {
     attempt.current = 0
@@ -213,6 +219,12 @@ export function useSharing(
         }
         // Render the server's answer, never an optimistic guess.
         const data = (await response.json()) as ResourceSharingState
+        // Invalidate any READ still in flight. A mutation's response is strictly
+        // newer than a GET issued before it, but the GET had no way to know that:
+        // invite someone, tab away and back (which restarts the read), and the
+        // read could land last and quietly restore the roster without them.
+        seq.current += 1
+        cancelRetry()
         setState(data)
         return true
       } catch {
@@ -222,7 +234,7 @@ export function useSharing(
         setSaving(false)
       }
     },
-    [],
+    [cancelRetry],
   )
 
   const json = (body: unknown): RequestInit => ({

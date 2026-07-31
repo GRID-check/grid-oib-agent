@@ -512,6 +512,14 @@ export async function escalateToOwner(
     request,
   })
 
+  // Every other mutation in this module publishes; this one did not, so an owner
+  // watching the same thread kept seeing a roster without the new owner in it
+  // until a focus event or the disconnected poll came round a minute later.
+  await publishToUsers(
+    await resolveParticipants(session.organizationId, resourceType, resourceId),
+    { kind: 'resource.access.changed', resourceType, resourceId, change: 'granted' },
+  )
+
   return getSharingState(session, resourceType, resourceId)
 }
 
