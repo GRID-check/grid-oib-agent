@@ -103,6 +103,9 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
 
     let source: EventSource | null = null
     let cancelled = false
+    /** Set once the stream says there is nothing more to come, so a late error
+        on the closed source cannot start the ladder again. */
+    let terminated = false
     let attempt = 0
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     lastSeqRef.current = 0
@@ -133,10 +136,17 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
           return
         }
 
+        // A frame arrived, so this connection works. Reset the ladder — without
+        // this, four failures spread over a long turn with healthy stretches
+        // between them exhaust the budget and the observer loses the live view
+        // for the rest of the turn. (The shared event hub had the same bug.)
+        attempt = 0
+
         if (parsed.kind === 'unsupported' || parsed.kind === 'revoked') {
           // Nothing more is coming. Close so EventSource does not reconnect into a
           // stream that will answer the same way, and report nothing so the caller
           // falls back to the static banner.
+          terminated = true
           close()
           setLive(false)
           setTurn(null)
@@ -171,7 +181,7 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
       hammer: the static banner and the persisted answer are both still there.
     */
       source.onerror = () => {
-        if (cancelled) return
+        if (cancelled || terminated) return
         close()
         if (attempt >= MAX_RECONNECTS) {
           setLive(false)

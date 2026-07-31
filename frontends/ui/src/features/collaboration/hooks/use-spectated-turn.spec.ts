@@ -200,6 +200,32 @@ describe('reconnect policy', () => {
     }
   })
 
+  it('does not spend the budget on failures separated by working stretches', () => {
+    // A long turn can drop and recover several times. Without resetting the
+    // ladder on evidence the connection works, four failures spread over an hour
+    // exhaust it and the observer loses the live view for the rest of the turn.
+    vi.useFakeTimers()
+    try {
+      renderHook(() => useSpectatedTurn({ conversationId: 'conv_1', enabled: true }))
+
+      for (let round = 0; round < 8; round += 1) {
+        const live = FakeEventSource.instances.at(-1)!
+        // Proof the connection works, then a drop.
+        act(() => live.emit(frame(round + 1, delta('x'))))
+        act(() => live.onerror?.())
+        act(() => {
+          vi.advanceTimersByTime(60_000)
+        })
+      }
+
+      // Every drop was preceded by a working connection, so every one of them
+      // reconnected: 1 initial + 8 retries.
+      expect(FakeEventSource.instances).toHaveLength(9)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not reconnect after the effect is torn down', () => {
     vi.useFakeTimers()
     try {
