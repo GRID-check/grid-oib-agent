@@ -470,7 +470,10 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
     const values = vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'new-1' }]) })
     const insert = vi.fn().mockReturnValue({ values })
 
-    const txWhere = vi.fn().mockResolvedValue(undefined)
+    // The retirement reports the rows it actually updated: the caller only
+    // learns of a retirement this write performed (see `onSuperseded`).
+    const txReturning = vi.fn().mockResolvedValue([{ id: 'retired-1' }])
+    const txWhere = vi.fn().mockReturnValue({ returning: txReturning })
     const txSet = vi.fn().mockReturnValue({ where: txWhere })
     const tx = { insert, update: vi.fn().mockReturnValue({ set: txSet }) }
     const transaction = vi.fn((run: (handle: typeof tx) => Promise<ProjectMemoryItem>) => run(tx))
@@ -481,7 +484,7 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
       insert,
       transaction,
     }))
-    return { set, values, insert, update, selectWhere, transaction, txSet, txWhere }
+    return { set, values, insert, update, selectWhere, transaction, txSet, txWhere, txReturning }
   }
 
   it('merges a restated same-kind finding into the existing row instead of inserting', async () => {
@@ -647,6 +650,48 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-3' }))
     expect(txSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
     expect(txWhere).toHaveBeenCalledWith(and(eq('pm.id', 'stale-3'), eq('pm.status', 'active')))
+  })
+
+  /**
+   * The retirement is reported by the write, not read off the returned row: a
+   * duplicate/paraphrase refresh hands back an EXISTING item that may already
+   * carry a `supersedesId` from an earlier correction, and the internal
+   * endpoint's `supersededId` must name only what THIS write retired.
+   */
+  it('reports the retired id to the caller only when it actually retired a row', async () => {
+    const stale = makeMemoryItem({ id: 'stale-4', content: 'The stairwell must be pressurised' })
+    mockSupersedeChain([[], [], [stale]])
+    const onSuperseded = vi.fn()
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised', onSuperseded },
+    )
+
+    expect(onSuperseded).toHaveBeenCalledWith('stale-4')
+
+    // A concurrent writer got there first: the conditional update matches no
+    // row, so this write must not claim the retirement.
+    const raced = vi.fn()
+    mockSupersedeChain([[], [], [stale]]).txReturning.mockResolvedValue([])
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised', onSuperseded: raced },
+    )
+
+    expect(raced).not.toHaveBeenCalled()
   })
 
   it('ignores a quote that matches no active entry, and still records the finding', async () => {

@@ -145,6 +145,42 @@ class TestSanitizeFindings:
         assert [i["content"] for i in items] == ["Budget capped at 2M."]
         assert "supersedes" not in items[0]
 
+    def test_drops_a_truncated_supersedes_quote(self):
+        """A quote must name one COMPLETE digest entry. A partial quote passes a
+        substring check but the frontend's ≥0.7 Jaccard resolver would still
+        resolve it — retiring an entry the model never actually quoted."""
+        digest = 'PROJECT_MEMORY v1\n- [decision | high | unverified] "Client chose a flat roof"'
+        raw = [
+            {
+                "kind": "decision",
+                "content": "Client switched to a pitched roof.",
+                "confidence": "high",
+                "supersedes": "Client chose a flat",
+            }
+        ]
+
+        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+
+        assert [i["content"] for i in items] == ["Client switched to a pitched roof."]
+        assert "supersedes" not in items[0]
+
+    def test_accepts_a_quote_that_only_differs_in_punctuation_and_case(self):
+        """Verbatim is checked on the normalized entry, so re-wrapping or a lost
+        quote character does not cost the model a legitimate correction."""
+        digest = 'PROJECT_MEMORY v1\n- [decision | high | unverified] "Client chose a flat roof"'
+        raw = [
+            {
+                "kind": "decision",
+                "content": "Client switched to a pitched roof.",
+                "confidence": "high",
+                "supersedes": "client chose a FLAT roof.",
+            }
+        ]
+
+        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+
+        assert items[0]["supersedes"] == "client chose a FLAT roof."
+
     def test_no_supersedes_key_when_the_finding_replaces_nothing(self):
         raw = [{"kind": "constraint", "content": "Budget capped at 2M.", "supersedes": ""}]
 

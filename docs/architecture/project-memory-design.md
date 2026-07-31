@@ -221,8 +221,11 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   carries a `supersedes` field (part of the strict structured-output contract, so
   the model has a sanctioned way to return one): the verbatim content of the entry
   it replaces, copied from the digest it was shown. `_sanitize_findings` honours
-  it ONLY when that text is actually present in the shown digest — a hallucinated
-  or paraphrased quote is dropped and the finding recorded as an ordinary new item,
+  it ONLY when it matches one COMPLETE entry of the shown digest (normalized
+  equality against the parsed entry contents, not a substring test — a truncated
+  quote like "Client chose a flat" for "Client chose a flat roof" would otherwise
+  still resolve through the ≥ 0.7 Jaccard fallback). A hallucinated, paraphrased
+  or truncated quote is dropped and the finding recorded as an ordinary new item,
   so a fabricated quote can never archive a real row. The in-turn `remember` tool
   takes the same argument. Resolution, the human-curation guard, and the atomic
   swap all live in the single writer (§3.2).

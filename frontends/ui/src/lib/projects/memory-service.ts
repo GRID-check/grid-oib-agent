@@ -336,6 +336,13 @@ export interface CreateMemoryOptions {
    * enough or when the target is human-curated.
    */
   supersedesContent?: string | null
+  /**
+   * Called with the id of the entry THIS call retired. Callers that report the
+   * retirement (the internal endpoint's `supersededId`) must not read it off
+   * the returned row: a duplicate/paraphrase refresh returns an EXISTING row,
+   * whose `supersedesId` may record a retirement from an earlier correction.
+   */
+  onSuperseded?: (supersededId: string) => void
 }
 
 /** Refresh a duplicate in place: recency + the best-known confidence. */
@@ -410,10 +417,14 @@ export async function createProjectMemoryItem(
     // without the replacement (a fact silently disappearing from the digest).
     return await db.transaction(async (tx) => {
       const [item] = await tx.insert(projectMemory).values(insertValues).returning()
-      await tx
+      const retired = await tx
         .update(projectMemory)
         .set({ status: 'superseded', updatedAt: new Date() })
         .where(and(eq(projectMemory.id, supersedeTarget.id), eq(projectMemory.status, 'active')))
+        .returning({ id: projectMemory.id })
+      // Reported only for a retirement this call performed (a concurrent writer
+      // may have retired the target first, matching zero rows).
+      if (retired.length > 0) options.onSuperseded?.(supersedeTarget.id)
       return item
     })
   } catch (err) {

@@ -85,6 +85,9 @@ class ReflectionOutput(BaseModel):
 # the in-turn `remember` tool missed, not a bulk extractor.
 MAX_NEW_ITEMS = 5
 _MAX_CONTENT_CHARS = 500
+# A supersede quote must stay verbatim to resolve, so it is capped at the write
+# endpoint's `supersedesContent` limit rather than the tighter content cap.
+_MAX_SUPERSEDES_CHARS = 2000
 _MAX_ANSWER_CHARS = 4000
 _MAX_QUERY_CHARS = 2000
 # The existing memory digest grows as project memory accumulates; every other
@@ -157,6 +160,34 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9äöüß]+", " ", text.lower()).strip()
 
 
+#: One rendered digest line: ``- [kind | confidence | verification] "content"``
+#: (the BFF's ``formatDigestLines``). The content group is the whole quoted body.
+_DIGEST_ENTRY_RE = re.compile(r'^\s*-\s*\[[^\]]*\]\s*"(.*)"\s*$')
+
+
+def _digest_entry_contents(memory_digest: str | None) -> set[str]:
+    """Normalized contents of the COMPLETE entries displayed in the digest.
+
+    A supersede quote must name one whole entry: a substring check would accept
+    a truncated quote ("Client chose a flat" for "Client chose a flat roof"),
+    which the frontend's fuzzy resolver would then happily resolve — retiring an
+    entry the model never actually quoted.
+    """
+    if not memory_digest:
+        return set()
+    contents: set[str] = set()
+    for line in memory_digest.splitlines():
+        match = _DIGEST_ENTRY_RE.match(line)
+        if not match:
+            continue
+        # No unescaping needed: _normalize drops the backslashes and quotes
+        # formatDigestLines adds.
+        normalized = _normalize(match.group(1))
+        if normalized:
+            contents.add(normalized)
+    return contents
+
+
 def _content_in_digest(content: str, memory_digest: str | None) -> bool:
     """True when a finding is already (near-)present in the digest it was shown.
 
@@ -216,6 +247,7 @@ def _sanitize_findings(
     """
     if not isinstance(raw, list) or not has_project:
         return []
+    digest_entries = _digest_entry_contents(memory_digest)
     items: list[dict[str, str]] = []
     for entry in raw[:MAX_NEW_ITEMS]:
         if not isinstance(entry, dict):
@@ -238,17 +270,21 @@ def _sanitize_findings(
             continue
 
         # A supersede quote retires an existing entry, so it is only honoured
-        # when it is genuinely IN the digest the model was shown. A hallucinated
-        # or paraphrased quote is dropped (the finding is still recorded) rather
-        # than sent on to be fuzzy-matched against a real item.
+        # when it names one COMPLETE entry of the digest the model was shown. A
+        # hallucinated, paraphrased or truncated quote is dropped (the finding is
+        # still recorded) rather than sent on to be fuzzy-matched against a real
+        # item — the ≥0.7 Jaccard resolver would resolve a partial quote too.
         supersedes = str(entry.get("supersedes", "")).strip()
-        if supersedes and not _content_in_digest(supersedes, memory_digest):
-            logger.info("Memory reflection: ignoring a supersedes quote that is not in the shown digest")
+        if supersedes and _normalize(supersedes) not in digest_entries:
+            logger.info("Memory reflection: ignoring a supersedes quote that is not a shown digest entry")
             supersedes = ""
 
         item = {"kind": kind, "content": content, "confidence": confidence, "scope": "project"}
         if supersedes:
-            item["supersedes"] = supersedes[:_MAX_CONTENT_CHARS]
+            # Bounded by the write endpoint's limit, not the tighter content cap:
+            # truncating a verified verbatim quote would turn it back into the
+            # partial quote the check above just rejected.
+            item["supersedes"] = supersedes[:_MAX_SUPERSEDES_CHARS]
         items.append(item)
     return items
 

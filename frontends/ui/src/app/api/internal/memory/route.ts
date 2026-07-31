@@ -87,6 +87,17 @@ export const POST = internalApiRoute(
       }
     }
 
+    // Reported by the service, never derived from the returned row: a duplicate
+    // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
+    // record a retirement performed by an earlier request.
+    const outcome: { supersededId: string | null } = { supersededId: null }
+    const writeOptions = {
+      supersedesContent,
+      onSuperseded: (id: string) => {
+        outcome.supersededId = id
+      },
+    }
+
     const item =
       scope === 'project'
         ? await createProjectMemoryItemForProject(
@@ -98,7 +109,7 @@ export const POST = internalApiRoute(
               sourceConversationId: sourceConversationId ?? null,
               provenanceType,
             },
-            { supersedesContent }
+            writeOptions
           )
         : await createProjectMemoryItem(
             {
@@ -111,7 +122,7 @@ export const POST = internalApiRoute(
               sourceConversationId: sourceConversationId ?? null,
               provenanceType,
             },
-            { supersedesContent }
+            writeOptions
           )
 
     if (!item) {
@@ -120,7 +131,7 @@ export const POST = internalApiRoute(
 
     // `supersededId` is null when the quote resolved to nothing, or to an entry
     // the agent may not retire — the caller can then be honest about what it did.
-    return { item, supersededId: item.supersedesId ?? null }
+    return { item, supersededId: outcome.supersededId }
   },
   { status: 201 }
 )
