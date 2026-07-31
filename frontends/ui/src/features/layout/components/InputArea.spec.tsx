@@ -6,6 +6,8 @@ import type { ComposerPrefill } from '@/features/chat/types'
 import { InputArea } from './InputArea'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
+import { publishThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
+
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
 }))
@@ -291,6 +293,7 @@ describe('InputArea', () => {
     }
     mockMentionsLoading = false
     mockAwaitingPending = []
+    resetThreadSharing()
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
@@ -1493,6 +1496,10 @@ describe('InputArea', () => {
 
     test('says the message goes to the CHAT while the thread awaits a person, and how to reach Piloti', () => {
       mockAwaitingPending = [{ id: 'r-1' }]
+    publishThreadSharing('session-1', true)
+      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       expect(addressee()).toHaveTextContent('Goes to everyone in the chat')
@@ -1504,6 +1511,10 @@ describe('InputArea', () => {
     test('typing @Piloti while awaiting flips the line back to the agent', async () => {
       const user = userEvent.setup()
       mockAwaitingPending = [{ id: 'r-1' }]
+    publishThreadSharing('session-1', true)
+      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
@@ -1536,6 +1547,10 @@ describe('InputArea', () => {
       const user = userEvent.setup()
       // Even with a wait outstanding server-side, a gated org must see nothing.
       mockAwaitingPending = [{ id: 'r-1' }]
+    publishThreadSharing('session-1', true)
+      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated connectionMode="sse" />)
 
       expect(screen.queryByTestId('composer-addressee')).not.toBeInTheDocument()
@@ -1568,6 +1583,10 @@ describe('InputArea', () => {
 
     test('a plain message while a person is awaited asks the server to rule', async () => {
       mockAwaitingPending = [{ id: 'r-1' }]
+    publishThreadSharing('session-1', true)
+      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       await send('Ja, eigener Abschnitt.')
@@ -1587,6 +1606,10 @@ describe('InputArea', () => {
 
     test('a gated org never takes the ruled path, wait or no wait (NF-8)', async () => {
       mockAwaitingPending = [{ id: 'r-1' }]
+    publishThreadSharing('session-1', true)
+      // A wait can only exist on a SHARED thread, and the composer now reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated connectionMode="sse" />)
 
       const user = userEvent.setup()

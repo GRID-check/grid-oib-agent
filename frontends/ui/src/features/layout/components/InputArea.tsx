@@ -958,11 +958,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     turns the default "Geht an Piloti" into "Geht an den Chat": while a named person
     is awaited, a plain message is a remark and the agent stays out.
 
-    Off entirely without the flag, so a gated org opens no request (spec NF-8).
+    Off entirely without the flag, so a gated org opens no request (spec NF-8) —
+    and off on a PRIVATE thread too. Gating on the flag alone was not enough:
+    `useAwaitingState` subscribes to the shared event channel, so a solo user in a
+    flag-on org opened a permanent `/api/stream` connection and polled
+    `/awaiting` for a conversation that can never be waiting on anybody. NF-8 is
+    the stricter promise — a user who never shares must not notice this exists —
+    and `ChatArea` already reads the same state under exactly this predicate.
   */
   const { awaiting } = useAwaitingState(
-    canCollaborate ? (currentSessionId ?? null) : null,
-    canCollaborate,
+    canCollaborate && threadSharing === 'shared' ? (currentSessionId ?? null) : null,
+    canCollaborate && threadSharing === 'shared',
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
 
