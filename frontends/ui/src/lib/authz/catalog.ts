@@ -166,6 +166,13 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
       'Create new projects in the organization. Held by the default Member role; withhold it to make project creation an admin-only act.',
     tier: 'org',
   },
+  {
+    slug: 'org:members:manage',
+    name: 'Manage people and roles',
+    description:
+      'Open the Access tab: see every member and the role they hold, and invite, re-role or remove people.',
+    tier: 'org',
+  },
 ]
 
 /**
@@ -424,6 +431,15 @@ export const ROLES: readonly RoleSpec[] = [
     tier: 'org',
     scope: 'environment',
     permissions: ['org:archiv:manage'],
+  },
+  {
+    slug: 'org-user-admin',
+    name: 'User Admin',
+    description:
+      'IT-helpdesk persona: manages who is in the organization and what role they hold, without seeing budgets, models, compliance or settings.',
+    tier: 'org',
+    scope: 'environment',
+    permissions: ['org:members:manage', 'widgets:users-table:manage'],
   },
 
   // ---- Platform tier (GRID Platform organization only) -------------------

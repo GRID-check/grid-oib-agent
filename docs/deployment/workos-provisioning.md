@@ -38,8 +38,8 @@ Everything below exists in **both** environments:
 | Staging | `environment_01KEF0YG238CSMNF731TEG010E` | 2026-07-30 — the environment the deployed app uses (its orgs include "GRID Test") |
 | Production | `environment_01KEF0YGNYDFAFAS77EZEFQ839` | 2026-07-31 — full replay into a previously empty environment |
 
-Both carry the same three resource types, the same 22 GRID permissions and the
-same 15 roles, verified role-by-role against the catalog after each run.
+Both carry the same three resource types, the same 23 GRID permissions and the
+same 16 roles, verified role-by-role against the catalog after each run.
 
 Two Production-specific notes:
 
@@ -84,8 +84,9 @@ Organization.
 | `org:audit:view` | Open the org's native audit-log viewer (Admin Portal) |
 | `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
 | `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
+| `org:members:manage` | Open the **Access** section: the member directory, the role catalog and the WorkOS Users widget that invites, re-roles and removes people. |
 
-All seven are attached to the environment **Admin** role, which keeps its six
+All eight are attached to the environment **Admin** role, which keeps its six
 `widgets:*` permissions. **Member** holds `org:projects:create` only — all other
 project access comes from project-scoped roles.
 
@@ -140,6 +141,7 @@ environment-scoped role holds a `platform:*` permission.
 | `org-billing-admin` | environment | `org:budgets:manage` |
 | `org-compliance-officer` | environment | `org:compliance:manage`, `org:audit:view` |
 | `org-knowledge-manager` | environment | `org:archiv:manage` |
+| `org-user-admin` | environment | `org:members:manage`, `widgets:users-table:manage` |
 | `project-viewer` | environment (Project) | `project:view` |
 | `project-contributor` | environment (Project) | `project:view`, `project:chat` |
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
@@ -148,7 +150,7 @@ environment-scoped role holds a `platform:*` permission.
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
 | `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view` |
 
-The four fine-grained org personas exist to keep ADR-0016's extensibility
+The five fine-grained org personas exist to keep ADR-0016's extensibility
 contract honest: each holds a strict subset of Admin and works with no code
 change, which is the property that silently broke for `org:audit:view` and
 `org:archiv:manage`.

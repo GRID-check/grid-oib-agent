@@ -49,6 +49,20 @@ export function canViewAuditLogs(session: SessionSlice): boolean {
 }
 
 /**
+ * May open the Access tab: the member directory, the role catalog and the
+ * WorkOS Users widget that invites, re-roles and removes people.
+ *
+ * The legacy `widgets:users-table:manage` still counts, so admins provisioned
+ * before `org:members:manage` existed keep their access without a re-login.
+ */
+export function canManageMembers(session: SessionSlice): boolean {
+  return (
+    hasPermission(session, ORG_PERMISSIONS.membersManage) ||
+    session.permissions.includes(USERS_TABLE_MANAGE)
+  )
+}
+
+/**
  * May manage the org-wide document Archiv: upload, delete, re-ingest, retag.
  * Reads (list/preview/download) are open to every org member — the Archiv is
  * shared knowledge — so only mutations gate on this permission. Org admins hold

@@ -40,6 +40,8 @@ export const ORG_PERMISSIONS = {
   archivManage: 'org:archiv:manage',
   /** Create new projects in the organization. */
   projectsCreate: 'org:projects:create',
+  /** See and manage who is in the organization and what role they hold. */
+  membersManage: 'org:members:manage',
 } as const
 
 /**
