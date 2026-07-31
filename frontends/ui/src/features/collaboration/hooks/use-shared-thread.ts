@@ -347,6 +347,20 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    */
   const lastTurnActivityRef = useRef<number>(0)
 
+  /**
+   * Has the turn stopped showing any sign of life for longer than the deadline?
+   *
+   * The start of the turn counts as a sign, so a turn that has produced nothing
+   * yet is measured from when it began. Both expiry paths — the interval and the
+   * focus/poll `refresh` — ask this one question, or they disagree about what
+   * "stale" means and the stricter one wins by accident.
+   */
+  const turnHasGoneQuiet = useCallback((): boolean => {
+    const lastSign = Math.max(lastTurnActivityRef.current, turnStartedAtRef.current)
+    return lastSign > 0 && Date.now() - lastSign > TURN_BANNER_MAX_AGE_MS
+  }, [])
+
+
   const base = conversationId ? `/api/conversations/${encodeURIComponent(conversationId)}` : null
 
   /**
@@ -667,6 +681,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         if (event.conversationId !== conversationId) return
         if (event.phase === 'started') {
           turnStartedAtRef.current = Date.now()
+          // A previous turn's activity must not count as this one's.
+          lastTurnActivityRef.current = 0
           setTurnInFlight({ actorUserId: event.actorUserId })
         } else {
           setTurnInFlight(null)
@@ -707,13 +723,11 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
   const refresh = useCallback(() => {
     // Expire a turn banner whose `ended` never arrived, so the fallback path
-    // heals it exactly like every other piece of state here.
-    if (
-      turnStartedAtRef.current > 0 &&
-      Date.now() - turnStartedAtRef.current > TURN_BANNER_MAX_AGE_MS
-    ) {
-      setTurnInFlight(null)
-    }
+    // heals it exactly like every other piece of state here — using the SAME
+    // silence rule as the interval below. Measuring from the turn's start
+    // instead would have this door clear a turn that is actively streaming, at
+    // exactly the five-minute mark the sliding deadline exists to survive.
+    if (turnHasGoneQuiet()) setTurnInFlight(null)
     if (!sharedRef.current) {
       // Not shared (or not yet known): re-read the access fact only. This is what
       // makes "a colleague shared it with me while I had it open" converge without
@@ -729,7 +743,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         if (outcome === 'denied') void load(false)
       })
     }
-  }, [conversationId, load, loadAndRevalidate, loadMessages])
+  }, [conversationId, load, loadAndRevalidate, loadMessages, turnHasGoneQuiet])
 
   const { connected } = useLiveEvents({
     // No subscription at all until the server has confirmed the thread is shared:
@@ -750,11 +764,10 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   useEffect(() => {
     if (!turnInFlight) return
     const id = setInterval(() => {
-      const lastSign = Math.max(lastTurnActivityRef.current, turnStartedAtRef.current)
-      if (lastSign > 0 && Date.now() - lastSign > TURN_BANNER_MAX_AGE_MS) setTurnInFlight(null)
+      if (turnHasGoneQuiet()) setTurnInFlight(null)
     }, TURN_SILENCE_POLL_MS)
     return () => clearInterval(id)
-  }, [turnInFlight])
+  }, [turnInFlight, turnHasGoneQuiet])
 
   // Expire typing claims. Runs only while somebody is claimed to be typing, so a
   // quiet thread costs nothing, and it is the ONLY thing that clears the list

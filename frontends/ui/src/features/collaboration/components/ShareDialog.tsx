@@ -698,8 +698,7 @@ export function ShareDialog({
               // the confirmation on REFUSAL too — the user watched the dialog
               // close like a success and the explanation appeared behind it.
               // ConfirmDialog keeps itself open when onConfirm throws.
-              const ok = await confirm.onConfirm()
-              if (!ok) throw new Error('sharing mutation refused')
+              await confirm.onConfirm()
               setPending(null)
             }}
           >

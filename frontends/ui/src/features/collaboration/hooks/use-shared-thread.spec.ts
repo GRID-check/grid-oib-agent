@@ -606,6 +606,50 @@ describe('useSharedThread — reconciliation', () => {
     await waitFor(() => expect(result.current.shared).toBe(true))
   })
 
+  test('a turn that keeps showing signs of life is never expired', async () => {
+    // The banner's deadline is a SILENCE timeout, not a turn-length one. A fixed
+    // one erased a colleague's answer mid-sentence on any turn longer than it —
+    // deep research routinely is — and both expiry doors (the interval and the
+    // focus/poll refresh) have to agree about that, or the stricter one wins by
+    // accident and the bug comes back through the other door.
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() =>
+        useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+      )
+      await vi.waitFor(() => expect(result.current.shared).toBe(true))
+
+      await act(async () => {
+        emit({
+          kind: 'conversation.turn',
+          conversationId: CONVERSATION_ID,
+          phase: 'started',
+          actorUserId: ANNA,
+        })
+      })
+      expect(result.current.turnInFlight).not.toBeNull()
+
+      // Twenty minutes of turn, with a sign of life every minute.
+      for (let minute = 0; minute < 20; minute += 1) {
+        act(() => result.current.noteTurnActivity())
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000)
+        })
+        // …and the other door gets tried too.
+        act(() => result.current.refresh())
+      }
+      expect(result.current.turnInFlight).not.toBeNull()
+
+      // Now it goes quiet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6 * 60_000)
+      })
+      expect(result.current.turnInFlight).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('access revoked between the access read and the history read is still flagged', async () => {
     // The race the initial load used to drop: the access read says "shared", the
     // history read that follows it is denied. Nothing in the first read can know
