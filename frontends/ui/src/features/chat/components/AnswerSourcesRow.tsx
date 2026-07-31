@@ -56,6 +56,13 @@ interface AnswerSourcesRowProps {
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   /** While the answer is still streaming, sources arrive late — suppress the gap row. */
   isStreaming?: boolean
+  /**
+   * Draw the row's own top hairline. True in the inline answer variant, where
+   * the row must separate itself from the prose above; false inside the
+   * default card, whose answer body already ends in a hairline — the row
+   * drawing a second one there produced the doubled line above the chips.
+   */
+  withDivider?: boolean
 }
 
 /**
@@ -82,6 +89,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   anchorPrefix,
   routingDecision,
   isStreaming = false,
+  withDivider = true,
 }) => {
   const t = useTranslations('chat')
   const metaFor = useSourceMeta()
@@ -104,7 +112,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
 
     return (
       <div
-        className="flex flex-wrap items-center gap-1.5 border-t pt-2"
+        className={cn('flex flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
         role="note"
         aria-label={t('answerSources.gapAria')}
       >
@@ -120,14 +128,14 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1.5 border-t pt-2"
+      className={cn('flex flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
       role="list"
       aria-label={t('answerSources.ariaLabel')}
     >
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
         {t('answerSources.label')}
       </span>
-      {shown.map((doc) => {
+      {shown.map((doc, docIndex) => {
         const numbers = citationNumbers(doc)
         // The chip the reader just asked about, from an inline [N] or a shared
         // link. Marking it is what turns "the page scrolled" into "THIS is the
@@ -145,11 +153,22 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
             // around a rounded rectangle — round on square, the shape of two
             // elements disagreeing rather than one element being marked.
             'inline-flex max-w-full scroll-mt-6 rounded-md',
+            // Staggered entrance: the chips cascade in after the answer body
+            // (which has its own fade/slide) instead of popping in as one
+            // block. `animation-fill-mode: backwards` keeps a chip hidden
+            // until its delay elapses — without it every chip flashes visible
+            // first and animates after. A FOCUSED chip skips the entrance: it
+            // belongs to an already-rendered message the reader jumped to, and
+            // a delay there would stall the citation pulse that must fire now.
+            !isFocused &&
+              'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 [animation-fill-mode:backwards] motion-reduce:animate-none',
             isFocused && 'animate-citation-pulse motion-reduce:animate-none'
           )}
-          style={
-            isFocused ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties) : undefined
-          }
+          style={{
+            ...(isFocused
+              ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
+              : { animationDelay: `${Math.min(docIndex, 6) * 40}ms` }),
+          }}
         >
           {/* One anchor per [N] this document carries, all resolving to this
               chip. A document cited as [2] and [7] is one chip that both

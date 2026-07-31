@@ -5,6 +5,15 @@ import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
+import type { ConversationMemoryItem } from '../hooks/use-conversation-memory'
+
+// The answer owns the memory fetch (the merged footer's meta row must know
+// whether "Piloti noted N" has anything to show), so the hook is stubbed here.
+const memory = vi.hoisted(() => ({ items: [] as ConversationMemoryItem[] }))
+
+vi.mock('../hooks/use-conversation-memory', () => ({
+  useConversationMemory: () => ({ items: memory.items, loading: false }),
+}))
 
 // Mock the layout store
 const mockOpenRightPanel = vi.fn()
@@ -73,6 +82,7 @@ describe('AgentResponse', () => {
     vi.clearAllMocks()
     mockImportJobStream.mockClear()
     mockLoadResearchPanelTab.mockClear()
+    memory.items = []
   })
 
   test('renders response content', () => {
@@ -291,6 +301,112 @@ describe('AgentResponse', () => {
       expect(
         screen.getByRole('list', { name: /sources this answer is backed by/i })
       ).toBeInTheDocument()
+    })
+  })
+
+  // The provenance footer is ONE tinted zone with two parts: the sources block
+  // and a single meta row (confidence + memory left, thumbs + timestamp right).
+  describe('merged provenance footer (default card)', () => {
+    const memoryItem: ConversationMemoryItem = {
+      id: 'mem-1',
+      kind: 'decision',
+      content: 'Fluchtweg über den Innenhof',
+      confidence: 'high',
+      provenanceType: 'in_turn',
+      sourceConversationId: 'conv-1',
+      createdAt: '2026-07-17T10:00:00Z',
+    }
+
+    const citations = [
+      {
+        id: 'c-1',
+        url: 'https://example.com/article',
+        content: '[Web] Some article',
+        timestamp: new Date('2026-07-17T10:00:00Z'),
+        isCited: true,
+      },
+    ]
+
+    test('keeps the memory chip when confidence, feedback and timestamp are all absent', () => {
+      // Memory is the only thing the row has to hold — it must still mount.
+      memory.items = [memoryItem]
+
+      render(
+        <AgentResponse
+          content="Answer"
+          conversationId="conv-1"
+          showConfidenceChip={false}
+          showAnswerFeedback={false}
+        />
+      )
+
+      expect(screen.getByText('Piloti noted')).toBeInTheDocument()
+    })
+
+    test('renders no meta row when it would hold nothing at all', () => {
+      render(<AgentResponse content="Answer" showConfidenceChip={false} showAnswerFeedback={false} />)
+
+      expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
+      expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
+      expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
+    })
+
+    test('renders no empty meta row when the flags are on but nothing has content', () => {
+      // Flags default to on, but there is no confidence level, no messageId for
+      // the thumbs row, no timestamp and no memory — the row would be a bare
+      // spacer plus its own gap, so it must not mount.
+      const { container } = render(<AgentResponse content="Answer" />)
+
+      expect(container.querySelector('[class*="animation-delay"]')).toBeNull()
+    })
+
+    test('holds confidence, memory, the thumbs row and the timestamp in ONE row', () => {
+      memory.items = [memoryItem]
+
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          conversationId="conv-1"
+          answerConfidence="high"
+          timestamp={new Date('2026-07-17T10:30:00')}
+        />
+      )
+
+      // The timestamp is a direct child of the meta row — no longer a span
+      // floating outside the card.
+      const metaRow = screen.getByText(/^\d{1,2}:\d{2}/).parentElement
+      expect(metaRow).not.toBeNull()
+      expect(metaRow).toContainElement(screen.getByText('Confidence: high'))
+      expect(metaRow).toContainElement(screen.getByText('Piloti noted'))
+      expect(metaRow).toContainElement(
+        screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      )
+    })
+
+    test('renders the thumbs row in its compact inline layout inside the card', () => {
+      render(<AgentResponse content="Answer" messageId="m1" conversationId="conv-1" />)
+
+      const feedbackRoot = screen
+        .getByRole('button', { name: 'Mark this answer as helpful' })
+        .closest('div')?.parentElement
+      // compact = wrap beside the other meta items, not a stacked full-width band.
+      expect(feedbackRoot?.className).toContain('flex-wrap')
+      expect(feedbackRoot?.className).not.toContain('flex-col')
+    })
+
+    test('the sources row draws no divider inside the card (the body hairline already separates)', () => {
+      render(<AgentResponse content="Cited answer" citations={citations} />)
+
+      const row = screen.getByRole('list', { name: /sources this answer is backed by/i })
+      expect(row.className).not.toContain('border-t')
+    })
+
+    test('the sources row keeps its own divider in the inline variant', () => {
+      render(<AgentResponse content="Cited answer" variant="inline" citations={citations} />)
+
+      const row = screen.getByRole('list', { name: /sources this answer is backed by/i })
+      expect(row.className).toContain('border-t')
     })
   })
 

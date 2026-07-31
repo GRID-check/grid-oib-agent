@@ -22,6 +22,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { useConversationMemory } from '../hooks/use-conversation-memory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
@@ -228,6 +229,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   })))
   const reconnectToActiveJob = useChatStore((s) => s.reconnectToActiveJob)
   const { loadResearchPanelTab, isLoading, error } = useLoadJobData()
+  // Fetched here, not inside MemoryNotedChip: the merged footer's meta row only
+  // renders when it has something to hold, and "Piloti noted N" is one of those
+  // things — a memory-only turn (both chip flags off, no timestamp) must still
+  // show it rather than have the row unmount around it.
+  const { items: memoryItems } = useConversationMemory(projectId, conversationId)
 
   // Determine if we should show the action button
   // Show "View Progress" for active jobs, "View Report" for completed jobs
@@ -283,6 +289,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   }, [jobId, deepResearchJobId, reportContent, deepResearchStreamLoaded, isJobActive, isAnotherJobStreaming, isDeepResearchStreaming, loadResearchPanelTab, reconnectToActiveJob, setResearchPanelTab, openRightPanel])
 
   const hasCards = cards && cards.length > 0
+
+  // What the merged footer's meta row would actually hold. The flags alone are
+  // not the answer: `showConfidenceChip` is on by default but the chip renders
+  // nothing without a level, and the feedback row needs a `messageId` — gating
+  // the row on the flags let it mount as an empty band (bare spacer + its own
+  // gap) on a meta turn that has neither.
+  const hasConfidence =
+    showConfidenceChip &&
+    (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
+  const hasFeedback = showAnswerFeedback && Boolean(messageId)
+  const hasMetaRow = hasConfidence || hasFeedback || Boolean(timestamp) || memoryItems.length > 0
 
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
@@ -358,7 +375,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               reason={answerConfidenceReason}
             />
           )}
-          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+          <MemoryNotedChip items={memoryItems} />
         </div>
 
         {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
@@ -464,48 +481,43 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           )}
         </div>
 
-        {/* "Belegt durch": provenance chips for sources this answer carries.
-            Sits on the tinted shell below the answer body, divided by the
-            body's hairline. */}
-        <div className="px-[22px] pb-3.5 pt-3">
+        {/* Provenance footer — ONE tinted zone under the body's hairline that
+            holds two things: the sources block, then a single meta row with
+            the confidence + memory pills left and the thumbs feedback +
+            timestamp right. This replaces the old stack of three separated
+            bands (sources row, chip row, divided feedback row) plus a
+            timestamp floating outside the card — same information, one
+            hairline, no band-on-band clutter. The sources row must not draw
+            its own divider here (the body hairline already separates), so it
+            takes withDivider={false}. */}
+        <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
           <AnswerSourcesRow
             documents={documents}
             anchorPrefix={anchorPrefix}
             routingDecision={routingDecision}
             isStreaming={isStreaming}
+            withDivider={false}
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          {/* Footer chips: self-assessed confidence + what Piloti recorded */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {showConfidenceChip && (
-              <ConfidenceChip
-                confidence={answerConfidence}
-                cappedReason={answerConfidenceCappedReason}
-                reason={answerConfidenceReason}
-              />
-            )}
-            <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
-          </div>
+          {hasMetaRow && (
+            <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
+              {hasConfidence && (
+                <ConfidenceChip
+                  confidence={answerConfidence}
+                  cappedReason={answerConfidenceCappedReason}
+                  reason={answerConfidenceReason}
+                />
+              )}
+              <MemoryNotedChip items={memoryItems} />
+              <span className="flex-1" aria-hidden="true" />
+              {hasFeedback && messageId && (
+                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+              )}
+              {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp)}</span>}
+            </div>
+          )}
         </div>
-
-        {/* Per-answer thumbs feedback (WS-7) — own row with a divider so it
-            reads as its own thing, not a trailing afterthought */}
-        {showAnswerFeedback && messageId && (
-          <>
-            <div className="mx-[22px] border-t border-border/70" />
-            <AnswerFeedback
-              messageId={messageId}
-              conversationId={conversationId}
-              className="px-[22px] pb-[16px] pt-[14px]"
-            />
-          </>
-        )}
       </div>
-
-      {/* Timestamp outside the card, right-aligned */}
-      {timestamp && (
-        <span className="text-subtle mr-3 mt-1 self-end text-xs">{formatTime(timestamp)}</span>
-      )}
     </div>
     </AnswerCitations>
   )

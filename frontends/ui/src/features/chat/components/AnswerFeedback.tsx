@@ -27,13 +27,19 @@ export interface AnswerFeedbackProps {
   messageId: string
   /** Conversation the answer belongs to (hydration scope); null-safe. */
   conversationId?: string | null
+  /**
+   * `compact` renders the question as a whisper-weight inline label so the row
+   * can sit inside the answer's merged meta row (next to confidence and the
+   * timestamp) instead of owning a full-width band with its own divider.
+   */
+  compact?: boolean
   className?: string
 }
 
 const thumbButtonBase =
   'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out active:scale-95 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
-export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversationId, className }) => {
+export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversationId, compact = false, className }) => {
   const t = useTranslations('chat')
   const projectId = useChatStore((s) => s.projectId)
   const { state, setFeedback } = useAnswerFeedback(messageId, conversationId, projectId)
@@ -68,9 +74,19 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
   const showThanks = verdict === 'up' || (verdict === 'down' && state?.reason != null)
 
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
+    <div
+      className={cn(
+        // Compact mode lives inside the answer's merged meta row, so reasons
+        // and the thanks line must flow inline beside the thumbs (and wrap
+        // under them) instead of stacking a column that would stretch the row.
+        compact ? 'flex flex-wrap items-center gap-x-1.5 gap-y-1' : 'flex flex-col gap-1.5',
+        className
+      )}
+    >
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">{t('feedback.question')}</span>
+        <span className={cn('text-muted-foreground', compact ? 'text-[11px]' : 'text-xs')}>
+          {t('feedback.question')}
+        </span>
         <button
           type="button"
           onClick={handleUp}
@@ -81,7 +97,16 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             verdict === 'up' && 'bg-status-active-tint text-status-active hover:bg-status-active-tint hover:text-status-active',
           )}
         >
-          <ThumbsUp className="size-3.5" aria-hidden="true" />
+          {/* `key` remounts the icon on toggle so the pop replays every vote —
+              a static class alone animates only on first mount. */}
+          <ThumbsUp
+            key={verdict === 'up' ? 'up-on' : 'up-off'}
+            className={cn(
+              'size-3.5',
+              verdict === 'up' && 'animate-in zoom-in-50 duration-150 motion-reduce:animate-none'
+            )}
+            aria-hidden="true"
+          />
         </button>
         <button
           type="button"
@@ -93,12 +118,23 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             verdict === 'down' && 'bg-signal-error-tint text-signal-error hover:bg-signal-error-tint hover:text-signal-error',
           )}
         >
-          <ThumbsDown className="size-3.5" aria-hidden="true" />
+          <ThumbsDown
+            key={verdict === 'down' ? 'down-on' : 'down-off'}
+            className={cn(
+              'size-3.5',
+              verdict === 'down' && 'animate-in zoom-in-50 duration-150 motion-reduce:animate-none'
+            )}
+            aria-hidden="true"
+          />
         </button>
       </div>
 
       {showReasons && (
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t('feedback.reasonPrompt')}>
+        <div
+          className="animate-in fade-in-0 slide-in-from-top-1 flex flex-wrap items-center gap-1.5 duration-150 motion-reduce:animate-none"
+          role="group"
+          aria-label={t('feedback.reasonPrompt')}
+        >
           <span className="text-xs text-muted-foreground">{t('feedback.reasonPrompt')}</span>
           {REASONS.map((reason) => (
             <button
@@ -113,7 +149,11 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
         </div>
       )}
 
-      {showThanks && <p className="text-xs text-muted-foreground">{t('feedback.thanks')}</p>}
+      {showThanks && (
+        <p className="animate-in fade-in-0 text-xs text-muted-foreground duration-200 motion-reduce:animate-none">
+          {t('feedback.thanks')}
+        </p>
+      )}
     </div>
   )
 }
