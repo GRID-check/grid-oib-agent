@@ -197,6 +197,21 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'shortcuts',
+    mobile: true,
+    path: '/dev/shortcuts',
+    description:
+      'Keyboard-shortcuts cheatsheet (?) with every capability on — the widest sheet a user can be shown. Rows are derived from the shortcut registry, which reads the same IA the rail and the ⌘K palette render, so the navigation group here IS the navigation: a section cannot gain a rail entry without appearing with its jump key. Two balanced columns on desktop (the full set fits without scrolling), physical keycaps, and a footer band outside the scroll region so the way to turn the feature off never dissolves into the fade.',
+    waitFor: '[data-shortcut-group="navigation"]',
+  },
+  {
+    id: 'shortcuts-minimal',
+    path: '/dev/shortcuts?variant=minimal',
+    description:
+      'The same sheet for a plain member with no optional feature enabled — the floor. Workflows, Knowledge, Archiv, Inbox, Organization and the mention row are all gated off, so this is the proof that the sheet stays composed (and keeps its column balance) when the registry shrinks, instead of leaving eyebrow labels above empty cards.',
+    waitFor: '[data-shortcut-group="navigation"]',
+  },
+  {
     id: 'cards-gallery',
     path: '/dev/cards',
     description: 'Full Grid card gallery — every card type with fixture data.',

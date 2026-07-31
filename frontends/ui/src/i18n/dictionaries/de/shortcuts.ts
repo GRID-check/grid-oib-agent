@@ -21,12 +21,21 @@ export const shortcuts: typeof en.shortcuts = {
     description: 'Piloti bedienen, ohne die Tastatur zu verlassen.',
     thenSeparator: 'dann',
     orSeparator: 'oder',
+    groups: {
+      general: 'Allgemein',
+      navigation: 'Wechseln zu',
+      chat: 'Chat',
+    },
+    /** Shown under the navigation group, which mixes scoped and global jumps. */
+    projectScopeNote: 'Bereichs-Kürzel öffnen den Bereich des Projekts, in dem Sie gerade sind.',
     items: {
       palette: 'Befehlspalette öffnen',
       cheatsheet: 'Diese Übersicht anzeigen',
-      projects: 'Zu Ihren Projekten wechseln',
+      dismiss: 'Dialog oder Menü schließen',
       sendMessage: 'Nachricht senden',
       newLine: 'Neue Zeile',
+      mention: 'Person erwähnen',
+      chooseOption: 'Nummerierte Option wählen',
     },
     disableHint: 'Tastaturkürzel lassen sich in den Profileinstellungen deaktivieren.',
   },
