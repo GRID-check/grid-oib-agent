@@ -152,6 +152,20 @@ Key decisions within the approach:
 - The collector's logs path now has a second consumer, so a misconfiguration
   there can affect the dashboard pipeline's health (bounded by
   `error_mode: ignore` and by the pipelines being separate).
+- **ERROR became a load-bearing severity, so producers now have to mean it.**
+  Before this ADR the level a record carried only changed its colour in the
+  dashboard; now it decides whether a human is handed a work item. Two record
+  shapes reached the Node console bridge on `console.error` without being
+  application errors and each filed an issue: Node process warnings, which its
+  default `'warning'` handler prints to stderr through `console.error`
+  (issue #230, DEP0060 from `http-proxy`), and a `NotFoundError` from
+  `@/lib/api/errors` escaping a server-component render, which Next's own error
+  logger reports (issue #262) even though a 404 is the correct answer to the
+  request. Both are recorded at WARN by `frontends/ui/observability/otel-logs.js`
+  — still in the dashboard in full, no longer an issue. The list there is
+  narrow, per-shape and pinned by `otel-logs.spec.mjs`; suppressing a *class* of
+  record (all 404s, all warnings) would trade this noise for silence on real
+  failures, which is the worse failure mode.
 
 ### Risks
 
@@ -188,4 +202,6 @@ directly.
 - `deploy/pulumi/src/platform/otel-collector.ts` — the `logs/err2issue`
   pipeline and severity filter.
 - `deploy/pulumi/src/platform/network-policies.ts` — rules 2 and 9.
+- `frontends/ui/observability/otel-logs.js` — the Node tiers' `console.*` → OTLP
+  bridge, and the `NOT_AN_ERROR` list of records that must not reach this sink.
 - `.github/workflows/claude.yml` — the `@claude` consumer of filed issues.
