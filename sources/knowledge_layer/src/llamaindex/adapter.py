@@ -172,10 +172,15 @@ MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
 # @required false
 # Per-request timeout for VLM captioning calls. The OpenAI SDK default (~600s,
 # with 2 built-in retries) lets one hung provider pin an enrichment worker for
-# up to ~20 minutes; 180s with a single retry bounds one hung caption call to
-# ~6 minutes. Clamped like the sibling knobs: a misconfigured 0 or negative
-# value would fail every VLM request immediately and silently disable
-# captioning altogether.
+# up to ~20 minutes; 180s with a single retry bounds a hung request to ~6
+# minutes. ``_vlm_chat_create`` may issue one extra request when the first
+# response comes back truncated, but that retry runs with SDK retries disabled,
+# so the ceiling for one caption is ~9 minutes — and only on the path where the
+# provider answered once and then hung. Retries are kept (rather than dropped to
+# 0) because a transient 429/5xx now costs an indexed chunk: failure
+# placeholders are skipped, not embedded. Clamped like the sibling knobs: a
+# misconfigured 0 or negative value would fail every VLM request immediately and
+# silently disable captioning altogether.
 VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180")))
 
 # @environment_variable AIQ_EMBED_BATCH_SIZE
@@ -860,6 +865,17 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
     doubled budget. Returns the message content (possibly empty); a still-
     truncated response is returned as-is with a warning rather than silently
     treated as complete.
+
+    The retry is a best-effort improvement on a caption we ALREADY have, so it
+    is deliberately cheap and never destructive:
+
+    - It runs with the SDK retries disabled. The first call already spends the
+      client's ``max_retries`` budget, and letting the second call spend it
+      again would double the worst-case latency of a single caption on top of
+      an attempt that, by definition, already succeeded.
+    - A failure is swallowed and the truncated first caption is returned.
+      Raising here would discard usable content and — since failure placeholders
+      are no longer indexed — drop the chunk entirely over a partial success.
     """
     response = client.chat.completions.create(
         model=model,
@@ -868,18 +884,34 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
         temperature=temperature,
     )
     choice = response.choices[0]
-    if getattr(choice, "finish_reason", None) == "length":
-        logger.warning("VLM response truncated at %d tokens; retrying with %d", max_tokens, max_tokens * 2)
-        response = client.chat.completions.create(
+    if getattr(choice, "finish_reason", None) != "length":
+        return choice.message.content or ""
+
+    partial = choice.message.content or ""
+    logger.warning("VLM response truncated at %d tokens; retrying with %d", max_tokens, max_tokens * 2)
+    # ``with_options`` is the OpenAI SDK's per-call override; guarded because
+    # the drawing/image call sites are exercised with lightweight fake clients.
+    with_options = getattr(client, "with_options", None)
+    retry_client = client
+    if callable(with_options):
+        try:
+            retry_client = with_options(max_retries=0)
+        except Exception:  # pragma: no cover - defensive, SDK-shape dependent
+            retry_client = client
+    try:
+        response = retry_client.chat.completions.create(
             model=model,
             messages=messages,
             max_tokens=max_tokens * 2,
             temperature=temperature,
         )
-        choice = response.choices[0]
-        if getattr(choice, "finish_reason", None) == "length":
-            logger.warning("VLM response still truncated at %d tokens; storing partial caption", max_tokens * 2)
-    return choice.message.content or ""
+    except Exception as exc:
+        logger.warning("VLM truncation retry failed (%s); keeping the truncated caption", exc)
+        return partial
+    choice = response.choices[0]
+    if getattr(choice, "finish_reason", None) == "length":
+        logger.warning("VLM response still truncated at %d tokens; storing partial caption", max_tokens * 2)
+    return choice.message.content or partial
 
 
 def _analyze_image_with_vlm(

@@ -499,6 +499,55 @@ class TestVlmChatCreate:
         assert result == "done"
         assert len(completions.calls) == 1
 
+    def test_failed_truncation_retry_keeps_the_truncated_caption(self):
+        """A retry failure must not discard content we already have.
+
+        Failure placeholders are no longer indexed, so raising here would turn a
+        partial success into a dropped chunk instead of a slightly short one.
+        """
+
+        class _RaisingCompletions(_FakeCompletions):
+            def create(self, **kwargs):
+                if self.calls:
+                    self.calls.append(kwargs)
+                    raise RuntimeError("provider 503")
+                return super().create(**kwargs)
+
+        completions = _RaisingCompletions([("partial caption", "length")])
+        client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+
+        result = adapter._vlm_chat_create(client, model="m", messages=[], max_tokens=512)
+
+        assert result == "partial caption"
+        assert len(completions.calls) == 2
+
+    def test_empty_retry_response_falls_back_to_the_partial(self):
+        completions = _FakeCompletions([("partial caption", "length"), (None, "stop")])
+        client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+
+        result = adapter._vlm_chat_create(client, model="m", messages=[], max_tokens=512)
+
+        assert result == "partial caption"
+
+    def test_truncation_retry_disables_sdk_retries(self):
+        """The first call already spent the client's retry budget; spending it
+        again on the retry would double the worst-case latency of one caption."""
+        completions = _FakeCompletions([("partial...", "length"), ("full caption", "stop")])
+        overrides: list[dict] = []
+
+        class _FakeClient:
+            def __init__(self):
+                self.chat = types.SimpleNamespace(completions=completions)
+
+            def with_options(self, **kwargs):
+                overrides.append(kwargs)
+                return self
+
+        result = adapter._vlm_chat_create(_FakeClient(), model="m", messages=[], max_tokens=512)
+
+        assert result == "full caption"
+        assert overrides == [{"max_retries": 0}]
+
 
 # =============================================================================
 # VLM OpenAI client construction — timeout + bounded retries on both call sites

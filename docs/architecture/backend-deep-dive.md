@@ -604,7 +604,11 @@ provider park an ingest worker for ~20 minutes. A response clipped at
 budget (the structured drawing format loses its trailing `ZUSAMMENFASSUNG` —
 exactly the field the document summary is built from — when clipped); a still-
 truncated response is stored with a warning rather than silently treated as
-complete. Items whose VLM analysis fails — an exception **or** the fail-open
+complete. That truncation retry runs with SDK retries disabled and swallows its
+own failures, returning the truncated first caption: it is a quality improvement
+on a response that already succeeded, so it must neither double the per-caption
+latency ceiling (~9 minutes worst case, vs ~6 for a request that simply hangs)
+nor turn a partial success into a dropped chunk. Items whose VLM analysis fails — an exception **or** the fail-open
 placeholder caption the call sites return on error (`"[Image|Drawing -
 analysis failed…]"`, detected by `processing.is_failed_caption`) — are
 **skipped and never indexed**: a placeholder used to be embedded as a real,
