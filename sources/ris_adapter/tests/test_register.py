@@ -885,20 +885,25 @@ class TestPlatformRetrievalSettings:
 
         assert fake_client.search_calls[0]["page_size"] == 50
 
-    async def test_resolver_failure_falls_back_to_config(self, fake_client, monkeypatch):
+    async def test_bff_outage_falls_back_to_config(self, fake_client, monkeypatch):
         fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        # The real failure mode is an unreachable BFF: the resolver swallows it
+        # (it is contractually never-raising), so the config value stays in force.
         from aiq_agent.common import retrieval_settings
 
-        def boom(key, fallback):
+        def boom():
             raise RuntimeError("BFF unreachable")
 
-        monkeypatch.setattr(retrieval_settings, "get_retrieval_setting", boom)
+        monkeypatch.setattr(retrieval_settings, "_fetch_settings", boom)
+        retrieval_settings.reset_retrieval_settings_cache()
 
         async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
             output = await _call(info, query="Garage Stellplatz")
 
         assert "Garagengesetz" in output
         assert fake_client.search_calls[0]["page_size"] == 20
+        # The resolver's cache is process-global; do not leave this outage in it.
+        retrieval_settings.reset_retrieval_settings_cache()
 
     async def test_catalog_shortcut_respects_platform_max_results(self, fake_client, monkeypatch):
         catalog = NormRegistry(

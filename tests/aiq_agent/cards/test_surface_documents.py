@@ -171,11 +171,16 @@ class TestPlatformCounts:
         assert [doc["file_name"] for doc in card["documents"]] == ["plan.pdf"]
         assert "plan.pdf" in output
 
-    async def test_resolver_failure_falls_back_to_constants(self, monkeypatch):
-        def boom(key, fallback):
+    async def test_bff_outage_falls_back_to_constants(self, monkeypatch):
+        # The real failure mode is an unreachable BFF: the resolver swallows it
+        # (it is contractually never-raising), so the constants stay in force.
+        from aiq_agent.common import retrieval_settings
+
+        def boom():
             raise RuntimeError("BFF unreachable")
 
-        monkeypatch.setattr("aiq_agent.common.retrieval_settings.get_retrieval_setting", boom)
+        monkeypatch.setattr(retrieval_settings, "_fetch_settings", boom)
+        retrieval_settings.reset_retrieval_settings_cache()
 
         retriever, registry = self._make_env(monkeypatch)
 
@@ -185,6 +190,8 @@ class TestPlatformCounts:
         assert retriever.calls == [{"collection": "proj_test", "top_k": 24}]
         card = registry.add.call_args.args[0]
         assert len(card["documents"]) == 3
+        # The resolver's cache is process-global; do not leave this outage in it.
+        retrieval_settings.reset_retrieval_settings_cache()
 
 
 async def _async_noop_metadata(collections):

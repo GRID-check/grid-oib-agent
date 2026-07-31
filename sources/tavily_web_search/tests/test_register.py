@@ -165,16 +165,21 @@ class TestPlatformMaxResultsOverride:
         assert second_kwargs["max_results"] == 4
         assert second_kwargs["search_depth"] == "advanced"
 
-    async def test_resolver_failure_falls_back_to_config(self, fake_langchain_tavily, monkeypatch):
+    async def test_bff_outage_falls_back_to_config(self, fake_langchain_tavily, monkeypatch):
+        # The real failure mode is an unreachable BFF: the resolver swallows it
+        # (it is contractually never-raising), so the config value stays in force.
         from aiq_agent.common import retrieval_settings
 
-        def boom(key, fallback):
+        def boom():
             raise RuntimeError("BFF unreachable")
 
-        monkeypatch.setattr(retrieval_settings, "get_retrieval_setting", boom)
+        monkeypatch.setattr(retrieval_settings, "_fetch_settings", boom)
+        retrieval_settings.reset_retrieval_settings_cache()
 
         output = await _run_search(TavilyWebSearchToolConfig(max_results=5))
 
         kwargs = _construction_kwargs(fake_langchain_tavily)
         assert kwargs["max_results"] == 5
         assert "https://a.example" in output
+        # The resolver's cache is process-global; do not leave this outage in it.
+        retrieval_settings.reset_retrieval_settings_cache()
