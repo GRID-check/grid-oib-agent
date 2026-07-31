@@ -70,9 +70,46 @@ function isDevEnvironment(): boolean {
  */
 function signingSecret(): string | null {
   const secret = process.env.GRID_INTERNAL_API_TOKEN
-  if (!secret) return null
-  if (secret === DEV_DEFAULT_TOKEN && !isDevEnvironment()) return null
+  if (!secret) {
+    warnDisabledOnce('GRID_INTERNAL_API_TOKEN is not set')
+    return null
+  }
+  if (secret === DEV_DEFAULT_TOKEN && !isDevEnvironment()) {
+    warnDisabledOnce(
+      `GRID_INTERNAL_API_TOKEN is the well-known dev default and APP_ENV is ` +
+        `"${process.env.APP_ENV ?? process.env.NODE_ENV ?? 'production'}". Anyone who has read ` +
+        `the compose file could otherwise mint an image URL for any document, so signing is off. ` +
+        `Set a real GRID_INTERNAL_API_TOKEN on this environment (note that APP_ENV is "production" ` +
+        `on every deployed stack, dev ones included).`,
+    )
+    return null
+  }
   return secret
+}
+
+/**
+ * Say so, once, when image signing is unavailable.
+ *
+ * Falling back to a presigned object-store URL keeps every image RENDERING,
+ * which is the right call — but it means the optimizer silently stops running,
+ * and "images are unoptimized" is invisible from the outside short of noticing
+ * that a preview does not feel like a WebP. That is a terrible way to find out.
+ * One line in the container log, naming the variable to set, turns a silent
+ * degradation into a greppable one.
+ */
+let disabledWarningLogged = false
+function warnDisabledOnce(reason: string): void {
+  if (disabledWarningLogged) return
+  disabledWarningLogged = true
+  console.error(
+    `[signed-image-url] Document image optimization is DISABLED: ${reason}. ` +
+      `Images fall back to presigned object-store URLs and next/image will not resize them.`,
+  )
+}
+
+/** Test hook — lets a spec assert the warning fires rather than inheriting a latch. */
+export function resetSigningWarning(): void {
+  disabledWarningLogged = false
 }
 
 export interface DocumentImageClaims {
