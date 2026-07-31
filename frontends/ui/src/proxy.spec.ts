@@ -26,6 +26,9 @@ describe('AuthKit v4 proxy', () => {
             '/api/auth/websocket-scope',
             '/auth/error',
             '/api/internal/(.*)',
+            // The image optimizer re-enters the router in-process, so
+            // middleware runs on this route with a cookie-less mocked request.
+            '/api/documents/(.*)/image',
           ],
         }),
       })

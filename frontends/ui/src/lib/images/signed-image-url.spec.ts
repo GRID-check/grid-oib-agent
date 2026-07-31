@@ -3,6 +3,7 @@ import {
   IMAGE_URL_WINDOW_SECONDS,
   buildDocumentImageUrl,
   imageUrlExpiry,
+  resetSigningWarning,
   verifyDocumentImageUrl,
 } from './signed-image-url'
 
@@ -19,6 +20,7 @@ function paramsOf(url: string): URLSearchParams {
 describe('signed document image URLs', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    resetSigningWarning()
   })
 
   function withSecret(secret = DEFAULT_TEST_SECRET) {
@@ -153,6 +155,38 @@ describe('signed document image URLs', () => {
     // Anyone who read the compose file could otherwise mint a URL for any
     // document in any tenant.
     expect(buildDocumentImageUrl(ORG, DOC, 'original', NOW)).toBeNull()
+  })
+
+  it('says so in the log when signing is disabled, instead of degrading silently', () => {
+    // Falling back to an unoptimized presigned URL is invisible from outside —
+    // it renders, it is just slow — so the log line is the only signal an
+    // operator gets. Losing it means finding out by eye that a preview does not
+    // feel like a WebP.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
+
+    buildDocumentImageUrl(ORG, DOC, 'original', NOW)
+
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('DISABLED'))
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('GRID_INTERNAL_API_TOKEN'))
+
+    // Once, not once per image on the page.
+    buildDocumentImageUrl(ORG, 'doc-2', 'original', NOW)
+    expect(logged).toHaveBeenCalledTimes(1)
+
+    logged.mockRestore()
+  })
+
+  it('names the dev-default cause specifically, since APP_ENV is production on dev stacks too', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    withSecret('grid-internal-dev-token')
+    vi.stubEnv('APP_ENV', 'production')
+
+    buildDocumentImageUrl(ORG, DOC, 'original', NOW)
+
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('well-known dev default'))
+
+    logged.mockRestore()
   })
 
   it('allows the dev secret in development, where it is the configured default', () => {
