@@ -450,3 +450,64 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--background-color-accent-gray-hover);
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Chart color tokens — organization spend visualization (Agent D, dataviz).
+   ONE appended block; nothing above this line was touched.
+
+   These are the categorical slots the org "Usage & budgets" card paints its
+   per-model marks with, plus the two meter states. They live here rather than
+   in a component <style> tag so the light/dark pair is declared once, beside
+   the rest of the design tokens, and so the values are greppable.
+
+   The slot ORDER is the colorblind-safety mechanism, not a preference: it is
+   the documented order of the dataviz reference palette, and it is the order
+   the validator was run against. Never reorder, never cycle — a 9th model
+   folds into `--spend-other`.
+
+     node scripts/validate_palette.js "<the eight light hexes>" \
+       --mode light --surface "#ffffff"          → ALL CHECKS PASS
+     node scripts/validate_palette.js "<the eight dark hexes>"  \
+       --mode dark  --surface "#232220"          → ALL CHECKS PASS
+
+   Surfaces are this app's real card surfaces (`--card`), not the validator's
+   generic defaults — contrast is only meaningful against the surface the chart
+   actually renders on. The dark column is SELECTED for the dark surface (same
+   eight hues, re-stepped and re-validated), never an automatic flip of light.
+
+   Light mode carries a contrast WARN: aqua (2.82:1), yellow (2.17:1) and
+   magenta (2.69:1) sit below 3:1 on white. That is not dismissable — the card
+   discharges it by shipping the always-visible per-model table, so no value is
+   reachable only by matching a color.
+
+   The two meter states are STATUS colors, deliberately outside the categorical
+   slots so a meter can never impersonate a series. `--spend-meter-over` is the
+   critical step (4.80:1 on white, 3.31:1 on the dark card) and always ships
+   beside the over-limit icon + sentence. */
+.grid-spend-viz {
+  --spend-series-1: #2a78d6; /* blue */
+  --spend-series-2: #eb6834; /* orange */
+  --spend-series-3: #1baf7a; /* aqua */
+  --spend-series-4: #eda100; /* yellow */
+  --spend-series-5: #e87ba4; /* magenta */
+  --spend-series-6: #008300; /* green */
+  --spend-series-7: #4a3aa7; /* violet */
+  --spend-series-8: #e34948; /* red */
+  --spend-other: #767672; /* the folded tail — neutral on purpose */
+  --spend-meter: #2a78d6; /* under the limit */
+  --spend-meter-over: #d03b3b; /* at or over the limit */
+}
+
+.dark .grid-spend-viz {
+  --spend-series-1: #3987e5;
+  --spend-series-2: #d95926;
+  --spend-series-3: #199e70;
+  --spend-series-4: #c98500;
+  --spend-series-5: #d55181;
+  --spend-series-6: #008300;
+  --spend-series-7: #9085e9;
+  --spend-series-8: #e66767;
+  --spend-other: #8f8e89;
+  --spend-meter: #3987e5;
+  --spend-meter-over: #d03b3b;
+}
