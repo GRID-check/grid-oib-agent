@@ -484,7 +484,7 @@ class TestVlmClientConstruction:
             b"img",
             vlm_model="m",
             vlm_base_url="https://vlm.test/v1",
-            vlm_api_key="key",
+            vlm_api_key="key",  # pragma: allowlist secret
         )
 
         assert captured_openai["timeout"] == adapter.VLM_REQUEST_TIMEOUT_SECONDS
@@ -495,7 +495,7 @@ class TestVlmClientConstruction:
             b"img",
             vlm_model="m",
             vlm_base_url="https://vlm.test/v1",
-            vlm_api_key="key",
+            vlm_api_key="key",  # pragma: allowlist secret
         )
 
         assert captured_openai["timeout"] == adapter.VLM_REQUEST_TIMEOUT_SECONDS
@@ -525,7 +525,13 @@ class TestBuildImageCaptionDocument:
             lambda *a, **k: ("image", "[Image - analysis failed: provider 500]"),
         )
 
-        doc = adapter._build_image_caption_document(png_file, "plan.png", 123, "png", vlm_api_key="key")
+        doc = adapter._build_image_caption_document(
+            png_file,
+            "plan.png",
+            123,
+            "png",
+            vlm_api_key="key",  # pragma: allowlist secret
+        )
 
         assert doc is None
 
@@ -538,7 +544,13 @@ class TestBuildImageCaptionDocument:
 
         monkeypatch.setattr(adapter, "_analyze_image_with_vlm", forbidden)
 
-        doc = adapter._build_image_caption_document(png_file, "plan.png", 123, "png", vlm_api_key="key")
+        doc = adapter._build_image_caption_document(
+            png_file,
+            "plan.png",
+            123,
+            "png",
+            vlm_api_key="key",  # pragma: allowlist secret
+        )
 
         assert doc is not None
         assert "cached caption" in doc.text
