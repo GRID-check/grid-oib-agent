@@ -64,6 +64,18 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 
 **Best-effort by design**: always returns HTTP `200`. Any failure (no resolvable LLM key → `error=llm_not_configured`; upstream LLM error/transport failure → `llm_request_failed`; unparseable/odd-shaped LLM output → `llm_response_malformed`) yields `findings: null` + an `error` code so the wizard can save anyway. Empty free text short-circuits to `findings: []`. The LLM is resolved from `CONSISTENCY_LLM_MODEL` / `CONSISTENCY_LLM_API_KEY` / `CONSISTENCY_LLM_BASE_URL` (falling back to `LLM_*` then the OpenRouter/OpenAI defaults — see the environment-variables reference). Proxied by the BFF `POST /api/projects/{id}/consistency-check` (which adds `project:edit` authorization).
 
+## Conversations
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/generate-conversation-title` | ChatGPT-style naming of a chat from its opening exchange, plus 0–3 OIB topic tags drawn from the caller's closed vocabulary. Backs the BFF `POST /api/conversations/{id}/generate-title`, which persists both on the `conversations` row so Historie can name and filter the chat. | `{ messages: [{role, content}], allowed_tags: string[], locale? }` | `GenerateConversationTitleResponse`: `{ title, tags, error? }` | `add_generate_conversation_title_routes` in `aiq_api.routes.generate_conversation_title` |
+
+**Best-effort by design**: always returns HTTP `200`, with the same `llm_not_configured` / `llm_request_failed` / `llm_response_malformed` codes as its siblings and an empty title. A title is **cosmetic** — the client has already set a provisional name from the first message and keeps it — so there is deliberately no server-side fallback title (inventing one would overwrite a better name), an empty title is never persisted, and **both sides log a handled failure at WARNING rather than ERROR** so a model's phrasing cannot open a GitHub issue (issue #233). LLM settings resolve through the shared summary chain (`SUMMARY_LLM_*` → `LLM_*` → OpenRouter/OpenAI defaults, plus BYOK via the forwarded `x-grid-organization-id`).
+
+### Reading a reply that must be JSON
+
+`/v1/generate-conversation-title`, `/v1/feedback-digest` and `/v1/consistency-check` all ask an OpenAI-compatible endpoint for "ONLY a JSON object" and share one reader for what comes back (`aiq_api.routes._llm_json`). All three request `response_format: {"type": "json_object"}` so the constraint is on the endpoint and not only on the prompt, and all three tolerate the same, bounded, set of deviations: a ```` ```json ```` fence (closing fence optional), prose before and after the object, and a reply the completion-token cap cut off mid-object (closed with **structural closers only** — no value is ever invented). A reply that contained no JSON object at all is still reported as `llm_response_malformed`: every caller fails open to something better than the model's prose. Unparseable replies are logged with the upstream `finish_reason`, which is what separates "the completion budget was too small" from "the model ignored the contract".
+
 ## Platform quality
 
 | Method | Path | Description | Request | Response | Handler |

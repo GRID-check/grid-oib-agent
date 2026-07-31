@@ -338,3 +338,59 @@ async def test_consistency_check_no_api_key_returns_not_configured(app, monkeypa
     assert response.status_code == 200
     assert response.json() == {"findings": None, "error": "llm_not_configured"}
     mock_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_prose_around_the_object_is_tolerated(app):
+    """Shared with the other JSON routes since issue #233.
+
+    This route used to strip a code fence and nothing else, so a single line of
+    preamble — which the prompt forbids but a model still writes — made a
+    perfectly good findings list unparseable and failed the check open.
+    """
+    content = (
+        "Here is my assessment:\n"
+        + json.dumps(
+            {
+                "findings": [
+                    {
+                        "fields": ["Tell Grid more"],
+                        "severity": "inconsistency",
+                        "explanation": "Eight storeys contradicts two above-ground floors.",
+                    }
+                ]
+            }
+        )
+        + "\nLet me know if you need more detail."
+    )
+    mock_post = AsyncMock(return_value=_llm_response(content))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/consistency-check", json=_body())
+
+    data = response.json()
+    assert data["error"] is None
+    assert len(data["findings"]) == 1
+    assert data["findings"][0]["severity"] == "inconsistency"
+
+
+@pytest.mark.asyncio
+async def test_reply_truncated_by_the_token_cap_is_recovered(app):
+    """A findings list cut off mid-explanation still yields the findings that
+    were complete, instead of failing the whole check open."""
+    content = (
+        '{"findings": [{"fields": ["Tell Grid more"], "severity": "warning", '
+        '"explanation": "Eight storeys contradicts two above-ground floors."}, '
+        '{"fields": ["Tell Grid more"], "severity": "warning", "explanation": "A rooftop bar in a GK1'
+    )
+    mock_post = AsyncMock(return_value=_llm_response(content))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/consistency-check", json=_body())
+
+    data = response.json()
+    assert data["error"] is None
+    assert len(data["findings"]) == 2
+    assert data["findings"][1]["explanation"] == "A rooftop bar in a GK1"

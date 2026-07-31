@@ -26,7 +26,6 @@ path returns an empty digest with a diagnosable code: a digest is a convenience
 on top of a page that works without it, and must never be able to take it down.
 """
 
-import json
 import logging
 
 import httpx
@@ -36,6 +35,8 @@ from fastapi import Header
 from ..models.requests import MAX_DIGEST_SAMPLES
 from ..models.requests import FeedbackDigestRequest
 from ..models.requests import FeedbackDigestResponse
+from ._llm_json import extract_json_object
+from ._llm_json import message_content
 from .generate_summary import _llm_settings
 
 logger = logging.getLogger(__name__)
@@ -206,22 +207,15 @@ def _clean_item(value: object) -> str | None:
 
 
 def _parse_digest(raw: str | None) -> tuple[str, list[str], list[str], str | None]:
-    """Extract the digest from the model's reply, tolerating code fences.
+    """Extract the digest from the model's reply.
 
+    Fences, surrounding prose and a reply cut off by the token cap are absorbed
+    by :func:`~._llm_json.extract_json_object` — shared with the other two
+    JSON-returning routes so all three tolerate the same things (issue #233).
     Raises ValueError when no usable object can be recovered, so the caller can
     return a diagnosable ``llm_response_malformed`` instead of a blank card.
     """
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1] if "\n" in text else text
-        text = text.rsplit("```", 1)[0]
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise ValueError("no JSON object in response")
-    data = json.loads(text[start : end + 1])
-    if not isinstance(data, dict):
-        raise ValueError("response JSON is not an object")
+    data = extract_json_object(raw)
 
     headline = data.get("headline", "")
     if not isinstance(headline, str):
@@ -296,6 +290,10 @@ def add_feedback_digest_routes(router: APIRouter) -> None:
             "model": model,
             "temperature": 0.2,
             "max_tokens": 700,
+            # Same endpoint-level JSON contract the other two JSON routes send:
+            # asking for an object in the prompt alone leaves the model free to
+            # answer in prose, which this route can only report as malformed.
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -322,15 +320,19 @@ def add_feedback_digest_routes(router: APIRouter) -> None:
             return FeedbackDigestResponse(headline="", error="llm_request_failed")
 
         try:
-            raw = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, AttributeError, TypeError):
+            raw, finish_reason = message_content(data)
+        except ValueError:
             logger.warning("Feedback-digest LLM response had an unexpected shape")
             return FeedbackDigestResponse(headline="", error="llm_response_malformed")
 
         try:
             headline, strengths, concerns, recommendation = _parse_digest(raw)
-        except (ValueError, json.JSONDecodeError):
-            logger.warning("Feedback-digest LLM did not return usable JSON")
+        except ValueError:
+            logger.warning(
+                "Feedback-digest LLM did not return usable JSON (finish_reason=%s, %d chars)",
+                finish_reason,
+                len(raw or ""),
+            )
             return FeedbackDigestResponse(headline="", error="llm_response_malformed")
 
         if not headline and not strengths and not concerns:

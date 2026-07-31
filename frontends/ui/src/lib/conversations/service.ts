@@ -343,11 +343,15 @@ export async function generateConversationTitle(
       signal: AbortSignal.timeout(GENERATE_TITLE_TIMEOUT_MS),
     })
   } catch (e) {
-    console.error('[GenerateConversationTitle] Backend unreachable (non-fatal):', e)
+    console.warn('[GenerateConversationTitle] Backend unreachable (non-fatal):', e)
     return { title: '', tags: [], error: 'backend_unreachable' }
   }
 
   if (!backendRes.ok) {
+    // The ONLY error-severity path left here, and deliberately so: this endpoint
+    // answers 200 for every LLM outcome it knows how to degrade from, so a
+    // non-2xx means it broke its own contract (a crash, a schema rejection) —
+    // something is wrong with our code rather than with a model's phrasing.
     const errorText = await backendRes.text().catch(() => '')
     console.error('[GenerateConversationTitle] Backend error:', backendRes.status, errorText)
     return { title: '', tags: [], error: 'backend_error' }
@@ -360,7 +364,15 @@ export async function generateConversationTitle(
   }
 
   if (error) {
-    console.error('[GenerateConversationTitle] Generation failed:', error)
+    // WARN, not ERROR (issue #233). These codes — `llm_response_malformed`,
+    // `llm_request_failed`, `llm_not_configured` — are the backend reporting a
+    // degradation it already handled: it answered 200, the chat keeps the
+    // provisional name the client set from the first message, and nothing the
+    // user can see is broken. Logging them at ERROR made err2issue open a
+    // GitHub issue every time a model phrased its JSON slightly differently,
+    // which is noise about a cosmetic nicety, not an incident. The line stays
+    // (the code is still worth having in the logs) — only the severity drops.
+    console.warn('[GenerateConversationTitle] Generation failed (non-fatal):', error)
     return { title: '', tags: [], error }
   }
 
