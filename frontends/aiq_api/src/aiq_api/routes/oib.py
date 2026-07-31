@@ -248,7 +248,11 @@ def _resolve_corpus_pdf(file_name: str) -> Path | None:
 
 
 def add_oib_routes(router: APIRouter) -> None:
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="oib-sync-")
+    # 2 workers so a ZIP upload's blocking per-member polls (ingest_single
+    # waits for the adapter's ingest pool) don't fully serialize: members
+    # overlap by one. The adapter's AIQ_INGEST_MAX_WORKERS pool remains the
+    # real concurrency gate; the oib_sync registry lock protects RMW.
+    executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="oib-sync-")
 
     @router.post(
         "/v1/admin/oib/sync",

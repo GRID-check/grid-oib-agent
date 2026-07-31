@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +66,14 @@ def _file_hash(path: Path) -> str:
 # a PDF happens to change. Stored under a reserved key in the sync registry.
 CHUNK_FORMAT_VERSION = 1
 _FORMAT_KEY = "__chunk_format_version__"
+
+
+# Serialises registry read-modify-write sequences. ZIP admin uploads ingest
+# members concurrently (the oib route's executor runs >1 thread) and a full
+# sync() can overlap with them — without the lock, two threads can each load
+# the registry, and the later save silently drops the other's new hash entry
+# (lost hashes cause a wasteful re-ingest next sync, never corruption).
+_REGISTRY_LOCK = threading.Lock()
 
 
 def _load_registry() -> dict[str, str]:
@@ -226,9 +235,10 @@ def ingest_single(pdf: Path) -> "FileStatus | None":
         info = ingestor.get_file_status(file_info.file_id, COLLECTION_NAME)
         status = info.status if info else None
         if status == FileStatus.SUCCESS:
-            registry = _load_registry()
-            registry[str(pdf)] = current_hash
-            _save_registry(registry)
+            with _REGISTRY_LOCK:
+                registry = _load_registry()
+                registry[str(pdf)] = current_hash
+                _save_registry(registry)
             logger.info("OIB upload ingested: %s chunks=%s", pdf.name, info.chunk_count if info else "unknown")
             return status
         if status == FileStatus.FAILED:
@@ -260,9 +270,10 @@ def remove_uploaded_document(file_name: str) -> bool:
     except Exception as exc:
         logger.warning("Could not delete chunks for %s: %s", name, exc)
 
-    registry = _load_registry()
-    if registry.pop(str(path), None) is not None:
-        _save_registry(registry)
+    with _REGISTRY_LOCK:
+        registry = _load_registry()
+        if registry.pop(str(path), None) is not None:
+            _save_registry(registry)
 
     try:
         from aiq_agent.knowledge.factory import unregister_summary
@@ -292,12 +303,13 @@ def exclude_document(name: str) -> None:
     except Exception as exc:
         logger.warning("Could not delete chunks for excluded %s: %s", base, exc)
 
-    registry = _load_registry()
-    stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
-    if stale_keys:
-        for key in stale_keys:
-            registry.pop(key, None)
-        _save_registry(registry)
+    with _REGISTRY_LOCK:
+        registry = _load_registry()
+        stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
+        if stale_keys:
+            for key in stale_keys:
+                registry.pop(key, None)
+            _save_registry(registry)
 
     try:
         from aiq_agent.knowledge.factory import unregister_summary
@@ -546,8 +558,9 @@ def sync() -> tuple[int, int]:
 
             elapsed = now - item.submitted_at
             if status == FileStatus.SUCCESS:
-                registry[str(item.pdf)] = item.current_hash
-                _save_registry(registry)
+                with _REGISTRY_LOCK:
+                    registry[str(item.pdf)] = item.current_hash
+                    _save_registry(registry)
                 succeeded += 1
                 active.pop(file_id, None)
                 made_progress = True
