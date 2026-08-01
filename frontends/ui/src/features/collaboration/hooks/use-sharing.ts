@@ -19,7 +19,7 @@ import type {
   ShareCandidate,
   ShareableResourceType,
 } from '@/lib/sharing/types'
-import { createRetryLadder } from '@/shared/utils/backoff'
+import { createRetryLadder, type RetryLadder } from '@/shared/utils/backoff'
 import { useLiveEvents } from './use-live-events'
 
 /** A refusal the UI can localise, extracted from the standard error envelope. */
@@ -107,7 +107,12 @@ export function useSharing(
   // The ladder owns its own position and timer (see `createRetryLadder`) — four
   // hand-rolled copies of that bookkeeping is how this codebase got four
   // different reset bugs.
-  const retry = useRef(createRetryLadder({ delaysMs: RETRY_DELAYS_MS })).current
+  // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
+  // render. Harmless — no timer is armed at construction — but wasteful and not
+  // the idiom.
+  const retryRef = useRef<RetryLadder | null>(null)
+  retryRef.current ??= createRetryLadder({ delaysMs: RETRY_DELAYS_MS })
+  const retry = retryRef.current
   // Lets a scheduled retry call the CURRENT refresh without making `refresh`
   // depend on itself.
   const refreshRef = useRef<() => void>(() => {})
@@ -210,8 +215,16 @@ export function useSharing(
         // invite someone, tab away and back (which restarts the read), and the
         // read could land last and quietly restore the roster without them.
         seq.current += 1
-        cancelRetry()
+        // `reset`, and the two `set`s below it, because this response is a
+        // complete answer — the same thing the read was retrying FOR. Cancelling
+        // the pending retry without them stranded the dialog: `loading` is held
+        // true across the whole ladder on purpose, so dropping the last rung left
+        // nothing to ever set it false or raise `loadError`. A skeleton over
+        // fresh, correct state, for good.
+        retry.reset()
         setState(data)
+        setLoadError(false)
+        setLoading(false)
         return true
       } catch {
         setFailure({ reason: null, message: null })
@@ -220,7 +233,7 @@ export function useSharing(
         setSaving(false)
       }
     },
-    [cancelRetry],
+    [retry],
   )
 
   const json = (body: unknown): RequestInit => ({
@@ -373,7 +386,12 @@ export function useMentionCandidates(
   // read 404s. Without the ladder that 404 was permanent for the thread — the
   // picker stayed dead until a reload, for exactly the first-time user `@`
   // exists to teach.
-  const retry = useRef(createRetryLadder({ delaysMs: RETRY_DELAYS_MS })).current
+  // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
+  // render. Harmless — no timer is armed at construction — but wasteful and not
+  // the idiom.
+  const retryRef = useRef<RetryLadder | null>(null)
+  retryRef.current ??= createRetryLadder({ delaysMs: RETRY_DELAYS_MS })
+  const retry = retryRef.current
 
   const cancelRetry = useCallback(() => retry.cancel(), [retry])
 

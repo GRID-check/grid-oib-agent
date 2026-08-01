@@ -717,6 +717,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         current === preset
           ? (sources ?? []).map((s) => s.id)
           : computePresetSourceIds(preset, sources ?? [])
+      // NOTE: `saveDataSourcesToConversation` persists onto the conversation, so
+      // this is a write. Its viewer gate is the render condition on the chip row
+      // (`!cannotContribute`) rather than a check here, because the chips are not
+      // rendered at all for a viewer — there is no control to hold a stale
+      // handle to. `cannotContribute` is declared below this callback, so
+      // repeating the check here would be a use-before-declaration.
       applySourcePreset(current === preset ? null : preset, nextIds)
       saveDataSourcesToConversation?.(nextIds)
     },
@@ -1706,6 +1712,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <Button
                   size="icon"
                   className="size-9 rounded-lg shadow-md"
+                  // `isStreaming` is the LOCAL store's turn flag and a viewer
+                  // never starts a local turn, so this is belt and braces rather
+                  // than a demonstrated hole — but cancelling somebody else's
+                  // turn is the most consequential thing on this row, and it was
+                  // the one control here with no gate at all.
+                  disabled={cannotContribute}
                   onClick={() => stopStreaming?.()}
                   aria-label={t('inputArea.stopStreaming')}
                   title={t('inputArea.stopStreaming')}
@@ -1901,8 +1913,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       )}
 
       {/* Shortcut preset chips (empty thread only): map onto the REAL data
-          sources in the store — see lib/source-presets.ts. */}
-      {isEmptyThread && !isDisabledByAuth && (
+          sources in the store — see lib/source-presets.ts.
+
+          `cannotContribute`, not `isDisabledByAuth`: `handlePresetClick` calls
+          `saveDataSourcesToConversation`, which persists the Datengrundlage onto
+          the conversation — exactly the write the viewer gate exists to stop,
+          and the one the user guide claims is closed. "Empty thread" is not the
+          protection it looks like either: `isEmptyThread` is also true on any
+          shared thread for as long as its messages are still loading. */}
+      {isEmptyThread && !cannotContribute && (
         <div
           // Shortcuts are a desktop affordance — hidden on mobile, where they
           // only add vertical bulk under an already space-constrained composer.

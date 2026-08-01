@@ -114,12 +114,20 @@ body {
    line, as a sentence that has been cut off. Releasing it in the last 40px of
    travel makes its PRESENCE the signal.
 
-   Scroll-driven, so it costs no JavaScript, no listener and no re-render. Where
-   `animation-timeline` is unsupported the timeline is simply inactive and the
-   fade stays at its declared 24px — which is exactly the old behaviour, so the
-   degradation is "no worse than before" rather than "broken". Same when the
-   element does not actually overflow: an inactive timeline, and a mask that
-   lands on the container's own bottom padding where there is nothing to dissolve. */
+   Scroll-driven, so it costs no JavaScript, no listener and no re-render.
+
+   The `@supports` wrapper is load-bearing, not belt and braces. A UA without
+   scroll-driven animations does not get an inactive timeline — it DROPS
+   `animation-timeline` as an unrecognised declaration and keeps the `animation`
+   shorthand, which then runs on the document timeline with `duration: auto`
+   (0s) and `fill: both`. That completes instantly and pins the fade at 0px
+   permanently: not broken, but absent everywhere, which is the opposite of the
+   intended degradation. Guarding the three declarations together leaves those
+   browsers with the plain 24px mask, exactly as before.
+
+   When the element does not overflow, the timeline is inactive and the mask
+   lands on the container's own bottom padding, where there is nothing to
+   dissolve. */
 @property --scroll-fade-size {
   syntax: '<length>';
   inherits: false;
@@ -144,12 +152,14 @@ body {
     black calc(100% - var(--scroll-fade-size)),
     transparent 100%
   );
-  animation: scroll-fade-settle linear both;
-  animation-timeline: scroll(self block);
-  /* The last 40px of travel, not a percentage: a percentage makes the release
-     take longer the longer the list is, so a long roster would spend the whole
-     bottom third half-faded. */
-  animation-range: calc(100% - 40px) 100%;
+  @supports (animation-timeline: scroll(self block)) {
+    animation: scroll-fade-settle linear both;
+    animation-timeline: scroll(self block);
+    /* The last 40px of travel, not a percentage: a percentage makes the release
+       take longer the longer the list is, so a long roster would spend the whole
+       bottom third half-faded. */
+    animation-range: calc(100% - 40px) 100%;
+  }
 }
 
 /* Hide scrollbar utility */

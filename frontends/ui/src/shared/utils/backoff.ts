@@ -114,9 +114,17 @@ export function createRetryLadder(options: RetryLadderOptions): RetryLadder {
   let attempts = 0
   let timer: ReturnType<typeof setTimeout> | null = null
 
+  /** Whether rung `index` exists at all. Kept separate from the delay so `spent`
+      can ask the question without drawing from `random` — reading a getter must
+      not move a seeded sequence on under a test. */
+  const hasRung = (index: number): boolean =>
+    'delaysMs' in options
+      ? options.delaysMs[index] !== undefined
+      : options.budget === undefined || index < options.budget
+
   const delayFor = (index: number): number | null => {
-    if ('delaysMs' in options) return options.delaysMs[index] ?? null
-    if (options.budget !== undefined && index >= options.budget) return null
+    if (!hasRung(index)) return null
+    if ('delaysMs' in options) return options.delaysMs[index]
     return backoffWithJitter(index, options)
   }
 
@@ -144,7 +152,7 @@ export function createRetryLadder(options: RetryLadderOptions): RetryLadder {
     },
     cancel,
     get spent() {
-      return delayFor(attempts) === null
+      return !hasRung(attempts)
     },
   }
 }

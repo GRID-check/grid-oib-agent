@@ -54,7 +54,7 @@ import {
   publishTurnActor,
   useThreadRevision,
 } from '@/shared/collaboration/thread-sharing'
-import { createRetryLadder } from '@/shared/utils/backoff'
+import { createRetryLadder, type RetryLadder } from '@/shared/utils/backoff'
 import { useLiveEvents } from './use-live-events'
 
 /**
@@ -312,9 +312,11 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     had failed, and it needs a recovery path of its own rather than borrowing one.
     Short and bounded — this covers a blip, not an outage.
   */
-  const accessRetry = useRef(
-    createRetryLadder({ delaysMs: ACCESS_RETRY_DELAYS_MS })
-  ).current
+  // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
+  // render. Harmless — no timer is armed at construction — but wasteful.
+  const accessRetryRef = useRef<RetryLadder | null>(null)
+  accessRetryRef.current ??= createRetryLadder({ delaysMs: ACCESS_RETRY_DELAYS_MS })
+  const accessRetry = accessRetryRef.current
   const loadRef = useRef<(replace: boolean) => void>(() => {})
 
 

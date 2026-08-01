@@ -1753,6 +1753,22 @@ describe('InputArea', () => {
       // so they are writes too — `disabled` used to reach only the textarea and
       // the send button.
       expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
+      // Named in this test's title from the start, and not actually asserted
+      // until an independent review pointed out that the name promised more than
+      // the body checked.
+      expect(screen.getByRole('button', { name: /data basis/i })).toBeDisabled()
+    })
+
+    test('cannot apply a shortcut preset either, which also writes the Datengrundlage', () => {
+      // The gap the control-row gate left. `handlePresetClick` calls
+      // `saveDataSourcesToConversation`, so these chips rewrite which sources the
+      // next person's turn will use — and they were gated on the auth flag alone.
+      // "Empty thread only" is not the protection it looks like: `isEmptyThread`
+      // is also true on any shared thread while its messages are still loading.
+      asViewer()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
     })
 
     test('cannot remove or retry a file off somebody else’s thread', () => {
@@ -1804,6 +1820,7 @@ describe('InputArea', () => {
       // of those checks cannot pass because the query itself stopped matching.
       expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
       expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: /shortcuts/i })).toBeInTheDocument()
     })
   })
 })
