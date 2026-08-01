@@ -139,6 +139,12 @@ function buildMatcher(utilityNames) {
 
   // Left boundary rejects a longer identifier or a path segment; the modifier is a
   // bare number/percentage or an arbitrary `[…]` value, matching Tailwind's syntax.
+  //
+  // The interpolated part is not user input and cannot introduce metacharacters:
+  // every alternative is an `@utility` name parsed out of globals.css under
+  // `[a-zA-Z0-9_-]+`, and each one is regex-escaped above. A flat alternation of
+  // literals has no nested quantifier to backtrack on, so ReDoS is not reachable.
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   return new RegExp(
     `(?<![a-zA-Z0-9_./-])(${alternation})/(\\[[^\\]\\s]+\\]|\\d+(?:\\.\\d+)?%?)`,
     'g'
