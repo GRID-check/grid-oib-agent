@@ -228,7 +228,13 @@ describe('collaboration rows', () => {
     }
   })
 
-  it('skips the collaboration deletes when the project held no conversations', async () => {
+  it('still issues the collaboration deletes when the gathered snapshot was empty', async () => {
+    // An empty snapshot does not mean the project is empty when the deletes run:
+    // conversation creation checks access and inserts as two separate steps, so a
+    // request that passed the check before the soft delete can commit its insert
+    // after our SELECT. Skipping the three statements on an empty snapshot would
+    // leave that conversation's grants, mention requests and inbox items behind
+    // while `DELETE FROM conversations` below removed the row they point at.
     const { tx, executed } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_p1' },
       conversationRows: [],
@@ -237,6 +243,8 @@ describe('collaboration rows', () => {
     await purgeProject(tx, entry, makeDeps())
 
     const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
-    expect(deletes.some((call) => call.text.includes('inbox_items'))).toBe(false)
+    for (const name of ['inbox_items', 'mention_requests', 'resource_shares']) {
+      expect(deletes.some((call) => call.text.includes(name))).toBe(true)
+    }
   })
 })

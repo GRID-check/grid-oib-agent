@@ -52,8 +52,11 @@ const KNOWN_VIOLATIONS = []
  * String and template literals are deliberately left intact — that is where class
  * names actually live — and are tracked only so a `//` inside `'https://…'` is not
  * mistaken for a comment.
+ *
+ * `lineComments: false` is for CSS, where `//` is not a comment at all: blanking
+ * it would swallow the rest of a line holding an unquoted `url(https://…)`.
  */
-export function blankComments(source) {
+export function blankComments(source, { lineComments = true } = {}) {
   const out = source.split('')
   let i = 0
   let quote = null // "'" | '"' | '`' when inside a string/template literal
@@ -77,7 +80,7 @@ export function blankComments(source) {
       continue
     }
 
-    if (ch === '/' && next === '/') {
+    if (lineComments && ch === '/' && next === '/') {
       while (i < source.length && source[i] !== '\n') out[i++] = ' '
       continue
     }
@@ -105,9 +108,13 @@ export function blankComments(source) {
  */
 export function parseStaticUtilities(css) {
   const names = []
+  // Comments are blanked first: a commented-out `--modifier(…)` inside a static
+  // block would exempt the utility and blind the guard, and a commented-out
+  // `@utility foo {` would declare one that does not exist.
+  const scannable = blankComments(css, { lineComments: false })
   const declaration = /@utility\s+([a-zA-Z0-9_-]+(?:-\*)?)\s*\{/g
 
-  for (const match of css.matchAll(declaration)) {
+  for (const match of scannable.matchAll(declaration)) {
     const name = match[1]
     if (name.endsWith('-*')) continue
 
@@ -116,53 +123,45 @@ export function parseStaticUtilities(css) {
     let depth = 0
     let i = match.index + match[0].length - 1
     const start = i
-    for (; i < css.length; i += 1) {
-      if (css[i] === '{') depth += 1
-      else if (css[i] === '}') {
+    for (; i < scannable.length; i += 1) {
+      if (scannable[i] === '{') depth += 1
+      else if (scannable[i] === '}') {
         depth -= 1
         if (depth === 0) break
       }
     }
 
-    if (!css.slice(start, i).includes('--modifier(')) names.push(name)
+    if (!scannable.slice(start, i).includes('--modifier(')) names.push(name)
   }
 
   return names
 }
 
-/** Longest-first alternation so `bg-info-subtle` wins over `bg-info`. */
-function buildMatcher(utilityNames) {
-  const alternation = [...utilityNames]
-    .sort((a, b) => b.length - a.length)
-    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')
-
-  // Left boundary rejects a longer identifier or a path segment; the modifier is a
-  // bare number/percentage or an arbitrary `[…]` value, matching Tailwind's syntax.
-  //
-  // The interpolated part is not user input and cannot introduce metacharacters:
-  // every alternative is an `@utility` name parsed out of globals.css under
-  // `[a-zA-Z0-9_-]+`, and each one is regex-escaped above. A flat alternation of
-  // literals has no nested quantifier to backtrack on, so ReDoS is not reachable.
-  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-  return new RegExp(
-    `(?<![a-zA-Z0-9_./-])(${alternation})/(\\[[^\\]\\s]+\\]|\\d+(?:\\.\\d+)?%?)`,
-    'g'
-  )
-}
+/**
+ * Any class-shaped token carrying a slash modifier. The utility names are matched
+ * in JavaScript afterwards rather than interpolated into the pattern: a literal
+ * regex keeps the SAST pipeline's "no dynamic RegExp" rule satisfied without an
+ * exception, and the greedy `[a-zA-Z0-9_-]+` already takes the longest token, so
+ * `bg-info-subtle/40` is read as `bg-info-subtle` and never as `bg-info`.
+ *
+ * The left boundary rejects a longer identifier or a path segment; the modifier is
+ * a bare number/percentage or an arbitrary `[…]` value, matching Tailwind's syntax.
+ */
+const CLASS_WITH_MODIFIER = /(?<![a-zA-Z0-9_./-])([a-zA-Z0-9_-]+)\/(\[[^\]\s]+\]|\d+(?:\.\d+)?%?)/g
 
 export function findViolations(source, utilityNames) {
   if (utilityNames.length === 0) return []
 
   const scannable = blankComments(source)
-  const matcher = buildMatcher(utilityNames)
+  const statics = new Set(utilityNames)
   const lineStarts = [0]
   for (let i = 0; i < scannable.length; i += 1) {
     if (scannable[i] === '\n') lineStarts.push(i + 1)
   }
 
   const violations = []
-  for (const match of scannable.matchAll(matcher)) {
+  for (const match of scannable.matchAll(CLASS_WITH_MODIFIER)) {
+    if (!statics.has(match[1])) continue
     let line = lineStarts.length - 1
     while (line > 0 && lineStarts[line] > match.index) line -= 1
     violations.push({

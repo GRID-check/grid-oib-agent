@@ -29,6 +29,26 @@ describe('parseStaticUtilities', () => {
     const css = `@utility tab-* {\n  tab-size: --value(--tab-size-*);\n}`
     expect(parseStaticUtilities(css)).toEqual([])
   })
+
+  // A commented-out or merely discussed `--modifier(…)` exempts nothing: read as
+  // code it would make a static utility look modifier-capable, and the guard
+  // would then stop reporting every `bg-warning/15` in the tree.
+  it('ignores a --modifier() that only appears inside a comment', () => {
+    const css = `@utility bg-warning {\n  /* --modifier(--alpha(x)) would be needed for bg-warning/15 */\n  background-color: var(--warn);\n}`
+    expect(parseStaticUtilities(css)).toEqual(['bg-warning'])
+  })
+
+  it('ignores a commented-out @utility declaration', () => {
+    const css = `/* @utility bg-ghost {\n  background-color: var(--ghost);\n} */\n@utility bg-warning {\n  background-color: var(--warn);\n}`
+    expect(parseStaticUtilities(css)).toEqual(['bg-warning'])
+  })
+
+  // `//` is not a CSS comment: blanking it would swallow the rest of the line,
+  // and with it the `--modifier()` that exempts this utility.
+  it('does not treat // in a URL as a comment', () => {
+    const css = `@utility bg-warning {\n  background-image: url(https://example.test/x.png); border-color: --modifier(--alpha(x));\n}`
+    expect(parseStaticUtilities(css)).toEqual([])
+  })
 })
 
 describe('findViolations', () => {

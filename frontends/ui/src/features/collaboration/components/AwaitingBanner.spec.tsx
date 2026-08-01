@@ -136,10 +136,12 @@ describe('AwaitingBanner — the silence is explained (MN-8)', () => {
       />,
     )
     const row = screen.getAllByTestId('awaiting-person')[0]
-    const children = Array.from(row.children)
     const note = within(row).getByText('Ist das Atrium ein eigener Abschnitt?')
     const button = within(row).getByRole('button')
-    expect(children.indexOf(note)).toBeLessThan(children.indexOf(button))
+    // Document position, not `row.children` indexes: either element may be
+    // nested, and `indexOf` returns -1 for a non-direct child — which compares
+    // as "before" and would pass while the button actually came first.
+    expect(note.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
   })
 
   test('tells two waits on the same person apart by name', () => {

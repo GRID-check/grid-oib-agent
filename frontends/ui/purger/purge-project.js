@@ -124,22 +124,27 @@ async function purgeProject(tx, entry, deps) {
   //    many conversations the project holds, so the statement count and the
   //    parameter count are both constant.
   //
-  //    Reading the set from the table also narrows a snapshot gap: a conversation
+  //    Reading the set from the table also closes a snapshot gap: a conversation
   //    that appeared after the SELECT above is still caught by
   //    `DELETE FROM conversations WHERE project_id = …` below, but was absent
   //    from the gathered id list — so its collaboration rows were orphaned by
   //    the very statements meant to prevent that. Same transaction, same
-  //    predicate, and the conversations are still present when these run. (The
-  //    guard below is still the gathered snapshot, so a project that was empty
-  //    at gather time issues no collaboration statements at all, as before.)
+  //    predicate, and the conversations are still present when these run.
+  //
+  //    These run UNCONDITIONALLY, including for a project that held no
+  //    conversations at gather time. Creating a conversation checks project
+  //    access and inserts in separate operations, so a request that passed the
+  //    check before the soft delete can commit its insert after our SELECT; a
+  //    guard on the empty snapshot would then skip all three statements while
+  //    `DELETE FROM conversations` below still removed that row — orphaning its
+  //    grants, mention requests and inbox items for good. Three no-op deletes
+  //    are cheaper than that.
   //
   //    `conversations.id` and `resource_id` are both `text`, so the comparison
   //    needs no cast.
-  if (conversations.length > 0) {
-    await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
-    await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
-    await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
-  }
+  await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+  await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+  await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }
