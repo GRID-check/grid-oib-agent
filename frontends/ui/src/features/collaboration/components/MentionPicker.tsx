@@ -30,6 +30,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -287,6 +288,27 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
       },
       [selectable],
     )
+
+    /*
+      Keep the highlighted row on screen.
+
+      The panel is bounded (`max-h-[320px]`) and the list scrolls, but nothing
+      scrolled it: arrowing past the fifth candidate moved the highlight onto a
+      row the user could not see, and `↵` then inserted somebody they had never
+      laid eyes on. The bottom fade said "more below" and the keyboard could not
+      reach it — the worst combination, because `@` is a keyboard surface first.
+
+      `block: 'nearest'` so a row already visible is left exactly where it is;
+      only a row past an edge moves, and only by as much as it must. Layout
+      effect, so the scroll lands in the same frame as the highlight rather than
+      one frame behind it.
+    */
+    useLayoutEffect(() => {
+      if (!active) return
+      rootRef.current
+        ?.querySelector(`#${CSS.escape(mentionOptionDomId(active))}`)
+        ?.scrollIntoView({ block: 'nearest' })
+    }, [active])
 
     // Publish the ids the composer's textarea has to reference. A passive effect
     // (not layout) because React attaches THIS component's ref only after its

@@ -659,7 +659,14 @@ export function ShareDialog({
           </div>
         ) : null}
 
-        <DialogFooter className="sm:justify-between">
+        {/* `pt-4`: the scroll well ends flush against this footer, and on a phone
+            the row dissolving at that boundary sat directly on the Close button —
+            which reads as content sliding UNDER a control rather than as a list
+            with more below it. A gap is what makes the two read as separate
+            planes; the fade then says "more below" instead of "something is
+            broken here". Only above, so the footer's own bottom padding (and the
+            dialog's safe-area inset) are untouched. */}
+        <DialogFooter className="pt-4 sm:justify-between">
           {/* Leaving needs no ownership (SH-12). An owner may leave too — as long
               as another owner remains; the last-owner invariant is enforced
               server-side, so the button simply isn't offered in that case. */}
