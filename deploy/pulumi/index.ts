@@ -8,7 +8,7 @@
  *               (Deployment + HPA), purger, workflow-scheduler, a migration Job
  *               and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
- *               for the app and the public S3 endpoint
+ *               for the app, the landing site and the public S3 endpoint
  *
  * The agent tier scales VERTICALLY here (resources + Dask knobs + admission
  * caps); every precondition for later HORIZONTAL scaling is already wired
@@ -33,6 +33,7 @@ import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { installBackend } from "./src/app/backend";
 import { installFrontend } from "./src/app/frontend";
+import { installWeb } from "./src/app/web";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installHttpRoutes } from "./src/app/httproutes";
@@ -119,6 +120,8 @@ const backend = installBackend(wiring, cfg, secrets, [
 
 const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
+// Landing site + blog (Astro, frontends/web) — static-first, no secrets.
+const web = installWeb(cfg, provider, namespace, [ns]);
 
 // Research worker tier — only when execution is DB-claimed (ADR-0021).
 const agentWorker =
@@ -143,6 +146,7 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
   gatewayResources.gateway,
   frontend.service,
   seaweed.service,
+  web.service,
 ]);
 
 // ── Observability (OTel Collector + Aspire dashboard, ADR-0029) ──────────────
@@ -174,15 +178,18 @@ if (cfg.observability.enabled) {
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
 export const s3Url = pulumi.interpolate`https://${cfg.ingress.s3Domain}`;
+export const webUrl = pulumi.interpolate`https://${cfg.ingress.webDomain}`;
 export const appNamespace = namespace;
 export const postgresRwHost = postgres.rwHost;
 export const backendService = backend.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
+export const webService = web.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
 export const schedulerDeployment = workers.scheduler
   ? workers.scheduler.metadata.name
   : pulumi.output("(none: workflows disabled)");
 export const appRoute = routes.app.metadata.name;
+export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
 export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
 export const jobExecution = cfg.jobExecution;

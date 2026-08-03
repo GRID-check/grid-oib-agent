@@ -56,9 +56,10 @@ export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Re
 /**
  * GatewayClass `eg` (bound to the Envoy Gateway controller) + the Gateway with
  * an HTTP :80 listener (ACME HTTP-01 challenge) and per-host HTTPS :443
- * listeners for appDomain + s3Domain. TLS is provisioned by cert-manager's
- * Gateway shim: the annotation names the ClusterIssuer, and cert-manager
- * creates a Certificate for each listener's `certificateRefs` secret.
+ * listeners for appDomain, s3Domain and the landing site (webDomain). TLS is
+ * provisioned by cert-manager's Gateway shim: the annotation names the
+ * ClusterIssuer, and cert-manager creates a Certificate for each listener's
+ * `certificateRefs` secret.
  */
 export function installGatewayResources(
   cfg: GridConfig,
@@ -192,6 +193,15 @@ export function installGatewayResources(
         protocol: "HTTPS",
         hostname: cfg.ingress.s3Domain,
         tls: { mode: "Terminate", certificateRefs: [{ name: "grid-s3-tls" }] },
+        allowedRoutes: { namespaces: { from: "Same" } },
+      },
+      {
+        // Landing site (frontends/web) — apex host (e.g. dev.piloti.at).
+        name: "https-web",
+        port: 443,
+        protocol: "HTTPS",
+        hostname: cfg.ingress.webDomain,
+        tls: { mode: "Terminate", certificateRefs: [{ name: "grid-web-tls" }] },
         allowedRoutes: { namespaces: { from: "Same" } },
       },
       // Aspire dashboard UI — only when the observability tier is deployed

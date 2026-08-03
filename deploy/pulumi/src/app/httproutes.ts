@@ -47,6 +47,7 @@ const edgeRetry: IRetry = {
  * Gateway API HTTPRoutes (replacing the legacy Ingress resources):
  *   - appDomain → frontend:3000 (UI + BFF + WebSocket chat upgrades)
  *   - s3Domain  → seaweedfs:8333 (browser presigned preview/download URLs)
+ *   - webDomain → web:4321 (landing site + blog, frontends/web)
  *
  * Each route attaches to its dedicated HTTPS listener on the shared Gateway.
  * WebSocket upgrades pass through natively; Envoy Gateway streams large bodies
@@ -57,7 +58,11 @@ export function installHttpRoutes(
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
   dependsOn: pulumi.Resource[],
-): { app: k8s.apiextensions.CustomResource; s3: k8s.apiextensions.CustomResource } {
+): {
+  app: k8s.apiextensions.CustomResource;
+  s3: k8s.apiextensions.CustomResource;
+  web: k8s.apiextensions.CustomResource;
+} {
   const appRouteSpec: IHTTPRouteSpec = {
     parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-app" }],
     hostnames: [cfg.ingress.appDomain],
@@ -121,6 +126,22 @@ export function installHttpRoutes(
     { provider, dependsOn },
   );
 
+  const webRouteSpec: IHTTPRouteSpec = {
+    parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-web" }],
+    hostnames: [cfg.ingress.webDomain],
+    rules: [{ backendRefs: [{ name: "web", port: PORT.web }] }],
+  };
+  const web = new k8s.apiextensions.CustomResource(
+    "grid-web-route",
+    {
+      apiVersion: "gateway.networking.k8s.io/v1",
+      kind: "HTTPRoute",
+      metadata: { name: "grid-web", namespace, labels: commonLabels("web") },
+      spec: webRouteSpec,
+    },
+    { provider, dependsOn },
+  );
+
   new k8s.apiextensions.CustomResource(
     "grid-s3-backend-traffic-policy",
     {
@@ -132,5 +153,26 @@ export function installHttpRoutes(
     { provider, dependsOn: s3 },
   );
 
-  return { app, s3 };
+  // Landing site route. Static pages are served well inside Envoy's default 15s
+  // request timeout, so unlike the app/s3 routes there is NO 3600s
+  // requestTimeout here — the default budget is correct for prerendered HTML.
+  // Retries stay: the same endpoint-programming race on every web rolling
+  // update (surge-only, one pod at a time) would otherwise surface to visitors
+  // as a failed page load.
+  const webBackendPolicySpec: IBackendTrafficPolicySpec = {
+    targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-web" }],
+    retry: edgeRetry,
+  };
+  new k8s.apiextensions.CustomResource(
+    "grid-web-backend-traffic-policy",
+    {
+      apiVersion: "gateway.envoyproxy.io/v1alpha1",
+      kind: "BackendTrafficPolicy",
+      metadata: { name: "grid-web-timeouts", namespace, labels: commonLabels("web") },
+      spec: webBackendPolicySpec,
+    },
+    { provider, dependsOn: web },
+  );
+
+  return { app, s3, web };
 }

@@ -35,7 +35,7 @@ const ERR2ISSUE = "err2issue";
  *     Gateway, ADR-0029 Amendment 2) and so cannot be left open to the
  *     namespace — see rules 2 and 8.
  *   - Cross-namespace allows are explicit: the **edge** (Envoy Gateway) to the
- *     two public services, and the **CNPG operator** to its managed pods.
+ *     three public services, and the **CNPG operator** to its managed pods.
  *
  * On Cilium, kubelet health probes originate from the host and are not gated by
  * these policies, so readiness/liveness keep working.
@@ -129,6 +129,15 @@ export function installNetworkPolicies(
     ],
   });
 
+  // 5b. Edge → web (the web HTTPRoute serves the public landing site + blog).
+  const edgeWeb = mk("allow-edge-to-web", {
+    podSelector: { matchLabels: { "app.kubernetes.io/name": "web" } },
+    policyTypes: ["Ingress"],
+    ingress: [
+      { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: PORT.web }] },
+    ],
+  });
+
   // 6. Edge → cert-manager ACME HTTP-01 solver. Some cert-manager versions place
   //    the temporary solver pod in the Gateway's namespace (`grid`); if so, the
   //    default-deny would black-hole the ACME challenge and TLS would never
@@ -198,6 +207,7 @@ export function installNetworkPolicies(
     cnpg,
     edgeFrontend,
     edgeS3,
+    edgeWeb,
     acmeSolver,
     ...(edgeOtel ? [edgeOtel] : []),
     ...(collectorToDashboard ? [collectorToDashboard] : []),
