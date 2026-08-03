@@ -21,7 +21,7 @@ to platform owners via Keystatic CMS (GitHub mode) — no second auth system, no
 
 ## Architecture
 
-```
+```text
 piloti.at / dev.piloti.at  (Envoy Gateway → web service, Astro static site)
 ├── /                      Landing (SSG, German copy from provided HTML)
 ├── /blog                  Blog index (SSG from content collection)
@@ -37,7 +37,9 @@ app.piloti.at / app.dev.piloti.at  (existing Next.js app)
 
 ### 1. `frontends/web/` — Astro site
 
-- Astro 5, fully static output, Tailwind CSS v4 (`@tailwindcss/vite`).
+- Astro 5, static prerender for the content pages plus the Node standalone
+  adapter (`@astrojs/node`) for the SSR Keystatic admin routes (`/keystatic`,
+  `/api/keystatic`). Tailwind CSS v4 (`@tailwindcss/vite`).
 - Design tokens as CSS custom properties in a global stylesheet:
   - bg `#e8e5dd` / `#f7f7f3`, ink `#1f2023`, dark panel `#22271a`,
     greens `#2a301f` `#2c3620` `#5c6b42` `#6e7d52` `#a4d06a`, light card `#eef2e4`, `#d3ddc0`.
@@ -65,8 +67,9 @@ app.piloti.at / app.dev.piloti.at  (existing Next.js app)
   the site chrome; draft posts are excluded from the build output.
 - Keystatic (`@keystatic/core` + `@keystatic/astro`), GitHub mode with Keystatic
   Cloud: admin at `/keystatic`, GitHub OAuth, each save = commit to the repo →
-  CI rebuild. Write access is enforced by GitHub repo collaboration — only
-  GRID-check collaborators (the platform owners) can publish. Documented in the
+  CI rebuild. Write access is enforced by Keystatic Cloud TEAM membership,
+  restricted to the platform owners (editors authenticate through Keystatic
+  Cloud and need no GitHub account or repo collaboration). Documented in the
   README; no WorkOS involvement on this service.
 - One seed post so `/blog` is never empty on first deploy.
 
@@ -81,8 +84,9 @@ app.piloti.at / app.dev.piloti.at  (existing Next.js app)
 
 ### 4. Deploy
 
-- `frontends/web/Dockerfile`: node:22-alpine build → static output served by a
-  minimal static server (the Astro Node adapter is unnecessary for SSG).
+- `frontends/web/Dockerfile`: node:22-slim multi-stage build → prerendered
+  static output served by the Astro Node standalone adapter (required for the
+  SSR Keystatic routes; a pure static server cannot host the admin).
 - Pulumi (`deploy/pulumi/src/`): new `web` component mirroring the existing
   service pattern — image `ghcr.io/grid-check/grid-web`, HTTPRoute on the apex
   host, TLS via the existing letsEncrypt issuer, `PUBLIC_APP_URL` injected per

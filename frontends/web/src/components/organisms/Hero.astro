@@ -2,9 +2,16 @@
 import { Image } from 'astro:assets'
 import Pill from '../atoms/Pill.astro'
 import hero from '../../assets/hero.png'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
 ---
 
-<div data-hero-wrap class="relative h-[200vh]">
+<div data-hero-wrap class="relative h-screen">
   <header
     id="top"
     data-screen-label="01 Start"
@@ -33,7 +40,7 @@ import hero from '../../assets/hero.png'
       class="relative mt-[min(52vh,calc(100vh-330px))] max-w-[1000px] text-center font-display text-[clamp(36px,4.8vw,70px)] font-bold leading-[1.0] tracking-[-0.032em] text-black"
       style="text-wrap: balance"
     >
-      Planen. Statt suchen.
+      {t.hero.title}
     </h1>
 
     <div class="absolute inset-x-0 bottom-[68px] flex flex-col items-center gap-3.5">
@@ -42,11 +49,11 @@ import hero from '../../assets/hero.png'
         class="flex flex-wrap items-center justify-center gap-[18px] transition-[opacity,transform] duration-500"
       >
         <p class="m-0 text-[14.5px] leading-[1.5] text-[#3d3e3a]" style="text-wrap: pretty">
-          Das gesamte Wissen für Ihre Planung. An einem Ort.
+          {t.hero.sub}
         </p>
         <div class="flex gap-2.5">
-          <Pill href="#kontakt" variant="solid" size="md">Demo anfragen</Pill>
-          <Pill href="#problem" variant="outline" size="md">Mehr erfahren</Pill>
+          <Pill href="#kontakt" variant="solid" size="md">{t.hero.ctaDemo}</Pill>
+          <Pill href="#problem" variant="outline" size="md">{t.hero.ctaMore}</Pill>
         </div>
       </div>
     </div>

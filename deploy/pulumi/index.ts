@@ -120,8 +120,12 @@ const backend = installBackend(wiring, cfg, secrets, [
 
 const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
-// Landing site + blog (Astro, frontends/web) — static-first, no secrets.
-const web = installWeb(cfg, provider, namespace, [ns]);
+// Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
+// but it pulls from the same registry, so it gets the pull Secret too.
+const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
+  ns,
+  ...(pullSecret ? [pullSecret] : []),
+]);
 
 // Research worker tier — only when execution is DB-claimed (ADR-0021).
 const agentWorker =

@@ -64,8 +64,8 @@ COPY . .
 RUN rm -f .env .env.local .env.*.local .env.development .env.production 2>/dev/null || true
 
 # Site URLs are baked into the prerendered HTML at build time.
-ARG PUBLIC_APP_URL
-ARG PUBLIC_SITE_URL
+ARG PUBLIC_APP_URL=https://app.dev.piloti.at
+ARG PUBLIC_SITE_URL=https://dev.piloti.at
 ENV PUBLIC_APP_URL=$PUBLIC_APP_URL
 ENV PUBLIC_SITE_URL=$PUBLIC_SITE_URL
 ENV ASTRO_TELEMETRY_DISABLED=1

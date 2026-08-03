@@ -2,29 +2,60 @@
 import '../styles/global.css'
 import NavBar from '../components/molecules/NavBar.astro'
 import Footer from '../components/molecules/Footer.astro'
-import { SITE_NAME, SITE_TAGLINE } from '../consts'
+import { ui, defaultLang, type Locale } from '../i18n/ui'
+import { getLangFromUrl, getPathWithoutLocale } from '../i18n/utils'
 
 interface Props {
   title?: string
   description?: string
+  locale?: Locale
+  alternates?: { de: string; en: string } | false
+  switchTo?: string
 }
-const { title = `${SITE_NAME} — ${SITE_TAGLINE}`, description = SITE_TAGLINE } = Astro.props
-const canonical = new URL(Astro.url.pathname, Astro.site)
+const {
+  title,
+  description,
+  locale = getLangFromUrl(Astro.url),
+  alternates,
+  switchTo,
+} = Astro.props
+
+const t = ui[locale]
+const pageTitle = title ?? t.meta.title
+const pageDescription = description ?? t.meta.description
+
+const autoDe = getPathWithoutLocale(Astro.url.pathname)
+const auto = { de: autoDe, en: `/en${autoDe === '/' ? '/' : autoDe}` }
+const paths = alternates === false ? null : (alternates ?? auto)
+const canonicalPath = (paths ?? auto)[locale]
+const canonical = new URL(canonicalPath, Astro.site)
+const other: Locale = locale === defaultLang ? 'en' : defaultLang
+const switchPath = switchTo ?? (paths ?? auto)[other]
 ---
 
 <!doctype html>
-<html lang="de">
+<html lang={locale}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
     <link rel="canonical" href={canonical} />
+    {
+      paths && (
+        <>
+          <link rel="alternate" hreflang="de" href={new URL(paths.de, Astro.site)} />
+          <link rel="alternate" hreflang="en" href={new URL(paths.en, Astro.site)} />
+          <link rel="alternate" hreflang="x-default" href={new URL(paths.de, Astro.site)} />
+        </>
+      )
+    }
     <meta property="og:type" content="website" />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
     <meta property="og:url" content={canonical} />
-    <meta property="og:locale" content="de_AT" />
+    <meta property="og:locale" content={locale === 'de' ? 'de_AT' : 'en_GB'} />
+    <meta property="og:locale:alternate" content={locale === 'de' ? 'en_GB' : 'de_AT'} />
     <link rel="preload" href="/fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link
       rel="preload"
@@ -49,13 +80,13 @@ const canonical = new URL(Astro.url.pathname, Astro.site)
     <a
       href="#main"
       class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-ink focus:px-4 focus:py-2 focus:text-white"
-      >Zum Inhalt springen</a
+      >{t.skipLink}</a
     >
-    <NavBar />
+    <NavBar locale={locale} switchTo={switchPath} />
     <main id="main">
       <slot />
     </main>
-    <Footer />
+    <Footer locale={locale} />
   </body>
 </html>
 

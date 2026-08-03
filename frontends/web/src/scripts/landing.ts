@@ -1,7 +1,9 @@
+import { animate, inView, scrollInfo, type AnimationPlaybackControls } from 'motion'
+import { landingScript } from '../i18n/ui'
 import { initReveals } from './reveal'
 
-const QUESTION =
-  'Ich will das Stiegenhaus ins Freie führen und über eine gedämmte Loggia-Fassade erschließen. Was heißt das brandschutztechnisch?'
+const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
+
 const TYPE = 1900
 const RATE = 1.18
 const LOOP = 13600
@@ -23,17 +25,17 @@ const KEYS = [
 ]
 
 const BEATS = [
-  { t: 0, step: 0, label: 'Frage aufgenommen' },
-  { t: 400, step: 1, label: 'Quellen werden gesichtet' },
-  { t: 1500, step: 2, label: 'Quellen werden gezogen' },
-  { t: 2700, step: 3, label: 'Baurecht wird geprüft' },
-  { t: 3300, step: 4, label: 'Projektakt wird geprüft' },
-  { t: 3900, step: 5, label: 'Alle Quellen geprüft' },
-  { t: 4000, step: 6, label: 'Ergebnisse werden zusammengeführt' },
-  { t: 5300, step: 7, label: 'Entscheidung — drei Wege' },
-  { t: 6150, step: 8, label: 'Option B gewählt' },
-  { t: 6950, step: 9, label: 'Umsetzung abgeleitet' },
-  { t: 9300, step: 10, label: 'Vollständige Kette' },
+  { t: 0, step: 0 },
+  { t: 400, step: 1 },
+  { t: 1500, step: 2 },
+  { t: 2700, step: 3 },
+  { t: 3300, step: 4 },
+  { t: 3900, step: 5 },
+  { t: 4000, step: 6 },
+  { t: 5300, step: 7 },
+  { t: 6150, step: 8 },
+  { t: 6950, step: 9 },
+  { t: 9300, step: 10 },
 ]
 
 const clamp = (v: number) => Math.max(0, Math.min(1, v))
@@ -44,14 +46,16 @@ const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   if (!cta) return
-  const apply = () => {
-    const on = window.scrollY > window.innerHeight * 0.12
+  const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
+  if (wrap && !reduced) wrap.style.height = '200vh'
+  const apply = (scrollY: number) => {
+    const on = scrollY > window.innerHeight * 0.12
     cta.style.opacity = on ? '0' : '1'
     cta.style.transform = on ? 'translateY(-10px)' : 'translateY(0)'
     cta.style.pointerEvents = on ? 'none' : 'auto'
   }
-  apply()
-  window.addEventListener('scroll', apply, { passive: true })
+  apply(window.scrollY)
+  scrollInfo(({ y }) => apply(y.current))
 }
 
 function initAura() {
@@ -85,20 +89,20 @@ function initAura() {
   window.addEventListener('resize', resize)
   const P = (ix: number, iy: number): [number, number] => [ox + ix * sc, oy + iy * sc]
 
-  const NODES: { r: number; a: number; v: number; label?: string | string[] }[] = [
-    { r: 96, a: 0.4, v: 0.045, label: 'OIB-RL 2' },
+  const NODES = [
+    { r: 96, a: 0.4, v: 0.045 },
     { r: 138, a: 2.1, v: -0.032 },
-    { r: 118, a: 3.6, v: 0.052, label: 'U-WERT' },
+    { r: 118, a: 3.6, v: 0.052 },
     { r: 176, a: 5.0, v: -0.026 },
-    { r: 150, a: 1.2, v: 0.038, label: 'BUDGET' },
+    { r: 150, a: 1.2, v: 0.038 },
     { r: 208, a: 4.1, v: 0.021 },
     { r: 104, a: 5.6, v: -0.058 },
-    { r: 190, a: 2.7, v: -0.019, label: 'BO WIEN' },
+    { r: 190, a: 2.7, v: -0.019 },
     { r: 232, a: 0.9, v: 0.016 },
     { r: 128, a: 4.6, v: 0.029 },
-    { r: 214, a: 3.2, v: 0.024, label: ['PROJEKTARCHIV', 'VS Aspern 2019', 'Anschlussdetail'] },
-    { r: 166, a: 6.0, v: -0.036, label: ['PROJEKTARCHIV', 'Wohnbau Ottakring', 'Fassadenschnitt'] },
-  ]
+    { r: 214, a: 3.2, v: 0.024 },
+    { r: 166, a: 6.0, v: -0.036 },
+  ].map((n, i) => ({ ...n, label: L.aura[i] }))
   const BEAMS: [number, number][] = [
     [600, 330],
     [792, 318],
@@ -108,7 +112,6 @@ function initAura() {
   ]
 
   const draw = (t: number) => {
-    requestAnimationFrame(draw)
     if (!cv.isConnected) return
     if (cv.width !== Math.round(cv.getBoundingClientRect().width * dpr)) {
       if (!resize()) return
@@ -211,7 +214,34 @@ function initAura() {
     ctx.globalCompositeOperation = 'source-over'
     ctx.restore()
   }
-  requestAnimationFrame(draw)
+
+  let loop: AnimationPlaybackControls | null = null
+  let onScreen = false
+  const sync = () => {
+    if (onScreen && !document.hidden) {
+      if (!loop) {
+        loop = animate(0, 1, {
+          duration: 60,
+          repeat: Infinity,
+          ease: 'linear',
+          onUpdate: () => draw(performance.now()),
+        })
+      } else {
+        loop.play()
+      }
+    } else {
+      loop?.pause()
+    }
+  }
+  inView(cv, () => {
+    onScreen = true
+    sync()
+    return () => {
+      onScreen = false
+      sync()
+    }
+  })
+  document.addEventListener('visibilitychange', sync)
 }
 
 interface Frag {
@@ -322,16 +352,22 @@ function initPins() {
     measureStory()
   }
 
-  const update = () => {
-    const vh = window.innerHeight
-    const r = wrap.getBoundingClientRect()
-    if (nav) {
-      const hide = r.top < vh * 0.4 && r.bottom > vh * 0.5
-      nav.style.transform = hide ? 'translateY(-110%)' : 'translateY(0)'
-      nav.style.opacity = hide ? '0' : '1'
-    }
-    const total = r.height - vh
-    const p = clamp(-r.top / total)
+  let navHidden = false
+  const setNavHidden = (hide: boolean) => {
+    if (!nav || hide === navHidden) return
+    navHidden = hide
+    animate(
+      nav,
+      { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1 },
+      { duration: 0.5, ease: 'easeOut' }
+    )
+    nav.toggleAttribute('inert', hide)
+    if (hide) nav.setAttribute('aria-hidden', 'true')
+    else nav.removeAttribute('aria-hidden')
+  }
+
+  const update = (p: number, hide: boolean) => {
+    setNavHidden(hide)
     const n = fragEls.length
     fragEls.forEach((f, i) => {
       const inStart = 0.03 + (i / n) * 0.27
@@ -371,24 +407,15 @@ function initPins() {
 
   sizePins()
   window.addEventListener('resize', sizePins)
-  let rafPending = false
-  window.addEventListener(
-    'scroll',
-    () => {
-      if (rafPending) return
-      rafPending = true
-      requestAnimationFrame(() => {
-        rafPending = false
-        update()
-      })
+  scrollInfo(
+    ({ y }) => {
+      const r = wrap.getBoundingClientRect()
+      const vh = window.innerHeight
+      update(y.progress, r.top < vh * 0.4 && r.bottom > vh * 0.5)
     },
-    { passive: true }
+    { target: wrap, offset: ['start start', 'end end'] }
   )
-  setTimeout(() => {
-    measureStory()
-    update()
-  }, 700)
-  update()
+  setTimeout(measureStory, 700)
 }
 
 function camAt(ms: number) {
@@ -425,6 +452,7 @@ function initChain() {
   const qEl = anchor?.querySelector<HTMLElement>('[data-q-text]')
   const caretEl = anchor?.querySelector<HTMLElement>('[data-q-caret]')
   const statusEl = anchor?.querySelector<HTMLElement>('[data-status]')
+  const replayBtn = anchor?.querySelector<HTMLButtonElement>('[data-replay]')
   if (!anchor || !stage || !camEl || !qEl || !statusEl) return
 
   const gated = Array.from(
@@ -463,28 +491,19 @@ function initChain() {
   if (reduced) {
     setStep(10)
     setCam(KEYS[KEYS.length - 1])
-    if (statusEl) statusEl.textContent = 'Vollständige Kette'
+    statusEl.textContent = L.beats[10]
+    if (replayBtn) replayBtn.hidden = true
     return
   }
 
-  let startedAt: number | null = null
-  let raf = 0
-  const tick = (now: number) => {
-    raf = requestAnimationFrame(tick)
-    if (startedAt == null) return
-    let raw = (now - startedAt) * RATE
-    if (raw > LOOP) {
-      startedAt = now
-      raw = 0
-    }
+  const applyFrame = (raw: number) => {
     const p = Math.min(1, raw / (TYPE - 350))
-    const n = Math.round(QUESTION.length * p)
-    const txt = QUESTION.slice(0, n)
+    const n = Math.round(L.question.length * p)
+    const txt = L.question.slice(0, n)
     if (qEl.textContent !== txt) qEl.textContent = txt
     if (caretEl) caretEl.style.display = p < 1 ? 'inline-block' : 'none'
     if (raw < TYPE) {
-      if (statusEl.textContent !== 'Frage wird eingegeben')
-        statusEl.textContent = 'Frage wird eingegeben'
+      if (statusEl.textContent !== L.typing) statusEl.textContent = L.typing
       setStep(0)
       setCam(KEYS[0])
       return
@@ -493,32 +512,42 @@ function initChain() {
     setCam(camAt(ms))
     let bi = 0
     for (let i = 0; i < BEATS.length; i++) if (ms >= BEATS[i].t) bi = i
-    const beat = BEATS[bi]
-    setStep(beat.step)
-    if (statusEl.textContent !== beat.label) statusEl.textContent = beat.label
+    setStep(BEATS[bi].step)
+    const label = L.beats[bi]
+    if (statusEl.textContent !== label) statusEl.textContent = label
   }
 
-  const start = () => {
-    startedAt = performance.now()
-    if (!raf) raf = requestAnimationFrame(tick)
-  }
-
-  anchor.querySelector('[data-replay]')?.addEventListener('click', () => {
-    startedAt = performance.now()
+  const controls = animate(0, LOOP, {
+    duration: LOOP / RATE / 1000,
+    ease: 'linear',
+    repeat: Infinity,
+    autoplay: false,
+    onUpdate: applyFrame,
   })
 
-  const io = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting && !raf) {
-          io.disconnect()
-          start()
-        }
-      })
+  let onScreen = false
+  const sync = () => {
+    if (onScreen && !document.hidden) controls.play()
+    else controls.pause()
+  }
+  inView(
+    anchor,
+    () => {
+      onScreen = true
+      sync()
+      return () => {
+        onScreen = false
+        sync()
+      }
     },
-    { threshold: 0.35 }
+    { amount: 0.35 }
   )
-  io.observe(anchor)
+  document.addEventListener('visibilitychange', sync)
+
+  replayBtn?.addEventListener('click', () => {
+    controls.time = 0
+    controls.play()
+  })
 }
 
 initHeroCta()

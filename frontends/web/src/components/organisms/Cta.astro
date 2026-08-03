@@ -1,8 +1,13 @@
 ---
 import Pill from '../atoms/Pill.astro'
 import { CONTACT_EMAIL } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
 
-const chips = ['Effizienz steigern', 'Planungsfehler vermeiden', 'Mehr Zeit für Kreatives']
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
 ---
 
 <section
@@ -14,12 +19,11 @@ const chips = ['Effizienz steigern', 'Planungsfehler vermeiden', 'Mehr Zeit für
     data-reveal
     class="mx-auto mb-[30px] max-w-[900px] font-display text-[clamp(40px,5.5vw,72px)] font-bold leading-[1.03] tracking-[-0.025em]"
     style="text-wrap: balance"
-  >
-    Bringen Sie Intelligenz in jede Planungs&shy;entscheidung.
-  </h2>
+    set:html={t.cta.titleHtml}
+  />
   <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
     {
-      chips.map((c) => (
+      t.cta.chips.map((c) => (
         <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs uppercase tracking-[0.1em] text-accent-600">
           {c}
         </span>
@@ -27,11 +31,11 @@ const chips = ['Effizienz steigern', 'Planungsfehler vermeiden', 'Mehr Zeit für
     }
   </div>
   <div data-reveal class="flex justify-center gap-3.5 max-sm:flex-col max-sm:items-center">
-    <Pill href={`mailto:${CONTACT_EMAIL}?subject=Demo-Anfrage`} variant="solid" size="lg">
-      Demo anfragen
+    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="lg">
+      {t.cta.demo}
     </Pill>
-    <Pill href={`mailto:${CONTACT_EMAIL}?subject=Warteliste`} variant="outline-dark" size="lg">
-      Auf die Warteliste
+    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectWaitlist}`} variant="outline-dark" size="lg">
+      {t.cta.waitlist}
     </Pill>
   </div>
 </section>

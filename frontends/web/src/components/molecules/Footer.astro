@@ -1,6 +1,16 @@
 ---
 import Logo from '../atoms/Logo.astro'
 import { CONTACT_EMAIL } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+const translatePath = useTranslatedPath(locale)
+const home = translatePath('/')
 
 const year = new Date().getFullYear()
 ---
@@ -9,13 +19,13 @@ const year = new Date().getFullYear()
   <div
     class="mx-auto flex max-w-[1340px] flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-ink/15 px-[30px] py-[26px]"
   >
-    <Logo href="/#top" class="!text-[17px]" />
-    <nav aria-label="Footer" class="flex flex-wrap items-center gap-6 text-[13px] text-ink-soft">
-      <a href="/#nutzung">Nutzung</a>
-      <a href="/#daten">Datengrundlage</a>
-      <a href="/blog">Blog</a>
-      <a href="/datenschutz">Datenschutz</a>
-      <a href="/impressum">Impressum</a>
+    <Logo href={`${home}#top`} label={t.nav.logoLabel} class="!text-[17px]" />
+    <nav aria-label={t.footer.ariaLabel} class="flex flex-wrap items-center gap-6 text-[13px] text-ink-soft">
+      <a href={`${home}#nutzung`}>{t.footer.usage}</a>
+      <a href={`${home}#daten`}>{t.footer.data}</a>
+      <a href={translatePath('/blog/')}>{t.footer.blog}</a>
+      <a href={translatePath('/datenschutz/')}>{t.footer.privacy}</a>
+      <a href={translatePath('/impressum/')}>{t.footer.imprint}</a>
       <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
     </nav>
     <p class="text-[12px] text-ink-faint">© Piloti {year}</p>

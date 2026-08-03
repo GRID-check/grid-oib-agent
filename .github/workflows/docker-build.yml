@@ -20,7 +20,11 @@ jobs:
     name: Build backend image
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
+      # No persisted checkout token: images are pushed via docker/login-action
+      # (publish-images.yml), never git credentials.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1.10.0
       - name: Build (release target, no push)
@@ -38,6 +42,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1.10.0
       - name: Build (no push)
@@ -52,6 +58,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1.10.0
       - name: Build (no push)

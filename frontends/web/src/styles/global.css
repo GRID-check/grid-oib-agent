@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 @font-face {
-  font-family: 'Archivo';
+  font-family: Archivo;
   font-style: normal;
   font-weight: 400 700;
   font-stretch: 100%;
@@ -9,7 +9,7 @@
   src: url('/fonts/archivo-var-latin.woff2') format('woff2');
 }
 @font-face {
-  font-family: 'Inter';
+  font-family: Inter;
   font-style: normal;
   font-weight: 400 600;
   font-display: swap;
@@ -30,21 +30,21 @@
   src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
 }
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url('/fonts/poppins-400-latin.woff2') format('woff2');
 }
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 500;
   font-display: swap;
   src: url('/fonts/poppins-500-latin.woff2') format('woff2');
 }
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 600;
   font-display: swap;
@@ -72,9 +72,9 @@
   --color-on-dark-label: #a4b47a;
   --color-on-dark-tag: #8fa06a;
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display: 'Helvetica Neue', 'Archivo', 'Helvetica', sans-serif;
-  --font-logo: 'Poppins', 'Helvetica Neue', 'Archivo', sans-serif;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
+  --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 }
 
@@ -129,7 +129,7 @@ a:hover {
   border-radius: 4px;
 }
 
-@keyframes chainFadeIn {
+@keyframes chain-fade-in {
   from {
     opacity: 0;
     transform: translateY(8px);
@@ -139,7 +139,7 @@ a:hover {
     transform: translateY(0);
   }
 }
-@keyframes chainDraw {
+@keyframes chain-draw {
   from {
     stroke-dashoffset: 460;
   }
@@ -147,7 +147,7 @@ a:hover {
     stroke-dashoffset: 0;
   }
 }
-@keyframes chainPulse {
+@keyframes chain-pulse {
   0%,
   100% {
     opacity: 0.35;
@@ -156,7 +156,7 @@ a:hover {
     opacity: 1;
   }
 }
-@keyframes chainSpin {
+@keyframes chain-spin {
   to {
     transform: rotate(360deg);
   }

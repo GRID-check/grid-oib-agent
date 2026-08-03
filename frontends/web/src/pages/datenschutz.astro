@@ -1,53 +1,11 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
-import SectionTag from '../components/atoms/SectionTag.astro'
-import { CONTACT_EMAIL } from '../consts'
+import DatenschutzBody from '../components/organisms/DatenschutzBody.astro'
+import { ui } from '../i18n/ui'
+
+const t = ui.de.legal.datenschutz
 ---
 
-<BaseLayout
-  title="Datenschutz — Piloti"
-  description="Datenschutzerklärung der Piloti-Website."
->
-  <section class="px-6 pb-28 pt-36 md:px-10">
-    <div class="mx-auto max-w-[720px]">
-      <SectionTag>Rechtliches</SectionTag>
-      <h1
-        class="mt-6 font-display text-[clamp(32px,4.6vw,48px)] font-semibold leading-[1.1] tracking-[-0.02em] text-ink"
-      >
-        Datenschutzerklärung
-      </h1>
-      <div class="prose-piloti mt-10">
-        <h2>Verantwortlicher</h2>
-        <p>
-          Piloti, [Firmenname und Adresse — wird vor dem Livegang ergänzt]. E-Mail:
-          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-        </p>
-        <h2>Diese Website</h2>
-        <p>
-          Diese Website setzt <strong>keine Cookies</strong> und verwendet
-          <strong>keine Tracking- oder Analysewerkzeuge</strong>. Es werden keine personenbezogenen
-          Daten zu statistischen oder Marketingzwecken verarbeitet.
-        </p>
-        <h2>Server-Logdateien</h2>
-        <p>
-          Beim Aufruf der Website verarbeitet der Hosting-Betreiber technisch notwendige
-          Verbindungsdaten (z.&nbsp;B. IP-Adresse, Zeitpunkt, abgerufene Seite) in Server-Logs, um
-          den Betrieb und die Sicherheit der Website zu gewährleisten (Art.&nbsp;6 Abs.&nbsp;1
-          lit.&nbsp;f DSGVO). Diese Daten werden nicht mit anderen Datenquellen zusammengeführt.
-        </p>
-        <h2>Kontaktaufnahme</h2>
-        <p>
-          Bei Kontaktaufnahme per E-Mail verarbeiten wir die übermittelten Daten (Name, E-Mail-Adresse,
-          Inhalt der Anfrage) zur Bearbeitung der Anfrage (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO).
-          Die Daten werden gelöscht, sobald sie für den Zweck nicht mehr erforderlich sind.
-        </p>
-        <h2>Ihre Rechte</h2>
-        <p>
-          Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung,
-          Datenübertragbarkeit und Widerspruch. Beschwerderecht bei der österreichischen
-          Datenschutzbehörde (dsb.gv.at).
-        </p>
-      </div>
-    </div>
-  </section>
+<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+  <DatenschutzBody locale="de" />
 </BaseLayout>

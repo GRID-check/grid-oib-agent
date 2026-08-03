@@ -1,5 +1,19 @@
 import { config, fields, collection } from '@keystatic/core'
 
+const postSchema = {
+  title: fields.slug({ name: { label: 'Titel' } }),
+  description: fields.text({ label: 'Kurzbeschreibung', multiline: true }),
+  pubDate: fields.date({ label: 'Veröffentlicht am' }),
+  draft: fields.checkbox({ label: 'Entwurf', defaultValue: true }),
+  translationSlug: fields.text({ label: 'Übersetzung (Slug)' }),
+  cover: fields.image({
+    label: 'Titelbild',
+    directory: 'frontends/web/public/images/blog',
+    publicPath: '/images/blog/',
+  }),
+  content: fields.mdx({ label: 'Inhalt' }),
+}
+
 export default config({
   storage: {
     kind: 'cloud',
@@ -8,23 +22,19 @@ export default config({
     project: 'grid-check/piloti',
   },
   collections: {
-    posts: collection({
-      label: 'Blog',
+    'posts-de': collection({
+      label: 'Blog (Deutsch)',
       slugField: 'title',
-      path: 'frontends/web/src/content/blog/*',
+      path: 'frontends/web/src/content/blog/de/*',
       format: { contentField: 'content' },
-      schema: {
-        title: fields.slug({ name: { label: 'Titel' } }),
-        description: fields.text({ label: 'Kurzbeschreibung', multiline: true }),
-        pubDate: fields.date({ label: 'Veröffentlicht am' }),
-        draft: fields.checkbox({ label: 'Entwurf', defaultValue: true }),
-        cover: fields.image({
-          label: 'Titelbild',
-          directory: 'frontends/web/public/images/blog',
-          publicPath: '/images/blog/',
-        }),
-        content: fields.mdx({ label: 'Inhalt' }),
-      },
+      schema: postSchema,
+    }),
+    'posts-en': collection({
+      label: 'Blog (English)',
+      slugField: 'title',
+      path: 'frontends/web/src/content/blog/en/*',
+      format: { contentField: 'content' },
+      schema: postSchema,
     }),
   },
 })

@@ -1,12 +1,19 @@
 ---
+import { ui, type Locale } from '../../i18n/ui'
+
 interface Props {
   title: string
   description: string
   pubDate: Date
   href: string
+  locale?: Locale
 }
-const { title, description, pubDate, href } = Astro.props
-const date = pubDate.toLocaleDateString('de-AT', { year: 'numeric', month: 'long', day: 'numeric' })
+const { title, description, pubDate, href, locale = 'de' } = Astro.props
+const date = pubDate.toLocaleDateString(locale === 'en' ? 'en-GB' : 'de-AT', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+})
 ---
 
 <a
@@ -21,5 +28,5 @@ const date = pubDate.toLocaleDateString('de-AT', { year: 'numeric', month: 'long
     {title}
   </h2>
   <p class="mt-3 text-[14px] leading-[1.6] text-ink-soft">{description}</p>
-  <p class="mt-5 text-[13px] font-medium text-accent-600">Weiterlesen →</p>
+  <p class="mt-5 text-[13px] font-medium text-accent-600">{ui[locale].blog.readMore}</p>
 </a>

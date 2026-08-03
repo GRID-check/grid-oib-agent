@@ -1,5 +1,6 @@
+import { inView } from 'motion'
+
 export function initReveals() {
-  if (!('IntersectionObserver' in window)) return
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const els = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'))
   els.forEach((el) => {
@@ -8,18 +9,13 @@ export function initReveals() {
       el.style.transform = 'translateY(26px)'
     }
   })
-  const io = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) {
-          const t = e.target as HTMLElement
-          t.style.opacity = '1'
-          t.style.transform = 'translateY(0)'
-          io.unobserve(t)
-        }
-      })
+  inView(
+    els,
+    (el) => {
+      const e = el as HTMLElement
+      e.style.opacity = '1'
+      e.style.transform = 'translateY(0)'
     },
-    { threshold: 0.12 }
+    { margin: '0px 0px -12% 0px' }
   )
-  els.forEach((el) => io.observe(el))
 }

@@ -23,15 +23,18 @@ export interface Web {
 /**
  * Landing site (frontends/web): Astro on the Node standalone adapter. The pages
  * are prerendered at build time (static HTML + assets served by the adapter),
- * with SSR routes for the Keystatic admin. No database, no secrets, no
+ * with SSR routes for the Keystatic admin. No database, no app secrets, no
  * cross-service calls — so unlike the frontend tier this workload has no
- * dependency on `grid-secrets` and carries no imagePullSecrets. Runs
- * HORIZONTALLY: stateless, HPA on CPU.
+ * dependency on `grid-secrets`. It DOES carry the registry imagePullSecrets:
+ * the web image is pulled from the same registry as the other app images, so
+ * a private registry without the pull Secret is an instant ImagePullBackOff.
+ * Runs HORIZONTALLY: stateless, HPA on CPU.
  */
 export function installWeb(
   cfg: GridConfig,
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
+  imagePullSecrets: { name: string }[],
   dependsOn: pulumi.Resource[],
 ): Web {
   const labels = commonLabels("web");
@@ -52,6 +55,7 @@ export function installWeb(
           metadata: { labels },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            imagePullSecrets,
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             securityContext: { runAsNonRoot: true, runAsUser: UID.web, runAsGroup: UID.web },
             topologySpreadConstraints: spreadAcrossNodes(labels),

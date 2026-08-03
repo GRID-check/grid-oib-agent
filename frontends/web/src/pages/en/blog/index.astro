@@ -1,17 +1,17 @@
 ---
 import { getCollection } from 'astro:content'
-import BaseLayout from '../../layouts/BaseLayout.astro'
-import SectionTag from '../../components/atoms/SectionTag.astro'
-import BlogCard from '../../components/molecules/BlogCard.astro'
-import { ui } from '../../i18n/ui'
+import BaseLayout from '../../../layouts/BaseLayout.astro'
+import SectionTag from '../../../components/atoms/SectionTag.astro'
+import BlogCard from '../../../components/molecules/BlogCard.astro'
+import { ui } from '../../../i18n/ui'
 
-const t = ui.de.blog
+const t = ui.en.blog
 const posts = (
-  await getCollection('blog', ({ id, data }) => !data.draft && id.startsWith('de/'))
+  await getCollection('blog', ({ id, data }) => !data.draft && id.startsWith('en/'))
 ).sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
 ---
 
-<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+<BaseLayout locale="en" title={t.metaTitle} description={t.metaDescription}>
   <section class="px-6 pb-28 pt-36 md:px-10">
     <div class="mx-auto max-w-[1060px]">
       <SectionTag>{t.tag}</SectionTag>
@@ -36,8 +36,8 @@ const posts = (
                 title={post.data.title}
                 description={post.data.description}
                 pubDate={post.data.pubDate}
-                href={`/blog/${post.id.slice(3)}/`}
-                locale="de"
+                href={`/en/blog/${post.id.slice(3)}/`}
+                locale="en"
               />
             ))}
           </div>
@@ -48,6 +48,6 @@ const posts = (
 </BaseLayout>
 
 <script>
-  import { initReveals } from '../../scripts/reveal'
+  import { initReveals } from '../../../scripts/reveal'
   initReveals()
 </script>

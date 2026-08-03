@@ -485,6 +485,18 @@ export function loadConfig(): GridConfig {
   const conversationBus = bool(cfg, "conversationBus", true);
   const imageTag = cfg.get("imageTag") ?? "latest";
 
+  // Fail fast: the web PDB allows maxUnavailable 1, so a webMinReplicas of 1
+  // means a voluntary disruption (node drain, rolling update) takes the whole
+  // landing site down. Two replicas is the floor the PDB contract assumes.
+  const webMinReplicas = num(cfg, "webMinReplicas", 2);
+  if (webMinReplicas < 2) {
+    throw new Error(
+      `grid-oib:webMinReplicas must be >= 2 (got ${webMinReplicas}). The web PodDisruptionBudget ` +
+        "allows maxUnavailable 1, so a single replica means a full landing-site outage during " +
+        "any voluntary disruption.",
+    );
+  }
+
   const registryUsername = cfg.get("registryUsername");
   const registryPassword = cfg.getSecret("registryPassword");
   if ((registryUsername === undefined) !== (registryPassword === undefined)) {
@@ -763,7 +775,7 @@ export function loadConfig(): GridConfig {
         limitsCpu: cfg.get("webLimitsCpu") ?? "250m",
         limitsMemory: cfg.get("webLimitsMemory") ?? "256Mi",
       },
-      minReplicas: num(cfg, "webMinReplicas", 2),
+      minReplicas: webMinReplicas,
       maxReplicas: num(cfg, "webMaxReplicas", 4),
       hpaCpuTargetPercent: num(cfg, "webHpaCpuTargetPercent", 70),
     },
