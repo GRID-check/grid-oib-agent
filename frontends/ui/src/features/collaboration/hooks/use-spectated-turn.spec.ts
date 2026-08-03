@@ -34,6 +34,16 @@ function frame(seq: number, payload: unknown) {
   return { kind: 'frame', seq, payload }
 }
 
+/** An intermediate frame for a named tool, which the reducer folds by name. */
+function namedStep(name: string, payload: string) {
+  return {
+    type: 'system_intermediate_message',
+    id: `step-${name}-${payload}`,
+    content: { name, payload },
+    status: 'in_progress',
+  }
+}
+
 function delta(text: string, parentId = 'turn-1') {
   return {
     type: 'system_response_message',
@@ -97,6 +107,29 @@ describe('useSpectatedTurn', () => {
     await waitFor(() => expect(result.current.turn?.answer).toBe('Ja, ab drei Geschossen.'))
   })
 
+  it('reports every frame as activity, including ones that change nothing on screen', () => {
+    const onFrame = vi.fn()
+    const { result } = renderHook(() =>
+      useSpectatedTurn({ conversationId: 'conv_1', enabled: true, onFrame })
+    )
+    const source = FakeEventSource.instances[0]
+
+    // A single long-running tool call: the reducer merges each update into the
+    // step it already has, so `steps.length` and `answer.length` stand still.
+    // Watching those two numbers — which is what the caller used to do — reads
+    // this as minutes of silence and tears the turn banner down mid-turn.
+    act(() => source.emit(frame(1, namedStep('ris_search', 'Suche läuft'))))
+    act(() => source.emit(frame(2, namedStep('ris_search', 'noch immer'))))
+    act(() => source.emit(frame(3, namedStep('ris_search', 'und weiter'))))
+    // A replayed frame counts too: the socket delivered it, so the turn is alive.
+    act(() => source.emit(frame(3, namedStep('ris_search', 'und weiter'))))
+
+    // The premise: nothing a caller could derive from `turn` moved.
+    expect(result.current.turn?.steps).toHaveLength(1)
+    expect(result.current.turn?.answer).toBe('')
+    expect(onFrame).toHaveBeenCalledTimes(4)
+  })
+
   it('closes and reports nothing when the server has no live channel', async () => {
     const { result } = renderHook(() =>
       useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
@@ -158,5 +191,90 @@ describe('useSpectatedTurn', () => {
     )
     expect(result.current.turn).toBeNull()
     expect(result.current.live).toBe(false)
+  })
+})
+
+describe('reconnect policy', () => {
+  beforeEach(() => {
+    FakeEventSource.instances = []
+    vi.stubGlobal('EventSource', FakeEventSource)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('backs off, and gives up rather than hammering the route', () => {
+    // The server sends `retry: 2000`, so leaving reconnection to the browser
+    // means every observer of every running turn retries in lockstep twice a
+    // second — each attempt costing an authorization read and a fresh cache
+    // subscriber. The hook takes control instead.
+    vi.useFakeTimers()
+    try {
+      renderHook(() => useSpectatedTurn({ conversationId: 'conv_1', enabled: true }))
+      expect(FakeEventSource.instances).toHaveLength(1)
+
+      // Six failures, each given far more time than any backoff step needs.
+      for (let round = 0; round < 6; round += 1) {
+        const live = FakeEventSource.instances.at(-1)!
+        act(() => live.onerror?.())
+        expect(live.closed).toBe(true)
+        act(() => {
+          vi.advanceTimersByTime(60_000)
+        })
+      }
+
+      // One initial connection plus a bounded number of retries — never one per
+      // two seconds, and never unbounded.
+      expect(FakeEventSource.instances.length).toBeGreaterThan(1)
+      expect(FakeEventSource.instances.length).toBeLessThanOrEqual(5)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not spend the budget on failures separated by working stretches', () => {
+    // A long turn can drop and recover several times. Without resetting the
+    // ladder on evidence the connection works, four failures spread over an hour
+    // exhaust it and the observer loses the live view for the rest of the turn.
+    vi.useFakeTimers()
+    try {
+      renderHook(() => useSpectatedTurn({ conversationId: 'conv_1', enabled: true }))
+
+      for (let round = 0; round < 8; round += 1) {
+        const live = FakeEventSource.instances.at(-1)!
+        // Proof the connection works, then a drop.
+        act(() => live.emit(frame(round + 1, delta('x'))))
+        act(() => live.onerror?.())
+        act(() => {
+          vi.advanceTimersByTime(60_000)
+        })
+      }
+
+      // Every drop was preceded by a working connection, so every one of them
+      // reconnected: 1 initial + 8 retries.
+      expect(FakeEventSource.instances).toHaveLength(9)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not reconnect after the effect is torn down', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderHook(() =>
+        useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
+      )
+      const live = FakeEventSource.instances.at(-1)!
+      act(() => live.onerror?.())
+      unmount()
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      // The pending retry must not open a stream for a thread nobody is watching.
+      expect(FakeEventSource.instances).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

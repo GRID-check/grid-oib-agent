@@ -216,7 +216,7 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
                 </p>
                 {/* The toolbar positions itself against this block, exactly as it
                     does against the chat plane in MainLayout. */}
-                <div className="relative h-20 rounded-lg border border-dashed border-base/60">
+                <div className="relative h-20 rounded-lg border border-dashed border-base">
                   <ChatToolbar
                     sessionTitle={row.sessionTitle}
                     projectName={row.projectName}

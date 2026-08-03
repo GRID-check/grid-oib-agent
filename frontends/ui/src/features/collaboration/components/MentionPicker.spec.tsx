@@ -202,6 +202,33 @@ describe('MentionPicker — selection', () => {
     expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true')
   })
 
+  test('brings the selected row into view, so the keyboard can reach past the fold', () => {
+    // The panel is bounded and its list scrolls, but nothing scrolled it: arrowing
+    // past the fifth candidate moved the highlight onto a row nobody could see,
+    // and `↵` then inserted a colleague the user had never laid eyes on. The
+    // bottom fade said "more below" while the keyboard could not get there — on a
+    // surface that is keyboard-first.
+    //
+    // jsdom has no layout, so `scrollIntoView` is not implemented and cannot be
+    // observed any other way than by spying on it.
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      const { ref } = renderPicker()
+      scrollIntoView.mockClear()
+
+      act(() => ref.current?.move(1))
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+      // `nearest` and not `center`: a row already on screen must stay exactly
+      // where it is, or every arrow key jolts the whole list.
+      expect(scrollIntoView.mock.calls.every(([options]) => options.block === 'nearest')).toBe(true)
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+
   test('selectActive inserts the selected candidate and reports success', () => {
     const onSelect = vi.fn()
     const { ref } = renderPicker({ onSelect })
@@ -282,5 +309,29 @@ describe('MentionPicker — selection', () => {
 
     act(() => ref.current?.move(1))
     expect(last().activeOptionId).toBe(screen.getAllByRole('option')[1].id)
+  })
+})
+
+describe('search folds diacritics', () => {
+  test('finds Müller by typing muller', () => {
+    // The primary product language is German, and typing the umlaut is exactly
+    // what someone reaching for the picker is trying to avoid.
+    const groups = filterMentionCandidates(
+      [person('u-m', 'Sabine Müller')],
+      'muller',
+      true,
+      'Piloti',
+    )
+    expect(groups.visible).toHaveLength(1)
+  })
+
+  test('typing the umlaut still works', () => {
+    const groups = filterMentionCandidates(
+      [person('u-m', 'Sabine Müller')],
+      'müller',
+      true,
+      'Piloti',
+    )
+    expect(groups.visible).toHaveLength(1)
   })
 })

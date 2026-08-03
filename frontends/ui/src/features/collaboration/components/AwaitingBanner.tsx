@@ -76,6 +76,10 @@ export function AwaitingBanner({
     (earliest, request) => (request.createdAt < earliest.createdAt ? request : earliest),
     pending[0],
   )
+  /** Names carried by more than one row — see the per-row release button. */
+  const repeatedNames = new Set(
+    names.filter((name, index) => names.indexOf(name) !== index),
+  )
 
   const headline = awaitingMe
     ? t('mentions.awaiting.awaitingYou')
@@ -118,7 +122,11 @@ export function AwaitingBanner({
       className={cn(
         'rounded-lg border px-4 py-3 shadow-xs',
         'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out',
-        awaitingMe ? 'border-warning/40 bg-warning-subtle' : 'bg-card',
+        // `border-warning` / `bg-warning-*` are static `@utility` blocks in
+        // globals.css with no `--modifier()`, so a slash-opacity form
+        // (`border-warning/40`) matches nothing and silently fell back to the
+        // neutral border. Use the tokens as defined.
+        awaitingMe ? 'border-warning bg-warning-subtle' : 'bg-card',
         className,
       )}
     >
@@ -127,8 +135,12 @@ export function AwaitingBanner({
           aria-hidden
           className={cn(
             'inline-flex size-8 shrink-0 items-center justify-center rounded-full border',
+            // Same reason as the section border: `bg-warning/15` compiled to
+            // nothing, so this disc had no fill at all. A bordered disc on the
+            // card surface reads against the subtle warning background, which
+            // a second `bg-warning-subtle` would not.
             awaitingMe
-              ? 'border-transparent bg-warning/15 text-warning'
+              ? 'border-warning bg-card text-warning'
               : 'border-border bg-muted/60 text-muted-foreground',
           )}
         >
@@ -153,6 +165,12 @@ export function AwaitingBanner({
 
           <p className="mt-1 text-sm text-muted-foreground">{hint}</p>
 
+          {/* Only stated at thread level when ONE person is awaited. With several,
+              "asked by X, since Y" taken from the oldest request described somebody
+              else's wait — most confusingly for the reader who is themselves
+              awaited by a different person. Each row below carries both facts for
+              its own request instead, so nothing is lost by narrowing this. */}
+          {single && (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             {oldest.requestedBy && (
               <span>{t('mentions.awaiting.askedBy', { name: oldest.requestedBy.name })}</span>
@@ -166,6 +184,7 @@ export function AwaitingBanner({
               })}
             </time>
           </div>
+          )}
 
           {/* The question that was asked, when there is one — far more useful than
               "you were mentioned" (MN-12). */}
@@ -195,17 +214,75 @@ export function AwaitingBanner({
                     exit={{ opacity: 0, x: 8 }}
                     transition={springGentle}
                     data-testid="awaiting-person"
-                    className="flex items-center justify-between gap-3 px-2.5 py-1.5"
+                    // The release label carries the person's name and `Button`
+                    // refuses to wrap it, so at phone width the nowrap button won
+                    // the width contest and truncated the name column — the one
+                    // thing the row exists to show — to zero.
+                    //
+                    // `flex-wrap` alone does NOT fix that: a `flex-1` child has a
+                    // flex-basis of 0, so its hypothetical main size is 0 and it
+                    // never contributes to the line-breaking decision. The button
+                    // still fits beside it at any width and still takes the lot.
+                    // The name column needs a real basis to break against.
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-2.5 py-1.5"
                   >
-                    <span className="flex min-w-0 items-center gap-2">
+                    <span className="flex min-w-0 grow basis-48 items-center gap-2">
                       <PersonAvatar person={request.person} size="sm" />
-                      <span className="truncate text-sm">{request.person.name}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{request.person.name}</span>
+                        {/* Both facts per row, because the thread-level line above
+                            is only shown for a single request (see there) — the
+                            asker AND how long this particular person has been
+                            waited on. Same absolute-time reading as up there, for
+                            the same reason. */}
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                          {request.requestedBy && (
+                            <span className="truncate">
+                              {t('mentions.awaiting.askedBy', { name: request.requestedBy.name })}
+                            </span>
+                          )}
+                          <time
+                            dateTime={request.createdAt}
+                            title={formatRelativeTime(request.createdAt, locale)}
+                          >
+                            {t('mentions.awaiting.since', {
+                              time: formatAbsoluteTime(request.createdAt, locale),
+                            })}
+                          </time>
+                        </span>
+                      </span>
                     </span>
+                    {/* The question, per person. It used to render only when
+                        exactly one person was awaited, so the moment two people
+                        were asked the thing they were asked disappeared.
+
+                        Before the button in the DOM, `order-last` in the layout:
+                        a screen reader follows source order, and reading "release
+                        this person" before the question they were asked offers the
+                        way out of a wait whose reason has not been said yet. */}
+                    {request.note && (
+                      <p className="order-last w-full border-l border-border pl-2.5 text-sm leading-relaxed text-foreground/80">
+                        {request.note}
+                      </p>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
                       disabled={releasing !== null}
+                      // Two open requests can name the SAME person — asked twice,
+                      // or by two colleagues — and then every button in this list
+                      // reads "Continue without Anna Weber", with nothing to
+                      // choose between them out of context. When the name repeats,
+                      // the accessible name carries what actually differs.
+                      aria-label={
+                        repeatedNames.has(request.person.name)
+                          ? t('mentions.awaiting.releaseOneSince', {
+                              name: request.person.name,
+                              time: formatAbsoluteTime(request.createdAt, locale),
+                            })
+                          : undefined
+                      }
                       onClick={() => void release([request], request.id)}
                     >
                       {t('mentions.awaiting.releaseOne', { name: request.person.name })}

@@ -6,6 +6,23 @@ import type { ComposerPrefill } from '@/features/chat/types'
 import { InputArea } from './InputArea'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
+import {
+  bumpThreadRevision,
+  publishThreadRole,
+  publishThreadSharing,
+  resetThreadSharing,
+} from '@/shared/collaboration/thread-sharing'
+import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
+
+// Only the one publisher is stubbed; the rest of the seam is the real module,
+// because these tests drive it (`publishThreadSharing`, `publishThreadRole`) as
+// the production code does. `bumpThreadRevision` has no observable effect inside
+// this component, so a spy is the only way to see the wire at all.
+vi.mock('@/shared/collaboration/thread-sharing', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/shared/collaboration/thread-sharing')>()),
+  bumpThreadRevision: vi.fn(),
+}))
+
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
 }))
@@ -291,7 +308,42 @@ describe('InputArea', () => {
     }
     mockMentionsLoading = false
     mockAwaitingPending = []
+    resetThreadSharing()
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
+    //
+    // The two file mocks below were NOT in this list, and both are set by tests
+    // with `mockReturnValue`, which is permanent. So from the drag-overlay test
+    // onwards every remaining test in this file rendered the composer behind a
+    // full-bleed "Unsupported file type" overlay, and from the file-chip test
+    // onwards every one of them had two attachments. None of them noticed,
+    // because none of them queried anything the overlay covered — until one did,
+    // and the failure pointed at the new test rather than at the leak.
+    vi.mocked(useFileDragDrop).mockReturnValue({
+      isDragging: false,
+      isUnsupportedDrag: false,
+      dragHandlers: {
+        onDragEnter: vi.fn(),
+        onDragLeave: vi.fn(),
+        onDragOver: vi.fn(),
+        onDrop: vi.fn(),
+      },
+    })
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+    // Same reason, one level down: three tests give `mockSendMessage` a
+    // `mockResolvedValue`, and the last of those makes EVERY later send in this
+    // file resolve to a refusal. The assertions downstream are all
+    // `toHaveBeenCalledWith`, which a refused send satisfies just as well as a
+    // successful one — so the leak cost nothing until a test looked at what the
+    // send actually did.
+    mockSendMessage.mockReset()
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
       sendMessage: mockSendMessage,
@@ -1493,6 +1545,9 @@ describe('InputArea', () => {
 
     test('says the message goes to the CHAT while the thread awaits a person, and how to reach Piloti', () => {
       mockAwaitingPending = [{ id: 'r-1' }]
+      // A wait can only exist on a SHARED thread, and the composer reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       expect(addressee()).toHaveTextContent('Goes to everyone in the chat')
@@ -1504,6 +1559,9 @@ describe('InputArea', () => {
     test('typing @Piloti while awaiting flips the line back to the agent', async () => {
       const user = userEvent.setup()
       mockAwaitingPending = [{ id: 'r-1' }]
+      // A wait can only exist on a SHARED thread, and the composer reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       await user.click(composer())
@@ -1536,6 +1594,9 @@ describe('InputArea', () => {
       const user = userEvent.setup()
       // Even with a wait outstanding server-side, a gated org must see nothing.
       mockAwaitingPending = [{ id: 'r-1' }]
+      // A wait can only exist on a SHARED thread, and the composer reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated connectionMode="sse" />)
 
       expect(screen.queryByTestId('composer-addressee')).not.toBeInTheDocument()
@@ -1568,6 +1629,9 @@ describe('InputArea', () => {
 
     test('a plain message while a person is awaited asks the server to rule', async () => {
       mockAwaitingPending = [{ id: 'r-1' }]
+      // A wait can only exist on a SHARED thread, and the composer reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       await send('Ja, eigener Abschnitt.')
@@ -1587,6 +1651,9 @@ describe('InputArea', () => {
 
     test('a gated org never takes the ruled path, wait or no wait (NF-8)', async () => {
       mockAwaitingPending = [{ id: 'r-1' }]
+      // A wait can only exist on a SHARED thread, and the composer reads the
+      // awaiting state only there — a private thread must open no live channel.
+      publishThreadSharing('session-1', true)
       render(<InputArea isAuthenticated connectionMode="sse" />)
 
       const user = userEvent.setup()
@@ -1595,6 +1662,165 @@ describe('InputArea', () => {
       await user.click(screen.getByRole('button', { name: /send message/i }))
 
       expect(mockSendMessage).toHaveBeenCalledWith('Frage')
+    })
+
+    test('asks the awaiting endpoint nothing at all on a thread that is not shared (NF-8)', () => {
+      // `useAwaitingState` subscribes to the shared event channel, so gating it
+      // on the collaboration flag alone had a solo user in a flag-on org opening
+      // a permanent `/api/stream` connection and polling `/awaiting` for a
+      // conversation that cannot be waiting on anybody. NF-8 is the stricter
+      // promise: a user who never shares must not notice this feature exists.
+      mockAwaitingPending = [{ id: 'r-1' }]
+      publishThreadSharing('session-1', false)
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(vi.mocked(useAwaitingState)).toHaveBeenCalledWith(null, false)
+    })
+
+    test('asks it once the thread IS shared', () => {
+      publishThreadSharing('session-1', true)
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(vi.mocked(useAwaitingState)).toHaveBeenCalledWith('session-1', true)
+    })
+
+    test('declares the thread stale after sending a mention', async () => {
+      // The consumer side of this wire is well covered in `use-shared-thread`;
+      // the PUBLISHER was not, so the whole first-`@`-in-a-private-thread fix
+      // could be deleted here with every test still green. Sending a mention is
+      // what makes a private thread shared server-side, and the seam has no
+      // other way to hear about it.
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('@anna')
+      await screen.findByTestId('mention-picker')
+      await user.keyboard('{Enter}')
+      await user.keyboard('schaust du drauf?')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      await waitFor(() => expect(vi.mocked(bumpThreadRevision)).toHaveBeenCalledWith('session-1'))
+    })
+
+    test('…and not after an ordinary message, which changes nothing server-side', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      await user.click(composer())
+      await user.keyboard('Kurze Frage')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(vi.mocked(bumpThreadRevision)).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * A viewer may read a shared thread and change nothing in it. The server
+   * enforces that; the composer's job is to stop offering controls whose only
+   * outcome is a rejection — and, for the file surface, controls whose outcome
+   * is NOT a rejection because they do not go through the message path at all.
+   */
+  describe('a viewer in a shared thread', () => {
+    const asViewer = () => {
+      publishThreadSharing('session-1', true)
+      publishThreadRole('session-1', 'viewer')
+    }
+
+    const withFiles = () => {
+      vi.mocked(useFileUpload).mockReturnValue({
+        uploadFiles: mockUploadFiles,
+        deleteFile: mockDeleteFile,
+        retryFile: mockRetryFile,
+        sessionFiles: [
+          { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
+          { id: 'file-2', fileName: 'kaputt.pdf', status: 'failed', collectionName: 'session-1' },
+        ],
+        isUploading: false,
+        error: null,
+        clearError: vi.fn(),
+      } as unknown as ReturnType<typeof useFileUpload>)
+    }
+
+    test('cannot attach, cannot change the Datengrundlage, cannot send', () => {
+      asViewer()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.getByRole('textbox')).toBeDisabled()
+      expect(screen.getByRole('button', { name: /attach files/i })).toBeDisabled()
+      // The scope chip and the deep-research pill persist onto the conversation,
+      // so they are writes too — `disabled` used to reach only the textarea and
+      // the send button.
+      expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
+      // Named in this test's title from the start, and not actually asserted
+      // until an independent review pointed out that the name promised more than
+      // the body checked.
+      expect(screen.getByRole('button', { name: /data basis/i })).toBeDisabled()
+    })
+
+    test('cannot apply a shortcut preset either, which also writes the Datengrundlage', () => {
+      // The gap the control-row gate left. `handlePresetClick` calls
+      // `saveDataSourcesToConversation`, so these chips rewrite which sources the
+      // next person's turn will use — and they were gated on the auth flag alone.
+      // "Empty thread only" is not the protection it looks like: `isEmptyThread`
+      // is also true on any shared thread while its messages are still loading.
+      asViewer()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
+    })
+
+    test('cannot remove or retry a file off somebody else’s thread', () => {
+      asViewer()
+      withFiles()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      // Reading stays: the chips are there and a finished file still opens.
+      expect(screen.getByText('doc.pdf')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /open .*doc\.pdf/i })).toBeInTheDocument()
+      // Writing does not.
+      expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+    })
+
+    test('has no route to the manage-files surface, on a phone either', () => {
+      asViewer()
+      withFiles()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      // The desktop button is disabled and the `sm:hidden` mobile text entry —
+      // which opens the same browse / upload / delete sheet — is not rendered.
+      expect(screen.getByRole('button', { name: /manage attached files/i })).toBeDisabled()
+      expect(screen.queryByRole('button', { name: /^manage \d/i })).not.toBeInTheDocument()
+    })
+
+    test('is not invited to mention anybody either', () => {
+      // Caught by looking at the screenshot rather than the code: the whole
+      // control row was correctly dimmed and this one link sat above "Sie können
+      // hier mitlesen", live and underlined, offering to type an `@` into a
+      // disabled textarea. It was gated on the collaboration flag alone.
+      asViewer()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
+    })
+
+    test('a collaborator keeps every one of those', () => {
+      publishThreadSharing('session-1', true)
+      publishThreadRole('session-1', 'collaborator')
+      withFiles()
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+
+      expect(screen.getByRole('textbox')).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: /attach files/i })).not.toBeDisabled()
+      expect(screen.getAllByRole('button', { name: /remove/i }).length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+      // Asserted here as well as by their absence above, so the viewer's version
+      // of those checks cannot pass because the query itself stopped matching.
+      expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
+      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: /shortcuts/i })).toBeInTheDocument()
     })
   })
 })

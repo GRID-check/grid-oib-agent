@@ -126,6 +126,27 @@ describe('reduceSpectatedFrame', () => {
     expect(Object.keys(state)).not.toContain('promptId')
   })
 
+  it('clears the wait as soon as the agent does anything again', () => {
+    // The asker's answer to the prompt travels their own input channel, which an
+    // observer does not subscribe to, so a step frame is the only evidence they
+    // ever get that the pause is over. Clearing only on a response frame left an
+    // observer reading "Piloti asked a question and is waiting" for as long as
+    // the agent then spent running tools.
+    const waiting = fold([
+      {
+        type: 'system_interaction_message',
+        id: 'p1',
+        parent_id: 'turn-1',
+        content: { input_type: 'text', text: 'Welches Bundesland?' },
+        status: 'in_progress',
+      },
+    ])
+    expect(waiting.waitingOn).toBe('Welches Bundesland?')
+
+    const answered = reduceSpectatedFrame(waiting, step('Function Start: web_search_tool', 'Wien'))
+    expect(answered.waitingOn).toBeNull()
+  })
+
   it('marks an error turn as finished and failed', () => {
     const state = fold([
       response('Teilantwort', 'in_progress'),

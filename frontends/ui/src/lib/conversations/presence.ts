@@ -31,6 +31,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { publishToUsers } from '@/lib/events/bus'
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
+import { consumeRateLimit, TYPING_RATE_LIMIT } from '@/lib/sharing/rate-limit'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 // The cadence pair lives in a client-safe module so the composer can import it
@@ -65,6 +66,17 @@ export async function publishTypingPresence(
       : 0,
   )
   if (!shared) return
+
+  // Shed silently past the bound rather than refusing: the caller is already
+  // told only that the request was accepted, and a presence claim nobody
+  // receives is exactly what happens when the channel drops one anyway.
+  //
+  // Below the `shared` check on purpose. Above it, a private thread's typing —
+  // which publishes nothing and costs nothing past this point — spent the user's
+  // budget anyway, so time spent typing alone could shed presence in a thread
+  // where somebody was actually watching.
+  const limit = await consumeRateLimit(TYPING_RATE_LIMIT, session.userId)
+  if (!limit.allowed) return
 
   const participants = await resolveParticipants(
     session.organizationId,

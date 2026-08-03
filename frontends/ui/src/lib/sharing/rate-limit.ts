@@ -33,6 +33,19 @@ export interface RateLimitRule {
 /** Sharing a resource with someone. */
 export const SHARE_RATE_LIMIT: RateLimitRule = { action: 'share', limit: 60, windowMs: 60 * 60 * 1000 }
 
+/**
+ * Composing presence.
+ *
+ * The highest-frequency endpoint in the product, and the only collaboration
+ * mutation that had no bound at all. A legitimate client publishes once per 3s
+ * while somebody types (see `presence-contract`), so this is roughly ten times
+ * what honest use costs — but it is the difference between a bounded cost and an
+ * open one, because each call resolves access, counts grants, resolves the
+ * participant list and then publishes once PER participant onto everybody's open
+ * event stream. Shedding is free: presence is worthless one second later.
+ */
+export const TYPING_RATE_LIMIT: RateLimitRule = { action: 'typing', limit: 120, windowMs: 60 * 1000 }
+
 /** Sending mentions (counted per mentioned person, not per message). */
 export const MENTION_RATE_LIMIT: RateLimitRule = { action: 'mention', limit: 100, windowMs: 60 * 60 * 1000 }
 

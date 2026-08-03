@@ -229,7 +229,8 @@ export function ShareDialog({
     description: string
     confirmLabel: string
     children?: ReactNode
-    onConfirm: () => Promise<void>
+    /** Resolves false when the server refused, so the confirm can stay open. */
+    onConfirm: () => Promise<boolean>
   } | null => {
     if (!pending) return null
     if (pending.kind === 'visibility') {
@@ -263,9 +264,7 @@ export function ShareDialog({
             )}
           </>
         ),
-        onConfirm: async () => {
-          await sharing.setVisibility(pending.next)
-        },
+        onConfirm: () => sharing.setVisibility(pending.next),
       }
     }
     if (pending.kind === 'remove') {
@@ -273,9 +272,7 @@ export function ShareDialog({
         title: t('sharing.removeConfirm', { name: pending.entry.person.name }),
         description: t('sharing.removeConfirmHint'),
         confirmLabel: t('sharing.remove'),
-        onConfirm: async () => {
-          await sharing.revoke(pending.entry.person.userId)
-        },
+        onConfirm: () => sharing.revoke(pending.entry.person.userId),
       }
     }
     if (pending.kind === 'escalate') {
@@ -285,9 +282,7 @@ export function ShareDialog({
         title: t('sharing.escalateConfirm'),
         description: t('sharing.escalateHint'),
         confirmLabel: t('sharing.escalate'),
-        onConfirm: async () => {
-          await sharing.escalate()
-        },
+        onConfirm: () => sharing.escalate(),
       }
     }
     return {
@@ -295,11 +290,12 @@ export function ShareDialog({
       description: t('sharing.leaveConfirmHint'),
       confirmLabel: t('sharing.leave'),
       onConfirm: async () => {
-        if (!currentUserId) return
+        if (!currentUserId) return false
         const ok = await sharing.revoke(currentUserId)
         // Access is gone — keeping the dialog open on a roster the reader may no
         // longer read would be both wrong and confusing.
         if (ok) onOpenChange(false)
+        return ok
       },
     }
   }
@@ -342,9 +338,13 @@ export function ShareDialog({
           </DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={entry.role}
-            onValueChange={(value) =>
+            onValueChange={(value) => {
+              // Radix fires this even when the value is unchanged. The server
+              // no-ops it, but the round trip still flips `saving` and greys out
+              // every control in the dialog for its duration.
+              if (value === entry.role) return
               void sharing.changeRole(entry.person.userId, value as ResourceRole)
-            }
+            }}
           >
             {ROLE_OPTIONS.map((role) => (
               <DropdownMenuRadioItem key={role} value={role}>
@@ -397,7 +397,9 @@ export function ShareDialog({
         ) : loadError && !state ? (
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden />
-            <AlertTitle>{t('sharing.errors.loadFailed')}</AlertTitle>
+            {/* line-clamp-none: AlertTitle clamps to one line by default, which
+                truncates this sentence in German at a laptop width. */}
+            <AlertTitle className="line-clamp-none">{t('sharing.errors.loadFailed')}</AlertTitle>
             <AlertDescription>
               <Button variant="outline" size="sm" className="mt-2" onClick={refresh}>
                 {t('sharing.errors.tryAgain')}
@@ -521,7 +523,9 @@ export function ShareDialog({
                     // with the way back.
                     <Alert variant="destructive">
                       <AlertTriangle className="size-4" aria-hidden />
-                      <AlertTitle>{t('sharing.errors.loadFailed')}</AlertTitle>
+                      <AlertTitle className="line-clamp-none">
+                        {t('sharing.errors.loadFailed')}
+                      </AlertTitle>
                       <AlertDescription>
                         <Button variant="outline" size="sm" className="mt-2" onClick={reloadCandidates}>
                           {t('sharing.errors.tryAgain')}
@@ -655,7 +659,14 @@ export function ShareDialog({
           </div>
         ) : null}
 
-        <DialogFooter className="sm:justify-between">
+        {/* `pt-4`: the scroll well ends flush against this footer, and on a phone
+            the row dissolving at that boundary sat directly on the Close button —
+            which reads as content sliding UNDER a control rather than as a list
+            with more below it. A gap is what makes the two read as separate
+            planes; the fade then says "more below" instead of "something is
+            broken here". Only above, so the footer's own bottom padding (and the
+            dialog's safe-area inset) are untouched. */}
+        <DialogFooter className="pt-4 sm:justify-between">
           {/* Leaving needs no ownership (SH-12). An owner may leave too — as long
               as another owner remains; the last-owner invariant is enforced
               server-side, so the button simply isn't offered in that case. */}
@@ -689,11 +700,31 @@ export function ShareDialog({
             cancelLabel={tCommon('actions.cancel')}
             tone="warning"
             onConfirm={async () => {
-              await confirm.onConfirm()
+              // Every `sharing.*` mutation resolves to a boolean rather than
+              // throwing, so awaiting it and closing unconditionally dismissed
+              // the confirmation on REFUSAL too — the user watched the dialog
+              // close like a success and the explanation appeared behind it.
+              // ConfirmDialog keeps itself open when onConfirm throws.
+              const ok = await confirm.onConfirm()
+              if (!ok) throw new Error('sharing mutation refused')
               setPending(null)
             }}
           >
             {confirm.children}
+            {/*
+              The refusal has to be stated INSIDE the confirm. Keeping the
+              confirmation open on a refusal is only an improvement if the reader
+              can see why: Radix `aria-hidden`s the outer dialog while a nested
+              one is open, and the overlay covers it — so the failure Alert in the
+              body above is neither visible nor announced, and the user is left
+              looking at an unchanged dialog with a live button they will simply
+              press again. That is worse than the false success it replaced.
+            */}
+            {failure && (
+              <p role="alert" data-testid="confirm-failure" className="text-sm text-destructive">
+                {failureMessage(failure)}
+              </p>
+            )}
           </ConfirmDialog>
         )}
       </DialogContent>

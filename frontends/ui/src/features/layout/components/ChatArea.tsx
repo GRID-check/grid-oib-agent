@@ -135,6 +135,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     loading: sharedLoading,
     accessLost,
     turnInFlight,
+    clearTurnInFlight,
+    noteTurnActivity,
     typists,
     unreadAfterMessageId,
     lastArrival,
@@ -160,7 +162,38 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const { turn: spectatedTurn, live: spectatingLive } = useSpectatedTurn({
     conversationId: currentConversation?.id ?? null,
     enabled: isForeignTurn,
+    // Every frame restarts the staleness clock. This used to be derived from
+    // `answer.length` + `steps.length`, which stand still for the whole of a
+    // single long tool call (the reducer merges repeats into the step it
+    // already has) — so a six-minute `ris_search` looked like silence and the
+    // banner was torn down mid-turn.
+    onFrame: noteTurnActivity,
   })
+
+  /*
+    Two wires from the spectated stream back to the banner.
+
+    FAILED clears it. A turn that dies without persisting an assistant message —
+    cancelled, or a server-side persist that failed — never publishes `ended`,
+    which is published as a side effect of that write, so the observer would
+    otherwise sit behind a locked composer until the staleness clock ran out.
+
+    DONE deliberately does NOT clear it. `done` is the terminal frame, which
+    strictly precedes persistence — and the whole live view is gated on
+    `turnInFlight`, so clearing on `done` unmounted the finished answer the
+    observer was reading and left them blank until the persisted message landed a
+    round trip later. On the very case this was written for (no persist at all)
+    it threw away a completed answer and replaced it with nothing. The persisted
+    message's own `ended` event is what clears it; until then the completed
+    spectated answer stays on screen, which is the truthful thing to show.
+
+    Any frame at all is evidence the turn is alive, which restarts the clock —
+    that is what lets the timeout be short without cutting off a long turn. That
+    wire is `onFrame` on the hook itself, below.
+  */
+  useEffect(() => {
+    if (isForeignTurn && spectatedTurn?.failed) clearTurnInFlight()
+  }, [isForeignTurn, spectatedTurn?.failed, clearTurnInFlight])
 
   // One label, two renderings (the static banner and the live stream), so the
   // observer's headline cannot change wording just because frames started

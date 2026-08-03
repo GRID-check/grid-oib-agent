@@ -265,6 +265,29 @@ describe('ShareDialog — per-person controls', () => {
     expect(revoke).toHaveBeenCalledWith('u-anna')
   })
 
+  test('a refused removal keeps its confirmation open instead of closing like a success', async () => {
+    // Every sharing mutation resolves to a boolean rather than throwing, so the
+    // confirm used to close on refusal too — the dialog dismissed itself as if
+    // the person had been removed, and the explanation appeared behind it.
+    const user = userEvent.setup()
+    revoke.mockResolvedValueOnce(false)
+    renderDialog({ failure: { reason: 'last-owner', message: null } })
+
+    await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Remove access/ }))
+    await user.click(screen.getByRole('button', { name: 'Remove access' }))
+
+    expect(revoke).toHaveBeenCalledWith('u-anna')
+    expect(await screen.findByText('Remove Anna Weber?')).toBeInTheDocument()
+    // …and the reason has to be stated INSIDE the confirm. Radix aria-hidden's
+    // the outer dialog while a nested one is open and the overlay covers it, so
+    // an explanation left in the dialog body behind is neither seen nor
+    // announced — leaving a live button the user simply presses again.
+    expect(await screen.findByTestId('confirm-failure')).toHaveTextContent(
+      'This conversation must keep at least one owner. Make someone else an owner first.',
+    )
+  })
+
   test('visibility-derived rows get NO controls — there is no per-person deny', () => {
     renderDialog({
       state: sharingState({

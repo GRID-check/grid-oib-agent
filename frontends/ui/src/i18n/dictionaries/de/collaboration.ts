@@ -51,7 +51,7 @@ export const collaboration: typeof en.collaboration = {
     invite: {
       label: 'Person einladen',
       placeholder: 'Nach Name oder E-Mail suchen…',
-      empty: 'Es gibt niemanden mehr einzuladen.',
+      empty: 'Es gibt niemanden mehr, den Sie einladen könnten.',
       noResults: 'Keine Treffer für „{query}“',
       submit: 'Einladen',
       needsProjectAccess: 'Noch nicht im Projekt',
@@ -127,8 +127,8 @@ export const collaboration: typeof en.collaboration = {
       badgeAgent: 'Assistent',
       chipRemove: 'Erwähnung von {name} entfernen',
     },
-    composerHint: 'Piloti antwortet nicht – {name} wird gefragt.',
-    composerHintMany: 'Piloti antwortet nicht – {names} werden gefragt.',
+    composerHint: 'Piloti hält sich zurück – {name} wird gefragt.',
+    composerHintMany: 'Piloti hält sich zurück – {names} werden gefragt.',
     addressee: {
       toAgent: 'Geht an Piloti',
       toPerson: 'Geht an {name}',
@@ -145,12 +145,13 @@ export const collaboration: typeof en.collaboration = {
     },
     notePlaceholder: 'Worum soll sich die Person kümmern? (optional)',
     engagement: {
-      mentionLabel: 'Piloti antwortet, wenn er erwähnt wird',
-      mentionHint: 'Hier sprechen zwei Personen – eine Nachricht ohne Erwähnung geht an alle im Chat.',
+      mentionLabel: 'Piloti antwortet nur bei Erwähnung',
+      mentionHint:
+        'Hier unterhalten sich mehrere Personen – eine Nachricht ohne Erwähnung geht an alle im Chat.',
       switchToAsk: 'Piloti immer antworten lassen',
-      offerHint: 'Hier schreiben mehrere Personen. Soll Piloti warten, bis er erwähnt wird?',
+      offerHint: 'Hier schreiben mehrere Personen. Soll Piloti auf eine Erwähnung warten?',
       switchToMention: 'Nur bei Erwähnung antworten',
-      failed: 'Die Änderung war nicht möglich.',
+      failed: 'Die Änderung konnte nicht gespeichert werden.',
     },
     awaiting: {
       one: 'Warten auf {name}',
@@ -162,6 +163,7 @@ export const collaboration: typeof en.collaboration = {
       awaitingYouHint: 'Antworten Sie im Chat – oder heben Sie das Warten auf.',
       release: 'Ohne Antwort weitermachen',
       releaseOne: 'Ohne {name} weitermachen',
+      releaseOneSince: 'Ohne {name} weitermachen – Warten seit {time}',
       released: 'Das Warten wurde aufgehoben.',
       askAgent: 'Stattdessen Piloti fragen',
       askBack: 'Rückfrage an {name}',
@@ -209,6 +211,7 @@ export const collaboration: typeof en.collaboration = {
     },
     errors: {
       loadFailed: 'Ihr Postfach konnte nicht geladen werden.',
+      actionFailed: 'Die Aktion konnte nicht ausgeführt werden. Ihr Postfach ist unverändert.',
       tryAgain: 'Erneut versuchen',
     },
     types: {
@@ -227,6 +230,11 @@ export const collaboration: typeof en.collaboration = {
       conversationActivity: {
         titleOne: '1 neue Nachricht',
         titleMany: '{count} neue Nachrichten',
+        titleNone: 'Nachrichten',
+        body: 'in {subject}',
+      },
+      unknown: {
+        title: 'Es gab Aktivität',
         body: 'in {subject}',
       },
     },
@@ -242,14 +250,17 @@ export const collaboration: typeof en.collaboration = {
     turnInFlight: 'Piloti beantwortet die Frage von {name}…',
     turnInFlightYou: 'Piloti antwortet…',
     typing: '{names} schreibt…',
-    typingMany: '{names} und {count} weitere schreiben…',
+    typingPair: '{names} schreiben…',
+    typingMany: '{names} und {count} weitere Personen schreiben…',
+    typingManyOne: '{names} und eine weitere Person schreiben…',
     typingNameSeparator: ', ',
+    typingNamePair: '{first} und {second}',
     spectatorPrompt: 'Piloti hat eine Rückfrage gestellt und wartet auf eine Antwort: „{question}“',
-    spectatorFailed: 'Dieser Durchgang endete mit einem Fehler.',
+    spectatorFailed: 'Diese Antwort endete mit einem Fehler.',
     composerBusy:
       'Piloti beantwortet gerade die Frage von {name} – Sie können senden, sobald das erledigt ist.',
     accessLost:
-      'Sie haben keinen Zugriff mehr auf diesen Chat – dies ist eine lokale Kopie, die nicht mehr aktualisiert wird.',
+      'Dieser Chat ist für Sie nicht mehr verfügbar. Was Sie hier sehen, ist eine lokale Kopie und wird nicht mehr aktualisiert.',
     viewerNotice:
       'Sie können hier mitlesen. Eine Eigentümerin oder ein Eigentümer kann Ihnen über den Teilen-Dialog Schreibzugriff geben.',
     unreadDivider: 'Neu',

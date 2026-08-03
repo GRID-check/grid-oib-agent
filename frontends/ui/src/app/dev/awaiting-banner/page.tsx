@@ -59,17 +59,36 @@ const ONE: AwaitingStateResponse = {
   awaitingMe: false,
 }
 
+/**
+ * Several people awaited at once (MN-10).
+ *
+ * Every row carries its OWN question and its OWN asker, because that is what the
+ * multi-person list renders and what a screenshot has to prove. The previous
+ * fixture left `note` at its `null` default on all three rows and gave all three
+ * the same `requestedBy`, so the per-row question — the whole point of the block
+ * — could not appear in the evidence at all, and the per-row "Gefragt von …"
+ * line looked like a thread-level statement repeated three times.
+ *
+ * The third row deliberately has NO note: a request opened without a message
+ * body is a real state, and the row must stay composed without one.
+ */
 const MANY: AwaitingStateResponse = {
   pending: [
-    request(),
+    request({
+      note: 'Passt die Entrauchung im Atrium so, wie sie im Einreichplan steht?',
+    }),
     request({
       id: 'r-markus',
       person: person('u-markus', 'Markus Hofer'),
+      requestedBy: person('u-anna', 'Anna Weber'),
+      note: 'Hast du die Rauchabzugsflächen im Kern B schon mit der Behörde abgestimmt?',
       createdAt: ago(90),
     }),
     request({
       id: 'r-sabine',
       person: person('u-sabine', 'Sabine Gruber'),
+      requestedBy: person('u-klaus', 'Klaus Berger'),
+      note: null,
       createdAt: ago(150),
     }),
   ],
@@ -119,7 +138,13 @@ export default function AwaitingBannerPreviewPage() {
     <I18nProvider initialLocale="de" fixedLocale>
     <main
       data-testid="awaiting-banner-preview"
-      className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 md:p-8"
+      // `text-foreground` is load-bearing, not decoration: the root layout only
+      // sets a surface colour, so without it this page's own heading — and every
+      // uncoloured string inside the banner, including the per-person names in the
+      // multi-person list — inherits the browser default and goes BLACK ON BLACK in
+      // dark mode. Product pages get it from their shell wrapper; a preview has no
+      // shell, so it has to say so itself (the inbox preview already does).
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 text-foreground md:p-8"
     >
       <header>
         <h1 className="text-xl font-semibold tracking-tight">Warten auf eine Antwort</h1>

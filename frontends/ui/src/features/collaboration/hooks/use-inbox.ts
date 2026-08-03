@@ -65,7 +65,18 @@ export interface UseInboxListResult {
   items: InboxItemView[]
   pending: number
   loading: boolean
+  /** The LIST could not be read. The rows on screen, if any, are stale. */
   error: boolean
+  /**
+   * A mutation was refused. Distinct from `error` on purpose: the rows are fine,
+   * one action did not land. Folding the two together meant that archiving a row
+   * a second tab had already archived replaced the entire inbox with "your inbox
+   * could not be loaded" — a sentence that was not true.
+   */
+  mutationError: boolean
+  dismissMutationError: () => void
+  /** True while a mutation is in flight, so a bulk action can say it is working. */
+  mutating: boolean
   connected: boolean
   refresh: () => void
   markRead: (itemIds: string[]) => Promise<void>
@@ -79,6 +90,8 @@ export function useInboxList(enabled: boolean, pendingOnly: boolean): UseInboxLi
   const [pending, setPending] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [mutationError, setMutationError] = useState(false)
+  const [mutating, setMutating] = useState(false)
 
   // Guards an out-of-order response from overwriting a newer one: switching the
   // filter twice quickly would otherwise let the first (slower) reply win.
@@ -123,6 +136,8 @@ export function useInboxList(enabled: boolean, pendingOnly: boolean): UseInboxLi
 
   const mutate = useCallback(
     async (input: RequestInfo, init: RequestInit) => {
+      setMutating(true)
+      setMutationError(false)
       try {
         const response = await fetch(input, init)
         if (response.ok) {
@@ -131,10 +146,13 @@ export function useInboxList(enabled: boolean, pendingOnly: boolean): UseInboxLi
           return
         }
         // A refusal (e.g. a 404 for an item another tab already archived) must
-        // not look like a no-op: surface it instead of refreshing it away.
-        setError(true)
+        // not look like a no-op: surface it. As a MUTATION failure, though — the
+        // list itself is intact and blanking it would be the bigger lie.
+        setMutationError(true)
       } catch {
-        setError(true)
+        setMutationError(true)
+      } finally {
+        setMutating(false)
       }
     },
     [refresh],
@@ -167,5 +185,18 @@ export function useInboxList(enabled: boolean, pendingOnly: boolean): UseInboxLi
     [mutate],
   )
 
-  return { items, pending, loading, error, connected, refresh: () => void refresh(), markRead, markAllRead, archive }
+  return {
+    items,
+    pending,
+    loading,
+    error,
+    mutationError,
+    dismissMutationError: () => setMutationError(false),
+    mutating,
+    connected,
+    refresh: () => void refresh(),
+    markRead,
+    markAllRead,
+    archive,
+  }
 }

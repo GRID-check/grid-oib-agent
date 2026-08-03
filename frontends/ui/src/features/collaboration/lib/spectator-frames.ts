@@ -162,7 +162,17 @@ export function reduceSpectatedFrame(
         return { ...next, steps: appendGenericStep(next.steps, content) }
       }
       if (!content.name) return next === state ? state : next
-      return { ...next, steps: applyNamedStep(next.steps, content.name, content.payload ?? '') }
+      // Clearing `waitingOn` here as well as on a response frame: the answer to a
+      // prompt travels the agent's own input channel, which an observer does not
+      // subscribe to, so the only evidence they ever get that the pause is over
+      // is the agent doing something again. Without this, an agent that answers
+      // and then runs tools for a while left the observer reading "Piloti asked
+      // a question and is waiting" long after it had been answered.
+      return {
+        ...next,
+        waitingOn: null,
+        steps: applyNamedStep(next.steps, content.name, content.payload ?? ''),
+      }
     }
 
     case NATMessageType.SYSTEM_INTERACTION: {
