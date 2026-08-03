@@ -509,6 +509,7 @@ export const platform: typeof en.platform = {
     label: 'Plattform-Bereiche',
     overview: 'Übersicht',
     models: 'Modelle',
+    retrieval: 'Abruf',
     quality: 'Antwortqualität',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
@@ -604,6 +605,10 @@ export const platform: typeof en.platform = {
       title: 'Modelle',
       subtitle: 'Das Standardmodell, auf dem jede Organisation läuft, solange sie kein eigenes wählt.',
     },
+    retrieval: {
+      title: 'Abruf',
+      subtitle: 'Wie viele Treffer jede Suche holt und zusammenführt — flottenweit, wirksam ab der nächsten Anfrage.',
+    },
     quality: {
       title: 'Antwortqualität',
       subtitle: 'Wie gut Antworten belegt sind, was Nutzerinnen und Nutzer von ihnen hielten, und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
@@ -657,6 +662,34 @@ export const platform: typeof en.platform = {
     confirmDescription:
       'Jede Organisation, die für diese Teile des Agenten kein eigenes Modell gewählt hat, wechselt mit ihrer nächsten Nachricht. Organisationen mit eigener Wahl bleiben unberührt.',
     confirmSave: 'Standards ändern',
+  },
+  /** Plattform → Abruf: die flottenweiten Abruf-Tiefen (Chunks/Ergebnisse je Suche). */
+  retrieval: {
+    title: 'Abruf-Tiefen',
+    description:
+      'Wie viele Chunks und Ergebnisse die einzelnen Suchen holen und zusammenführen. Eine Änderung hier gilt für jede Organisation — ab ihrer nächsten Anfrage, ohne Deployment.',
+    // Zustand je Einstellung.
+    pinnedBadge: 'Angepasst',
+    defaultBadge: 'Standard',
+    defaultHint: 'Standard: {value}',
+    rangeHint: '{min}–{max}',
+    reset: 'Zurück zum Standard',
+    updatedBy: 'von {email}',
+    // Speichern.
+    unsavedChanges: 'Nicht gespeicherte Änderungen.',
+    note: 'Notiz',
+    notePlaceholder: 'Warum diese Änderung? (optional)',
+    save: 'Einstellungen speichern',
+    saving: 'Wird gespeichert…',
+    discard: 'Verwerfen',
+    saved: 'Abruf-Einstellungen gespeichert.',
+    saveError: 'Die Abruf-Einstellungen konnten nicht gespeichert werden.',
+    loadError: 'Die Abruf-Einstellungen konnten nicht geladen werden.',
+    invalidValue: 'Ungültiger Wert',
+    confirmTitle: 'Abruf-Tiefe für alle Organisationen ändern?',
+    confirmDescription:
+      'Mehr Treffer vertiefen die Recherche jeder Organisation, erhöhen aber auch Latenz und Token-Kosten jeder Anfrage. Die Änderung gilt ab der nächsten Anfrage.',
+    confirmSave: 'Einstellungen ändern',
   },
   stats: {
     organizations: 'Organisationen',

@@ -47,6 +47,9 @@ import { useMessageAnchor } from '@/features/collaboration/hooks/use-message-anc
 import { MentionPeopleProvider } from '@/features/collaboration/context/mention-people'
 import { HandbackOffer } from '@/features/collaboration/components/HandbackOffer'
 import { useSharedThread } from '@/features/collaboration/hooks/use-shared-thread'
+import { useSpectatedTurn } from '@/features/collaboration/hooks/use-spectated-turn'
+import { SpectatedTurn } from '@/features/collaboration/components/SpectatedTurn'
+import { TypingPresence } from '@/features/collaboration/components/TypingPresence'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
@@ -129,7 +132,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const {
     shared,
     myRole,
+    loading: sharedLoading,
+    accessLost,
     turnInFlight,
+    clearTurnInFlight,
+    noteTurnActivity,
+    typists,
     unreadAfterMessageId,
     lastArrival,
     participants,
@@ -142,6 +150,63 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     enabled: canCollaborate,
     currentUserId,
   })
+
+  // ── Watching a colleague's turn (ADR-0039) ──────────────────────────────────
+  // Only for a turn that is NOT this reader's: the asker already has the frames
+  // on their own agent socket, and a second copy would render the answer twice.
+  // Everything else — a private thread, a gated org, no turn running — resolves
+  // to `enabled: false`, and the hook then opens no connection at all.
+  const isForeignTurn = Boolean(
+    shared && turnInFlight && turnInFlight.actorUserId !== currentUserId && !isStreaming
+  )
+  const { turn: spectatedTurn, live: spectatingLive } = useSpectatedTurn({
+    conversationId: currentConversation?.id ?? null,
+    enabled: isForeignTurn,
+    // Every frame restarts the staleness clock. This used to be derived from
+    // `answer.length` + `steps.length`, which stand still for the whole of a
+    // single long tool call (the reducer merges repeats into the step it
+    // already has) — so a six-minute `ris_search` looked like silence and the
+    // banner was torn down mid-turn.
+    onFrame: noteTurnActivity,
+  })
+
+  /*
+    Two wires from the spectated stream back to the banner.
+
+    FAILED clears it. A turn that dies without persisting an assistant message —
+    cancelled, or a server-side persist that failed — never publishes `ended`,
+    which is published as a side effect of that write, so the observer would
+    otherwise sit behind a locked composer until the staleness clock ran out.
+
+    DONE deliberately does NOT clear it. `done` is the terminal frame, which
+    strictly precedes persistence — and the whole live view is gated on
+    `turnInFlight`, so clearing on `done` unmounted the finished answer the
+    observer was reading and left them blank until the persisted message landed a
+    round trip later. On the very case this was written for (no persist at all)
+    it threw away a completed answer and replaced it with nothing. The persisted
+    message's own `ended` event is what clears it; until then the completed
+    spectated answer stays on screen, which is the truthful thing to show.
+
+    Any frame at all is evidence the turn is alive, which restarts the clock —
+    that is what lets the timeout be short without cutting off a long turn. That
+    wire is `onFrame` on the hook itself, below.
+  */
+  useEffect(() => {
+    if (isForeignTurn && spectatedTurn?.failed) clearTurnInFlight()
+  }, [isForeignTurn, spectatedTurn?.failed, clearTurnInFlight])
+
+  // One label, two renderings (the static banner and the live stream), so the
+  // observer's headline cannot change wording just because frames started
+  // arriving.
+  const turnInFlightLabel = useMemo(() => {
+    if (!turnInFlight) return ''
+    if (turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId) {
+      return tCollaboration('thread.turnInFlightYou')
+    }
+    return tCollaboration('thread.turnInFlight', {
+      name: authorOf(turnInFlight.actorUserId)?.name ?? tCollaboration('inbox.unknownActor'),
+    })
+  }, [turnInFlight, currentUserId, authorOf, tCollaboration])
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
   // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
@@ -256,16 +321,24 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // Where the reader left off (spec CC-19). Anchored on the server-held read mark,
   // then advanced past the reader's OWN messages — a separator whose first item is
   // your own message would be telling you that you have not read yourself.
+  //
+  // The anchor is resolved against the FULL message list, not the displayable
+  // subset: the read receipt marks the newest mapped message, which may be a full
+  // report (rendered in the details panel, not here), and an anchor that cannot be
+  // found would silently drop the divider on the next open.
   const unreadDividerBeforeId = useMemo(() => {
     if (!shared || !unreadAfterMessageId) return null
-    const anchorIndex = displayableMessages.findIndex((m) => m.id === unreadAfterMessageId)
+    const all = messages ?? []
+    const anchorIndex = all.findIndex((m) => m.id === unreadAfterMessageId)
     if (anchorIndex < 0) return null
-    for (const message of displayableMessages.slice(anchorIndex + 1)) {
+    const displayableIds = new Set(displayableMessages.map((m) => m.id))
+    for (const message of all.slice(anchorIndex + 1)) {
+      if (!displayableIds.has(message.id)) continue
       const mine = authorship.get(message.id)?.author.isYou === true
       if (!mine) return message.id
     }
     return null
-  }, [shared, unreadAfterMessageId, displayableMessages, authorship])
+  }, [shared, unreadAfterMessageId, messages, displayableMessages, authorship])
 
   // ── The hand-back offer (ADR-0034 addendum, the last transition) ────────────
   // The state machine is: asking Piloti → tag a human → waiting → they answer →
@@ -342,12 +415,17 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    * has to stay honestly authored: a button that fired a turn would either put words
    * under the user's name that they did not write, or produce an answer to a question
    * nobody can see, in a thread several people read as a shared record.
+   *
+   * The `@Piloti` token rides along as a STRUCTURED mention: without it the
+   * prefill would send as plain text and route by the engagement mode instead of
+   * to the agent (MN-3 — a mention is never re-derived from text).
    */
   const handleHandback = useCallback(() => {
     if (!handback) return
-    setComposerPrefill(
-      `@${tCollaboration('mentions.picker.agentName')} ${tCollaboration('mentions.handback.prefill')}`
-    )
+    const agentName = tCollaboration('mentions.picker.agentName')
+    setComposerPrefill(`@${agentName} ${tCollaboration('mentions.handback.prefill')}`, [
+      { targetId: AGENT_MENTION_ID, display: agentName },
+    ])
     setHandbackDismissedFor(handback.anchorId)
   }, [handback, setComposerPrefill, tCollaboration])
 
@@ -356,26 +434,29 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    *
    * Pre-fills rather than sending, for the same reason the hand-back offer does:
    * the message stays honestly authored, and a turn with no user-authored question
-   * produces "Based on the discussion above…". `@Piloti` is what releases the wait
-   * server-side, so no separate release call is needed — the ruling does it.
+   * produces "Based on the discussion above…". A STRUCTURED `@Piloti` mention is
+   * what releases the wait server-side — bare `@Piloti` text would not, so the
+   * mention travels with the prefill.
    */
   const handleAskAgent = useCallback(() => {
-    setComposerPrefill(`@${tCollaboration('mentions.picker.agentName')} `)
+    const agentName = tCollaboration('mentions.picker.agentName')
+    setComposerPrefill(`@${agentName} `, [{ targetId: AGENT_MENTION_ID, display: agentName }])
   }, [setComposerPrefill, tCollaboration])
 
   /**
    * "Rückfrage an Matthias" — the reader was asked something they cannot answer
    * without more information.
    *
-   * Pre-fills `@{asker} `, which routes the message as a mention: the asker's own
-   * request closes as `asked_back` rather than as an answer they never gave, and
-   * the thread keeps waiting — on them. Typing the same question as plain text
-   * instead settles the request, tells the asker "they answered", and hands the
-   * thread back to Piloti in the middle of a human conversation.
+   * Pre-fills `@{asker} ` WITH its structured mention, which routes the message
+   * as a mention: the asker's own request closes as `asked_back` rather than as
+   * an answer they never gave, and the thread keeps waiting — on them. A
+   * text-only prefill would send the same question as plain text, settle the
+   * request, tell the asker "they answered", and hand the thread back to Piloti
+   * in the middle of a human conversation.
    */
   const handleAskBack = useCallback(
     (asker: { userId: string; name: string }) => {
-      setComposerPrefill(`@${asker.name} `)
+      setComposerPrefill(`@${asker.name} `, [{ targetId: asker.userId, display: asker.name }])
     },
     [setComposerPrefill]
   )
@@ -583,10 +664,24 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
           aria-label={t('chatArea.ariaMessages')}
         >
-          {!hasHydrated ? (
+          {/* Access revoked while viewing: the fallback shows the local copy, so
+              without this the thread simply freezes with no explanation. */}
+          {accessLost && (
+            <div
+              role="status"
+              className="mx-auto mt-3 w-full max-w-3xl px-4 text-sm text-muted-foreground"
+            >
+              {tCollaboration('thread.accessLost')}
+            </div>
+          )}
+          {!hasHydrated || (shared && sharedLoading && isEmpty) ? (
             // Hydration skeleton (C5): the persisted thread hasn't rehydrated yet.
             // Show a lightweight grey-bubble placeholder — never flash WelcomeState
-            // for a returning user whose conversation is about to load in.
+            // for a returning user whose conversation is about to load in. The same
+            // holds for a first-time RECIPIENT of a shared thread: the conversation
+            // is materialised empty and the server history lands a moment later, so
+            // without the second clause a shared-thread invitee got a flash of the
+            // "private workspace" welcome before their colleague's messages snapped in.
             <MessageListSkeleton />
           ) : isEmpty ? (
             <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
@@ -800,24 +895,42 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               this an observer sees a thread where nothing appears to be happening
               and a composer that will not take their question. Suppressed while
               this client is itself streaming — the asker already has the typing
-              indicator and the Herleitung. */}
+              indicator and the Herleitung.
+
+              Two renderings of the same fact, and the LIVE one is preferred: when
+              the agent's frames are reaching this observer (ADR-0039) they watch
+              the answer being written, and the banner is what remains when they
+              are not — a gated org, no shared cache tier, a dropped stream, or the
+              first moments before the first token. `spectatingLive` is the switch,
+              and it only turns on once there is something to show, so the banner is
+              never replaced by an empty box. */}
               {shared && turnInFlight && !isStreaming && !showTypingPlaceholder && (
-                <TurnInFlightBanner
-                  label={
-                    turnInFlight.actorUserId && turnInFlight.actorUserId === currentUserId
-                      ? tCollaboration('thread.turnInFlightYou')
-                      : tCollaboration('thread.turnInFlight', {
-                          name:
-                            authorOf(turnInFlight.actorUserId)?.name ??
-                            tCollaboration('inbox.unknownActor'),
-                        })
-                  }
-                />
+                spectatingLive && spectatedTurn ? (
+                  <SpectatedTurn
+                    turn={spectatedTurn}
+                    label={turnInFlightLabel}
+                  />
+                ) : (
+                  <TurnInFlightBanner label={turnInFlightLabel} />
+                )
               )}
 
+              {/* A colleague at a keyboard. Distinct vocabulary from the agent's
+              banner above (see TypingPresence), and independent of it: somebody may
+              well start writing while Piloti is still answering. */}
+              {shared && <TypingPresence typists={typists} />}
+
               {/* A colleague writing while you are reading is a change you must be able
-              to learn about without eyes. Polite, so it never interrupts. */}
-              <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+              to learn about without eyes. Polite, so it never interrupts. Keyed on
+              the message id so a SECOND arrival from the same person is a fresh
+              node — identical text in a mutated region is not re-announced. */}
+              <div
+                key={lastArrival?.messageId ?? 'none'}
+                className="sr-only"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
                 {shared && lastArrival
                   ? tCollaboration('thread.authorAria', {
                       name:
@@ -1109,12 +1222,14 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
  * "Piloti is answering <name>'s question" — the observer's view of a turn that is
  * not theirs (spec CC-13).
  *
- * Phase 1 deliberately shows turn STATE, not the streaming tokens: mirroring the
- * agent's frames to every participant needs a relay out of the Python tier
- * (ADR-0033 §7). What matters is that the wait is explained — without this, a
- * second participant sees a thread where nothing is happening and a composer that
- * will not take their question, which reads as a broken product rather than a busy
- * one.
+ * This is now the FALLBACK rather than the whole story: with the frame relay in
+ * place (ADR-0039) an observer watches the answer being written, and `SpectatedTurn`
+ * renders it. The banner is what remains when the frames cannot reach them — no
+ * shared cache tier, a dropped stream, or simply the first moments before the first
+ * token. It is not a lesser version of the feature: what matters most is that the
+ * wait is explained, because without it a second participant sees a thread where
+ * nothing is happening and a composer that will not take their question, which reads
+ * as a broken product rather than a busy one.
  *
  * It says *the assistant is working*, not *somebody is typing*: the Piloti glyph
  * plus the shimmering label — this app's own vocabulary for a turn in progress

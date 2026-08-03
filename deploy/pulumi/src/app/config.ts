@@ -302,6 +302,12 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // backend needs this. Without it the feature is invisible even on a
     // deployment carrying its code — which is exactly the dark-launch contract.
     { name: "GRID_COLLABORATION_ENABLED", value: String(cfg.collaboration.enabled) },
+    // Memory reflection (project-memory-design.md §3.5). Frontend-only: the BFF
+    // consults it at the WS upgrade and forwards the decision to the backend as
+    // a header. Default-on like the feature itself — consulted only while
+    // enforceFeatureFlags is off; with enforcement on, the per-org
+    // `memory-reflection` WorkOS flag decides instead.
+    { name: "GRID_MEMORY_REFLECTION_ENABLED", value: String(cfg.memory.reflectionEnabled) },
     // OTLP tracing via the cluster collector — injected only when the
     // observability tier is deployed, which is what makes
     // src/instrumentation.ts register @vercel/otel (it no-ops without the

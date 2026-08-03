@@ -36,6 +36,16 @@ const middleware = authkitMiddleware({
       // enforces its own shared-token auth (X-Grid-Internal-Token). Without
       // this entry AuthKit 303-redirects the POST to WorkOS sign-in.
       '/api/internal/(.*)',
+      // Signed document images. `_next/image` is excluded from the matcher
+      // below, but the optimizer does not fetch the underlying route over the
+      // network — it re-enters the router server handler in-process, so
+      // middleware DOES run on it, with a mocked request that carries no
+      // cookies. Without this entry AuthKit 303-redirects our own optimizer to
+      // WorkOS sign-in and every document image breaks. The route is not
+      // unguarded: it verifies the HMAC signature on the URL itself
+      // (`@/lib/images/signed-image-url`), which is the same shape of argument
+      // as the internal endpoints above.
+      '/api/documents/(.*)/image',
     ],
   },
 })

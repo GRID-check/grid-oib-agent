@@ -139,6 +139,25 @@ shareable resource types, and store resource-level grants in `grid_app`.**
 - Second consumer (documents or workflows) is the real test of SH-9; if it costs more
   than a registry entry, fix the substrate.
 
+## Addendum, 2026-07-31: the promise, measured
+
+The "Consequences" section above says the second consumer is the real test, and
+that anything it must change outside its own registry entry is a substrate
+defect. With `conversation` still the only consumer, that was audited rather than
+proven — the result is
+[`../architecture/adding-a-shareable-resource-type.md`](../architecture/adding-a-shareable-resource-type.md).
+
+The short version: storage, effective-access resolution, the sharing mutations
+and their HTTP surface, and the inbox read path are genuinely generic. Mentions,
+the events layer, the cleanup cascade and about twenty "generic" i18n strings are
+not — and three declared descriptor fields (`defaultVisibility`,
+`supportsMentions`, `labelKey`) are read by nobody, which is the tell. A second
+type today would pay roughly twice its legitimate cost in refactoring the
+substrate on the way through.
+
+That document is the checklist and the debt register. Update it when you add a
+type, and when you pay a piece of the debt down.
+
 ## References
 
 - ../design/collaboration-sharing-and-inbox-spec.md — §5 (requirements SH-1…SH-20),

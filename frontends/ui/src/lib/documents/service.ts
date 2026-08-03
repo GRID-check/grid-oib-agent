@@ -22,6 +22,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -48,6 +49,25 @@ const PREVIEW_CONTENT_TYPES = [
   'image/svg+xml',
   'image/bmp',
   'image/tiff',
+]
+
+/**
+ * Content types the signed image route hands to the Next optimizer.
+ *
+ * Deliberately narrower than {@link PREVIEW_CONTENT_TYPES}. SVG is excluded
+ * because the optimizer hard-fails on it (400) unless `dangerouslyAllowSVG` is
+ * on, which we will not enable — it would let an uploaded SVG carry script into
+ * a same-origin response. BMP and TIFF are excluded because sharp's support is
+ * patchier than the browsers' and a decode failure is a broken image, not a
+ * slow one. Everything excluded here still previews; it just renders straight
+ * from the object store as it does today.
+ */
+const OPTIMIZABLE_IMAGE_CONTENT_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
 ]
 
 const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
@@ -736,7 +756,7 @@ export async function getDocumentDownload(
 export async function getDocumentPreview(
   session: AuthorizedSession,
   documentId: string,
-): Promise<{ url: string; contentType: string; filename: string }> {
+): Promise<{ url: string; contentType: string; filename: string; imageUrl: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
@@ -756,16 +776,35 @@ export async function getDocumentPreview(
     { expiresIn: 3600 },
   )
 
-  return { url, contentType, filename: doc.filename }
+  // A same-origin, signature-authorized path for the raster image formats the
+  // optimizer can actually process — this is what lets `next/image` resize a
+  // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
+  // the exotic formats above, whose callers fall back to `url` unoptimized.
+  const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
+    ? buildDocumentImageUrl(session.organizationId, documentId, 'original')
+    : null
+
+  return { url, contentType, filename: doc.filename, imageUrl }
 }
 
-/** Presign a browser-facing thumbnail URL (null when no thumbnail exists). */
+/**
+ * Browser-facing thumbnail URL (null when no thumbnail exists).
+ *
+ * Prefers the signed same-origin route so the card's 124px well gets an
+ * optimizer-resized image, and falls back to a presigned object-store URL when
+ * signing is unavailable. The ingest pipeline already writes a 200px JPEG here,
+ * so the win is a format change (WebP/AVIF) rather than a resize — small, but it
+ * keeps every document image on one path instead of leaving this one special.
+ */
 export async function getDocumentThumbnail(
   session: AuthorizedSession,
   documentId: string,
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
+
+  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
+  if (signedUrl) return { url: signedUrl }
 
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
 
@@ -783,6 +822,69 @@ export async function getDocumentThumbnail(
   } catch {
     return { url: null }
   }
+}
+
+/**
+ * Stream a document image for a signed capability URL — the only document route
+ * that serves bytes without a session, because the Next image optimizer's
+ * internal fetch cannot carry one (see `@/lib/images/signed-image-url`).
+ *
+ * The signature is the authorization. It was minted by `getDocumentPreview` /
+ * `getDocumentThumbnail` AFTER `getAccessibleDocument` ran the real
+ * `project:view` check, and it is bound to the org, the document and the
+ * variant, so it cannot be walked onto another tenant's document or onto the
+ * full-size original when it was issued for a thumbnail. The org id is taken
+ * from the signed claims rather than the caller, so the row lookup stays
+ * tenant-scoped exactly as the session path is.
+ */
+export async function streamDocumentImage(
+  documentId: string,
+  params: URLSearchParams,
+): Promise<Response> {
+  const verified = verifyDocumentImageUrl(documentId, params)
+  if (!verified.ok) {
+    if (verified.reason === 'disabled') {
+      throw new ApiError(503, 'IMAGE_URLS_DISABLED', 'Signed image URLs are not configured')
+    }
+    // Expired, malformed and forged are one answer to the caller on purpose:
+    // distinguishing them tells an attacker which half of the token to work on.
+    throw new ForbiddenError('Invalid or expired image URL')
+  }
+
+  const { organizationId, variant } = verified.claims
+  const doc = await findDocumentInOrg(documentId, organizationId)
+  if (!doc?.storageKey) throw new NotFoundError()
+
+  const contentType = variant === 'thumb' ? 'image/jpeg' : doc.contentType || ''
+  // Belt and braces over the signing-side check: this route serves images and
+  // nothing else, so a token minted against a row that later changed type
+  // cannot turn into a download channel for an arbitrary upload.
+  if (!contentType.startsWith('image/')) throw new NotFoundError()
+
+  const key = variant === 'thumb' ? buildThumbnailStorageKey(doc.storageKey) : doc.storageKey
+
+  let body
+  try {
+    const object = await s3Client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+    body = object.Body
+  } catch {
+    // A document with no generated thumbnail lands here; the card reads the 404
+    // as "no thumbnail" and shows its warm placeholder.
+    throw new NotFoundError('Image not available')
+  }
+  if (!body) throw new NotFoundError('Image not available')
+
+  return new Response(body.transformToWebStream(), {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Disposition': 'inline',
+      // Private: the bytes are tenant data, and the optimizer keeps its own
+      // server-side cache regardless. Bounded by the signature's own lifetime.
+      'Cache-Control': 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
 }
 
 /** Read one document's status, lazily reconciled with the backend. */

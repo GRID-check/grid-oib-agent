@@ -11,7 +11,7 @@ import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
-import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
+import { isMemoryReflectionEnabled } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
@@ -46,15 +46,12 @@ export async function GET(req: Request): Promise<Response> {
       response.accessToken = session.accessToken
     }
 
-    // Gate the async memory-reflection stage solely on the WorkOS
-    // "memory-reflection" feature flag, evaluated for the caller's org. No org
-    // in scope (anonymous mode) or any evaluation failure both fail closed to
-    // off — there is no env-var fallback (removed; the feature flag is the
-    // single source of truth). server.js forwards this as
+    // Gate the async memory-reflection stage: with WorkOS flag enforcement
+    // on, the per-org "memory-reflection" flag is the source of truth; without
+    // enforcement it follows GRID_MEMORY_REFLECTION_ENABLED (default on) — see
+    // isMemoryReflectionEnabled. server.js forwards this as
     // x-grid-feature-memory-reflection.
-    response.memoryReflectionEnabled = session?.organizationId
-      ? await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, session.organizationId)
-      : false
+    response.memoryReflectionEnabled = await isMemoryReflectionEnabled(session?.organizationId)
 
     if (session?.organizationId) {
       // Org-level web-search setting (ADR-0022): when off, server.js forwards

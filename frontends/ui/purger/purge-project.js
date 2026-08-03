@@ -100,8 +100,51 @@ async function purgeProject(tx, entry, deps) {
     if (!isNotFound(error)) throw error
   }
 
-  // 4. grid_app rows: conversations explicitly (messages cascade), then the
-  //    project row (documents / folders / project-scoped memory cascade).
+  // 4. grid_app rows: the collaboration rows FIRST, then conversations
+  //    (messages and conversation_reads cascade), then the project row
+  //    (documents / folders / project-scoped memory cascade).
+  //
+  //    The collaboration tables address their target as a polymorphic
+  //    `(resource_type, resource_id)` pair with no foreign key (ADR-0032), so
+  //    nothing about them cascades — deleting the conversations first simply
+  //    orphaned every grant, every open mention request and every inbox item
+  //    for good. The rows are invisible to access checks, but they keep
+  //    inflating roster counts and leave permanently redacted entries in
+  //    people's inboxes, for a project that no longer exists.
+  //
+  //    The conversation set is expressed as a SUBQUERY, not as a list of bound
+  //    ids. `IN ${tx(ids)}` expands to one placeholder per id, and Postgres
+  //    refuses any statement with more than 65535 of them — so a project with
+  //    tens of thousands of conversations threw MAX_PARAMETERS_EXCEEDED here,
+  //    *after* Chroma, SeaweedFS and WorkOS had already been destroyed. Nothing
+  //    recovers from that: the queue row is guarded by `status='purging'` rather
+  //    than by a lock (see the file header), so it stays stuck in 'purging',
+  //    and every retry would fail on the same statement against external stores
+  //    that no longer exist. The subquery binds ONE parameter regardless of how
+  //    many conversations the project holds, so the statement count and the
+  //    parameter count are both constant.
+  //
+  //    Reading the set from the table also closes a snapshot gap: a conversation
+  //    that appeared after the SELECT above is still caught by
+  //    `DELETE FROM conversations WHERE project_id = …` below, but was absent
+  //    from the gathered id list — so its collaboration rows were orphaned by
+  //    the very statements meant to prevent that. Same transaction, same
+  //    predicate, and the conversations are still present when these run.
+  //
+  //    These run UNCONDITIONALLY, including for a project that held no
+  //    conversations at gather time. Creating a conversation checks project
+  //    access and inserts in separate operations, so a request that passed the
+  //    check before the soft delete can commit its insert after our SELECT; a
+  //    guard on the empty snapshot would then skip all three statements while
+  //    `DELETE FROM conversations` below still removed that row — orphaning its
+  //    grants, mention requests and inbox items for good. Three no-op deletes
+  //    are cheaper than that.
+  //
+  //    `conversations.id` and `resource_id` are both `text`, so the comparison
+  //    needs no cast.
+  await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+  await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+  await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

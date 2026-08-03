@@ -70,12 +70,13 @@ import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-
 import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
-import { requireResourceAccess } from './access'
+import { requireResourceAccess, resolveResourceAccess } from './access'
 import { loadOrganizationDirectory } from './directory'
 import { consumeRateLimit } from './rate-limit'
 import { countGrantsForResource, deleteGrant, listGrantsForResource, upsertGrant } from './repository'
 import {
   changeResourceRole,
+  escalateToOwner,
   grantResourceAccess,
   revokeResourceAccess,
   setResourceVisibility,
@@ -337,5 +338,58 @@ describe('setResourceVisibility (spec SH-2, SH-14)', () => {
       setResourceVisibility(session, 'conversation', 'conv_1', 'organization'),
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(updateConversationVisibilityInOrg).not.toHaveBeenCalled()
+  })
+})
+
+describe('escalateToOwner (spec SH-10)', () => {
+  beforeEach(() => {
+    // A project admin who is not yet party to the thread — what `./access`
+    // resolves for the only caller allowed through here.
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+    })
+    stubConversation('user_creator')
+    // The roster as it reads once the admin's own owner grant has landed.
+    stubGrants([{ subjectUserId: 'user_me', role: 'owner' }])
+  })
+
+  it('announces the new owner to everyone party to the resource', async () => {
+    await escalateToOwner(session, 'conversation', 'conv_1')
+
+    expect(upsertGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectUserId: 'user_me', role: 'owner' }),
+    )
+    // Every other mutation here publishes and this one did not, so the creator's
+    // open share dialog kept rendering a roster the escalating admin was absent
+    // from until a focus event or the minute-long disconnected poll came round.
+    expect(publishToUsers).toHaveBeenCalledWith(['user_creator', 'user_me'], {
+      kind: 'resource.access.changed',
+      resourceType: 'conversation',
+      resourceId: 'conv_1',
+      change: 'granted',
+    })
+  })
+
+  it('survives a participant lookup that throws — the escalation is already committed', async () => {
+    // The grant and its audit record are durable before the fan-out's two reads
+    // even start. Letting one of them throw answered 500 for an escalation that
+    // had in fact succeeded, so the admin retried an act already in the log.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(findConversationTenancy).mockRejectedValueOnce(new Error('roster read unavailable'))
+
+    await expect(escalateToOwner(session, 'conversation', 'conv_1')).resolves.toMatchObject({
+      resourceId: 'conv_1',
+      canManage: true,
+    })
+
+    expect(upsertGrant).toHaveBeenCalledTimes(1)
+    expect(recordAuditEvent).toHaveBeenCalledTimes(1)
+    expect(publishToUsers).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })

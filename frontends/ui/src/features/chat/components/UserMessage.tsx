@@ -49,7 +49,7 @@ import { type FC } from 'react'
 import { User } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { MentionText } from '@/features/collaboration/components/MentionText'
 import { MessageAuthor } from './MessageAuthor'
@@ -101,6 +101,10 @@ export const UserMessage: FC<UserMessageProps> = ({
   currentUserId,
 }) => {
   const t = useTranslations('chat')
+  // `formatTime` without a locale falls back to the RUNTIME default, so a
+  // German user on an en-US browser read "03:35 PM" here while the HITL prompt
+  // directly below it read "15:35". Every research card already passes it.
+  const { locale } = useLocale()
 
   /**
    * Message text. A message carrying structured mentions renders through
@@ -131,7 +135,7 @@ export const UserMessage: FC<UserMessageProps> = ({
         </div>
 
         {timestamp && (
-          <span className="text-subtle mr-[14px] mt-1 text-xs">{formatTime(timestamp)}</span>
+          <span className="text-subtle mr-[14px] mt-1 text-xs">{formatTime(timestamp, locale)}</span>
         )}
       </div>
     )
@@ -181,7 +185,7 @@ export const UserMessage: FC<UserMessageProps> = ({
       {/* The header carries the time; a grouped follow-up has no header, so it
           keeps the timestamp under the bubble as an unattributed message does. */}
       {grouped && timestamp && (
-        <span className="text-subtle mr-[14px] mt-1 text-xs">{formatTime(timestamp)}</span>
+        <span className="text-subtle mr-[14px] mt-1 text-xs">{formatTime(timestamp, locale)}</span>
       )}
     </div>
   )

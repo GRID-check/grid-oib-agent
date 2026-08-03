@@ -2874,7 +2874,9 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
 
     expect(outcome).toEqual({
       ok: false,
-      failure: { reason: 'mention-invite-requires-owner', message: 'mention refused' },
+      // No `targetId` in the envelope: the refusal names a reason only, and the
+      // field is reported as absent rather than guessed from the sent mention.
+      failure: { reason: 'mention-invite-requires-owner', message: 'mention refused', targetId: null },
     })
     expect(mockSetState).not.toHaveBeenCalled()
     expect(mockWsClient.sendMessage).not.toHaveBeenCalled()

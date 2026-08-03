@@ -684,6 +684,23 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
     expect(emissions.every((item) => item.actorUserId === 'user_me')).toBe(true)
   })
 
+  it("names the thread in every recipient's row, so the inbox is not ten identical lines", async () => {
+    stubConversation({ visibility: 'project', createdBy: 'user_me' })
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_me', 'user_anna'])
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Frage' },
+    ])
+
+    // Without the payload this row — the commonest type in the inbox — rendered
+    // "3 new messages in Untitled conversation", so ten threads read the same.
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions.map((item) => [item.recipientUserId, item.payload])).toEqual([
+      ['user_me', { subject: 'Brandschutz Stiegenhaus' }],
+      ['user_anna', { subject: 'Brandschutz Stiegenhaus' }],
+    ])
+  })
+
   it('never fails the message write because notification failed', async () => {
     stubConversation({ visibility: 'project', createdBy: 'user_me' })
     vi.mocked(resolveParticipants).mockResolvedValue(['user_anna'])

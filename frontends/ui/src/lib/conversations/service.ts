@@ -806,6 +806,20 @@ interface FanOutInput {
   turnStartedFor: readonly string[]
   /** Whether to fold an ambient "activity in this thread" item (CC-20). */
   emitAmbient: boolean
+  /**
+   * The thread's title, when the caller already holds the row. Consulted only on
+   * the ambient path, which is the only thing that needs a title at all.
+   *
+   * It saves no read TODAY, and wiring one up would cost more than it saves: the
+   * only caller that emits ambient items is the session path, and it does not
+   * hold the row — `requireResourceAccess` answers with a probe that carries no
+   * title, so supplying this would mean reading the conversation up front, which
+   * is the very read this field exists to avoid, paid on every send including the
+   * solo threads that return before any of this. The internal persist path does
+   * hold the row and passes it, so the day that path emits an ambient item it
+   * cannot quietly start paying for a second read.
+   */
+  title?: string | null
 }
 
 /**
@@ -873,6 +887,12 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
     // group key collapses by design, so twenty messages are one row that counts
     // up and is cleared by reading the thread (spec CC-20, IB-8).
     // `emitInboxItems` already drops the actor's own copy.
+    // The title, so the row can say WHICH thread. Without a payload every
+    // activity row rendered "3 new messages in Untitled conversation" — and this
+    // is the commonest row type there is, so ten of them were ten identical
+    // lines. One read, shared by every recipient's row.
+    const subject = input.title ?? (await findConversationInOrg(conversationId, organizationId))?.title ?? null
+
     await emitInboxItems(
       participants.map((recipientUserId) => ({
         organizationId,
@@ -881,6 +901,7 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
         resourceType: 'conversation' as const,
         resourceId: conversationId,
         actorUserId,
+        payload: subject ? { subject } : {},
         groupKey: inboxGroupKey('conversation.activity', 'conversation', conversationId),
       })),
     )
@@ -969,6 +990,7 @@ export async function persistInternalConversationMessages(
     rows,
     turnStartedFor: [],
     emitAmbient: false,
+    title: conversation.title,
   })
 
   return rows

@@ -224,27 +224,33 @@ export async function sweepOrphanedCollaborationRows(
   return { grants, requests, inboxItems }
 }
 
-/**
- * Purge collaboration data for many conversations — the project/organization
- * cascade.
+/*
+ * There is deliberately NO project-wide purge helper here.
  *
- * A project purge hard-deletes its conversations through the `project_id` FK,
- * which is exactly the path that would otherwise orphan these rows. Callers pass
- * the conversation ids they are about to destroy (or just destroyed).
+ * One existed (`purgeCollaborationForConversations`, a loop over
+ * `purgeConversationCollaboration`) and had no caller in any tier. The one job it
+ * was written for — a hard project purge — belongs to the purger service
+ * (`frontends/ui/purger/`), which is a separate CommonJS process that cannot
+ * import this module and must not use it if it could:
  *
- * Sequential rather than one big `IN (…)`: a purge is a background operation with
- * no latency budget, and keeping the statements small avoids taking long locks on
- * tables that serve every page render.
+ *   - it runs as `node purger/index.js` with no bundler and no TS step, so a
+ *     `'server-only'` TypeScript module behind `@/…` path aliases is not
+ *     reachable from it at all;
+ *   - it does its grid_app deletes inside ONE postgres.js transaction so a
+ *     mid-purge crash rolls back. This module's repositories open their own
+ *     drizzle connection, so its writes would land outside that transaction;
+ *   - `purgeConversationCollaboration` is best-effort and never throws. The
+ *     purger needs a failure to abort the transaction and leave the queue row
+ *     retryable — a swallowed error there marks a project purged while its
+ *     collaboration rows survive;
+ *   - it is per conversation. A project with tens of thousands of them would
+ *     mean 3×N round trips where the purger issues three statements.
+ *
+ * The purger therefore states the same cascade as raw SQL. That duplication is
+ * real and is recorded as debt in
+ * `docs/architecture/adding-a-shareable-resource-type.md` §3.5 — the honest place
+ * for it, since the fix is a substrate one (a shared, resource-type-parameterised
+ * statement source both runtimes can use), not another wrapper in this file.
+ * `sweepOrphanedCollaborationRows` above is the backstop that keeps the two from
+ * silently diverging.
  */
-export async function purgeCollaborationForConversations(
-  conversationIds: readonly string[],
-): Promise<CollaborationCleanupResult> {
-  const total: CollaborationCleanupResult = { grants: 0, requests: 0, inboxItems: 0 }
-  for (const conversationId of conversationIds) {
-    const result = await purgeConversationCollaboration(conversationId)
-    total.grants += result.grants
-    total.requests += result.requests
-    total.inboxItems += result.inboxItems
-  }
-  return total
-}

@@ -24,14 +24,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore, useLoadJobData } from '@/features/chat'
-import { AccessChip } from '@/features/collaboration/components/AccessChip'
+import { AccessChip, namedAudienceCount } from '@/features/collaboration/components/AccessChip'
+import { InboxBadge } from '@/features/collaboration/components/InboxBadge'
 import { ParticipantStrip } from '@/features/collaboration/components/ParticipantStrip'
 import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
+import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { useSharing } from '@/features/collaboration/hooks/use-sharing'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
@@ -111,6 +115,13 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   // about this thread. A chip guessing "Privat" before the answer arrives would be
   // a claim about access control made without evidence.
   const sharingState = isSharingReachable ? sharing.state : null
+  // A failed load must not make Share vanish silently — the dialog renders its
+  // own retry alert, so the menu item stays reachable while `loadError` is set.
+  const canShare = Boolean(sharingState || (isSharingReachable && sharing.loadError))
+  // The chat route hides the global mobile top bar, so this hamburger is where a
+  // phone user learns that somebody needs them — the badge belongs on it for the
+  // same reason it sits on the rail hamburger everywhere else.
+  const { pending: inboxPending } = useInboxBadge(isCollaborationEnabled && isAuthenticated)
 
   // Inline title editing state (Enter commits / Escape cancels / blur commits).
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -314,12 +325,24 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-11 shrink-0 rounded-md sm:size-9 md:hidden"
+          className="relative size-11 shrink-0 rounded-md sm:size-9 md:hidden"
           onClick={handleNavClick}
-          aria-label={tNav('openNavigation')}
+          aria-label={
+            inboxPending > 0
+              ? `${tNav('openNavigation')} — ${
+                  inboxPending === 1
+                    ? tCollab('inbox.badgeAriaOne')
+                    : tCollab('inbox.badgeAria', { count: inboxPending })
+                }`
+              : tNav('openNavigation')
+          }
           title={tNav('openNavigation')}
         >
           <Menu className="h-4 w-4" aria-hidden="true" />
+          <InboxBadge
+            pending={inboxPending}
+            className="absolute top-0.5 right-0.5 translate-x-1/3 -translate-y-1/3"
+          />
         </Button>
 
         {/* Sessions / history overlay — the one clear door to past sessions
@@ -554,7 +577,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             drawer holding the rest, so the pill reads as three plain groups
             instead of a run of controls. Drawn only with the menu it precedes —
             a divider with nothing after it is a promise of something missing. */}
-        {(canRename || sharingState || hasResearchReport) && (
+        {(canRename || canShare || hasResearchReport) && (
           <>
           <div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
           <DropdownMenu>
@@ -576,6 +599,23 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
+              {/* The audience, restated for phones: below `sm` the status marks in
+                  the header are hidden (the width belongs to the thread's name),
+                  and a menu that offers "Teilen" without ever saying WHO can read
+                  the thread leaves the one question sharing exists to answer
+                  unanswerable without opening the dialog. */}
+              {sharingState && (
+                <div className="px-2 py-1.5 sm:hidden">
+                  <DropdownMenuLabel className="p-0 pb-1 text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {tCollab('sharing.audienceHeading')}
+                  </DropdownMenuLabel>
+                  <AccessChip
+                    visibility={sharingState.visibility}
+                    sharedWith={namedAudienceCount(sharingState.entries, currentUserId)}
+                  />
+                </div>
+              )}
+              {sharingState && <DropdownMenuSeparator className="sm:hidden" />}
               {/* Rename — the discoverable path to the same inline editor the
                   title's own click opens. The click stays as the shortcut; this is
                   how anyone finds out it exists. */}
@@ -591,8 +631,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
 
               {/* Share — the ONE door to the sharing surface (SH-17). Present for
                   every participant, not only owners: a viewer is entitled to see who
-                  else is in the room, and it is where they leave from. */}
-              {sharingState && (
+                  else is in the room, and it is where they leave from. Also present
+                  after a failed load: the dialog renders the retry alert, a vanished
+                  menu item gives the reader nothing. */}
+              {canShare && (
                 <DropdownMenuItem onSelect={() => setIsShareOpen(true)} data-testid="share-button">
                   <Share2 className="h-4 w-4" aria-hidden="true" />
                   {tCollab('sharing.action')}
@@ -631,8 +673,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
       {/* The sharing surface itself. Mounted only once the thread is reachable and
           the reader has asked for it, so it costs nothing on every other render.
           `pointer-events-auto` is unnecessary here — the dialog portals out of this
-          `pointer-events-none` header. */}
-      {sharingState && isShareOpen && (
+          `pointer-events-none` header. The dialog owns the loading skeleton and the
+          load-error retry alert, so it mounts whenever the door is open — not only
+          when a state has already landed. */}
+      {isSharingReachable && isShareOpen && conversationId && (
         <ShareDialog
           open={isShareOpen}
           onOpenChange={setIsShareOpen}

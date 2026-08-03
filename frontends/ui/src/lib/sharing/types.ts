@@ -69,4 +69,8 @@ export const SHARING_ERROR_REASONS = {
    */
   organizationMembershipRequired: 'organization-membership-required',
   lastOwner: 'last-owner',
+  /** Share-mutation rate limit hit (spec SH-16) — the remedy is to wait. */
+  rateLimited: 'rate-limited',
+  /** The roster is at SHARE_ROSTER_LIMIT; someone must leave before anyone joins. */
+  rosterFull: 'roster-full',
 } as const

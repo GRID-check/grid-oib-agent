@@ -1199,9 +1199,15 @@ function ConflictFindings({
               key={index}
               className={cn(
                 'rounded-xl border px-4 py-3 text-sm',
+                // `border-destructive` is a real theme colour (`--color-destructive`
+                // in the `@theme inline` block), so its slash form compiles.
+                // `border-warning` is a static `@utility` with no `--modifier()`,
+                // so `border-warning/40` compiled to nothing and the soft-warning
+                // row was outlined in the neutral default. The warning border token
+                // is already ~55% alpha; the solid class is the intended edge.
                 isHard
                   ? 'border-destructive/30 bg-danger-subtle text-destructive'
-                  : 'border-warning/40 bg-warning-subtle text-warning',
+                  : 'border-warning bg-warning-subtle text-warning',
               )}
             >
               <div className="flex items-center justify-between gap-3">

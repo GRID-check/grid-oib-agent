@@ -187,7 +187,10 @@ Two fixes landed together, both described in
    `oib_sync`, and any future caller), diffing indexed-and-successful files
    against the `document_metadata` table and backfilling a fallback summary for any
    gap it finds (logged as a WARNING per backfilled document — a gap still
-   means the primary path failed, this is a backstop not a silent fix).
+   means the primary path failed, this is a backstop not a silent fix). The
+   per-job call is scoped to the job's own successful files (`file_names=…`),
+   so it no longer pays the full-collection `list_files` metadata scan on every
+   single-file upload.
 
 Recovery no longer requires re-ingesting the file; the reconciliation pass
 catches it on the next ingestion run for that collection.

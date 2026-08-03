@@ -19,6 +19,7 @@ import type {
   ShareCandidate,
   ShareableResourceType,
 } from '@/lib/sharing/types'
+import { createRetryLadder, type RetryLadder } from '@/shared/utils/backoff'
 import { useLiveEvents } from './use-live-events'
 
 /** A refusal the UI can localise, extracted from the standard error envelope. */
@@ -76,6 +77,8 @@ export interface UseSharingResult {
   loadError: boolean
   /** Set by the most recent mutation; cleared when the next one starts. */
   failure: SharingFailure | null
+  /** Dismiss the current mutation failure without starting a new mutation. */
+  dismissFailure: () => void
   saving: boolean
   refresh: () => void
   setVisibility: (visibility: ResourceVisibility) => Promise<boolean>
@@ -101,10 +104,15 @@ export function useSharing(
   const [failure, setFailure] = useState<SharingFailure | null>(null)
   const [saving, setSaving] = useState(false)
   const seq = useRef(0)
-  // Retry bookkeeping: how far down RETRY_DELAYS_MS this resource has walked,
-  // and the timer for the next rung.
-  const attempt = useRef(0)
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The ladder owns its own position and timer (see `createRetryLadder`) — four
+  // hand-rolled copies of that bookkeeping is how this codebase got four
+  // different reset bugs.
+  // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
+  // render. Harmless — no timer is armed at construction — but wasteful and not
+  // the idiom.
+  const retryRef = useRef<RetryLadder | null>(null)
+  retryRef.current ??= createRetryLadder({ delaysMs: RETRY_DELAYS_MS })
+  const retry = retryRef.current
   // Lets a scheduled retry call the CURRENT refresh without making `refresh`
   // depend on itself.
   const refreshRef = useRef<() => void>(() => {})
@@ -113,15 +121,15 @@ export function useSharing(
     ? `/api/sharing/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`
     : null
 
-  const cancelRetry = useCallback(() => {
-    if (retryTimer.current === null) return
-    clearTimeout(retryTimer.current)
-    retryTimer.current = null
-  }, [])
+  const cancelRetry = useCallback(() => retry.cancel(), [retry])
 
   const refresh = useCallback(async () => {
     if (!enabled || !base) {
-      cancelRetry()
+      // Invalidate any read still in flight: without this bump its `current`
+      // would still match and it would write the abandoned resource's state back
+      // over the cleared one.
+      seq.current += 1
+      retry.cancel()
       setState(null)
       setLoading(false)
       return
@@ -134,28 +142,19 @@ export function useSharing(
       if (current !== seq.current) return
       setState(data)
       setLoadError(false)
-      attempt.current = 0
-      cancelRetry()
+      retry.reset()
       setLoading(false)
     } catch {
       if (current !== seq.current) return
-      const delay = RETRY_DELAYS_MS[attempt.current]
-      if (delay === undefined) {
+      if (!retry.schedule(() => refreshRef.current())) {
         // The ladder is spent. Now it is a real failure, and the dialog may say so.
         setLoadError(true)
         setLoading(false)
-        return
       }
-      attempt.current += 1
-      cancelRetry()
-      retryTimer.current = setTimeout(() => {
-        retryTimer.current = null
-        refreshRef.current()
-      }, delay)
       // `loading` deliberately stays true across the ladder: the answer is still
       // coming, and a skeleton is truer than an error for a thread this young.
     }
-  }, [base, enabled, cancelRetry])
+  }, [base, enabled, retry])
 
   useEffect(() => {
     refreshRef.current = () => void refresh()
@@ -169,21 +168,25 @@ export function useSharing(
    * an attempt made minutes ago.
    */
   const restart = useCallback(() => {
-    attempt.current = 0
-    cancelRetry()
+    retry.reset()
+    // Clearing the failure and showing the skeleton is what makes "try again"
+    // legible: without it the same destructive alert simply stayed on screen for
+    // the whole retry ladder, and if the retry failed too nothing on screen ever
+    // changed — a button that reads as broken.
+    setLoadError(false)
+    setLoading(Boolean(enabled && base))
     void refresh()
-  }, [refresh, cancelRetry])
+  }, [refresh, retry, enabled, base])
 
   useEffect(() => {
-    attempt.current = 0
-    cancelRetry()
+    retry.reset()
     setLoadError(false)
     setLoading(Boolean(enabled && base))
     void refresh()
     // Switching resource (or closing the gate) abandons the ladder in flight —
     // otherwise a retry for the thread you just left overwrites the one you are in.
     return cancelRetry
-  }, [refresh, enabled, base, cancelRetry])
+  }, [refresh, enabled, base, cancelRetry, retry])
 
   // A revocation or visibility change made by someone else must land here too —
   // otherwise an owner's dialog keeps showing a roster that is no longer true.
@@ -207,7 +210,21 @@ export function useSharing(
         }
         // Render the server's answer, never an optimistic guess.
         const data = (await response.json()) as ResourceSharingState
+        // Invalidate any READ still in flight. A mutation's response is strictly
+        // newer than a GET issued before it, but the GET had no way to know that:
+        // invite someone, tab away and back (which restarts the read), and the
+        // read could land last and quietly restore the roster without them.
+        seq.current += 1
+        // `reset`, and the two `set`s below it, because this response is a
+        // complete answer — the same thing the read was retrying FOR. Cancelling
+        // the pending retry without them stranded the dialog: `loading` is held
+        // true across the whole ladder on purpose, so dropping the last rung left
+        // nothing to ever set it false or raise `loadError`. A skeleton over
+        // fresh, correct state, for good.
+        retry.reset()
         setState(data)
+        setLoadError(false)
+        setLoading(false)
         return true
       } catch {
         setFailure({ reason: null, message: null })
@@ -216,7 +233,7 @@ export function useSharing(
         setSaving(false)
       }
     },
-    [],
+    [retry],
   )
 
   const json = (body: unknown): RequestInit => ({
@@ -230,6 +247,7 @@ export function useSharing(
     loading,
     loadError,
     failure,
+    dismissFailure: () => setFailure(null),
     saving,
     refresh: restart,
     setVisibility: async (visibility) =>
@@ -251,17 +269,22 @@ export function useShareCandidates(
   resourceType: ShareableResourceType,
   resourceId: string | null,
   enabled: boolean,
-): { candidates: ShareCandidate[]; loading: boolean } {
+): { candidates: ShareCandidate[]; loading: boolean; error: boolean; reload: () => void } {
   const [candidates, setCandidates] = useState<ShareCandidate[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  // Bumped by `reload`: the effect re-runs without the dialog closing.
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!enabled || !resourceId) {
       setCandidates([])
+      setError(false)
       return
     }
     let cancelled = false
     setLoading(true)
+    setError(false)
     void (async () => {
       try {
         const response = await fetch(
@@ -272,7 +295,12 @@ export function useShareCandidates(
         if (cancelled) return
         setCandidates(Array.isArray(data) ? data : (data.candidates ?? []))
       } catch {
-        if (!cancelled) setCandidates([])
+        // A failed load must not pose as "nobody left to invite" — that is a
+        // false statement about the org, so the failure gets its own surface.
+        if (!cancelled) {
+          setCandidates([])
+          setError(true)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -280,9 +308,9 @@ export function useShareCandidates(
     return () => {
       cancelled = true
     }
-  }, [resourceType, resourceId, enabled])
+  }, [resourceType, resourceId, enabled, attempt])
 
-  return { candidates, loading }
+  return { candidates, loading, error, reload: () => setAttempt((current) => current + 1) }
 }
 
 /**
@@ -352,32 +380,73 @@ export function useMentionCandidates(
 ): { data: MentionCandidatesResponse | null; loading: boolean } {
   const [data, setData] = useState<MentionCandidatesResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const seq = useRef(0)
+  // Same new-thread race as the sharing read above: the conversation reaches
+  // the server only with its first persisted message, so the first candidates
+  // read 404s. Without the ladder that 404 was permanent for the thread — the
+  // picker stayed dead until a reload, for exactly the first-time user `@`
+  // exists to teach.
+  // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
+  // render. Harmless — no timer is armed at construction — but wasteful and not
+  // the idiom.
+  const retryRef = useRef<RetryLadder | null>(null)
+  retryRef.current ??= createRetryLadder({ delaysMs: RETRY_DELAYS_MS })
+  const retry = retryRef.current
 
-  useEffect(() => {
+  const cancelRetry = useCallback(() => retry.cancel(), [retry])
+
+  const refresh = useCallback(async () => {
     if (!enabled || !conversationId) {
+      // Same reason as in `useSharing`: bump the sequence so a candidates read
+      // still in flight for the previous conversation fails its guard instead of
+      // repopulating the picker we just cleared.
+      seq.current += 1
+      retry.cancel()
       setData(null)
+      setLoading(false)
       return
     }
-    let cancelled = false
-    setLoading(true)
-    void (async () => {
-      try {
-        const response = await fetch(
-          `/api/conversations/${encodeURIComponent(conversationId)}/mention-candidates`,
-        )
-        if (!response.ok) throw new Error(`candidates ${response.status}`)
-        if (cancelled) return
-        setData((await response.json()) as MentionCandidatesResponse)
-      } catch {
-        if (!cancelled) setData(null)
-      } finally {
-        if (!cancelled) setLoading(false)
+    const current = ++seq.current
+    try {
+      const response = await fetch(
+        `/api/conversations/${encodeURIComponent(conversationId)}/mention-candidates`,
+      )
+      if (!response.ok) throw new Error(`candidates ${response.status}`)
+      if (current !== seq.current) return
+      setData((await response.json()) as MentionCandidatesResponse)
+      retry.reset()
+      setLoading(false)
+    } catch {
+      if (current !== seq.current) return
+      if (!retry.schedule(() => void refresh())) {
+        setData(null)
+        setLoading(false)
       }
-    })()
-    return () => {
-      cancelled = true
+      // `loading` stays true across the ladder, so the picker shows its
+      // loading state rather than vanishing for a thread this young.
     }
-  }, [conversationId, enabled])
+  }, [conversationId, enabled, retry])
+
+  /**
+   * External triggers (focus, reconnect poll) read again from the top — new
+   * evidence must not inherit the exhaustion of an attempt made minutes ago.
+   */
+  const restart = useCallback(() => {
+    retry.reset()
+    void refresh()
+  }, [refresh, retry])
+
+  useEffect(() => {
+    retry.reset()
+    setLoading(Boolean(enabled && conversationId))
+    void refresh()
+    return cancelRetry
+  }, [refresh, enabled, conversationId, cancelRetry, retry])
+
+  useLiveEvents({
+    enabled: enabled && Boolean(conversationId),
+    onRefresh: restart,
+  })
 
   return { data, loading }
 }

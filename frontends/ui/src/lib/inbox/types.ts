@@ -33,7 +33,14 @@ export interface InboxItemView {
   /** Resolved display name of whoever caused it; null for system items. */
   actorName: string | null
   actorUserId: string | null
-  /** Occurrences absorbed by grouping (≥ 1). */
+  /**
+   * Occurrences absorbed by grouping SINCE THE ROW WAS LAST READ.
+   *
+   * `0` on a row that has been read and has had nothing new since — reading
+   * resets it, so the counter always means "new", and a group of twenty that was
+   * read then received one more says "1", not "21". Anything treating this as
+   * `≥ 1` will be wrong for a read row.
+   */
   count: number
   /** Where clicking it should land. Null when the item is inert. */
   href: string | null
@@ -83,4 +90,23 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'mention.answered': { icon: 'check-circle', i18nKey: 'mentionAnswered', tone: 'info' },
   'conversation.shared_with_you': { icon: 'user-plus', i18nKey: 'conversationShared', tone: 'info' },
   'conversation.activity': { icon: 'message-square', i18nKey: 'conversationActivity', tone: 'info' },
+}
+
+/**
+ * What a row renders as when its type is not in the map above.
+ *
+ * That map is exhaustive over `InboxItemType` at compile time, but `type` is a
+ * `text` column: a row written by a newer deploy, or read across a rollback,
+ * carries a value this build has never heard of. Indexing the map for it yields
+ * `undefined`, and reading `.icon` off that took the whole inbox route down with
+ * a TypeError — one unrecognised row costing the user every other row they had.
+ *
+ * So: a neutral row that says something happened and links where the item
+ * points. It is deliberately vague, because this build genuinely does not know
+ * what the row means; it is not a substitute for registering the type.
+ */
+export const UNKNOWN_TYPE_PRESENTATION: InboxTypePresentation = {
+  icon: 'message-square',
+  i18nKey: 'unknown',
+  tone: 'info',
 }

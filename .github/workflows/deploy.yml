@@ -59,7 +59,7 @@ jobs:
     name: Pulumi up (dev)
     # Only when the image build actually succeeded (skip on failed/cancelled).
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     environment: staging
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}

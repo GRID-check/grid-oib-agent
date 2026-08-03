@@ -27,6 +27,16 @@
  * keys rejects events exactly like a missing one. Every entry below was read
  * off its call site — when you change a `metadata:` object there, change it
  * here in the same commit.
+ *
+ * **Registering metadata makes it REQUIRED, actor metadata included.** WorkOS
+ * generates the validator from what is registered here, and an entry with a
+ * `metadata` map yields `required: [action, actor, context, occurred_at,
+ * targets, metadata]` AND `actor: {required: [id, type, metadata]}` — the actor
+ * clause appearing even though nothing here declares an actor schema. That is
+ * why `recordAuditEvent` always sends both keys, `{}` when it has nothing to
+ * put in them (issues #274/#277); do not "simplify" either one back to
+ * `undefined`. Entries with no `metadata` map at all (`project.restored`) get
+ * the permissive generic schema instead, and accept the empty objects too.
  */
 
 /**
@@ -138,6 +148,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'platform.norm_registry.updated': {
     targets: [{ type: 'norm_registry' }],
     metadata: { entries: 'number', version: 'number' },
+  },
+  // A fleet-wide retrieval-count change: every organization's retrieval depth
+  // shifts on the next turn, so it belongs in the platform org's trail. The
+  // whole `{key: value}` settings map is serialized into `settings`.
+  'platform.retrieval_settings.updated': {
+    targets: [{ type: 'platform_retrieval_settings' }],
+    metadata: { settings: 'string', changed: 'number', note: 'string' },
   },
   'project.created': {
     targets: [{ type: 'project' }],

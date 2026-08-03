@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, exists, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   conversationReads,
@@ -287,21 +287,37 @@ export async function deleteConversationInOrg(conversationId: string, organizati
 }
 
 /**
- * List a conversation's messages, oldest first. Callers must have resolved
- * the conversation through `findConversationInOrg` first — this query is
- * scoped by conversation id only.
+ * A conversation's messages, oldest first, bounded to the most recent `limit`.
+ *
+ * The bound is taken from the NEWEST end and the page is then reversed, which
+ * matters more than it looks. Ordering ascending and truncating took the OLDEST
+ * `limit` rows: for a private thread that is a rehydration fallback and merely
+ * odd, but for a shared thread this is *the* load path (ADR-0033), so past the
+ * limit a reader was pinned to ancient history and could never see a new message
+ * again — and the read receipt and the unread divider followed the same stale
+ * window down.
+ *
+ * Callers must have resolved the conversation through `findConversationInOrg`
+ * first — this query is scoped by conversation id only.
  */
 export async function listMessagesForConversation(
   conversationId: string,
   limit = MESSAGE_LIST_LIMIT,
 ): Promise<Message[]> {
   const db = getDb()
-  return db
+  const newestFirst = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
+    // `id` breaks ties. `created_at` alone leaves the order of two messages
+    // written in the same instant UNDEFINED, and free to differ between two
+    // executions of this query — which is exactly what spec CC-11 forbids ("two
+    // clients MUST NOT show the same two messages in different orders"). It also
+    // makes the window above deterministic: without it a tie straddling the
+    // limit could include or drop either message arbitrarily.
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(limit)
+  return newestFirst.reverse()
 }
 
 /**

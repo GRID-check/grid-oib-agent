@@ -513,7 +513,11 @@ async def get_available_documents_async(collection: str) -> list["AvailableDocum
     return await _get_document_metadata_store().get_all_async(collection)
 
 
-def reconcile_collection_summaries(ingestor: BaseIngestor, collection: str) -> int:
+def reconcile_collection_summaries(
+    ingestor: BaseIngestor,
+    collection: str,
+    file_names: list[str] | None = None,
+) -> int:
     """Backfill fallback summary rows for documents the vector index has but the summaries table doesn't.
 
     Structural backstop for "ingested ⇒ visible": ``available_documents`` (the
@@ -546,18 +550,26 @@ def reconcile_collection_summaries(ingestor: BaseIngestor, collection: str) -> i
     Args:
         ingestor: The backend ingestor to reconcile against.
         collection: Collection/index name to reconcile.
+        file_names: Optional scope. When given (the job's successfully ingested
+            files), only those names are checked — the caller already knows
+            they indexed successfully, so the full ``list_files`` metadata scan
+            (O(collection size) on every job) is skipped. When omitted, the
+            whole collection is diffed as before.
 
     Returns:
         The number of documents backfilled (0 when already consistent, or on
         any lookup failure — this never raises).
     """
-    try:
-        indexed_files = ingestor.list_files(collection)
-    except Exception as e:
-        logger.warning("Reconciliation: failed to list indexed files for %s: %s", collection, e)
-        return 0
+    if file_names is not None:
+        indexed_names = set(file_names)
+    else:
+        try:
+            indexed_files = ingestor.list_files(collection)
+        except Exception as e:
+            logger.warning("Reconciliation: failed to list indexed files for %s: %s", collection, e)
+            return 0
+        indexed_names = {f.file_name for f in indexed_files if f.status == FileStatus.SUCCESS}
 
-    indexed_names = {f.file_name for f in indexed_files if f.status == FileStatus.SUCCESS}
     if not indexed_names:
         return 0
 

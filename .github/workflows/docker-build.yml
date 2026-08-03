@@ -18,17 +18,17 @@ concurrency:
 jobs:
   backend:
     name: Build backend image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
       # (publish-images.yml), never git credentials.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1.10.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build (release target, no push)
-        uses: useblacksmith/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
@@ -39,15 +39,15 @@ jobs:
 
   frontend:
     name: Build frontend image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1.10.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build (no push)
-        uses: useblacksmith/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
@@ -55,15 +55,15 @@ jobs:
 
   web:
     name: Build web image (landing site)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1.10.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build (no push)
-        uses: useblacksmith/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
           context: frontends/web
           file: frontends/web/Dockerfile

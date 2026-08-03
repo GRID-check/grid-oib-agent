@@ -56,8 +56,8 @@ flowchart TD
 
     ConvDel --> P1["PURGE grants + requests + items<br/>(conversations/service deleteConversation)"]
     ProjSoft --> N1["NEUTRALIZE every conversation in the project<br/>void requests, inert items, KEEP grants<br/>(projects/service deleteProject)"]
-    ProjPurge --> C1["conversations cascade-delete via project_id FK"]
-    C1 --> S1["orphans remain -> reconciled by the sweep"]
+    ProjPurge --> C1["PURGE grants + requests + items,<br/>THEN delete the conversations<br/>(purger/purge-project.js, raw SQL)"]
+    C1 --> S1["anything missed -> reconciled by the sweep"]
     OrgPurge --> S1
     S1["Self-healing sweep<br/>POST /api/internal/collaboration/prune"]
 ```
@@ -68,13 +68,17 @@ flowchart TD
 | **Conversation that never existed** | Nothing purged, and the client is told **exactly what it is told for a conversation that exists and is not theirs**: `204`. The chat store deletes ids that may only ever have lived in a browser, so absence must not surface an error — and a 204/404 split would have made the endpoint a cross-tenant existence oracle (spec SH-6). The service reports the truth (`NotFoundError` for both); the DELETE route is what collapses the two into one response. | `deleteConversation` + `api/conversations/[id]` DELETE |
 | **Project soft-deleted** | Neutralize every conversation in it. Grants kept for restore. Best-effort: a failure here never fails the deletion. | `projects/service.ts` → `neutralizeCollaborationForProject` |
 | **Project restored** | Nothing to do — grants survived, and voided requests stay void (a request nobody could answer for days should not silently come back and re-block the thread). | — |
-| **Project purged** | Conversations cascade-delete through `project_id`. Purge happens **outside this tier**, so the rows orphan and the sweep reconciles them. | sweep |
-| **Organization purged** | As above. | sweep |
+| **Project purged** | Happens **outside this tier**: the purger deletes the three collaboration tables for the project's conversations *before* deleting the conversations themselves, in the same transaction. It states the cascade in its own raw SQL — it cannot import `lib/collaboration` (CommonJS, no bundler, its own transaction); the duplication is recorded as debt in [`adding-a-shareable-resource-type.md`](adding-a-shareable-resource-type.md) §3.5. The sweep remains the backstop. | `purger/purge-project.js`, then sweep |
+| **Organization purged** | No purger is registered for `organization` yet (`purger/index.js` — later phase), so today only the sweep reconciles it. Whichever purger lands must do what the project one does, in the same order. | sweep |
 | **Retention** | Items past the longest registered retention window are pruned, bounded per call. | `collaboration/retention.ts` |
 
-**Why a sweep rather than a hook in every purge path:** the project purge worker does
-not live in the BFF. Reconciling from housekeeping is idempotent, bounded, safe to run
-often, and cannot be forgotten by a future purge path — whereas a hook can.
+**Why a sweep as well as an explicit delete in the purge path:** the project purge
+worker does not live in the BFF, so its cascade cannot be enforced from here.
+Reconciling from housekeeping is idempotent, bounded, safe to run often, and cannot be
+forgotten by a future purge path — whereas a hook can. The purger deletes explicitly
+anyway, because the sweep is `NOT EXISTS`-based and only ever catches rows whose target
+is already gone: relying on it alone left every grant, request and inbox item of a
+purged project standing until the next prune tick.
 
 ## 4. Modification paths
 

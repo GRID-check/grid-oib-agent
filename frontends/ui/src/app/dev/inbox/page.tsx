@@ -14,8 +14,11 @@
  *
  * The fixtures deliberately exercise every interesting row: an unread actionable
  * mention request, a resolved one, a grouped activity row (`count: 3`), a
- * shared-with-you row, and an INERT row whose target is gone — the last one is a
- * security-visible state (IB-13), so it must be in the evidence.
+ * shared-with-you row, a READ grouped row with `count: 0` (the third counted
+ * title — nothing new since it was opened), a row whose type this build does not
+ * know (the runtime fallback that keeps one bad row from taking the page down),
+ * and an INERT row whose target is gone — the last one is a security-visible
+ * state (IB-13), so it must be in the evidence.
  *
  * Pinned to German (`I18nProvider initialLocale="de" fixedLocale`): German is the product's
  * primary language, so the committed evidence must carry the copy most users
@@ -121,6 +124,58 @@ const ITEMS: InboxItemView[] = [
     excerpt: null,
     createdAt: ago(2_600),
     updatedAt: ago(2_600),
+  },
+  {
+    /*
+      `count: 0` — a grouped row that has been READ, so nothing has arrived since.
+      It is the ordinary state of every activity row a user has already opened, and
+      it renders the third counted title (`titleNone`, "Neue Nachrichten"): picking
+      `titleOne` for it made a group of twenty claim "1 neue Nachricht". Without a
+      zero-count row in the fixture that string is unreachable, so the fix could not
+      be seen.
+    */
+    id: 'i5b',
+    type: 'conversation.activity',
+    state: 'read',
+    actionable: false,
+    resourceType: 'conversation',
+    resourceId: 'c5b',
+    anchorId: null,
+    actorName: 'Anna Weber',
+    actorUserId: 'u-anna',
+    count: 0,
+    href: '/app/projects/p1/chat?session=c5b',
+    subject: 'Abstandsflächen Bauteil Süd',
+    excerpt: null,
+    createdAt: ago(2_900),
+    updatedAt: ago(2_050),
+  },
+  {
+    /*
+      A row whose type this build does not know — written by a newer deploy, or read
+      across a rollback. It used to index `INBOX_TYPE_PRESENTATION` to `undefined`
+      and throw, taking the whole /app/inbox route down rather than costing one row.
+      The fallback presentation must therefore be in the evidence: one unremarkable
+      row ("Es gibt etwas Neues"), not a blank page.
+
+      The cast is the point: the type is deliberately outside the compile-time union,
+      which is exactly the situation the runtime fallback exists for.
+    */
+    id: 'i5c',
+    type: 'conversation.summarized' as unknown as InboxItemView['type'],
+    state: 'read',
+    actionable: false,
+    resourceType: 'conversation',
+    resourceId: 'c5c',
+    anchorId: null,
+    actorName: 'Piloti',
+    actorUserId: null,
+    count: 1,
+    href: '/app/projects/p1/chat?session=c5c',
+    subject: 'Brandschutzkonzept Bauteil West',
+    excerpt: null,
+    createdAt: ago(3_400),
+    updatedAt: ago(3_400),
   },
   {
     // Target unshared/deleted: no link, no excerpt (IB-13/IB-14).

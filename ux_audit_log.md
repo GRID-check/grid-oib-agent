@@ -423,3 +423,257 @@ message copy button, org-id copy, drag-overlay aria-live, dialog-cancel
 variant, members double-report, assorted AnimatePresence fades) are logged
 here as candidates but judged below the "damn, thoughtful" bar for this run —
 pick up in a future session if desired.
+
+---
+
+## Round — collaborative chat, 2026-07-31 (branch `claude/collab-chat-ui-polish-q25x2q`)
+
+**Mandate (user):** find and fix UX behaviour weirdness *and* bad code patterns
+across the collaborative chat surface (ADR-0032…0039).
+
+**Method:** eleven parallel read-only deep-read audits, one per slice — sharing,
+mentions, the shared-thread state machine, live presence/spectating, the inbox,
+the awaiting/hand-off flow, chat+composer integration, i18n/copy,
+accessibility/responsive, the Python collaboration paths, and authz/abuse. The
+merged, deduplicated backlog is ~140 findings; the ones fixed in this round are
+in the commits below. The remainder is recorded here so the next round starts
+from evidence rather than from a re-audit.
+
+**Baseline (pre-change):** `tsc --noEmit` 0 · `eslint src` 0 · vitest
+358 files / 4416 passed / 7 skipped / 0 failed.
+
+**At the end of the round:** `tsc --noEmit` 0 · `eslint src` 0 · vitest
+361 files / 4488 passed / 7 skipped / 0 failed. Re-measured, because between
+those two numbers the branch spent one commit red: `75b308b`, a commit about
+turn expiry, swept up a working tree in which another process had reverted
+`ShareDialog.tsx` for an experiment, and silently deleted the `if (!ok) throw`
+that `ab014c7`'s own test asserts. Nobody re-ran the suite; the branch was
+pushed red. Restored in `c72784d`. The lesson is in the method, not the fix:
+`git add -A` is not safe in a tree somebody else is reading.
+
+### Fixed this round
+
+- Typing line grammar (two typists read as one person, in both languages), and
+  the same sentence announced twice to screen readers.
+- Awaiting banner: `bg-warning/15` and `border-warning/40` compiled to nothing
+  (static `@utility`, no `--modifier()`), so the "your input is requested" state
+  had no border and no icon fill; the awaited name truncated to zero at phone
+  width; the question and the asker were shown only when exactly one person was
+  awaited.
+- Inbox: an unregistered item type crashed the whole route; the batch upsert's
+  conflict clause diverged from the single-row one it documents as identical;
+  `count` never reset on read ("21 new messages" after reading twenty); rows were
+  timestamped by `createdAt` while ordered by `updatedAt`; cmd/middle-click spent
+  the read state; a refused mutation replaced the list with a load-failure
+  message; `aria-live` wrapped all fifty rows.
+- Sharing: a refused Remove/Leave/Take-ownership closed its confirmation like a
+  success — and now says WHY, inside the confirmation rather than behind it
+  (Radix `aria-hidden`s the dialog underneath and the overlay covers it, so the
+  first attempt at this put the explanation somewhere neither visible nor
+  announced); "Try again" was invisible; a mutation could be overwritten by a read
+  issued before it; "Take ownership" was offered to existing owners and wrote a
+  false audit record; escalation published no access-changed event; a no-op role
+  PATCH; a clamped German error title.
+- Mentions: `@Tom` matched inside `@Tommy`; `(@Anna Berger)` was not a mention at
+  all; the picker could not find "Müller" from `muller`.
+- Shared thread: one failed access read froze the thread permanently (it also
+  disabled the live channel, the focus listener and the poll that would have
+  recovered it); the five-minute turn backstop erased a colleague's answer
+  mid-write on any longer turn; a turn that FAILED without a persisted assistant
+  message left every observer's composer locked. Narrowed deliberately: a
+  CANCELLED turn publishes no terminal frame at all from the Python tier (see
+  carried-forward item 8), so nothing clears it there and the silence deadline
+  is what recovers the composer. That path is not fixed, only bounded.
+- A shared thread past 1000 messages showed the *oldest* 1000, forever.
+- A viewer could still upload files and rewrite the conversation's data sources.
+- No rate limit on the typing endpoint (the highest-frequency route).
+- Observer stream reconnected on a fixed 2s timer with no backoff or jitter;
+  the "Piloti is waiting for an answer" notice never cleared; the shared event
+  hub's reconnect budget was never reset outside `onopen`.
+- Activity inbox rows could never name their thread.
+- Chat timestamps ignored the app locale; several German strings said the wrong
+  thing ("Piloti antwortet nicht" as a fault report, a hardcoded headcount of
+  two, "Durchgang" for a chat turn); the access-lost notice claimed revocation
+  for a thread that may simply have been deleted.
+- Composing presence flickered off whenever a colleague paused to think.
+
+### Carried forward (highest value first)
+
+1. **Engagement mode `mention` is not enforced on the sender's client.** The
+   composer takes a fast path that opens an agent turn regardless, and the
+   addressee line has no notion of the mode — so switching a thread to "answer
+   only when mentioned" changes the notice and nothing else, and the stored row
+   says the agent was not addressed while it visibly answered (ADR-0036 §2, §6).
+2. **A mention's display text is never persisted**, so pills exist only in the
+   author's own tab; every other participant sees dead plain text.
+3. **`getSharingState` never emits visibility-derived entries**, so the narrowing
+   confirmation lists nobody, the access overview's rule block never renders, and
+   project members appear as invitable.
+4. **`turnInFlight` has no readable form** — it exists only if the live channel is
+   up, so on the documented degraded path two people get live composers.
+5. **The mention/share candidate roster is an unbounded whole-org fan-out** with
+   one uncached FGA check per member, and ships every colleague's email.
+6. **The collaboration prune job has no scheduler**, so inbox rows and orphaned
+   collaboration rows are never reclaimed.
+7. **Collaboration writes still happen with the feature flag off** (the message
+   fan-out has no flag check, and migration 0027 made every project conversation
+   `visibility: 'project'`).
+8. Python tier: a cancelled turn publishes no terminal frame; the frame's
+   `conversation_id` is trusted rather than checked against the authorized upgrade
+   parameter; `is_multi_replica_bus()` can report Redis while the bus fell back
+   in-process; one transient Redis error permanently kills a conversation's relay.
+9. The unread divider is computed but never scrolled to; deep links fight the
+   stick-to-bottom controller.
+10. Global keyboard shortcuts fire through open modals and popovers.
+
+Full evidence, with file:line for every item, is in the session transcripts.
+
+### Corrections to this round's own work (same round, after review)
+
+Three defects in the fixes above, found by reviewing the diff rather than the
+original code. Recorded because a fix that does not work is worse than a known
+bug — it closes the ticket.
+
+- **The awaiting row's mobile fix did not work.** `flex-wrap` was added to let the
+  release button drop below the name, but the name column was `flex-1`, whose
+  flex-basis is `0` — so its hypothetical main size is 0, it never contributes to
+  the line-breaking decision, and the `whitespace-nowrap` button still took the
+  full width at any viewport. The committed mobile screenshot still showed the
+  bug afterwards. The column now has a real basis to break against.
+- **Resetting `count` on read made two schema comments false.** Both
+  `lib/inbox/types.ts` and `lib/db/schema/inbox.ts` documented the counter as
+  `≥ 1`; it is now `0` on a row that has been read with nothing new since. Both
+  comments corrected. (The follow-up recorded here — a read row rendering through
+  `titleOne` and claiming "1 new message" — was closed later in the same round by
+  the three-case picker and a `titleNone` key. Left in place as the record of how
+  it was found, not as an open item.)
+- **The event-hub entry above overstates what was fixed.** `onopen` already reset
+  the reconnect budget, so "a tab that had ridden out one long outage began its
+  next failure at the 30-second cap" cannot happen — riding out an outage means a
+  successful open. The added reset covers a narrower case: the last listener
+  unsubscribing while the ladder is mid-flight, so a later subscriber inherits the
+  count. The code is right; the claim was not.
+- **The newest-N message window needed a tiebreaker.** Ordering by `created_at`
+  alone leaves two messages written in the same instant in an undefined order —
+  spec CC-11 forbids exactly that — and it made the window boundary
+  non-deterministic, which the previous oldest-N read had not exposed. `id` is
+  now the tiebreak.
+
+### Second review pass — defects found in the corrections themselves
+
+An adversarial read of the whole branch diff (rather than of the original code)
+found more, including one regression that was strictly worse than the bug it
+replaced:
+
+- **Clearing the turn banner on the terminal frame erased the answer.** `done`
+  strictly precedes persistence, and the entire live view is gated on the flag
+  being cleared — so on every normal turn the observer watched the answer
+  complete and then vanish until the persisted copy arrived, and on the exact
+  failure the change was written for (no persisted message at all) they were left
+  with nothing where they previously kept the finished answer. Now only `failed`
+  clears it.
+- **The 30-minute backstop was six times worse everywhere the cure did not
+  reach** — a deployment with no shared cache tier, the reader's own turn, a
+  spent reconnect budget. It is a SLIDING five-minute deadline instead: the clock
+  restarts on evidence the turn is alive, so a long turn is never cut off and a
+  genuinely silent one recovers quickly.
+- **The revision watermark was per-hook while the revision is per-conversation**,
+  so every conversation switch fired a second, racing load.
+- **The access-retry timer could outlive unmount**, chaining fetches for a
+  conversation nobody is viewing.
+- **The typing heartbeat had no `enabled` guard**, so a reader downgraded to
+  viewer mid-draft kept broadcasting "typing" for up to 45 seconds — the one
+  claim the presence endpoint exists to refuse.
+- **The typing rate limit sat above the cheap exit**, so typing in a private
+  thread spent the budget that shedding a shared thread's presence depends on.
+- **`count: 0` reached the renderer**, which picked `titleOne` for it: a read
+  group of twenty claimed "1 new message". Three cases now, not two.
+- **The mention boundary fix was half-right**: `-` counted as a boundary, so
+  `@Tom` still matched inside `@Tom-Meier`; and ASCII `'`/`"` were treated as
+  opening marks, which made a quoted email local part a mention candidate.
+
+Still outstanding at that point: several changes had landed without tests —
+notably the viewer read-only gate, the private-thread live-channel gate, and
+every server-side change in the branch. That is what the next pass measured.
+
+### Third review pass — measuring the tests instead of trusting them
+
+The previous passes read code. This one ran an experiment: revert each change
+in a throwaway worktree, run the suite, and record whether anything went red.
+That is the only way to tell a test that guards a behaviour from a test that
+merely accompanies it.
+
+**Result: 24 of 33 new or modified tests are load-bearing** — several against
+two or three independent mutations each. The mention-boundary and reconnect
+tests are the strongest in the branch.
+
+**And two systematic holes, both invisible to a reading review:**
+
+- **Everything server-side was unobserved.** Every change under `src/lib/**` —
+  the message window, the upsert semantics, the read resets, `canEscalate`, the
+  escalation publish, the fan-out title, the typing rate limit — could be
+  reverted with the whole suite green. These are exactly the changes whose
+  failure mode is silent: wrong data, missing audit truth, an unbounded
+  endpoint.
+- **Component-to-component wiring was unobserved.** `ChatArea`'s banner wires,
+  `InputArea`'s two gates and its `bumpThreadRevision` publisher could each be
+  deleted with 4442 tests passing. In every case the *hook* was tested and the
+  *wire to it* was not — the shape that reads as covered and is not.
+
+Both are now closed, each test verified against the mutation that must redden
+it. `event-hub.ts` and `confirm-dialog.tsx` — the shared `/api/stream`
+connection and the shared confirm anatomy, neither of which had a spec at all —
+got their first ones.
+
+Nine tests were found **vacuous** and are recorded rather than quietly deleted:
+an `updatedAt` assertion whose fixture had `createdAt === updatedAt`; a
+teardown test whose named subject was redundant with a second guard; and five
+`InputArea` edits that only *accommodated* a new gate rather than asserting it.
+The fixture is fixed; the accommodations are now real assertions.
+
+**Two mock leaks in `InputArea.spec.tsx`**, found by a new test failing for a
+reason that had nothing to do with it. `mockReturnValue` and `mockResolvedValue`
+are permanent, and `vi.clearAllMocks()` does not undo them — so from the
+drag-overlay test onward every remaining test rendered the composer behind a
+full-bleed "Unsupported file type" overlay, and from the refused-mention test
+onward every send resolved to a refusal. Neither cost anything for months,
+because every downstream assertion was `toHaveBeenCalledWith`, which a refused
+send satisfies exactly as well as a successful one.
+
+### Fourth pass — the classes behind the instances
+
+An adversarial read of the branch *as a whole* asked a different question: not
+"is this fix right" but "did fixing it fix anything more than itself".
+
+- **Reconnect budget never reset** — fixed twice as an instance, not at all as a
+  class: there were four independent hand-rolled ladders, each with its own
+  counter, reset rule, budget and timer, and each had got the reset wrong at
+  least once. `createRetryLadder` now owns the position *and* the timer, so the
+  rule — evidence that it works starts the ladder over — is an invariant rather
+  than four chances to forget.
+- **The turn heartbeat was derived from what was on screen** (`answer.length` +
+  `steps.length`). The reducer merges a repeated frame into the step it already
+  has, so a single long tool call moves neither number and the sliding deadline
+  fired anyway, mid-turn, on the commonest deep-research shape. Liveness now
+  comes from the frame arriving, which is the actual evidence.
+- **A thread not known to be shared had no recovery route at all.** The focus
+  listener, the poll and the subscription are all owned by `useLiveEvents`,
+  which is gated on `shared` — so once the short access ladder was spent nothing
+  re-read, and the `!shared` branch of `refresh`, written for exactly this, was
+  unreachable. One access read on focus, floored at 30s, no connection.
+- **The viewer gate was half-applied**: it reached the paperclip and the
+  popovers but not the file chips or the `sm:hidden` manage-files entry, while
+  the user guide had already been rewritten to claim the whole control row was
+  closed. On a phone that sentence was false.
+- **`excluded.payload` was a data-loss bug**, not a fold fix: one null title
+  lookup wiped the subject off every recipient's row permanently. Merged with
+  jsonb `||` now.
+- **A committed escalation could 500** on the participant read that follows it,
+  making a durable write look like a failure the caller would retry.
+
+Recorded rather than fixed: the polymorphic substrate is still worked *around*
+in the places that hardcode `resource_type = 'conversation'` instead of going
+through the descriptor — which is the very rule
+`docs/architecture/adding-a-shareable-resource-type.md` §5 states, on this same
+branch. Writing a debt register and then paying into it is the worst of both;
+that file's register is where the next round should start.

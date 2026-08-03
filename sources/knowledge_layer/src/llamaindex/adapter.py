@@ -29,6 +29,7 @@ Chart extraction uses the VLM to:
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -163,6 +164,35 @@ VISUAL_PAGE_MIN_PATHS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_PATHS", "300"))
 # Hard cap on rendered pages per document, to bound VLM cost/latency on large
 # plan sets. Excess visual pages are skipped (logged), text still indexed.
 MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
+
+# @environment_variable AIQ_VLM_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type int
+# @default 180
+# @required false
+# Per-request timeout for VLM captioning calls. The OpenAI SDK default (~600s,
+# with 2 built-in retries) lets one hung provider pin an enrichment worker for
+# up to ~20 minutes; 180s with a single retry bounds a hung request to ~6
+# minutes. ``_vlm_chat_create`` may issue one extra request when the first
+# response comes back truncated, but that retry runs with SDK retries disabled,
+# so the ceiling for one caption is ~9 minutes — and only on the path where the
+# provider answered once and then hung. Retries are kept (rather than dropped to
+# 0) because a transient 429/5xx now costs an indexed chunk: failure
+# placeholders are skipped, not embedded. Clamped like the sibling knobs: a
+# misconfigured 0 or negative value would fail every VLM request immediately and
+# silently disable captioning altogether.
+VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180")))
+
+# @environment_variable AIQ_EMBED_BATCH_SIZE
+# @category Knowledge Layer
+# @type int
+# @default 64
+# @required false
+# Texts per embedding API request. The llama-index default (10) serialises far
+# too many round-trips on large documents — a 500-chunk PDF costs ~50
+# sequential HTTP calls. Every OpenAI-compatible embeddings endpoint accepts
+# far more per call (OpenAI 2048, NVIDIA NIM 259); 64 is conservative.
+EMBED_BATCH_SIZE = max(1, int(os.environ.get("AIQ_EMBED_BATCH_SIZE", "64")))
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
@@ -486,6 +516,10 @@ def _extract_images_from_pdf(
     PAGEOBJ_IMAGE = 3
 
     images = []
+    # Content-hash dedupe: the same raster embedded repeatedly (a logo on every
+    # page, a reused plan) is captioned and indexed ONCE. The VLM cache already
+    # dedupes the API call; this dedupes the duplicate indexed chunks.
+    seen_hashes: set[str] = set()
     try:
         doc = pdfium.PdfDocument(pdf_path)
         for page_num in range(len(doc)):
@@ -511,9 +545,15 @@ def _extract_images_from_pdf(
                         pil_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
                         buf = io.BytesIO()
                         pil_image.save(buf, format="JPEG", quality=95)
+                        image_bytes = buf.getvalue()
+                        digest = hashlib.sha256(image_bytes).hexdigest()
+                        if digest in seen_hashes:
+                            img_idx += 1
+                            continue
+                        seen_hashes.add(digest)
                         images.append(
                             {
-                                "image_bytes": buf.getvalue(),
+                                "image_bytes": image_bytes,
                                 "page_number": page_num + 1,
                                 "image_index": img_idx,
                                 "format": "jpeg",
@@ -733,13 +773,27 @@ def _build_image_caption_document(
         logger.error("Could not decode standalone image %s: %s", file_name, e)
         return None
 
-    content_type, caption = _analyze_image_with_vlm(
+    # Same content-hash cache as the PDF-embedded-image batch path: re-uploading
+    # an identical image skips the VLM call entirely (and the cache is scoped to
+    # the model). Function-scope import — processing imports this module lazily.
+    from knowledge_layer.llamaindex import processing as _processing
+
+    content_type, caption = _processing._cached_vlm_call(
+        image_bytes,
+        f"image:charts={extract_charts}",
+        _analyze_image_with_vlm,
         image_bytes,
         vlm_model=vlm_model,
         vlm_base_url=vlm_base_url,
         vlm_api_key=vlm_api_key,
         extract_charts=extract_charts,
+        model=vlm_model,
     )
+    # The caption is the file's ONLY content — a failure placeholder must fail
+    # the file (retryable via re-ingest) rather than index a content-free chunk.
+    if _processing.is_failed_caption(caption):
+        logger.error("VLM captioning failed for standalone image %s: %s", file_name, caption[:120])
+        return None
 
     prefix = "CHART" if content_type == "chart" else "IMAGE"
     return Document(
@@ -800,6 +854,64 @@ def _table_to_markdown(table: list[list[str]]) -> str:
         lines.append("| " + " | ".join(cells[: len(header)]) + " |")
 
     return "\n".join(lines)
+
+
+def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, temperature: float = 0.2) -> str:
+    """One VLM chat completion with a single truncation retry.
+
+    A response clipped at ``max_tokens`` (``finish_reason == "length"``) loses
+    the trailing fields of the structured drawing format — exactly the
+    ZUSAMMENFASSUNG the document summary is built from — so retry ONCE with a
+    doubled budget. Returns the message content (possibly empty); a still-
+    truncated response is returned as-is with a warning rather than silently
+    treated as complete.
+
+    The retry is a best-effort improvement on a caption we ALREADY have, so it
+    is deliberately cheap and never destructive:
+
+    - It runs with the SDK retries disabled. The first call already spends the
+      client's ``max_retries`` budget, and letting the second call spend it
+      again would double the worst-case latency of a single caption on top of
+      an attempt that, by definition, already succeeded.
+    - A failure is swallowed and the truncated first caption is returned.
+      Raising here would discard usable content and — since failure placeholders
+      are no longer indexed — drop the chunk entirely over a partial success.
+    """
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    choice = response.choices[0]
+    if getattr(choice, "finish_reason", None) != "length":
+        return choice.message.content or ""
+
+    partial = choice.message.content or ""
+    logger.warning("VLM response truncated at %d tokens; retrying with %d", max_tokens, max_tokens * 2)
+    # ``with_options`` is the OpenAI SDK's per-call override; guarded because
+    # the drawing/image call sites are exercised with lightweight fake clients.
+    with_options = getattr(client, "with_options", None)
+    retry_client = client
+    if callable(with_options):
+        try:
+            retry_client = with_options(max_retries=0)
+        except Exception:  # pragma: no cover - defensive, SDK-shape dependent
+            retry_client = client
+    try:
+        response = retry_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens * 2,
+            temperature=temperature,
+        )
+    except Exception as exc:
+        logger.warning("VLM truncation retry failed (%s); keeping the truncated caption", exc)
+        return partial
+    choice = response.choices[0]
+    if getattr(choice, "finish_reason", None) == "length":
+        logger.warning("VLM response still truncated at %d tokens; storing partial caption", max_tokens * 2)
+    return choice.message.content or partial
 
 
 def _analyze_image_with_vlm(
@@ -871,13 +983,15 @@ Provide a detailed, structured response."""
         # Encode image to base64
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        # Call NVIDIA's VLM API
         client = OpenAI(
             base_url=vlm_base_url,
             api_key=api_key,
+            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=1,
         )
 
-        response = client.chat.completions.create(
+        caption = _vlm_chat_create(
+            client,
             model=vlm_model,
             messages=[
                 {
@@ -894,10 +1008,8 @@ Provide a detailed, structured response."""
                 }
             ],
             max_tokens=512,
-            temperature=0.2,
         )
 
-        caption = response.choices[0].message.content
         logger.debug(f"VLM analysis: {caption[:100]}...")
 
         # Determine content type from response
@@ -1046,8 +1158,14 @@ def _analyze_drawing_page_with_vlm(
 
     try:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        client = OpenAI(base_url=vlm_base_url, api_key=api_key)
-        response = client.chat.completions.create(
+        client = OpenAI(
+            base_url=vlm_base_url,
+            api_key=api_key,
+            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=1,
+        )
+        caption = _vlm_chat_create(
+            client,
             model=vlm_model,
             messages=[
                 {
@@ -1059,9 +1177,7 @@ def _analyze_drawing_page_with_vlm(
                 }
             ],
             max_tokens=1100,
-            temperature=0.2,
-        )
-        caption = (response.choices[0].message.content or "").strip()
+        ).strip()
         if not caption:
             return ("[Drawing - empty VLM response]", {})
         logger.debug("Drawing VLM analysis: %s...", caption[:100])
@@ -1298,6 +1414,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=nvidia_api_key,
+                embed_batch_size=EMBED_BATCH_SIZE,
             )
 
             # Ensure persist directory exists
@@ -2433,7 +2550,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # 1. Extract text content. PDFs use pdfplumber directly because
                     # SimpleDirectoryReader can fall back to indexing raw PDF bytes
                     # when optional LlamaIndex file readers are missing.
+                    text_pages: list[dict[str, Any]] = []
                     if is_pdf:
+                        text_pages = _extract_text_from_pdf(file_path)
                         text_documents = [
                             Document(
                                 text=page["text"],
@@ -2444,7 +2563,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                     "content_type": "text",
                                 },
                             )
-                            for page in _extract_text_from_pdf(file_path)
+                            for page in text_pages
                         ]
                     elif is_image:
                         # Standalone image: caption via the VLM into a single
@@ -2478,9 +2597,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 job,
                                 i,
                                 FileStatus.FAILED,
-                                error="Image could not be read (corrupted or unsupported format)",
+                                error="Image could not be decoded or captioned (corrupted file or VLM failure)",
                             )
-                            logger.warning("Image could not be decoded: %s", file_name)
+                            logger.warning("Image could not be decoded or captioned: %s", file_name)
                             continue
                         text_documents = [caption_doc]
                         # Keep the job-level visual counters accurate (the caption
@@ -2560,12 +2679,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                         drawing_pages_raw: list[dict[str, Any]] = []
                         if RENDER_VISUAL_PAGES and vlm_api_key:
+                            # Hand the renderer the already-extracted
+                            # (watermark-stripped) page texts: the PDF's text
+                            # layer is read once, and the visual heuristic's
+                            # "watermark-stripped text" threshold actually holds.
                             drawing_pages_raw = _processing.render_visual_pages_no_vlm(
                                 file_path,
                                 min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS,
                                 min_paths=VISUAL_PAGE_MIN_PATHS,
                                 max_pages=MAX_RENDERED_PAGES,
                                 max_dim=PAGE_RENDER_MAX_DIM,
+                                page_texts={p["page_number"]: p["text"] for p in text_pages},
                             )
 
                         image_results, drawing_pages = _processing.enrich_vlm_batch(
@@ -2857,12 +2981,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # classification calls failed. Runs at the end of every ingestion
             # job inside the knowledge layer, so every caller (the Knowledge
             # API, scripts/ingest_oib.py's oib_sync, and any future caller)
-            # gets this for free without having to remember to call it.
+            # gets this for free without having to remember to call it. Scoped
+            # to THIS job's successful files: the unscoped mode's list_files
+            # reads every chunk metadata in the collection — O(collection) per
+            # single-file upload, painful on the large oib_knowledge corpus.
             if successful_files:
                 try:
                     from aiq_agent.knowledge.factory import reconcile_collection_summaries
 
-                    reconcile_collection_summaries(self, collection_name)
+                    reconcile_collection_summaries(
+                        self,
+                        collection_name,
+                        file_names=[f.file_name for f in successful_files],
+                    )
                 except Exception as e:
                     logger.warning("Reconciliation failed for collection %s: %s", collection_name, e)
 
@@ -3033,6 +3164,7 @@ class LlamaIndexRetriever(BaseRetriever):
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=nvidia_api_key,
+                embed_batch_size=EMBED_BATCH_SIZE,
             )
             Settings.embed_model = self._embed_model
 

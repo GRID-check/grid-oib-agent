@@ -85,8 +85,16 @@ async function reservePort(): Promise<number> {
   return port
 }
 
+/**
+ * Everything the most recently started gateway wrote to stdout+stderr. Reset by
+ * `startGateway`, and the only way to observe the process's own logging — each
+ * test boots at most one gateway, so a single buffer is enough.
+ */
+let gatewayOutput = ''
+
 /** Boot a real gateway on a free port; resolves once it is listening. */
 async function startGateway(env: Record<string, string> = {}): Promise<number> {
+  gatewayOutput = ''
   const port = await reservePort()
   const child = spawn('node', ['server.js'], {
     cwd: UI_ROOT,
@@ -104,9 +112,16 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   running.push(child)
+  // console.warn and console.error both land on stderr, so severity is not
+  // recoverable from the stream — the two paths are told apart by their
+  // wording instead, which is why they read differently in server.js.
+  child.stderr?.on('data', (chunk: Buffer) => {
+    gatewayOutput += chunk.toString()
+  })
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('gateway did not start')), 20_000)
     child.stdout?.on('data', (chunk: Buffer) => {
+      gatewayOutput += chunk.toString()
       if (chunk.toString().includes('Frontend:')) {
         clearTimeout(timer)
         setTimeout(resolve, 200)
@@ -114,6 +129,16 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
     })
   })
   return port
+}
+
+/** Poll until the gateway has logged `needle`, or fail the test. */
+async function waitForLog(needle: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (gatewayOutput.includes(needle)) return
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(`gateway never logged ${JSON.stringify(needle)}; saw:\n${gatewayOutput}`)
 }
 
 /** Drive one WS upgrade; resolves with the HTTP status (101 on success). */
@@ -216,5 +241,25 @@ describe('gateway WS-upgrade admission gate', () => {
 
     expect(scopeHits).toBe(2)
     expect(codes.filter((c) => c === 503)).toHaveLength(10)
+  })
+})
+
+describe('gateway WS-upgrade upstream failures', () => {
+  it('reports an unreachable backend as a warning, not an error', async () => {
+    // Issues #270/#272: during a rollout or pod restart the backend Service has
+    // no ready endpoint for a few seconds, so every reconnecting chat client
+    // gets ECONNREFUSED. Logged at ERROR that filed one GitHub issue per
+    // reconnect, for an outcome the gateway already handles correctly.
+    const deadPort = await reservePort() // reserved, then released — nothing listens
+    const port = await startGateway({ BACKEND_URL: `http://127.0.0.1:${deadPort}` })
+
+    // Downgrading the severity must not change the outcome: the upgrade is
+    // still refused with a 502 so the client reconnects.
+    expect(await upgrade(port, 'session=dead-backend')).toBe(502)
+
+    await waitForLog('[WS Proxy] Backend unreachable')
+    expect(gatewayOutput).toContain('ECONNREFUSED')
+    // The ERROR-severity wording is what err2issue turns into an issue.
+    expect(gatewayOutput).not.toContain('[WS Proxy] Error:')
   })
 })

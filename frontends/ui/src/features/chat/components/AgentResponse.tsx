@@ -13,7 +13,7 @@ import { Check, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
@@ -197,6 +197,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   routingDecision,
 }) => {
   const t = useTranslations('chat')
+  // Without the locale `formatTime` uses the RUNTIME default, so a German user on
+  // an en-US browser got "03:35 PM" beside cards that all say "15:35".
+  const { locale } = useLocale()
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const projectId = useChatStore((s) => s.projectId)
@@ -386,7 +389,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
           <span className="text-subtle mr-3 mt-1 self-end text-xs">
-            {formatTime(timestamp)}
+            {formatTime(timestamp, locale)}
           </span>
         )}
       </div>
@@ -513,7 +516,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               {hasFeedback && messageId && (
                 <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
               )}
-              {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp)}</span>}
+              {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp, locale)}</span>}
             </div>
           )}
         </div>

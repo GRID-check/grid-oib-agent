@@ -60,6 +60,13 @@ existing local-first path for private ones, with one explicit seam between them.
    owns. Token-by-token mirroring to observers would require relaying the agent's
    frames out of the Python tier and is deferred.
 
+   > **Superseded by ADR-0039.** The relay was built as a BFF subscriber on the
+   > conversation bus (`GET /api/conversations/:id/live`), so an observer now watches
+   > the reasoning and the answer as they happen. The Python tier still did not
+   > change: it already published every frame for ADR-0028. Point 7 survives as the
+   > FALLBACK — turn state is what an observer gets when the frames cannot reach
+   > them, and message persistence remains the only path that is authoritative.
+
 ## Consequences
 
 ### Positive
@@ -79,8 +86,10 @@ existing local-first path for private ones, with one explicit seam between them.
   action) and by having both paths converge on the same store shape.
 - Opening a shared conversation costs a server round-trip before the thread is
   correct, where a private one renders from cache instantly.
-- Observers get a coarser live experience than the asker in phase 1 (turn state, not
-  streaming text).
+- Observers got a coarser live experience than the asker in phase 1 (turn state, not
+  streaming text). **Resolved by ADR-0039**, which relays the agent's frames from the
+  conversation bus to observers; the turn-state banner is now the fallback for when
+  those frames cannot reach them.
 - **The agent WebSocket follows intent to send, not mounting, in a shared thread.**
   §7 says an observer needs no agent socket, and the Python socket registry
   (`websocket_reconnect.py`) is keyed by conversation id, so a second socket on one

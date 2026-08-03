@@ -32,9 +32,11 @@
 'use client'
 
 import { type FC } from 'react'
+import Image from 'next/image'
 import { avatarColorStyle, personInitials } from '@/components/ui/avatar-identity'
+import { isOptimizableAvatarUrl } from '@/lib/images/avatar-hosts'
 import { formatTime } from '@/shared/utils/format-time'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 export interface MessageAuthorProps {
@@ -73,6 +75,10 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
   className,
 }) => {
   const t = useTranslations('collaboration')
+  // `formatTime` without a locale falls back to the RUNTIME default, so a
+  // German user on an en-US browser read "03:35 PM" here while the HITL prompt
+  // directly below it read "15:35". Every research card already passes it.
+  const { locale } = useLocale()
 
   const displayName = isYou ? t('thread.authorYou') : (name?.trim() || t('inbox.unknownActor'))
   const label = grouped
@@ -98,10 +104,22 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
       data-testid="message-author"
     >
       {avatarUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- directory avatars are arbitrary remote hosts; next/image would need every one allow-listed.
-        <img
+        // The disc is a fixed 22px, so the size is declared rather than filled
+        // and the box is reserved before the photo arrives. Optimizing it means
+        // the optimizer fetches the avatar server-side and hands the browser a
+        // 22px WebP instead of whatever the IdP stored — which also means the
+        // browser never contacts the avatar CDN, so rendering a thread stops
+        // leaking every reader's IP to a third party.
+        //
+        // `unoptimized` stays as the fallback for a host we have not
+        // allow-listed (see `avatar-hosts.ts`): the optimizer refuses those, so
+        // an unrecognised host renders straight from source rather than broken.
+        <Image
           src={avatarUrl}
           alt=""
+          width={22}
+          height={22}
+          unoptimized={!isOptimizableAvatarUrl(avatarUrl)}
           aria-hidden="true"
           className={cn(AVATAR_CLASS, 'object-cover')}
           data-testid="message-author-avatar"
@@ -127,7 +145,7 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
         </span>
         {timestamp && (
           <span className="text-subtle text-[11px] leading-none tabular-nums">
-            {formatTime(timestamp)}
+            {formatTime(timestamp, locale)}
           </span>
         )}
       </span>
