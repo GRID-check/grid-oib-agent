@@ -73,6 +73,22 @@ export async function upsertInboxItems(values: NewInboxItem[]): Promise<InboxIte
       set: {
         count: sql`${inboxItems.count} + 1`,
         updatedAt: new Date(),
+        // These three were missing while the doc above promised the folds were
+        // identical. Without them a collapsed group kept its FIRST actor and its
+        // FIRST payload for good: "Anna shared a conversation with you" stayed
+        // Anna's name after Bob re-shared, and the anchor kept pointing at the
+        // message that opened the group rather than the one that just landed.
+        // `sql` rather than a plain value because a batch insert has one `set`
+        // for many rows — `excluded` is the row being inserted for THIS conflict.
+        actorUserId: sql`excluded.actor_user_id`,
+        anchorId: sql`excluded.anchor_id`,
+        // MERGED, not replaced. The activity fan-out emits `{}` whenever the
+        // title lookup comes back null (a collapsed group, a thread renamed to
+        // nothing), and a straight `excluded.payload` let that one null wipe the
+        // subject off every recipient's row — permanently, because the row is
+        // never re-emitted with the title. `||` is jsonb concat: new keys win,
+        // absent keys are left alone.
+        payload: sql`${inboxItems.payload} || excluded.payload`,
         readAt: null,
         resolvedAt: null,
         archivedAt: null,
@@ -142,6 +158,17 @@ export async function countPendingInboxItems(
   return Number(row?.count ?? 0)
 }
 
+/**
+ * The mutation that marks a row read.
+ *
+ * `count` goes back to zero alongside `readAt`, because the counter means
+ * "occurrences since you last read this". Leaving it standing made a group the
+ * user had just read say "21 new messages" the moment a twenty-second arrived —
+ * twenty of which they had already seen. The upsert increments from whatever
+ * this leaves behind, so the next arrival reads "1 new message".
+ */
+const markReadValues = () => ({ readAt: new Date(), count: 0 })
+
 /** Mark specific items read. Scoped to the recipient so ids cannot be poked. */
 export async function markInboxItemsRead(
   organizationId: string,
@@ -152,7 +179,7 @@ export async function markInboxItemsRead(
   const db = getDb()
   const rows = await db
     .update(inboxItems)
-    .set({ readAt: new Date() })
+    .set(markReadValues())
     .where(
       and(
         eq(inboxItems.organizationId, organizationId),
@@ -173,7 +200,7 @@ export async function markAllInboxItemsRead(
   const db = getDb()
   const rows = await db
     .update(inboxItems)
-    .set({ readAt: new Date() })
+    .set(markReadValues())
     .where(
       and(
         eq(inboxItems.organizationId, organizationId),
@@ -219,7 +246,7 @@ export async function markResourceItemsRead(
   const db = getDb()
   const rows = await db
     .update(inboxItems)
-    .set({ readAt: new Date() })
+    .set(markReadValues())
     .where(
       and(
         eq(inboxItems.organizationId, organizationId),

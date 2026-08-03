@@ -21,6 +21,12 @@
  *
  * Variants via `?variant=`:
  *   - default     — the above.
+ *   - `live`      — the same thread with liveness ON (ADR-0039): the observer is
+ *                   WATCHING Tobias's turn — the reasoning chain building and the
+ *                   answer streaming in, not a spinner — while Anna is composing
+ *                   alongside it. The two live signals are deliberately different
+ *                   shapes: the agent gets the Piloti glyph and the shimmer, a
+ *                   colleague gets their avatar and three dots.
  *   - `handback`  — the resolution point of a hand-off (ADR-0034 addendum): the
  *                   reader asked Anna, Anna has answered, the wait is closed, and
  *                   the thread offers to let Piloti carry on. The one transition
@@ -184,9 +190,70 @@ const SHARING_STATE = {
 }
 
 /** Read from the URL on every call, so the shim needs no React state. */
-const isHandbackVariant = (): boolean =>
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).get('variant') === 'handback'
+const variant = (): string | null =>
+  typeof window === 'undefined'
+    ? null
+    : new URLSearchParams(window.location.search).get('variant')
+
+const isHandbackVariant = (): boolean => variant() === 'handback'
+/** The live variant: a colleague's turn being WATCHED, plus somebody composing. */
+const isLiveVariant = (): boolean => variant() === 'live'
+
+/**
+ * The frames the live variant replays, in the order the backend would emit them
+ * (`conversation_bus` envelopes, unwrapped by `/api/conversations/:id/live`).
+ *
+ * Real NAT shapes, not a convenient summary: the whole value of this preview is
+ * that it exercises the actual reducer, so a change to the wire format shows up
+ * here as a blank panel rather than passing silently.
+ */
+const LIVE_FRAMES: unknown[] = [
+  {
+    type: 'system_intermediate_message',
+    id: 'st1',
+    content: { name: 'Function Start: intent_classifier', payload: 'Frage wird eingeordnet' },
+    status: 'in_progress',
+  },
+  {
+    type: 'system_intermediate_message',
+    id: 'st2',
+    content: {
+      name: 'Function Complete: intent_classifier',
+      payload: 'Fachfrage → flache Recherche',
+    },
+    status: 'complete',
+  },
+  {
+    type: 'system_intermediate_message',
+    id: 'st3',
+    content: {
+      name: 'Function Start: shallow_research_agent',
+      payload: 'OIB-Richtlinie 2, Abschnitt 3 wird gelesen',
+    },
+    status: 'in_progress',
+  },
+  {
+    type: 'system_response_message',
+    id: 'r1',
+    parent_id: 'live-turn',
+    content: { text: 'Nein. Ein Innenhof zählt nur dann als zweiter Rettungsweg, wenn er ' },
+    status: 'in_progress',
+  },
+  {
+    type: 'system_response_message',
+    id: 'r2',
+    parent_id: 'live-turn',
+    content: { text: 'ins Freie führt und dauerhaft begehbar ist. Ist der Durchgang im EG ' },
+    status: 'in_progress',
+  },
+  {
+    type: 'system_response_message',
+    id: 'r3',
+    parent_id: 'live-turn',
+    content: { text: 'verschlossen, entfällt er als Rettungsweg' },
+    status: 'in_progress',
+  },
+]
 
 // Module scope, so the very first fetch of the hook is already served (idempotent,
 // browser + dev only).
@@ -244,26 +311,70 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       onopen: (() => void) | null = null
       onmessage: ((event: { data: string }) => void) | null = null
       onerror: (() => void) | null = null
-      constructor() {
+
+      constructor(url: string) {
+        // Two different channels reach this one constructor: the session-wide
+        // collaboration hub (`/api/stream`) and — in the live variant — the
+        // per-conversation frame relay opened by `useSpectatedTurn`. Branching on
+        // the URL keeps the preview honest about which surface reads which.
+        const isFrameRelay = url.endsWith('/live')
         setTimeout(() => {
           this.onopen?.()
+          if (isFrameRelay) {
+            this.replayFrames()
+            return
+          }
           // A turn in flight would contradict the hand-back variant (Piloti is
           // precisely NOT working there), so that variant only opens the channel.
           if (isHandbackVariant()) return
-          this.onmessage?.({
-            data: JSON.stringify({
-              id: 'preview-1',
-              at: at(11),
-              event: {
-                kind: 'conversation.turn',
-                conversationId: CONVERSATION_ID,
-                phase: 'started',
-                actorUserId: TOBIAS,
-              },
-            }),
+          this.emitEnvelope({
+            kind: 'conversation.turn',
+            conversationId: CONVERSATION_ID,
+            phase: 'started',
+            actorUserId: TOBIAS,
           })
+          // Somebody at a keyboard, alongside the agent working — the two live
+          // signals are independent, and the live variant shows both at once.
+          //
+          // Deliberately on a LATER timer than the turn event, and not merely for
+          // realism (a colleague starts typing during a turn, not in the same
+          // millisecond): the indicator resolves its names against the roster, so a
+          // claim that lands before `GET /api/sharing/...` has answered is held
+          // until it does. Firing both in one tick made the capture race that
+          // fetch, which is a flaky screenshot rather than a product defect —
+          // but a flaky screenshot is not evidence.
+          if (isLiveVariant()) {
+            setTimeout(
+              () =>
+                this.emitEnvelope({
+                  kind: 'conversation.typing',
+                  conversationId: CONVERSATION_ID,
+                  userId: ANNA,
+                  typing: true,
+                  // Long enough to outlive the capture; the expiry itself is
+                  // covered by the hook's unit tests, not by a picture.
+                  ttlMs: 600_000,
+                }),
+              600,
+            )
+          }
         }, 40)
       }
+
+      private emitEnvelope(event: unknown): void {
+        this.onmessage?.({ data: JSON.stringify({ id: 'preview-1', at: at(11), event }) })
+      }
+
+      /** Feed the spectator reducer the same frames the backend would publish. */
+      private replayFrames(): void {
+        LIVE_FRAMES.forEach((payload, index) => {
+          setTimeout(
+            () => this.onmessage?.({ data: JSON.stringify({ kind: 'frame', seq: index + 1, payload }) }),
+            30 * (index + 1),
+          )
+        })
+      }
+
       close(): void {}
       addEventListener(): void {}
       removeEventListener(): void {}

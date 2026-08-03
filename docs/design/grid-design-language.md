@@ -158,9 +158,12 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 ## Motion vocabulary
 
 - Content entrance: `animate-in fade-in-0` (+ `slide-in-from-bottom-1` for cards — the dummy's `nodeIn` fade-rise) via tw-animate-css.
+- **Chat turn entrance** — every block that arrives in the transcript uses the same 200ms fade-and-rise as the message bubbles: `animate-in fade-in-0 slide-in-from-bottom-1 duration-200`. That includes `AgentPrompt` (the HITL question) and the `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner that pops in unanimated reads as a different class of object than the answer it sits beside.
+- **State changes inside an arrived turn are transitions, not entrances**: `AgentPrompt` dims to `opacity-75` via `transition-opacity duration-300 motion-reduce:transition-none` once answered; the answer's meta row fades in on a short `[animation-delay:120ms]` (with `[animation-fill-mode:backwards]`, so nothing flashes before its delay) and the source chips cascade on a 40ms per-chip stagger, capped.
 - Height changes (accordions, thinking steps): CSS grid-rows or Radix Collapsible transitions, ~200ms ease-out.
 - Hover: `transition-colors` on interactive rows/links; never transform on hover for dense UI.
 - Skeleton pulse is the only ambient motion.
+- **Every animation carries `motion-reduce:animate-none`, every non-hover transition `motion-reduce:transition-none`.** `prefers-reduced-motion` is not a nice-to-have here: motion is decoration in this product, so it must be droppable with no loss of information. (Hover `transition-colors` is exempt — a colour change on pointer intent is feedback, not motion.)
 
 ## Domain-specific treatments
 

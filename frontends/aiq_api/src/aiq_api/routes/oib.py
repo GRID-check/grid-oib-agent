@@ -95,8 +95,9 @@ def _persist_upload(name: str, content: bytes) -> Path:
 def _ingest_and_classify(target: Path, doc_class: str) -> None:
     """Background job: ingest an already-persisted PDF, then persist its doc_class.
 
-    Runs on the shared single-thread executor (serialized against full corpus
-    syncs). Ingestion creates the summary row, so the ``doc_class`` UPDATE is
+    Runs on the shared executor, where it can overlap with another member or a
+    corpus sync; oib_sync's per-basename lock keeps same-file work serialized.
+    Ingestion creates the summary row, so the ``doc_class`` UPDATE is
     applied only after a SUCCESS terminal state. Fully self-contained: it owns
     the same failed-file cleanup guarantee the blocking route had — a source that
     raises before reaching a terminal state is unlinked so no half-ingested file
@@ -248,7 +249,14 @@ def _resolve_corpus_pdf(file_name: str) -> Path | None:
 
 
 def add_oib_routes(router: APIRouter) -> None:
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="oib-sync-")
+    # 2 workers so a ZIP upload's blocking per-member polls (ingest_single
+    # waits for the adapter's ingest pool) don't fully serialize: members
+    # overlap by one. The adapter's AIQ_INGEST_MAX_WORKERS pool remains the
+    # real concurrency gate. Overlapping tasks are safe because oib_sync
+    # serializes what must not interleave: a per-basename lock around every
+    # corpus mutation (ingest, delete, exclude, and each file of a sync), a
+    # single-flight lock on sync(), and the registry/exclusion RMW locks.
+    executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="oib-sync-")
 
     @router.post(
         "/v1/admin/oib/sync",

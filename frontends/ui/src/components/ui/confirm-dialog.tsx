@@ -105,6 +105,11 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
         setInternalPending(true)
         await onConfirm()
         onOpenChange(false)
+      } catch {
+        // A throwing `onConfirm` means the action did not land, so the dialog
+        // stays open and the caller's own error surface is what explains it.
+        // Caught here rather than left to propagate: the click handler calls
+        // this with `void`, so a rejection would be an unhandled one.
       } finally {
         setInternalPending(false)
       }

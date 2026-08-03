@@ -10,9 +10,12 @@
  * composer is what talks to `useMentionCandidates`), so no shim is needed here.
  *
  * Variants via `?variant=`:
- *   - default      — the whole list: the assistant pinned first in its own group,
- *                    then the people in the chat, then the colleagues who would be
- *                    invited.
+ *   - default      — two blocks. First the whole list: the assistant pinned first
+ *                    in its own group, then the people in the chat, then the
+ *                    colleagues who would be invited. Then the TYPED state, because
+ *                    an empty query filters nothing and emphasises nothing — so the
+ *                    first block alone can show neither, and the registry entry that
+ *                    promised "the matched substring emphasised" was unbacked.
  *   - filter       — mid-typing (`@an`), so the matched fragment emphasis shows.
  *   - restricted   — the same list without invite rights: the invitable colleagues
  *                    are DISABLED with the reason, never hidden (MN-5, SH-19).
@@ -65,40 +68,47 @@ const CANDIDATES: MentionCandidate[] = [
     needsInvite: false,
   },
   candidate('u-anna', 'Anna Weber'),
-  candidate('u-markus', 'Markus Hofer'),
+  // An umlaut name, on purpose: the search folds diacritics, so `@mu` has to find
+  // "Müller". Without a single such name in the fixture that behaviour — and the
+  // offset-safe emphasis that goes with it — could not appear in any screenshot.
+  candidate('u-juergen', 'Jürgen Müller'),
   candidate('u-sabine', 'Sabine Gruber', { isParticipant: false, needsInvite: true }),
   candidate('u-daniel', 'Daniel Brandstetter', { isParticipant: false, needsInvite: true }),
 ]
 
-export default function MentionPickerPreviewPage() {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
-
-  const params = useSearchParams()
-  const variant = params?.get('variant') ?? 'default'
+/**
+ * One picker over one mock composer — the geometry the picker actually ships in.
+ * Self-contained (its own text state and its own handle) so a page can stack two
+ * of them and each stays operable.
+ */
+function PickerBlock({
+  label,
+  query,
+  canInvite,
+  loading = false,
+  prompt,
+}: {
+  label: string
+  query: string
+  canInvite: boolean
+  loading?: boolean
+  prompt: string
+}): JSX.Element {
   const pickerRef = useRef<MentionPickerHandle>(null)
-  const query = variant === 'empty' ? 'zzz' : variant === 'filter' ? 'an' : ''
-  const [text, setText] = useState(
-    `Ist das Atrium ein eigener Brandabschnitt, @${query}`,
-  )
+  const [text, setText] = useState(`${prompt}@${query}`)
 
   return (
-    <I18nProvider initialLocale="de" fixedLocale>
-    <main
-      data-testid="mention-picker-preview"
-      className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-6"
-    >
-      <h1 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-        Mention picker — {variant}
-      </h1>
+    <section className="flex flex-col gap-3">
+      <h2 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </h2>
 
       <MentionPicker
         ref={pickerRef}
         query={query}
         candidates={CANDIDATES}
-        canInvite={variant !== 'restricted'}
-        loading={variant === 'loading'}
+        canInvite={canInvite}
+        loading={loading}
         onSelect={(picked) => {
           const display = picked.isAgent ? 'Piloti' : picked.person.name
           setText((current) => `${current.replace(/@[^\s]*$/, '')}@${display} `)
@@ -139,6 +149,52 @@ export default function MentionPickerPreviewPage() {
           </span>
         </div>
       </div>
+    </section>
+  )
+}
+
+export default function MentionPickerPreviewPage() {
+  if (process.env.NODE_ENV !== 'development') {
+    notFound()
+  }
+
+  const params = useSearchParams()
+  const variant = params?.get('variant') ?? 'default'
+  const query = variant === 'empty' ? 'zzz' : variant === 'filter' ? 'an' : ''
+
+  return (
+    <I18nProvider initialLocale="de" fixedLocale>
+    <main
+      data-testid="mention-picker-preview"
+      // `text-foreground`: the root layout only sets a surface colour, so the mock
+      // composer's textarea (which carries no colour of its own, exactly like the
+      // real one) inherited the browser default and rendered the typed `@…`
+      // fragment black on black in dark mode — the one string the picker is
+      // filtering on was invisible in half the evidence.
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 text-foreground"
+    >
+      <PickerBlock
+        label={`Mention picker — ${variant}`}
+        query={query}
+        canInvite={variant !== 'restricted'}
+        loading={variant === 'loading'}
+        prompt="Ist das Atrium ein eigener Brandabschnitt, "
+      />
+
+      {/* The typed state, in the default shot rather than behind its own variant:
+          with an empty query nothing is emphasised and nothing is filtered, so the
+          block above cannot show either — and the search folds diacritics, which is
+          precisely the behaviour a reader has to be able to check. `@mu` finds
+          "Jürgen Müller" and emphasises the "Mü" it matched, not the two characters
+          that happen to sit at that offset in the folded string. */}
+      {variant === 'default' && (
+        <PickerBlock
+          label="Beim Tippen — ohne Umlaut geschrieben, mit Umlaut gefunden"
+          query="mu"
+          canInvite
+          prompt="Das müsste "
+        />
+      )}
     </main>
     </I18nProvider>
   )

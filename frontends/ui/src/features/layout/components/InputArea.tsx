@@ -29,6 +29,7 @@ import {
   AtSign,
   Check,
   ChevronDown,
+  Eye,
   FileText,
   Layers,
   Loader2,
@@ -78,7 +79,13 @@ import {
   type MentionPickerHandle,
 } from '@/features/collaboration/components/MentionPicker'
 import { useAwaitingState, useMentionCandidates } from '@/features/collaboration/hooks/use-sharing'
-import { useTurnActorName } from '@/shared/collaboration/thread-sharing'
+import {
+  bumpThreadRevision,
+  useThreadRole,
+  useThreadSharing,
+  useTurnActorName,
+} from '@/shared/collaboration/thread-sharing'
+import { useTypingBroadcast } from '@/features/collaboration/hooks/use-typing-broadcast'
 import {
   findMentionQuery,
   humanMentions,
@@ -129,7 +136,14 @@ function mentionRefusalMessage(
 ): string | null {
   const reason = outcome?.failure?.reason
   if (!reason) return null
-  const name = taggedHumans[0]?.display ?? ''
+  // Name the person the SERVER refused (the refusal carries their targetId) —
+  // tagging two people and hearing the first one's name when the second was
+  // refused blames the wrong colleague.
+  const refused = outcome?.failure?.targetId
+  const name =
+    (refused ? taggedHumans.find((mention) => mention.targetId === refused)?.display : undefined) ??
+    taggedHumans[0]?.display ??
+    ''
   switch (reason) {
     case MENTION_ERROR_REASONS.inviteRequiresOwner:
       return tCollab('mentions.errors.inviteRequiresOwner', { name })
@@ -328,7 +342,15 @@ const FileChip: FC<{
   onOpen: (file: TrackedFile) => void
   onRemove: (id: string) => void
   onRetry: (id: string) => void
-}> = ({ file, onOpen, onRemove, onRetry }) => {
+  /**
+   * A reader who may not change this conversation (a viewer in a shared thread).
+   * Opening a file stays available — that is reading — but retry and remove are
+   * writes onto somebody else's thread and are not rendered at all. Disabled
+   * buttons would be the wrong shape here: there is no state in which this
+   * person could press them, so offering them greyed out is a promise.
+   */
+  readOnly?: boolean
+}> = ({ file, onOpen, onRemove, onRetry, readOnly = false }) => {
   const t = useTranslations('research')
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
@@ -356,7 +378,12 @@ const FileChip: FC<{
     <span
       className={cn(
         'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
-        isFailed && 'border-error/50'
+        // `border-error` is a static `@utility` in globals.css with no
+        // `--modifier()`, so the slash form (`border-error/50`) matched nothing
+        // and this chip kept the neutral default border — a failed upload was
+        // signalled by the glyph alone. The token itself already carries ~55%
+        // alpha, so the solid class is the soft edge the author was after.
+        isFailed && 'border-error'
       )}
       title={`${file.fileName} — ${statusTitle}`}
     >
@@ -376,7 +403,7 @@ const FileChip: FC<{
           <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
         </span>
       )}
-      {isFailed && (
+      {isFailed && !readOnly && (
         <button
           type="button"
           onClick={() => onRetry(file.id)}
@@ -387,15 +414,17 @@ const FileChip: FC<{
           <RotateCw className="size-3" aria-hidden="true" />
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => onRemove(file.id)}
-        aria-label={t('inputArea.removeFile', { name: file.fileName })}
-        title={t('inputArea.removeFile', { name: file.fileName })}
-        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
-      >
-        <X className="size-3" aria-hidden="true" />
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={() => onRemove(file.id)}
+          aria-label={t('inputArea.removeFile', { name: file.fileName })}
+          title={t('inputArea.removeFile', { name: file.fileName })}
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+        >
+          <X className="size-3" aria-hidden="true" />
+        </button>
+      )}
     </span>
   )
 }
@@ -688,6 +717,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         current === preset
           ? (sources ?? []).map((s) => s.id)
           : computePresetSourceIds(preset, sources ?? [])
+      // NOTE: `saveDataSourcesToConversation` persists onto the conversation, so
+      // this is a write. Its viewer gate is the render condition on the chip row
+      // (`!cannotContribute`) rather than a check here, because the chips are not
+      // rendered at all for a viewer — there is no control to hold a stale
+      // handle to. `cannotContribute` is declared below this callback, so
+      // repeating the check here would be a use-before-declaration.
       applySourcePreset(current === preset ? null : preset, nextIds)
       saveDataSourcesToConversation?.(nextIds)
     },
@@ -702,9 +737,49 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // 1. Not authenticated
   // 2. Session is busy AND not in HITL response mode (user must be able to type approve/reject)
   // 3. Deep research has completed/failed
+  // 4. A colleague's turn is running in this shared thread (the socket registry is
+  //    one slot per conversation — a second send collides with it), or the reader
+  //    only has the viewer role (the server would reject the send anyway)
+
+  // Whose question Piloti is answering, when it is not this reader's — published by
+  // the ADR-0033 seam so the composer does not pay for a second roster read.
+  const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
+
+  // The reader's own role in a shared thread: a viewer's send is rejected
+  // server-side, so the composer is read-only BEFORE the attempt (a ghost bubble
+  // only the viewer would see is the alternative).
+  const myThreadRole = useThreadRole(canCollaborate ? currentSessionId : null)
+  const isViewerInSharedThread = myThreadRole === 'viewer'
+
+  // Composing presence. Only where somebody could actually see it: a shared
+  // thread, collaboration on, and a role that may contribute — a viewer's draft
+  // will never become a message, so announcing it would be a claim about
+  // something that cannot happen. The server enforces all three regardless; this
+  // is what keeps a private thread from issuing the request at all (spec NF-8).
+  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
+  const { onTyping, onStoppedTyping } = useTypingBroadcast({
+    conversationId: currentSessionId ?? null,
+    enabled: canCollaborate && threadSharing === 'shared' && !isViewerInSharedThread,
+  })
 
   const isDisabledByAuth = !isAuthenticated
-  const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionSuccessful
+  /*
+    One gate for "may this person change anything about this conversation".
+
+    `disabled` below only ever reached the textarea and the send button, so a
+    viewer in a shared thread — whose whole point is that they may read and not
+    write — still had a live paperclip, a live drop zone, and a live
+    *Datengrundlage* popover whose toggles persist onto the conversation. They
+    could not send a message but they could rewrite which sources the next
+    person's turn would use, and upload files into the thread.
+  */
+  const cannotContribute = isDisabledByAuth || isViewerInSharedThread
+  const disabled =
+    isDisabledByAuth ||
+    (isBusy && !isResponseMode) ||
+    isResearchSessionSuccessful ||
+    Boolean(otherPersonsTurnName) ||
+    isViewerInSharedThread
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
@@ -741,12 +816,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       consumeComposerPrefill()
       return
     }
-    const text = consumeComposerPrefill()
-    if (text === null) return
-    setMessage(text)
+    const prefill = consumeComposerPrefill()
+    if (prefill === null) return
+    setMessage(prefill.text)
+    // A prefill that renders `@…` tokens carries the structured mentions with
+    // it (e.g. the hand-off banner's "ask Piloti instead") — without seeding
+    // them here the tokens would send as dead plain text and route to the
+    // wrong addressee (spec MN-3).
+    if (prefill.mentions && prefill.mentions.length > 0) setMentions(prefill.mentions)
     // Persist the prefill as the session's draft too, so it survives a reload
     // just like typed text (only possible once a session exists).
-    if (currentSessionId) setComposerDraft(currentSessionId, text)
+    if (currentSessionId) setComposerDraft(currentSessionId, prefill.text)
     requestAnimationFrame(() => {
       const el = textareaRef.current
       if (!el) return
@@ -806,6 +886,45 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setMentionDismissed(false)
   }, [])
 
+  // Declared here rather than beside the other handlers below: `handleMentionSomeone`
+  // lists it as a dependency, so a later `const` would be read in its own TDZ.
+  const handleValueChange = useCallback(
+    (value: string, caret: number | null = value.length) => {
+      if (isDisabledByAuth) return // Don't allow typing when not authenticated
+
+      // Persist a session as soon as the user starts interacting via typed input.
+      // This keeps logo-triggered "new session" drafts out of history until touched.
+      let sessionId = currentConversation?.id
+      if (!sessionId && value.trim().length > 0) {
+        sessionId = ensureSession()
+        // ensureSession just activated a brand-new session; mark its id as the
+        // loaded draft so the draft-sync effect doesn't reset the text we set here.
+        if (sessionId) loadedDraftSessionRef.current = sessionId
+      }
+
+      setMessage(value)
+      // Persist the draft under the active session (once one exists) so it
+      // survives navigating away/back and a reload.
+      if (sessionId) setComposerDraft(sessionId, value)
+      syncMentionQuery(value, caret)
+      // Tell the thread. Throttled inside the hook, so this is a comparison on
+      // most keystrokes; emptying the box withdraws the claim rather than letting
+      // it expire, because "cleared the draft" is exactly when a colleague should
+      // stop expecting a message.
+      if (value.trim()) onTyping()
+      else onStoppedTyping()
+    },
+    [
+      isDisabledByAuth,
+      currentConversation,
+      ensureSession,
+      setComposerDraft,
+      syncMentionQuery,
+      onTyping,
+      onStoppedTyping,
+    ]
+  )
+
   /**
    * Start a mention from the composer's addressee line — the only affordance that
    * teaches `@` exists (spec MN-3 had no discovery story at all).
@@ -816,19 +935,25 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * the user somewhere sensible if they change their mind — one backspace.
    */
   const handleMentionSomeone = useCallback(() => {
+    // Belt and braces with the `undefined` handler at the call site: this one is
+    // reachable by anything holding a stale reference, and it writes to the
+    // conversation's draft.
+    if (cannotContribute) return
     const el = textareaRef.current
     const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
     const next = `${base}@`
-    setMessage(next)
+    // Route through handleValueChange, not a bare setMessage: a fresh thread
+    // gets its session (and the draft) here, and `syncMentionQuery` runs inside
+    // it — the one path that cannot drift from what typing `@` by hand does.
+    handleValueChange(next, next.length)
     setMentionDismissed(false)
-    syncMentionQuery(next, next.length)
     // Focus AFTER the value lands, so the caret is at the end of the fragment the
     // picker is filtering on.
     requestAnimationFrame(() => {
       el?.focus()
       el?.setSelectionRange(next.length, next.length)
     })
-  }, [message, syncMentionQuery])
+  }, [message, handleValueChange, cannotContribute])
 
   const syncMentionQueryFromElement = useCallback(
     (element: HTMLTextAreaElement) => {
@@ -863,17 +988,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     turns the default "Geht an Piloti" into "Geht an den Chat": while a named person
     is awaited, a plain message is a remark and the agent stays out.
 
-    Off entirely without the flag, so a gated org opens no request (spec NF-8).
+    Off entirely without the flag, so a gated org opens no request (spec NF-8) —
+    and off on a PRIVATE thread too. Gating on the flag alone was not enough:
+    `useAwaitingState` subscribes to the shared event channel, so a solo user in a
+    flag-on org opened a permanent `/api/stream` connection and polled
+    `/awaiting` for a conversation that can never be waiting on anybody. NF-8 is
+    the stricter promise — a user who never shares must not notice this exists —
+    and `ChatArea` already reads the same state under exactly this predicate.
   */
   const { awaiting } = useAwaitingState(
-    canCollaborate ? (currentSessionId ?? null) : null,
-    canCollaborate,
+    canCollaborate && threadSharing === 'shared' ? (currentSessionId ?? null) : null,
+    canCollaborate && threadSharing === 'shared',
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
-
-  // Whose question Piloti is answering, when it is not this reader's — published by
-  // the ADR-0033 seam so the composer does not pay for a second roster read.
-  const otherPersonsTurnName = useTurnActorName(canCollaborate ? currentSessionId : null)
 
   /**
    * The picker opens only where collaboration is on, and then only once the
@@ -906,6 +1033,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // HITL responses always go through immediately — no file-pending check
     if (isResponseMode && respondToInteraction) {
       setMessage('')
+      onStoppedTyping()
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
       respondToInteraction(currentMessage)
       return
@@ -922,6 +1050,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // (see title below) but the user is always free to send.
     setMessage('')
     setMentionQuery(null)
+    // The draft became a message; the claim has served its purpose and the
+    // message itself is the better signal from here on.
+    onStoppedTyping()
     try {
       // sendMessage reports immediate failures (dead socket, no conversation)
       // via a false return rather than throwing. A message WITH mentions resolves
@@ -958,6 +1089,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // draft so nothing the user typed is lost.
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
       setMentions([])
+      /*
+        A mention can make a PRIVATE thread shared — the server writes the grant
+        and opens the request as part of storing the message. The seam that reads
+        sharedness only reads it when the conversation changes, and every live
+        subscription that would carry the news is gated on the very flag that is
+        now stale, so without this the asker sent their first `@` and the product
+        did nothing at all: no waiting banner, no explanation for Piloti's
+        silence, no way back short of reloading the page.
+      */
+      if (sentMentions.length > 0 && submittingSessionId) {
+        bumpThreadRevision(submittingSessionId)
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
       // Restore the message so the user doesn't lose what they typed. The
@@ -978,6 +1121,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     threadAwaitsHuman,
     currentConversation,
     clearComposerDraft,
+    onStoppedTyping,
     t,
     tCollab,
   ])
@@ -1037,29 +1181,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     [handleSubmit, mentionPickerOpen]
   )
 
-  const handleValueChange = useCallback(
-    (value: string, caret: number | null = value.length) => {
-      if (isDisabledByAuth) return // Don't allow typing when not authenticated
-
-      // Persist a session as soon as the user starts interacting via typed input.
-      // This keeps logo-triggered "new session" drafts out of history until touched.
-      let sessionId = currentConversation?.id
-      if (!sessionId && value.trim().length > 0) {
-        sessionId = ensureSession()
-        // ensureSession just activated a brand-new session; mark its id as the
-        // loaded draft so the draft-sync effect doesn't reset the text we set here.
-        if (sessionId) loadedDraftSessionRef.current = sessionId
-      }
-
-      setMessage(value)
-      // Persist the draft under the active session (once one exists) so it
-      // survives navigating away/back and a reload.
-      if (sessionId) setComposerDraft(sessionId, value)
-      syncMentionQuery(value, caret)
-    },
-    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft, syncMentionQuery]
-  )
-
   /**
    * Insert the picked candidate: the `@fragment` becomes `@Display `, and the
    * STRUCTURED reference is recorded alongside it. The text is a rendering of the
@@ -1090,7 +1211,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
-      if (files.length === 0 || isDisabledByAuth || isUploading || isBusy) return
+      if (files.length === 0 || cannotContribute || isUploading || isBusy) return
 
       const sessionId = ensureSession()
       if (!sessionId) {
@@ -1105,12 +1226,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, sessionId)
     },
-    [ensureSession, uploadFiles, isDisabledByAuth, isUploading, isBusy]
+    [ensureSession, uploadFiles, cannotContribute, isUploading, isBusy]
   )
 
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: handleFilesSelected,
-    disabled: isDisabledByAuth || isUploading || isBusy,
+    disabled: cannotContribute || isUploading || isBusy,
   })
 
   const handleFileChange = useCallback(
@@ -1233,6 +1354,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 onOpen={setPreviewFile}
                 onRemove={deleteFile}
                 onRetry={retryFile}
+                readOnly={cannotContribute}
               />
             ))}
           </div>
@@ -1243,7 +1365,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             line), so this compact text link — under the chip strip, only when
             files exist — is the phone user's way to the browse/upload/delete
             list. Not another chip in the action row (keeps it un-bulked). */}
-        {attachedFilesCount > 0 && (
+        {/* Not for a viewer, for the same reason the desktop button beside the
+            paperclip is disabled for them: what it opens is the browse / upload /
+            per-file delete surface. This entry is `sm:hidden`, so leaving it out
+            of the gate left the whole write surface reachable on a phone while
+            the user guide said it was closed. */}
+        {attachedFilesCount > 0 && !cannotContribute && (
           <button
             type="button"
             onClick={() => setManageFilesOpen(true)}
@@ -1333,7 +1460,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                disabled={isDisabledByAuth}
+                disabled={cannotContribute}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
                 className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1387,7 +1514,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                disabled={isDisabledByAuth}
+                disabled={cannotContribute}
                 aria-label={tChat('composer.sourcesAria', {
                   enabled: enabledSourcesCount,
                   total: totalSourcesCount,
@@ -1429,7 +1556,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             aria-pressed={deepResearchIntent}
             aria-label={tChat('composer.deepResearchAria')}
             title={tChat('composer.deepResearchHint')}
-            disabled={isDisabledByAuth}
+            disabled={cannotContribute}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
               'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
@@ -1458,7 +1585,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // thread, because mentioning somebody is how a thread starts being
               // shared (the picker offers "Wird eingeladen"). This is the discovery
               // path into the feature, not a reward for already having used it.
-              onMentionSomeone={handleMentionSomeone}
+              //
+              // But NOT to someone who may not write here. A screenshot of the
+              // read-only composer caught this: the whole control row was dimmed
+              // and this one link sat above "Sie können hier mitlesen", live and
+              // underlined, offering to type an `@` into a disabled textarea.
+              // Same class as the paperclip and the Datengrundlage popover.
+              onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
             />
           )}
 
@@ -1478,7 +1611,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 // Mobile reaches the same dialog via the "manage" text entry
                 // under the chip strip.
                 className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
-                disabled={isDisabledByAuth || !knowledgeLayerAvailable}
+                disabled={cannotContribute || !knowledgeLayerAvailable}
                 onClick={() => setManageFilesOpen(true)}
                 aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
                 title={
@@ -1509,7 +1642,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               size="icon"
               className="text-subtle size-[34px] rounded-lg"
               onClick={handleAttachClick}
-              disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
+              disabled={cannotContribute || isUploading || isBusy || !knowledgeLayerAvailable}
               aria-label={t('inputArea.attachFiles')}
               title={
                 isBusy
@@ -1579,6 +1712,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <Button
                   size="icon"
                   className="size-9 rounded-lg shadow-md"
+                  // `isStreaming` is the LOCAL store's turn flag and a viewer
+                  // never starts a local turn, so this is belt and braces rather
+                  // than a demonstrated hole — but cancelling somebody else's
+                  // turn is the most consequential thing on this row, and it was
+                  // the one control here with no gate at all.
+                  disabled={cannotContribute}
                   onClick={() => stopStreaming?.()}
                   aria-label={t('inputArea.stopStreaming')}
                   title={t('inputArea.stopStreaming')}
@@ -1679,13 +1818,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         )}
 
         {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
-            already locked by `isBusy`, and without a line here that lock is
-            unexplained — a colleague sees a dead input and no reason for it. The
-            string existed for exactly this and nothing rendered it. Only when the
-            turn belongs to someone else: the asker has their own typing indicator
-            and Herleitung, so telling them "Piloti is answering your question"
-            would be noise. */}
-        {canCollaborate && isBusy && otherPersonsTurnName && (
+            locked on the same fact (`otherPersonsTurnName` disables it above), and
+            without a line here that lock is unexplained — a colleague sees a dead
+            input and no reason for it. Only when the turn belongs to someone else:
+            the asker has their own typing indicator and Herleitung, so telling them
+            "Piloti is answering your question" would be noise. */}
+        {canCollaborate && otherPersonsTurnName && (
           <p
             data-testid="composer-busy-hint"
             className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
@@ -1693,6 +1831,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           >
             <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
             <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
+          </p>
+        )}
+
+        {/* Read-only participant: the composer is disabled on the same fact, and
+            this line is why. */}
+        {canCollaborate && isViewerInSharedThread && (
+          <p
+            data-testid="composer-viewer-hint"
+            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+            role="note"
+          >
+            <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+            <span>{tCollab('thread.viewerNotice')}</span>
           </p>
         )}
 
@@ -1762,8 +1913,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       )}
 
       {/* Shortcut preset chips (empty thread only): map onto the REAL data
-          sources in the store — see lib/source-presets.ts. */}
-      {isEmptyThread && !isDisabledByAuth && (
+          sources in the store — see lib/source-presets.ts.
+
+          `cannotContribute`, not `isDisabledByAuth`: `handlePresetClick` calls
+          `saveDataSourcesToConversation`, which persists the Datengrundlage onto
+          the conversation — exactly the write the viewer gate exists to stop,
+          and the one the user guide claims is closed. "Empty thread" is not the
+          protection it looks like either: `isEmptyThread` is also true on any
+          shared thread for as long as its messages are still loading. */}
+      {isEmptyThread && !cannotContribute && (
         <div
           // Shortcuts are a desktop affordance — hidden on mobile, where they
           // only add vertical bulk under an already space-constrained composer.

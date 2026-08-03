@@ -29,6 +29,7 @@
  */
 
 import { useSyncExternalStore } from 'react'
+import type { ResourceRole } from '@/lib/sharing/types'
 
 /** What the server has told us about one conversation, if anything. */
 export type ThreadSharing = 'unknown' | 'private' | 'shared'
@@ -47,6 +48,28 @@ const facts = new Map<string, 'private' | 'shared'>()
  * typing indicator and the Herleitung, so naming them would be noise.
  */
 const turnActors = new Map<string, string>()
+/**
+ * The reader's own role in a shared thread ('viewer' | 'collaborator' | 'owner'),
+ * published by the seam for the same reason as the turn actor: the server rejects
+ * a viewer's send, so the composer must be read-only before the attempt — a ghost
+ * bubble only the viewer sees is the alternative. Absent means "not shared for
+ * this reader, or not yet known" — both of which keep the composer enabled.
+ */
+const threadRoles = new Map<string, ResourceRole>()
+/**
+ * A bump counter per conversation, meaning "the server knows something about
+ * this thread that you do not".
+ *
+ * The case it exists for: the FIRST `@` in a private thread. Sending it makes
+ * the thread shared server-side — a grant is written, a mention request is
+ * opened, the agent stands down — but the seam that reads sharedness only reads
+ * it when the conversation changes, and every live subscription it would
+ * otherwise learn from is gated on the very flag that is now stale. So the asker
+ * saw their message land and then nothing at all: no waiting banner, no
+ * explanation of the silence, no way back except reloading the page. The
+ * composer knows the moment it happens; this is how it says so.
+ */
+const revisions = new Map<string, number>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -83,6 +106,28 @@ export function publishTurnActor(conversationId: string, name: string | null): v
   emit()
 }
 
+/**
+ * Record the reader's role in a shared thread, or clear it (private thread,
+ * access lost). Idempotent, so the seam's refreshes are free.
+ */
+export function publishThreadRole(conversationId: string, role: ResourceRole | null): void {
+  const current = threadRoles.get(conversationId) ?? null
+  if (current === role) return
+  if (role === null) threadRoles.delete(conversationId)
+  else threadRoles.set(conversationId, role)
+  emit()
+}
+
+/**
+ * Tell the ADR-0033 seam that this thread's server-side facts have moved. Cheap
+ * and idempotent-ish: the seam re-reads once per bump, and a re-read that finds
+ * nothing changed writes no state.
+ */
+export function bumpThreadRevision(conversationId: string): void {
+  revisions.set(conversationId, (revisions.get(conversationId) ?? 0) + 1)
+  emit()
+}
+
 /** Imperative read, for code that is not in a render (effects, callbacks). */
 export function getThreadSharing(conversationId: string | null | undefined): ThreadSharing {
   if (!conversationId) return 'unknown'
@@ -94,10 +139,31 @@ export function getThreadSharing(conversationId: string | null | undefined): Thr
  * case's sharedness into the next.
  */
 export function resetThreadSharing(): void {
-  if (facts.size === 0 && turnActors.size === 0) return
+  if (
+    facts.size === 0 &&
+    turnActors.size === 0 &&
+    threadRoles.size === 0 &&
+    revisions.size === 0
+  ) {
+    return
+  }
   facts.clear()
   turnActors.clear()
+  threadRoles.clear()
+  revisions.clear()
   emit()
+}
+
+/**
+ * How many times this thread has been declared stale. The seam depends on it, so
+ * a bump re-runs its read; the number itself means nothing.
+ */
+export function useThreadRevision(conversationId: string | null | undefined): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => (conversationId ? (revisions.get(conversationId) ?? 0) : 0),
+    () => 0
+  )
 }
 
 /**
@@ -108,6 +174,19 @@ export function useTurnActorName(conversationId: string | null | undefined): str
   return useSyncExternalStore(
     subscribe,
     () => (conversationId ? (turnActors.get(conversationId) ?? null) : null),
+    () => null
+  )
+}
+
+/**
+ * The reader's own role in this conversation, or null when the thread is not
+ * shared for them (or the access read has not landed). The composer disables
+ * itself on `'viewer'`.
+ */
+export function useThreadRole(conversationId: string | null | undefined): ResourceRole | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => (conversationId ? (threadRoles.get(conversationId) ?? null) : null),
     () => null
   )
 }

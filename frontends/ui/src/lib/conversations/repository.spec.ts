@@ -6,6 +6,9 @@
  *
  * The DB is a drizzle `pg-proxy` instance — a real query builder over a callback
  * "driver" that records the SQL and parameters instead of connecting anywhere.
+ * The driver can also answer with canned rows, which is how the reads that shape
+ * their result in JS (`listMessagesForConversation`) get pinned as well: the
+ * statement is only half of what those functions return.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,17 +21,22 @@ interface CapturedQuery {
 
 const captured: CapturedQuery[] = []
 
+/** What the driver answers the next query with: positional column values, as a real one would. */
+let nextRows: unknown[][] = []
+
 const proxyDb = drizzle(async (sql, params) => {
   captured.push({ sql, params })
-  return { rows: [] }
+  return { rows: nextRows }
 })
 
 vi.mock('@/lib/db', () => ({ getDb: () => proxyDb }))
 
 import {
   CONVERSATION_LIST_LIMIT,
+  MESSAGE_LIST_LIMIT,
   deleteConversationInOrg,
   findMessageInConversation,
+  listMessagesForConversation,
   listVisibleConversations,
   upsertConversationRead,
 } from './repository'
@@ -41,8 +49,14 @@ function onlyQuery(): CapturedQuery {
   return captured[0]
 }
 
+/** One `messages` row as the driver hands it over: column values in declaration order. */
+function messageRow(id: string, createdAt: string): unknown[] {
+  return [id, 'conv_1', 'user', 'user_me', 'text', null, createdAt]
+}
+
 beforeEach(() => {
   captured.length = 0
+  nextRows = []
 })
 
 describe('listVisibleConversations — scoped to a project', () => {
@@ -178,6 +192,72 @@ describe('deleteConversationInOrg', () => {
     expect(sql).toContain('"conversations"."id" = $1')
     expect(sql).toContain('"conversations"."organization_id" = $2')
     expect(params).toEqual(['conv_1', 'org_1'])
+  })
+})
+
+describe('listMessagesForConversation', () => {
+  it('takes the bounded window from the NEWEST end of the thread', async () => {
+    await listMessagesForConversation('conv_1')
+
+    const { sql, params } = onlyQuery()
+    expect(sql).toContain('"messages"."conversation_id" = $1')
+    // Ascending + limit took the OLDEST rows. On a private thread that is a
+    // rehydration fallback and merely odd; on a shared thread this is *the* load
+    // path (ADR-0033), so past the cap a reader was pinned to ancient history and
+    // never saw a new message again — with the read receipt and the unread
+    // divider following the same stale window down.
+    expect(sql).toContain('order by "messages"."created_at" desc, "messages"."id" desc')
+    expect(sql).toContain('limit $2')
+    expect(params).toEqual(['conv_1', MESSAGE_LIST_LIMIT])
+  })
+
+  it('bounds an explicitly requested page the same way', async () => {
+    await listMessagesForConversation('conv_1', 50)
+
+    // The cap is not decoration: an unbounded transcript read is the one thing
+    // the repository rules forbid outright.
+    expect(onlyQuery().params).toEqual(['conv_1', 50])
+  })
+
+  it('hands the window back oldest-first, however it arrived', async () => {
+    nextRows = [
+      messageRow('msg_c', '2026-07-31T10:00:02.000Z'),
+      messageRow('msg_b', '2026-07-31T10:00:01.000Z'),
+      messageRow('msg_a', '2026-07-31T10:00:00.000Z'),
+    ]
+
+    const page = await listMessagesForConversation('conv_1', 3)
+
+    // The DESC scan is an implementation detail of *which* rows the cap keeps;
+    // every caller above it (`listConversationMessages`, and the transcript the
+    // client folds into `messages-store`) reads in reading order. Losing the
+    // reverse renders every thread backwards, and the statement assertions above
+    // cannot see it — they are green either way.
+    expect(page.map((row) => row.id)).toEqual(['msg_a', 'msg_b', 'msg_c'])
+    expect(page.map((row) => row.createdAt.toISOString())).toEqual([
+      '2026-07-31T10:00:00.000Z',
+      '2026-07-31T10:00:01.000Z',
+      '2026-07-31T10:00:02.000Z',
+    ])
+  })
+
+  it('breaks a created_at tie by id, so a tie straddling the cap is not a coin toss (CC-11)', async () => {
+    const sameInstant = '2026-07-31T10:00:01.000Z'
+    // What Postgres returns for the statement below when the tied pair is exactly
+    // what the cap admits: higher id first, the older third message cut.
+    nextRows = [messageRow('msg_b', sameInstant), messageRow('msg_a', sameInstant)]
+
+    const page = await listMessagesForConversation('conv_1', 2)
+
+    // On `created_at` alone the tie is UNDEFINED, so two executions may admit a
+    // different member of the pair into the window and order it differently —
+    // "two clients MUST NOT show the same two messages in different orders".
+    // Both keys must also point the SAME way: `desc, asc` still looks sorted, but
+    // after the reverse its tied rows come out descending by id, contradicting
+    // `compareThreadOrder` on the client and re-shuffling the thread at exactly
+    // the boundary this tiebreak exists to make stable.
+    expect(onlyQuery().sql).toContain('"messages"."created_at" desc, "messages"."id" desc')
+    expect(page.map((row) => row.id)).toEqual(['msg_a', 'msg_b'])
   })
 })
 

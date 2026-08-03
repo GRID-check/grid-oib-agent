@@ -193,13 +193,17 @@ export async function grantResourceAccess(
   // Rate limit BEFORE any write (spec SH-16, NF-5).
   const limit = await consumeRateLimit(SHARE_RATE_LIMIT, `${session.userId}`)
   if (!limit.allowed) {
-    throw new ForbiddenError('Too many sharing changes. Please wait a few minutes and try again.')
+    throw new ForbiddenError('Too many sharing changes. Please wait a few minutes and try again.', {
+      reason: SHARING_ERROR_REASONS.rateLimited,
+    })
   }
 
   // Roster cap — a "share with everyone" action is not a feature (spec SH-16).
   const existing = await countGrantsForResource(resourceType, resourceId)
   if (existing >= SHARE_ROSTER_LIMIT) {
-    throw new ConflictError(`This resource already has the maximum of ${SHARE_ROSTER_LIMIT} people.`)
+    throw new ConflictError(`This resource already has the maximum of ${SHARE_ROSTER_LIMIT} people.`, {
+      reason: SHARING_ERROR_REASONS.rosterFull,
+    })
   }
 
   await assertInviteeCanReachContainer(session, resourceType, resourceId, input.subjectUserId)
@@ -507,6 +511,25 @@ export async function escalateToOwner(
     metadata: { previousRole: access.role ?? 'none', via: 'project-admin' },
     request,
   })
+
+  // Every other mutation in this module publishes; this one did not, so an owner
+  // watching the same thread kept seeing a roster without the new owner in it
+  // until a focus event or the disconnected poll came round a minute later.
+  //
+  // Best-effort, like the conversation fan-out: the grant and its audit record
+  // are already committed by the time we get here, and the participant lookup
+  // this needs is two further reads that are no part of them. Letting either
+  // throw answered 500 for an escalation that had in fact succeeded, so the
+  // admin retried an act already in the audit log. Live delivery is latency, not
+  // mechanism — the roster is one plain fetch away either way.
+  try {
+    await publishToUsers(
+      await resolveParticipants(session.organizationId, resourceType, resourceId),
+      { kind: 'resource.access.changed', resourceType, resourceId, change: 'granted' },
+    )
+  } catch (error) {
+    console.warn('[sharing] escalation fan-out failed (non-fatal):', error)
+  }
 
   return getSharingState(session, resourceType, resourceId)
 }

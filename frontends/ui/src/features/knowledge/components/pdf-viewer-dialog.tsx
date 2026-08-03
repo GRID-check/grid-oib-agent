@@ -8,6 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
+import Image from 'next/image'
 import { ExternalLink } from 'lucide-react'
 import {
   Dialog,
@@ -35,11 +36,21 @@ export interface PdfViewerDialogProps {
    */
   src?: string
   /**
-   * Render the source as an image (`<img>` in a scrollable frame) instead of
+   * Render the source as an image (next/image in a scrollable frame) instead of
    * the PDF iframe. Lets the Files preview pane reuse this dialog to enlarge
    * standalone image uploads (FB-15a). The `#page=N` fragment does not apply.
    */
   isImage?: boolean
+  /**
+   * Skip the Next image optimizer for `isImage` mode. Defaults to TRUE, which
+   * is the safe answer for any caller that has not thought about it: `src` here
+   * can be a presigned object-store URL on an un-allow-listed host, or this
+   * app's own cookie-authenticated corpus route — the optimizer fetches with a
+   * headerless internal request and would fail on both. Pass `false` only for a
+   * src the optimizer can actually serve, i.e. the same-origin signed image
+   * path from `/api/documents/[id]/preview`.
+   */
+  imageUnoptimized?: boolean
   /**
    * Optional chip rendered inline before the title (WS-9 source preview:
    * the provenance-tinted document-type chip). Purely additive — omitted,
@@ -60,7 +71,7 @@ export interface PdfViewerDialogProps {
   aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, headerChip, children, aside }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, headerChip, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   const src = page && !isImage ? `${baseSrc}#page=${page}` : baseSrc
@@ -104,10 +115,21 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
           {open &&
             (isImage ? (
               <div className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken">
-                {/* Streamed from the knowledge-base document route at arbitrary
-                    intrinsic size — next/image cannot optimize it. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
+                {/* The source streams at whatever size it happens to be, so
+                    there is no intrinsic ratio to declare: 0/0 plus explicit
+                    `w-auto h-auto` hands sizing back to CSS and keeps the image
+                    at its natural size in the scroll frame, exactly as before.
+                    The `w-auto` is not decoration — drop it and the browser
+                    sizes the image to the width="0" attribute. */}
+                <Image
+                  src={src}
+                  alt={title ?? fileName}
+                  width={0}
+                  height={0}
+                  sizes="95vw"
+                  unoptimized={imageUnoptimized}
+                  className="mx-auto h-auto w-auto max-w-full"
+                />
               </div>
             ) : (
               <iframe

@@ -235,6 +235,7 @@ The migration reports success/failure: the store URL is added to the in-memory `
 
 ## Safety Notes
 
+- **A migration file without a journal entry is never applied.** `drizzle-kit migrate` executes what `drizzle/meta/_journal.json` lists, not what is on disk — so a hand-written `NNNN_*.sql` added without its entry is inert, and every check passes while reporting success: the file is in the diff, review sees it, and the migrate step "succeeds" having skipped it. The first symptom is a 500 from the route that queries the table (issue #283, `relation "platform_retrieval_settings" does not exist`). `frontends/ui/tests/db/migrations-journal.test.ts` now fails the build on that mismatch in both directions; `*.down.sql` companions are hand-run rollbacks and deliberately stay out of the journal.
 - **Generated migrations are idempotent** — `drizzle-kit generate` always produces SQL that can be safely reapplied (though `drizzle-kit migrate` only applies pending ones).
 - **Snapshot diffing** — Drizzle stores snapshots in `drizzle/meta/` for each migration. These are used to compute the diff for the next `generate` run.
 - **Never edit generated SQL manually** — always modify the schema `.ts` file and re-generate. Manual edits will be overwritten on the next `generate` run.

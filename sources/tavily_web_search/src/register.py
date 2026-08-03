@@ -103,6 +103,16 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
         tavily_kwargs["exclude_domains"] = tool_config.exclude_domains
     tavily_search = TavilySearch(**tavily_kwargs)
 
+    # Platform-tunable result count (Platform → Retrieval), resolved per call.
+    # The shared client covers the build-time default; an admin override builds
+    # a one-off client so the shared one is never mutated under concurrency.
+    settings_key = "web.advanced_max_results" if tool_config.advanced_search else "web.max_results"
+
+    def _client_for(max_results: int):
+        if max_results == tool_config.max_results:
+            return tavily_search
+        return TavilySearch(**(tavily_kwargs | {"max_results": max_results}))
+
     async def _tavily_web_search(question: str) -> str:
         """Retrieves relevant contexts from web search (using Tavily) for the given question.
 
@@ -112,6 +122,10 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
         Returns:
             str: The web search results containing relevant documents and their URLs.
         """
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        client = _client_for(get_retrieval_setting(settings_key, tool_config.max_results))
+
         # Tavily API requires queries under 400 characters
         if len(question) > 400:
             question = question[:397] + "..."
@@ -124,7 +138,7 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
 
         for attempt in range(tool_config.max_retries):
             try:
-                search_docs = await tavily_search.ainvoke({"query": question})
+                search_docs = await client.ainvoke({"query": question})
                 # Handle cases where response is not a dict (e.g., error string from API)
                 if isinstance(search_docs, str):
                     raise ValueError(f"Search returned an error: {search_docs}")

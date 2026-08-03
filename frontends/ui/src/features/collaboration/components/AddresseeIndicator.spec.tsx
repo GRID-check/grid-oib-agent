@@ -33,7 +33,7 @@ describe('AddresseeIndicator — the composer says where the message goes', () =
 
   test('says the message goes to the CHAT while the thread awaits a person', () => {
     render(<AddresseeIndicator mentions={[]} awaitingHuman />)
-    expect(line()).toHaveTextContent('Goes to the chat')
+    expect(line()).toHaveTextContent('Goes to everyone in the chat')
     expect(line()).toHaveAttribute('data-mode', 'thread')
   })
 

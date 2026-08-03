@@ -76,7 +76,13 @@ _TOOL_DESCRIPTION = (
     "user's projects (e.g. firm-wide conventions or preferences). Do NOT record general "
     "building-code knowledge, transient conversation details, restatements of the user's "
     "message, or facts already in the project profile. Content must be one concise, "
-    "self-contained sentence."
+    "self-contained sentence.\n"
+    "When this finding CORRECTS something already in the PROJECT_MEMORY shown in your context "
+    "— the user changed a project fact, or an earlier note turned out to be wrong — pass the "
+    "outdated entry's text VERBATIM as 'supersedes' (without its [kind | confidence | "
+    "verification] tag and surrounding quotes). That retires the stale entry instead of leaving "
+    "two contradictory notes in memory. Leave 'supersedes' empty when the finding simply adds "
+    "something new."
 )
 
 
@@ -96,12 +102,19 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
     from aiq_agent.project_context import get_organization_id_from_context
     from aiq_agent.project_context import get_project_id_from_context
 
-    async def _remember(kind: str, content: str, confidence: str = "medium", scope: str = "project") -> str:
+    async def _remember(
+        kind: str,
+        content: str,
+        confidence: str = "medium",
+        scope: str = "project",
+        supersedes: str = "",
+    ) -> str:
         """Record one durable finding in project or organization memory."""
         kind = (kind or "").strip().lower()
         confidence = (confidence or "medium").strip().lower()
         scope = (scope or "project").strip().lower()
         content = (content or "").strip()
+        supersedes = (supersedes or "").strip()
 
         if kind not in VALID_KINDS:
             return f"Error: invalid kind '{kind}'. Use one of: {', '.join(sorted(VALID_KINDS))}."
@@ -147,6 +160,10 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 content=content,
                 confidence=confidence,
                 conversation_id=conversation_id,
+                # Retires the entry this finding corrects. The frontend resolves
+                # the quote and ignores it when nothing matches or the target is
+                # human-curated, so the write lands either way.
+                supersedes_content=supersedes or None,
             )
         except OrgMemoryDisabledError:
             # The agent's service token is blocked from org-wide writes (default
@@ -183,6 +200,11 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
             return "Error: unknown project — nothing recorded."
 
         logger.info("Recorded %s memory item %s (%s)", scope, item_id, kind)
+        if supersedes:
+            # Deliberately not claiming the old entry WAS retired: the frontend
+            # ignores a quote it cannot resolve, or one naming a human-curated
+            # entry, and this call does not learn which happened.
+            return f"Recorded {kind} in {scope} memory, replacing the earlier note where it still matched."
         return f"Recorded {kind} in {scope} memory."
 
     yield FunctionInfo.from_fn(_remember, description=_TOOL_DESCRIPTION)

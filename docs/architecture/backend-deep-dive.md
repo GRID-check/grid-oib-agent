@@ -530,7 +530,12 @@ together:
    primary summary path failed silently — this is a backstop, not a silent
    fix). Backends may optionally expose `get_document_text_sample()` to give
    the fallback a real text sample; `LlamaIndexIngestor` does, reading chunk
-   text back out of Chroma.
+   text back out of Chroma. The per-job call is **scoped** to the job's own
+   successful files (`file_names=[...]`), so the caller's known-indexed set is
+   diffed directly and the full `list_files` metadata scan — O(collection
+   size) on every single-file upload, painful on the large `oib_knowledge`
+   corpus — is skipped; the unscoped full-collection diff remains available
+   for manual/out-of-band reconciliation.
 
 Together these implement backlog T3-10's cure (reconciliation pass +
 ungating `fallback_summary_from_text` from tag success) and make "ingested ⇒
@@ -558,7 +563,9 @@ document summary:
    `extract_tables`.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
    XObjects), gated on `extract_images`/`extract_charts`. Returns raw image
-   bytes — **no VLM call yet**.
+   bytes — **no VLM call yet**. Identical rasters (a logo re-embedded on every
+   page, a reused plan) are content-hash deduped (SHA-256 of the re-encoded
+   JPEG) so each unique image is captioned and indexed exactly once.
 4. **Rendered visual/vector pages** — `processing.render_visual_pages_no_vlm`,
    gated on `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key.
    This is the track that captures **vector CAD/architectural drawings** (plans,
@@ -570,23 +577,52 @@ document summary:
    watermark-stripped text is below `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200)
    **or** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
    text PDFs (the bulk OIB corpus) skip rendering at near-zero cost — and at
-   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
+   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document. The
+   renderer receives track 1's already watermark-stripped page texts
+   (`page_texts=…`), so the PDF's text layer is read once per library and the
+   "watermark-stripped" threshold actually holds (it previously measured the
+   raw pdfium text, letting a stamped watermark make a drawing look textful).
 
 **Phase 2 — concurrent VLM enrichment:**
 
 All image bytes (from track 3) and rendered page bitmaps (from track 4) are
 passed to `processing.enrich_vlm_batch`, which runs every VLM caption call in a
-single `ThreadPoolExecutor` (4 workers) per file, with **content-hash caching**
-via the shared Dragonfly/Redis store (ADR-0020). The cache key is
-`vlm:caption:{prompt_type}:{sha256(image_bytes)}` with a 30-day TTL, so
-re-ingesting a changed PDF only re-captions its new/modified pages.
+single `ThreadPoolExecutor` (`AIQ_VLM_BATCH_WORKERS`, default 4) per file, with
+**content-hash caching** via the shared Dragonfly/Redis store (ADR-0020). The
+cache key is `vlm:caption:{model}:{prompt_type}:{sha256(image_bytes)}` with a
+30-day TTL — the model is part of the identity, so a model switch (deployment-
+wide or per-org `ingest_vlm` override) never serves stale captions and two orgs
+on different models never share output. Re-ingesting a changed PDF only
+re-captions its new/modified pages. **Failure placeholders are never cached** —
+a failed analysis (`processing.is_failed_caption`) is returned to the caller but
+not stored, so the re-ingest that recovers the file actually reaches the VLM
+again instead of replaying a transient provider error for the 30-day TTL. Both VLM call sites construct their OpenAI
+client with an explicit timeout (`AIQ_VLM_TIMEOUT_SECONDS`, default 180s) and a
+single retry — previously SDK defaults (≈600s × 2 retries) let one hung
+provider park an ingest worker for ~20 minutes. A response clipped at
+`max_tokens` (`finish_reason == "length"`) is retried **once** with a doubled
+budget (the structured drawing format loses its trailing `ZUSAMMENFASSUNG` —
+exactly the field the document summary is built from — when clipped); a still-
+truncated response is stored with a warning rather than silently treated as
+complete. That truncation retry runs with SDK retries disabled and swallows its
+own failures, returning the truncated first caption: it is a quality improvement
+on a response that already succeeded, so it must neither double the per-caption
+latency ceiling (~9 minutes worst case, vs ~6 for a request that simply hangs)
+nor turn a partial success into a dropped chunk. Items whose VLM analysis fails — an exception **or** the fail-open
+placeholder caption the call sites return on error (`"[Image|Drawing -
+analysis failed…]"`, detected by `processing.is_failed_caption`) — are
+**skipped and never indexed**: a placeholder used to be embedded as a real,
+content-free chunk that polluted retrieval.
 
 - **Embedded raster images** → `_analyze_image_with_vlm` with the generic English
   caption prompt (classifies chart vs. image, describes content, instructs the
   model to **exclude** licence/watermark/tool-stamp text). Returned captions are
   also run through `_scrub_watermark_phrases` as a belt-and-braces substring
-  filter. The identical path is used for **standalone uploaded JPG/PNG plans**
-  (`_build_image_caption_document`).
+  filter. The same analyzer serves **standalone uploaded JPG/PNG plans**
+  (`_build_image_caption_document`), which routes through the same content-hash
+  cache (it previously bypassed both the batch pool and the cache) and — since
+  the caption is the file's only content — **fails the file** on a failure
+  placeholder instead of indexing a content-free chunk (retryable via re-ingest).
 - **Rendered visual/vector pages** → `_analyze_drawing_page_with_vlm` with the
   drawing-aware German prompt that returns a structured description (drawing
   type, Maßstab/scale, rooms/elements, spatial relationships, and a one-sentence
@@ -637,6 +673,14 @@ Org-agnostic base-corpus sync
 (`oib_sync`) carries no org id and gets the deployment default, unchanged. Org
 admins select the model in the model-config picker (`ingest_vlm` group, gated to
 vision-capable models); see `docs/architecture/org-model-configuration.md`.
+
+**Embedding throughput.** Chunks are embedded by `NVIDIAEmbedding` in batches of
+`AIQ_EMBED_BATCH_SIZE` (default 64) per HTTP call instead of the llama-index
+default of 10 — a 500-chunk document went from ~50 serialized embedding
+round-trips on the ingest worker to ~8. The knob applies to both the ingestor
+and the retriever's embedding client. (Embedding calls remain synchronous on
+the worker thread; the standalone ingest-worker tier, not in-process
+parallelism, is the scaling answer — see the scope note below.)
 
 > Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
 > backend shares the summary prompt (`summarize_document_text`) but not yet the
@@ -996,6 +1040,22 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   from a detached thread: `/v1/ingest` captures the org id into the job config
   and the ingestor resolves the override (and BYOK credential) by org id — see
   §6 "Multimodal & visual/vector-drawing ingestion".
+- **Retrieval settings** (2026-07-31): the fleet-wide retrieval counts —
+  `knowledge_search` `top_k`/`max_chunks_per_document`, `surface_documents`
+  `chunk_top_k`/`max_files`, web/advanced-web `max_results`, `ris_search`
+  `max_results`/`page_size`, `ris_catalog_lookup` `max_matches` — are no
+  longer only build-time YAML. The BFF's Platform → Retrieval surface
+  (`/api/platform/retrieval-settings`, catalog + bounds in
+  `frontends/ui/src/lib/retrieval-settings/catalog.ts`) pins keys; the backend
+  resolves them through `src/aiq_agent/common/retrieval_settings.py`
+  (`get_retrieval_setting(key, fallback)`), which pulls the pinned set from
+  the token-guarded `GET /api/internal/retrieval-settings` just like
+  `model_overrides` does, TTL-cached in-process (60s positive / 30s negative)
+  and **fail-open**: any fetch error, or a key absent from the pinned set,
+  falls back to the YAML/build-time value the tool was configured with. The
+  resolver never raises, so a BFF outage cannot break retrieval. Platform-only
+  by design: there is no org layer (ADR-0016) — every tenant's queries share
+  the fleet counts.
 - **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,

@@ -15,6 +15,10 @@ export const collaboration = {
     action: 'Share',
     close: 'Close',
     visibilityHeading: 'Who can see this',
+    /** Screen-reader text while the sharing state is being fetched. */
+    loading: 'Loading sharing settings…',
+    /** Small label above the access chip inside the mobile thread menu. */
+    audienceHeading: 'Audience',
     visibility: {
       private: 'Only me',
       privateHint: 'Just you, plus anyone you invite by name.',
@@ -22,13 +26,18 @@ export const collaboration = {
       projectHint: 'Every member of this project can read and contribute.',
       organization: 'Everyone in the organization',
       organizationHint: 'Every member of your organization can read and contribute.',
+      /** What narrowing away from a blanket rule costs, stated in the confirm. */
+      narrowLoss: {
+        project: 'Everyone in this project loses access to this conversation.',
+        organization: 'Everyone in the organization loses access to this conversation.',
+      },
     },
     /** The access chip shown wherever a resource is listed. */
     chip: {
       private: 'Private',
       project: 'Project',
       organization: 'Organization',
-      sharedOne: 'Shared with 1',
+      sharedOne: 'Shared with 1 person',
       sharedMany: 'Shared with {count}',
       ariaLabel: 'Access: {label}',
     },
@@ -50,6 +59,8 @@ export const collaboration = {
       label: 'Invite someone',
       placeholder: 'Search by name or email…',
       empty: 'Nobody left to invite.',
+      /** A typed search that matched nobody — distinct from an exhausted list. */
+      noResults: 'No match for “{query}”',
       submit: 'Invite',
       /** Shown on org members who are not in the project (spec SH-19). */
       needsProjectAccess: 'Not in this project yet',
@@ -65,6 +76,7 @@ export const collaboration = {
     leaveConfirm: 'Leave this conversation?',
     leaveConfirmHint: 'You lose access. Everyone else keeps theirs.',
     escalate: 'Take ownership',
+    escalateConfirm: 'Take ownership?',
     escalateHint:
       'As a project admin you can take ownership of this conversation. This is recorded in the audit trail.',
     errors: {
@@ -73,9 +85,16 @@ export const collaboration = {
         'That person is not a member of this project yet. Add them to the project first.',
       organizationMembershipRequired: 'That person is not a member of this organization.',
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
+      rosterFull: 'This conversation already has the maximum number of people. Remove someone before inviting more.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',
+      /**
+       * The failure alert's own dismiss control. Distinct from `sharing.close`
+       * (the dialog's): both sit inside the same dialog, and two controls with
+       * the accessible name "Close" cannot be told apart by name alone.
+       */
+      dismiss: 'Dismiss this message',
     },
     resourceTypes: {
       conversation: 'Conversation',
@@ -127,7 +146,7 @@ export const collaboration = {
       cannotInvite: 'Only an owner can bring new people into this conversation.',
       /** Screen-reader + footer affordances for the combobox. */
       resultsAria: 'People you can mention',
-      keyboardHint: '↑↓ to choose · ↵ to insert · esc to close',
+      keyboardHint: '↑↓ to choose · ↵ to insert · Esc to close',
       badgeAgent: 'Assistant',
       /** The inserted token in the composer. */
       chipRemove: 'Remove mention of {name}',
@@ -159,7 +178,7 @@ export const collaboration = {
        * While the thread is waiting on a named person, a plain message is a
        * remark to the people in it — not a question for the agent.
        */
-      toThread: 'Goes to the chat',
+      toThread: 'Goes to everyone in the chat',
       /** How to get back to the agent from the waiting state. */
       agentHint: 'Type @Piloti to ask Piloti',
       /**
@@ -192,7 +211,8 @@ export const collaboration = {
      */
     engagement: {
       mentionLabel: 'Piloti answers when mentioned',
-      mentionHint: 'Two of you are talking here, so a plain message goes to the chat.',
+      mentionHint:
+        'Several of you are talking here, so a plain message goes to everyone in the chat.',
       switchToAsk: 'Let Piloti answer everything',
       /**
        * The OFFER, shown while the thread is still in `ask`. Phrased as a
@@ -201,7 +221,7 @@ export const collaboration = {
        * here.
        */
       offerHint: 'Several of you are talking here. Should Piloti wait to be mentioned?',
-      switchToMention: 'Only when mentioned',
+      switchToMention: 'Answer only when mentioned',
       failed: 'That could not be changed.',
     },
     /** The banner every participant sees while the thread waits (spec MN-8). */
@@ -216,6 +236,12 @@ export const collaboration = {
       awaitingYouHint: 'Answer in the conversation, or release the wait.',
       release: 'Continue without waiting',
       releaseOne: 'Continue without {name}',
+      /**
+       * The accessible name of a per-person release button whose name is not
+       * unique in the list — the same colleague can be waited on twice. Only the
+       * start of the wait tells the two apart, so only it is added.
+       */
+      releaseOneSince: 'Continue without {name} — waiting since {time}',
       released: 'The wait was released.',
       askAgent: 'Ask Piloti instead',
       /**
@@ -244,14 +270,13 @@ export const collaboration = {
       action: 'Let Piloti carry on',
       dismiss: 'Not now',
       /** Inserted after `@Piloti ` into the composer, for the user to edit or send. */
-      prefill: 'please carry on from here.',
+      prefill: '— please carry on from here.',
     },
     errors: {
       inviteRequiresOwner:
         'You can only mention people who are already in this conversation. Ask an owner to invite {name}.',
       containerAccessRequired: '{name} is not a member of this project.',
       rateLimited: 'Too many mentions. Please wait a few minutes.',
-      tooMany: 'You can mention at most {count} people in one message.',
       releaseFailed: 'The wait could not be released.',
     },
   },
@@ -290,6 +315,17 @@ export const collaboration = {
     },
     errors: {
       loadFailed: 'Your inbox could not be loaded.',
+      /**
+       * A refused ACTION, which is a different fact from a failed load — and the
+       * commonest cause is benign (a row a second tab already archived). Kept
+       * separate so a working list is never replaced by a load-failure sentence.
+       *
+       * "Unchanged", not "up to date": the refusal path deliberately does not
+       * re-read the list, so the rows on screen are exactly the ones that were
+       * there before — which in the commonest case (a row another tab already
+       * archived) is precisely NOT up to date.
+       */
+      actionFailed: 'That action could not be completed. Your inbox is unchanged.',
       tryAgain: 'Try again',
     },
     /**
@@ -318,6 +354,21 @@ export const collaboration = {
       conversationActivity: {
         titleOne: '1 new message',
         titleMany: '{count} new messages',
+        /**
+         * Read, with nothing new since — the counter has been spent. So it must
+         * not say "new": this row is history, and a group of twenty the reader
+         * has just been through was announcing fresh mail at them.
+         */
+        titleNone: 'Messages',
+        body: 'in {subject}',
+      },
+      /**
+       * A row whose type this build does not know — written by a newer deploy, or
+       * read across a rollback. Deliberately vague: claiming more than "something
+       * happened" would be inventing a meaning nobody here has.
+       */
+      unknown: {
+        title: 'Something happened',
         body: 'in {subject}',
       },
     },
@@ -337,7 +388,44 @@ export const collaboration = {
     /** Observers see who the agent is working for (spec CC-13). */
     turnInFlight: 'Piloti is answering {name}’s question…',
     turnInFlightYou: 'Piloti is answering…',
+    /** A colleague is composing. Human vocabulary, not the agent's (TypingPresence). */
+    typing: '{names} is writing…',
+    /**
+     * Exactly two named typists. Without this the renderer picked `typing` — the
+     * commonest multi-typist case read "Anna Berger, Tobias Kern is writing…" in
+     * English and "… schreibt…" in German.
+     */
+    typingPair: '{names} are writing…',
+    typingMany: '{names} and {count} others are writing…',
+    /** `typingMany` with an overflow of exactly one — reachable at three typists. */
+    typingManyOne: '{names} and 1 other are writing…',
+    /**
+     * Joins the named typists when a count follows them ("Anna, Tobias and 2
+     * others"), where the conjunction is already spoken by `typingMany`.
+     */
+    typingNameSeparator: ', ',
+    /**
+     * The two named typists when nobody follows them. A list separator is not a
+     * conjunction: German reads "Anna und Tobias schreiben", never "Anna, Tobias
+     * schreiben", and English is no different.
+     */
+    typingNamePair: '{first} and {second}',
+    /** The agent put a question to the asker; an observer is told, not offered it. */
+    spectatorPrompt: 'Piloti asked a question and is waiting for an answer: “{question}”',
+    spectatorFailed: 'This turn ended with an error.',
     composerBusy: 'Piloti is answering {name}’s question — you can send once it finishes.',
+    /** Access was revoked while the reader had the thread open. */
+    /**
+     * Deliberately says "no longer available" rather than "you no longer have
+     * access": the server refuses a revoked thread and a DELETED one with the
+     * same answer, on purpose (spec SH-6, denial indistinguishable from
+     * non-existence), so this string has to be true of both. It used to tell
+     * somebody they had been shut out of a conversation that no longer existed.
+     */
+    accessLost:
+      'This conversation is no longer available to you. What you see is a local copy and will not update.',
+    /** Read-only role in a shared thread. */
+    viewerNotice: 'You can read along here. An owner can give you write access from the sharing dialog.',
     unreadDivider: 'New',
     authorYou: 'You',
     /** Marks a message written by a colleague rather than by the agent. */

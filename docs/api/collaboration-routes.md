@@ -11,11 +11,22 @@ Routes for sharing, `@`-mentions with the agent hand-off, and the inbox.
 
 ## Rules that apply to every route here
 
-- **All are gated.** Each handler calls `requireCollaborationEnabled(session)`
-  first and returns `403 { error: 'feature-disabled', feature: 'collaboration' }`
-  when off. The gate is **default-deny** (per-org `collaboration` WorkOS flag with
-  flag enforcement on; `GRID_COLLABORATION_ENABLED=true` otherwise) because the
-  feature changes who can see conversations.
+- **All are gated**, in one of two ways. The collaboration-only routes (sharing,
+  mentions, inbox, `/api/stream`, `/api/conversations/{id}/{awaiting,
+  mention-candidates,live}`) call `requireCollaborationEnabled(session)` as their
+  first statement and return
+  `403 { error: 'feature-disabled', feature: 'collaboration' }` when off. The
+  routes that **pre-date** the feature and were extended by it —
+  `…/messages`, `…/read`, `…/typing` — cannot answer `403` without breaking chat
+  for orgs that never had collaboration, so the gate sits in the service and only
+  the collaboration *behaviour* switches off: a message with no mentions persists
+  exactly as it always did while one carrying `mentions` is refused
+  `403 details.reason = 'feature-disabled'`, `…/read` still moves the high-water
+  mark but skips the ambient inbox clear, and `publishTypingPresence` returns
+  without publishing (`204` either way). Both forms read the same
+  **default-deny** flag (per-org `collaboration` WorkOS flag with flag enforcement
+  on; `GRID_COLLABORATION_ENABLED=true` otherwise), because the feature changes
+  who can see conversations.
 - **All are declared through `apiRoute`** from `@/lib/api/handler`, so they are
   session-authenticated, org-scoped, and return the standard error envelope
   `{ error, code, details? }`. The one exception to the JSON-wrapping is
@@ -79,8 +90,8 @@ Refusals worth handling in the UI:
 | Status | `details.reason` | Cause |
 |---|---|---|
 | `400` | `container-access-required` | The invitee is not a member of the container project. Sharing never grants project access (spec SH-5) |
-| `409` | — | The roster cap (`SHARE_ROSTER_LIMIT`) is reached |
-| `403` | — | Sharing rate limit for this actor |
+| `409` | `roster-full` | The roster cap (`SHARE_ROSTER_LIMIT`) is reached |
+| `403` | `rate-limited` | Sharing rate limit for this actor |
 
 ### `PATCH /api/sharing/{resourceType}/{resourceId}/grants`
 
@@ -151,6 +162,16 @@ Returns the updated `AwaitingStateResponse`.
 
 ## Messages (existing route, extended)
 
+### `GET /api/conversations/{id}/messages`
+
+Requires `viewer`. Unchanged in shape, but worth stating here because ADR-0033
+makes this the **load** path for a shared thread rather than a rehydration
+fallback: it returns the **newest** `MESSAGE_LIST_LIMIT` (1000) messages, in
+ascending order, tie-broken on `(created_at, id)` so two clients cannot see the
+same two messages in different orders (spec CC-11). Taking the window from the
+oldest end pinned a long shared thread to ancient history and let a reader never
+see a new message again.
+
 ### `POST /api/conversations/{id}/messages`
 
 The existing persist route, with two additions. **The response shape is
@@ -207,10 +228,25 @@ comes back with `href: null` and `excerpt: null`. Such rows are **redacted, not
 dropped**: a redacted row explains itself, a vanished one looks like a bug.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/
-`inert`), `actionable`, `count` (occurrences absorbed by grouping), `actorName`,
-`subject`, `excerpt`, `href`, and timestamps. Rendering is driven entirely by
-`INBOX_TYPE_PRESENTATION` in `lib/inbox/types.ts`, so a new item type needs a
-registry entry and two translations — no new component (spec IB-6).
+`inert`), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,
+`excerpt`, `href`, `resourceType`/`resourceId`/`anchorId`, and timestamps.
+Rendering is driven entirely by `INBOX_TYPE_PRESENTATION` in
+`lib/inbox/types.ts`, so a new item type needs a registry entry and its
+translations — no new component (spec IB-6).
+
+**`count` is "occurrences absorbed by grouping SINCE THE ROW WAS LAST READ", not
+"since the row was created."** Every mark-read path resets it to zero alongside
+`readAt` — `POST /api/inbox/read` in both its shapes, and the ambient clear
+performed by `POST /api/conversations/{id}/read` (`markReadValues()` in
+`lib/inbox/repository.ts` is the single mutation all three share). So:
+
+- `count: 0` is the **ordinary** state of a read row, not a missing value.
+  Anything treating the field as `≥ 1` is wrong for every read row.
+- After a read, the upsert increments from zero: a group of twenty that was read
+  and then received one more says `1`, not `21`.
+- A renderer therefore needs **three** cases, not two —
+  `titleMany` / `titleOne` / `titleNone` (`InboxItemRow.tsx`); `titleNone` is what
+  a read row with nothing new since renders as.
 
 ### `GET /api/inbox/summary`
 
@@ -220,12 +256,20 @@ index `idx_inbox_items_pending`.
 
 ### `POST /api/inbox/read`
 
-Body `{ itemIds: string[] }` or `{ all: true }` (exactly one; `{}` is a `400`).
-Scoped to the caller, so ids belonging to someone else cannot be poked.
+Body `{ itemIds: string[] }` or `{ all: true }` — at least one of them; `{}` is a
+`400`. `itemIds` must be uuids and is capped at `INBOX_LIST_LIMIT`, because a
+mark-read request can only ever be about rows the client was shown. If both are
+sent, `all` wins. Scoped to the caller, so ids belonging to someone else cannot be
+poked (they simply match nothing — telling you an item is not yours would confirm
+it exists).
+
+Returns `{ affected, pending }`: rows actually touched (`0` is a legitimate
+no-op) and the recomputed badge, so no follow-up read is needed.
 
 ### `POST /api/inbox/{id}/archive`
 
-Archive one item. `404` on a miss — indistinguishable from "not yours".
+Archive one item. `404` on a miss — indistinguishable from "not yours". Returns
+the same `{ affected, pending }`.
 
 ---
 
@@ -237,7 +281,8 @@ One connection per browser tab, carrying that **user's** events only.
 
 - Frames are `data: <EventEnvelope JSON>`; see `lib/events/types.ts` for the
   `CollaborationEvent` union (`inbox.changed`, `conversation.message`,
-  `conversation.turn`, `conversation.awaiting`, `resource.access.changed`).
+  `conversation.turn`, `conversation.awaiting`, `conversation.typing`,
+  `resource.access.changed`).
 - Sends `retry: 5000` and a `: connected` comment immediately, then a `: ping`
   heartbeat every 25s so proxies do not reap the connection.
 - Headers include `X-Accel-Buffering: no` and `Cache-Control: no-cache,
@@ -250,14 +295,83 @@ Three properties worth knowing before consuming it:
    Browsers never subscribe to a resource channel and filter locally, so a
    non-participant cannot receive a thread's content.
 2. **Every event is a hint, never authoritative content.** Consumers respond by
-   re-reading from the server. The only shortcut taken anywhere is the badge count
-   on `inbox.changed`, and a negative value there explicitly means "unknown, go
-   and read".
+   re-reading from the server. Two documented exceptions, both bounded by an
+   expiry rather than by a fetch: the badge count on `inbox.changed` (a negative
+   value means "unknown, go and read"), and `conversation.typing`, which is
+   ephemeral presence with no endpoint behind it — it carries a `ttlMs` and a
+   receiver stops believing it when that elapses.
 3. **There is no resume / `Last-Event-ID`.** Postgres is the record; reconnecting
    means "fetch again" (spec RT-4). Correctness therefore never depends on an
    event having arrived — the client also refreshes on window focus and polls
    slowly while disconnected, and the whole feature works with the cache tier
    absent (spec RT-3).
+
+### `POST /api/conversations/{id}/typing`
+
+Broadcast that the caller is composing. Requires **`collaborator`** — a viewer's
+draft can never become a message, so announcing it would be a claim about
+something that cannot happen (and would leak that a read-only colleague is
+drafting).
+
+Body `{ typing?: boolean }`; absent means `true`, so the common case is the
+smallest possible request. Always `204` — there is no state to return, nothing is
+persisted, and there is deliberately **no matching `GET`**: the fact is true for a
+few seconds and worthless afterwards, so the only way to learn it is to be
+connected when it happens.
+
+Publishes `conversation.typing` to every participant **except the caller**, whose
+id is taken from the session and never from the body. A private conversation with
+no grants publishes nothing at all (spec NF-8). The client republishes every
+`TYPING_REFRESH_MS` (3s) while typing continues and posts `{ typing: false }` when
+the draft is sent, cleared, or abandoned; the server-side claim expires after
+`TYPING_TTL_MS` (6s) regardless, so a closed tab heals itself
+(`lib/conversations/presence-contract.ts` owns both numbers).
+
+Rate-limited by `TYPING_RATE_LIMIT` (120 per user per minute — roughly ten times
+what the 3s client cadence costs). This is the highest-frequency endpoint in the
+product and every call resolves access, counts grants, resolves the participant
+list and then publishes once *per participant*, so the bound is what keeps that
+cost closed. Past the limit the request is **shed silently and still answers
+`204`**: the caller is only ever told the request was accepted, not that anybody
+received it, and a dropped presence claim is indistinguishable from the channel
+dropping one — which the TTL already heals.
+
+### `GET /api/conversations/{id}/live` (Server-Sent Events)
+
+Watch a turn as it happens (ADR-0039). Relays the agent's outbound WebSocket
+frames for **one** conversation, so an observer sees the reasoning being done and
+the answer being written rather than a spinner followed by a finished block of
+text. Requires `viewer`.
+
+- Frames are `data: {"kind":"frame","seq":N,"payload":<NAT frame>}`. The payload is
+  the raw NAT WebSocket frame (`system_response_message`,
+  `system_intermediate_message`, `system_interaction_message`, `error_message`) —
+  the same bytes the asker's own socket carries, documented in
+  [`websocket-protocol.md`](websocket-protocol.md).
+- `{"kind":"unsupported"}` followed by a close means there is no cross-process
+  frame channel (no `REDIS_URL`, or Dragonfly unreachable). The client falls back
+  to the static turn banner and does **not** reconnect.
+- `{"kind":"revoked"}` followed by a close means access went away while the stream
+  was open.
+- Sends `retry: 2000` (shorter than `/api/stream`: five seconds of a ninety-second
+  turn is a visible hole in the answer) and a `: ping` heartbeat every 25s.
+
+Three things to know before consuming it:
+
+1. **Authorization is at subscribe time, and re-checked.** Unlike `/api/stream`,
+   this attaches to a per-RESOURCE channel (`conv:<id>:events` — the Python tier's
+   conversation bus, ADR-0028), so the publish-time argument does not apply. Access
+   is proven before the subscription opens and re-proven every
+   `LIVE_REAUTHORIZE_MS` (30s); a revoked grant closes the stream.
+2. **Nothing here is authoritative.** The finished answer is persisted and arrives
+   over the ordinary `conversation.message` → refetch path whether or not a single
+   frame was delivered (spec RT-4). That is what lets the whole route degrade to
+   one `unsupported` event.
+3. **No replay.** A subscriber sees frames from the moment it attaches. The bus's
+   replay stream is per conversation rather than per turn, so buffering would mean
+   guessing which frames belong to the turn running *now* — and guessing wrong
+   shows a colleague a stale answer under a live banner. Opening a thread mid-turn
+   therefore loses the tokens already spoken, and nothing else.
 
 ### `POST /api/internal/collaboration/prune`
 

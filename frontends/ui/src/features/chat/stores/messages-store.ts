@@ -3,6 +3,7 @@ import type { StateCreator } from 'zustand'
 import type {
   ChatStore,
   ChatMessage,
+  ComposerPrefill,
   ThinkingStep,
   StatusType,
   PromptType,
@@ -14,6 +15,7 @@ import type {
   AnswerTransparency,
   HumanPromptInputType,
 } from '../types'
+import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
@@ -40,7 +42,7 @@ export type MessagesSlice = {
    * this flag. Store-backed because the composer draft itself lives in
    * component-local state with no cross-component setter.
    */
-  composerPrefill: string | null
+  composerPrefill: ComposerPrefill | null
   /**
    * Per-session composer drafts keyed by conversation id: the user's own
    * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
@@ -156,9 +158,9 @@ export type MessagesSlice = {
   ) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
-  consumeComposerPrefill: () => string | null
+  consumeComposerPrefill: () => ComposerPrefill | null
   /** Register the live chat send callback (called by InputArea on mount). */
   setChatSendFn: (fn: ((content: string) => void) | null) => void
   /**
@@ -436,7 +438,7 @@ export const initialMessagesState = {
   reportContentCategory: null as 'research_notes' | 'final_report' | null,
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
-  composerPrefill: null as string | null,
+  composerPrefill: null as ComposerPrefill | null,
   composerDrafts: {} as Record<string, string>,
   chatSendFn: null as ((content: string) => void) | null,
 }
@@ -1819,8 +1821,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     set({ projectId }, false, 'setProjectId')
   },
 
-  setComposerPrefill: (text: string) => {
-    set({ composerPrefill: text }, false, 'setComposerPrefill')
+  setComposerPrefill: (text: string, mentions?: DraftMention[]) => {
+    set({ composerPrefill: mentions && mentions.length > 0 ? { text, mentions } : { text } }, false, 'setComposerPrefill')
   },
 
   consumeComposerPrefill: () => {

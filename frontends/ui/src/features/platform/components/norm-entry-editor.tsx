@@ -722,7 +722,13 @@ export function NormEntryEditor({
                 )}
 
                 {diff.length > 0 && (
-                  <div className="flex flex-col gap-1 rounded-lg border border-info/40 bg-info-subtle/40 p-2 text-xs">
+                  // `border-info` / `bg-info-subtle` are static `@utility` blocks in
+                  // globals.css with no `--modifier()`, so `border-info/40` and
+                  // `bg-info-subtle/40` matched nothing: this "we changed these
+                  // fields" panel rendered with no fill and the neutral border, so it
+                  // did not read as a callout at all. `-subtle` IS the diluted info
+                  // tint — the tokens as defined are the intent.
+                  <div className="flex flex-col gap-1 rounded-lg border border-info bg-info-subtle p-2 text-xs">
                     <span className="font-medium text-info">{t('norms.verify.appliedTitle')}</span>
                     {diff.map((d) => (
                       <span key={d.field} className="font-mono break-all text-muted-foreground">
@@ -795,7 +801,13 @@ export function NormEntryEditor({
                 </form.AppField>
               </div>
 
-              <div className="flex flex-col gap-1.5 rounded-xl border border-info/40 bg-info-subtle/30 p-3">
+              {/* Same defect as the applied-diff panel above: `border-info/40` and
+                  `bg-info-subtle/30` compiled to nothing, so this binding-note
+                  panel had no tint to separate it from the surrounding form. Both
+                  call sites picked a different arbitrary alpha (40 / 30) off the
+                  same token, which is guesswork rather than a scale — the two now
+                  agree on the `-subtle` token. */}
+              <div className="flex flex-col gap-1.5 rounded-xl border border-info bg-info-subtle p-3">
                 <span className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-info">
                   <Sparkles className="size-3.5" aria-hidden />
                   {t('norms.fields.bindingNoteBadge')}

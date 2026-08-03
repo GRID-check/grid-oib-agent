@@ -296,7 +296,7 @@ functions:
 
   web_search_tool:
     _type: tavily_web_search
-    max_results: 5
+    max_results: 8
     max_content_length: 1000
     # Optional domain allow/deny lists (default: unrestricted). These are HARD
     # filters: with include_domains set, any result NOT on the list is dropped;
@@ -310,7 +310,7 @@ functions:
 
   advanced_web_search_tool:
     _type: tavily_web_search
-    max_results: 2
+    max_results: 4
     advanced_search: true
     # Optional domain allow/deny lists (default: unrestricted). These are HARD
     # filters: with include_domains set, any result NOT on the list is dropped;
@@ -329,8 +329,11 @@ functions:
   # retrieve and cite specific sections afterwards.
   ris_search_tool:
     _type: ris_search
+    # max_results == page_size: the agent sees every hit the page fetched, so
+    # asking for page 2 continues where page 1 stopped instead of skipping the
+    # hits that were fetched but never shown.
     page_size: 20
-    max_results: 10
+    max_results: 20
     # Query planning via strict structured outputs (response_format:
     # json_schema); falls back to the agent's raw arguments when the planner
     # is unavailable or fails. Uses ris_planner_llm — a dedicated cheap twin of
@@ -351,7 +354,7 @@ functions:
   # relations, and the researcher prompts show the lane-rendered block.
   ris_catalog_lookup_tool:
     _type: ris_catalog_lookup
-    max_matches: 5
+    max_matches: 8
 
   knowledge_search:
     _type: knowledge_retrieval
@@ -383,10 +386,13 @@ functions:
     generate_summary: true
     summary_model: summary_llm
     summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
-    # top_k=8 with a 2-per-document diversity cap spans >=4 distinct Richtlinien
-    # on cross-cutting questions instead of 5 chunks from the 1-2 top-scoring PDFs.
-    top_k: 8
-    max_chunks_per_document: 2
+    # top_k=16 with a 5-per-document diversity cap still spans >=4 distinct
+    # Richtlinien on cross-cutting questions instead of 5 chunks from the 1-2
+    # top-scoring PDFs, and gives each of them enough consecutive text to reason
+    # over. The cap and the total move together: raising the cap without raising
+    # top_k buys per-document depth by giving up that breadth.
+    top_k: 16
+    max_chunks_per_document: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
     # LLM-judge reranking: over-fetch rerank_candidates (15) chunks and re-order
     # them against the query with the summary LLM before trimming to top_k.

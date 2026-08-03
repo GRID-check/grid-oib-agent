@@ -1,9 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LEGAL_HOLD_CODE, purgeProject } from './purge-project.js'
 
+/**
+ * A tagged-template stand-in for a postgres.js transaction.
+ *
+ * What it models: the SEQUENCE of statements, their text, and the values bound
+ * to each one. What it deliberately does NOT model: parameter expansion. Real
+ * postgres.js turns `sql(array)` into one placeholder per element and the server
+ * refuses past 65535 of them; here every call resolves to `[]` regardless. So a
+ * test written on this mock can prove that a statement binds one value rather
+ * than N, and cannot prove what the server would do with either — see the
+ * comment on the subquery test below.
+ *
+ * `expansions` records calls made as a FUNCTION rather than as a template tag
+ * (`tx(ids)`), which is how the parameter blow-up was expressed. A real template
+ * strings array carries `.raw`; a plain array of ids does not.
+ */
 function makeTx({ projectRow, conversationRows, holdRows = [] }) {
   const executed = []
+  const expansions = []
   const tx = (strings, ...values) => {
+    if (!Array.isArray(strings) || !('raw' in strings)) {
+      expansions.push(strings)
+      return Promise.resolve([])
+    }
     const text = strings.join('$').replace(/\s+/g, ' ').trim()
     executed.push({ text, values })
     if (text.startsWith('SELECT') && text.includes('FROM legal_holds')) {
@@ -17,7 +37,7 @@ function makeTx({ projectRow, conversationRows, holdRows = [] }) {
     }
     return Promise.resolve([])
   }
-  return { tx, executed }
+  return { tx, executed, expansions }
 }
 
 function makeDeps(overrides = {}) {
@@ -131,5 +151,100 @@ describe('purgeProject', () => {
     })
 
     await expect(purgeProject(tx, entry, deps)).resolves.toBeUndefined()
+  })
+})
+
+describe('collaboration rows', () => {
+  it('purges grants, mention requests and inbox items BEFORE the conversations they point at', async () => {
+    // Those three tables address their target as a polymorphic
+    // (resource_type, resource_id) pair with no foreign key, so nothing about
+    // them cascades. Deleting the conversations first orphaned every one of
+    // them permanently — leaving redacted rows in people's inboxes for a
+    // project that no longer exists.
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [{ id: 'c1' }, { id: 'c2' }],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
+    const table = (name) => deletes.findIndex((call) => call.text.includes(name))
+
+    expect(table('inbox_items')).toBeGreaterThanOrEqual(0)
+    expect(table('mention_requests')).toBeGreaterThanOrEqual(0)
+    expect(table('resource_shares')).toBeGreaterThanOrEqual(0)
+    // `DELETE FROM conversations`, not `FROM conversations`: the three
+    // collaboration statements now name that table too, inside their subquery.
+    for (const name of ['inbox_items', 'mention_requests', 'resource_shares']) {
+      expect(table(name)).toBeLessThan(table('DELETE FROM conversations'))
+    }
+  })
+
+  it('expresses the conversation set as a subquery, not as N bound parameters', async () => {
+    /*
+      What this pins: with 70_000 conversations — past Postgres's hard 65535
+      parameters per statement — each collaboration delete still binds exactly
+      ONE value (the project id) and reads its target set from the conversations
+      table. The old form (`IN ${tx(conversationIds)}`) bound one parameter per
+      id, so the statement was refused with MAX_PARAMETERS_EXCEEDED *after* the
+      Chroma collection, the SeaweedFS objects and the WorkOS resource were
+      already destroyed — leaving the queue row stuck in 'purging' (the header's
+      point: status, not a lock, is what prevents re-claim) with no retry that
+      could ever succeed.
+
+      What it CANNOT prove: nothing here talks to Postgres. The mock resolves
+      every statement to `[]` and never expands anything, so the old code RAN
+      green against it at any conversation count — the bug was invisible to this
+      file, not caught by it. Hence the assertions are on the SHAPE of the
+      statement (one bound value, a subquery in the text, no `tx(array)` call)
+      rather than on an outcome: shape is all a mock can witness. That the
+      subquery selects the same rows the id list did, that 65535 is the real
+      limit, and that the delete ORDER is right against the live schema are facts
+      only an integration test against a real database can establish.
+    */
+    const conversationRows = Array.from({ length: 70_000 }, (_, i) => ({ id: `c${i}` }))
+    const { tx, executed, expansions } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows,
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    // No `tx(array)` anywhere: that call is the parameter expansion itself.
+    expect(expansions).toEqual([])
+
+    const collaborationDeletes = executed.filter(
+      (call) =>
+        call.text.startsWith('DELETE') &&
+        ['inbox_items', 'mention_requests', 'resource_shares'].some((name) =>
+          call.text.includes(name),
+        ),
+    )
+    expect(collaborationDeletes).toHaveLength(3)
+    for (const call of collaborationDeletes) {
+      expect(call.values).toEqual(['p1'])
+      expect(call.text).toContain('IN (SELECT id FROM conversations WHERE project_id = $)')
+    }
+  })
+
+  it('still issues the collaboration deletes when the gathered snapshot was empty', async () => {
+    // An empty snapshot does not mean the project is empty when the deletes run:
+    // conversation creation checks access and inserts as two separate steps, so a
+    // request that passed the check before the soft delete can commit its insert
+    // after our SELECT. Skipping the three statements on an empty snapshot would
+    // leave that conversation's grants, mention requests and inbox items behind
+    // while `DELETE FROM conversations` below removed the row they point at.
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
+    for (const name of ['inbox_items', 'mention_requests', 'resource_shares']) {
+      expect(deletes.some((call) => call.text.includes(name))).toBe(true)
+    }
   })
 })

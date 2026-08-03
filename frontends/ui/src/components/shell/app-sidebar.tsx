@@ -328,7 +328,11 @@ export function AppSidebar({
             onClick={() => setMobileOpen(true)}
             aria-label={
               inboxPending > 0
-                ? `${t('openNavigation')} — ${tCollaboration('inbox.badgeAria', { count: inboxPending })}`
+                ? `${t('openNavigation')} — ${
+                    inboxPending === 1
+                      ? tCollaboration('inbox.badgeAriaOne')
+                      : tCollaboration('inbox.badgeAria', { count: inboxPending })
+                  }`
                 : t('openNavigation')
             }
             aria-expanded={mobileOpen}

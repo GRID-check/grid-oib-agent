@@ -204,6 +204,13 @@
       "when": 1785408000000,
       "tag": "0028_engagement_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785456000000,
+      "tag": "0029_platform_retrieval_settings",
+      "breakpoints": true
     }
   ]
 }

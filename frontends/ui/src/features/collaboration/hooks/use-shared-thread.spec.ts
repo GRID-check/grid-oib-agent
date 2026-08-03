@@ -49,7 +49,11 @@ vi.mock('../lib/event-hub', () => ({
 }))
 
 import { useChatStore } from '@/features/chat/store'
-import { getThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
+import {
+  bumpThreadRevision,
+  getThreadSharing,
+  resetThreadSharing,
+} from '@/shared/collaboration/thread-sharing'
 import { useSharedThread } from './use-shared-thread'
 
 const CONVERSATION_ID = 's_conv_shared'
@@ -358,13 +362,21 @@ describe('useSharedThread — reconciliation', () => {
     expect(storedMessages().filter((m) => m.id === 'm2')).toHaveLength(1)
   })
 
-  test('ignores the echo of our own write instead of refetching for it', async () => {
+  /**
+   * A self-authored event is NOT skipped: the same event fires for a message we
+   * sent from a second device, where this tab holds no optimistic echo of it. The
+   * id-keyed merge is what makes the re-read free on the device that wrote it, so
+   * the refetch is the cheap way to be correct on the other one.
+   */
+  test('re-reads for our own write too — the second device has no echo', async () => {
     renderHook(() =>
       useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
     )
     await waitFor(() => expect(storedMessages()).toHaveLength(1))
     const before = requested().length
 
+    // Written elsewhere by us: only the server knows about it.
+    routes.messages = [...routes.messages, row('mine', { authorUserId: ME, createdAt: at(3) })]
     await emit({
       kind: 'conversation.message',
       conversationId: CONVERSATION_ID,
@@ -372,7 +384,12 @@ describe('useSharedThread — reconciliation', () => {
       messageId: 'mine',
     })
 
-    expect(requested()).toHaveLength(before)
+    expect(requested().slice(before)).toContain(
+      `/api/conversations/${CONVERSATION_ID}/messages`,
+    )
+    await waitFor(() => expect(storedMessages()).toHaveLength(2))
+    // …and the echo case stays a no-op on screen: one row, not two.
+    expect(storedMessages().filter((m) => m.id === 'mine')).toHaveLength(1)
   })
 
   test('ignores events for a different conversation', async () => {
@@ -406,6 +423,52 @@ describe('useSharedThread — reconciliation', () => {
     })
 
     await waitFor(() => expect(storedMessages().map((m) => m.id)).toContain('m9'))
+  })
+
+  test('a thread that is not shared yet still converges on focus', async () => {
+    // `useLiveEvents` owns the focus listener AND is gated on `shared`, so a
+    // thread that has not been shared for this reader had no listener, no poll
+    // and no subscription: once the short access-retry ladder was spent there
+    // was no route back at all. "Anna shared this while I had it open" could
+    // only be discovered by navigating away and returning.
+    routes.shared = false
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.shared).toBe(false)
+    // NF-8: the private path opened nothing.
+    expect(hub.subscribeToEvents).not.toHaveBeenCalled()
+
+    routes.shared = true
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() => expect(result.current.shared).toBe(true))
+    expect(getThreadSharing(CONVERSATION_ID)).toBe('shared')
+  })
+
+  test('does not re-read access on every alt-tab of a private thread', async () => {
+    // The listener above is on a floor, because focus fires constantly. NF-8 is
+    // "a user who never shares must not notice this feature exists", and a GET
+    // per window focus is very much noticeable.
+    routes.shared = false
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const before = requested().length
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      window.dispatchEvent(new Event('focus'))
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    // One read for the first focus, and nothing for the two that followed it.
+    await waitFor(() => expect(requested().length).toBe(before + 1))
   })
 
   test('announces an arrival, but is silent about the history it opened with', async () => {
@@ -497,6 +560,237 @@ describe('useSharedThread — reconciliation', () => {
     await waitFor(() =>
       expect(requested().slice(before)).toContain(`/api/conversations/${CONVERSATION_ID}`)
     )
+  })
+
+  test('a network failure on the access read is retried, not treated as "not shared"', async () => {
+    // A thrown fetch used to clear `shared`, which ALSO switched off the live
+    // subscription, the focus listener and the fallback poll — every one of
+    // which is gated on that flag. One dropped request therefore froze the
+    // thread for the rest of the session, silently, with no way back except a
+    // remount. It must retry instead.
+    vi.useFakeTimers()
+    try {
+      let accessReads = 0
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === `/api/conversations/${CONVERSATION_ID}`) {
+          accessReads += 1
+          if (accessReads === 1) throw new TypeError('network error')
+          return Response.json({
+            id: CONVERSATION_ID,
+            title: 'Brandschutz',
+            shared: true,
+            myRole: 'collaborator',
+            visibility: 'project',
+            myReadState: null,
+          })
+        }
+        if (url === `/api/conversations/${CONVERSATION_ID}/messages`)
+          return Response.json({ messages: [] })
+        if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+        throw new Error(`unexpected request: ${url}`)
+      })
+
+      const { result } = renderHook(() =>
+        useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+      )
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      // The failed read is not evidence about sharedness, so nothing is claimed.
+      expect(result.current.accessLost).toBe(false)
+      expect(accessReads).toBe(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_100)
+      })
+      expect(accessReads).toBeGreaterThan(1)
+      await vi.waitFor(() => expect(result.current.shared).toBe(true))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('re-reads the access facts when the thread is declared stale', async () => {
+    // The first `@` in a private thread makes it shared server-side. This hook
+    // only reads sharedness on a conversation change, and every live
+    // subscription that would carry the news is gated on `shared` — the very
+    // flag that is now wrong. Without a nudge the asker sent their mention and
+    // the product did nothing: no waiting banner, no explanation, no way back
+    // short of a reload.
+    let shared = false
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `/api/conversations/${CONVERSATION_ID}`) {
+        return Response.json({
+          id: CONVERSATION_ID,
+          title: 'Brandschutz',
+          shared,
+          myRole: shared ? 'owner' : null,
+          visibility: shared ? 'project' : 'private',
+          myReadState: null,
+        })
+      }
+      if (url === `/api/conversations/${CONVERSATION_ID}/messages`) return Response.json([])
+      if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.shared).toBe(false)
+
+    // The mention lands: the server's answer has moved, and the composer says so.
+    shared = true
+    await act(async () => {
+      bumpThreadRevision(CONVERSATION_ID)
+    })
+
+    await waitFor(() => expect(result.current.shared).toBe(true))
+  })
+
+  test('a turn that keeps showing signs of life is never expired', async () => {
+    // The banner's deadline is a SILENCE timeout, not a turn-length one. A fixed
+    // one erased a colleague's answer mid-sentence on any turn longer than it —
+    // deep research routinely is — and both expiry doors (the interval and the
+    // focus/poll refresh) have to agree about that, or the stricter one wins by
+    // accident and the bug comes back through the other door.
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() =>
+        useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+      )
+      await vi.waitFor(() => expect(result.current.shared).toBe(true))
+
+      await act(async () => {
+        emit({
+          kind: 'conversation.turn',
+          conversationId: CONVERSATION_ID,
+          phase: 'started',
+          actorUserId: ANNA,
+        })
+      })
+      expect(result.current.turnInFlight).not.toBeNull()
+
+      // Twenty minutes of turn, with a sign of life every minute.
+      for (let minute = 0; minute < 20; minute += 1) {
+        act(() => result.current.noteTurnActivity())
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000)
+        })
+        // …and the other door gets tried too.
+        act(() => result.current.refresh())
+      }
+      expect(result.current.turnInFlight).not.toBeNull()
+
+      // Now it goes quiet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6 * 60_000)
+      })
+      expect(result.current.turnInFlight).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a 502 is a blip, not a revocation', async () => {
+    // The retry ladder only ever covered a THROWN fetch. A 5xx resolves with
+    // `ok: false` and took the authoritative branch: it cleared `shared` — which
+    // switches off the live subscription, the focus listener and the poll — told
+    // the reader they had lost access, and published "private" to the composer's
+    // socket gate. One rolling deploy froze the thread for the session.
+    vi.useFakeTimers()
+    try {
+      let accessReads = 0
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === `/api/conversations/${CONVERSATION_ID}`) {
+          accessReads += 1
+          if (accessReads === 2) return new Response(null, { status: 502 })
+          return Response.json({
+            id: CONVERSATION_ID,
+            title: 'Brandschutz',
+            shared: true,
+            myRole: 'collaborator',
+            visibility: 'project',
+            myReadState: null,
+          })
+        }
+        if (url === `/api/conversations/${CONVERSATION_ID}/messages`) return Response.json([])
+        if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+        throw new Error(`unexpected request: ${url}`)
+      })
+
+      const { result } = renderHook(() =>
+        useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+      )
+      await vi.waitFor(() => expect(result.current.shared).toBe(true))
+
+      // An access re-read, via the event that triggers one.
+      await act(async () => {
+        await emit({
+          kind: 'resource.access.changed',
+          resourceType: 'conversation',
+          resourceId: CONVERSATION_ID,
+          change: 'visibility',
+        })
+      })
+
+      // Still shared, and emphatically NOT reported as a revocation.
+      expect(result.current.shared).toBe(true)
+      expect(result.current.accessLost).toBe(false)
+
+      const before = accessReads
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_100)
+      })
+      expect(accessReads).toBeGreaterThan(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('access revoked between the access read and the history read is still flagged', async () => {
+    // The race the initial load used to drop: the access read says "shared", the
+    // history read that follows it is denied. Nothing in the first read can know
+    // that, so the denial has to escalate to a second access read — otherwise the
+    // reader keeps a live-looking composer over a thread they can no longer read.
+    let accessReads = 0
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `/api/conversations/${CONVERSATION_ID}`) {
+        accessReads += 1
+        if (accessReads === 1) {
+          return Response.json({
+            id: CONVERSATION_ID,
+            title: 'Brandschutz',
+            shared: true,
+            myRole: 'collaborator',
+            visibility: 'project',
+            myReadState: null,
+          })
+        }
+        return new Response(null, { status: 403 })
+      }
+      if (url === `/api/conversations/${CONVERSATION_ID}/messages`) {
+        return new Response(null, { status: 403 })
+      }
+      if (url === `/api/sharing/conversation/${CONVERSATION_ID}`) return Response.json(ROSTER)
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    expect(result.current.shared).toBe(false)
+    // Exactly one revalidation: the second read is never escalated again, so a
+    // server that keeps denying cannot turn this into a request loop.
+    expect(accessReads).toBe(2)
   })
 })
 
@@ -629,5 +923,103 @@ describe('useSharedThread — sharedness is published for the agent-socket gate'
     })
 
     expect(getThreadSharing(CONVERSATION_ID)).toBe('unknown')
+  })
+})
+
+describe('useSharedThread — composing presence', () => {
+  /** Mount a shared thread and wait for its first load to settle. */
+  const mountShared = async () => {
+    const hook = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(hook.result.current.shared).toBe(true))
+    await waitFor(() => expect(hook.result.current.participants.length).toBeGreaterThan(0))
+    return hook
+  }
+
+  const typing = (userId: string, isTyping: boolean, ttlMs = 6_000): CollaborationEvent => ({
+    kind: 'conversation.typing',
+    conversationId: CONVERSATION_ID,
+    userId,
+    typing: isTyping,
+    ttlMs,
+  })
+
+  test('names a colleague who is composing, resolved from the roster', async () => {
+    const { result } = await mountShared()
+
+    await emit(typing(ANNA, true))
+
+    await waitFor(() => expect(result.current.typists).toHaveLength(1))
+    expect(result.current.typists[0].userId).toBe(ANNA)
+    expect(result.current.typists[0].name).toBeTruthy()
+  })
+
+  test('a withdrawal clears the claim immediately', async () => {
+    const { result } = await mountShared()
+
+    await emit(typing(ANNA, true))
+    await waitFor(() => expect(result.current.typists).toHaveLength(1))
+
+    await emit(typing(ANNA, false))
+    await waitFor(() => expect(result.current.typists).toHaveLength(0))
+  })
+
+  test('a claim whose withdrawal never arrives expires on its own', async () => {
+    // The failure this prevents is a colleague left permanently "about to
+    // answer" because their tab was closed mid-word. There is no fetch behind
+    // presence, so the expiry is the ONLY thing that heals it.
+    const { result } = await mountShared()
+
+    await emit(typing(ANNA, true, 20))
+    await waitFor(() => expect(result.current.typists).toHaveLength(1))
+
+    await waitFor(() => expect(result.current.typists).toHaveLength(0), { timeout: 3_000 })
+  })
+
+  test('never reports the reader as typing', async () => {
+    // The publisher already drops the actor's own echo; this is the second line
+    // of defence, because "you are typing" is the one failure everybody notices
+    // and nobody reports.
+    const { result } = await mountShared()
+
+    await emit(typing(ME, true))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.typists).toHaveLength(0)
+  })
+
+  test('ignores presence for a different conversation', async () => {
+    const { result } = await mountShared()
+
+    await emit({
+      kind: 'conversation.typing',
+      conversationId: 'some_other_conversation',
+      userId: ANNA,
+      typing: true,
+      ttlMs: 6_000,
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.typists).toHaveLength(0)
+  })
+
+  test('presence costs a private thread no requests', async () => {
+    routes.shared = false
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.shared).toBe(false))
+
+    await emit(typing(ANNA, true))
+
+    // No roster to resolve against and no subscription that could have carried
+    // it — the private path stays exactly as cheap as it was (spec NF-8).
+    expect(result.current.typists).toHaveLength(0)
+    expect(requested()).not.toContain(`/api/sharing/conversation/${CONVERSATION_ID}`)
   })
 })

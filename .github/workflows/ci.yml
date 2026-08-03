@@ -22,7 +22,7 @@ concurrency:
 jobs:
   changes:
     name: Detect changes
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
@@ -64,7 +64,7 @@ jobs:
     name: Backend lint
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
@@ -80,7 +80,7 @@ jobs:
   # means whoever introduces the drift is the one who sees it.
   repo-lint:
     name: Repo lint (pre-commit, all files)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: this job executes repository-defined
       # pre-commit hooks, so the job's git config must not hand them a
@@ -98,7 +98,7 @@ jobs:
     name: Backend tests (py${{ matrix.python }})
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -126,7 +126,7 @@ jobs:
     name: Frontend (lint, types, test, build)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontends/ui
@@ -157,7 +157,7 @@ jobs:
     name: Infra (Pulumi typecheck)
     needs: changes
     if: needs.changes.outputs.infra == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: deploy/pulumi
@@ -187,7 +187,7 @@ jobs:
     name: CI OK
     if: always()
     needs: [changes, backend-lint, backend-test, frontend, infra, repo-lint]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
         run: |

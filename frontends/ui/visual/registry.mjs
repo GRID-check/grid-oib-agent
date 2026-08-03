@@ -279,6 +279,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-models-preview"]',
   },
   {
+    id: 'platform-retrieval',
+    mobile: true,
+    path: '/dev/platform-retrieval',
+    description:
+      'Platform retrieval settings — the fleet-wide retrieval counts (knowledge chunks, surfaced files, web/RIS results) every query resolves against. Shows both per-key states: pinned to a platform value and still on the build-time config default.',
+    waitFor: '[data-testid="platform-retrieval-preview"]',
+  },
+  {
     id: 'platform-maintenance',
     mobile: true,
     path: '/dev/platform-maintenance',
@@ -469,6 +477,14 @@ export const SCREENSHOT_TARGETS = [
     description:
       'A shared thread with three people plus the agent (spec CC-4/CC-5/CC-13/CC-19): every human message attributed, one author\'s consecutive messages GROUPED under a single header, the unread separator, an @Piloti mention chip, and the turn-in-flight banner telling an observer whose question the agent is answering. All four voices distinguishable — colleague, you, the agent\'s answer, the agent\'s status.',
     waitFor: '[data-testid="shared-thread-preview"]',
+  },
+  {
+    id: 'shared-thread-live',
+    mobile: true,
+    path: '/dev/shared-thread?variant=live',
+    description:
+      "The same shared thread with liveness on (ADR-0039). The observer WATCHES the colleague's turn — the Herleitung building and the answer streaming in — instead of a banner that says only that something is happening; and Anna is composing alongside it. The two live signals stay visually distinct on purpose: the agent keeps the Piloti glyph and the shimmering label, a person gets their avatar and three bouncing dots, so a reader can tell a machine working from a colleague thinking without reading a word.",
+    waitFor: '[data-testid="spectated-turn"]',
   },
   {
     id: 'chat-toolbar',

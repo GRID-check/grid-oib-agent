@@ -28,6 +28,7 @@ const refresh = vi.fn()
 const markRead = vi.fn(async () => {})
 const markAllRead = vi.fn(async () => {})
 const archive = vi.fn(async () => {})
+const dismissMutationError = vi.fn()
 
 function result(overrides: Partial<UseInboxListResult> = {}): UseInboxListResult {
   return {
@@ -35,6 +36,9 @@ function result(overrides: Partial<UseInboxListResult> = {}): UseInboxListResult
     pending: 0,
     loading: false,
     error: false,
+    mutationError: false,
+    dismissMutationError,
+    mutating: false,
     connected: true,
     refresh,
     markRead,
@@ -134,10 +138,48 @@ describe('InboxList — states', () => {
     expect(screen.getByText('Anna Weber asked for your input')).toBeInTheDocument()
   })
 
-  test('announces arrivals politely (NF-3)', () => {
+  test('announces the count politely, without reading the list aloud (NF-3)', () => {
     useInboxListMock.mockReturnValue(result({ items: [ITEM], pending: 1 }))
     render(<InboxList />)
-    expect(screen.getByTestId('inbox-list')).toHaveAttribute('aria-live', 'polite')
+    // The live region is a small status node. It used to be the list container,
+    // so every filter change and every archive re-announced all fifty rows.
+    expect(screen.getByTestId('inbox-list')).not.toHaveAttribute('aria-live')
+    const status = screen.getByRole('status')
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(status).toHaveTextContent('1 item needs your attention')
+    expect(status).not.toHaveTextContent('Anna Weber')
+  })
+
+  test('says nothing when nothing needs the reader', () => {
+    // The region is re-read on every filter change and every archive, so an empty
+    // queue used to interrupt with "0 items need your attention" — an
+    // announcement about nothing, repeated.
+    useInboxListMock.mockReturnValue(result({ items: [], pending: 0 }))
+    render(<InboxList />)
+    expect(screen.getByRole('status')).toHaveTextContent('')
+    expect(screen.queryByText(/0 items/)).not.toBeInTheDocument()
+  })
+
+  test('a refused action is reported beside the list, not instead of it', () => {
+    // Archiving a row a second tab already archived used to replace every row
+    // with "Your inbox could not be loaded." — which had not happened.
+    useInboxListMock.mockReturnValue(result({ items: [ITEM], pending: 1, mutationError: true }))
+    render(<InboxList />)
+    expect(screen.getAllByTestId('inbox-item')).toHaveLength(1)
+    expect(screen.getByText(/That action could not be completed/)).toBeInTheDocument()
+    expect(screen.queryByText('Your inbox could not be loaded.')).not.toBeInTheDocument()
+    // The refusal path does not re-read the list, so the alert must not claim it
+    // did: the rows on screen are the ones that were already there.
+    expect(refresh).not.toHaveBeenCalled()
+    expect(screen.getByText(/Your inbox is unchanged\./)).toBeInTheDocument()
+  })
+
+  test('the bulk action stands down while it is in flight', () => {
+    useInboxListMock.mockReturnValue(
+      result({ items: [ITEM], pending: 1, mutating: true }),
+    )
+    render(<InboxList />)
+    expect(screen.getByRole('button', { name: 'Mark all as read' })).toBeDisabled()
   })
 })
 

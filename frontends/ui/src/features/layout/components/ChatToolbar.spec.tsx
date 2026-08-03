@@ -19,6 +19,7 @@ vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
       loading: false,
       loadError: false,
       failure: null,
+      dismissFailure: vi.fn(),
       saving: false,
       refresh: vi.fn(),
       setVisibility: vi.fn(async () => true),
@@ -28,7 +29,16 @@ vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
       escalate: vi.fn(async () => true),
     }
   },
-  useShareCandidates: () => ({ candidates: [], loading: false }),
+  useShareCandidates: () => ({ candidates: [], loading: false, error: false, reload: vi.fn() }),
+}))
+
+// The inbox badge in the mobile nav button rides the shared event channel, which
+// jsdom has no EventSource for — and this spec is about the toolbar, not about
+// inbox delivery. Stubbed so nothing opens a connection.
+let mockInboxPending = 0
+
+vi.mock('@/features/collaboration/hooks/use-inbox', () => ({
+  useInboxBadge: () => ({ pending: mockInboxPending, connected: true, refresh: vi.fn() }),
 }))
 
 // Mock the layout store — the component uses both the hook selector form and
@@ -136,6 +146,7 @@ describe('ChatToolbar', () => {
     mockIsLoadJobDataLoading = false
     mockCurrentSessionId = 'session-1'
     mockSharingState = null
+    mockInboxPending = 0
   })
 
   describe('research toggle', () => {

@@ -40,7 +40,7 @@ describe('EngagementNotice', () => {
     const onChange = vi.fn().mockResolvedValue(true)
     render(<EngagementNotice mode="ask" suggestion="mention" onChange={onChange} />)
 
-    await user.click(screen.getByRole('button', { name: 'Only when mentioned' }))
+    await user.click(screen.getByRole('button', { name: 'Answer only when mentioned' }))
 
     expect(onChange).toHaveBeenCalledWith('mention')
   })
@@ -61,7 +61,9 @@ describe('EngagementNotice', () => {
       'Piloti answers when mentioned',
     )
     expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
-      'Two of you are talking here, so a plain message goes to the chat.',
+      // Deliberately not "two of you": the mode holds for any number of
+      // people, and the notice used to state a headcount it does not know.
+      'Several of you are talking here, so a plain message goes to everyone in the chat.',
     )
   })
 

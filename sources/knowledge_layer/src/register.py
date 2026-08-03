@@ -903,8 +903,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 valid = ", ".join(DOCUMENT_CLASSES)
                 return f"Invalid doc_class '{doc_class}'. Valid values: {valid}."
 
+        # Platform-tunable counts (Platform → Retrieval), resolved per call so
+        # an admin save takes effect without a redeploy; fail-open to the YAML
+        # build-time values above.
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        effective_top_k = get_retrieval_setting("knowledge.top_k", top_k)
+        effective_max_per_document = get_retrieval_setting("knowledge.max_chunks_per_document", max_per_document)
+
         # Over-fetch when agentic filters will drop candidates post-merge.
-        candidate_k = top_k * _AGENT_FILTER_OVERFETCH if (doc_class or title_contains) else top_k
+        candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if (doc_class or title_contains) else effective_top_k
         if rerank_llm_obj is not None:
             candidate_k = max(candidate_k, config.rerank_candidates)
 
@@ -946,9 +954,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             # Merge by score (comparable across collections) with a per-document
             # diversity cap so cross-cutting questions span multiple documents.
-            merged = _merge_results(results, query, candidate_k, retriever.backend_name, max_per_document)
+            merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
 
-            # Agentic narrowing (doc_class / title_contains), then trim to top_k.
+            # Agentic narrowing (doc_class / title_contains), then trim to the
+            # effective top_k.
             if doc_class or title_contains:
                 kept = _apply_agent_filters(merged.chunks, doc_class=doc_class, title_contains=title_contains)
                 merged = merged.model_copy(update={"chunks": kept})
@@ -960,7 +969,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=config.rerank_candidates)
                 merged = merged.model_copy(update={"chunks": reranked})
 
-            merged = merged.model_copy(update={"chunks": merged.chunks[:top_k]})
+            merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
 
             # Format for LLM. _format_results does the (now batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
@@ -989,6 +998,6 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         description=(
             "Search the knowledge base for relevant documents. "
             "Use this to find information from ingested PDFs, documents, and other files. "
-            f"Returns up to {top_k} relevant excerpts with citations, {diversity_clause}"
+            f"Returns up to {top_k} relevant excerpts with citations (platform-configurable), {diversity_clause}"
         ),
     )

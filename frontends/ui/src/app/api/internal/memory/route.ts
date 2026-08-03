@@ -40,6 +40,13 @@ const internalMemorySchema = z
     // authenticated panel routes. 'distillation' = the async reflection stage.
     provenanceType: z.enum(['agent', 'distillation']).default('agent'),
     sourceConversationId: z.string().max(255).optional(),
+    // Verbatim content of the entry this finding makes obsolete, quoted back
+    // from the digest the agent was shown. Lets the agent CORRECT memory, not
+    // just append to it — the resolved entry is marked 'superseded' and linked
+    // via supersedes_id. Unresolvable quotes are ignored, and human-curated
+    // entries (pinned / user-confirmed / user-authored) are never retired this
+    // way (design §3.2).
+    supersedesContent: z.string().trim().min(1).max(2000).optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {
     message: 'project scope requires projectId; organization scope requires organizationId',
@@ -57,6 +64,7 @@ export const POST = internalApiRoute(
       confidence,
       provenanceType,
       sourceConversationId,
+      supersedesContent,
     } = await parseJsonBody(request, internalMemorySchema)
 
     if (scope === 'organization') {
@@ -79,31 +87,51 @@ export const POST = internalApiRoute(
       }
     }
 
+    // Reported by the service, never derived from the returned row: a duplicate
+    // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
+    // record a retirement performed by an earlier request.
+    const outcome: { supersededId: string | null } = { supersededId: null }
+    const writeOptions = {
+      supersedesContent,
+      onSuperseded: (id: string) => {
+        outcome.supersededId = id
+      },
+    }
+
     const item =
       scope === 'project'
-        ? await createProjectMemoryItemForProject(projectId as string, {
-            kind,
-            content,
-            confidence,
-            sourceConversationId: sourceConversationId ?? null,
-            provenanceType,
-          })
-        : await createProjectMemoryItem({
-            scope: 'organization',
-            projectId: null,
-            organizationId: organizationId as string,
-            kind,
-            content,
-            confidence,
-            sourceConversationId: sourceConversationId ?? null,
-            provenanceType,
-          })
+        ? await createProjectMemoryItemForProject(
+            projectId as string,
+            {
+              kind,
+              content,
+              confidence,
+              sourceConversationId: sourceConversationId ?? null,
+              provenanceType,
+            },
+            writeOptions
+          )
+        : await createProjectMemoryItem(
+            {
+              scope: 'organization',
+              projectId: null,
+              organizationId: organizationId as string,
+              kind,
+              content,
+              confidence,
+              sourceConversationId: sourceConversationId ?? null,
+              provenanceType,
+            },
+            writeOptions
+          )
 
     if (!item) {
       throw new NotFoundError('Unknown project')
     }
 
-    return { item }
+    // `supersededId` is null when the quote resolved to nothing, or to an entry
+    // the agent may not retire — the caller can then be honest about what it did.
+    return { item, supersededId: outcome.supersededId }
   },
   { status: 201 }
 )
