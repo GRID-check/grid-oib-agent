@@ -27,6 +27,15 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
 
+  # Landing site (Astro microservice).
+  - package-ecosystem: npm
+    directory: "/frontends/web"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
   # Keep the Actions in our workflows current (also picked up by Semgrep's
   # p/github-actions rules).
   - package-ecosystem: github-actions

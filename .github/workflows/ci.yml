@@ -26,6 +26,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      web: ${{ steps.filter.outputs.web }}
       infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v7
@@ -51,6 +52,11 @@ jobs:
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              - 'Taskfile.yml'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/**'
+            web:
+              - 'frontends/web/**'
               - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
@@ -153,6 +159,25 @@ jobs:
         with:
           working-directory: frontends/ui
 
+  web:
+    name: Web (Astro check + build)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    defaults:
+      run:
+        working-directory: frontends/web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontends/web/package-lock.json
+      - uses: ./.github/actions/setup-task
+      - run: task web:verify
+        working-directory: .
+
   infra:
     name: Infra (Pulumi typecheck)
     needs: changes
@@ -186,7 +211,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, infra, repo-lint]
+    needs: [changes, backend-lint, backend-test, frontend, web, infra, repo-lint]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

@@ -21,6 +21,7 @@ legend. Offer a diagram proactively for architecture/design discussions.
 | `src/aiq_agent/` | Backend agent (LangGraph agents, cards, knowledge layer) |
 | `sources/` | NAT data-source packages (web search, knowledge layer, RIS adapter, grid cards) |
 | `frontends/ui/` | Next.js app: UI + BFF API routes + WS proxy (`server.js`) |
+| `frontends/web/` | Public Piloti landing page + blog (Astro microservice; `de`/`en`, Keystatic CMS for platform-owner blog writing) |
 | `frontends/aiq_api/` | The backend FastAPI front-end plugin (`_type: aiq_api`): REST routes, async jobs, `/v1/ingest` |
 | `frontends/debug/` | Debug console mounted at `/debug` |
 | `frontends/cli/` | `aiq-research` CLI |
@@ -40,7 +41,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 
 | Check | Command |
 |-------|---------|
-| **Everything CI runs** (repo lint + `be:verify` + `fe:verify` + `infra:types`) | `task verify` |
+| **Everything CI runs** (repo lint + `be:verify` + `fe:verify` + `web:verify` + `infra:types`) | `task verify` |
 | The same set, minus only the slow production build | `task verify:fast` |
 | First-time toolchain setup | `task setup` |
 | Frontend typecheck | `task fe:types` |
@@ -49,6 +50,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | Backend lint (ruff check + format) | `task be:lint` |
 | Backend tests | `task be:test` (plugin suite: `task be:test:api`) |
 | Infra typecheck (Pulumi + policy pack) | `task infra:types` |
+| Web check (Astro typecheck + build) | `task web:verify` |
 | Repo lint (pre-commit, all files) | `task lint:repo` |
 | UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
 | WorkOS authz drift | `WORKOS_API_KEY=sk_… task fe:provision:authz` (read-only; `-- --apply` reconciles) |
