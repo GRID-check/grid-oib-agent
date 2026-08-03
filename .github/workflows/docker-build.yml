@@ -1,9 +1,9 @@
 name: Docker Build
 
-# Validates that the backend and frontend images actually BUILD, on PRs to the
-# integration/release branches — so a broken Dockerfile is caught before merge
-# instead of at deploy time (the failure mode we hit on Coolify). Build only,
-# no push; layer cache via GitHub Actions cache keeps it fast.
+# Validates that the backend, frontend and web (landing) images actually BUILD,
+# on PRs to the integration/release branches — so a broken Dockerfile is caught
+# before merge instead of at deploy time (the failure mode we hit on Coolify).
+# Build only, no push; layer cache via GitHub Actions cache keeps it fast.
 on:
   pull_request:
     branches: [develop, "release/**"]
@@ -46,3 +46,22 @@ jobs:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
           push: false
+
+  web:
+    name: Build web image (landing site)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1.10.0
+      - name: Build (no push)
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: frontends/web
+          file: frontends/web/Dockerfile
+          push: false
+          # Dev defaults cover the build; prod URLs are passed by
+          # publish-images.yml on release tags.
+          build-args: |
+            PUBLIC_APP_URL=https://app.dev.piloti.at
+            PUBLIC_SITE_URL=https://dev.piloti.at
