@@ -49,7 +49,7 @@ app.piloti.at / app.dev.piloti.at  (existing Next.js app)
   hero ("Planen. Statt suchen.", bg photo + aura canvas, CTAs, funding line),
   dark story panel (fragment cards organize around central Piloti card),
   Nutzung (animated decision-chain mock),
-  Datengrundlage (4 cards), KI+Datenschutz (3 cards), CTA (mailto hallo@piloti.eu),
+  Datengrundlage (4 cards),   KI+Datenschutz (3 cards), CTA (mailto `hallo@piloti.eu`),
   footer (links + © Piloti 2026).
 - JS behaviors ported as framework-free TS islands (no React): aura canvas,
   decision-chain loop, IntersectionObserver reveals, solid-nav-after-hero.
