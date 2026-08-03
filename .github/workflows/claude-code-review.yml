@@ -29,7 +29,7 @@ jobs:
     name: Review PR
     # Draft PRs are reviewed once they are marked ready, not while in progress.
     if: github.event.pull_request.draft == false
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7

@@ -43,7 +43,7 @@ permissions:
 jobs:
   detect:
     name: Detect new screenshot targets
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Fork PRs get a read-only token and cannot receive comments — skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
@@ -103,7 +103,7 @@ jobs:
     name: Capture previews
     needs: detect
     if: needs.detect.outputs.has_new == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
@@ -201,7 +201,7 @@ jobs:
     # Runs even when capture failed, so a broken harness is reported in the
     # comment rather than as silence.
     if: ${{ !cancelled() && needs.detect.outputs.has_new == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       pull-requests: write # upsert the sticky comment
     steps:

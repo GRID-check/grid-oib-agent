@@ -38,7 +38,7 @@ concurrency:
 jobs:
   semgrep:
     name: SAST (Semgrep)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep
     steps:
@@ -110,7 +110,7 @@ jobs:
 
   deps-osv:
     name: Dependency vulns (OSV-Scanner)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       # Reads the lockfiles in the tree (uv.lock, frontends/ui/bun.lock)
@@ -133,7 +133,7 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: the steps below run PR-controlled setup
       # actions and dependency install scripts, which must never find a
@@ -167,7 +167,7 @@ jobs:
 
   secret-scan:
     name: Secret scan (gitleaks)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -182,7 +182,7 @@ jobs:
 
   image-scan:
     name: Image vulns (trivy)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       # Needed for the digest extraction below to see deploy/pulumi/src/config.ts.
       - uses: actions/checkout@v7

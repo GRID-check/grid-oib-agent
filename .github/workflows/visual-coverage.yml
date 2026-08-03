@@ -40,7 +40,7 @@ permissions:
 jobs:
   check:
     name: New components have visual evidence
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Fork PRs get a read-only token and cannot receive comments — skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
