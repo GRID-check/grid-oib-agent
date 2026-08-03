@@ -70,6 +70,29 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
   return row ?? null
 }
 
+/**
+ * Resolve a document's SeaweedFS storage key from its `(collectionName,
+ * filename)` pair — the only identity the Python backend carries. Used by the
+ * internal document-file lookup (`/api/internal/document-file`), which is
+ * service-token guarded, so this is deliberately NOT org-scoped: the collection
+ * name is itself the tenancy boundary (`proj_<uuid>` / `archiv_<orgId>` are
+ * unguessable). When a filename is re-uploaded into the same collection, the
+ * most-recent row wins.
+ */
+export async function findStorageKeyByCollectionAndFilename(
+  collectionName: string,
+  filename: string,
+): Promise<{ storageKey: string; contentType: string | null } | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({ storageKey: documents.storageKey, contentType: documents.contentType })
+    .from(documents)
+    .where(and(eq(documents.collectionName, collectionName), eq(documents.filename, filename)))
+    .orderBy(desc(documents.createdAt))
+    .limit(1)
+  return row ?? null
+}
+
 export async function insertDocument(values: NewDocument): Promise<void> {
   const db = getDb()
   await db.insert(documents).values(values)

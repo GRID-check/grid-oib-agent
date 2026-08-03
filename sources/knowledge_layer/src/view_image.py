@@ -1,15 +1,25 @@
 """NAT function for viewing knowledge images.
 
 Agents retrieve caption-only chunks for image/drawing pages: the caption
-describes the image but the model never sees it. This tool re-renders the
-source page from the original PDF and returns it as a multimodal content
-block (``image_url`` with a data URL), so vision-capable models can inspect
-plans, sections, elevations and charts directly at answer time.
+describes the image but the model never sees it. This tool returns the source
+visual as a multimodal content block (``image_url`` with a data URL), so
+vision-capable models can inspect plans, sections, elevations and charts
+directly at answer time.
 
-Works for the existing corpus without re-ingest: bytes are never persisted
-at ingest time, so the tool renders the requested page from the PDF on
-demand (max-dim capped) instead. Fail-open: every failure returns a
-text-only block explaining what went wrong — the tool never raises.
+Two source shapes are covered, without re-ingest:
+
+- **PDF pages** — the requested page is rendered from the original PDF on
+  demand (max-dim capped). Base-corpus PDFs are read from disk (``data/oib``,
+  ``OIB_UPLOADS_DIR``); project/Archiv PDFs are fetched from SeaweedFS and
+  rendered from bytes.
+- **Standalone images** (PNG/JPG project/Archiv uploads) — the stored bytes
+  are fetched from SeaweedFS and returned directly (re-encoded to JPEG).
+
+Storage-key resolution goes through the BFF internal lookup
+(``GET /api/internal/document-file``): the backend carries only
+``(collection, filename)``, and the mapping to a SeaweedFS ``storage_key``
+lives in the frontend's ``documents`` table. Fail-open: every failure returns
+a text-only block explaining what went wrong — the tool never raises.
 """
 
 import asyncio
@@ -41,11 +51,27 @@ _VIEW_IMAGES_ENABLED_ENV = "AIQ_VIEW_IMAGES_ENABLED"
 
 # The two writable base-corpus homes the OIB sync scans. Uploads made through
 # the platform admin UI live under OIB_UPLOADS_DIR; the repo corpus ships in
-# data/oib. Project/Archiv uploads live in SeaweedFS and are not covered by
-# this tool (v1 renders base-corpus PDFs only).
+# data/oib. Project/Archiv uploads live in SeaweedFS and are fetched via the
+# BFF internal lookup + boto3 when no on-disk PDF matches.
 _DEFAULT_PDF_DIRS = ["data/oib", os.environ.get("OIB_UPLOADS_DIR", "data/oib_uploads")]
 
 _JPEG_QUALITY = 90
+
+# Standalone-image extensions (an uploaded image file, not a page of a PDF).
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+
+# BFF internal lookup + SeaweedFS (S3) fetch. FRONTEND_INTERNAL_URL +
+# GRID_INTERNAL_API_TOKEN are already present on the aiq-agent tier; the
+# SEAWEED_* set is injected by the same tier once the backend fetches bytes
+# directly. All are read lazily so a base-corpus-only deployment (no project
+# uploads) needs none of them.
+_FRONTEND_INTERNAL_URL_ENV = "FRONTEND_INTERNAL_URL"
+_INTERNAL_TOKEN_ENV = "GRID_INTERNAL_API_TOKEN"
+_SEAWEED_ENDPOINT_ENV = "SEAWEED_ENDPOINT"
+_SEAWEED_BUCKET_ENV = "SEAWEED_BUCKET"
+_SEAWEED_ACCESS_KEY_ENV = "SEAWEED_ACCESS_KEY"
+_SEAWEED_SECRET_KEY_ENV = "SEAWEED_SECRET_KEY"
+_DEFAULT_SEAWEED_BUCKET = "grid-documents"
 
 
 class ViewKnowledgeImageToolConfig(FunctionBaseConfig, name="view_knowledge_image"):
@@ -111,6 +137,122 @@ def _render_page(pdf_path: str, page_number: int, max_dim: int) -> tuple[bytes, 
         doc.close()
 
 
+def _render_page_from_bytes(pdf_bytes: bytes, page_number: int, max_dim: int) -> tuple[bytes, int, int]:
+    """Render one page (1-based) of a PDF held in memory to JPEG bytes.
+
+    Same as :func:`_render_page` but takes raw bytes (a project/Archiv PDF
+    fetched from SeaweedFS) instead of a path. pypdfium2 accepts a bytes-like
+    object directly.
+    """
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(pdf_bytes)
+    try:
+        page = doc[page_number - 1]
+        try:
+            width_pt, height_pt = page.get_size()
+            longest_pt = max(width_pt, height_pt) or 1.0
+            scale = max_dim / longest_pt
+            bitmap = page.render(scale=scale)
+            pil_image = bitmap.to_pil().convert("RGB")
+            buf = io.BytesIO()
+            pil_image.save(buf, format="JPEG", quality=_JPEG_QUALITY)
+            return buf.getvalue(), pil_image.width, pil_image.height
+        finally:
+            page.close()
+    finally:
+        doc.close()
+
+
+def _normalize_image_to_jpeg(image_bytes: bytes, max_dim: int) -> tuple[bytes, int, int]:
+    """Re-encode a standalone image (PNG/JPG/…) to max-dim-capped JPEG bytes.
+
+    Mirrors the ingestion-time normalization so the model sees the image at a
+    consistent resolution and format regardless of the upload type. Returns
+    ``(jpeg_bytes, width_px, height_px)``; raises on any decode failure.
+    """
+    from PIL import Image
+
+    pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    longest = max(pil_image.width, pil_image.height) or 1
+    if longest > max_dim:
+        scale = max_dim / longest
+        pil_image = pil_image.resize((max(1, round(pil_image.width * scale)), max(1, round(pil_image.height * scale))))
+    buf = io.BytesIO()
+    pil_image.save(buf, format="JPEG", quality=_JPEG_QUALITY)
+    return buf.getvalue(), pil_image.width, pil_image.height
+
+
+async def _resolve_storage_key(collection: str, file_name: str) -> str | None:
+    """Resolve a ``(collection, filename)`` pair to a SeaweedFS storage key.
+
+    Calls the BFF internal lookup (service-token guarded). Returns ``None`` on
+    any failure (unconfigured URL/token, non-200, transport error) — fail-open,
+    so a base-corpus-only deployment with no BFF wiring simply never resolves.
+    """
+    base_url = os.environ.get(_FRONTEND_INTERNAL_URL_ENV, "").strip()
+    token = os.environ.get(_INTERNAL_TOKEN_ENV, "").strip()
+    if not base_url or not token:
+        return None
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{base_url.rstrip('/')}/api/internal/document-file",
+                params={"collection": collection, "filename": file_name},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        storage_key = data.get("storageKey")
+        return storage_key if isinstance(storage_key, str) and storage_key else None
+    except Exception:  # noqa: BLE001 - fail-open contract
+        logger.warning(
+            "view_knowledge_image: storage-key lookup failed for %s/%s", collection, file_name, exc_info=True
+        )
+        return None
+
+
+def _fetch_seaweed_bytes(storage_key: str) -> bytes | None:
+    """Fetch an object's bytes from SeaweedFS via boto3 (S3, path-style).
+
+    Returns ``None`` on any failure (missing creds, transport error, NoSuchKey)
+    so callers degrade to a text-only block. Imports boto3 lazily so the tool
+    imports cleanly in a deployment that never fetches.
+    """
+    endpoint = os.environ.get(_SEAWEED_ENDPOINT_ENV, "").strip()
+    access_key = os.environ.get(_SEAWEED_ACCESS_KEY_ENV, "").strip()
+    secret_key = os.environ.get(_SEAWEED_SECRET_KEY_ENV, "").strip()
+    if not endpoint or not access_key or not secret_key:
+        return None
+    bucket = os.environ.get(_SEAWEED_BUCKET_ENV, _DEFAULT_SEAWEED_BUCKET).strip() or _DEFAULT_SEAWEED_BUCKET
+    try:
+        import boto3
+        from botocore.config import Config as _BotoConfig
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            region_name="us-east-1",
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=_BotoConfig(s3={"addressing_style": "path"}),
+        )
+        response = client.get_object(Bucket=bucket, Key=storage_key)
+        return response["Body"].read()
+    except Exception:  # noqa: BLE001 - fail-open contract
+        logger.warning("view_knowledge_image: SeaweedFS fetch failed for key %s", storage_key, exc_info=True)
+        return None
+
+
+def _is_standalone_image(file_name: str) -> bool:
+    """True when the file is an uploaded image (PNG/JPG/…), not a page of a PDF."""
+    idx = file_name.rfind(".")
+    return idx > 0 and file_name[idx:].lower() in _IMAGE_EXTENSIONS
+
+
 @register_function(config_type=ViewKnowledgeImageToolConfig)
 async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: Builder):
     """NAT function: let the agent SEE a retrieved knowledge image.
@@ -130,7 +272,12 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
     vision-model input per call, so use it only when seeing matters.
     """
 
-    async def lookup(file_name: str, page_number: int, image_index: int = 0) -> list[dict] | str:
+    async def lookup(
+        file_name: str,
+        page_number: int = 1,
+        image_index: int = 0,
+        collection: str = "",
+    ) -> list[dict] | str:
         if not _is_enabled():
             return f"[view_knowledge_image] Image viewing is disabled ({_VIEW_IMAGES_ENABLED_ENV} is off)."
         try:
@@ -147,26 +294,104 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
         if page_number < 1:
             return f"[view_knowledge_image] Invalid page number {page_number}: pages are 1-based."
 
+        # Standalone image upload (PNG/JPG): there is no page to render — fetch
+        # the stored bytes from SeaweedFS and return them directly.
+        if _is_standalone_image(file_name):
+            if not collection:
+                return (
+                    f"[view_knowledge_image] '{file_name}' is an uploaded image; pass the "
+                    "collection it belongs to so the stored bytes can be located."
+                )
+            storage_key = await _resolve_storage_key(collection, file_name)
+            if storage_key is None:
+                return (
+                    f"[view_knowledge_image] Could not locate the stored file for '{file_name}' "
+                    f"in collection '{collection}' (not in the document index, or the document "
+                    "service is unreachable)."
+                )
+            image_bytes = await asyncio.to_thread(_fetch_seaweed_bytes, storage_key)
+            if image_bytes is None:
+                return (
+                    f"[view_knowledge_image] Could not fetch the stored bytes for '{file_name}' "
+                    "from object storage (credentials/endpoint unavailable, or the object is gone)."
+                )
+            try:
+                jpeg_bytes, width, height = await asyncio.to_thread(
+                    _normalize_image_to_jpeg, image_bytes, config.max_dim
+                )
+            except Exception as e:  # noqa: BLE001 - fail-open contract
+                logger.warning("view_knowledge_image: image decode failed for %s: %s", file_name, e)
+                return f"[view_knowledge_image] Could not decode the image '{file_name}': {e}"
+            image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+            return [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Uploaded image '{file_name}' from collection '{collection}' "
+                        f"({width}x{height}px). This is the actual image the retrieved chunk "
+                        "describes — inspect it for plans, drawings, scale and relationships."
+                    ),
+                },
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+            ]
+
+        # PDF page: render the requested page. Base-corpus PDFs come from disk;
+        # a project/Archiv PDF falls back to a SeaweedFS fetch rendered from bytes.
         pdf_path = _find_pdf(config.pdf_dirs, file_name)
-        if pdf_path is None:
+        if pdf_path is not None:
+            try:
+                jpeg_bytes, width, height = await asyncio.to_thread(_render_page, pdf_path, page_number, config.max_dim)
+            except Exception as e:  # noqa: BLE001 - fail-open contract
+                logger.warning("view_knowledge_image: render failed for %s page %d: %s", file_name, page_number, e)
+                return f"[view_knowledge_image] Could not render page {page_number} of '{file_name}': {e}"
+            image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+            return [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Rendered page {page_number} of '{file_name}' "
+                        f"({width}x{height}px, image_index={image_index}). "
+                        "This is the actual page the retrieved chunk describes — inspect it "
+                        "for plans, drawings, scale, dimensions and relationships."
+                    ),
+                },
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+            ]
+
+        # Not on disk: a project/Archiv PDF living only in SeaweedFS.
+        if not collection:
             return (
                 f"[view_knowledge_image] Could not find the source PDF for '{file_name}'. "
-                "Rendering is only possible for base-corpus documents (data/oib, OIB_UPLOADS_DIR)."
+                "Rendering is possible for base-corpus documents (data/oib, OIB_UPLOADS_DIR) "
+                "without a collection; pass the collection for a project/Archiv document."
             )
-
+        storage_key = await _resolve_storage_key(collection, file_name)
+        if storage_key is None:
+            return (
+                f"[view_knowledge_image] Could not locate the stored file for '{file_name}' "
+                f"in collection '{collection}' (not in the document index, or the document "
+                "service is unreachable)."
+            )
+        pdf_bytes = await asyncio.to_thread(_fetch_seaweed_bytes, storage_key)
+        if pdf_bytes is None:
+            return (
+                f"[view_knowledge_image] Could not fetch the stored bytes for '{file_name}' "
+                "from object storage (credentials/endpoint unavailable, or the object is gone)."
+            )
         try:
-            jpeg_bytes, width, height = await asyncio.to_thread(_render_page, pdf_path, page_number, config.max_dim)
+            jpeg_bytes, width, height = await asyncio.to_thread(
+                _render_page_from_bytes, pdf_bytes, page_number, config.max_dim
+            )
         except Exception as e:  # noqa: BLE001 - fail-open contract
             logger.warning("view_knowledge_image: render failed for %s page %d: %s", file_name, page_number, e)
             return f"[view_knowledge_image] Could not render page {page_number} of '{file_name}': {e}"
-
         image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
         return [
             {
                 "type": "text",
                 "text": (
-                    f"Rendered page {page_number} of '{file_name}' "
-                    f"({width}x{height}px, image_index={image_index}). "
+                    f"Rendered page {page_number} of '{file_name}' from collection "
+                    f"'{collection}' ({width}x{height}px, image_index={image_index}). "
                     "This is the actual page the retrieved chunk describes — inspect it "
                     "for plans, drawings, scale, dimensions and relationships."
                 ),
@@ -177,9 +402,11 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
     yield FunctionInfo.from_fn(
         lookup,
         description=(
-            "Render a page of a knowledge document as an image. Use when a retrieved "
-            "chunk is an image or drawing (plan, section, elevation, chart) and you need "
-            "to see what it shows; returns the rendered page as an image content block. "
-            "Base-corpus documents only; fails open with a text explanation."
+            "View a knowledge image or PDF page as an image the model can inspect. Use when a "
+            "retrieved chunk is an image or drawing (plan, section, elevation, chart) and you need "
+            "to see what it shows. For a base-corpus document pass just file_name and page_number; "
+            "for a project/Archiv document (an uploaded PDF or image) also pass its collection so "
+            "the stored bytes can be fetched. Returns an image content block; fails open with a "
+            "text explanation."
         ),
     )

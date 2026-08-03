@@ -59,13 +59,30 @@ We will add four retrieval-side improvements to the knowledge layer, all
    rescored once by an LLM judge (`llamaindex/rerank.py::rerank_chunks`, 30s
    timeout, excerpt-windowed prompt of 400 chars/chunk, 1–10 scores) before
    trimming to `top_k`. Fail-open to the original order.
-4. **Multimodal answer-time page viewing**: new NAT tool `view_knowledge_image`
-   (`llamaindex/view_image.py`) gated on `AIQ_VIEW_IMAGES_ENABLED` (default on)
-   plus a resolvable VLM key. It re-renders an ingested PDF page on demand
-   (pypdfium2 → JPEG, long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) and
-   returns a `[text, image_url]` multimodal block pair so the model sees images
+4. **Multimodal answer-time page/image viewing**: new NAT tool
+   `view_knowledge_image` (`llamaindex/view_image.py`) gated on
+   `AIQ_VIEW_IMAGES_ENABLED` (default on) plus a resolvable VLM key. It covers
+   both source shapes: **PDF pages** are re-rendered on demand (pypdfium2 →
+   JPEG, long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) — base-corpus PDFs
+   from disk, project/Archiv PDFs from SeaweedFS bytes — and **standalone
+   image uploads** (PNG/JPG project/Archiv documents) are fetched from
+   SeaweedFS and re-encoded to JPEG directly. It returns a
+   `[text, image_url]` multimodal block pair so the model sees images
    **during a research turn**, not only at ingestion. Every failure path
    degrades to a text-only explanation block.
+
+   Storage-key resolution goes through the BFF: the backend carries only
+   `(collection, filename)` while the SeaweedFS `storage_key` lives in the
+   frontend's `documents` table, so a new token-guarded internal route
+   `GET /api/internal/document-file` (service `lib/documents/service.ts`,
+   repository `lib/documents/repository.ts`, ADR-0017 layering) resolves the
+   pair, and the backend fetches the bytes itself via boto3 (S3, path-style).
+   This **deliberately overrides the previous "no SEAWEED_* on the aiq-agent
+   tier" separation** in `deploy/pulumi/src/app/config.ts`: the tier now
+   receives `SEAWEED_ENDPOINT`/`SEAWEED_BUCKET`/`SEAWEED_ACCESS_KEY`/
+   `SEAWEED_SECRET_KEY` for read-only `get_object` calls — the smallest
+   credential scope that lets the tool see project/Archiv documents without a
+   presign round-trip through the upload path.
 
 Plus a fifth, observability-side improvement:
 
@@ -122,6 +139,10 @@ All changes ship with unit tests under `tests/knowledge_layer_tests/`
   mitigated by per-page on-demand rendering, `AIQ_PAGE_RENDER_MAX_DIM` bounds,
   and the disabled-by-default capability gate (no VLM key = tool explains
   itself in text).
+- The aiq-agent tier now holds the SeaweedFS S3 credential (attack-surface
+  widening vs. the previous presign-only separation); mitigated by read-only
+  usage (`get_object` only), token-guarded BFF lookup as the sole key source,
+  and fail-open degradation when the credential is absent.
 
 ## Alternatives Considered
 
@@ -135,9 +156,14 @@ All changes ship with unit tests under `tests/knowledge_layer_tests/`
   for German legal morphology and hardcoded-string-prone; the shared
   token-based utility (`legal_terms.py`) is reused by both the hybrid channel
   and future callers.
-- **Per-turn VLM page passing of all retrieved pages** — rejected: cost and
-  latency blowup; on-demand single-page tool with explicit arguments keeps the
-  model in control.
+- **Backend presign flow for view_knowledge_image** — rejected: the upload
+  path hands the backend a presigned PUT URL from the BFF, but reads would
+  need a presigned GET minted per call (extra round-trip + a new BFF presign
+  route); direct boto3 `get_object` is simpler and read-only.
+- **Teaching the Python `document_metadata` store the `storage_key`** —
+  rejected: the frontend `documents` table already owns the mapping; a
+  token-guarded internal lookup keeps one source of truth instead of
+  replicating the column into the backend's summary DB.
 
 ## Open Questions / Follow-ups
 

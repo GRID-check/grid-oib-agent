@@ -31,6 +31,7 @@ import {
   deleteProjectDocument,
   findDocumentInOrg,
   findFolderPathInProject,
+  findStorageKeyByCollectionAndFilename,
   insertDocument,
   listProjectDocuments,
   markDocumentIngestFailed,
@@ -810,4 +811,23 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
   }
+}
+
+/**
+ * Resolve a document's SeaweedFS storage key from the `(collectionName,
+ * filename)` pair the Python backend carries — the read side of the internal
+ * document-file lookup (`/api/internal/document-file`).
+ *
+ * There is deliberately no session / FGA here: the caller is the backend over
+ * the service-token-guarded internal network, and the collection name is the
+ * tenancy boundary (`proj_<uuid>` / `archiv_<orgId>` are unguessable). The
+ * backend uses the key to fetch the raw bytes from SeaweedFS for the
+ * `view_knowledge_image` tool (ADR-0039), so this is read-only metadata — it
+ * never returns the bytes themselves.
+ */
+export async function findDocumentStorageKey(
+  collectionName: string,
+  filename: string,
+): Promise<{ storageKey: string; contentType: string | null } | null> {
+  return findStorageKeyByCollectionAndFilename(collectionName, filename)
 }

@@ -739,21 +739,31 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    new kind so "precision" is shown as its own diagnostic, not a citation
    defect).
 
-5. **Multimodal answer-time page viewing** — a new NAT tool
+5. **Multimodal answer-time page/image viewing** — a new NAT tool
    `view_knowledge_image` (`llamaindex/view_image.py`, gated on
-   `AIQ_VIEW_IMAGES_ENABLED`, default on, plus a resolvable VLM key) lets the
-   agent re-render any ingested PDF page on demand and hand the page to the VLM
-   **as an image block during a research turn** — not just at ingestion. The
-   tool finds the source PDF (`OIB_UPLOADS_DIR` / repo corpus), renders the
-   requested page with pypdfium2 to a JPEG (long edge `AIQ_PAGE_RENDER_MAX_DIM`,
-   default 2048), and returns a `[text, image_url]` multimodal block pair. Every
-   failure path (missing PDF, render error, invalid page number, disabled flag,
-   no VLM key) degrades to a text-only explanation block.
+   `AIQ_VIEW_IMAGES_ENABLED`, default on, plus a resolvable VLM key) hands a
+   knowledge image to the VLM **as an image block during a research turn** —
+   not just at ingestion. Two source shapes: **PDF pages** are re-rendered on
+   demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
+   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   PDFs from SeaweedFS bytes — and **standalone image uploads** (PNG/JPG
+   project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
+   directly. Because the SeaweedFS `storage_key` lives only in the frontend's
+   `documents` table, the tool resolves `(collection, filename)` through a new
+   token-guarded BFF route `GET /api/internal/document-file`
+   (`lib/documents/{service,repository}.ts`, ADR-0017 layering) and fetches the
+   bytes itself via boto3 (S3, path-style, read-only `get_object`) — which is
+   why the aiq-agent tier now carries the `SEAWEED_*` credential set
+   (deliberate override of the previous presign-only separation; ADR-0039).
+   Every failure path (missing file, lookup/fetch/render error, invalid page
+   number, disabled flag, no VLM key) degrades to a text-only explanation
+   block.
 
 All five changes are covered by tests under `tests/knowledge_layer_tests/`
 (`test_agent_filters.py`, `test_hybrid.py`, `test_rerank.py`,
-`test_view_image.py`). Design rationale and rejected alternatives (native
-reranker API, embedding re-index, regex term extraction): **ADR-0039**.
+`test_view_image.py`) and `src/app/api/internal/document-file/route.spec.ts`.
+Design rationale and rejected alternatives (native reranker API, embedding
+re-index, regex term extraction, presign-based reads): **ADR-0039**.
 
 ## 6b. Norm catalog (Normenregister — flat curated pointers + prose legal notes)
 
