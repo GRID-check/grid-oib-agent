@@ -1,0 +1,52 @@
+---
+import { getCollection, render } from 'astro:content'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import SectionTag from '../../components/atoms/SectionTag.astro'
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft)
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }))
+}
+
+const { post } = Astro.props
+const { Content } = await render(post)
+const date = post.data.pubDate.toLocaleDateString('de-AT', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+})
+---
+
+<BaseLayout title={`${post.data.title} — Piloti Blog`} description={post.data.description}>
+  <article class="px-6 pb-28 pt-36 md:px-10">
+    <div class="mx-auto max-w-[720px]">
+      <a href="/blog/" class="text-[13px] font-medium text-accent-600 hover:text-accent-500">
+        ← Alle Beiträge
+      </a>
+      <div class="mt-8">
+        <SectionTag>Blog</SectionTag>
+      </div>
+      <h1
+        class="mt-5 font-display text-[clamp(30px,4.4vw,46px)] font-semibold leading-[1.12] tracking-[-0.02em] text-ink"
+      >
+        {post.data.title}
+      </h1>
+      <p class="mt-4 font-mono text-[12px] uppercase tracking-[0.12em] text-ink-faint">
+        <time datetime={post.data.pubDate.toISOString()}>{date}</time>
+      </p>
+      {
+        post.data.cover && (
+          <img
+            src={post.data.cover}
+            alt=""
+            class="mt-9 w-full rounded-[20px] object-cover"
+            loading="lazy"
+          />
+        )
+      }
+      <div class="prose-piloti mt-10">
+        <Content />
+      </div>
+    </div>
+  </article>
+</BaseLayout>

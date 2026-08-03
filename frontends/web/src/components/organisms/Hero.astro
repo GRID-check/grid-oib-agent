@@ -1,0 +1,50 @@
+---
+import Pill from '../atoms/Pill.astro'
+---
+
+<div data-hero-wrap class="relative h-[200vh]">
+  <header
+    id="top"
+    data-screen-label="01 Start"
+    data-hero
+    class="sticky top-0 box-border flex h-screen flex-col items-center justify-center overflow-hidden bg-hero-bg bg-cover bg-center px-12 py-24"
+    style="background-image: url('/images/hero.png')"
+  >
+    <canvas data-aura class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"
+    ></canvas>
+    <div
+      class="absolute inset-0"
+      style="background: linear-gradient(180deg, rgb(232 229 221 / 0) 0%, rgb(232 229 221 / 0) 66%, rgb(234 231 223 / 0.5) 84%, rgb(237 235 227 / 0.88) 100%)"
+      aria-hidden="true"
+    >
+    </div>
+
+    <h1
+      class="relative mt-[min(52vh,calc(100vh-330px))] max-w-[1000px] text-center font-display text-[clamp(36px,4.8vw,70px)] font-bold leading-[1.0] tracking-[-0.032em] text-black"
+      style="text-wrap: balance"
+    >
+      Planen. Statt suchen.
+    </h1>
+
+    <div class="absolute inset-x-0 bottom-[68px] flex flex-col items-center gap-3.5">
+      <div
+        data-hero-cta
+        class="flex flex-wrap items-center justify-center gap-[18px] transition-[opacity,transform] duration-500"
+      >
+        <p class="m-0 text-[14.5px] leading-[1.5] text-[#3d3e3a]" style="text-wrap: pretty">
+          Das gesamte Wissen für Ihre Planung. An einem Ort.
+        </p>
+        <div class="flex gap-2.5">
+          <Pill href="#kontakt" variant="solid" size="md">Demo anfragen</Pill>
+          <Pill href="#problem" variant="outline" size="md">Mehr erfahren</Pill>
+        </div>
+      </div>
+    </div>
+    <div
+      class="absolute bottom-[22px] left-1/2 h-[30px] w-px -translate-x-1/2 bg-panel/30"
+      style="animation: scrollhint 2s ease-in-out infinite"
+      aria-hidden="true"
+    >
+    </div>
+  </header>
+</div>

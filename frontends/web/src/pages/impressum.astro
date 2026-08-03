@@ -1,0 +1,46 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import SectionTag from '../components/atoms/SectionTag.astro'
+import { CONTACT_EMAIL } from '../consts'
+---
+
+<BaseLayout
+  title="Impressum — Piloti"
+  description="Impressum und Medieninhaber der Piloti-Website."
+>
+  <section class="px-6 pb-28 pt-36 md:px-10">
+    <div class="mx-auto max-w-[720px]">
+      <SectionTag>Rechtliches</SectionTag>
+      <h1
+        class="mt-6 font-display text-[clamp(32px,4.6vw,48px)] font-semibold leading-[1.1] tracking-[-0.02em] text-ink"
+      >
+        Impressum
+      </h1>
+      <div class="prose-piloti mt-10">
+        <h2>Medieninhaber und Herausgeber</h2>
+        <p>
+          Piloti<br />
+          [Firmenname und Rechtsform]<br />
+          [Straße und Hausnummer]<br />
+          [PLZ und Ort], Österreich
+        </p>
+        <p>
+          E-Mail: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        </p>
+        <h2>Unternehmensgegenstand</h2>
+        <p>Softwareentwicklung und Bereitstellung von KI-gestützten Planungswerkzeugen.</p>
+        <h2>Angaben gemäß § 5 ECG und § 25 MedienG</h2>
+        <p>
+          [Firmenbuchnummer, Firmenbuchgericht, UID-Nummer, zuständige Kammer und Behörde — wird vor
+          dem Livegang ergänzt.]
+        </p>
+        <h2>Haftung für Inhalte</h2>
+        <p>
+          Die Inhalte dieser Website werden mit Sorgfalt erstellt. Für Richtigkeit, Vollständigkeit
+          und Aktualität wird keine Gewähr übernommen. Inhalte zu baurechtlichen Themen stellen
+          keine Rechtsberatung dar.
+        </p>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

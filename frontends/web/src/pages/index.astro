@@ -1,0 +1,22 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import Hero from '../components/organisms/Hero.astro'
+import Story from '../components/organisms/Story.astro'
+import Nutzung from '../components/organisms/Nutzung.astro'
+import Datengrundlage from '../components/organisms/Datengrundlage.astro'
+import KiDatenschutz from '../components/organisms/KiDatenschutz.astro'
+import Cta from '../components/organisms/Cta.astro'
+---
+
+<BaseLayout>
+  <Hero />
+  <Story />
+  <Nutzung />
+  <Datengrundlage />
+  <KiDatenschutz />
+  <Cta />
+</BaseLayout>
+
+<script>
+  import '../scripts/landing'
+</script>

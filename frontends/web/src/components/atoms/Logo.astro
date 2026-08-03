@@ -1,0 +1,15 @@
+---
+interface Props {
+  href?: string
+  class?: string
+}
+const { href = '/', class: className = '' } = Astro.props
+---
+
+<a
+  href={href}
+  class={`font-logo text-[23px] font-medium uppercase tracking-[0.22em] text-ink ${className}`}
+  aria-label="Piloti — Startseite"
+>
+  Piloti
+</a>

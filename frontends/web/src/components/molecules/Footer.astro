@@ -1,0 +1,23 @@
+---
+import Logo from '../atoms/Logo.astro'
+import { CONTACT_EMAIL } from '../../consts'
+
+const year = new Date().getFullYear()
+---
+
+<footer class="px-[18px] pb-6">
+  <div
+    class="mx-auto flex max-w-[1340px] flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-ink/15 px-[30px] py-[26px]"
+  >
+    <Logo href="/#top" class="!text-[17px]" />
+    <nav aria-label="Footer" class="flex flex-wrap items-center gap-6 text-[13px] text-ink-soft">
+      <a href="/#nutzung">Nutzung</a>
+      <a href="/#daten">Datengrundlage</a>
+      <a href="/blog">Blog</a>
+      <a href="/datenschutz">Datenschutz</a>
+      <a href="/impressum">Impressum</a>
+      <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+    </nav>
+    <p class="text-[12px] text-ink-faint">© Piloti {year}</p>
+  </div>
+</footer>

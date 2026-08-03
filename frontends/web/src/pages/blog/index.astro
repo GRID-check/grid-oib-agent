@@ -1,0 +1,53 @@
+---
+import { getCollection } from 'astro:content'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import SectionTag from '../../components/atoms/SectionTag.astro'
+import BlogCard from '../../components/molecules/BlogCard.astro'
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+)
+---
+
+<BaseLayout
+  title="Blog — Piloti"
+  description="Einblicke in KI-gestützte Planung, Baurecht und die Arbeit von Architektur- und Planungsbüros."
+>
+  <section class="px-6 pb-28 pt-36 md:px-10">
+    <div class="mx-auto max-w-[1060px]">
+      <SectionTag>Blog</SectionTag>
+      <h1
+        class="mt-6 max-w-[640px] font-display text-[clamp(34px,5vw,54px)] font-semibold leading-[1.08] tracking-[-0.02em] text-ink"
+      >
+        Wissen, das weiterbringt.
+      </h1>
+      <p class="mt-5 max-w-[560px] text-[16px] leading-[1.65] text-ink-soft">
+        Einblicke in KI-gestützte Planung, Baurecht und den Büroalltag — vom Piloti-Team.
+      </p>
+
+      {
+        posts.length === 0 ? (
+          <p class="mt-16 rounded-[20px] bg-white p-10 text-center text-[15px] text-ink-soft">
+            Noch keine Beiträge — der erste Artikel ist in Arbeit.
+          </p>
+        ) : (
+          <div class="mt-14 grid gap-6 md:grid-cols-2">
+            {posts.map((post) => (
+              <BlogCard
+                title={post.data.title}
+                description={post.data.description}
+                pubDate={post.data.pubDate}
+                href={`/blog/${post.id}/`}
+              />
+            ))}
+          </div>
+        )
+      }
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import { initReveals } from '../../scripts/reveal'
+  initReveals()
+</script>

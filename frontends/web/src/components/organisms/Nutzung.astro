@@ -1,0 +1,38 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import ChatMock from '../molecules/ChatMock.astro'
+---
+
+<section
+  id="nutzung"
+  data-screen-label="04 Nutzung"
+  class="mx-auto box-border flex min-h-screen max-w-[1360px] flex-col justify-center px-10 py-24"
+>
+  <div class="box-border rounded-[28px] bg-surface-dim px-16 py-[72px]">
+    <div class="grid grid-cols-[minmax(280px,4fr)_8fr] items-center gap-12 max-lg:grid-cols-1">
+      <div data-reveal>
+        <SectionTag class="mb-[22px]">Nutzung</SectionTag>
+        <h2
+          class="m-0 mb-6 font-display text-[clamp(30px,3.4vw,44px)] font-bold leading-[1.1] tracking-[-0.018em]"
+          style="text-wrap: balance"
+        >
+          Zu jeder Planungsaufgabe das passende Wissen.
+        </h2>
+        <p class="m-0 mb-8 text-[17px] leading-[1.6] text-ink-soft" style="text-wrap: pretty">
+          Sie entwerfen, Piloti liefert den Kontext: passende Projekterfahrung, einzuhaltende
+          Rahmenbedingungen, die richtigen Materialkennwerte und Ihre Budgetziele — genau das, was
+          Sie brauchen, um die richtigen Entscheidungen zu treffen.
+        </p>
+        <div class="flex items-baseline gap-3.5 border-t border-ink/15 pt-6">
+          <span class="font-display text-[40px] font-bold tracking-[-0.02em] text-accent-900"
+            >Sekunden</span
+          >
+        </div>
+        <p class="mb-0 mt-2 text-[13.5px] text-[#6f706c]">
+          statt Stunden — Antwort mit Verweis auf Paragraf, Richtlinie und Herleitung.
+        </p>
+      </div>
+      <ChatMock />
+    </div>
+  </div>
+</section>

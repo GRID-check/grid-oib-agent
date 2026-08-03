@@ -1,0 +1,25 @@
+---
+interface Props {
+  title: string
+  description: string
+  pubDate: Date
+  href: string
+}
+const { title, description, pubDate, href } = Astro.props
+const date = pubDate.toLocaleDateString('de-AT', { year: 'numeric', month: 'long', day: 'numeric' })
+---
+
+<a
+  href={href}
+  class="group block rounded-[20px] bg-white p-7 transition-shadow hover:shadow-[0_14px_36px_rgb(24_28_16/0.12)]"
+  data-reveal
+>
+  <p class="font-mono text-[11px] uppercase tracking-[0.12em] text-accent-500">
+    <time datetime={pubDate.toISOString()}>{date}</time>
+  </p>
+  <h2 class="mt-3 font-display text-[21px] font-semibold text-ink group-hover:text-accent-600">
+    {title}
+  </h2>
+  <p class="mt-3 text-[14px] leading-[1.6] text-ink-soft">{description}</p>
+  <p class="mt-5 text-[13px] font-medium text-accent-600">Weiterlesen →</p>
+</a>
