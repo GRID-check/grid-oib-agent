@@ -922,14 +922,17 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
  *
  * There is deliberately no session / FGA here: the caller is the backend over
  * the service-token-guarded internal network, and the collection name is the
- * tenancy boundary (`proj_<uuid>` / `archiv_<orgId>` are unguessable). The
- * backend uses the key to fetch the raw bytes from SeaweedFS for the
- * `view_knowledge_image` tool (ADR-0039), so this is read-only metadata — it
- * never returns the bytes themselves.
+ * tenancy boundary (`proj_<uuid>` / `archiv_<orgId>` are unguessable). When the
+ * backend derives an `organizationId` from an `archiv_` collection prefix, it
+ * is forwarded to narrow the row lookup to that org; otherwise the lookup is
+ * collection-only. The backend uses the key to fetch the raw bytes from
+ * SeaweedFS for the `view_knowledge_image` tool (ADR-0039), so this is
+ * read-only metadata — it never returns the bytes themselves.
  */
 export async function findDocumentStorageKey(
   collectionName: string,
   filename: string,
+  organizationId?: string,
 ): Promise<{ storageKey: string; contentType: string | null } | null> {
-  return findStorageKeyByCollectionAndFilename(collectionName, filename)
+  return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }

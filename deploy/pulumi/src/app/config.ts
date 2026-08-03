@@ -101,6 +101,9 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
     GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
     SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
+    // Dedicated READ-ONLY bucket-scoped identity for the aiq-agent tier — the
+    // backend must never hold the root `grid` Admin credential (ADR-0039).
+    SEAWEED_BACKEND_READ_SECRET_KEY: cfg.seaweedfs.backendReadSecretKey,
     // DSNs (embed the PG password → secret).
     NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
@@ -209,11 +212,14 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // the storage key via the internal BFF lookup first). This OVERRIDES the
     // earlier "no SEAWEED_* on the backend" separation — that held while the
     // Python tree had zero S3 consumers (thumbnails went through presigned PUT
-    // URLs). The fetch is read-only (get_object only); the access key is scoped
-    // to the single documents bucket.
+    // URLs). The fetch is read-only (get_object only), so the credential is the
+    // DEDICATED read-only identity `grid-backend-read` (Read on the documents
+    // bucket only, distinct key material) — never the root `grid` Admin
+    // credential. The identity is provisioned in the SeaweedFS s3.json by
+    // deploy/pulumi/src/data/seaweedfs.ts.
     { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
-    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
-    sref("SEAWEED_SECRET_KEY"),
+    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.backendReadAccessKey },
+    srefAs("SEAWEED_SECRET_KEY", "SEAWEED_BACKEND_READ_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
   ];
   // Shared Chroma server (horizontal scaling): when set, the adapter uses an

@@ -271,6 +271,22 @@ llms:
     request_timeout: 30
     reasoning_effort: none
 
+  # LLM-judge retrieval reranking — one batched relevance judgment over up to
+  # rerank_candidates chunks. Dedicated entry: summary_llm's 100-token cap is
+  # too small for a 15-candidate JSON scores reply. Greedy decoding (0) pins the
+  # judgment; pure JSON extraction needs no reasoning effort.
+  rerank_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 0
+    top_p: 1.0
+    max_tokens: 256
+    max_retries: 2
+    request_timeout: 60
+    reasoning_effort: none
+
 functions:
   data_sources:
     _type: data_source_registry
@@ -395,9 +411,9 @@ functions:
     max_chunks_per_document: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
     # LLM-judge reranking: over-fetch rerank_candidates (15) chunks and re-order
-    # them against the query with the summary LLM before trimming to top_k.
-    # Fail-open: any judge error returns the fused (hybrid+vector) order.
-    rerank_llm: summary_llm
+    # them against the query with the dedicated rerank LLM before trimming to
+    # top_k. Fail-open: any judge error returns the fused (hybrid+vector) order.
+    rerank_llm: rerank_llm
     rerank_candidates: 15
 
   # Project Memory: silent, observable capture of durable project findings.

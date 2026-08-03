@@ -89,7 +89,7 @@ async def rerank_chunks(
         timeout_seconds: Upper bound for the judge call.
 
     Returns:
-        The re-ordered (and trimmed) chunks, or the original list unchanged on any failure.
+        The re-ordered (and trimmed) chunks, or the original (trimmed) list on any failure.
     """
     if not chunks or not query:
         return chunks
@@ -115,4 +115,4 @@ async def rerank_chunks(
         return ordered if top_n is None else ordered[:top_n]
     except Exception as e:
         logger.warning(f"LLM reranking failed, keeping original order: {e}")
-        return chunks
+        return chunks[:top_n]

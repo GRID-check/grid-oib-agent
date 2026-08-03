@@ -32,6 +32,7 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -3422,7 +3423,7 @@ class LlamaIndexRetriever(BaseRetriever):
             metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
             text = documents[index] if index < len(documents) else ""
             node = TextNode(text=text, node_id=chunk_id, metadata=metadata)
-            nodes.append(NodeWithScore(node=node, score=1.0 / (1.0 + float(distance))))
+            nodes.append(NodeWithScore(node=node, score=math.exp(-float(distance))))
         return [self.normalize(node) for node in nodes]
 
     def normalize(self, raw_result: Any) -> Chunk:

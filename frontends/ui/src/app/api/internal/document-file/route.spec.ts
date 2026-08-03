@@ -47,7 +47,23 @@ describe('GET /api/internal/document-file', () => {
     vi.mocked(findDocumentStorageKey).mockResolvedValue(null)
     const res = await GET(request())
     expect(res.status).toBe(404)
-    expect(vi.mocked(findDocumentStorageKey).mock.calls[0]).toEqual(['proj_1', 'plan.png'])
+    expect(vi.mocked(findDocumentStorageKey).mock.calls[0]).toEqual(['proj_1', 'plan.png', undefined])
+  })
+
+  it('forwards organizationId to the service when the query param is present', async () => {
+    vi.mocked(findDocumentStorageKey).mockResolvedValue({
+      storageKey: 'org/o1/archiv/doc/d1/plan.png',
+      contentType: 'image/png',
+    })
+    const res = await GET(request('?collection=archiv_org_1&filename=plan.png&organizationId=org_1'))
+    expect(res.status).toBe(200)
+    expect(vi.mocked(findDocumentStorageKey).mock.calls[0]).toEqual(['archiv_org_1', 'plan.png', 'org_1'])
+  })
+
+  it('passes no organizationId to the service when the query param is absent', async () => {
+    vi.mocked(findDocumentStorageKey).mockResolvedValue(null)
+    await GET(request())
+    expect(vi.mocked(findDocumentStorageKey).mock.calls[0][2]).toBeUndefined()
   })
 
   it('returns the storage key and content type for a known document', async () => {

@@ -74,11 +74,19 @@ _SEAWEED_SECRET_KEY_ENV = "SEAWEED_SECRET_KEY"
 _DEFAULT_SEAWEED_BUCKET = "grid-documents"
 
 
+def _default_max_dim() -> int:
+    try:
+        value = int(os.environ.get(_MAX_DIM_ENV, str(_DEFAULT_MAX_DIM)).strip())
+    except ValueError:
+        return _DEFAULT_MAX_DIM
+    return value if value > 0 else _DEFAULT_MAX_DIM
+
+
 class ViewKnowledgeImageToolConfig(FunctionBaseConfig, name="view_knowledge_image"):
     """Configuration for the knowledge image viewing tool."""
 
     max_dim: int = Field(
-        default=int(os.environ.get(_MAX_DIM_ENV, _DEFAULT_MAX_DIM)),
+        default_factory=_default_max_dim,
         description="Long edge (px) of the rendered page; higher is sharper, larger payloads.",
     )
     timeout: float = Field(default=30.0, description="Render timeout in seconds.")
@@ -183,12 +191,17 @@ def _normalize_image_to_jpeg(image_bytes: bytes, max_dim: int) -> tuple[bytes, i
     return buf.getvalue(), pil_image.width, pil_image.height
 
 
-async def _resolve_storage_key(collection: str, file_name: str) -> str | None:
+async def _resolve_storage_key(collection: str, file_name: str, organization_id: str | None = None) -> str | None:
     """Resolve a ``(collection, filename)`` pair to a SeaweedFS storage key.
 
     Calls the BFF internal lookup (service-token guarded). Returns ``None`` on
     any failure (unconfigured URL/token, non-200, transport error) — fail-open,
     so a base-corpus-only deployment with no BFF wiring simply never resolves.
+
+    An optional ``organization_id`` is forwarded as the ``organizationId``
+    query param (needed to scope Archiv documents); when not passed it is
+    derived from the collection prefix (``archiv_org_123`` -> ``org_123``).
+    The param is only added to the request when one was derived/provided.
     """
     base_url = os.environ.get(_FRONTEND_INTERNAL_URL_ENV, "").strip()
     token = os.environ.get(_INTERNAL_TOKEN_ENV, "").strip()
@@ -197,11 +210,16 @@ async def _resolve_storage_key(collection: str, file_name: str) -> str | None:
     try:
         import httpx
 
+        if organization_id is None and collection.startswith("archiv_"):
+            organization_id = collection[len("archiv_") :]
+        params = {"collection": collection, "filename": file_name}
+        if organization_id:
+            params["organizationId"] = organization_id
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
                 f"{base_url.rstrip('/')}/api/internal/document-file",
-                params={"collection": collection, "filename": file_name},
-                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                headers={"x-grid-internal-token": token},
             )
         if response.status_code != 200:
             return None
@@ -275,7 +293,6 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
     async def lookup(
         file_name: str,
         page_number: int = 1,
-        image_index: int = 0,
         collection: str = "",
     ) -> list[dict] | str:
         if not _is_enabled():
@@ -309,15 +326,21 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                     f"in collection '{collection}' (not in the document index, or the document "
                     "service is unreachable)."
                 )
-            image_bytes = await asyncio.to_thread(_fetch_seaweed_bytes, storage_key)
+            try:
+                image_bytes = await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_seaweed_bytes, storage_key), timeout=config.timeout
+                )
+            except Exception as e:  # noqa: BLE001 - fail-open contract
+                logger.warning("view_knowledge_image: fetch failed for %s: %s", file_name, e)
+                image_bytes = None
             if image_bytes is None:
                 return (
                     f"[view_knowledge_image] Could not fetch the stored bytes for '{file_name}' "
                     "from object storage (credentials/endpoint unavailable, or the object is gone)."
                 )
             try:
-                jpeg_bytes, width, height = await asyncio.to_thread(
-                    _normalize_image_to_jpeg, image_bytes, config.max_dim
+                jpeg_bytes, width, height = await asyncio.wait_for(
+                    asyncio.to_thread(_normalize_image_to_jpeg, image_bytes, config.max_dim), timeout=config.timeout
                 )
             except Exception as e:  # noqa: BLE001 - fail-open contract
                 logger.warning("view_knowledge_image: image decode failed for %s: %s", file_name, e)
@@ -340,7 +363,9 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
         pdf_path = _find_pdf(config.pdf_dirs, file_name)
         if pdf_path is not None:
             try:
-                jpeg_bytes, width, height = await asyncio.to_thread(_render_page, pdf_path, page_number, config.max_dim)
+                jpeg_bytes, width, height = await asyncio.wait_for(
+                    asyncio.to_thread(_render_page, pdf_path, page_number, config.max_dim), timeout=config.timeout
+                )
             except Exception as e:  # noqa: BLE001 - fail-open contract
                 logger.warning("view_knowledge_image: render failed for %s page %d: %s", file_name, page_number, e)
                 return f"[view_knowledge_image] Could not render page {page_number} of '{file_name}': {e}"
@@ -350,7 +375,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                     "type": "text",
                     "text": (
                         f"Rendered page {page_number} of '{file_name}' "
-                        f"({width}x{height}px, image_index={image_index}). "
+                        f"({width}x{height}px). "
                         "This is the actual page the retrieved chunk describes — inspect it "
                         "for plans, drawings, scale, dimensions and relationships."
                     ),
@@ -372,15 +397,22 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                 f"in collection '{collection}' (not in the document index, or the document "
                 "service is unreachable)."
             )
-        pdf_bytes = await asyncio.to_thread(_fetch_seaweed_bytes, storage_key)
+        try:
+            pdf_bytes = await asyncio.wait_for(
+                asyncio.to_thread(_fetch_seaweed_bytes, storage_key), timeout=config.timeout
+            )
+        except Exception as e:  # noqa: BLE001 - fail-open contract
+            logger.warning("view_knowledge_image: fetch failed for %s: %s", file_name, e)
+            pdf_bytes = None
         if pdf_bytes is None:
             return (
                 f"[view_knowledge_image] Could not fetch the stored bytes for '{file_name}' "
                 "from object storage (credentials/endpoint unavailable, or the object is gone)."
             )
         try:
-            jpeg_bytes, width, height = await asyncio.to_thread(
-                _render_page_from_bytes, pdf_bytes, page_number, config.max_dim
+            jpeg_bytes, width, height = await asyncio.wait_for(
+                asyncio.to_thread(_render_page_from_bytes, pdf_bytes, page_number, config.max_dim),
+                timeout=config.timeout,
             )
         except Exception as e:  # noqa: BLE001 - fail-open contract
             logger.warning("view_knowledge_image: render failed for %s page %d: %s", file_name, page_number, e)
@@ -391,7 +423,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                 "type": "text",
                 "text": (
                     f"Rendered page {page_number} of '{file_name}' from collection "
-                    f"'{collection}' ({width}x{height}px, image_index={image_index}). "
+                    f"'{collection}' ({width}x{height}px). "
                     "This is the actual page the retrieved chunk describes — inspect it "
                     "for plans, drawings, scale, dimensions and relationships."
                 ),

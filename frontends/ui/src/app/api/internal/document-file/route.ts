@@ -9,8 +9,10 @@
  * `internalApiRoute` (fail-closed when the token is unconfigured). The
  * collection name is the tenancy boundary (`proj_<uuid>` / `archiv_<orgId>` are
  * unguessable), so no per-org FGA applies — mirroring the internal
- * llm-credential and memory endpoints. Read-only: returns the storage key, not
- * the bytes (the backend fetches those itself from SeaweedFS).
+ * llm-credential and memory endpoints. The backend may additionally send an
+ * optional `organizationId` (derived from an `archiv_` collection prefix),
+ * which narrows the row lookup to that org when present. Read-only: returns the
+ * storage key, not the bytes (the backend fetches those itself from SeaweedFS).
  */
 
 import { z } from 'zod'
@@ -21,11 +23,12 @@ import { findDocumentStorageKey } from '@/lib/documents/service'
 const querySchema = z.object({
   collection: z.string().min(1),
   filename: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
 })
 
 export const GET = internalApiRoute('document-file', async ({ request }) => {
-  const { collection, filename } = parseQuery(request, querySchema)
-  const document = await findDocumentStorageKey(collection, filename)
+  const { collection, filename, organizationId } = parseQuery(request, querySchema)
+  const document = await findDocumentStorageKey(collection, filename, organizationId)
   if (!document) throw new NotFoundError('Document not found')
   return { storageKey: document.storageKey, contentType: document.contentType }
 })

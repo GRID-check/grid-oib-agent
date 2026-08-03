@@ -98,7 +98,9 @@ async def test_rerank_empty_reply_returns_original() -> None:
 async def test_rerank_empty_inputs_unchanged() -> None:
     llm = _FakeLLM("{}")
     assert await rerank_chunks(llm, "query", []) == []
-    assert await rerank_chunks(llm, "query", []) == []
+    chunks = [_chunk("a")]
+    assert await rerank_chunks(llm, "", chunks) == chunks
+    assert llm.calls == []
 
 
 @pytest.mark.asyncio

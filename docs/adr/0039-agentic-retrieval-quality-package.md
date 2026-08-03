@@ -33,7 +33,7 @@ Two further constraints shaped the design:
   hosted reranker API was off the table.
 - **No re-ingest for behavior changes.** Re-embedding the corpus to fix keyword
   recall would be expensive and version-unstable; store-side metadata is
-  already authorative for `doc_class`.
+   already authoritative for `doc_class`.
 
 ## Decision
 
@@ -77,12 +77,17 @@ We will add four retrieval-side improvements to the knowledge layer, all
    `GET /api/internal/document-file` (service `lib/documents/service.ts`,
    repository `lib/documents/repository.ts`, ADR-0017 layering) resolves the
    pair, and the backend fetches the bytes itself via boto3 (S3, path-style).
-   This **deliberately overrides the previous "no SEAWEED_* on the aiq-agent
-   tier" separation** in `deploy/pulumi/src/app/config.ts`: the tier now
-   receives `SEAWEED_ENDPOINT`/`SEAWEED_BUCKET`/`SEAWEED_ACCESS_KEY`/
-   `SEAWEED_SECRET_KEY` for read-only `get_object` calls — the smallest
-   credential scope that lets the tool see project/Archiv documents without a
-   presign round-trip through the upload path.
+    This **deliberately overrides the previous "no SEAWEED_* on the aiq-agent
+    tier" separation** in `deploy/pulumi/src/app/config.ts`: the tier now
+    receives `SEAWEED_ENDPOINT`/`SEAWEED_BUCKET`/`SEAWEED_ACCESS_KEY`/
+    `SEAWEED_SECRET_KEY` for read-only `get_object` calls — the smallest
+    credential scope that lets the tool see project/Archiv documents without a
+    presign round-trip through the upload path. The credential is a **dedicated
+    read-only, bucket-scoped identity** (`grid-backend-read`: `Read` on the
+    documents bucket only, distinct key material from the root `grid` identity,
+    provisioned alongside it in the SeaweedFS s3.json by
+    `deploy/pulumi/src/data/seaweedfs.ts`) — the backend never holds the root
+    Admin access key.
 
 Plus a fifth, observability-side improvement:
 
@@ -137,12 +142,15 @@ All changes ship with unit tests under `tests/knowledge_layer_tests/`
   dampening.
 - Answer-time page rendering exposes PDF render cost in the chat path;
   mitigated by per-page on-demand rendering, `AIQ_PAGE_RENDER_MAX_DIM` bounds,
-  and the disabled-by-default capability gate (no VLM key = tool explains
-  itself in text).
-- The aiq-agent tier now holds the SeaweedFS S3 credential (attack-surface
-  widening vs. the previous presign-only separation); mitigated by read-only
-  usage (`get_object` only), token-guarded BFF lookup as the sole key source,
-  and fail-open degradation when the credential is absent.
+  and the gate itself: availability is the default-on `AIQ_VIEW_IMAGES_ENABLED`
+  flag AND a resolvable VLM key (the derived capability, per the capability
+  doctrine); without a key the tool explains itself in text.
+- The aiq-agent tier now holds a SeaweedFS S3 credential (attack-surface
+  widening vs. the previous presign-only separation); mitigated by a dedicated
+  read-only identity (`grid-backend-read`: `Read` on the documents bucket only,
+  distinct key material from the root `grid` identity — see
+  `deploy/pulumi/src/data/seaweedfs.ts`), token-guarded BFF lookup as the sole
+  key source, and fail-open degradation when the credential is absent.
 
 ## Alternatives Considered
 

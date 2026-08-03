@@ -38,7 +38,6 @@ async def _invoke(
     *,
     file_name: str = "OIB-3.pdf",
     page_number: int = 3,
-    image_index: int = 0,
     collection: str = "",
     pdf_path: str | None = None,
     render_result=(_JPEG_BYTES, 100, 50),
@@ -73,9 +72,7 @@ async def _invoke(
 
     config = _config(tmp_path)
     async with view_knowledge_image(config, None) as info:
-        args = info.input_schema(
-            file_name=file_name, page_number=page_number, image_index=image_index, collection=collection
-        )
+        args = info.input_schema(file_name=file_name, page_number=page_number, collection=collection)
         return await info.single_fn(args)
 
 
@@ -379,6 +376,7 @@ async def test_resolve_storage_key_fail_open(monkeypatch) -> None:
 
     class _Client:
         response = _Response(200, {"storageKey": "org/o1/k.png"})
+        seen_params = []
 
         def __init__(self, **_kwargs):
             pass
@@ -391,14 +389,30 @@ async def test_resolve_storage_key_fail_open(monkeypatch) -> None:
 
         async def get(self, url, *, params, headers):
             assert url.endswith("/api/internal/document-file")
-            assert params == {"collection": "proj_1", "filename": "plan.png"}
-            assert headers["Authorization"] == "Bearer tok"
+            assert headers["x-grid-internal-token"] == "tok"
+            _Client.seen_params.append(params)
             return self.response
 
     monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
     assert await _resolve_storage_key("proj_1", "plan.png") == "org/o1/k.png"
+    assert _Client.seen_params[-1] == {"collection": "proj_1", "filename": "plan.png"}
+
+    assert await _resolve_storage_key("archiv_org_1", "plan.png") == "org/o1/k.png"
+    assert _Client.seen_params[-1] == {
+        "collection": "archiv_org_1",
+        "filename": "plan.png",
+        "organizationId": "org_1",
+    }
+
+    assert await _resolve_storage_key("proj_1", "plan.png", organization_id="org_2") == "org/o1/k.png"
+    assert _Client.seen_params[-1] == {
+        "collection": "proj_1",
+        "filename": "plan.png",
+        "organizationId": "org_2",
+    }
 
     _Client.response = _Response(404, {})
     assert await _resolve_storage_key("proj_1", "plan.png") is None
