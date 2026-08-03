@@ -2918,12 +2918,14 @@ class LlamaIndexRetriever(BaseRetriever):
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
         embed_model: NVIDIA embedding model name (default from AIQ_EMBED_MODEL)
         top_k: Default number of results (default: 10)
+        hybrid_search: Enable lexical+vector hybrid retrieval (default from AIQ_HYBRID_RETRIEVAL)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
         AIQ_EMBED_MODEL: Default embedding model name
         AIQ_EMBED_BASE_URL: Default embedding model base URL
         AIQ_RETRIEVER_TOP_K: Default top_k value
+        AIQ_HYBRID_RETRIEVAL: Enable hybrid lexical+vector retrieval (default: true)
     """
 
     # Default configuration from environment variables
@@ -2937,6 +2939,19 @@ class LlamaIndexRetriever(BaseRetriever):
     # @required false
     # Default number of results returned by the LlamaIndex retriever.
     DEFAULT_TOP_K = int(os.environ.get("AIQ_RETRIEVER_TOP_K", "10"))
+    # @environment_variable AIQ_HYBRID_RETRIEVAL
+    # @category Knowledge Layer
+    # @type bool
+    # @default true
+    # @required false
+    # Enable the lexical+vector hybrid retrieval channel (exact-term Chroma
+    # `$contains` passes fused with the vector results via reciprocal rank fusion).
+    DEFAULT_HYBRID_SEARCH = os.environ.get("AIQ_HYBRID_RETRIEVAL", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
     backend_name = "llamaindex"
 
@@ -2947,6 +2962,8 @@ class LlamaIndexRetriever(BaseRetriever):
         self.embed_model_name = self.config.get("embed_model", self.DEFAULT_EMBED_MODEL)
         self.embed_base_url = self.config.get("embed_base_url", self.DEFAULT_EMBED_BASE_URL)
         self.default_top_k = self.config.get("top_k", self.DEFAULT_TOP_K)
+        # Explicit config wins; otherwise the environment default (on).
+        self.hybrid_search = bool(self.config.get("hybrid_search", self.DEFAULT_HYBRID_SEARCH))
 
         # Lazy-loaded components
         self._embed_model = None
@@ -3182,6 +3199,9 @@ class LlamaIndexRetriever(BaseRetriever):
             # Normalize results to Chunk schema
             chunks = [self.normalize(node) for node in nodes]
 
+            if self.hybrid_search:
+                chunks = self._hybrid_lexical_boost(query, collection_name, top_k, filters, chunks)
+
             logger.info(f"LlamaIndex retrieval returned {len(chunks)} chunks")
 
             result = RetrievalResult(
@@ -3203,6 +3223,75 @@ class LlamaIndexRetriever(BaseRetriever):
                 success=False,
                 error_message=f"Retrieval failed: {str(e)[:100]}",
             )
+
+    def _hybrid_lexical_boost(
+        self,
+        query: str,
+        collection_name: str,
+        top_k: int,
+        filters: dict[str, Any] | None,
+        chunks: list[Chunk],
+    ) -> list[Chunk]:
+        """Run one Chroma ``$contains`` pass per exact query term and RRF-fuse with the vector results.
+
+        The vector channel stays first so it wins ties. Any failure degrades to the plain
+        vector results (fail-open): the lexical channel is an enhancement, never a gate.
+        """
+        try:
+            from .hybrid import extract_exact_terms
+            from .hybrid import reciprocal_rank_fusion
+
+            terms = extract_exact_terms(query) if extract_exact_terms is not None else []
+            if not terms:
+                return chunks
+
+            embedding = self._embed_query_cached(query)
+            collection = self._chroma_client.get_collection(name=collection_name)
+            channels: list[list[Chunk]] = [chunks]
+            for term in terms:
+                raw = collection.query(
+                    query_embeddings=[embedding],
+                    n_results=top_k,
+                    where_document={"$contains": term},
+                    where=filters if filters else None,
+                )
+                channels.append(self._chunks_from_raw_query(raw))
+
+            fused = reciprocal_rank_fusion(channels, top_n=top_k)
+            if fused:
+                logger.info(
+                    f"Hybrid retrieval fused {len(chunks)} vector + {len(terms)} lexical channel(s) "
+                    f"into {len(fused)} chunks for collection {collection_name}"
+                )
+                return fused
+            return chunks
+        except Exception as e:
+            logger.warning(f"Hybrid lexical boost failed, falling back to vector-only retrieval: {e}")
+            return chunks
+
+    def _chunks_from_raw_query(self, raw: dict[str, Any]) -> list[Chunk]:
+        """Convert a raw Chroma ``collection.query`` result dict into normalized Chunks.
+
+        The raw query returns per-query-embedding lists; we always send exactly one
+        embedding, so each key's first list is the one we want. L2 distances map to a
+        display score monotonically; RRF only consumes ranks, so any monotone map works.
+        """
+        from llama_index.core.schema import NodeWithScore
+        from llama_index.core.schema import TextNode
+
+        ids = raw.get("ids", [[]])[0]
+        documents = raw.get("documents", [[]])[0]
+        metadatas = raw.get("metadatas", [[]])[0]
+        distances = raw.get("distances", [[]])[0]
+
+        nodes: list[NodeWithScore] = []
+        for index, chunk_id in enumerate(ids):
+            distance = distances[index] if index < len(distances) else 1.0
+            metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
+            text = documents[index] if index < len(documents) else ""
+            node = TextNode(text=text, node_id=chunk_id, metadata=metadata)
+            nodes.append(NodeWithScore(node=node, score=1.0 / (1.0 + float(distance))))
+        return [self.normalize(node) for node in nodes]
 
     def normalize(self, raw_result: Any) -> Chunk:
         """Convert LlamaIndex NodeWithScore to universal Chunk."""
