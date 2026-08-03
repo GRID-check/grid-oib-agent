@@ -41,23 +41,6 @@ const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-function initNav() {
-  const header = document.querySelector<HTMLElement>('[data-nav]')
-  const bar = document.querySelector<HTMLElement>('[data-nav-bar]')
-  const heroWrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  if (!header || !bar) return
-  const solidClasses = ['bg-canvas/95', 'shadow-[0_1px_0_rgb(31_32_35/0.08)]', 'backdrop-blur-sm']
-  const apply = () => {
-    const overHero = heroWrap ? window.scrollY < heroWrap.offsetHeight - 70 : false
-    bar.classList.toggle('bg-canvas/95', !overHero)
-    bar.classList.toggle('shadow-[0_1px_0_rgb(31_32_35/0.08)]', !overHero)
-    bar.classList.toggle('backdrop-blur-sm', !overHero)
-    void solidClasses
-  }
-  apply()
-  window.addEventListener('scroll', apply, { passive: true })
-}
-
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   if (!cta) return
@@ -538,7 +521,6 @@ function initChain() {
   io.observe(anchor)
 }
 
-initNav()
 initHeroCta()
 initAura()
 initPins()

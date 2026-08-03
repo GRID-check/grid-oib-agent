@@ -31,7 +31,7 @@ const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
             Noch keine Beiträge — der erste Artikel ist in Arbeit.
           </p>
         ) : (
-          <div class="mt-14 grid gap-6 md:grid-cols-2">
+          <div data-reveal class="mt-14 grid gap-6 md:grid-cols-2">
             {posts.map((post) => (
               <BlogCard
                 title={post.data.title}

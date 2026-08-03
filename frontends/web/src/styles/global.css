@@ -179,6 +179,14 @@ a:hover {
     transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+html:not(.js) [data-h-solution] {
+  opacity: 1;
+}
+html:not(.js) [data-solution-card] {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

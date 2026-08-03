@@ -1,7 +1,7 @@
 ---
 import Logo from '../atoms/Logo.astro'
 import Pill from '../atoms/Pill.astro'
-import { APP_URL, CONTACT_EMAIL } from '../../consts'
+import { APP_URL } from '../../consts'
 ---
 
 <header
@@ -17,7 +17,7 @@ import { APP_URL, CONTACT_EMAIL } from '../../consts'
     <Logo href="/#top" />
     <div class="flex items-center justify-end gap-[14px] text-[13px] font-medium">
       <a href={APP_URL} class="text-ink hover:text-accent-600">Anmelden</a>
-      <Pill href={`mailto:${CONTACT_EMAIL}?subject=Demo-Anfrage`} variant="outline" size="sm">
+      <Pill href="#kontakt" variant="outline" size="sm">
         Demo anfragen
       </Pill>
     </div>
