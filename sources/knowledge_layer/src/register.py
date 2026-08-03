@@ -32,6 +32,11 @@ _CHUNK_TRUNCATE_CHARS = 2500
 # top_k=8 the second pass fills remaining slots, covering >=4 documents.
 _MAX_CHUNKS_PER_DOC = 2
 
+# Retrieval over-fetch factor applied when the caller narrows results with the
+# agentic filters (doc_class / title_contains): post-merge filtering drops
+# candidates, so each layer fetches 3x top_k to leave enough survivors.
+_AGENT_FILTER_OVERFETCH = 3
+
 # Type-safe backend selection - Pydantic validates at config load time
 BackendType = Literal["llamaindex", "foundational_rag"]
 
@@ -103,6 +108,24 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     chroma_dir: str = Field(
         default="/tmp/chroma_data", description="Directory for ChromaDB persistence (LlamaIndex only)"
     )
+    hybrid_search: bool | None = Field(
+        default=None,
+        description=(
+            "Enable lexical+vector hybrid retrieval on the LlamaIndex backend (exact-term "
+            "Chroma $contains passes fused with vector results via reciprocal rank fusion). "
+            "None = environment default AIQ_HYBRID_RETRIEVAL (on)."
+        ),
+    )
+    rerank_llm: str | None = Field(
+        default=None,
+        description=(
+            "Optional LLM reference from llms: section used to re-rank retrieved chunks "
+            "against the query (LLM-judge reranking; fail-open to the original order)."
+        ),
+    )
+    rerank_candidates: int = Field(
+        default=15, ge=0, description="How many candidate chunks to over-fetch and re-rank when rerank_llm is set"
+    )
     # Foundational RAG (hosted RAG Blueprint) options
     rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
     ingest_url: str = Field(
@@ -168,10 +191,12 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
         import knowledge_layer.llamaindex.adapter  # noqa: F401
 
         os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
-        backend_config = {
+        backend_config: dict = {
             "persist_dir": config.chroma_dir,
             **summary_config,
         }
+        if config.hybrid_search is not None:
+            backend_config["hybrid_search"] = config.hybrid_search
 
     elif backend == "foundational_rag":
         import knowledge_layer.foundational_rag.adapter  # noqa: F401
@@ -566,6 +591,33 @@ def _hit_display_title(chunk, resolved: dict[tuple[str, str], str]) -> str | Non
     return None
 
 
+def _apply_agent_filters(chunks, doc_class: str | None, title_contains: str | None) -> list:
+    """Narrow a merged candidate list by the agent-supplied filters.
+
+    Both filters run post-merge so they apply uniformly across every collection
+    layer (base, session, project). ``doc_class`` uses the same store-authoritative
+    resolution as the Dokumentart line (:func:`_hit_doc_class`), so a platform-owner
+    reclassification takes effect without re-ingest. ``title_contains`` matches the
+    raw file name OR the resolved display title, case-insensitively.
+    """
+    resolved_classes = _resolve_doc_classes(chunks) if doc_class else {}
+    resolved_titles = _resolve_display_titles(chunks) if title_contains else {}
+    needle = title_contains.casefold() if title_contains else None
+    kept = []
+    for chunk in chunks:
+        if doc_class and _hit_doc_class(chunk, resolved_classes) != doc_class:
+            continue
+        if needle:
+            haystacks = [chunk.file_name or ""]
+            title = _hit_display_title(chunk, resolved_titles)
+            if title:
+                haystacks.append(title)
+            if not any(needle in hay.casefold() for hay in haystacks):
+                continue
+        kept.append(chunk)
+    return kept
+
+
 def _trace_lanes_json(
     chunks,
     resolved: dict[tuple[str, str], str] | None = None,
@@ -782,6 +834,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         summary_llm_obj = await get_langchain_llm(_builder, config.summary_model)
         logger.info("Resolved summary model: %s", config.summary_model)
 
+    # Resolve the LLM-judge reranker model (fail-open: search still works when
+    # unset or unresolvable — rerank_chunks degrades to the original order).
+    rerank_llm_obj = None
+    if config.rerank_llm:
+        from aiq_agent.common import get_langchain_llm
+
+        try:
+            rerank_llm_obj = await get_langchain_llm(_builder, config.rerank_llm)
+            logger.info("Resolved rerank model: %s", config.rerank_llm)
+        except Exception as e:
+            logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
+
     # Initialize summary DB with configured URL
     from aiq_agent.knowledge.factory import configure_summary_db
 
@@ -807,7 +871,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         "Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", config.backend, collection, top_k
     )
 
-    async def search(query: str, filters: dict | None = None) -> str:
+    async def search(
+        query: str,
+        filters: dict | None = None,
+        doc_class: str | None = None,
+        title_contains: str | None = None,
+    ) -> str:
         """Search for documents relevant to the query.
 
         Args:
@@ -816,10 +885,29 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 collection (e.g. {"content_type": "text"} or nested
                 {"$and": [...]}/{"$or": [...]}). AND-ed with the configured
                 exclude_file_names. Session/project collections are never filtered.
+            doc_class (str | None): Optional document-class filter (the "Dokumentart"
+                key, e.g. "oib_richtlinie", "gesetz"). Keeps only documents of exactly
+                that class, resolved store-authoritatively (reclassifications apply
+                without re-ingest).
+            title_contains (str | None): Optional case-insensitive substring matched
+                against the document's file name OR its display title.
 
         Returns:
             str: Formatted string containing relevant document excerpts with citations.
         """
+        if doc_class is not None:
+            from aiq_agent.knowledge.document_classification import DOCUMENT_CLASSES
+            from aiq_agent.knowledge.document_classification import is_valid_doc_class
+
+            if not is_valid_doc_class(doc_class):
+                valid = ", ".join(DOCUMENT_CLASSES)
+                return f"Invalid doc_class '{doc_class}'. Valid values: {valid}."
+
+        # Over-fetch when agentic filters will drop candidates post-merge.
+        candidate_k = top_k * _AGENT_FILTER_OVERFETCH if (doc_class or title_contains) else top_k
+        if rerank_llm_obj is not None:
+            candidate_k = max(candidate_k, config.rerank_candidates)
+
         # Resolve the per-session collection (UI uploads for this conversation).
         try:
             ctx = Context.get()
@@ -840,7 +928,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
-            result = await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
+            result = await retriever.retrieve(
+                query=query, collection_name=coll, top_k=candidate_k, filters=coll_filters
+            )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
             for chunk in getattr(result, "chunks", []) or []:
@@ -856,7 +946,21 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             # Merge by score (comparable across collections) with a per-document
             # diversity cap so cross-cutting questions span multiple documents.
-            merged = _merge_results(results, query, top_k, retriever.backend_name, max_per_document)
+            merged = _merge_results(results, query, candidate_k, retriever.backend_name, max_per_document)
+
+            # Agentic narrowing (doc_class / title_contains), then trim to top_k.
+            if doc_class or title_contains:
+                kept = _apply_agent_filters(merged.chunks, doc_class=doc_class, title_contains=title_contains)
+                merged = merged.model_copy(update={"chunks": kept})
+
+            # LLM-judge reranking (fail-open: any error keeps the fused order).
+            if rerank_llm_obj is not None:
+                from knowledge_layer.rerank import rerank_chunks
+
+                reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=config.rerank_candidates)
+                merged = merged.model_copy(update={"chunks": reranked})
+
+            merged = merged.model_copy(update={"chunks": merged.chunks[:top_k]})
 
             # Format for LLM. _format_results does the (now batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
