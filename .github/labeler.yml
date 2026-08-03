@@ -14,6 +14,7 @@ frontend:
   - changed-files:
       - any-glob-to-any-file:
           - "frontends/ui/**"
+          - "frontends/web/**"
 
 ci:
   - changed-files:

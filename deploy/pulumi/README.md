@@ -96,16 +96,16 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **Cluster & images** | | |
 | 🔒 **`kubeconfig`** | — | Target-cluster kubeconfig. For CI use the non-expiring SA token (guide §2b) |
 | `namespace` | `grid` | Namespace for all app + data workloads |
-| `imageRegistry` | `ghcr.io/grid-check` | Registry for the two app images |
-| `imageTag` | `latest` | Tag for both images. CI pins `sha-<commit>`; `latest` forces pullPolicy Always |
-| `backendImage` / `frontendImage` | — | Full image-ref overrides (registry+tag ignored) |
+| `imageRegistry` | `ghcr.io/grid-check` | Registry for the app images |
+| `imageTag` | `latest` | Tag for all images. CI pins `sha-<commit>`; `latest` forces pullPolicy Always |
+| `backendImage` / `frontendImage` / `webImage` | — | Full image-ref overrides (registry+tag ignored) |
 | `imagePullPolicy` | auto | `Always` for `latest`, else `IfNotPresent` |
 | `registryUsername` + 🔒 `registryPassword` | — | Only for PRIVATE app images: creates the `grid-registry-pull` dockerconfigjson Secret and wires it as `imagePullSecrets` on every app workload (the kubelet pulls anonymously, so private GHCR packages need this — a PAT/OAuth token with `read:packages` works as the password). Omit both for public images |
 | **Storage** | | |
 | **`storageClass`** | — | Provider class for every PVC: `premium` (3 replicas) / `standard` (2) / `single-replica` (1) |
 | **Ingress / TLS** | | |
-| **`baseDomain`** | — | Single source for every public host: `app.`/`s3.`/`otel.` subdomains derive from it, so a domain move is a one-key change |
-| `appDomain` / `s3Domain` / `otelDomain` | derived from `baseDomain` | Optional per-host overrides (e.g. an S3 endpoint on a different zone) |
+| **`baseDomain`** | — | Single source for every public host: `app.`/`s3.`/`otel.` subdomains derive from it, so a domain move is a one-key change. The **apex** itself is the landing site's host (frontends/web) |
+| `appDomain` / `s3Domain` / `otelDomain` / `webDomain` | derived from `baseDomain` | Optional per-host overrides (e.g. an S3 endpoint on a different zone); `webDomain` defaults to the bare `baseDomain` |
 | **`letsEncryptEmail`** | — | ACME account email (placeholder rejected) |
 | `useStagingIssuer` | `true` | LE staging CA until DNS/TLS verified, then flip false |
 | `installMetricsServer` | `false` | Only for bare clusters; the provider ships metrics already |
@@ -158,6 +158,10 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `frontendRequestsCpu/Memory`, `frontendLimitsCpu/Memory` | 100m / 256Mi / 1 / 1Gi | Sizing |
 | `frontendMinReplicas` / `frontendMaxReplicas` | 2 / 6 | HPA bounds |
 | `frontendHpaCpuTargetPercent` | `70` | HPA target |
+| **Web (landing site, frontends/web)** | | |
+| `webRequestsCpu/Memory`, `webLimitsCpu/Memory` | 50m / 128Mi / 250m / 256Mi | Sizing — static-first Astro site, near-idle CPU |
+| `webMinReplicas` / `webMaxReplicas` | 2 / 4 | HPA bounds |
+| `webHpaCpuTargetPercent` | `70` | HPA target |
 | **LLM / models** | | |
 | 🔒 **`openrouterApiKey`** / 🔒 **`tavilyApiKey`** | — | Provider keys |
 | `embedModel` / `embedBaseUrl` | text-embedding-3-large / OpenRouter | Embeddings |

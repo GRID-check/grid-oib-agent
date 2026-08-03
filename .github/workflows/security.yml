@@ -6,7 +6,7 @@ name: Security
 #                    and Sonar's security rules)
 #   - OSV-Scanner -> dependency vulnerabilities from lockfiles (replaces Sonar SCA;
 #                    Dependabot opens the fix PRs, see .github/dependabot.yml)
-#   - dependency-audit -> pip-audit + bun audit, complementary advisory sources
+#   - dependency-audit -> pip-audit + bun audit (UI) + npm audit (web), complementary advisory sources
 #   - gitleaks    -> secret scanning across full history
 #   - image-scan  -> trivy on the digest-pinned observability images (ADR-0029)
 #                    deployed via deploy/pulumi (these images are not part of
@@ -164,6 +164,14 @@ jobs:
         run: |
           bun install --frozen-lockfile --ignore-scripts
           bun audit --audit-level=high || true
+      # The Astro microservice (frontends/web) installs with npm, so its
+      # lockfile needs npm audit rather than bun audit.
+      - name: Dependency audit (web)
+        continue-on-error: true
+        working-directory: frontends/web
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high || true
 
   secret-scan:
     name: Secret scan (gitleaks)

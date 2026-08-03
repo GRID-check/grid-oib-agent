@@ -1,0 +1,289 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: Archivo;
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/archivo-var-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/inter-var-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: Poppins;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/poppins-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: Poppins;
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/poppins-500-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: Poppins;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/poppins-600-latin.woff2') format('woff2');
+}
+
+@theme {
+  --color-canvas: #f7f7f3;
+  --color-hero-bg: #e8e5dd;
+  --color-ink: #1f2023;
+  --color-ink-soft: #55565a;
+  --color-ink-faint: #8a8a86;
+  --color-ink-ghost: #a8a8a4;
+  --color-panel: #22271a;
+  --color-accent-900: #2a301f;
+  --color-accent-800: #2c3620;
+  --color-accent-600: #5c6b42;
+  --color-accent-500: #6e7d52;
+  --color-accent-400: #a4d06a;
+  --color-surface: #eef2e4;
+  --color-surface-dim: #eceee2;
+  --color-tint: #d3ddc0;
+  --color-on-dark: #b9c2a4;
+  --color-on-dark-strong: #eef2e4;
+  --color-on-dark-label: #a4b47a;
+  --color-on-dark-tag: #8fa06a;
+
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
+  --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-snap-type: y proximity;
+  scroll-padding-top: 52px;
+}
+
+[data-screen-label] {
+  scroll-snap-align: start;
+}
+[data-pin] {
+  scroll-snap-align: none;
+}
+#nutzung,
+#daten,
+#datenschutz,
+#kontakt {
+  scroll-snap-align: center;
+}
+
+body {
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(to right, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
+    linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+  background-size:
+    168px 168px,
+    168px 168px,
+    28px 28px,
+    28px 28px;
+  background-position: center top;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-ink);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--color-accent-600);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@keyframes chain-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes chain-draw {
+  from {
+    stroke-dashoffset: 460;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes chain-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes chain-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes scrollhint {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateY(8px);
+    opacity: 0.3;
+  }
+}
+
+[data-reveal] {
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html:not(.js) [data-h-solution] {
+  opacity: 1;
+}
+html:not(.js) [data-solution-card] {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+    scroll-snap-type: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.prose-piloti {
+  color: var(--color-ink-soft);
+  font-size: 16.5px;
+  line-height: 1.75;
+}
+.prose-piloti > * + * {
+  margin-top: 1.15em;
+}
+.prose-piloti h1 {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-ink);
+}
+.prose-piloti h2 {
+  margin-top: 1.9em;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--color-ink);
+}
+.prose-piloti h3 {
+  margin-top: 1.7em;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.prose-piloti a {
+  color: var(--color-accent-600);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-piloti a:hover {
+  color: var(--color-accent-500);
+}
+.prose-piloti strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.prose-piloti ul,
+.prose-piloti ol {
+  padding-left: 1.4em;
+}
+.prose-piloti ul {
+  list-style: disc;
+}
+.prose-piloti ol {
+  list-style: decimal;
+}
+.prose-piloti li + li {
+  margin-top: 0.35em;
+}
+.prose-piloti blockquote {
+  border-left: 3px solid var(--color-accent-400);
+  padding-left: 1.1em;
+  font-style: italic;
+  color: var(--color-ink);
+}
+.prose-piloti code {
+  border-radius: 6px;
+  background: var(--color-surface);
+  padding: 0.15em 0.4em;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.prose-piloti pre {
+  overflow-x: auto;
+  border-radius: 14px;
+  background: var(--color-panel);
+  padding: 1.1em 1.3em;
+}
+.prose-piloti pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--color-on-dark-strong);
+}
+.prose-piloti img {
+  border-radius: 16px;
+}
+.prose-piloti hr {
+  border-color: rgb(42 48 31 / 0.14);
+  margin: 2.2em 0;
+}

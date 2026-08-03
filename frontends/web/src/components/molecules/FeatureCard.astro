@@ -1,0 +1,42 @@
+---
+interface Props {
+  idx: string
+  title: string
+  tone?: 'light' | 'dark' | 'dim'
+  class?: string
+}
+const { idx, title, tone = 'light', class: className = '' } = Astro.props
+
+const tones = {
+  light: {
+    card: 'bg-white text-ink',
+    idx: 'text-accent-500',
+    title: 'text-ink',
+    body: 'text-ink-soft',
+  },
+  dark: {
+    card:
+      'rounded-2xl border border-surface/15 bg-surface/[0.06] text-surface transition-colors hover:border-surface/35',
+    idx: 'text-on-dark-label',
+    title: 'text-surface',
+    body: 'text-on-dark',
+  },
+  dim: {
+    card: 'bg-surface-dim text-ink',
+    idx: 'text-accent-500',
+    title: 'text-ink',
+    body: 'text-ink-soft',
+  },
+} as const
+const t = tones[tone]
+---
+
+<div data-reveal class={`rounded-[20px] p-6 ${t.card} ${className}`}>
+  <p class={`m-0 font-display text-[11px] uppercase tracking-[0.12em] ${t.idx}`}>{idx}</p>
+  <h3 class={`m-0 mt-3 font-display text-[19px] font-semibold tracking-[-0.01em] ${t.title}`}>
+    {title}
+  </h3>
+  <p class={`m-0 mt-3 text-[14px] leading-[1.6] ${t.body}`} style="text-wrap: pretty">
+    <slot />
+  </p>
+</div>

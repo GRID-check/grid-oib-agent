@@ -156,6 +156,19 @@ export const ROLLOUT = {
   },
 
   /**
+   * Astro landing + blog (frontends/web): stateless static site behind a
+   * Service + HPA, surge-only like the frontend. Node boot is fast and there
+   * are no long-lived connections, so the shortest grace that still covers the
+   * endpoint-drain preStop suffices.
+   */
+  web: {
+    minReadySeconds: 10,
+    progressDeadlineSeconds: 600,
+    terminationGracePeriodSeconds: 30,
+    endpointDrainSeconds: 5,
+  },
+
+  /**
    * Single-replica data-plane services (Dragonfly, and the Chroma/SeaweedFS
    * StatefulSets). Short soak — they either open their port or they don't.
    */

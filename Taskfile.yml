@@ -20,6 +20,7 @@ version: '3'
 
 vars:
   UI: frontends/ui
+  WEB: frontends/web
   # go-task ships its own POSIX shell, so command SYNTAX is already portable and
   # nothing below needs an OS branch. These two are the exception, because they
   # are Python packaging facts rather than shell facts: a virtualenv puts its
@@ -59,26 +60,30 @@ tasks:
       - task: lint:repo
       - task: be:verify
       - task: fe:verify
+      - task: web:verify
       - task: infra:types
 
   verify:fast:
-    desc: Everything CI runs except the production build (the slow step)
+    desc: Everything CI runs except the production builds (the slow step)
     cmds:
       - task: lint:repo
       - task: be:verify
-      # `fe:verify` minus `fe:build` — the only check this task omits.
+      # `fe:verify` minus `fe:build` — the only UI check this task omits.
       - task: fe:lint
       - task: fe:types
       - task: fe:test:ci
+      # `web:verify` minus `web:build` — the only web check this task omits.
+      - task: web:install
+      - task: web:check
       - task: infra:types
 
   setup:
-    desc: Install every toolchain this repo needs (backend venv + UI + infra)
+    desc: Install every toolchain this repo needs (backend venv + UI + web + infra)
     cmds:
       - uv venv .venv
       - uv sync --group dev
       - task: fe:install
-      - npm --prefix deploy/pulumi ci
+      - task: web:install
       # The policy pack is its own Node program with its own lockfile; CI
       # installs it separately and `infra:types` typechecks it.
       - npm --prefix deploy/pulumi/policy ci
@@ -143,6 +148,34 @@ tasks:
       - task: fe:types
       - task: fe:test:ci
       - task: fe:build
+
+  # ── web (frontends/web — Piloti landing site + blog) ────────────────────────
+
+  web:install:
+    desc: Install web (landing site) dependencies
+    dir: '{{.WEB}}'
+    cmds:
+      # npm, not bun: the Astro toolchain ships its own lockfile and bundler.
+      - npm ci
+
+  web:check:
+    desc: Astro typecheck + content validation for the web service
+    dir: '{{.WEB}}'
+    cmds:
+      - npm run check
+
+  web:build:
+    desc: Production build of the web service
+    dir: '{{.WEB}}'
+    cmds:
+      - npm run build
+
+  web:verify:
+    desc: Everything CI runs for the web tier
+    cmds:
+      - task: web:install
+      - task: web:check
+      - task: web:build
 
   # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
 

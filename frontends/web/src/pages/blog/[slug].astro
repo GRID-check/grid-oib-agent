@@ -1,0 +1,68 @@
+---
+import { getCollection, render } from 'astro:content'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import SectionTag from '../../components/atoms/SectionTag.astro'
+import { ui } from '../../i18n/ui'
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ id, data }) => !data.draft && id.startsWith('de/'))
+  return posts.map((post) => ({ params: { slug: post.id.slice(3) }, props: { post } }))
+}
+
+const { post } = Astro.props
+const { Content } = await render(post)
+const slug = post.id.slice(3)
+const t = ui.de.blog
+const date = post.data.pubDate.toLocaleDateString('de-AT', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+})
+const translation = post.data.translationSlug
+const alternates = translation
+  ? { de: `/blog/${slug}/`, en: `/en/blog/${translation}/` }
+  : false
+const switchTo = translation ? `/en/blog/${translation}/` : '/en/blog/'
+---
+
+<BaseLayout
+  locale="de"
+  title={`${post.data.title} — Piloti Blog`}
+  description={post.data.description}
+  alternates={alternates}
+  switchTo={switchTo}
+>
+  <article class="px-6 pb-28 pt-36 md:px-10">
+    <div class="mx-auto max-w-[720px]">
+      <a href="/blog/" class="text-[13px] font-medium text-accent-600 hover:text-accent-500">
+        {t.allPosts}
+      </a>
+      <div class="mt-8">
+        <SectionTag>{t.tag}</SectionTag>
+      </div>
+      <h1
+        class="mt-5 font-display text-[clamp(30px,4.4vw,46px)] font-semibold leading-[1.12] tracking-[-0.02em] text-ink"
+      >
+        {post.data.title}
+      </h1>
+      <p class="mt-4 font-mono text-[12px] uppercase tracking-[0.12em] text-ink-soft">
+        <time datetime={post.data.pubDate.toISOString()}>{date}</time>
+      </p>
+      {
+        post.data.cover && (
+          <img
+            src={post.data.cover}
+            alt=""
+            width="1600"
+            height="900"
+            class="mt-9 aspect-[16/9] w-full rounded-[20px] object-cover"
+            loading="lazy"
+          />
+        )
+      }
+      <div class="prose-piloti mt-10">
+        <Content />
+      </div>
+    </div>
+  </article>
+</BaseLayout>

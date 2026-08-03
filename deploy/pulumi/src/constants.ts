@@ -20,6 +20,8 @@ export const UID = {
   backend: 1000,
   /** Frontend image (`frontends/ui/deploy/Dockerfile`): user `nextjs` = 1001. */
   frontend: 1001,
+  /** Web (landing/blog) image (`frontends/web/Dockerfile`): user `piloti` = 1001. */
+  web: 1001,
 } as const;
 
 /** Service/container ports. One definition; Services, probes, env and
@@ -27,6 +29,8 @@ export const UID = {
 export const PORT = {
   backend: 8000,
   frontend: 3000,
+  /** Astro Node standalone adapter default port (`frontends/web/Dockerfile`). */
+  web: 4321,
   chroma: 8000,
   redis: 6379,
   postgres: 5432,

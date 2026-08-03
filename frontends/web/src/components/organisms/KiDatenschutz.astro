@@ -1,0 +1,38 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import FeatureCard from '../molecules/FeatureCard.astro'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<section
+  id="ki"
+  data-screen-label="06 KI und Datenschutz"
+  class="mx-auto box-border max-w-[1360px] px-10 py-24"
+>
+  <div class="box-border rounded-[28px] bg-tint px-16 py-20">
+    <div id="datenschutz" data-reveal class="mb-14 max-w-[840px]">
+      <SectionTag class="mb-[22px] text-accent-900/80">{t.ki.tag}</SectionTag>
+      <h2
+        class="m-0 font-display text-[clamp(30px,3.6vw,46px)] font-bold leading-[1.1] tracking-[-0.018em] text-panel"
+        style="text-wrap: balance"
+      >
+        {t.ki.title}
+      </h2>
+    </div>
+    <div class="grid grid-cols-3 gap-3.5 max-lg:grid-cols-1">
+      {
+        t.ki.cards.map((c, i) => (
+          <FeatureCard idx={`0${i + 1}`} title={c.title} tone="dim" class="p-[38px_32px]">
+            {c.body}
+          </FeatureCard>
+        ))
+      }
+    </div>
+  </div>
+</section>

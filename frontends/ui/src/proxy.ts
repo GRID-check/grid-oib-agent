@@ -14,17 +14,15 @@
 
 import { authkitMiddleware } from '@workos-inc/authkit-nextjs'
 import type { NextFetchEvent, NextRequest } from 'next/server'
-
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
 const middleware = authkitMiddleware({
   debug: process.env.NODE_ENV === 'development',
   middlewareAuth: {
     enabled: isAuthRequired(),
     unauthenticatedPaths: [
-      // Public marketing landing. AuthKit compiles these paths with
+      // Root redirect page (sends logged-out visitors to the public landing
+      // site via GRID_LANDING_URL). AuthKit compiles these paths with
       // path-to-regexp (anchored), so '/' matches only the root.
       '/',
       // Liveness probe — must return 200 even when auth is required, so the

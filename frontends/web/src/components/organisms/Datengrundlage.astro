@@ -1,0 +1,41 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import FeatureCard from '../molecules/FeatureCard.astro'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<section
+  id="daten"
+  data-screen-label="05 Datengrundlage"
+  class="mx-auto box-border flex min-h-screen max-w-[1360px] flex-col justify-center px-10 py-24"
+>
+  <div class="box-border rounded-[28px] bg-accent-900 px-16 py-20 text-surface">
+    <div data-reveal class="mb-16 max-w-[760px]">
+      <SectionTag tone="dark" class="mb-[22px]">{t.daten.tag}</SectionTag>
+      <h2
+        class="m-0 mb-6 font-display text-[clamp(32px,4vw,50px)] font-bold leading-[1.08] tracking-[-0.02em] text-surface"
+        style="text-wrap: balance"
+      >
+        {t.daten.title}
+      </h2>
+      <p class="m-0 text-lg leading-[1.6] text-on-dark" style="text-wrap: pretty">
+        {t.daten.body}
+      </p>
+    </div>
+    <div class="grid grid-cols-4 gap-3.5 max-lg:grid-cols-2 max-md:grid-cols-1">
+      {
+        t.daten.cards.map((c, i) => (
+          <FeatureCard idx={`0${i + 1}`} title={c.title} tone="dark" class="p-[28px_26px]">
+            {c.body}
+          </FeatureCard>
+        ))
+      }
+    </div>
+  </div>
+</section>

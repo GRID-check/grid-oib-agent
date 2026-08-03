@@ -238,6 +238,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
   return [
     { name: "APP_ENV", value: "production" },
     { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
+    { name: "GRID_LANDING_URL", value: `https://${cfg.ingress.webDomain}` },
     { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
     // Conversation affinity for horizontal aiq-agent scaling (ADR-0028): the
     // WS proxy pins a conversation to `aiq-agent-<hash>.aiq-agent-headless` so

@@ -1,0 +1,53 @@
+---
+import Logo from '../atoms/Logo.astro'
+import Pill from '../atoms/Pill.astro'
+import { APP_URL } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+
+interface Props {
+  locale?: Locale
+  switchTo?: string
+}
+const { locale = 'de', switchTo } = Astro.props
+const t = ui[locale]
+const translatePath = useTranslatedPath(locale)
+const home = translatePath('/')
+---
+
+<header data-nav class="fixed inset-x-0 top-0 z-50 px-[18px] pt-4">
+  <nav
+    data-nav-bar
+    class="mx-auto grid max-w-[1340px] grid-cols-[1fr_auto_1fr] items-center rounded-[18px] px-4 py-2 transition-colors duration-500"
+    aria-label={t.nav.ariaLabel}
+  >
+    <div></div>
+    <Logo href={`${home}#top`} label={t.nav.logoLabel} />
+    <div class="flex items-center justify-end gap-[14px] text-[13px] font-medium">
+      <a href={APP_URL} class="text-ink hover:text-accent-600">{t.nav.signIn}</a>
+      <Pill href={`${home}#kontakt`} variant="outline" size="sm">
+        {t.nav.cta}
+      </Pill>
+      {
+        switchTo && (
+          <span
+            class="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-ghost"
+            aria-label={t.nav.langLabel}
+          >
+            {locale === 'de' ? (
+              <span class="text-ink" aria-current="true">DE</span>
+            ) : (
+              <a href={switchTo} class="hover:text-accent-600" hreflang="de">DE</a>
+            )}
+            <span aria-hidden="true"> / </span>
+            {locale === 'en' ? (
+              <span class="text-ink" aria-current="true">EN</span>
+            ) : (
+              <a href={switchTo} class="hover:text-accent-600" hreflang="en">EN</a>
+            )}
+          </span>
+        )
+      }
+    </div>
+  </nav>
+</header>

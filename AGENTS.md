@@ -21,6 +21,7 @@ legend. Offer a diagram proactively for architecture/design discussions.
 | `src/aiq_agent/` | Backend agent (LangGraph agents, cards, knowledge layer) |
 | `sources/` | NAT data-source packages (web search, knowledge layer, RIS adapter, grid cards) |
 | `frontends/ui/` | Next.js app: UI + BFF API routes + WS proxy (`server.js`) |
+| `frontends/web/` | Public Piloti landing page + blog (Astro microservice; `de`/`en`, Keystatic CMS for platform-owner blog writing) |
 | `frontends/aiq_api/` | The backend FastAPI front-end plugin (`_type: aiq_api`): REST routes, async jobs, `/v1/ingest` |
 | `frontends/debug/` | Debug console mounted at `/debug` |
 | `frontends/cli/` | `aiq-research` CLI |
@@ -40,7 +41,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 
 | Check | Command |
 |-------|---------|
-| **Everything CI runs** (repo lint + `be:verify` + `fe:verify` + `infra:types`) | `task verify` |
+| **Everything CI runs** (repo lint + `be:verify` + `fe:verify` + `web:verify` + `infra:types`) | `task verify` |
 | The same set, minus only the slow production build | `task verify:fast` |
 | First-time toolchain setup | `task setup` |
 | Frontend typecheck | `task fe:types` |
@@ -49,6 +50,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | Backend lint (ruff check + format) | `task be:lint` |
 | Backend tests | `task be:test` (plugin suite: `task be:test:api`) |
 | Infra typecheck (Pulumi + policy pack) | `task infra:types` |
+| Web check (Astro typecheck + build) | `task web:verify` |
 | Repo lint (pre-commit, all files) | `task lint:repo` |
 | UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
 | WorkOS authz drift | `WORKOS_API_KEY=sk_… task fe:provision:authz` (read-only; `-- --apply` reconciles) |
@@ -123,6 +125,7 @@ Secrets and deployment knobs live in environment variables only (`deploy/.env`).
 | `GRID_BUDGET_EUR_PER_USD` | Default `0.86`. Euros per 1 USD for comparing EUR budget limits against the USD costs OpenRouter reports (ADR-0015). Frontend service. |
 | `GRID_PLATFORM_OWNER_EMAILS` | Break-glass platform-owner bootstrap (comma-separated emails). Empty in steady state; the WorkOS `org-platform-owner` role is the source of truth (ADR-0016). |
 | `GRID_PLATFORM_ORG_EXTERNAL_ID` | Default `grid-platform`. External id of the GRID Platform organization in WorkOS (ADR-0016). |
+| `GRID_LANDING_URL` | Base URL of the public landing site (`frontends/web`, the Astro microservice on the `webDomain` apex host). The signed-out app root (`/`) redirects here when `REQUIRE_AUTH=true`; unset falls back to the WorkOS sign-in URL. Frontend service; injected by the Kubernetes deployment. |
 | `GRID_DISABLE_SELF_SERVE_ORGS` | Default `false`. `true` = invite-only platform: no self-service organization creation. |
 | `GRID_ENFORCE_FEATURE_FLAGS` | Default `false`. `true` enforces WorkOS feature flags (registry: `frontends/ui/src/lib/authz/feature-flags.ts`) — flip only after provisioning the flags in WorkOS. |
 | `GRID_BYOK_SECRET_BACKEND` | BYOK key store (ADR-0022): `vault` (WorkOS Vault, default when `WORKOS_API_KEY` is set) or `local` (AES-256-GCM under `GRID_BYOK_LOCAL_KEK`). Frontend service. |

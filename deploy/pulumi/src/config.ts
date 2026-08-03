@@ -25,6 +25,8 @@ export interface GridConfig {
     backend?: string;
     /** Full override for the frontend image ref. */
     frontend?: string;
+    /** Full override for the landing-site (web) image ref. */
+    web?: string;
     pullPolicy: string;
     /**
      * Registry credentials for pulling the app images when they are PRIVATE
@@ -54,6 +56,8 @@ export interface GridConfig {
     appDomain: string;
     /** Public host for the S3 endpoint used to sign browser preview/download URLs. Derived: `s3.<baseDomain>` unless the `s3Domain` key overrides it. */
     s3Domain: string;
+    /** Public host for the landing site (frontends/web). Derived: the `baseDomain` apex itself unless the `webDomain` key overrides it. */
+    webDomain: string;
     /** Email for the Let's Encrypt ACME account. */
     letsEncryptEmail: string;
     /** Use the LE staging CA (avoids rate limits while wiring DNS/TLS). */
@@ -210,6 +214,15 @@ export interface GridConfig {
   };
 
   frontend: {
+    resources: ResourceSpec;
+    minReplicas: number;
+    maxReplicas: number;
+    /** HPA target average CPU utilisation (%). */
+    hpaCpuTargetPercent: number;
+  };
+
+  /** Landing site (frontends/web) — a static-first Astro service; tiny resources. */
+  web: {
     resources: ResourceSpec;
     minReplicas: number;
     maxReplicas: number;
@@ -466,9 +479,13 @@ export function loadConfig(): GridConfig {
   const baseDomain = cfg.require("baseDomain");
   const appDomain = cfg.get("appDomain") ?? `app.${baseDomain}`;
   const s3Domain = cfg.get("s3Domain") ?? `s3.${baseDomain}`;
+  // The landing site owns the apex: dev.piloti.at is the marketing/blog host,
+  // the app lives at app.dev.piloti.at. `webDomain` survives only as an override.
+  const webDomain = cfg.get("webDomain") ?? baseDomain;
   rejectPlaceholder("baseDomain", ["example.com"]);
   rejectPlaceholder("appDomain", ["example.com"]);
   rejectPlaceholder("s3Domain", ["example.com"]);
+  rejectPlaceholder("webDomain", ["example.com"]);
   rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
   // Let's Encrypt refuses ACME account registration for example.com contacts —
   // without this guard a deploy that fixed the domains but not the email passes
@@ -480,6 +497,18 @@ export function loadConfig(): GridConfig {
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
   const imageTag = cfg.get("imageTag") ?? "latest";
+
+  // Fail fast: the web PDB allows maxUnavailable 1, so a webMinReplicas of 1
+  // means a voluntary disruption (node drain, rolling update) takes the whole
+  // landing site down. Two replicas is the floor the PDB contract assumes.
+  const webMinReplicas = num(cfg, "webMinReplicas", 2);
+  if (webMinReplicas < 2) {
+    throw new Error(
+      `grid-oib:webMinReplicas must be >= 2 (got ${webMinReplicas}). The web PodDisruptionBudget ` +
+        "allows maxUnavailable 1, so a single replica means a full landing-site outage during " +
+        "any voluntary disruption.",
+    );
+  }
 
   const registryUsername = cfg.get("registryUsername");
   const registryPassword = cfg.getSecret("registryPassword");
@@ -617,6 +646,7 @@ export function loadConfig(): GridConfig {
       tag: imageTag,
       backend: cfg.get("backendImage"),
       frontend: cfg.get("frontendImage"),
+      web: cfg.get("webImage"),
       // A MOVING tag (`latest`) must re-pull on every pod start, or a rescheduled
       // pod silently keeps a stale cached image and a deploy "succeeds" without
       // shipping the new code. Only a pinned/immutable tag (a SHA) is safe as
@@ -636,6 +666,7 @@ export function loadConfig(): GridConfig {
     ingress: {
       appDomain,
       s3Domain,
+      webDomain,
       letsEncryptEmail: cfg.require("letsEncryptEmail"),
       // Default to the LE STAGING CA: on a first deploy the LoadBalancer IP (and
     // therefore DNS) doesn't exist yet, so HTTP-01 can't be solved and every
@@ -746,6 +777,20 @@ export function loadConfig(): GridConfig {
       minReplicas: num(cfg, "frontendMinReplicas", 2),
       maxReplicas: num(cfg, "frontendMaxReplicas", 6),
       hpaCpuTargetPercent: num(cfg, "frontendHpaCpuTargetPercent", 70),
+    },
+
+    web: {
+      // Static-first site: requests are a floor for the HPA and the scheduler,
+      // limits only a burst ceiling. The Astro server barely idles above zero.
+      resources: {
+        requestsCpu: cfg.get("webRequestsCpu") ?? "50m",
+        requestsMemory: cfg.get("webRequestsMemory") ?? "128Mi",
+        limitsCpu: cfg.get("webLimitsCpu") ?? "250m",
+        limitsMemory: cfg.get("webLimitsMemory") ?? "256Mi",
+      },
+      minReplicas: webMinReplicas,
+      maxReplicas: num(cfg, "webMaxReplicas", 4),
+      hpaCpuTargetPercent: num(cfg, "webHpaCpuTargetPercent", 70),
     },
 
     jobExecution,
@@ -864,6 +909,11 @@ export function backendImage(c: GridConfig): string {
 /** Resolve the concrete frontend image reference. */
 export function frontendImage(c: GridConfig): string {
   return c.images.frontend ?? `${c.images.registry}/grid-oib-frontend:${c.images.tag}`;
+}
+
+/** Resolve the concrete landing-site (web) image reference. */
+export function webImage(c: GridConfig): string {
+  return c.images.web ?? `${c.images.registry}/grid-oib-web:${c.images.tag}`;
 }
 
 /**
