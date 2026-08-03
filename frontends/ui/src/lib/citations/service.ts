@@ -12,6 +12,7 @@ import 'server-only'
 import {
   CITATION_BASELINE_KIND,
   CITATION_EVENT_KINDS,
+  CITATION_PRECISION_KIND,
   type CitationEvent,
   type CitationEventAgent,
   type CitationEventKind,
@@ -33,8 +34,8 @@ export async function recordCitationEvents(events: NewCitationEvent[]): Promise<
 
 /** Every kind except the per-turn baseline row — i.e. the things that went wrong. */
 export const CITATION_DEFECT_KINDS = CITATION_EVENT_KINDS.filter(
-  (kind) => kind !== CITATION_BASELINE_KIND,
-) as readonly Exclude<CitationEventKind, 'turn_verified'>[]
+  (kind) => kind !== CITATION_BASELINE_KIND && kind !== CITATION_PRECISION_KIND,
+) as readonly Exclude<CitationEventKind, 'turn_verified' | 'retrieval_precision'>[]
 
 /** Midnight UTC today — the same day boundary the spend ledger uses. */
 export function utcDayStart(): Date {
@@ -462,6 +463,8 @@ const EXPORT_GLOSSARY: Record<string, string> = {
     'Nothing the model cited survived verification, but exactly one retrieved source existed and was attached automatically. Usually a citation-format mismatch rather than a wrong answer.',
   confidence_capped:
     'The deterministic overconfidence guard downgraded the answer\'s self-reported confidence to "low". The reason is either ungrounded or quote_unverified.',
+  retrieval_precision:
+    'Info-only: how many of the sources retrieval returned for the turn were actually cited in the answer. detail.retrieved_count / cited_count / uncited_count / uncited_sources quantify the gap; not a defect.',
 }
 
 const asStringArray = (value: unknown): string[] =>
@@ -509,7 +512,9 @@ export async function getCitationExport(options: { days?: number } = {}): Promis
 
   const turns: CitationExportTurn[] = []
   for (const [turnId, turnEvents] of byTurn) {
-    const problems = turnEvents.filter((event) => event.kind !== CITATION_BASELINE_KIND)
+    const problems = turnEvents.filter(
+      (event) => event.kind !== CITATION_BASELINE_KIND && event.kind !== CITATION_PRECISION_KIND,
+    )
     if (problems.length === 0) continue
 
     const baseline = turnEvents.find((event) => event.kind === CITATION_BASELINE_KIND)
@@ -605,7 +610,7 @@ function buildDailyTrend(
 ): CitationDailyPoint[] {
   const kindsByDay = new Map<string, repository.DailyKindRow[]>()
   for (const row of kindRows) {
-    if (row.kind === CITATION_BASELINE_KIND) continue
+    if (row.kind === CITATION_BASELINE_KIND || row.kind === CITATION_PRECISION_KIND) continue
     const list = kindsByDay.get(row.day)
     if (list) list.push(row)
     else kindsByDay.set(row.day, [row])

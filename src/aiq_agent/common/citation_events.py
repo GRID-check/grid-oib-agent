@@ -62,6 +62,7 @@ EventKind = Literal[
     "registry_empty",
     "citation_fallback",
     "confidence_capped",
+    "retrieval_precision",
 ]
 
 EventSeverity = Literal["ok", "info", "warn", "error"]
@@ -88,6 +89,9 @@ SEVERITY_BY_KIND: dict[str, EventSeverity] = {
     "citation_fallback": "info",
     # The overconfidence guard capped the surfaced confidence to "low".
     "confidence_capped": "info",
+    # Per-turn retrieval feedback: how many retrieved sources the answer
+    # actually cited vs ignored. An observation, not a defect.
+    "retrieval_precision": "info",
 }
 
 #: Removal reasons ``verify_citations`` produces. ``duplicate_of_citation_<n>``
@@ -248,6 +252,27 @@ def build_turn_events(
             },
         )
     ]
+
+    retrieved_labels = [label for label in (retrieved_source_labels or []) if label]
+    if retrieved_labels:
+        # The retrieval feedback loop: of the sources retrieval handed the
+        # model, how many did the answer actually use? Counts are over UNIQUE
+        # labels (a source cited twice is still one source); `cited_count` is
+        # the overlap with what the model cited, not the raw citation count.
+        unique_retrieved = list(dict.fromkeys(retrieved_labels))
+        cited_labels = {label for label in (cited_source_labels or []) if label}
+        uncited = [label for label in unique_retrieved if label not in cited_labels]
+        events.append(
+            CitationEvent(
+                kind="retrieval_precision",
+                detail={
+                    "retrieved_count": len(unique_retrieved),
+                    "cited_count": len(unique_retrieved) - len(uncited),
+                    "uncited_count": len(uncited),
+                    "uncited_sources": uncited[:_MAX_TARGETS],
+                },
+            )
+        )
 
     if removed:
         events.append(

@@ -14,6 +14,7 @@ import { and, desc, gte, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   CITATION_BASELINE_KIND,
+  CITATION_PRECISION_KIND,
   citationEvents,
   type CitationEvent,
   type CitationEventKind,
@@ -101,7 +102,13 @@ export async function countDefectiveTurns(start: Date): Promise<number> {
   const [row] = await db
     .select({ turns: sql<string>`count(distinct ${citationEvents.turnId})` })
     .from(citationEvents)
-    .where(and(gte(citationEvents.createdAt, start), ne(citationEvents.kind, CITATION_BASELINE_KIND)))
+    .where(
+      and(
+        gte(citationEvents.createdAt, start),
+        ne(citationEvents.kind, CITATION_BASELINE_KIND),
+        ne(citationEvents.kind, CITATION_PRECISION_KIND),
+      ),
+    )
   return Number(row?.turns ?? 0)
 }
 
@@ -209,7 +216,9 @@ export async function aggregateDefectiveSourceMix(start: Date): Promise<SourceMi
     with defective as (
       select distinct turn_id
       from ${citationEvents}
-      where created_at >= ${windowStart(start)}::timestamptz and kind <> ${CITATION_BASELINE_KIND}
+      where created_at >= ${windowStart(start)}::timestamptz
+        and kind <> ${CITATION_BASELINE_KIND}
+        and kind <> ${CITATION_PRECISION_KIND}
     ),
     baseline as (
       select e.detail
@@ -389,7 +398,9 @@ export async function aggregateByOrganization(start: Date): Promise<Organization
     select
       organization_id,
       count(distinct turn_id) as turns,
-      count(distinct turn_id) filter (where kind <> ${CITATION_BASELINE_KIND}) as defect_turns,
+      count(distinct turn_id) filter (
+        where kind <> ${CITATION_BASELINE_KIND} and kind <> ${CITATION_PRECISION_KIND}
+      ) as defect_turns,
       count(distinct turn_id) filter (where severity = 'error') as error_turns
     from ${citationEvents}
     where created_at >= ${windowStart(start)}::timestamptz
@@ -414,7 +425,13 @@ export async function listRecentDefects(start: Date, limit = RECENT_LIMIT): Prom
   return db
     .select()
     .from(citationEvents)
-    .where(and(gte(citationEvents.createdAt, start), ne(citationEvents.kind, CITATION_BASELINE_KIND)))
+    .where(
+      and(
+        gte(citationEvents.createdAt, start),
+        ne(citationEvents.kind, CITATION_BASELINE_KIND),
+        ne(citationEvents.kind, CITATION_PRECISION_KIND),
+      ),
+    )
     .orderBy(desc(citationEvents.createdAt))
     .limit(Math.min(Math.max(limit, 1), RECENT_LIMIT))
 }
