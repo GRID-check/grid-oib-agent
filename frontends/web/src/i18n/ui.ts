@@ -120,8 +120,12 @@ const de = {
     tag: 'Beispiel',
     title: 'Eine typische Frage, einmal durchgespielt.',
     body: 'Brandschutz an einer gedämmten Loggia-Fassade: welche Quellen hereinkommen, wo sie einander widersprechen, welche drei Wege bleiben und was davon in der Kostenschätzung landet. Das Beispiel ist erfunden, der Ablauf nicht.',
-    big: 'Sekunden',
-    sub: 'statt Stunden. Recherche, die sonst über RIS, Archiv und Telefonat läuft, in einem Durchgang.',
+    // No time claim here. The page's own rule two sections down is „Kein Beleg,
+    // keine Aussage" — a „Sekunden statt Stunden" we cannot source would be the
+    // one line arguing against it. What is verifiable is the shape of the work:
+    // three lookups collapse into one, and the result is citable.
+    big: 'Ein Durchgang',
+    sub: 'statt RIS, Archiv und Telefonat nacheinander. Am Ende steht eine Kette, die Sie prüfen, im Team teilen und der Einreichung beilegen können.',
   },
   rollen: {
     tag: 'Für wen',
@@ -490,8 +494,8 @@ const en: typeof de = {
     tag: 'Example',
     title: 'A typical question, played through.',
     body: 'Fire protection on an insulated loggia façade: which sources come in, where they contradict each other, which three routes are left, and what of it ends up in the cost estimate. The example is invented, the procedure is not.',
-    big: 'Seconds',
-    sub: 'instead of hours. Research that normally runs across a legal database, the archive and a phone call, in a single pass.',
+    big: 'One pass',
+    sub: 'instead of the legal database, the archive and a phone call in sequence. What you end up with is a chain you can check, share with the team and attach to the submission.',
   },
   rollen: {
     tag: 'Who it’s for',
