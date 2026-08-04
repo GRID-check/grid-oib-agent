@@ -277,7 +277,14 @@ jobs:
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select matthiasbigl/grid-oib/dev
 
-          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER}"
+          # GHCR repository paths are lowercase (docker/metadata-action
+          # lowercases the image name when publish-images pushes), and an
+          # uppercase ref in a Pod spec is rejected outright by containerd
+          # ("repository name must be lowercase"). The owner login is mixed
+          # case, so fold it here — this is the same value the Pulumi program
+          # defaults to (`ghcr.io/grid-check`).
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          registry="ghcr.io/${owner}"
 
           # Which images did the triggering publish run actually build? Job
           # names are the contract with publish-images.yml; only successful
@@ -294,12 +301,33 @@ jobs:
           # ImagePullBackOff. The workflow_run path never has this problem:
           # rebuilt images carry the sha just pushed, non-rebuilt keep their
           # stored ref.
+          #
+          # Ask GHCR itself, not the packages REST API: there is no
+          # `/repos/{owner}/{repo}/packages/...` endpoint (it 404s), the
+          # org/user variants differ by owner type, and listing versions would
+          # need pagination over every sha ever published. A manifest HEAD is
+          # exactly the lookup the kubelet will perform.
           if [ -z "$RUN_ID" ]; then
             for service in backend frontend web; do
-              published_tags="$(gh api "repos/$GITHUB_REPOSITORY/packages/container/grid-oib-${service}/versions" \
-                --jq '.[].version_metadata.container.tags[]?')"
-              echo "$published_tags" | grep -qx "$IMAGE_TAG" || {
-                echo "::error::rollback tag '$IMAGE_TAG' is not published for grid-oib-${service}. Published tags: $(echo "$published_tags" | tr '\n' ' ')"
+              image_path="${owner}/grid-oib-${service}"
+              pull_token="$(curl -sSL -u "${GITHUB_ACTOR}:${GH_TOKEN}" \
+                "https://ghcr.io/token?service=ghcr.io&scope=repository:${image_path}:pull" \
+                | jq -r '.token // empty')"
+              [ -n "$pull_token" ] || {
+                echo "::error::could not obtain a GHCR pull token for ${image_path} — the job token needs 'packages: read'."
+                exit 1
+              }
+              # $IMAGE_TAG is constrained to sha-<40-hex>/v*/latest by the
+              # "Validate image tag" step above, so it is safe in the URL.
+              status="$(curl -sSL -o /dev/null -w '%{http_code}' --head \
+                -H "Authorization: Bearer ${pull_token}" \
+                -H 'Accept: application/vnd.oci.image.index.v1+json' \
+                -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+                -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+                -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+                "https://ghcr.io/v2/${image_path}/manifests/${IMAGE_TAG}")"
+              [ "$status" = "200" ] || {
+                echo "::error::rollback tag '$IMAGE_TAG' is not published for grid-oib-${service} (ghcr.io/${image_path} returned HTTP $status). Pick a tag from a fully-built commit."
                 exit 1
               }
             done
