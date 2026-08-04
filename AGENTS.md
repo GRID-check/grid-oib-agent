@@ -13,6 +13,52 @@ describing it in prose alone. Keep diagrams structured: a clear layered/left-to
 -right flow, aligned grid, orthogonal arrows that don't cross boxes, and a short
 legend. Offer a diagram proactively for architecture/design discussions.
 
+## Working style: fix causes, not symptoms
+
+Solve the problem at the level it actually exists. A change that makes a number
+better without changing what produced it is a bandage, and it makes the real
+fault harder to see later because the signal that pointed at it is gone.
+
+The test that surfaced this: `InputArea.spec.tsx` took 45.9s of the UI suite's
+209.6s of test execution. Three fixes were available.
+
+| | what it does | level |
+|---|---|---|
+| Raise the shard count | spreads the same work over more runners | hides it |
+| Split the spec file | spreads the same work over more shards | hides it |
+| Decompose the component | removes the work | fixes it |
+
+The first two move a 172ms-per-test mount around; only the third makes it stop
+costing 172ms. The slow test was never the problem — it was the readout on a
+1999-line component that needed eleven mocked modules to render at all. Optimise
+that away and the design fault is still there, minus the evidence.
+
+The cause is specific and this repo already solves it elsewhere. 37 of those 102
+tests assert on *logic* — mention rules, addressee resolution, draft persistence
+— and each mounts the whole React tree to do it, because the logic lives in the
+render function. Compare two specs in the same suite:
+
+| spec | tests | test time | per test |
+|------|-------|-----------|----------|
+| `layout/lib/source-presets.spec.ts` (logic in a module) | 10 | 13ms | **1.3ms** |
+| `layout/components/InputArea.spec.tsx` (logic in a component) | 102 | 17,550ms | **172ms** |
+
+132x, from nothing but where the code sits. `src/features/layout/lib/` is the
+established pattern — pure modules with their own fast specs. Extend it rather
+than reaching for shards.
+
+So: before optimising a measurement, establish what the measurement is *of*.
+Ask what would have to be true for this number to be legitimate, and if it
+isn't, fix that instead. When a fast fix and a correct fix disagree, take the
+correct one or say plainly that you are deferring it and why — never ship the
+fast one described as the correct one.
+
+Corollary, learned the same way: verify the cause before acting on it. Two
+plausible explanations for that 172ms (userEvent's default keystroke delay, an
+unmocked motion library) were both measured and both wrong. A cause that has not
+been measured is a guess, and a fix built on a guess is a bandage even when it
+happens to work.
+
 ## Repository layout
 
 | Path | Purpose |
