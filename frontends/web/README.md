@@ -77,16 +77,32 @@ invisible on the deployed site.
 `PUBLIC_INCLUDE_DRAFTS` is preview-only. `astro build` bakes the result into the
 image, so setting it on a release build would publish every unfinished draft.
 
-Locally, the same harness works against a built server:
+Locally, the same harness runs against a built server. `task web:preview` is the
+same target CI uses, so the two cannot drift:
 
 ```bash
-PUBLIC_INCLUDE_DRAFTS=1 npm run build && node dist/server/entry.mjs &
-npm i --no-save playwright-core
+task web:preview                          # build with drafts, from the repo root
+
+cd frontends/web
+node dist/server/entry.mjs &              # background only the server
+until curl -sf http://localhost:4321/ >/dev/null; do sleep 1; done
+
+# playwright-core ships no browser of its own; pin it to match CI.
+npm i --no-save playwright-core@1.62.1
+npx playwright-core install chromium
+
 node scripts/preview-shots.mjs ./preview-out http://localhost:4321 /blog/<slug>/
 ```
 
-In the dev container, point it at the pinned browser with
-`PREVIEW_CHROMIUM_PATH=/opt/pw-browsers/chromium-*/chrome-linux/chrome`.
+In the dev container, skip the download and point at the pinned browser instead.
+The glob has to be resolved before it is exported — a wildcard in an assignment
+is not expanded, so exporting it verbatim just fails the launch:
+
+```bash
+PREVIEW_CHROMIUM_PATH="$(find /opt/pw-browsers -path '*/chrome-linux/chrome' -type f | head -1)"
+[ -x "$PREVIEW_CHROMIUM_PATH" ] || { echo "no pinned Chromium found"; exit 1; }
+export PREVIEW_CHROMIUM_PATH
+```
 
 ### Publishing safely
 

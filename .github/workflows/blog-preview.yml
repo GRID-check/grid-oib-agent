@@ -31,6 +31,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Single source of truth for the CI-only Playwright pin (see the install step).
+  PLAYWRIGHT_VERSION: 1.62.1
+
 jobs:
   detect:
     name: Detect changed posts
@@ -57,11 +61,31 @@ jobs:
           # `fetch-depth: 0` already fetched every branch, and with
           # persist-credentials:false a further fetch would have no credential.
           CHANGED=$(git diff --name-only --diff-filter=d \
-            "origin/$BASE_REF...HEAD" -- 'frontends/web/src/content/blog/**/*.mdx')
+            "origin/$BASE_REF...HEAD" -- 'frontends/web/src/content/blog/')
+
+          # Two kinds of change reach a rendered post: the entry itself, and an
+          # image under _images/<slug>/ that some entry references. Swapping a
+          # cover without touching the MDX is a real edit and must still preview,
+          # so map image paths back to whichever locale entries exist for that slug.
+          ENTRIES=""
+          for file in $CHANGED; do
+            rel="${file#frontends/web/src/content/blog/}"
+            case "$rel" in
+              _images/*)
+                slug="$(printf '%s' "${rel#_images/}" | cut -d/ -f1)"
+                for locale in de en; do
+                  [ -f "frontends/web/src/content/blog/$locale/$slug.mdx" ] \
+                    && ENTRIES="$ENTRIES $locale/$slug.mdx"
+                done
+                ;;
+              */*.mdx) ENTRIES="$ENTRIES $rel" ;;
+            esac
+          done
+          # An image referenced by two locales yields the same entry twice.
+          ENTRIES="$(printf '%s\n' $ENTRIES | sort -u)"
 
           PATHS=""
-          for file in $CHANGED; do
-            entry="${file#frontends/web/src/content/blog/}"   # de/mein-post.mdx
+          for entry in $ENTRIES; do
             locale="${entry%%/*}"
             slug="$(basename "${entry#*/}" .mdx)"
             # The slug reaches a shell argument and a filename, so accept only
@@ -92,6 +116,9 @@ jobs:
     needs: detect
     if: needs.detect.outputs.has_posts == 'true'
     runs-on: ubuntu-latest
+    # Informational: a flaky browser or a preview-only build failure must never
+    # block a content PR. `task web:verify` in ci.yml is the check that gates it.
+    continue-on-error: true
     permissions:
       contents: read
     outputs:
@@ -118,31 +145,30 @@ jobs:
           restore-keys: |
             astro-cache-${{ runner.os }}-
 
-      - name: Install
-        working-directory: frontends/web
-        run: npm ci
+      - uses: ./.github/actions/setup-task
 
-      - name: Build with drafts rendered
-        working-directory: frontends/web
-        env:
-          # Preview-only. A release build must never set this — it would publish
-          # every unfinished draft to the live site.
-          PUBLIC_INCLUDE_DRAFTS: "1"
-          PUBLIC_SITE_URL: http://localhost:4321
-        run: npm run build
+      - name: Install + build with drafts rendered
+        # Defined in the root Taskfile so `task web:preview` locally runs exactly
+        # what CI runs here.
+        run: task web:preview
 
       - name: Cache the Playwright Chromium download
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-blog-preview
+          # Keyed on the pin below: a browser cached for one playwright-core
+          # build is not usable by another, and an unkeyed entry would be
+          # restored anyway and then fail the launch.
+          key: playwright-chromium-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
 
       - name: Install playwright-core + Chromium
         working-directory: frontends/web
-        # CI-only dependency: kept out of package.json so it never lands in the
-        # web image's dependency layer.
+        # CI-only dependency: kept out of package.json so it never reaches the
+        # web image's dependency layer. Pinned because there is no lockfile entry
+        # to hold it — unpinned, every run would resolve whatever `latest` is and
+        # silently invalidate the browser cache.
         run: |
-          npm i --no-save playwright-core
+          npm i --no-save "playwright-core@${PLAYWRIGHT_VERSION}"
           npx playwright-core install chromium
 
       - name: Start the built server
@@ -234,7 +260,11 @@ jobs:
               issue_number: pr,
               per_page: 100,
             })
-            const existing = comments.find((c) => c.body && c.body.includes(marker))
+            // Marker alone is not enough: it appears verbatim in any comment
+            // quoting this one, so a participant's reply could be overwritten.
+            const existing = comments.find(
+              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker)
+            )
             if (existing) {
               await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body })
             } else {
