@@ -25,7 +25,20 @@ function makeSql(returnRows = []) {
     }
     return Promise.resolve([])
   }
+  // Every helper now runs inside a platform-scoped transaction (ADR-0041), so
+  // the fake answers both call styles: as a tagged template for the statement
+  // itself, and as a client exposing `.begin` / `.unsafe` for the step-up.
+  fn.begin = (cb) => cb(fn)
+  fn.unsafe = (text) => {
+    executed.push({ text, values: [] })
+    return Promise.resolve([])
+  }
   return { fn, executed }
+}
+
+/** Statements a helper ran, excluding the `SET LOCAL ROLE` step-up. */
+function queries(executed) {
+  return executed.filter((q) => !q.text.startsWith('SET LOCAL ROLE'))
 }
 
 describe('claimNext', () => {
@@ -35,9 +48,9 @@ describe('claimNext', () => {
     const entry = await claimNext(fn)
 
     expect(entry).toEqual({ id: 'e1', entity_type: 'project' })
-    expect(executed).toHaveLength(2)
+    expect(queries(executed)).toHaveLength(2)
 
-    const select = executed[0]
+    const select = queries(executed)[0]
     expect(select.text).toMatch(/^SELECT q\.\* FROM deletion_queue q/)
     // pending branch has exponential backoff off claimed_at
     expect(select.text).toContain("q.status = 'pending' AND q.purge_after <= now()")
@@ -66,8 +79,8 @@ describe('claimNext', () => {
     const entry = await claimNext(fn)
 
     expect(entry).toBeNull()
-    expect(executed).toHaveLength(1)
-    expect(executed[0].text).toMatch(/^SELECT/)
+    expect(queries(executed)).toHaveLength(1)
+    expect(queries(executed)[0].text).toMatch(/^SELECT/)
   })
 })
 
@@ -78,8 +91,8 @@ describe('reapStranded', () => {
     const reaped = await reapStranded(fn)
 
     expect(reaped).toBe(2)
-    expect(executed).toHaveLength(1)
-    const q = executed[0]
+    expect(queries(executed)).toHaveLength(1)
+    const q = queries(executed)[0]
     expect(q.text).toMatch(/^UPDATE deletion_queue/)
     expect(q.text).toContain("SET status = 'failed'")
     expect(q.text).toContain('COALESCE( last_error,')
@@ -103,7 +116,7 @@ describe('releaseHeld', () => {
 
     await releaseHeld(fn, 'e9')
 
-    const q = executed[0]
+    const q = queries(executed)[0]
     expect(q.text).toContain("SET status = 'pending'")
     expect(q.text).toContain('attempts = GREATEST(attempts - 1, 0)')
     expect(q.text).toContain('last_error =')
@@ -117,7 +130,7 @@ describe('markPurged', () => {
 
     await markPurged(fn, 'e1')
 
-    const q = executed[0]
+    const q = queries(executed)[0]
     expect(q.text).toContain("SET status = 'purged', purged_at = now(), last_error = NULL")
     expect(q.values).toEqual(['e1'])
   })
@@ -129,7 +142,7 @@ describe('markFailed', () => {
 
     await markFailed(fn, 'e1', 'boom')
 
-    const q = executed[0]
+    const q = queries(executed)[0]
     expect(q.text).toContain(
       "SET status = CASE WHEN attempts >= $ THEN 'failed' ELSE 'pending' END",
     )
@@ -142,7 +155,7 @@ describe('markFailed', () => {
 
     await markFailed(fn, 'e1', 'x'.repeat(5000))
 
-    expect(executed[0].values[1]).toHaveLength(2000)
+    expect(queries(executed)[0].values[1]).toHaveLength(2000)
   })
 })
 
@@ -152,9 +165,31 @@ describe('markFailedPermanent', () => {
 
     await markFailedPermanent(fn, 'e1', 'no purger registered')
 
-    const q = executed[0]
+    const q = queries(executed)[0]
     expect(q.text).toContain("SET status = 'failed'")
     expect(q.text).not.toContain('CASE')
     expect(q.values).toEqual(['no purger registered', 'e1'])
+  })
+})
+
+/**
+ * Losing the step-up would not fail loudly: row-level security would hide every
+ * organization's rows, the queue would look permanently empty, and the purger
+ * would report healthy ticks while deleting nothing (ADR-0041).
+ */
+describe('platform scope', () => {
+  it('steps up to the BYPASSRLS role before every statement', async () => {
+    for (const run of [
+      (sql) => releaseHeld(sql, 'e1'),
+      (sql) => markPurged(sql, 'e1'),
+      (sql) => markFailed(sql, 'e1', 'boom'),
+      (sql) => markFailedPermanent(sql, 'e1', 'boom'),
+      (sql) => reapStranded(sql),
+    ]) {
+      const { fn, executed } = makeSql()
+      await run(fn)
+      expect(executed[0].text).toBe('SET LOCAL ROLE grid_app_platform')
+      expect(executed).toHaveLength(2)
+    }
   })
 })

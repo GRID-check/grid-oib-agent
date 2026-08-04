@@ -1,35 +1,49 @@
 import { describe, expect, it, vi } from 'vitest'
-import { claimDue, pruneOldRuns, PRUNE_BATCH } from './db.js'
+import { claimDue, pruneOldRuns, PLATFORM_ROLE, PRUNE_BATCH } from './db.js'
 
 // Same fake-sql idiom as purger/db.spec.mjs: a tagged-template fn that records
 // the rendered SQL text (`join('$')` renders each interpolation as `$`) plus the
-// bound values in order. claimDue runs inside `sql.begin`, so we hand it a `sql`
-// object whose `.begin(cb)` invokes cb with the recording tx template.
-function makeClaimSql(selectRows) {
-  const executed = []
+// bound values in order. Both entry points run inside `sql.begin`, so the fake
+// `sql` exposes `.begin(cb)` and invokes cb with the recording tx template.
+//
+// The tx also records `.unsafe()` calls: every transaction must step up to the
+// BYPASSRLS role before it queries, because the scheduler's work spans tenants
+// and row-level security would otherwise hide every due row (ADR-0041).
+function makeTx(executed, respond) {
   const tx = (strings, ...values) => {
     const text = strings.join('$').replace(/\s+/g, ' ').trim()
     executed.push({ text, values })
-    if (/^SELECT/i.test(text)) return Promise.resolve(selectRows)
+    return Promise.resolve(respond(text))
+  }
+  tx.unsafe = (text) => {
+    executed.push({ text, values: [] })
     return Promise.resolve([])
   }
-  const sql = { begin: (cb) => cb(tx) }
-  return { sql, executed }
+  return tx
 }
 
-// pruneOldRuns calls the client directly as a tagged template (no begin). Each
-// DELETE returns the next array from `sequence`; a short final batch ends loop.
+function makeClaimSql(selectRows) {
+  const executed = []
+  const tx = makeTx(executed, (text) => (/^SELECT/i.test(text) ? selectRows : []))
+  return { sql: { begin: (cb) => cb(tx) }, executed }
+}
+
+// Each DELETE returns the next array from `sequence`; a short final batch ends
+// the loop. One transaction per batch, so `begin` is called per iteration.
 function makePruneSql(sequence) {
   const executed = []
   let i = 0
-  const sql = (strings, ...values) => {
-    const text = strings.join('$').replace(/\s+/g, ' ').trim()
-    executed.push({ text, values })
+  const tx = makeTx(executed, () => {
     const rows = sequence[i] ?? []
     i += 1
-    return Promise.resolve(rows)
-  }
-  return { sql, executed }
+    return rows
+  })
+  return { sql: { begin: (cb) => cb(tx) }, executed }
+}
+
+/** The statements a transaction ran, excluding the platform step-up. */
+function queries(executed) {
+  return executed.filter((q) => !q.text.startsWith('SET LOCAL ROLE'))
 }
 
 describe('claimDue', () => {
@@ -46,7 +60,7 @@ describe('claimDue', () => {
 
     expect(claimed).toEqual(rows)
 
-    const select = executed[0]
+    const select = queries(executed)[0]
     expect(select.text).toMatch(/^SELECT id, schedule_cron, schedule_timezone FROM workflows/)
     expect(select.text).toContain('WHERE enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()')
     expect(select.text).toContain('ORDER BY next_run_at')
@@ -96,15 +110,15 @@ describe('claimDue', () => {
   it('passes the batch size through as the LIMIT binding', async () => {
     const { sql, executed } = makeClaimSql([])
     await claimDue(sql, 5, vi.fn())
-    expect(executed[0].values).toEqual([5])
+    expect(queries(executed)[0].values).toEqual([5])
   })
 
   it('returns an empty array and issues no UPDATE when nothing is due', async () => {
     const { sql, executed } = makeClaimSql([])
     const claimed = await claimDue(sql, 20, vi.fn())
     expect(claimed).toEqual([])
-    expect(executed).toHaveLength(1)
-    expect(executed[0].text).toMatch(/^SELECT/)
+    expect(queries(executed)).toHaveLength(1)
+    expect(queries(executed)[0].text).toMatch(/^SELECT/)
   })
 })
 
@@ -117,9 +131,9 @@ describe('pruneOldRuns', () => {
     const total = await pruneOldRuns(sql, 90)
 
     expect(total).toBe(PRUNE_BATCH + 3)
-    expect(executed).toHaveLength(2) // looped once more after the full batch
+    expect(queries(executed)).toHaveLength(2) // looped once more after the full batch
 
-    const del = executed[0]
+    const del = queries(executed)[0]
     expect(del.text).toMatch(/^DELETE FROM workflow_runs/)
     expect(del.text).toContain('make_interval(days => $)')
     expect(del.text).toContain('LIMIT $')
@@ -131,13 +145,46 @@ describe('pruneOldRuns', () => {
     const { sql, executed } = makePruneSql([[{ id: 'a' }, { id: 'b' }]])
     const total = await pruneOldRuns(sql, 30)
     expect(total).toBe(2)
-    expect(executed).toHaveLength(1)
-    expect(executed[0].values).toEqual([30, PRUNE_BATCH])
+    expect(queries(executed)).toHaveLength(1)
+    expect(queries(executed)[0].values).toEqual([30, PRUNE_BATCH])
   })
 
   it('returns 0 when nothing is old enough', async () => {
     const { sql, executed } = makePruneSql([[]])
     expect(await pruneOldRuns(sql, 90)).toBe(0)
-    expect(executed).toHaveLength(1)
+    expect(queries(executed)).toHaveLength(1)
+  })
+})
+
+/**
+ * Losing the step-up would not fail loudly: row-level security would simply
+ * hide every other tenant's rows, the due-scan would return nothing, and the
+ * scheduler would go quiet while reporting healthy ticks. These assertions are
+ * the only thing standing between that and a silent outage (ADR-0041).
+ */
+describe('platform scope', () => {
+  it('steps up to the BYPASSRLS role before claiming, inside the same transaction', async () => {
+    const { sql, executed } = makeClaimSql([])
+    await claimDue(sql, 20, vi.fn())
+
+    expect(executed[0].text).toBe(`SET LOCAL ROLE ${PLATFORM_ROLE}`)
+    expect(executed[1].text).toMatch(/^SELECT/)
+  })
+
+  it('steps up in every prune batch, since each is its own transaction', async () => {
+    const fullBatch = Array.from({ length: PRUNE_BATCH }, (_, i) => ({ id: `r${i}` }))
+    const { sql, executed } = makePruneSql([fullBatch, [{ id: 'x' }]])
+
+    await pruneOldRuns(sql, 90)
+
+    const stepUps = executed.filter((q) => q.text === `SET LOCAL ROLE ${PLATFORM_ROLE}`)
+    expect(stepUps).toHaveLength(2)
+    // …and each one precedes its own DELETE rather than all landing up front.
+    expect(executed.map((q) => (q.text.startsWith('SET LOCAL ROLE') ? 'role' : 'query'))).toEqual([
+      'role',
+      'query',
+      'role',
+      'query',
+    ])
   })
 })

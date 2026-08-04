@@ -1,4 +1,7 @@
 const postgres = require('postgres')
+// Every statement below spans tenants (the queue covers all organizations),
+// so each runs under the platform step-up — see workers/platform-scope.js.
+const { withPlatformScope } = require('../workers/platform-scope')
 
 function createSql() {
   const url = process.env.GRID_APP_DATABASE_URL
@@ -84,30 +87,30 @@ async function hasActiveHold(tx, entry) {
  * and picks it up again once the hold is released.
  */
 async function releaseHeld(sql, entryId) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'pending',
         attempts = GREATEST(attempts - 1, 0),
         last_error = 'blocked by active legal hold at purge time'
     WHERE id = ${entryId}
-  `
+  `)
 }
 
 async function markPurged(sql, entryId) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'purged', purged_at = now(), last_error = NULL
     WHERE id = ${entryId}
-  `
+  `)
 }
 
 async function markFailed(sql, entryId, message) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = CASE WHEN attempts >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'pending' END,
         last_error = ${String(message).slice(0, 2000)}
     WHERE id = ${entryId}
-  `
+  `)
 }
 
 /**
@@ -116,12 +119,12 @@ async function markFailed(sql, entryId, message) {
  * with pointless retry loops.
  */
 async function markFailedPermanent(sql, entryId, message) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'failed',
         last_error = ${String(message).slice(0, 2000)}
     WHERE id = ${entryId}
-  `
+  `)
 }
 
 /**
@@ -137,7 +140,7 @@ async function markFailedPermanent(sql, entryId, message) {
  * (from the preceding attempts) is preserved. Returns the number reaped.
  */
 async function reapStranded(sql) {
-  const rows = await sql`
+  const rows = await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'failed',
         last_error = COALESCE(
@@ -148,7 +151,7 @@ async function reapStranded(sql) {
       AND attempts >= ${MAX_ATTEMPTS}
       AND claimed_at < now() - make_interval(mins => ${STALE_CLAIM_MINUTES})
     RETURNING id
-  `
+  `)
   return rows.length
 }
 
