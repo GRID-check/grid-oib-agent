@@ -764,7 +764,9 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
 
 3. **LLM-judge reranker** — optional config keys `rerank_llm` (an LLM alias from
    the config's `llms:` block; `config_oib_openrouter.yml` points it at
-   `summary_llm`) and `rerank_candidates` (default 15). When `rerank_llm` is set,
+   `summary_llm`) and `rerank_candidates` (default 15; must exceed `top_k` — the
+   judge call trims to `rerank_candidates`, so the reference config pairs
+   `top_k: 16` with `rerank_candidates: 20`). When `rerank_llm` is set,
    the merged+filtered candidates are rescored once by an LLM judge
    (`rerank_chunks` in `llamaindex/rerank.py`, 30s timeout, fail-open to the
    original order) before trimming to `top_k`. No separate reranker API exists on

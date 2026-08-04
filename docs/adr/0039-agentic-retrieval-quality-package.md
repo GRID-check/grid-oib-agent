@@ -55,7 +55,10 @@ We will add four retrieval-side improvements to the knowledge layer, all
    Cormack `k=60`, vector channel wins ties).
 3. **LLM-judge reranker**: optional config keys `rerank_llm` (LLM alias from the
    config `llms:` block; reference config points it at `summary_llm`) and
-   `rerank_candidates` (default 15). When set, merged+filtered candidates are
+   `rerank_candidates` (default 15; must exceed `top_k` — the judge call trims to
+   `rerank_candidates`, so a smaller pool could never fill the full result set;
+   the reference config pairs `top_k: 16` with `rerank_candidates: 20`). When
+   set, merged+filtered candidates are
    rescored once by an LLM judge (`llamaindex/rerank.py::rerank_chunks`, 30s
    timeout, excerpt-windowed prompt of 400 chars/chunk, 1–10 scores) before
    trimming to `top_k`. Fail-open to the original order.

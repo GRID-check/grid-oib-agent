@@ -410,11 +410,13 @@ functions:
     top_k: 16
     max_chunks_per_document: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
-    # LLM-judge reranking: over-fetch rerank_candidates (15) chunks and re-order
+    # LLM-judge reranking: over-fetch rerank_candidates (20) chunks and re-order
     # them against the query with the dedicated rerank LLM before trimming to
-    # top_k. Fail-open: any judge error returns the fused (hybrid+vector) order.
+    # top_k. Must exceed top_k — rerank_chunks trims to rerank_candidates, so a
+    # smaller pool than top_k could never fill the full result set. Fail-open:
+    # any judge error returns the fused (hybrid+vector) order.
     rerank_llm: rerank_llm
-    rerank_candidates: 15
+    rerank_candidates: 20
 
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
