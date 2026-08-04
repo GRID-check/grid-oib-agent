@@ -15,7 +15,9 @@ name: Deploy (staging)
 # stack config key → global imageTag → `latest`), so a partial publish never
 # points an unchanged service at a tag GHCR does not have (ImagePullBackOff).
 # A manual dispatch pins all three services to the operator-supplied tag,
-# preserving full-fleet rollback semantics.
+# preserving full-fleet rollback semantics; the workflow first verifies the
+# tag exists for all three images, so a rollback to a partially-built commit
+# fails fast instead of rolling the others into ImagePullBackOff.
 #
 # One-time setup (per environment). Stack config is FILE-BASED for plaintext
 # (committed deploy/pulumi/Pulumi.<stack>.yaml) and ESC-BASED for secrets (the
@@ -58,6 +60,7 @@ on:
 permissions:
   contents: read
   actions: read # poll CI / Security workflow conclusions for the gate step
+  packages: read # verify the rollback tag exists for all three images (dispatch)
 
 concurrency:
   group: deploy-dev
@@ -285,6 +288,24 @@ jobs:
             built_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" --jq '.jobs[] | select(.conclusion == "success") | .name')"
           fi
 
+          # Manual rollback pins ALL three services to $IMAGE_TAG, so verify
+          # that tag is published for every image before anything is pinned —
+          # a tag only some images were built at would roll the others into
+          # ImagePullBackOff. The workflow_run path never has this problem:
+          # rebuilt images carry the sha just pushed, non-rebuilt keep their
+          # stored ref.
+          if [ -z "$RUN_ID" ]; then
+            for service in backend frontend web; do
+              published_tags="$(gh api "repos/$GITHUB_REPOSITORY/packages/container/grid-oib-${service}/versions" \
+                --jq '.[].version_metadata.container.tags[]?')"
+              echo "$published_tags" | grep -qx "$IMAGE_TAG" || {
+                echo "::error::rollback tag '$IMAGE_TAG' is not published for grid-oib-${service}. Published tags: $(echo "$published_tags" | tr '\n' ' ')"
+                exit 1
+              }
+            done
+            echo "rollback tag '$IMAGE_TAG' verified for backend, frontend and web"
+          fi
+
           is_built() {
             if [ -n "$RUN_ID" ]; then
               echo "$built_jobs" | grep -qx "Build & push $1 image"
@@ -340,6 +361,7 @@ jobs:
           echo "WEB_IMAGE_REF=$WEB_IMAGE_REF" >> "$GITHUB_ENV"
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ github.token }} # gh api: built-job lookup + rollback-tag verification
 
       - name: Validate plan (CRD schemas + policy pack)
         working-directory: deploy/pulumi
