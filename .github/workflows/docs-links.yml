@@ -1,0 +1,56 @@
+# Weekly external-link sweep across the tracked Markdown.
+#
+# This used to run inside `repo-lint` on every push to every PR, where it cost
+# ~90s of the job and produced all of its variance — it makes a real network
+# request per link across 221 files, so two runs with identical content measured
+# 35.6s and 64.8s. It is also the wrong shape for a merge gate: the thing it
+# detects is a third party's site going down, which has nothing to do with the
+# diff under review, so it failed PRs for reasons their authors could not fix.
+#
+# Link rot is a calendar problem, so it gets a calendar job. Monday morning,
+# an hour after security.yml's weekly sweep so the two do not contend for
+# runners. `workflow_dispatch` is there for checking a docs change on demand.
+#
+# Deliberately NOT a required check anywhere: a red run here means the web
+# moved, and should be triaged, not merged around.
+
+name: Docs links
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-links
+  cancel-in-progress: true
+
+jobs:
+  link-check:
+    name: External link sweep (weekly)
+    runs-on: ubuntu-latest
+    steps:
+      # Same reasoning as repo-lint: this executes repository-defined pre-commit
+      # hooks, which clone their own repos over anonymous https and must not
+      # find a credential in the workspace.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+      # A distinct key prefix from repo-lint's on purpose: that job's cache is
+      # built under SKIP and so contains no markdown-link-check env, while this
+      # one contains little else. Sharing a key would mean each job takes a hit
+      # and then builds the environment it actually needs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-docs-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-docs-${{ runner.os }}-${{ env.pythonLocation }}-
+      - name: markdown-link-check (all tracked Markdown)
+        run: |
+          . .venv/bin/activate
+          pre-commit run markdown-link-check --all-files
