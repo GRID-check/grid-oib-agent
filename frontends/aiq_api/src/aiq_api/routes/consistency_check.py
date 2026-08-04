@@ -68,7 +68,10 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-    default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
+    # Mirrors the boot floor in config_oib_openrouter.yml. NOTE: this route is
+    # not an AgentGroup, so it resolves outside `platform_model_defaults` — the
+    # platform default set under Platform → Models does not reach it.
+    default_model = "openai/gpt-5.6-luna" if openrouter_key else "gpt-4o-mini"
     default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
 
     model = os.getenv("CONSISTENCY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))

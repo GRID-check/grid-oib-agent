@@ -211,6 +211,13 @@
       "when": 1785456000000,
       "tag": "0029_platform_retrieval_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785542400000,
+      "tag": "0030_seed_platform_model_defaults",
+      "breakpoints": true
     }
   ]
 }

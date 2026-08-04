@@ -29,13 +29,24 @@ Resolution is **per agent group**, so the layers mix: an org that pinned only
 |---|---|---|---|
 | Org override | `org_model_config_versions` (+ pointer) | org admin, Organization → Models | one tenant, wins |
 | **Platform default** | `platform_model_defaults` | platform owner, Platform → Models | every tenant that has not overridden the group |
-| Workflow YAML | `configs/*.yml` → `llms:` → `model_name` | a commit + redeploy | boot fallback only |
+| Workflow YAML | `configs/*.yml` → `llms:` → `model_name` | a commit + redeploy | boot floor only |
 
-The YAML is no longer where the fleet's model is decided — its `model_name`
-values are `${GRID_DEFAULT_MODEL:-…}` boot fallbacks for a fresh install or a
-deployment running without the BFF. What the YAML still solely owns is the
-plumbing an override may never touch: `base_url`, `api_key`, `temperature`,
-`max_tokens`, `reasoning_effort`, timeouts and retries.
+The YAML is not where the fleet's model is decided — its `model_name` values are
+`${GRID_DEFAULT_MODEL:-…}` floors for a process with no BFF to ask (local
+`nat run`, a detached worker, an unreachable frontend). What the YAML still
+solely owns is the plumbing an override may never touch: `base_url`, `api_key`,
+`temperature`, `max_tokens`, `reasoning_effort`, timeouts and retries.
+
+**Migration `0030` seeds layer 2 for every agent group**, so on a migrated
+database the platform layer always answers and the YAML values are never what a
+served request resolves to. Before it, a deployment whose owner had not yet
+visited Platform → Models resolved through an *empty* middle layer and silently
+ran whatever literal sat in the YAML — a model nobody had declared as a
+decision, invisible in the admin surface and absent from the audit trail. The
+seed only ever populates an entirely empty table, so a deployment that already
+has defaults of its own is left untouched. The two floors are pinned to the same
+model id by `tests/db/seed-platform-model-defaults.test.ts`, so a request served
+without a database cannot resolve to a different model than one served with it.
 
 The merge happens **BFF-side**, in `getEffectiveModelOverrides()`
 (`frontends/ui/src/lib/model-config/service.ts`). Every submission path already
@@ -102,7 +113,15 @@ platform_model_defaults
 
 Global — no `organization_id`, mirroring `platform_workflow_templates`
 (ADR-0016/0027). One row per group; **no row = that group falls through to the
-YAML**. A save REPLACES the set: groups omitted from the payload are deleted,
+YAML** — which is why `0030_seed_platform_model_defaults.sql` seeds a row for
+every group in the registry, and why adding an `AGENT_GROUPS` entry without
+extending that seed reintroduces the silent fallthrough for the new group (the
+seed is pinned against the registry in
+`tests/db/seed-platform-model-defaults.test.ts`). Rows written by the seed carry
+the sentinel actor `system:migration-0030` rather than a WorkOS user id, and a
+`model_snapshot` of NULL: a migration has no catalog access, so the admin UI
+cannot report the seeded model's ZDR status until the first real save fills it
+in. A save REPLACES the set: groups omitted from the payload are deleted,
 which is how a group is handed back to the workflow config. Not versioned like
 the org table — the trail is the WorkOS audit event
 `platform.model_defaults.updated` (recorded in the platform org, carrying the

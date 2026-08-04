@@ -65,15 +65,21 @@ general:
 
 llms:
   # ───────────────────────────────────────────────────────────────────────────
-  # THIS FILE NO LONGER DECIDES WHICH MODEL RUNS.
+  # THIS FILE DOES NOT DECIDE WHICH MODEL RUNS.
   #
-  # `model_name` below is the BOOT FALLBACK only — what a role runs on before
-  # anything has been configured, or if the BFF is unreachable. The real default
-  # is an admin decision taken at runtime: the platform owner picks it under
-  # Platform → Models (`platform_model_defaults`), and every organization that
-  # has not chosen its own model for that agent group follows on its next turn.
-  # A tenant's own choice (Organization → Models) still wins over both.
+  # `model_name` below is the BOOT FLOOR only — what a role runs on in a process
+  # that has no BFF to ask (local `nat run`, a detached worker, an unreachable
+  # frontend). The default an actual user gets is a row in the database:
+  # `platform_model_defaults`, seeded by migration 0030 and edited under
+  # Platform → Models. Every organization that has not chosen its own model for
+  # an agent group follows that row on its next turn; a tenant's own choice
+  # (Organization → Models) still wins over both.
   # Resolution order: org override → platform default → the value here.
+  #
+  # Because 0030 seeds every agent group, a migrated database always answers at
+  # layer 2 and the values below are never what a served request resolves to.
+  # They are kept in sync with the seed so the two floors cannot disagree — not
+  # because anything reads them in a normal deployment.
   # See docs/architecture/org-model-configuration.md.
   #
   # So: do NOT edit these to move the fleet to a newer model — that is a save in
@@ -112,7 +118,7 @@ llms:
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
   intent_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     # Pure router: classification must be repeatable for the same query.
@@ -134,7 +140,7 @@ llms:
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -153,7 +159,7 @@ llms:
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -166,7 +172,7 @@ llms:
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -179,7 +185,7 @@ llms:
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -192,7 +198,7 @@ llms:
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -205,7 +211,7 @@ llms:
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -221,7 +227,7 @@ llms:
   # which is also the deep-research source_router_llm where medium still matters.
   ris_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -234,7 +240,7 @@ llms:
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -248,7 +254,7 @@ llms:
   # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
   compliance_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -261,7 +267,7 @@ llms:
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -277,7 +283,7 @@ llms:
   # judgment; pure JSON extraction needs no reasoning effort.
   rerank_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 0

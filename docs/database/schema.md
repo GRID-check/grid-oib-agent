@@ -302,6 +302,14 @@ organizations. Resolution at
 runtime is per group: org override → platform default → YAML. Schema:
 `frontends/ui/src/lib/db/schema/platform-model-defaults.ts`.
 
+**Migration 0030 seeds one row per agent group**, so the table is populated from
+the first deploy rather than only once an admin visits Platform → Models —
+without it the fleet ran on an undeclared YAML literal. It seeds only a table
+that is entirely empty (a deployment with defaults of its own is left alone) and
+is therefore a no-op on re-run. Seeded rows carry `updated_by =
+'system:migration-0030'`, which is also what the `.down.sql` matches on so a
+rollback removes the seed without discarding a default an owner has since saved.
+
 ## platform_retrieval_settings (migration 0029)
 
 The platform-controlled retrieval counts — how many chunks and results each
