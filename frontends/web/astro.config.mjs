@@ -14,6 +14,15 @@ export default defineConfig({
   // browser as a blank /keystatic page. It must come before keystatic().
   integrations: [mdx(), react(), keystatic()],
   adapter: node({ mode: 'standalone' }),
+  // Blog images arrive from Keystatic at whatever resolution the author's camera
+  // or scanner produced - the first upload was 11 MB at 15798px wide. `constrained`
+  // makes every processed image emit a srcset capped at its intrinsic size, so the
+  // browser fetches a column-sized variant instead of the original, and
+  // `responsiveStyles` ships the `max-width`/`height:auto` rules that go with it.
+  image: {
+    layout: 'constrained',
+    responsiveStyles: true,
+  },
   vite: {
     plugins: [tailwindcss()],
   },
