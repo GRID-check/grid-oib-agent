@@ -26,14 +26,16 @@ accepts them as build args (see `Dockerfile`).
 
 ## Blog
 
-Posts live as MDX in `src/content/blog/*.mdx` (frontmatter schema in
-`src/content.config.ts`); draft posts are hidden from the public site.
+Posts live as MDX in `src/content/blog/{de,en}/*.mdx` (frontmatter schema in
+`src/content.config.ts`); draft posts are hidden from the public site. Two
+Keystatic collections map onto them — `posts-de` and `posts-en`.
 
-Editing happens through **Keystatic** (cloud mode, project
-`grid-check/piloti`). In development, run `npm run dev` and open
-`/keystatic`; authoring rights are managed in the Keystatic project
-settings (repo collaborators - i.e. the platform owners). Published posts
-are plain files, so they are picked up by the normal Astro build.
+Editing happens through **Keystatic** (cloud mode, project `grid/piloti`). In
+development, run `npm run dev` and open `/keystatic`; authoring rights are
+managed by **Keystatic Cloud team membership** for the project's team —
+platform owners are added there, no GitHub account or repository permissions
+needed. Published posts are plain files, so they are picked up by the normal
+Astro build.
 
 ## Checks
 

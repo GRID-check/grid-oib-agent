@@ -19,7 +19,7 @@ export default config({
     kind: 'cloud',
   },
   cloud: {
-    project: 'grid-check/piloti',
+    project: 'grid/piloti',
   },
   collections: {
     'posts-de': collection({
