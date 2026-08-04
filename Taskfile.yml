@@ -177,6 +177,18 @@ tasks:
       - task: web:check
       - task: web:build
 
+  web:preview:
+    desc: Build the web service with drafts rendered (blog preview only — never ship this)
+    dir: '{{.WEB}}'
+    env:
+      # Preview-only. `astro build` bakes the result into the image, so a release
+      # build with this set would publish every unfinished draft to the live site.
+      PUBLIC_INCLUDE_DRAFTS: '1'
+      PUBLIC_SITE_URL: '{{.PREVIEW_SITE_URL | default "http://localhost:4321"}}'
+    cmds:
+      - npm ci
+      - npm run build
+
   # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
 
   be:lint:

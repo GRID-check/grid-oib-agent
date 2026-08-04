@@ -1,17 +1,19 @@
 ---
-import { getCollection, render } from 'astro:content'
+import { render } from 'astro:content'
+import { getBlogPosts, postSlug } from '../../../lib/posts'
+import { Image } from 'astro:assets'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import SectionTag from '../../../components/atoms/SectionTag.astro'
 import { ui } from '../../../i18n/ui'
 
 export async function getStaticPaths() {
-  const posts = await getCollection('blog', ({ id, data }) => !data.draft && id.startsWith('en/'))
-  return posts.map((post) => ({ params: { slug: post.id.slice(3) }, props: { post } }))
+  const posts = await getBlogPosts('en')
+  return posts.map((post) => ({ params: { slug: postSlug(post.id) }, props: { post } }))
 }
 
 const { post } = Astro.props
 const { Content } = await render(post)
-const slug = post.id.slice(3)
+const slug = postSlug(post.id)
 const t = ui.en.blog
 const date = post.data.pubDate.toLocaleDateString('en-GB', {
   year: 'numeric',
@@ -50,11 +52,11 @@ const switchTo = translation ? `/blog/${translation}/` : '/blog/'
       </p>
       {
         post.data.cover && (
-          <img
+          <Image
             src={post.data.cover}
             alt=""
-            width="1600"
-            height="900"
+            widths={[640, 960, 1280, 1600]}
+            sizes="(min-width: 768px) 768px, 100vw"
             class="mt-9 aspect-[16/9] w-full rounded-card object-cover"
             loading="lazy"
           />

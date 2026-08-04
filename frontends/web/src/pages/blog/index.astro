@@ -1,14 +1,12 @@
 ---
-import { getCollection } from 'astro:content'
+import { getBlogPosts, postSlug } from '../../lib/posts'
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import SectionTag from '../../components/atoms/SectionTag.astro'
 import BlogCard from '../../components/molecules/BlogCard.astro'
 import { ui } from '../../i18n/ui'
 
 const t = ui.de.blog
-const posts = (
-  await getCollection('blog', ({ id, data }) => !data.draft && id.startsWith('de/'))
-).sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+const posts = await getBlogPosts('de')
 ---
 
 <BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
@@ -36,7 +34,7 @@ const posts = (
                 title={post.data.title}
                 description={post.data.description}
                 pubDate={post.data.pubDate}
-                href={`/blog/${post.id.slice(3)}/`}
+                href={`/blog/${postSlug(post.id)}/`}
                 locale="de"
               />
             ))}
