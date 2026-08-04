@@ -187,15 +187,27 @@ jobs:
       - run: task fe:build
 
   frontend-test:
-    name: Frontend tests (shard ${{ matrix.shard }}/4)
+    name: Frontend tests (shard ${{ matrix.shard }}/6)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     strategy:
       # One shard's failure should not hide the others' results.
       fail-fast: false
+      # Six, not four. Measured per-shard wall clock locally at 2 workers (to
+      # match the 2-core runners), calibrated against the real N=4 CI run — the
+      # runners came out 1.68x slower, and the model then predicted N=4's slowest
+      # job at 194s against an actual 194s.
+      #
+      #   N=4   slowest 194s    N=6   152s    N=8   132s    N=10  ~116s
+      #
+      # So 4->6 buys 42s, 6->8 only 20s more, and each step adds ~14% runner
+      # time — this is where the curve flattens. Note the floor: vitest shards by
+      # FILE, and InputArea.spec.tsx alone is 45.9s of the suite's 209.6s of test
+      # execution, so it lands in whichever shard is slowest at every N. Raising N
+      # further cannot beat that file; splitting it can.
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       # These jobs run PR-controlled code — `bun install` executes dependency
       # lifecycle scripts and the suite runs the app itself — so the checkout
@@ -211,7 +223,7 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-      - run: task fe:test:shard SHARD=${{ matrix.shard }}/4
+      - run: task fe:test:shard SHARD=${{ matrix.shard }}/6
       # Coverage is collected per shard and merged below: a shard only ever
       # loads its own slice of the app, so its coverage is meaningless alone and
       # cannot be recomputed afterwards from the others.
