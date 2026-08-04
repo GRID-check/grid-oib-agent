@@ -246,14 +246,207 @@ function initAura() {
 
 interface Frag {
   el: HTMLElement
+  /** Entrance offset, in the direction the fragment drifts in from. */
   dx: number
   dy: number
-  fx: number
-  fy: number
+  /** Authored direction away from the hub, as an angle in radians. */
+  ang: number
+  /** Measured size and resting (CSS) centre inside the panel. */
+  w: number
+  h: number
   hx: number
   hy: number
+  /** Scattered beat: where the fragment lies before it is organised. */
+  sx: number
+  sy: number
+  rot: number
+  /** Solved slot: translation from the resting centre, and whether it fits. */
   tx: number
   ty: number
+  fits: boolean
+}
+
+/** Deterministic 0..1 noise — the scatter must survive a resize unchanged. */
+const noise = (n: number) => {
+  const s = Math.sin(n * 127.1) * 43758.5453
+  return s - Math.floor(s)
+}
+
+interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+const overlaps = (a: Rect, b: Rect, gap = 0) =>
+  Math.abs(a.x - b.x) * 2 < a.w + b.w + gap * 2 &&
+  Math.abs(a.y - b.y) * 2 < a.h + b.h + gap * 2
+
+/**
+ * Places the knowledge fragments around the hub card.
+ *
+ * The arrangement is solved from measurements rather than chosen by a
+ * breakpoint: each fragment keeps its authored *direction* from the hub, and
+ * the radius along that direction is whatever the panel actually affords once
+ * the hub card, the headline and the panel edges are accounted for.
+ *
+ * A narrow or portrait panel cannot hold a ring — the fragments are wider than
+ * the space beside the hub — so it falls back to a `net`: the same fragments
+ * spread as a jittered constellation below the hub. Both arrangements are wired
+ * to the hub by the same connecting lines, because that is the point being
+ * made; only the shape of the net changes with the space available.
+ */
+function solveStoryLayout(
+  frags: Frag[],
+  panel: Rect,
+  hub: Rect,
+  headline: Rect,
+  gridHub: Rect
+) {
+  const PAD = 20
+  const GAP = 18
+
+  const ring = frags.map((f) => {
+    const ux = Math.cos(f.ang)
+    const uy = Math.sin(f.ang)
+    // Furthest the fragment can travel along its direction and stay inside.
+    const limit = (u: number, half: number, from: number, extent: number) =>
+      u === 0
+        ? Infinity
+        : u > 0
+          ? (extent - PAD - half - from) / u
+          : (PAD + half - from) / u
+    const rMax = Math.min(
+      limit(ux, f.w / 2, hub.x, panel.w),
+      limit(uy, f.h / 2, hub.y, panel.h)
+    )
+    // Nearest it may sit without touching the hub card.
+    const clear = (u: number, span: number) => (u === 0 ? Infinity : span / Math.abs(u))
+    const rMin = Math.min(
+      clear(ux, (hub.w + f.w) / 2 + GAP),
+      clear(uy, (hub.h + f.h) / 2 + GAP)
+    )
+    return { f, ux, uy, rMin, rMax }
+  })
+
+  const slots = ring.map(({ f, ux, uy, rMin, rMax }) => {
+    // Walk inward from the outermost radius until the fragment clears the
+    // headline too; the headline sits above the hub, so the fragments that
+    // travel upwards are the ones that have to give way.
+    for (let s = 0; s <= 6; s++) {
+      const r = rMax - ((rMax - rMin) * s) / 6
+      if (r < rMin - 0.5) break
+      const rect = { x: hub.x + ux * r, y: hub.y + uy * r, w: f.w, h: f.h }
+      if (!overlaps(rect, headline, 12)) return { f, rect, ok: rMax >= rMin }
+    }
+    return { f, rect: { x: hub.x + ux * rMax, y: hub.y + uy * rMax, w: f.w, h: f.h }, ok: false }
+  })
+
+  const fits =
+    slots.every((s) => s.ok) &&
+    slots.every((a, i) => slots.every((b, j) => i >= j || !overlaps(a.rect, b.rect, 10)))
+
+  if (fits) {
+    slots.forEach(({ f, rect }, i) => {
+      f.tx = rect.x - f.hx
+      f.ty = rect.y - f.hy
+      // The authored CSS positions are already the scattered beat here.
+      f.sx = 0
+      f.sy = 0
+      f.rot = (noise(i + 1) - 0.5) * 7
+      f.fits = true
+    })
+    return 'ring' as const
+  }
+
+  // Portrait net. Columns give the constellation its underlying order (nothing
+  // overlaps, nothing is cropped) and a deterministic jitter within each cell
+  // takes the table-like regularity back out, so the lines to the hub still
+  // read as a net rather than a bill of materials.
+  const COL = 26
+  const MIN_COL = 150
+  const JITTER_X = 10
+  const JITTER_Y = 9
+  const bandTop = gridHub.y + gridHub.h / 2 + GAP
+  const bandBottom = panel.h - PAD
+  const bandW = panel.w - PAD * 2
+  const cols = Math.max(1, Math.min(4, Math.floor((bandW + COL) / (MIN_COL + COL))))
+  const colW = (bandW - (cols - 1) * COL) / cols
+  const track = colW + COL
+  // A fragment wider than one column spans several rather than being squashed
+  // into one — the info cards are single-line rows and would wrap and clip.
+  const spanOf = (f: Frag) => Math.max(1, Math.min(cols, Math.ceil((f.w + COL) / track)))
+  const widthOf = (span: number) => span * colW + (span - 1) * COL
+
+  const placed = frags.map((f) => ({ f, span: spanOf(f) }))
+  placed.forEach(({ f, span }) => {
+    f.el.style.width = `${Math.max(f.w, widthOf(span))}px`
+  })
+  placed.forEach(({ f, span }) => {
+    f.w = Math.max(f.w, widthOf(span))
+    f.h = f.el.offsetHeight
+    f.hx = f.el.offsetLeft + f.w / 2
+    f.hy = f.el.offsetTop + f.h / 2
+  })
+
+  const rows: { cards: typeof placed; span: number }[] = []
+  let row: typeof placed = []
+  let used = 0
+  for (const item of placed) {
+    if (used && used + item.span > cols) {
+      rows.push({ cards: row, span: used })
+      row = []
+      used = 0
+    }
+    row.push(item)
+    used += item.span
+  }
+  if (row.length) rows.push({ cards: row, span: used })
+
+  const rowH = rows.map((r) => Math.max(...r.cards.map(({ f }) => f.h)))
+  const overflowAt = rowH.findIndex(
+    (_, i) => bandTop + rowH.slice(0, i + 1).reduce((a, b) => a + b, 0) + i * COL > bandBottom
+  )
+  const shown = overflowAt === -1 ? rows.length : overflowAt
+  const totalH = rowH.slice(0, shown).reduce((a, b) => a + b, 0) + Math.max(0, shown - 1) * COL
+
+  let top = bandTop + Math.max(0, (bandBottom - bandTop - totalH) / 2)
+  let seed = 0
+  rows.forEach(({ cards, span }, ri) => {
+    let x = (panel.w - widthOf(span)) / 2
+    cards.forEach(({ f, span: s }) => {
+      seed += 1
+      const jx = (noise(seed) - 0.5) * 2 * JITTER_X
+      const jy = (noise(seed + 91) - 0.5) * 2 * JITTER_Y
+      f.tx = x + f.w / 2 + jx - f.hx
+      f.ty = top + rowH[ri] / 2 + jy - f.hy
+      // Scattered beat: adrift across the same area — but kept inside the
+      // panel, since a fragment sliced off by the panel edge reads as a bug
+      // rather than as disorder.
+      const within = (v: number, half: number, lo: number, hi: number) =>
+        Math.min(Math.max(v, lo + half), Math.max(lo + half, hi - half))
+      f.sx =
+        within(
+          f.hx + f.tx + (noise(seed + 17) - 0.5) * panel.w * 0.5,
+          f.w / 2,
+          PAD,
+          panel.w - PAD
+        ) - f.hx
+      f.sy =
+        within(
+          f.hy + f.ty + (noise(seed + 43) - 0.5) * (bandBottom - bandTop) * 0.55,
+          f.h / 2,
+          bandTop - (bandBottom - bandTop) * 0.15,
+          bandBottom
+        ) - f.hy
+      f.rot = (noise(seed + 5) - 0.5) * 14
+      f.fits = ri < shown
+      x += widthOf(s) + COL
+    })
+    if (ri < shown) top += rowH[ri] + COL
+  })
+  return 'net' as const
 }
 
 function initPins() {
@@ -268,23 +461,74 @@ function initPins() {
   const solutionCard = wrap.querySelector<HTMLElement>('[data-solution-card]')
   const linksSvg = wrap.querySelector<SVGSVGElement>('[data-links]')
 
+  // Authored fractions describe the composition on a landscape panel; only the
+  // direction they imply is kept, and the solver decides the distance.
+  const DESIGN_W = 16
+  const DESIGN_H = 9
+
   const fragEls: Frag[] = Array.from(wrap.querySelectorAll<HTMLElement>('[data-frag]')).map(
     (el) => {
       const [dx, dy] = (el.getAttribute('data-frag') ?? '0,0').split(',').map(Number)
       const [fx, fy] = (el.getAttribute('data-target') ?? '0.5,0.5').split(',').map(Number)
       el.style.willChange = 'transform, opacity'
       el.style.opacity = '0'
-      return { el, dx, dy, fx, fy, hx: 0, hy: 0, tx: 0, ty: 0 }
+      const ang = Math.atan2((fy - 0.57) * DESIGN_H, (fx - 0.5) * DESIGN_W)
+      return {
+        el, dx, dy, ang,
+        w: 0, h: 0, hx: 0, hy: 0,
+        sx: 0, sy: 0, rot: 0,
+        tx: 0, ty: 0, fits: true,
+      }
     }
   )
 
   let lineEls: { el: SVGLineElement; len: number }[] | null = null
+  let mode: 'ring' | 'net' = 'ring'
 
   const measureStory = () => {
     const W = panel.clientWidth
     const H = panel.clientHeight
-    const ccx = 0.5 * W
-    const ccy = 0.57 * H
+    if (!W || !H) return
+
+    const cardW = solutionCard?.offsetWidth ?? 0
+    const cardH = solutionCard?.offsetHeight ?? 0
+    const hlW = hSolution?.offsetWidth ?? 0
+    const hlH = hSolution?.offsetHeight ?? 0
+    // A ring keeps the hub optically centred inside the fan; a portrait net
+    // stacks headline → hub → fragments, so both move up to make room.
+    const HUB_Y = { ring: 0.57, net: 0.4 }
+    const HEAD_Y = { ring: 0.21, net: 0.11 }
+    const hubAt = (f: number) => ({ x: 0.5 * W, y: f * H, w: cardW, h: cardH })
+    const headAt = (f: number) => ({ x: 0.5 * W, y: f * H + hlH / 2, w: hlW, h: hlH })
+
+    // Back to intrinsic size before measuring — grid mode stretches the
+    // fragments to a shared column width, which would otherwise be measured as
+    // if it were their natural width on the next pass.
+    fragEls.forEach((f) => {
+      f.el.style.display = ''
+      f.el.style.width = ''
+    })
+    fragEls.forEach((f) => {
+      f.w = f.el.offsetWidth
+      f.h = f.el.offsetHeight
+      f.hx = f.el.offsetLeft + f.w / 2
+      f.hy = f.el.offsetTop + f.h / 2
+    })
+
+    mode = solveStoryLayout(
+      fragEls,
+      { x: 0, y: 0, w: W, h: H },
+      hubAt(HUB_Y.ring),
+      headAt(HEAD_Y.ring),
+      hubAt(HUB_Y.net)
+    )
+    const hub = hubAt(HUB_Y[mode])
+    if (solutionCard) solutionCard.style.top = `${HUB_Y[mode] * 100}%`
+    if (hSolution) hSolution.style.top = `${HEAD_Y[mode] * 100}%`
+    fragEls.forEach((f) => {
+      if (!f.fits) f.el.style.display = 'none'
+    })
+
     if (linksSvg && !lineEls) {
       const NS = 'http://www.w3.org/2000/svg'
       lineEls = fragEls.map(() => {
@@ -297,20 +541,17 @@ function initPins() {
       })
     }
     if (linksSvg) linksSvg.setAttribute('viewBox', `0 0 ${W} ${H}`)
-    fragEls.forEach((f, i) => {
-      f.hx = f.el.offsetLeft + f.el.offsetWidth / 2
-      f.hy = f.el.offsetTop + f.el.offsetHeight / 2
-      f.tx = f.fx * W - f.hx
-      f.ty = f.fy * H - f.hy
-      if (lineEls) {
-        const l = lineEls[i]
-        l.el.setAttribute('x1', String(ccx))
-        l.el.setAttribute('y1', String(ccy))
-        l.el.setAttribute('x2', String(f.fx * W))
-        l.el.setAttribute('y2', String(f.fy * H))
-        l.len = Math.hypot(f.fx * W - ccx, f.fy * H - ccy)
-        l.el.style.strokeDasharray = String(l.len)
-      }
+    lineEls?.forEach((l, i) => {
+      const f = fragEls[i]
+      // Fragments that were left out get a zero-length line, which draws nothing.
+      const x = f.fits ? f.hx + f.tx : hub.x
+      const y = f.fits ? f.hy + f.ty : hub.y
+      l.el.setAttribute('x1', String(hub.x))
+      l.el.setAttribute('y1', String(hub.y))
+      l.el.setAttribute('x2', String(x))
+      l.el.setAttribute('y2', String(y))
+      l.len = Math.hypot(x - hub.x, y - hub.y)
+      l.el.style.strokeDasharray = String(l.len)
     })
   }
 
@@ -319,16 +560,16 @@ function initPins() {
       f.el.style.opacity = '1'
       f.el.style.transform = `translate(${f.tx}px,${f.ty}px)`
     })
-    if (hProblem) hProblem.style.opacity = '0'
-    if (hSolution) hSolution.style.opacity = '1'
-    if (solutionCard) {
-      solutionCard.style.opacity = '1'
-      solutionCard.style.transform = 'translate(-50%,-50%)'
-    }
     lineEls?.forEach((l) => {
       l.el.style.strokeDashoffset = '0'
       l.el.style.opacity = '0.45'
     })
+    if (hProblem) hProblem.style.opacity = '0'
+    if (hSolution) hSolution.style.opacity = '1'
+    if (solutionCard) {
+      solutionCard.style.opacity = '1'
+      solutionCard.style.transform = 'translate(-50%,-50%) scale(1)'
+    }
   }
 
   if (reduced) {
@@ -337,7 +578,6 @@ function initPins() {
     return
   }
 
-  wrap.style.height = '440vh'
   sticky.style.position = 'sticky'
   sticky.style.top = '0'
   sticky.style.boxSizing = 'border-box'
@@ -350,6 +590,9 @@ function initPins() {
       sticky.style.overflow = 'hidden'
     }
     measureStory()
+    // The scroll runway is the beat list's length: the ring adds the fan-out
+    // and the connecting lines, the grid does not, so it needs less scrolling.
+    wrap.style.height = mode === 'ring' ? '440vh' : '300vh'
   }
 
   let navHidden = false
@@ -374,11 +617,13 @@ function initPins() {
       const eIn = easeOut(clamp((p - inStart) / 0.16))
       const orgStart = 0.5 + (i / n) * 0.16
       const eOrg = easeOut(clamp((p - orgStart) / 0.24))
-      const tx = f.dx * 4 * (1 - eIn) + f.tx * eOrg
-      const ty = f.dy * 4 * (1 - eIn) + f.ty * eOrg
+      // drift in → lie scattered → get pulled onto the net
+      const tx = f.dx * 4 * (1 - eIn) + f.sx + (f.tx - f.sx) * eOrg
+      const ty = f.dy * 4 * (1 - eIn) + f.sy + (f.ty - f.sy) * eOrg
       const sc = (0.85 + 0.15 * eIn) * (1 - 0.16 * eOrg)
+      const rot = f.rot * (1 - eOrg)
       f.el.style.opacity = String(eIn)
-      f.el.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`
+      f.el.style.transform = `translate(${tx}px,${ty}px) rotate(${rot}deg) scale(${sc})`
     })
     if (hProblem) {
       const out = easeOut(clamp((p - 0.42) / 0.1))

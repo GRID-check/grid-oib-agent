@@ -16,7 +16,7 @@ const t = ui[locale]
     id="top"
     data-screen-label="01 Start"
     data-hero
-    class="sticky top-0 box-border flex h-screen flex-col items-center justify-center overflow-hidden bg-hero-bg px-12 py-24"
+    class="sticky top-0 box-border flex h-screen flex-col items-center justify-center overflow-hidden bg-hero-bg px-6 py-24 sm:px-12"
   >
     <Image
       src={hero}
@@ -37,18 +37,18 @@ const t = ui[locale]
     </div>
 
     <h1
-      class="relative mt-[min(52vh,calc(100vh-330px))] max-w-[1000px] text-center font-display text-[clamp(36px,4.8vw,70px)] font-bold leading-[1.0] tracking-[-0.032em] text-black"
+      class="relative mt-[min(52vh,calc(100vh-330px))] max-w-5xl text-center font-display text-display text-ink"
       style="text-wrap: balance"
     >
       {t.hero.title}
     </h1>
 
-    <div class="absolute inset-x-0 bottom-[68px] flex flex-col items-center gap-3.5">
+    <div class="absolute inset-x-6 bottom-16 flex flex-col items-center gap-3.5">
       <div
         data-hero-cta
-        class="flex flex-wrap items-center justify-center gap-[18px] transition-[opacity,transform] duration-500"
+        class="flex flex-wrap items-center justify-center gap-4 transition duration-500"
       >
-        <p class="m-0 text-[14.5px] leading-[1.5] text-[#3d3e3a]" style="text-wrap: pretty">
+        <p class="m-0 text-center text-sm leading-normal text-ink-mid" style="text-wrap: pretty">
           {t.hero.sub}
         </p>
         <div class="flex gap-2.5">
@@ -58,7 +58,7 @@ const t = ui[locale]
       </div>
     </div>
     <div
-      class="absolute bottom-[22px] left-1/2 h-[30px] w-px -translate-x-1/2 bg-panel/30"
+      class="absolute bottom-5 left-1/2 h-8 w-px -translate-x-1/2 bg-panel/30"
       style="animation: scrollhint 2s ease-in-out infinite"
       aria-hidden="true"
     >

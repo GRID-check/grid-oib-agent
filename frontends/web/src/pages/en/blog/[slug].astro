@@ -33,19 +33,19 @@ const switchTo = translation ? `/blog/${translation}/` : '/blog/'
   switchTo={switchTo}
 >
   <article class="px-6 pb-28 pt-36 md:px-10">
-    <div class="mx-auto max-w-[720px]">
-      <a href="/en/blog/" class="text-[13px] font-medium text-accent-600 hover:text-accent-500">
+    <div class="mx-auto max-w-3xl">
+      <a href="/en/blog/" class="text-sm font-medium text-accent-600 hover:text-accent-500">
         {t.allPosts}
       </a>
       <div class="mt-8">
         <SectionTag>{t.tag}</SectionTag>
       </div>
       <h1
-        class="mt-5 font-display text-[clamp(30px,4.4vw,46px)] font-semibold leading-[1.12] tracking-[-0.02em] text-ink"
+        class="mt-5 font-display text-h2 text-ink"
       >
         {post.data.title}
       </h1>
-      <p class="mt-4 font-mono text-[12px] uppercase tracking-[0.12em] text-ink-soft">
+      <p class="mt-4 font-mono text-xs uppercase tracking-widest text-ink-soft">
         <time datetime={post.data.pubDate.toISOString()}>{date}</time>
       </p>
       {
@@ -55,7 +55,7 @@ const switchTo = translation ? `/blog/${translation}/` : '/blog/'
             alt=""
             width="1600"
             height="900"
-            class="mt-9 aspect-[16/9] w-full rounded-[20px] object-cover"
+            class="mt-9 aspect-[16/9] w-full rounded-card object-cover"
             loading="lazy"
           />
         )

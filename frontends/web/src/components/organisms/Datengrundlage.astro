@@ -13,25 +13,22 @@ const t = ui[locale]
 <section
   id="daten"
   data-screen-label="05 Datengrundlage"
-  class="mx-auto box-border flex min-h-screen max-w-[1360px] flex-col justify-center px-10 py-24"
+  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
 >
-  <div class="box-border rounded-[28px] bg-accent-900 px-16 py-20 text-surface">
-    <div data-reveal class="mb-16 max-w-[760px]">
-      <SectionTag tone="dark" class="mb-[22px]">{t.daten.tag}</SectionTag>
-      <h2
-        class="m-0 mb-6 font-display text-[clamp(32px,4vw,50px)] font-bold leading-[1.08] tracking-[-0.02em] text-surface"
-        style="text-wrap: balance"
-      >
+  <div class="box-border rounded-panel bg-accent-900 px-6 py-14 text-surface sm:px-16 sm:py-20">
+    <div data-reveal class="mb-12 max-w-3xl sm:mb-16">
+      <SectionTag tone="dark" class="mb-5">{t.daten.tag}</SectionTag>
+      <h2 class="m-0 mb-6 font-display text-h2 text-surface" style="text-wrap: balance">
         {t.daten.title}
       </h2>
-      <p class="m-0 text-lg leading-[1.6] text-on-dark" style="text-wrap: pretty">
+      <p class="m-0 text-lg leading-relaxed text-on-dark" style="text-wrap: pretty">
         {t.daten.body}
       </p>
     </div>
     <div class="grid grid-cols-4 gap-3.5 max-lg:grid-cols-2 max-md:grid-cols-1">
       {
         t.daten.cards.map((c, i) => (
-          <FeatureCard idx={`0${i + 1}`} title={c.title} tone="dark" class="p-[28px_26px]">
+          <FeatureCard idx={`0${i + 1}`} title={c.title} tone="dark">
             {c.body}
           </FeatureCard>
         ))

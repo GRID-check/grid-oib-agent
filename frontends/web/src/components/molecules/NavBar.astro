@@ -15,23 +15,25 @@ const translatePath = useTranslatedPath(locale)
 const home = translatePath('/')
 ---
 
-<header data-nav class="fixed inset-x-0 top-0 z-50 px-[18px] pt-4">
+<header data-nav class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-4 sm:pt-4">
   <nav
     data-nav-bar
-    class="mx-auto grid max-w-[1340px] grid-cols-[1fr_auto_1fr] items-center rounded-[18px] px-4 py-2 transition-colors duration-500"
+    class="mx-auto flex max-w-[84rem] items-center justify-between gap-3 rounded-card px-3 py-2 transition-colors duration-500 sm:px-4 md:grid md:grid-cols-[1fr_auto_1fr]"
     aria-label={t.nav.ariaLabel}
   >
-    <div></div>
-    <Logo href={`${home}#top`} label={t.nav.logoLabel} />
-    <div class="flex items-center justify-end gap-[14px] text-[13px] font-medium">
-      <a href={APP_URL} class="text-ink hover:text-accent-600">{t.nav.signIn}</a>
+    <div class="hidden md:block"></div>
+    <Logo href={`${home}#top`} label={t.nav.logoLabel} class="shrink-0" />
+    <div
+      class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
+    >
+      <a href={APP_URL} class="hidden text-ink hover:text-accent-600 sm:inline">{t.nav.signIn}</a>
       <Pill href={`${home}#kontakt`} variant="outline" size="sm">
         {t.nav.cta}
       </Pill>
       {
         switchTo && (
           <span
-            class="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-ghost"
+            class="whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-ink-ghost"
             aria-label={t.nav.langLabel}
           >
             {locale === 'de' ? (

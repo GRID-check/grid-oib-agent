@@ -15,8 +15,7 @@ const tones = {
     body: 'text-ink-soft',
   },
   dark: {
-    card:
-      'rounded-2xl border border-surface/15 bg-surface/[0.06] text-surface transition-colors hover:border-surface/35',
+    card: 'border border-surface/15 bg-surface/5 text-surface transition-colors hover:border-surface/35',
     idx: 'text-on-dark-label',
     title: 'text-surface',
     body: 'text-on-dark',
@@ -31,12 +30,12 @@ const tones = {
 const t = tones[tone]
 ---
 
-<div data-reveal class={`rounded-[20px] p-6 ${t.card} ${className}`}>
-  <p class={`m-0 font-display text-[11px] uppercase tracking-[0.12em] ${t.idx}`}>{idx}</p>
-  <h3 class={`m-0 mt-3 font-display text-[19px] font-semibold tracking-[-0.01em] ${t.title}`}>
+<div data-reveal class={`rounded-card p-6 sm:p-7 ${t.card} ${className}`}>
+  <p class={`m-0 font-display text-2xs uppercase tracking-widest ${t.idx}`}>{idx}</p>
+  <h3 class={`m-0 mt-3 font-display text-lg font-semibold tracking-tight ${t.title}`}>
     {title}
   </h3>
-  <p class={`m-0 mt-3 text-[14px] leading-[1.6] ${t.body}`} style="text-wrap: pretty">
+  <p class={`m-0 mt-3 text-sm leading-relaxed ${t.body}`} style="text-wrap: pretty">
     <slot />
   </p>
 </div>

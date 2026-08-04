@@ -11,86 +11,86 @@ const t = ui[locale]
 ---
 
 <div data-pin="story" id="problem" data-screen-label="02 Problem und Lösung">
-  <div data-pin-sticky class="box-border flex min-h-screen items-center p-4">
+  <div data-pin-sticky class="box-border flex min-h-screen items-center p-2 sm:p-4">
     <div
       data-story-panel
-      class="relative box-border flex min-h-[calc(100vh-32px)] w-full flex-col items-center justify-center overflow-hidden rounded-[28px] bg-panel px-12 py-24"
+      class="relative box-border flex min-h-[calc(100vh-1rem)] w-full flex-col items-center justify-center overflow-hidden rounded-card bg-panel px-6 py-16 sm:min-h-[calc(100vh-2rem)] sm:rounded-panel sm:px-12 sm:py-24"
     >
-      <svg
-        data-links
-        class="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
-        aria-hidden="true"></svg>
+      <!-- Knowledge-fragment stage. The fragments' resting positions are solved
+           at runtime from the measured panel (see solveStoryLayout in
+           scripts/landing.ts) — the left/top values here are only where each one
+           drifts in from. -->
+      <div data-story-stage class="absolute inset-0" aria-hidden="true">
+        <svg
+          data-links
+          class="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+          aria-hidden="true"></svg>
 
-      <FragCard tag={t.story.tags.norm} dx={-30} dy={-24} fx={0.13} fy={0.28} pos={{ left: 0.06, top: 0.2 }}>
-        OIB-RL 2<br />Pkt. 3.5
-      </FragCard>
-      <FragCard tag={t.story.tags.site} dx={40} dy={-30} fx={0.87} fy={0.28} pos={{ right: 0.08, top: 0.16 }}>
-        WIEN 1030
-      </FragCard>
-      <FragCard tag={t.story.tags.material} dx={-46} dy={26} fx={0.14} fy={0.8} pos={{ left: 0.09, bottom: 0.18 }}>
-        λ 0,035 W/mK
-      </FragCard>
-      <FragCard tag={t.story.tags.category} dx={44} dy={32} fx={0.86} fy={0.8} pos={{ right: 0.1, bottom: 0.15 }}>
-        GK 4
-      </FragCard>
-      <FragCard tag={t.story.tags.document} dx={-22} dy={-34} fx={0.32} fy={0.12} pos={{ left: 0.22, top: 0.11 }}>
-        Bauantrag.pdf
-      </FragCard>
-      <FragCard tag={t.story.tags.detail} dx={40} dy={4} fx={0.68} fy={0.12} pos={{ right: 0.05, top: 0.46 }}>
-        Sockelanschluss
-      </FragCard>
+        <FragCard tag={t.story.tags.norm} dx={-30} dy={-24} fx={0.13} fy={0.28} pos={{ left: 0.06, top: 0.2 }}>
+          OIB-RL 2<br />Pkt. 3.5
+        </FragCard>
+        <FragCard tag={t.story.tags.site} dx={40} dy={-30} fx={0.87} fy={0.28} pos={{ right: 0.08, top: 0.16 }}>
+          WIEN 1030
+        </FragCard>
+        <FragCard tag={t.story.tags.material} dx={-46} dy={26} fx={0.14} fy={0.8} pos={{ left: 0.09, bottom: 0.18 }}>
+          λ 0,035 W/mK
+        </FragCard>
+        <FragCard tag={t.story.tags.category} dx={44} dy={32} fx={0.86} fy={0.8} pos={{ right: 0.1, bottom: 0.15 }}>
+          GK 4
+        </FragCard>
+        <FragCard tag={t.story.tags.document} dx={-22} dy={-34} fx={0.32} fy={0.12} pos={{ left: 0.22, top: 0.11 }}>
+          Bauantrag.pdf
+        </FragCard>
+        <FragCard tag={t.story.tags.detail} dx={40} dy={4} fx={0.68} fy={0.12} pos={{ right: 0.05, top: 0.46 }}>
+          Sockelanschluss
+        </FragCard>
 
-      <InfoCard glyph="§" tile="#cfe0a8" title="§ 106 BO Wien" sub={t.story.infoSubs.fire} value="GK 4" dx={26} dy={-18} fx={0.14} fy={0.57} pos={{ right: 0.2, top: 0.3 }} />
-      <InfoCard glyph="◷" tile="#f3e6b8" title="OIB-RL 6" sub={t.story.infoSubs.energy} value="U 0,20" dx={-34} dy={20} fx={0.86} fy={0.57} pos={{ left: 0.17, bottom: 0.3 }} />
-      <InfoCard glyph="▦" tile="#e9c4a8" title="Volksschule Aspern" sub={t.story.infoSubs.connection} value="2019" dx={18} dy={34} fx={0.3} fy={0.87} pos={{ right: 0.24, bottom: 0.24 }} />
-      <InfoCard glyph="▤" tile="#cdd6e6" title="Statik_Nachweis" sub={t.story.infoSubs.construction} value="PDF" dx={-12} dy={40} fx={0.5} fy={0.895} pos={{ left: 0.33, bottom: 0.09 }} />
+        <InfoCard glyph="§" tile="#cfe0a8" title="§ 106 BO Wien" sub={t.story.infoSubs.fire} value="GK 4" dx={26} dy={-18} fx={0.14} fy={0.57} pos={{ right: 0.2, top: 0.3 }} />
+        <InfoCard glyph="◷" tile="#f3e6b8" title="OIB-RL 6" sub={t.story.infoSubs.energy} value="U 0,20" dx={-34} dy={20} fx={0.86} fy={0.57} pos={{ left: 0.17, bottom: 0.3 }} />
+        <InfoCard glyph="▦" tile="#e9c4a8" title="Volksschule Aspern" sub={t.story.infoSubs.connection} value="2019" dx={18} dy={34} fx={0.3} fy={0.87} pos={{ right: 0.24, bottom: 0.24 }} />
+        <InfoCard glyph="▤" tile="#cdd6e6" title="Statik_Nachweis" sub={t.story.infoSubs.construction} value="PDF" dx={-12} dy={40} fx={0.5} fy={0.895} pos={{ left: 0.33, bottom: 0.09 }} />
 
-      <div
-        data-frag="-42,4"
-        data-target="0.70,0.87"
-        class="frag absolute rounded-[10px] border border-surface/15 bg-panel p-[12px_14px]"
-        style="left: 3%; top: 48%"
-      >
-        <p class="mb-2 font-display text-[10.5px] font-semibold uppercase tracking-[0.14em] text-on-dark-tag">
-          {t.story.tags.plan}
-        </p>
-        <svg width="94" height="60" viewBox="0 0 94 60" fill="none" class="block" aria-hidden="true">
-          <rect x="1" y="1" width="92" height="58" stroke="rgba(185,194,164,0.55)" stroke-width="1"></rect>
-          <line x1="55" y1="1" x2="55" y2="59" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
-          <line x1="55" y1="30" x2="93" y2="30" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
-          <line x1="1" y1="40" x2="55" y2="40" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
-          <path d="M24 40 A16 16 0 0 1 40 56" stroke="rgba(164,208,106,0.7)" stroke-width="1" fill="none"></path>
-          <rect x="22" y="38" width="4" height="4" fill="#a4d06a"></rect>
-        </svg>
+        <div
+          data-frag="-42,4"
+          data-target="0.70,0.87"
+          class="absolute rounded-xl border border-surface/15 bg-panel px-3.5 py-3 shadow-frag"
+          style="left: 3%; top: 48%"
+        >
+          <p class="mb-2 font-display text-2xs font-semibold uppercase tracking-label text-on-dark-tag">
+            {t.story.tags.plan}
+          </p>
+          <svg width="94" height="60" viewBox="0 0 94 60" fill="none" class="block" aria-hidden="true">
+            <rect x="1" y="1" width="92" height="58" stroke="rgba(185,194,164,0.55)" stroke-width="1"></rect>
+            <line x1="55" y1="1" x2="55" y2="59" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
+            <line x1="55" y1="30" x2="93" y2="30" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
+            <line x1="1" y1="40" x2="55" y2="40" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
+            <path d="M24 40 A16 16 0 0 1 40 56" stroke="rgba(164,208,106,0.7)" stroke-width="1" fill="none"></path>
+            <rect x="22" y="38" width="4" height="4" fill="#a4d06a"></rect>
+          </svg>
+        </div>
       </div>
 
-      <div data-h-problem class="relative z-[2] max-w-[860px] text-center">
-        <h2
-          class="m-0 font-display text-[clamp(32px,4vw,56px)] font-bold leading-[1.12] tracking-[-0.02em] text-[#f4f6ec]"
-          style="text-wrap: balance"
-        >
+      <div data-h-problem class="relative z-20 max-w-4xl text-center">
+        <h2 class="m-0 font-display text-h3 text-on-dark-strong" style="text-wrap: balance">
           {t.story.problemA}&nbsp;<span class="text-white">{t.story.problemB}</span>
         </h2>
       </div>
 
       <div
         data-h-solution
-        class="absolute left-1/2 top-[21%] z-[2] w-[min(820px,calc(100%-96px))] -translate-x-1/2 text-center opacity-0"
+        class="absolute left-1/2 top-[21%] z-20 w-[min(51rem,100%-3rem)] text-center opacity-0 sm:w-[min(51rem,100%-6rem)]"
       >
-        <h2
-          class="m-0 font-display text-[clamp(24px,2.6vw,38px)] font-bold leading-[1.15] tracking-[-0.018em] text-[#f4f6ec]"
-          style="text-wrap: balance"
-        >
+        <h2 class="m-0 font-display text-h4 text-on-dark-strong" style="text-wrap: balance">
           {t.story.solution}
         </h2>
       </div>
 
       <div
         data-solution-card
-        class="absolute left-1/2 top-[57%] z-[3] box-border w-[270px] -translate-x-1/2 -translate-y-1/2 scale-[0.8] rounded-[20px] bg-surface px-[38px] py-7 text-center text-panel opacity-0 shadow-[0_24px_60px_-24px_rgb(0_0_0/0.7)]"
+        class="absolute left-1/2 top-[57%] z-30 box-border w-68 rounded-card bg-surface px-9 py-7 text-center text-panel opacity-0 shadow-hero"
       >
-        <p class="m-0 mb-2 font-display text-[19px] font-bold tracking-[-0.01em]">Piloti</p>
-        <p class="m-0 text-[13.5px] leading-[1.5] text-accent-600">
+        <p class="m-0 mb-2 font-display text-lg font-bold tracking-tight">Piloti</p>
+        <p class="m-0 text-sm leading-normal text-accent-600">
           {t.story.cardTagline}
         </p>
       </div>

@@ -13,27 +13,24 @@ const t = ui[locale]
 <section
   id="nutzung"
   data-screen-label="04 Nutzung"
-  class="mx-auto box-border flex min-h-screen max-w-[1360px] flex-col justify-center px-4 py-24 sm:px-10"
+  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
 >
-  <div class="box-border rounded-[28px] bg-surface-dim px-6 py-[72px] sm:px-16">
-    <div class="grid grid-cols-[minmax(280px,4fr)_8fr] items-center gap-12 max-lg:grid-cols-1">
+  <div class="box-border rounded-panel bg-surface-dim px-6 py-16 sm:px-16 sm:py-18">
+    <div class="grid grid-cols-[minmax(17.5rem,4fr)_8fr] items-center gap-12 max-lg:grid-cols-1">
       <div data-reveal>
-        <SectionTag class="mb-[22px]">{t.nutzung.tag}</SectionTag>
-        <h2
-          class="m-0 mb-6 font-display text-[clamp(30px,3.4vw,44px)] font-bold leading-[1.1] tracking-[-0.018em]"
-          style="text-wrap: balance"
-        >
+        <SectionTag class="mb-5">{t.nutzung.tag}</SectionTag>
+        <h2 class="m-0 mb-6 font-display text-h4" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>
-        <p class="m-0 mb-8 text-[17px] leading-[1.6] text-ink-soft" style="text-wrap: pretty">
+        <p class="m-0 mb-8 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
           {t.nutzung.body}
         </p>
         <div class="flex items-baseline gap-3.5 border-t border-ink/15 pt-6">
-          <span class="font-display text-[40px] font-bold tracking-[-0.02em] text-accent-900"
+          <span class="font-display text-4xl font-bold tracking-tight text-accent-900"
             >{t.nutzung.big}</span
           >
         </div>
-        <p class="mb-0 mt-2 text-[13.5px] text-[#6f706c]">
+        <p class="mb-0 mt-2 text-sm text-ink-mute">
           {t.nutzung.sub}
         </p>
       </div>
