@@ -378,6 +378,16 @@ mandatory) is deliberate: an ungated route is a security hole with no safe
 default, an unlimited route is a cost risk that has one. Reads are left to the
 edge's per-IP budget.
 
+**One unit per request is the default, not the rule.** A route that does N times
+the work for one call has to charge N, or the budget stops bounding what the
+endpoint does. The messages route is the case in the tree today: it accepts
+either a single message or an array, so it caps the array at
+`MAX_MESSAGES_PER_REQUEST` and charges one unit per message. The cap must stay at
+or below the burst clause — charging per message means a maximal batch spends its
+whole size at once, so a larger cap would document a batch size the limiter
+refuses every time. Its spec asserts that relationship rather than trusting the
+two numbers to stay compatible.
+
 `@/lib/sharing/rate-limit` is **deleted**; its three rules moved to the catalog
 with their budgets unchanged, so that migration was an algorithm change and not a
 silent retune.

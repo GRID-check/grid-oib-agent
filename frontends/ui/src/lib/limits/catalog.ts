@@ -52,3 +52,33 @@ export const LIMIT_CATALOG = {
  * Not a `LimitRule`: it bounds one message's shape, not a rate.
  */
 export const MAX_MENTIONS_PER_MESSAGE = 10
+
+/**
+ * Maximum messages one POST to the messages route may carry.
+ *
+ * That route accepts either a single message or an array, and the route factory
+ * charges `DEFAULT_MUTATION_LIMIT` once per REQUEST. Without a cap the two
+ * combine badly: an unbounded array turns one unit of budget into arbitrarily
+ * much insert work, so the rate limit stops bounding anything the endpoint
+ * actually does.
+ *
+ * The cap is half the answer and the route supplies the other half — it charges
+ * one unit per message rather than per request, so a batch of ten costs what ten
+ * single posts cost. The cap then bounds the work of a single request; the
+ * budget bounds the work over time.
+ *
+ * The number itself is constrained from above by `DEFAULT_MUTATION_LIMIT`'s
+ * BURST clause, and that is not a coincidence to leave implicit: charging per
+ * message means a batch of N spends N points at once, so a cap above the burst
+ * limit would advertise a batch size the limiter refuses every single time. The
+ * spec asserts the relationship, so lowering the burst later fails a test
+ * instead of quietly making the documented maximum unusable.
+ *
+ * Sized as headroom, not as a fit: no caller batches today (the client's
+ * `createMessages` exists but every live path posts one message), so this is
+ * room for a future sync or import path rather than a number anything currently
+ * approaches.
+ *
+ * Not a `LimitRule`: it bounds one request's shape, not a rate.
+ */
+export const MAX_MESSAGES_PER_REQUEST = 25
