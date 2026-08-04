@@ -11,7 +11,19 @@ const postSchema = {
     directory: 'frontends/web/public/images/blog',
     publicPath: '/images/blog/',
   }),
-  content: fields.mdx({ label: 'Inhalt' }),
+  // Inline images must land in `public/` and be referenced by absolute URL, the
+  // same way `cover` already is. Keystatic's default co-locates them next to the
+  // entry and writes a relative `![](file.jpg)`, which Rollup then tries to
+  // resolve as a module import and the Astro build fails on.
+  content: fields.mdx({
+    label: 'Inhalt',
+    options: {
+      image: {
+        directory: 'frontends/web/public/images/blog',
+        publicPath: '/images/blog/',
+      },
+    },
+  }),
 }
 
 export default config({
