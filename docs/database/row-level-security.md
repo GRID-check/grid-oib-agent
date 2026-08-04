@@ -184,7 +184,13 @@ variable.
 
 - **Compose** — `deploy/compose/init-db.sql` gives `grid_app_rw` its LOGIN
   password (dev default `grid_app_rw_dev`; override with
-  `GRID_APP_RUNTIME_PASSWORD`).
+  `GRID_APP_RUNTIME_PASSWORD`). That file runs only when Postgres initialises a
+  **fresh** data directory, so on an upgraded stack the frontend container's
+  `scripts/ensure-runtime-role.mjs` step synchronises the role's password from
+  `GRID_APP_DATABASE_URL` before the server starts — one source of truth, and
+  no manual step. The purger and scheduler connect as the same role, so on a
+  first boot they may restart once or twice until the frontend has run that
+  step; both are restart-safe and no state is lost.
 - **Kubernetes** — the `pg-init-tables` Job sets it from the Pulumi secret.
   `pgRuntimePassword` defaults to `pgAppPassword` so an existing stack deploys
   without a coordinated rotation; setting it separately is recommended. What

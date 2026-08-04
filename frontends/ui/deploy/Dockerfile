@@ -149,6 +149,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 COPY --from=builder --chown=nextjs:nodejs /app/purger ./purger
 COPY --from=builder --chown=nextjs:nodejs /app/scheduler ./scheduler
 COPY --from=builder --chown=nextjs:nodejs /app/observability ./observability
+# Shared by purger/ and scheduler/ — both require ../workers/platform-scope to
+# step up to the BYPASSRLS role (ADR-0041). Without it neither worker starts.
+COPY --from=builder --chown=nextjs:nodejs /app/workers ./workers
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # The only `src/` file the runtime needs: the audit action+schema registry the
 # deploy-time provisioning script reconciles into WorkOS. It is shared with the
@@ -183,4 +186,9 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -f http://localhost:3000/api/healthz || exit 1
 
-CMD ["sh", "-c", "node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]
+# Migrate as the schema owner, then make sure the least-privilege runtime role
+# can actually log in before the server tries to use it (ADR-0041). The
+# ensure-runtime-role step is idempotent and fail-soft; it exists because
+# `init-db.sql` only runs when Postgres initialises a FRESH data directory, so
+# an upgraded stack would otherwise have the role without a password.
+CMD ["sh", "-c", "node node_modules/drizzle-kit/bin.cjs migrate && node scripts/ensure-runtime-role.mjs && node server.js"]

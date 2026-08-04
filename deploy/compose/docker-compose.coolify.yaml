@@ -30,6 +30,10 @@
 #   SERVICE_FQDN_SEAWEEDFS_8333  -> exposes seaweedfs:8333 (S3 API) under a
 #                                   domain; readable as ${SERVICE_FQDN_SEAWEEDFS}
 #   SERVICE_PASSWORD_POSTGRES / _SEAWEEDFS / _INTERNALTOKEN -> generated secrets
+#   SERVICE_PASSWORD_GRIDRUNTIME -> login for grid_app_rw, the least-privilege
+#     role the app connects as under row-level security (ADR-0041). The
+#     frontend container synchronises the role's password from its own
+#     GRID_APP_DATABASE_URL at startup, so nothing else needs to know it.
 # =============================================================================
 
 services:
@@ -333,7 +337,13 @@ services:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
       - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=http://aiq-agent:8000
-      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Least-privilege runtime role: DML only, subject to row-level security
+      # (ADR-0041). The container's CMD synchronises this role's login from
+      # this very URL before starting, so there is one source of truth.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
+      # Owner credential — the same CMD runs `drizzle-kit migrate`, and DDL
+      # needs the schema owner.
+      - GRID_APP_MIGRATION_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly
       # enabled here (see app/api/internal/memory/route.ts). Leave false in production.
@@ -413,7 +423,9 @@ services:
       dockerfile: deploy/Dockerfile
     command: ["node", "purger/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Least-privilege runtime role (ADR-0041). This worker spans tenants, so
+      # it steps up to grid_app_platform per transaction.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
       - BACKEND_URL=http://aiq-agent:8000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
@@ -443,7 +455,9 @@ services:
       dockerfile: deploy/Dockerfile
     command: ["node", "scheduler/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Least-privilege runtime role (ADR-0041). This worker spans tenants, so
+      # it steps up to grid_app_platform per transaction.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
       - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
       - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
