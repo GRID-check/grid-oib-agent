@@ -8,13 +8,23 @@ export type Locale = keyof typeof languages
 export const defaultLang: Locale = 'de'
 export const showDefaultLang = false
 
+// One document, not ten. Every claim on this site has exactly one home:
+//   • which law is covered            → `abdeckung` (named, checkable)
+//   • how an answer is assembled      → `ablauf` (the four steps)
+//   • what an answer looks like       → `nutzung` (the worked example)
+//   • which four source kinds feed it → `daten`
+//   • what the model does / does not  → `ki`
+//   • liability, price, data, limits  → `fragen`
+// Sections that need a neighbour's claim reference it in one clause instead of
+// re-arguing it — the corpus used to say "Landesbauordnungen und OIB-Richtlinien"
+// six times and "traceable to the source" seven.
 const de = {
   meta: {
-    title: 'Piloti — Die KI-Plattform für Architektur- und Planungsbüros',
+    title: 'Piloti — KI für Baurecht und Bürowissen in Architekturbüros',
     // A description is a search result, not a tagline: it has ~155 characters
     // to say what the tool does and what makes the answer worth trusting.
     description:
-      'Piloti verknüpft Ihr Projektarchiv mit österreichischem Baurecht — Landesbauordnungen, OIB-Richtlinien, Materialdaten. Jede Aussage mit ihrer Fundstelle.',
+      'Piloti verknüpft Ihr Projektarchiv mit dem österreichischen Baurecht: Landesbauordnungen, OIB-Richtlinien, Materialdaten. Jede Aussage mit Fundstelle.',
   },
   skipLink: 'Zum Inhalt springen',
   // Drawing-set index shown in the page margin (see SheetIndex.astro).
@@ -22,7 +32,7 @@ const de = {
     hero: '01 Start',
     story: '02 Problem und Lösung',
     ablauf: '03 Ablauf',
-    nutzung: '04 Nutzung',
+    nutzung: '04 Beispiel',
     rollen: '05 Für wen',
     daten: '06 Datengrundlage',
     abdeckung: '07 Abdeckung',
@@ -40,7 +50,7 @@ const de = {
     // Anchor nav in the bar's left margin — the same order as the page.
     links: {
       ablauf: 'Ablauf',
-      nutzung: 'Nutzung',
+      nutzung: 'Beispiel',
       rollen: 'Für wen',
       daten: 'Datengrundlage',
       abdeckung: 'Abdeckung',
@@ -49,16 +59,16 @@ const de = {
   },
   hero: {
     title: 'Planen. Statt suchen.',
-    sub: 'Das gesamte Wissen für Ihre Planung. An einem Ort.',
+    sub: 'Antworten aus Baurecht, Projektarchiv und Fachdaten. Mit Fundstelle.',
     ctaDemo: 'Demo anfragen',
     ctaMore: 'Mehr erfahren',
   },
   story: {
-    problemA: 'Architekt:innen gestalten unsere Zukunft,',
-    problemB: 'doch das Wissen dafür liegt verstreut.',
+    problemA: 'Das Wissen für ein Projekt ist vollständig vorhanden.',
+    problemB: 'Nur nicht an einer Stelle abrufbar.',
     solution:
-      'Piloti verknüpft Projektdaten, Baurecht, Budget und Bürowissen zu einer soliden Wissensbasis.',
-    cardTagline: 'Struktur, Verlässlichkeit und Überblick für jede Entwurfsentscheidung.',
+      'Piloti legt es zusammen: Projektakt, Baurecht, Fachdaten, Budget — eine Wissensbasis, die auf ganze Sätze antwortet.',
+    cardTagline: 'Alles, was das Büro weiß. Und alles, was gilt.',
     tags: {
       norm: '▸ NORM',
       site: '▸ STANDORT',
@@ -74,75 +84,85 @@ const de = {
       connection: 'Anschlussdetail',
       construction: 'Konstruktionsdetail',
     },
+    // Labels on the drifting fragments. Proper references (§ 106 BO Wien,
+    // OIB-RL 6, λ-Werte) stay in the component — they read the same in both
+    // locales — but anything that is ordinary language belongs here.
+    docs: {
+      permit: 'Bauansuchen.pdf',
+      detail: 'Sockelanschluss',
+      structural: 'Statik_Nachweis',
+    },
   },
   ablauf: {
     tag: 'Ablauf',
     title: 'Von der Frage zur belegten Antwort.',
-    lead: 'Vier Schritte — von dem Satz, den Sie ohnehin im Kopf haben, bis zu dem Nachweis, der in der Einreichung liegt.',
+    lead: 'Vier Schritte. Vom Satz, den Sie ohnehin im Kopf haben, bis zur Beilage in der Einreichung.',
     steps: [
       {
-        title: 'Frage stellen',
-        body: 'Sie fragen in normaler Sprache und im Kontext Ihres Projekts — so, wie Sie es der erfahrenen Kollegin am Nebentisch zurufen würden. Kein Suchformular, keine Stichwortliste.',
+        title: 'Fragen',
+        body: 'So, wie Sie es der erfahrenen Kollegin am Nebentisch schildern würden. Ganze Sätze, Ihr Projekt als Kontext. Kein Suchformular, keine Stichwortliste, kein Filterbaum.',
       },
       {
-        title: 'Quellen ziehen',
-        body: 'Piloti zieht die einschlägige Landesbauordnung und OIB-Richtlinie heran, dazu Ihr Projektarchiv und die passenden Fachdaten — und prüft sie gegen die Randbedingungen Ihres Projekts.',
+        title: 'Quellen holen',
+        body: 'Zur Laufzeit, nicht aus dem Gedächtnis des Modells. Baurecht, Ihr Archiv, Fachdaten — gefiltert auf das, was für Bundesland, Widmung und Gebäudeklasse Ihres Projekts überhaupt gilt.',
       },
       {
-        title: 'Antwort mit Entscheidungskette',
-        body: 'Sie sehen nicht nur das Ergebnis, sondern den Weg dorthin: Annahmen, Abwägung, Varianten. Jede Aussage hängt an ihrer Quelle — Paragraf, OIB-Punkt, Datenblatt oder eigenes Projekt.',
+        title: 'Entscheidungskette lesen',
+        body: 'Sie sehen nicht nur das Ergebnis, sondern den Weg: Annahmen, Abwägung, verworfene Varianten. Jeder Satz hängt an seiner Fundstelle — Paragraf, OIB-Punkt, Datenblatt oder eigenes Projekt.',
       },
       {
-        title: 'In die Planung übernehmen',
-        body: 'Die Kette lässt sich prüfen, im Team teilen und der Einreichung beilegen. Entschieden wird im Büro — Piloti liefert die Grundlage, auf die Sie sich dabei berufen.',
+        title: 'Übernehmen',
+        body: 'Die Kette lässt sich prüfen, im Team teilen und der Einreichung beilegen. Unterschrieben wird im Büro — Piloti liefert die Grundlage, auf die Sie sich dabei berufen.',
       },
     ],
   },
   nutzung: {
-    tag: 'Nutzung',
-    title: 'Zu jeder Planungsaufgabe das passende Wissen.',
-    body: 'Sie entwerfen, Piloti liefert den Kontext: passende Projekterfahrung, einzuhaltende Rahmenbedingungen, die richtigen Materialkennwerte und Ihre Budgetziele — genau das, was Sie brauchen, um die richtigen Entscheidungen zu treffen.',
+    tag: 'Beispiel',
+    title: 'Eine typische Frage, einmal durchgespielt.',
+    body: 'Brandschutz an einer gedämmten Loggia-Fassade: welche Quellen hereinkommen, wo sie einander widersprechen, welche drei Wege bleiben und was davon in der Kostenschätzung landet. Das Beispiel ist erfunden, der Ablauf nicht.',
     big: 'Sekunden',
-    sub: 'statt Stunden — Antwort mit Verweis auf Paragraf, Richtlinie und Herleitung.',
+    sub: 'statt Stunden. Recherche, die sonst über RIS, Archiv und Telefonat läuft, in einem Durchgang.',
   },
   rollen: {
     tag: 'Für wen',
-    title: 'Ein Werkzeug, vier Blickwinkel auf dasselbe Projekt.',
-    lead: 'Piloti sitzt dort, wo im Büro ohnehin nachgefragt wird — und beantwortet in jeder Rolle eine andere Frage an dieselbe Wissensbasis.',
+    title: 'Vier Rollen, vier Fragen, eine Wissensbasis.',
+    lead: 'Hinter jeder Rolle steht dieselbe Frage: Was gilt hier, und worauf können wir uns dabei berufen? Jede Rolle braucht davon einen anderen Ausschnitt.',
     roles: [
       {
         title: 'Entwurf',
-        body: 'Früh wissen, was geht: Bebauungsbestimmungen, Abstände, Höhen und Brandschutz sind schon in der Skizze beantwortet — nicht erst in der Prüfung.',
+        body: 'Früh wissen, was überhaupt geht: Bebauungsbestimmungen, Abstände, Höhen, Brandschutz — beantwortet, solange es noch eine Skizze ist und nicht schon ein Plansatz.',
       },
       {
         title: 'Einreichplanung',
-        body: 'Jeder Nachweis mit Verweis auf Paragraf und OIB-Punkt. Die Herleitung liegt bei, bevor die Behörde danach fragt.',
+        body: 'Die Herleitung liegt bei, bevor die Behörde danach fragt. Und niemand muss drei Wochen später rekonstruieren, warum genau so gerechnet wurde.',
       },
       {
         title: 'Projektleitung',
-        body: 'Auflagen, Annahmen und getroffene Entscheidungen an einem Ort — nachvollziehbar auch dann, wenn jemand aus dem Team wechselt.',
+        body: 'Auflagen, Annahmen und getroffene Entscheidungen an einem Ort — nachvollziehbar auch dann, wenn die Person, die sie getroffen hat, nicht mehr im Büro ist.',
       },
       {
         title: 'Büroleitung',
-        body: 'Das Wissen aus abgeschlossenen Projekten bleibt im Büro und wird abrufbar, statt an einzelnen Personen zu hängen.',
+        body: 'Was das Büro über die Jahre gelernt hat, liegt im Archiv und in einzelnen Köpfen. Piloti macht den Teil im Archiv abfragbar.',
       },
     ],
   },
   daten: {
     tag: 'Datengrundlage',
-    title: 'Intelligente Planung auf solider Datenbasis.',
-    body: 'Piloti stützt sich auf gepflegte, aktuelle Wissensquellen — von Landesbauordnungen und OIB-Richtlinien bis zu Materialdaten und CO₂-Werten. Jede Aussage lässt sich bis zu ihrem Ursprung zurückverfolgen.',
+    title: 'Vier Quellen. Drei davon gehören Ihnen.',
+    body: 'Das Baurecht ist öffentlich, den Rest bringen Sie mit: Pläne aus abgeschlossenen Projekten, den Akt zum laufenden, die Kennwerte, mit denen Sie rechnen. Piloti hält die vier zusammen, damit eine Antwort aus allen vieren kommt und nicht nur aus dem Gesetz.',
     cards: [
-      { title: 'Regelwerke', body: 'Landesbauordnungen, OIB-Richtlinien' },
-      { title: 'Ihr Büro', body: 'Pläne und Erfahrung aus vergangenen Projekten' },
-      { title: 'Ihr Projekt', body: 'Standortrecherche, Grundstück, Auflagen' },
-      { title: 'Fachdaten', body: 'Materialkennwerte, CO₂-Bilanzen' },
+      { title: 'Regelwerke', body: 'Landesbauordnungen, OIB-Richtlinien, Bundesmaterien' },
+      { title: 'Ihr Büro', body: 'Pläne, Details und Nachweise aus abgeschlossenen Projekten' },
+      { title: 'Ihr Projekt', body: 'Akt, Grundstück, Widmung, Auflagen' },
+      { title: 'Fachdaten', body: 'Materialkennwerte, U-Werte, CO₂-Bilanzen' },
     ],
   },
+  // Sober by design: this is the section a sceptical Ziviltechniker reads with a
+  // pencil in hand. No wit, no hedging — names, editions and what is missing.
   abdeckung: {
     tag: 'Abdeckung',
     title: 'Welches Recht Piloti heute kennt.',
-    lead: 'Konkret genug, dass Sie es nachprüfen können. Piloti arbeitet mit einem kuratierten Verzeichnis österreichischer Rechtsquellen — den Volltext holt es zum Zeitpunkt der Frage aus dem RIS, nicht aus einer Kopie bei uns.',
+    lead: 'Konkret genug, dass Sie es nachprüfen können. Piloti arbeitet mit einem kuratierten Verzeichnis österreichischer Rechtsquellen; den Volltext holt es zum Zeitpunkt der Frage aus dem RIS, nicht aus einer Kopie bei uns.',
     groups: [
       {
         label: 'Landesrecht',
@@ -169,57 +189,60 @@ const de = {
   },
   ki: {
     tag: 'Daten & Transparenz',
-    title:
-      'Keine Blackbox. Piloti macht KI und Daten nachvollziehbar — die Verantwortung bleibt bei Ihnen.',
+    title: 'Wie die Antwort entsteht — und was dabei mit Ihren Daten geschieht.',
     cards: [
       {
-        title: 'Spezialisiert auf Architektur',
-        body: 'Piloti basiert auf einer branchenspezifisch entwickelten KI-Infrastruktur. Es kennt Landesbauordnungen und OIB-Richtlinien, versteht Bauteile, Konstruktionen und Typologien — und bezieht den konkreten Kontext Ihres Projekts mit ein.',
+        title: 'Antwort aus Quellen, nicht aus dem Gedächtnis',
+        body: 'Piloti holt die Quellen zur Laufzeit und formuliert daraus. Die Fachleistung steckt nicht im Sprachmodell, sondern in der Entscheidung, welche Quelle für Bauteil, Gebäudeklasse und Bundesland überhaupt einschlägig ist.',
       },
       {
-        title: 'Nachvollziehbar bis zur Quelle',
-        body: 'Zu jeder Empfehlung sehen Sie Begründung, Annahmen und Regeln — und jeder Verweis führt zurück zum Ursprung: zum Paragrafen der Landesbauordnung, zum OIB-Punkt, zum Materialdatenblatt oder zu Ihrem eigenen Projekt.',
+        title: 'Kein Beleg, keine Aussage',
+        body: 'Wo keine Fundstelle steht, steht auch keine Behauptung. Was sich nicht belegen lässt, weist Piloti als offene Frage aus statt als Ergebnis.',
       },
       {
+        // Load-bearing and literal. This is the paragraph a Datenschutz-
+        // beauftragte:r reads; it says only what we can stand behind.
         title: 'Ihre Daten, Ihre Kontrolle',
-        body: 'Pläne und Projekte gehören Ihrem Büro — wir trainieren keine KI-Modelle mit Ihren Daten. Cloud und KI laufen in der EU nach DSGVO, und Ihre Daten sind jederzeit exportierbar.',
+        body: 'Pläne und Projekte bleiben Eigentum Ihres Büros. Wir trainieren keine Modelle mit Ihren Daten. Cloud und KI laufen in der EU nach DSGVO, Export und Löschung sind jederzeit möglich.',
       },
     ],
   },
   fragen: {
     tag: 'Offene Fragen',
     title: 'Was Sie fragen würden, bevor Sie uns schreiben.',
-    lead: 'Ehrlich beantwortet — auch dort, wo die Antwort heute noch „steht nicht fest“ lautet.',
+    lead: 'Auch die unangenehmen. Und auch dort, wo die Antwort heute noch „steht nicht fest“ lautet.',
     items: [
       {
+        // Precise and literal on purpose — the one answer on the page where a
+        // joke would cost the reader.
         q: 'Wer haftet, wenn Piloti falsch liegt?',
-        a: 'Sie — wie bei jeder Unterlage, die Sie prüfen und unterschreiben. Piloti ist kein Ziviltechniker, erstellt keinen Nachweis und ersetzt keine Prüfung; an Ihrer Verantwortung nach dem Ziviltechnikergesetz ändert es nichts. Genau deshalb ist die Entscheidungskette so gebaut, wie sie gebaut ist: Jede Aussage nennt ihre Fundstelle und verlinkt sie, damit Gegenlesen Minuten dauert statt einer Nachrecherche. Eine Antwort, die Sie nicht prüfen können, ist für uns ein Fehler im Produkt.',
+        a: 'Sie — wie bei jeder Unterlage, die Sie prüfen und unterschreiben. Piloti ist kein Ziviltechniker, erstellt keinen Nachweis und ersetzt keine Prüfung; an Ihrer Verantwortung nach dem Ziviltechnikergesetz ändert es nichts. Genau deshalb ist die Entscheidungskette so gebaut, wie sie gebaut ist: Jede Aussage nennt ihre Fundstelle und verlinkt sie, damit Gegenlesen Minuten dauert statt einer zweiten Recherche. Eine Antwort, die Sie nicht prüfen können, ist für uns ein Fehler im Produkt.',
       },
       {
         q: 'Was kostet Piloti?',
-        a: 'Es gibt heute keine Preisliste, weil es noch kein offen buchbares Produkt gibt. Piloti ist im Frühzugang; die Konditionen für die Pilotphase besprechen wir im Erstgespräch — und nennen sie, bevor Sie uns Daten übergeben.',
+        a: 'Es gibt keine Preisliste, weil es noch nichts zu buchen gibt. Piloti ist im Frühzugang; die Konditionen für die Pilotphase besprechen wir im Erstgespräch — und nennen sie, bevor Sie uns Daten übergeben.',
       },
       {
         q: 'Wie lange dauert es, bis das etwas bringt?',
-        a: 'Für das Erstgespräch brauchen Sie nichts vorzubereiten. Für eine Demo genügen die Unterlagen eines abgeschlossenen Projekts: Sie sehen an Ihren eigenen Plänen, ob die Antworten taugen, bevor Sie Ihr Archiv anfassen.',
+        a: 'Fürs Erstgespräch brauchen Sie nichts vorzubereiten. Für eine Demo genügen die Unterlagen eines abgeschlossenen Projekts: Sie sehen an Ihren eigenen Plänen, ob die Antworten taugen, bevor Sie Ihr Archiv anfassen.',
       },
       {
         q: 'Funktioniert das auch für ein Büro mit zwölf Leuten?',
-        a: 'Dafür ist es gedacht. Piloti setzt kein BIM-Modell, keine strukturierte Ablage und keine eigene IT voraus — es arbeitet mit den Plan- und PDF-Ordnern, die Sie ohnehin haben. Der Frühzugang läuft bewusst mit wenigen Büros, damit wir jedes einzeln begleiten können.',
+        a: 'Dafür ist es gebaut. Kein BIM-Modell, keine strukturierte Ablage, keine eigene IT — Piloti arbeitet mit den Plan- und PDF-Ordnern, die Sie ohnehin haben, in der Struktur, in der sie gewachsen sind. Der Frühzugang läuft bewusst mit wenigen Büros, damit wir jedes einzeln begleiten können.',
       },
       {
         q: 'Was passiert mit unseren Plänen?',
-        a: 'Sie bleiben Ihre. Cloud und KI laufen in der EU nach DSGVO, wir trainieren keine Modelle mit Ihren Daten, und Sie können den Bestand jederzeit exportieren oder löschen lassen.',
+        a: 'Sie bleiben Ihre. Piloti liest sie, um Ihre Fragen zu beantworten — nicht, um daraus Modelle zu machen. Verarbeitet wird in der EU, nach DSGVO. Wenn Sie aufhören, nehmen Sie den Bestand mit oder lassen ihn löschen; was das im Detail heißt, steht schriftlich fest, bevor Sie die erste Datei hochladen.',
       },
       {
         q: 'Woran scheitert Piloti?',
-        a: 'An allem, was nicht in den Quellen steht: an der Auslegung Ihres Referenten, an mündlichen Zusagen, an Normtexten, die wir nicht weitergeben dürfen. Piloti verkürzt die Recherche — das Gespräch mit der Behörde und die Entscheidung nimmt es Ihnen nicht ab.',
+        a: 'An allem, was nicht in den Quellen steht: an der Auslegung Ihres Referenten, an der mündlichen Zusage aus der Bauverhandlung, an Normtexten, die wir nicht weitergeben dürfen. Piloti verkürzt die Recherche. Den Termin bei der Behörde nimmt es Ihnen nicht ab.',
       },
     ],
   },
   cta: {
-    titleHtml: 'Bringen Sie Intelligenz in jede Planungs&shy;entscheidung.',
-    chips: ['Effizienz steigern', 'Planungsfehler vermeiden', 'Mehr Zeit für Kreatives'],
+    titleHtml: 'Zeigen Sie uns ein Projekt. Wir zeigen Ihnen die Kette.',
+    chips: ['Erstgespräch ohne Vorbereitung', 'Demo am eigenen Projekt', 'Frühzugang, wenige Büros'],
     demo: 'Demo anfragen',
     waitlist: 'Auf die Warteliste',
     subjectDemo: 'Demo-Anfrage',
@@ -297,7 +320,7 @@ const de = {
   },
   footer: {
     ariaLabel: 'Footer',
-    usage: 'Nutzung',
+    usage: 'Beispiel',
     data: 'Datengrundlage',
     coverage: 'Abdeckung',
     faq: 'Offene Fragen',
@@ -308,19 +331,19 @@ const de = {
   blog: {
     metaTitle: 'Blog — Piloti',
     metaDescription:
-      'Einblicke in KI-gestützte Planung, Baurecht und die Arbeit von Architektur- und Planungsbüros.',
+      'Notizen zu Baurecht, Planungsalltag und der Arbeit an Piloti — vom Team dahinter.',
     tag: 'Blog',
-    heading: 'Wissen, das weiterbringt.',
-    intro: 'Einblicke in KI-gestützte Planung, Baurecht und den Büroalltag — vom Piloti-Team.',
-    empty: 'Noch keine Beiträge — der erste Artikel ist in Arbeit.',
+    heading: 'Notizen aus dem Akt.',
+    intro: 'Baurecht, Planungsalltag und die Arbeit an Piloti. Vom Team dahinter.',
+    empty: 'Noch nichts veröffentlicht. Der erste Beitrag liegt im Entwurf.',
     readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
   },
   notFound: {
     metaTitle: 'Seite nicht gefunden — Piloti',
     metaDescription: 'Diese Seite existiert nicht.',
-    heading: 'Diese Seite liegt nicht im Plan.',
-    body: 'Die gesuchte Seite existiert nicht oder wurde verschoben.',
+    heading: 'Dieses Blatt liegt nicht im Plan.',
+    body: 'Die gesuchte Seite existiert nicht, wurde verschoben oder umbenannt.',
     home: 'Zur Startseite',
   },
   legal: {
@@ -363,11 +386,16 @@ const de = {
   },
 }
 
+// Not a translation of the German — the same register written natively. Austrian
+// terms of art (Einreichung, Bauverhandlung, Akt) carry no English equivalent
+// that a planner would recognise, so the English states the thing plainly
+// instead of transliterating it. Same voice on both sides: senior, concrete,
+// short declaratives, no adjectives doing a noun's job.
 const en: typeof de = {
   meta: {
-    title: 'Piloti — The AI platform for architecture and planning firms',
+    title: 'Piloti — AI for Austrian building law and office knowledge',
     description:
-      'Piloti connects your project archive with Austrian building law — state building codes, OIB guidelines, material data. Every statement cites its source.',
+      'Piloti connects your project archive with Austrian building law: state building codes, OIB guidelines, material data. Every statement cites its source.',
   },
   skipLink: 'Skip to content',
   // Drawing-set index shown in the page margin (see SheetIndex.astro).
@@ -375,7 +403,7 @@ const en: typeof de = {
     hero: '01 Start',
     story: '02 Problem and solution',
     ablauf: '03 How it works',
-    nutzung: '04 Usage',
+    nutzung: '04 Example',
     rollen: '05 Who it’s for',
     daten: '06 Data foundation',
     abdeckung: '07 Coverage',
@@ -393,7 +421,7 @@ const en: typeof de = {
     // Anchor nav in the bar's left margin — the same order as the page.
     links: {
       ablauf: 'How it works',
-      nutzung: 'Usage',
+      nutzung: 'Example',
       rollen: 'Who it’s for',
       daten: 'Data foundation',
       abdeckung: 'Coverage',
@@ -404,16 +432,16 @@ const en: typeof de = {
   },
   hero: {
     title: 'Plan. Instead of searching.',
-    sub: 'All the knowledge for your planning. In one place.',
+    sub: 'Answers from building law, your archive and technical data. Source attached.',
     ctaDemo: 'Request a demo',
     ctaMore: 'Learn more',
   },
   story: {
-    problemA: 'Architects shape our future,',
-    problemB: 'yet the knowledge it takes is scattered.',
+    problemA: 'Everything a project needs to know already exists.',
+    problemB: 'Just nowhere you can query it in one go.',
     solution:
-      'Piloti connects project data, building law, budget and office knowledge into one solid knowledge base.',
-    cardTagline: 'Structure, reliability and clarity for every design decision.',
+      'Piloti puts it back together: project file, building law, technical data, budget — one knowledge base that answers in full sentences.',
+    cardTagline: 'Everything the office knows. And everything that applies.',
     tags: {
       norm: '▸ NORM',
       site: '▸ SITE',
@@ -429,75 +457,80 @@ const en: typeof de = {
       connection: 'Connection detail',
       construction: 'Construction detail',
     },
+    docs: {
+      permit: 'Permit_app.pdf',
+      detail: 'Base detail',
+      structural: 'Structural_cert',
+    },
   },
   ablauf: {
     tag: 'How it works',
     title: 'From the question to an answer you can cite.',
-    lead: 'Four steps — from the sentence already in your head to the verification that ends up in the submission.',
+    lead: 'Four steps. From the sentence already in your head to the attachment in the submission.',
     steps: [
       {
-        title: 'Ask the question',
-        body: 'You ask in plain language and in the context of your project — the way you would ask the experienced colleague at the next desk. No search form, no list of keywords.',
+        title: 'Ask',
+        body: 'The way you would describe it to the experienced colleague at the next desk. Full sentences, your project as context. No search form, no keyword list, no filter tree.',
       },
       {
-        title: 'Sources are pulled',
-        body: 'Piloti brings in the relevant state building code and OIB guideline, along with your project archive and the matching technical data — and checks them against the constraints of your project.',
+        title: 'Pull the sources',
+        body: 'At query time, not from the model’s memory. Building law, your archive, technical data — narrowed to what actually applies given your project’s Bundesland, land-use designation and building class.',
       },
       {
-        title: 'An answer with its decision chain',
-        body: 'You see not just the result but the way there: assumptions, trade-offs, alternatives. Every statement hangs on its source — clause, OIB section, data sheet or one of your own projects.',
+        title: 'Read the chain',
+        body: 'You see the route, not only the result: assumptions, trade-offs, the options that were dropped. Every sentence hangs on its source — clause, OIB section, data sheet or one of your own projects.',
       },
       {
-        title: 'Carry it into the plan',
-        body: 'The chain can be reviewed, shared with the team and attached to the submission. The decision is made in the office — Piloti supplies the ground you stand on.',
+        title: 'Take it into the plan',
+        body: 'The chain can be reviewed, shared with the team and attached to the submission. The signature happens in the office — Piloti supplies the ground you stand on.',
       },
     ],
   },
   nutzung: {
-    tag: 'Usage',
-    title: 'The right knowledge for every planning task.',
-    body: 'You design, Piloti delivers the context: relevant project experience, the constraints to meet, the right material values and your budget targets — exactly what you need to make the right decisions.',
+    tag: 'Example',
+    title: 'A typical question, played through.',
+    body: 'Fire protection on an insulated loggia façade: which sources come in, where they contradict each other, which three routes are left, and what of it ends up in the cost estimate. The example is invented, the procedure is not.',
     big: 'Seconds',
-    sub: 'instead of hours — an answer with references to the clause, the guideline and its derivation.',
+    sub: 'instead of hours. Research that normally runs across a legal database, the archive and a phone call, in a single pass.',
   },
   rollen: {
     tag: 'Who it’s for',
-    title: 'One tool, four views of the same project.',
-    lead: 'Piloti sits where the questions get asked in the office anyway — answering a different question from the same knowledge base in every role.',
+    title: 'Four roles, four questions, one knowledge base.',
+    lead: 'Behind every role sits the same question: what applies here, and what can we cite for it. Each role needs a different part of the answer.',
     roles: [
       {
         title: 'Design',
-        body: 'Know early what is possible: zoning rules, setbacks, heights and fire safety are answered while it is still a sketch — not once it is under review.',
+        body: 'Know early what is even possible: zoning rules, setbacks, heights, fire safety — answered while it is still a sketch and not yet a drawing set.',
       },
       {
         title: 'Permit submission',
-        body: 'Every verification with a reference to the clause and the OIB section. The derivation is attached before the authority asks for it.',
+        body: 'The derivation is attached before the authority asks for it. And nobody has to reconstruct three weeks later why it was calculated that way.',
       },
       {
         title: 'Project management',
-        body: 'Requirements, assumptions and the decisions already taken in one place — still traceable when someone leaves the team.',
+        body: 'Requirements, assumptions and the decisions already taken in one place — still traceable when the person who took them is no longer in the office.',
       },
       {
         title: 'Practice leadership',
-        body: 'The knowledge from finished projects stays in the office and stays retrievable, instead of living with individual people.',
+        body: 'What the office has learned over the years sits in the archive and in individual heads. Piloti makes the archive part searchable.',
       },
     ],
   },
   daten: {
     tag: 'Data foundation',
-    title: 'Intelligent planning on a solid data foundation.',
-    body: 'Piloti draws on maintained, up-to-date knowledge sources — from state building codes and OIB guidelines to material data and CO₂ values. Every statement can be traced back to its origin.',
+    title: 'Four sources. Three of them are yours.',
+    body: 'Building law is public; you bring the rest — drawings from finished projects, the file on the running one, the values you calculate with. Piloti holds the four together so an answer comes out of all of them and not just out of the statute.',
     cards: [
-      { title: 'Regulations', body: 'State building codes, OIB guidelines' },
-      { title: 'Your office', body: 'Plans and experience from past projects' },
-      { title: 'Your project', body: 'Site research, plot, official requirements' },
-      { title: 'Technical data', body: 'Material values, CO₂ balances' },
+      { title: 'Regulations', body: 'State building codes, OIB guidelines, federal matters' },
+      { title: 'Your office', body: 'Drawings, details and verifications from finished projects' },
+      { title: 'Your project', body: 'Project file, plot, land-use designation, requirements' },
+      { title: 'Technical data', body: 'Material values, U-values, CO₂ balances' },
     ],
   },
   abdeckung: {
     tag: 'Coverage',
     title: 'The law Piloti knows today.',
-    lead: 'Specific enough for you to check it. Piloti works from a curated catalogue of Austrian legal sources — the full text is fetched from the RIS at the moment you ask, not from a copy held here.',
+    lead: 'Specific enough for you to check it. Piloti works from a curated catalogue of Austrian legal sources; the full text is fetched from the RIS at the moment you ask, not from a copy held here.',
     groups: [
       {
         label: 'State law',
@@ -524,34 +557,34 @@ const en: typeof de = {
   },
   ki: {
     tag: 'Data & transparency',
-    title: 'No black box. Piloti makes AI and data traceable — responsibility stays with you.',
+    title: 'How the answer is built — and what happens to your data along the way.',
     cards: [
       {
-        title: 'Specialised in architecture',
-        body: 'Piloti is built on industry-specific AI infrastructure. It knows state building codes and OIB guidelines, understands components, constructions and typologies — and factors in the concrete context of your project.',
+        title: 'Answers from sources, not from memory',
+        body: 'Piloti fetches the sources at query time and writes from them. The expertise is not in the language model; it is in deciding which source is actually relevant for this component, this building class and this Bundesland.',
       },
       {
-        title: 'Traceable to the source',
-        body: 'Every recommendation shows its reasoning, assumptions and rules — and every reference leads back to the origin: the clause of the state building code, the OIB section, the material data sheet or your own project.',
+        title: 'No source, no claim',
+        body: 'Where there is no citation there is no assertion. What cannot be backed, Piloti marks as an open question rather than presenting it as a result.',
       },
       {
         title: 'Your data, your control',
-        body: 'Plans and projects belong to your office — we do not train AI models on your data. Cloud and AI run in the EU under the GDPR, and your data is exportable at any time.',
+        body: 'Drawings and projects remain the property of your office. We do not train models on your data. Cloud and AI run in the EU under the GDPR; export and deletion are possible at any time.',
       },
     ],
   },
   fragen: {
     tag: 'Open questions',
     title: 'What you would ask before writing to us.',
-    lead: 'Answered honestly — including where the answer today is still “not settled”.',
+    lead: 'Including the uncomfortable ones, and the places where the answer today is still “not settled”.',
     items: [
       {
         q: 'Who is liable when Piloti is wrong?',
-        a: 'You are — as with every document you check and sign. Piloti is not a chartered engineer, produces no formal verification and replaces no review; nothing about your responsibility under the Ziviltechnikergesetz changes. That is precisely why the decision chain is built the way it is: every statement names its source and links to it, so checking takes minutes rather than a fresh search. An answer you cannot verify is, to us, a defect in the product.',
+        a: 'You are — as with every document you check and sign. Piloti is not a chartered engineer, produces no formal verification and replaces no review; nothing about your responsibility under the Ziviltechnikergesetz changes. That is precisely why the decision chain is built the way it is: every statement names its source and links to it, so checking takes minutes and not a second round of research. An answer you cannot verify is, to us, a defect in the product.',
       },
       {
         q: 'What does Piloti cost?',
-        a: 'There is no price list today, because there is no openly bookable product yet. Piloti is in early access; we discuss the terms for the pilot in the first conversation — and name them before you hand over any data.',
+        a: 'There is no price list, because there is nothing to book yet. Piloti is in early access; we discuss the terms for the pilot in the first conversation — and name them before you hand over any data.',
       },
       {
         q: 'How long until it is useful?',
@@ -559,21 +592,21 @@ const en: typeof de = {
       },
       {
         q: 'Does this work for an office of twelve?',
-        a: 'That is who it is for. Piloti assumes no BIM model, no structured filing and no IT department — it works with the drawing and PDF folders you already have. Early access runs deliberately with a small number of offices, so we can accompany each one individually.',
+        a: 'That is what it is built for. No BIM model, no structured filing, no IT department — Piloti works with the drawing and PDF folders you already have, in the structure they grew into. Early access runs deliberately with a small number of offices, so we can accompany each one individually.',
       },
       {
         q: 'What happens to our drawings?',
-        a: 'They stay yours. Cloud and AI run in the EU under the GDPR, we do not train models on your data, and you can export or have the whole set deleted at any time.',
+        a: 'They stay yours. Piloti reads them to answer your questions — not to make models out of them. Processing happens in the EU, under the GDPR. If you stop, you take the whole set with you or have it deleted; what that means in detail is in writing before you upload the first file.',
       },
       {
         q: 'Where does Piloti fail?',
-        a: 'At everything that is not in the sources: your case officer’s reading, verbal assurances, standards we are not allowed to pass on. Piloti shortens the research — it does not take the conversation with the authority, or the decision, off your desk.',
+        a: 'At everything that is not in the sources: your case officer’s reading of a clause, the verbal assurance given at the site hearing, standards we are not allowed to pass on. Piloti shortens the research. It does not take the appointment with the authority off your desk.',
       },
     ],
   },
   cta: {
-    titleHtml: 'Bring intelligence to every planning decision.',
-    chips: ['Boost efficiency', 'Avoid planning errors', 'More time for creative work'],
+    titleHtml: 'Show us one project. We will show you the chain.',
+    chips: ['First call, no preparation', 'Demo on your own project', 'Early access, few offices'],
     demo: 'Request a demo',
     waitlist: 'Join the waitlist',
     subjectDemo: 'Demo request',
@@ -648,7 +681,7 @@ const en: typeof de = {
   },
   footer: {
     ariaLabel: 'Footer',
-    usage: 'Usage',
+    usage: 'Example',
     data: 'Data foundation',
     coverage: 'Coverage',
     faq: 'Open questions',
@@ -659,19 +692,19 @@ const en: typeof de = {
   blog: {
     metaTitle: 'Blog — Piloti',
     metaDescription:
-      'Insights into AI-supported planning, building law and the work of architecture and planning firms.',
+      'Notes on building law, the working day of a planning office, and the work on Piloti.',
     tag: 'Blog',
-    heading: 'Knowledge that moves you forward.',
-    intro: 'Insights into AI-supported planning, building law and everyday office life — from the Piloti team.',
-    empty: 'No posts yet — the first article is in the works.',
+    heading: 'Notes from the file.',
+    intro: 'Building law, the working day of a planning office, and the work on Piloti. From the team behind it.',
+    empty: 'Nothing published yet. The first piece is still a draft.',
     readMore: 'Read on →',
     allPosts: '← All posts',
   },
   notFound: {
     metaTitle: 'Page not found — Piloti',
     metaDescription: 'This page does not exist.',
-    heading: 'This page is not in the plan.',
-    body: 'The page you are looking for does not exist or has been moved.',
+    heading: 'This sheet is not in the drawing set.',
+    body: 'The page you are looking for does not exist, or has been moved or renamed.',
     home: 'Back to the homepage',
   },
   legal: {
