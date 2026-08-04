@@ -19,25 +19,19 @@ const posStyle = Object.entries(pos)
 ---
 
 <div
-  class="frag absolute flex items-center gap-3 rounded-xl bg-surface py-[11px] pl-3 pr-4"
+  class="absolute flex items-center gap-3 rounded-xl bg-surface py-3 pl-3 pr-4 shadow-float"
   style={posStyle}
   data-frag={`${dx},${dy}`}
   data-target={`${fx},${fy}`}
 >
   <span
-    class="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[7px] text-[14px]"
+    class="inline-flex size-8 items-center justify-center rounded-lg text-sm"
     style={`background: ${tile}`}
     aria-hidden="true">{glyph}</span
   >
   <span>
-    <span class="block text-[13px] font-semibold tracking-[-0.01em] text-panel">{title}</span>
-    <span class="block text-[11.5px] text-[#6f7061]">{sub}</span>
+    <span class="block text-sm font-semibold tracking-tight text-panel">{title}</span>
+    <span class="block text-2xs text-ink-mute">{sub}</span>
   </span>
-  <span class="ml-2 text-[13px] font-semibold text-panel">{value}</span>
+  <span class="ml-2 text-sm font-semibold text-panel">{value}</span>
 </div>
-
-<style>
-  .frag {
-    box-shadow: 0 18px 40px -22px rgb(0 0 0 / 0.6);
-  }
-</style>

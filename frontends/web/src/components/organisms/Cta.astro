@@ -12,19 +12,19 @@ const t = ui[locale]
 
 <section
   id="kontakt"
-  data-screen-label="08 CTA"
-  class="mx-auto box-border flex min-h-[85vh] max-w-[1280px] flex-col justify-center px-12 py-[120px] text-center"
+  data-screen-label={t.sheets.kontakt}
+  class="mx-auto box-border flex min-h-[85vh] max-w-[80rem] flex-col justify-center px-6 py-28 text-center sm:px-12"
 >
   <h2
     data-reveal
-    class="mx-auto mb-[30px] max-w-[900px] font-display text-[clamp(40px,5.5vw,72px)] font-bold leading-[1.03] tracking-[-0.025em]"
+    class="mx-auto mb-8 max-w-5xl font-display text-h1"
     style="text-wrap: balance"
     set:html={t.cta.titleHtml}
   />
   <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
     {
       t.cta.chips.map((c) => (
-        <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs uppercase tracking-[0.1em] text-accent-600">
+        <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs uppercase tracking-widest text-accent-600">
           {c}
         </span>
       ))

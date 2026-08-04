@@ -56,17 +56,29 @@
   --color-hero-bg: #e8e5dd;
   --color-ink: #1f2023;
   --color-ink-soft: #55565a;
+  --color-ink-mid: #3d3e3a;
+  --color-ink-mute: #6f706c;
   --color-ink-faint: #8a8a86;
   --color-ink-ghost: #a8a8a4;
   --color-panel: #22271a;
   --color-accent-900: #2a301f;
   --color-accent-800: #2c3620;
+  --color-accent-700: #384529;
   --color-accent-600: #5c6b42;
   --color-accent-500: #6e7d52;
   --color-accent-400: #a4d06a;
   --color-surface: #eef2e4;
   --color-surface-dim: #eceee2;
   --color-tint: #d3ddc0;
+  --color-paper: #fbfbf9;
+  --color-bubble: #ececea;
+  --color-paper-dim: #fafaf8;
+  --color-hairline: #dcdfd8;
+  --color-ok: #17914d;
+  --color-chip-law: #e3eafb;
+  --color-chip-law-ink: #1c47ab;
+  --color-chip-project: #e7f0e0;
+  --color-chip-project-ink: #3f6b50;
   --color-on-dark: #b9c2a4;
   --color-on-dark-strong: #eef2e4;
   --color-on-dark-label: #a4b47a;
@@ -76,57 +88,129 @@
   --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
   --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
+
+  /* Type scale. The display sizes are fluid and carry their own leading,
+     tracking and weight, so a heading is one utility (`text-h2`) instead of a
+     size/leading/tracking triplet repeated in every section. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1.45;
+
+  --text-display: clamp(2.25rem, 4.8vw, 4.375rem);
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.032em;
+  --text-display--font-weight: 700;
+
+  --text-h1: clamp(2.25rem, 5.5vw, 4.5rem);
+  --text-h1--line-height: 1.04;
+  --text-h1--letter-spacing: -0.025em;
+  --text-h1--font-weight: 700;
+
+  --text-h2: clamp(1.75rem, 4vw, 3.125rem);
+  --text-h2--line-height: 1.08;
+  --text-h2--letter-spacing: -0.02em;
+  --text-h2--font-weight: 700;
+
+  --text-h3: clamp(1.625rem, 3.5vw, 2.75rem);
+  --text-h3--line-height: 1.12;
+  --text-h3--letter-spacing: -0.018em;
+  --text-h3--font-weight: 700;
+
+  --text-h4: clamp(1.375rem, 2.6vw, 2.375rem);
+  --text-h4--line-height: 1.15;
+  --text-h4--letter-spacing: -0.018em;
+  --text-h4--font-weight: 700;
+
+  --tracking-label: 0.14em;
+  --tracking-logo: 0.2em;
+
+  --radius-card: 1.25rem;
+  --radius-panel: 1.75rem;
+
+  --shadow-card: 0 1px 3px rgb(30 40 30 / 0.1);
+  --shadow-lift: 0 14px 36px rgb(24 28 16 / 0.12);
+  --shadow-mock: 0 32px 70px -36px rgb(42 48 31 / 0.35);
+  --shadow-frag: 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-float: 0 18px 40px -22px rgb(0 0 0 / 0.6);
+  --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
-html {
-  scroll-behavior: smooth;
-  scroll-snap-type: y proximity;
-  scroll-padding-top: 52px;
-}
-
-[data-screen-label] {
-  scroll-snap-align: start;
-}
-[data-pin] {
-  scroll-snap-align: none;
-}
-#nutzung,
-#daten,
-#datenschutz,
-#kontakt {
-  scroll-snap-align: center;
-}
-
-body {
-  background-color: var(--color-canvas);
+/* Panels are sheets of drafting paper: they carry the same grid the page
+   background does, so a coloured panel reads as a sheet laid on the drawing
+   rather than as a card pasted over it. */
+@utility sheet-dark {
   background-image:
-    linear-gradient(to right, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
+    linear-gradient(to right, rgb(238 242 228 / 0.045) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(238 242 228 / 0.045) 0 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: center top;
+}
+
+@utility sheet-light {
+  background-image:
     linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
     linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
-  background-size:
-    168px 168px,
-    168px 168px,
-    28px 28px,
-    28px 28px;
+  background-size: 28px 28px;
   background-position: center top;
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
 }
 
-a {
-  color: var(--color-ink);
-  text-decoration: none;
-}
-a:hover {
-  color: var(--color-accent-600);
-}
+/* Base element styles MUST live in `@layer base`: unlayered rules beat every
+   Tailwind utility, so a bare `a { color: … }` silently overrides `text-*` on
+   every link (which is what turned the solid CTA into dark-on-dark). */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-snap-type: y proximity;
+    scroll-padding-top: 52px;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--color-accent-500);
-  outline-offset: 2px;
-  border-radius: 4px;
+  [data-screen-label] {
+    scroll-snap-align: start;
+  }
+  [data-pin] {
+    scroll-snap-align: none;
+  }
+  #nutzung,
+  #daten,
+  #datenschutz,
+  #kontakt {
+    scroll-snap-align: center;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    background-image:
+      linear-gradient(to right, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
+      linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+    background-size:
+      168px 168px,
+      168px 168px,
+      28px 28px,
+      28px 28px;
+    background-position: center top;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* `inherit`, not a fixed colour: a link takes the colour of its context and
+     of its own `text-*` utility. Components that need hover feedback on a
+     coloured link declare a `hover:text-*` utility. */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  a:hover {
+    color: var(--color-accent-600);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 @keyframes chain-fade-in {
@@ -179,8 +263,26 @@ a:hover {
     transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Tailwind v4 compiles `-translate-x-1/2` / `scale-*` to the standalone
+   `translate:` and `scale:` properties, which compose with `transform` instead
+   of replacing it. The story choreography drives `transform` from JS, so the
+   resting offsets of these two centred elements are declared here — as
+   utilities they would be applied twice (the bug that threw the solution
+   headline and the Piloti card off-centre mid-scroll). */
+[data-h-solution] {
+  transform: translateX(-50%);
+}
+[data-solution-card] {
+  transform: translate(-50%, -50%) scale(0.8);
+}
+
 html:not(.js) [data-h-solution] {
   opacity: 1;
+}
+/* Without JS nothing solves the fragment layout, and their authored drift-in
+   positions collide with the headline — show the resolved statement instead. */
+html:not(.js) [data-story-stage] {
+  display: none;
 }
 html:not(.js) [data-solution-card] {
   opacity: 1;
@@ -201,9 +303,11 @@ html:not(.js) [data-solution-card] {
   }
 }
 
+/* Long-form body copy (legal pages, blog posts). Sized in rem off the theme
+   scale so it stays in step with the `text-h*` page titles above it. */
 .prose-piloti {
   color: var(--color-ink-soft);
-  font-size: 16.5px;
+  font-size: 1.0625rem;
   line-height: 1.75;
 }
 .prose-piloti > * + * {
@@ -211,7 +315,7 @@ html:not(.js) [data-solution-card] {
 }
 .prose-piloti h1 {
   font-family: var(--font-display);
-  font-size: 34px;
+  font-size: 1.875rem;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--color-ink);
@@ -219,7 +323,7 @@ html:not(.js) [data-solution-card] {
 .prose-piloti h2 {
   margin-top: 1.9em;
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 1.5rem;
   font-weight: 600;
   letter-spacing: -0.015em;
   color: var(--color-ink);
@@ -227,7 +331,7 @@ html:not(.js) [data-solution-card] {
 .prose-piloti h3 {
   margin-top: 1.7em;
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 1.1875rem;
   font-weight: 600;
   color: var(--color-ink);
 }
