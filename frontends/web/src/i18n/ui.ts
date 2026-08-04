@@ -18,10 +18,12 @@ const de = {
   sheets: {
     hero: '01 Start',
     story: '02 Problem und Lösung',
-    nutzung: '03 Nutzung',
-    daten: '04 Datengrundlage',
-    ki: '05 Daten und Transparenz',
-    kontakt: '06 Kontakt',
+    ablauf: '03 Ablauf',
+    nutzung: '04 Nutzung',
+    rollen: '05 Für wen',
+    daten: '06 Datengrundlage',
+    ki: '07 Daten und Transparenz',
+    kontakt: '08 Kontakt',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -30,6 +32,13 @@ const de = {
     signInPending: 'Weiterleitung…',
     cta: 'Demo anfragen',
     langLabel: 'Sprache wählen',
+    // Anchor nav in the bar's left margin — the same order as the page.
+    links: {
+      ablauf: 'Ablauf',
+      nutzung: 'Nutzung',
+      rollen: 'Für wen',
+      daten: 'Datengrundlage',
+    },
   },
   hero: {
     title: 'Planen. Statt suchen.',
@@ -59,12 +68,58 @@ const de = {
       construction: 'Konstruktionsdetail',
     },
   },
+  ablauf: {
+    tag: 'Ablauf',
+    title: 'Von der Frage zur belegten Antwort.',
+    lead: 'Vier Schritte — von dem Satz, den Sie ohnehin im Kopf haben, bis zu dem Nachweis, der in der Einreichung liegt.',
+    steps: [
+      {
+        title: 'Frage stellen',
+        body: 'Sie fragen in normaler Sprache und im Kontext Ihres Projekts — so, wie Sie es der erfahrenen Kollegin am Nebentisch zurufen würden. Kein Suchformular, keine Stichwortliste.',
+      },
+      {
+        title: 'Quellen ziehen',
+        body: 'Piloti zieht die einschlägige Landesbauordnung und OIB-Richtlinie heran, dazu Ihr Projektarchiv und die passenden Fachdaten — und prüft sie gegen die Randbedingungen Ihres Projekts.',
+      },
+      {
+        title: 'Antwort mit Entscheidungskette',
+        body: 'Sie sehen nicht nur das Ergebnis, sondern den Weg dorthin: Annahmen, Abwägung, Varianten. Jede Aussage hängt an ihrer Quelle — Paragraf, OIB-Punkt, Datenblatt oder eigenes Projekt.',
+      },
+      {
+        title: 'In die Planung übernehmen',
+        body: 'Die Kette lässt sich prüfen, im Team teilen und der Einreichung beilegen. Entschieden wird im Büro — Piloti liefert die Grundlage, auf die Sie sich dabei berufen.',
+      },
+    ],
+  },
   nutzung: {
     tag: 'Nutzung',
     title: 'Zu jeder Planungsaufgabe das passende Wissen.',
     body: 'Sie entwerfen, Piloti liefert den Kontext: passende Projekterfahrung, einzuhaltende Rahmenbedingungen, die richtigen Materialkennwerte und Ihre Budgetziele — genau das, was Sie brauchen, um die richtigen Entscheidungen zu treffen.',
     big: 'Sekunden',
     sub: 'statt Stunden — Antwort mit Verweis auf Paragraf, Richtlinie und Herleitung.',
+  },
+  rollen: {
+    tag: 'Für wen',
+    title: 'Ein Werkzeug, vier Blickwinkel auf dasselbe Projekt.',
+    lead: 'Piloti sitzt dort, wo im Büro ohnehin nachgefragt wird — und beantwortet in jeder Rolle eine andere Frage an dieselbe Wissensbasis.',
+    roles: [
+      {
+        title: 'Entwurf',
+        body: 'Früh wissen, was geht: Bebauungsbestimmungen, Abstände, Höhen und Brandschutz sind schon in der Skizze beantwortet — nicht erst in der Prüfung.',
+      },
+      {
+        title: 'Einreichplanung',
+        body: 'Jeder Nachweis mit Verweis auf Paragraf und OIB-Punkt. Die Herleitung liegt bei, bevor die Behörde danach fragt.',
+      },
+      {
+        title: 'Projektleitung',
+        body: 'Auflagen, Annahmen und getroffene Entscheidungen an einem Ort — nachvollziehbar auch dann, wenn jemand aus dem Team wechselt.',
+      },
+      {
+        title: 'Büroleitung',
+        body: 'Das Wissen aus abgeschlossenen Projekten bleibt im Büro und wird abrufbar, statt an einzelnen Personen zu hängen.',
+      },
+    ],
   },
   daten: {
     tag: 'Datengrundlage',
@@ -239,10 +294,12 @@ const en: typeof de = {
   sheets: {
     hero: '01 Start',
     story: '02 Problem and solution',
-    nutzung: '03 Usage',
-    daten: '04 Data foundation',
-    ki: '05 Data and transparency',
-    kontakt: '06 Contact',
+    ablauf: '03 How it works',
+    nutzung: '04 Usage',
+    rollen: '05 Who it’s for',
+    daten: '06 Data foundation',
+    ki: '07 Data and transparency',
+    kontakt: '08 Contact',
   },
   nav: {
     ariaLabel: 'Main navigation',
@@ -251,6 +308,13 @@ const en: typeof de = {
     signInPending: 'Redirecting…',
     cta: 'Request a demo',
     langLabel: 'Choose language',
+    // Anchor nav in the bar's left margin — the same order as the page.
+    links: {
+      ablauf: 'How it works',
+      nutzung: 'Usage',
+      rollen: 'Who it’s for',
+      daten: 'Data foundation',
+    },
   },
   hero: {
     title: 'Plan. Instead of searching.',
@@ -280,12 +344,58 @@ const en: typeof de = {
       construction: 'Construction detail',
     },
   },
+  ablauf: {
+    tag: 'How it works',
+    title: 'From the question to an answer you can cite.',
+    lead: 'Four steps — from the sentence already in your head to the verification that ends up in the submission.',
+    steps: [
+      {
+        title: 'Ask the question',
+        body: 'You ask in plain language and in the context of your project — the way you would ask the experienced colleague at the next desk. No search form, no list of keywords.',
+      },
+      {
+        title: 'Sources are pulled',
+        body: 'Piloti brings in the relevant state building code and OIB guideline, along with your project archive and the matching technical data — and checks them against the constraints of your project.',
+      },
+      {
+        title: 'An answer with its decision chain',
+        body: 'You see not just the result but the way there: assumptions, trade-offs, alternatives. Every statement hangs on its source — clause, OIB section, data sheet or one of your own projects.',
+      },
+      {
+        title: 'Carry it into the plan',
+        body: 'The chain can be reviewed, shared with the team and attached to the submission. The decision is made in the office — Piloti supplies the ground you stand on.',
+      },
+    ],
+  },
   nutzung: {
     tag: 'Usage',
     title: 'The right knowledge for every planning task.',
     body: 'You design, Piloti delivers the context: relevant project experience, the constraints to meet, the right material values and your budget targets — exactly what you need to make the right decisions.',
     big: 'Seconds',
     sub: 'instead of hours — an answer with references to the clause, the guideline and its derivation.',
+  },
+  rollen: {
+    tag: 'Who it’s for',
+    title: 'One tool, four views of the same project.',
+    lead: 'Piloti sits where the questions get asked in the office anyway — answering a different question from the same knowledge base in every role.',
+    roles: [
+      {
+        title: 'Design',
+        body: 'Know early what is possible: zoning rules, setbacks, heights and fire safety are answered while it is still a sketch — not once it is under review.',
+      },
+      {
+        title: 'Permit submission',
+        body: 'Every verification with a reference to the clause and the OIB section. The derivation is attached before the authority asks for it.',
+      },
+      {
+        title: 'Project management',
+        body: 'Requirements, assumptions and the decisions already taken in one place — still traceable when someone leaves the team.',
+      },
+      {
+        title: 'Practice leadership',
+        body: 'The knowledge from finished projects stays in the office and stays retrievable, instead of living with individual people.',
+      },
+    ],
   },
   daten: {
     tag: 'Data foundation',

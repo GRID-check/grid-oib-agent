@@ -169,7 +169,12 @@
   [data-pin] {
     scroll-snap-align: none;
   }
+  /* Sections that are read as a whole snap to their centre rather than to
+     their top edge — they are shorter than the viewport once the fixed nav is
+     accounted for, so a start-snap would leave them hanging under the bar. */
+  #ablauf,
   #nutzung,
+  #rollen,
   #daten,
   #datenschutz,
   #kontakt {

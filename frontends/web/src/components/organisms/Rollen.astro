@@ -1,0 +1,54 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<!--
+  Who inside the office this is for. It follows the usage section — first what
+  the tool does, then whose desk it lands on — and hands over to the data
+  foundation, which is the answer to the question all four roles ask next.
+
+  The figure is a quartered sheet: two crossing hairlines, one role per field.
+  No numbers here on purpose — the drawing set already counts twice on this
+  page (the process spine above, the source legend below).
+-->
+<section
+  id="rollen"
+  data-screen-label={t.sheets.rollen}
+  class="mx-auto box-border max-w-[85rem] px-4 py-24 sm:px-10 sm:py-28"
+>
+  <div data-reveal class="mb-12 max-w-3xl sm:mb-14">
+    <SectionTag class="mb-5">{t.rollen.tag}</SectionTag>
+    <h2 class="m-0 mb-6 font-display text-h2" style="text-wrap: balance">
+      {t.rollen.title}
+    </h2>
+    <p class="m-0 text-lg leading-relaxed text-ink-soft" style="text-wrap: pretty">
+      {t.rollen.lead}
+    </p>
+  </div>
+
+  <ul class="m-0 grid list-none grid-cols-2 border-t border-ink/15 p-0 max-md:grid-cols-1">
+    {
+      t.rollen.roles.map((r) => (
+        <li
+          data-reveal
+          class="border-b border-ink/15 py-8 md:odd:border-r md:odd:border-ink/15 md:odd:pr-12 md:even:pl-12 lg:py-10"
+        >
+          <h3 class="m-0 font-display text-xl font-semibold tracking-tight text-ink">{r.title}</h3>
+          <p
+            class="m-0 mt-3 max-w-xl text-base leading-relaxed text-ink-soft"
+            style="text-wrap: pretty"
+          >
+            {r.body}
+          </p>
+        </li>
+      ))
+    }
+  </ul>
+</section>

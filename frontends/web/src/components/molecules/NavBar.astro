@@ -13,6 +13,15 @@ const { locale = 'de', switchTo } = Astro.props
 const t = ui[locale]
 const translatePath = useTranslatedPath(locale)
 const home = translatePath('/')
+
+// The page's own order. Prefixed with `home` so the anchors also work from the
+// blog and the legal pages, where these sections do not exist.
+const sections = [
+  { href: `${home}#ablauf`, label: t.nav.links.ablauf },
+  { href: `${home}#nutzung`, label: t.nav.links.nutzung },
+  { href: `${home}#rollen`, label: t.nav.links.rollen },
+  { href: `${home}#daten`, label: t.nav.links.daten },
+]
 ---
 
 <header data-nav class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-4 sm:pt-4">
@@ -21,7 +30,22 @@ const home = translatePath('/')
     class="mx-auto flex max-w-[84rem] items-center justify-between gap-3 rounded-card px-3 py-2 transition-colors duration-500 sm:px-4 md:grid md:grid-cols-[1fr_auto_1fr]"
     aria-label={t.nav.ariaLabel}
   >
-    <div class="hidden md:block"></div>
+    <!-- Section anchors sit in the bar's left margin, which is otherwise an
+         empty grid track. Below `lg` the track is too narrow for four labels
+         and the list is dropped; the footer still links the same sections. -->
+    <ul
+      class="m-0 hidden list-none items-center gap-5 p-0 text-sm font-medium lg:flex xl:gap-7"
+    >
+      {
+        sections.map((s) => (
+          <li>
+            <a href={s.href} class="whitespace-nowrap text-ink hover:text-accent-600">
+              {s.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
     <Logo href={`${home}#top`} label={t.nav.logoLabel} class="shrink-0" />
     <div
       class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
