@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 
 /**
@@ -31,11 +32,25 @@ const digestQuerySchema = z
     message: 'projectId or organizationId is required',
   })
 
-export const GET = internalApiRoute('Internal Memory Digest', async ({ request }) => {
-  const { projectId, organizationId } = parseQuery(request, digestQuerySchema)
+export const GET = internalApiRoute(
+  'Internal Memory Digest',
+  async ({ request }) => {
+    const { projectId, organizationId } = parseQuery(request, digestQuerySchema)
 
-  // `digest` is null when there is no active memory — a valid empty result,
-  // not an error. The backend treats null as "no memory this turn".
-  const digest = await buildProjectMemoryDigest(projectId, organizationId)
-  return { digest }
-})
+    // The schema accepts a projectId on its own, so the organization is not
+    // always known here. When it is, the digest is read inside that tenant;
+    // when it is not, the project row itself is what names the tenant and
+    // `buildProjectMemoryDigest` pins the branch to it.
+    return withOptionalTenant(
+      organizationId,
+      'memory digest addressed by project id alone; the project row names the tenant',
+      async () => {
+        // `digest` is null when there is no active memory — a valid empty result,
+        // not an error. The backend treats null as "no memory this turn".
+        const digest = await buildProjectMemoryDigest(projectId, organizationId)
+        return { digest }
+      }
+    )
+  },
+  { tenancy: { fromPayload: '?organizationId, else the project row' } }
+)

@@ -56,6 +56,7 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { isAuthzError } from '@/lib/auth-utils'
 import { hasPermission, type KnownPermission } from '@/lib/authz/permissions'
 import { requireInternalToken } from '@/lib/internal-auth'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { DEFAULT_MUTATION_LIMIT } from '@/lib/limits/catalog'
 import { enforceLimit, rateLimitHeaders } from '@/lib/limits/enforce'
@@ -168,6 +169,34 @@ export interface FixedAuthzRouteOptions {
   readonly status?: number
 }
 
+/**
+ * How an internal route reaches the tenant boundary (ADR-0041).
+ *
+ * Internal routes carry no session, so the database has no organization to
+ * answer as unless the route says where one comes from. Stating it is required
+ * for the same reason `authz` is: the alternative is a route that silently
+ * works today because nothing it touches happens to be tenant data, and
+ * silently reads across tenants the day that changes.
+ */
+export type InternalTenancy =
+  /**
+   * The organization arrives in the request, so the HANDLER opens the scope
+   * with `withTenant` once it has parsed it. The string names where it comes
+   * from (`'body.organizationId'`, `'?organizationId'`) so a reviewer can check
+   * the claim against the schema. Queries outside that scope throw.
+   */
+  | { readonly fromPayload: string }
+  /**
+   * The route genuinely serves no single tenant — cross-organization
+   * maintenance, or platform configuration. The factory runs it under the
+   * audited bypass and `crossTenant` records why.
+   */
+  | { readonly crossTenant: string }
+
+export interface InternalRouteOptions extends FixedAuthzRouteOptions {
+  readonly tenancy: InternalTenancy
+}
+
 /** Options for the intentionally unauthenticated routes. */
 interface PublicRouteOptions extends FixedAuthzRouteOptions {
   /** Why this endpoint is safe to serve without a session. */
@@ -271,14 +300,21 @@ export function apiRoute<TParams = Record<string, string | string[]>>(
 export function internalApiRoute<TParams = Record<string, string | string[]>>(
   label: string,
   handler: (ctx: InternalApiContext<TParams>) => Promise<unknown>,
-  options: FixedAuthzRouteOptions = {}
+  options: InternalRouteOptions
 ) {
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
     const denied = requireInternalToken(request, label)
     if (denied) return denied
     try {
       const params = (await resolveParams(context)) as TParams
-      const result = await handler({ request, params })
+      const run = () => handler({ request, params })
+      // `fromPayload` routes establish their own scope once they have parsed the
+      // organization out of the body; until they do, any query throws
+      // MissingTenantContextError rather than reading across tenants.
+      const result =
+        'crossTenant' in options.tenancy
+          ? await withPlatformAccess(`internal:${label} — ${options.tenancy.crossTenant}`, run)
+          : await run()
       return successResponse(result, options.status ?? 200)
     } catch (error) {
       return errorResponse(error, request)

@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import { SPAN_KINDS, SPAN_STATUSES } from '@/lib/db/schema'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { recordProfilerSpans } from '@/lib/profiler/service'
 
 const spanSchema = z.object({
@@ -36,7 +37,14 @@ export const POST = internalApiRoute(
   async ({ request }) => {
     const batch = await parseJsonBody(request, spanBatchSchema)
 
-    const recorded = await recordProfilerSpans(
+    // `organization_id` is nullable on this table: a turn from a session with
+    // no organization produces a row that belongs to no tenant and cannot
+    // satisfy any tenant predicate. Such rows are written outside the boundary
+    // and stay visible only to the platform tier.
+    const recorded = await withOptionalTenant(
+      batch.organizationId,
+      'profiler spans from a turn with no organization selected belong to no tenant',
+      () => recordProfilerSpans(
       batch.spans.map((span) => ({
         organizationId: batch.organizationId ?? null,
         conversationId: batch.conversationId ?? null,
@@ -53,8 +61,9 @@ export const POST = internalApiRoute(
         errorMessage: span.errorMessage ?? null,
         metadata: span.metadata ?? null,
       }))
+      )
     )
     return { recorded }
   },
-  { status: 202 }
+  { status: 202, tenancy: { fromPayload: 'body.organizationId (nullable)' } }
 )

@@ -17,6 +17,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { NotFoundError } from '@/lib/api/errors'
 import { findDocumentStorageKey } from '@/lib/documents/service'
 
@@ -26,9 +27,22 @@ const querySchema = z.object({
   organizationId: z.string().min(1).optional(),
 })
 
-export const GET = internalApiRoute('document-file', async ({ request }) => {
-  const { collection, filename, organizationId } = parseQuery(request, querySchema)
-  const document = await findDocumentStorageKey(collection, filename, organizationId)
-  if (!document) throw new NotFoundError('Document not found')
-  return { storageKey: document.storageKey, contentType: document.contentType }
-})
+export const GET = internalApiRoute(
+  'document-file',
+  async ({ request }) => {
+    const { collection, filename, organizationId } = parseQuery(request, querySchema)
+    // The backend derives an organization only from an `archiv_<orgId>`
+    // collection; for `proj_<uuid>` it has none to send, and the unguessable
+    // collection name is the boundary the route has always relied on.
+    return withOptionalTenant(
+      organizationId,
+      'document addressed by unguessable collection name, with no organization supplied',
+      async () => {
+        const document = await findDocumentStorageKey(collection, filename, organizationId)
+        if (!document) throw new NotFoundError('Document not found')
+        return { storageKey: document.storageKey, contentType: document.contentType }
+      }
+    )
+  },
+  { tenancy: { fromPayload: '?organizationId when the collection is an Archiv' } }
+)

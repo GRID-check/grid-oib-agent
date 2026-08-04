@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import type { GridSession } from '@/lib/auth/types'
 import {
   errorResponse,
@@ -48,8 +49,14 @@ export function platformApiRoute<TParams = Record<string, string | string[]>>(
       const session = await getGridSession()
       await requirePlatformOwner(session)
       const params = (await resolveParams(context)) as TParams
-      // requirePlatformOwner throws unless the session is non-null.
-      const result = await handler({ request, session: session as GridSession, params })
+      // The platform tier is cross-organization by definition, so its queries
+      // run under the audited bypass (ADR-0041) rather than as one tenant. The
+      // gate above has already established that the caller is a platform owner,
+      // which is exactly the authorization this bypass rests on.
+      const result = await withPlatformAccess(`platformApiRoute ${request.method}`, () =>
+        // requirePlatformOwner throws unless the session is non-null.
+        handler({ request, session: session as GridSession, params })
+      )
       return successResponse(result, options.status ?? 200)
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) {

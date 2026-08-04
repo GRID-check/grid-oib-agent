@@ -10,6 +10,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
 import {
   createProjectMemoryItem,
@@ -67,71 +68,80 @@ export const POST = internalApiRoute(
       supersedesContent,
     } = await parseJsonBody(request, internalMemorySchema)
 
-    if (scope === 'organization') {
-      // Default-deny agent-authored org-wide writes (audit finding S1).
-      if (!agentOrgMemoryAllowed()) {
-        console.warn(
-          '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
-        )
-        // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
-        // reports the accurate cause instead of mislabeling it a token mismatch.
-        throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
+    // An organization-scoped write always names its tenant. A project-scoped
+    // one may not: the project row is what names it, and
+    // `createProjectMemoryItemForProject` resolves the branch from it.
+    return withOptionalTenant(
+      organizationId,
+      'project-scoped agent memory addressed by project id; the project row names the tenant',
+      async () => {
+        if (scope === 'organization') {
+          // Default-deny agent-authored org-wide writes (audit finding S1).
+          if (!agentOrgMemoryAllowed()) {
+            console.warn(
+              '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
+            )
+            // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
+            // reports the accurate cause instead of mislabeling it a token mismatch.
+            throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
+          }
+          // Validate the org id against known tenants. There is no organizations
+          // table, so "known" means: at least one project belongs to it. This
+          // blocks arbitrary-org writes from a compromised backend, though an
+          // org with zero projects is also rejected (acceptable limitation).
+          const known = await organizationExists(organizationId as string)
+          if (!known) {
+            throw new NotFoundError('Unknown organization')
+          }
+        }
+
+        // Reported by the service, never derived from the returned row: a duplicate
+        // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
+        // record a retirement performed by an earlier request.
+        const outcome: { supersededId: string | null } = { supersededId: null }
+        const writeOptions = {
+          supersedesContent,
+          onSuperseded: (id: string) => {
+            outcome.supersededId = id
+          },
+        }
+
+        const item =
+          scope === 'project'
+            ? await createProjectMemoryItemForProject(
+                projectId as string,
+                {
+                  kind,
+                  content,
+                  confidence,
+                  sourceConversationId: sourceConversationId ?? null,
+                  provenanceType,
+                },
+                writeOptions
+              )
+            : await createProjectMemoryItem(
+                {
+                  scope: 'organization',
+                  projectId: null,
+                  organizationId: organizationId as string,
+                  kind,
+                  content,
+                  confidence,
+                  sourceConversationId: sourceConversationId ?? null,
+                  provenanceType,
+                },
+                writeOptions
+              )
+
+        if (!item) {
+          throw new NotFoundError('Unknown project')
+        }
+
+        // `supersededId` is null when the quote resolved to nothing, or to an entry
+        // the agent may not retire — the caller can then be honest about what it did.
+        return { item, supersededId: outcome.supersededId }
       }
-      // Validate the org id against known tenants. There is no organizations
-      // table, so "known" means: at least one project belongs to it. This
-      // blocks arbitrary-org writes from a compromised backend, though an
-      // org with zero projects is also rejected (acceptable limitation).
-      const known = await organizationExists(organizationId as string)
-      if (!known) {
-        throw new NotFoundError('Unknown organization')
-      }
-    }
-
-    // Reported by the service, never derived from the returned row: a duplicate
-    // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
-    // record a retirement performed by an earlier request.
-    const outcome: { supersededId: string | null } = { supersededId: null }
-    const writeOptions = {
-      supersedesContent,
-      onSuperseded: (id: string) => {
-        outcome.supersededId = id
-      },
-    }
-
-    const item =
-      scope === 'project'
-        ? await createProjectMemoryItemForProject(
-            projectId as string,
-            {
-              kind,
-              content,
-              confidence,
-              sourceConversationId: sourceConversationId ?? null,
-              provenanceType,
-            },
-            writeOptions
-          )
-        : await createProjectMemoryItem(
-            {
-              scope: 'organization',
-              projectId: null,
-              organizationId: organizationId as string,
-              kind,
-              content,
-              confidence,
-              sourceConversationId: sourceConversationId ?? null,
-              provenanceType,
-            },
-            writeOptions
-          )
-
-    if (!item) {
-      throw new NotFoundError('Unknown project')
-    }
-
-    // `supersededId` is null when the quote resolved to nothing, or to an entry
-    // the agent may not retire — the caller can then be honest about what it did.
-    return { item, supersededId: outcome.supersededId }
+    )
   },
-  { status: 201 }
+  { status: 201, tenancy: { fromPayload: 'body.organizationId, else the project row' } }
 )

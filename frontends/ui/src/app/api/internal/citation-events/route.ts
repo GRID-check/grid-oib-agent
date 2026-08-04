@@ -13,6 +13,7 @@ import {
   CITATION_EVENT_SEVERITIES,
 } from '@/lib/db/schema'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { recordCitationEvents } from '@/lib/citations/service'
 
 const eventSchema = z.object({
@@ -38,7 +39,14 @@ export const POST = internalApiRoute(
   async ({ request }) => {
     const batch = await parseJsonBody(request, batchSchema)
 
-    const recorded = await recordCitationEvents(
+    // `organization_id` is nullable on this table: a turn from a session with
+    // no organization produces a row that belongs to no tenant and cannot
+    // satisfy any tenant predicate. Such rows are written outside the boundary
+    // and stay visible only to the platform tier.
+    const recorded = await withOptionalTenant(
+      batch.organizationId,
+      'citation telemetry from a turn with no organization selected belongs to no tenant',
+      () => recordCitationEvents(
       batch.events.map((event) => ({
         organizationId: batch.organizationId ?? null,
         conversationId: batch.conversationId ?? null,
@@ -51,8 +59,9 @@ export const POST = internalApiRoute(
         reasons: event.reasons ?? null,
         detail: (event.detail as Record<string, unknown> | null) ?? null,
       }))
+      )
     )
     return { recorded }
   },
-  { status: 202 }
+  { status: 202, tenancy: { fromPayload: 'body.organizationId (nullable)' } }
 )
