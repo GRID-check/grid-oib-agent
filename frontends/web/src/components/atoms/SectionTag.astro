@@ -10,8 +10,6 @@ const tones = {
 }
 ---
 
-<p
-  class={`font-display text-xs font-medium uppercase tracking-[0.14em] ${tones[tone]} ${className}`}
->
+<p class={`font-display text-xs font-medium uppercase tracking-label ${tones[tone]} ${className}`}>
   <slot />
 </p>

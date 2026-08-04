@@ -1,6 +1,5 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
-import FeatureCard from '../molecules/FeatureCard.astro'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -12,30 +11,45 @@ const t = ui[locale]
 
 <section
   id="daten"
-  data-screen-label="05 Datengrundlage"
-  class="mx-auto box-border flex min-h-screen max-w-[1360px] flex-col justify-center px-10 py-24"
+  data-screen-label={t.sheets.daten}
+  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
 >
-  <div class="box-border rounded-[28px] bg-accent-900 px-16 py-20 text-surface">
-    <div data-reveal class="mb-16 max-w-[760px]">
-      <SectionTag tone="dark" class="mb-[22px]">{t.daten.tag}</SectionTag>
-      <h2
-        class="m-0 mb-6 font-display text-[clamp(32px,4vw,50px)] font-bold leading-[1.08] tracking-[-0.02em] text-surface"
-        style="text-wrap: balance"
-      >
+  <div class="box-border rounded-panel bg-accent-900 px-6 py-14 text-surface sheet-dark sm:px-16 sm:py-20">
+    <div data-reveal class="mb-12 max-w-3xl sm:mb-16">
+      <SectionTag tone="dark" class="mb-5">{t.daten.tag}</SectionTag>
+      <h2 class="m-0 mb-6 font-display text-h2 text-surface" style="text-wrap: balance">
         {t.daten.title}
       </h2>
-      <p class="m-0 text-lg leading-[1.6] text-on-dark" style="text-wrap: pretty">
+      <p class="m-0 text-lg leading-relaxed text-on-dark" style="text-wrap: pretty">
         {t.daten.body}
       </p>
     </div>
-    <div class="grid grid-cols-4 gap-3.5 max-lg:grid-cols-2 max-md:grid-cols-1">
-      {
-        t.daten.cards.map((c, i) => (
-          <FeatureCard idx={`0${i + 1}`} title={c.title} tone="dark" class="p-[28px_26px]">
-            {c.body}
-          </FeatureCard>
-        ))
-      }
+
+    <!-- A drawing legend, not a card row: one spine, a tick per source, columns
+         divided by hairlines. Deliberately the same figure as the story's net —
+         these four sources are the fragments it wires together. -->
+    <div data-reveal class="border-t border-surface/25 pt-0">
+      <ol class="m-0 grid list-none grid-cols-4 gap-px bg-surface/15 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        {
+          t.daten.cards.map((c, i) => (
+            <li class="group relative bg-accent-900 pb-2 pt-7 transition-colors hover:bg-accent-800 sm:px-6">
+              <span
+                class="absolute left-0 top-0 h-4 w-px bg-surface/40 transition-[height] duration-500 group-hover:h-7 sm:left-6"
+                aria-hidden="true"
+              />
+              <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
+                {`0${i + 1}`}
+              </p>
+              <h3 class="m-0 mt-3 font-display text-lg font-semibold tracking-tight text-surface">
+                {c.title}
+              </h3>
+              <p class="m-0 mt-2 pb-6 text-sm leading-relaxed text-on-dark" style="text-wrap: pretty">
+                {c.body}
+              </p>
+            </li>
+          ))
+        }
+      </ol>
     </div>
   </div>
 </section>
