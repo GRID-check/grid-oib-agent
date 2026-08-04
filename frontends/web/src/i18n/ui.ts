@@ -22,8 +22,10 @@ const de = {
     nutzung: '04 Nutzung',
     rollen: '05 Für wen',
     daten: '06 Datengrundlage',
-    ki: '07 Daten und Transparenz',
-    kontakt: '08 Kontakt',
+    abdeckung: '07 Abdeckung',
+    ki: '08 Daten und Transparenz',
+    fragen: '09 Offene Fragen',
+    kontakt: '10 Kontakt',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -132,6 +134,34 @@ const de = {
       { title: 'Fachdaten', body: 'Materialkennwerte, CO₂-Bilanzen' },
     ],
   },
+  abdeckung: {
+    tag: 'Abdeckung',
+    title: 'Welches Recht Piloti heute kennt.',
+    lead: 'Konkret genug, dass Sie es nachprüfen können. Piloti arbeitet mit einem kuratierten Verzeichnis österreichischer Rechtsquellen — den Volltext holt es zum Zeitpunkt der Frage aus dem RIS, nicht aus einer Kopie bei uns.',
+    groups: [
+      {
+        label: 'Landesrecht',
+        title: 'Alle neun Bundesländer',
+        body: 'Bauordnung für Wien, NÖ Bauordnung 2014, Oö. Bauordnung 1994, Steiermärkisches Baugesetz, Kärntner Bauordnung 1996, Salzburger Bautechnikgesetz 2015, Tiroler Bauordnung 2022, Vorarlberger Baugesetz, Burgenländisches Baugesetz 1997. Für Wien zusätzlich Bautechnikverordnung 2023, Garagengesetz und Kleingartengesetz sowie die Merkblätter der MA&nbsp;37 — zitiert als behördliche Praxis, nie als Norm. Welches Landesrecht gilt, entscheidet das Bundesland Ihres Projekts; die übrigen acht bleiben aus der Antwort draußen.',
+      },
+      {
+        label: 'OIB',
+        title: 'Richtlinien 1 bis 6, Ausgabe 2023',
+        body: 'Samt Leitfäden, Erläuterungen und Begriffsbestimmungen. Verbindlich sind die Richtlinien nur, soweit das Landesrecht sie dazu erklärt — in Wien über die WBTV&nbsp;2023. Piloti führt diesen Zusammenhang zu jeder Richtlinie mit, statt sie wie ein Gesetz zu zitieren.',
+      },
+      {
+        label: 'Bundesrecht',
+        title: 'Was neben der Baubewilligung mitläuft',
+        body: 'ASchG und AStV, Bauarbeitenkoordinationsgesetz, Ziviltechnikergesetz 2019, Wohnungsgemeinnützigkeitsgesetz, Denkmalschutzgesetz, UVP-G 2000, Wasserrechtsgesetz, Forstgesetz und Gewerbeordnung — die Materien, die ihr eigenes Verfahren mitbringen.',
+      },
+      {
+        label: 'Aktualität',
+        title: 'Was bei einer Novelle passiert',
+        body: 'Das Verzeichnis hält geprüfte Verweise, der Text kommt live aus dem RIS: Eine Novelle wirkt, sobald sie dort konsolidiert ist — ohne Update auf unserer Seite. Jede Fundstelle verlinkt auf das RIS-Dokument, damit Sie die Fassung selbst ansehen.',
+      },
+    ],
+    note: 'Nicht enthalten: ÖNORMEN im Volltext — die Richtlinien verweisen darauf, der Normtext selbst liegt bei Austrian Standards. Bebauungsplan und Widmung kommen aus Ihrem Projektakt, nicht aus dem Verzeichnis.',
+  },
   ki: {
     tag: 'Daten & Transparenz',
     title:
@@ -151,6 +181,37 @@ const de = {
       },
     ],
   },
+  fragen: {
+    tag: 'Offene Fragen',
+    title: 'Was Sie fragen würden, bevor Sie uns schreiben.',
+    lead: 'Ehrlich beantwortet — auch dort, wo die Antwort heute noch „steht nicht fest“ lautet.',
+    items: [
+      {
+        q: 'Wer haftet, wenn Piloti falsch liegt?',
+        a: 'Sie — wie bei jeder Unterlage, die Sie prüfen und unterschreiben. Piloti ist kein Ziviltechniker, erstellt keinen Nachweis und ersetzt keine Prüfung; an Ihrer Verantwortung nach dem Ziviltechnikergesetz ändert es nichts. Genau deshalb ist die Entscheidungskette so gebaut, wie sie gebaut ist: Jede Aussage nennt ihre Fundstelle und verlinkt sie, damit Gegenlesen Minuten dauert statt einer Nachrecherche. Eine Antwort, die Sie nicht prüfen können, ist für uns ein Fehler im Produkt.',
+      },
+      {
+        q: 'Was kostet Piloti?',
+        a: 'Es gibt heute keine Preisliste, weil es noch kein offen buchbares Produkt gibt. Piloti ist im Frühzugang; die Konditionen für die Pilotphase besprechen wir im Erstgespräch — und nennen sie, bevor Sie uns Daten übergeben.',
+      },
+      {
+        q: 'Wie lange dauert es, bis das etwas bringt?',
+        a: 'Für das Erstgespräch brauchen Sie nichts vorzubereiten. Für eine Demo genügen die Unterlagen eines abgeschlossenen Projekts: Sie sehen an Ihren eigenen Plänen, ob die Antworten taugen, bevor Sie Ihr Archiv anfassen.',
+      },
+      {
+        q: 'Funktioniert das auch für ein Büro mit zwölf Leuten?',
+        a: 'Dafür ist es gedacht. Piloti setzt kein BIM-Modell, keine strukturierte Ablage und keine eigene IT voraus — es arbeitet mit den Plan- und PDF-Ordnern, die Sie ohnehin haben. Der Frühzugang läuft bewusst mit wenigen Büros, damit wir jedes einzeln begleiten können.',
+      },
+      {
+        q: 'Was passiert mit unseren Plänen?',
+        a: 'Sie bleiben Ihre. Cloud und KI laufen in der EU nach DSGVO, wir trainieren keine Modelle mit Ihren Daten, und Sie können den Bestand jederzeit exportieren oder löschen lassen.',
+      },
+      {
+        q: 'Woran scheitert Piloti?',
+        a: 'An allem, was nicht in den Quellen steht: an der Auslegung Ihres Referenten, an mündlichen Zusagen, an Normtexten, die wir nicht weitergeben dürfen. Piloti verkürzt die Recherche — das Gespräch mit der Behörde und die Entscheidung nimmt es Ihnen nicht ab.',
+      },
+    ],
+  },
   cta: {
     titleHtml: 'Bringen Sie Intelligenz in jede Planungs&shy;entscheidung.',
     chips: ['Effizienz steigern', 'Planungsfehler vermeiden', 'Mehr Zeit für Kreatives'],
@@ -158,6 +219,7 @@ const de = {
     waitlist: 'Auf die Warteliste',
     subjectDemo: 'Demo-Anfrage',
     subjectWaitlist: 'Warteliste',
+    note: 'Frühzugang: Piloti ist noch nicht offen buchbar. Schreiben Sie uns, woran Sie gerade planen — wir melden uns mit einem Termin.',
   },
   chat: {
     header: 'Piloti · Decision Chain',
@@ -178,7 +240,7 @@ const de = {
     optBTitle: 'EPS > 10 cm mit Schott',
     optBSub: 'Brandschutzschott je Geschoß',
     optCTitle: 'Mit der Behörde klären',
-    optCSub: 'Loggia als „offener Durchgang"',
+    optCSub: 'Loggia als „offener Durchgang“',
     impl: 'Umsetzung — B',
     stepsBadge: '3 Schritte',
     steps: [
@@ -222,6 +284,8 @@ const de = {
     ariaLabel: 'Footer',
     usage: 'Nutzung',
     data: 'Datengrundlage',
+    coverage: 'Abdeckung',
+    faq: 'Offene Fragen',
     blog: 'Blog',
     privacy: 'Datenschutz',
     imprint: 'Impressum',
@@ -298,8 +362,10 @@ const en: typeof de = {
     nutzung: '04 Usage',
     rollen: '05 Who it’s for',
     daten: '06 Data foundation',
-    ki: '07 Data and transparency',
-    kontakt: '08 Contact',
+    abdeckung: '07 Coverage',
+    ki: '08 Data and transparency',
+    fragen: '09 Open questions',
+    kontakt: '10 Contact',
   },
   nav: {
     ariaLabel: 'Main navigation',
@@ -408,6 +474,34 @@ const en: typeof de = {
       { title: 'Technical data', body: 'Material values, CO₂ balances' },
     ],
   },
+  abdeckung: {
+    tag: 'Coverage',
+    title: 'The law Piloti knows today.',
+    lead: 'Specific enough for you to check it. Piloti works from a curated catalogue of Austrian legal sources — the full text is fetched from the RIS at the moment you ask, not from a copy held here.',
+    groups: [
+      {
+        label: 'State law',
+        title: 'All nine Bundesländer',
+        body: 'Bauordnung für Wien, NÖ Bauordnung 2014, Oö. Bauordnung 1994, Steiermärkisches Baugesetz, Kärntner Bauordnung 1996, Salzburger Bautechnikgesetz 2015, Tiroler Bauordnung 2022, Vorarlberger Baugesetz, Burgenländisches Baugesetz 1997. For Vienna also the Bautechnikverordnung 2023, the Garagengesetz and the Kleingartengesetz, plus the MA&nbsp;37 guidance notes — cited as authority practice, never as law. Which state law applies is decided by your project’s Bundesland; the other eight stay out of the answer.',
+      },
+      {
+        label: 'OIB',
+        title: 'Guidelines 1 to 6, 2023 edition',
+        body: 'Including the Leitfäden, Erläuterungen and Begriffsbestimmungen. The guidelines are binding only where state law declares them so — in Vienna through the WBTV&nbsp;2023. Piloti carries that connection alongside every guideline instead of citing it as if it were the statute.',
+      },
+      {
+        label: 'Federal law',
+        title: 'What runs alongside the permit',
+        body: 'ASchG and AStV, Bauarbeitenkoordinationsgesetz, Ziviltechnikergesetz 2019, Wohnungsgemeinnützigkeitsgesetz, Denkmalschutzgesetz, UVP-G 2000, Wasserrechtsgesetz, Forstgesetz and Gewerbeordnung — the matters that bring their own procedure.',
+      },
+      {
+        label: 'Currency',
+        title: 'What happens at an amendment',
+        body: 'The catalogue holds verified pointers, the text comes live from the RIS: an amendment takes effect as soon as it is consolidated there — with no update on our side. Every citation links to the RIS document so you can read the version yourself.',
+      },
+    ],
+    note: 'Not included: ÖNORM full texts — the guidelines refer to them, but the standard itself stays with Austrian Standards. Zoning plan and land-use designation come from your own project file, not from the catalogue.',
+  },
   ki: {
     tag: 'Data & transparency',
     title: 'No black box. Piloti makes AI and data traceable — responsibility stays with you.',
@@ -426,6 +520,37 @@ const en: typeof de = {
       },
     ],
   },
+  fragen: {
+    tag: 'Open questions',
+    title: 'What you would ask before writing to us.',
+    lead: 'Answered honestly — including where the answer today is still “not settled”.',
+    items: [
+      {
+        q: 'Who is liable when Piloti is wrong?',
+        a: 'You are — as with every document you check and sign. Piloti is not a chartered engineer, produces no formal verification and replaces no review; nothing about your responsibility under the Ziviltechnikergesetz changes. That is precisely why the decision chain is built the way it is: every statement names its source and links to it, so checking takes minutes rather than a fresh search. An answer you cannot verify is, to us, a defect in the product.',
+      },
+      {
+        q: 'What does Piloti cost?',
+        a: 'There is no price list today, because there is no openly bookable product yet. Piloti is in early access; we discuss the terms for the pilot in the first conversation — and name them before you hand over any data.',
+      },
+      {
+        q: 'How long until it is useful?',
+        a: 'You need to prepare nothing for the first conversation. For a demo the documents of one finished project are enough: you see on your own drawings whether the answers hold up, before you touch your archive.',
+      },
+      {
+        q: 'Does this work for an office of twelve?',
+        a: 'That is who it is for. Piloti assumes no BIM model, no structured filing and no IT department — it works with the drawing and PDF folders you already have. Early access runs deliberately with a small number of offices, so we can accompany each one individually.',
+      },
+      {
+        q: 'What happens to our drawings?',
+        a: 'They stay yours. Cloud and AI run in the EU under the GDPR, we do not train models on your data, and you can export or have the whole set deleted at any time.',
+      },
+      {
+        q: 'Where does Piloti fail?',
+        a: 'At everything that is not in the sources: your case officer’s reading, verbal assurances, standards we are not allowed to pass on. Piloti shortens the research — it does not take the conversation with the authority, or the decision, off your desk.',
+      },
+    ],
+  },
   cta: {
     titleHtml: 'Bring intelligence to every planning decision.',
     chips: ['Boost efficiency', 'Avoid planning errors', 'More time for creative work'],
@@ -433,6 +558,7 @@ const en: typeof de = {
     waitlist: 'Join the waitlist',
     subjectDemo: 'Demo request',
     subjectWaitlist: 'Waitlist',
+    note: 'Early access: Piloti is not openly bookable yet. Tell us what you are working on — we will come back with a date.',
   },
   chat: {
     header: 'Piloti · Decision Chain',
@@ -453,7 +579,7 @@ const en: typeof de = {
     optBTitle: 'EPS > 10 cm with fire stop',
     optBSub: 'fire stop on each storey',
     optCTitle: 'Clarify with the authority',
-    optCSub: 'loggia as an "open passage"',
+    optCSub: 'loggia as an “open passage”',
     impl: 'Implementation — B',
     stepsBadge: '3 steps',
     steps: [
@@ -497,6 +623,8 @@ const en: typeof de = {
     ariaLabel: 'Footer',
     usage: 'Usage',
     data: 'Data foundation',
+    coverage: 'Coverage',
+    faq: 'Open questions',
     blog: 'Blog',
     privacy: 'Privacy',
     imprint: 'Imprint',

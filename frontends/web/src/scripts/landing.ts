@@ -48,7 +48,11 @@ function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   if (!cta) return
   const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  if (wrap && !reduced) wrap.style.height = '200vh'
+  // The hero is sticky for the length of this wrapper. Everything it animates
+  // (the CTA fade) is over by 12 %, so the rest was dead scroll — a full screen
+  // of nothing between the headline and the story. 160vh keeps the beat of
+  // "the hero holds while you start scrolling" and drops most of the wait.
+  if (wrap && !reduced) wrap.style.height = '160vh'
   const apply = (scrollY: number) => {
     const on = scrollY > window.innerHeight * 0.12
     cta.style.opacity = on ? '0' : '1'
@@ -593,7 +597,11 @@ function initPins() {
     measureStory()
     // The scroll runway is the beat list's length: the ring adds the fan-out
     // and the connecting lines, the grid does not, so it needs less scrolling.
-    wrap.style.height = mode === 'ring' ? '440vh' : '300vh'
+    // Tightened from 440/300: the whole choreography is progress-driven, so a
+    // shorter runway plays the same beats denser. Together with the hero this
+    // brings the first concrete section a screen and a half closer, which is
+    // what a reader deciding in four minutes actually has.
+    wrap.style.height = mode === 'ring' ? '340vh' : '260vh'
   }
 
   let navHidden = false

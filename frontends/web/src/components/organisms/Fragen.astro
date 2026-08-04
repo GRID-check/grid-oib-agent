@@ -1,0 +1,56 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<!--
+  The last objection round before the CTA. Everything above argues that the tool
+  works; this answers what it costs, what it takes, and who carries the
+  liability — the four minutes a partner spends deciding whether to write.
+
+  A `dl` on the open sheet, two columns of question/answer with a rule over
+  each, so it reads as a list of answered items rather than as an accordion the
+  reader has to operate. The liability item leads because it is the one that
+  decides.
+-->
+<section
+  id="fragen"
+  data-screen-label={t.sheets.fragen}
+  class="mx-auto box-border max-w-[85rem] px-4 py-24 sm:px-10 sm:py-28"
+>
+  <div data-reveal class="mb-12 max-w-3xl sm:mb-14">
+    <SectionTag class="mb-5">{t.fragen.tag}</SectionTag>
+    <h2 class="m-0 mb-6 font-display text-h2" style="text-wrap: balance">
+      {t.fragen.title}
+    </h2>
+    <p class="m-0 text-lg leading-relaxed text-ink-soft" style="text-wrap: pretty">
+      {t.fragen.lead}
+    </p>
+  </div>
+
+  <!-- Two columns only from `lg`: at tablet width the answers are long enough
+       that a half-column sets them at ~40 characters, which reads as a stack of
+       shards rather than as prose. -->
+  <dl class="m-0 grid grid-cols-2 gap-x-12 gap-y-10 p-0 max-lg:grid-cols-1 max-lg:gap-y-8 xl:gap-x-16">
+    {
+      t.fragen.items.map((item) => (
+        <div data-reveal class="group relative border-t border-ink/15 pt-7">
+          <span
+            class="absolute left-0 top-0 h-4 w-px bg-accent-600/45 transition-[height] duration-500 group-hover:h-7"
+            aria-hidden="true"
+          />
+          <dt class="font-display text-lg font-semibold tracking-tight text-ink">{item.q}</dt>
+          <dd class="m-0 mt-3 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
+            {item.a}
+          </dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>

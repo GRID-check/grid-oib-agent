@@ -24,12 +24,14 @@ const year = new Date().getFullYear()
       aria-label={t.footer.ariaLabel}
       class="flex flex-wrap items-center gap-x-6 gap-y-2.5 text-sm text-ink-soft"
     >
-      <a href={`${home}#nutzung`}>{t.footer.usage}</a>
-      <a href={`${home}#daten`}>{t.footer.data}</a>
-      <a href={translatePath('/blog/')}>{t.footer.blog}</a>
-      <a href={translatePath('/datenschutz/')}>{t.footer.privacy}</a>
-      <a href={translatePath('/impressum/')}>{t.footer.imprint}</a>
-      <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+      <a class="py-1" href={`${home}#nutzung`}>{t.footer.usage}</a>
+      <a class="py-1" href={`${home}#daten`}>{t.footer.data}</a>
+      <a class="py-1" href={`${home}#abdeckung`}>{t.footer.coverage}</a>
+      <a class="py-1" href={`${home}#fragen`}>{t.footer.faq}</a>
+      <a class="py-1" href={translatePath('/blog/')}>{t.footer.blog}</a>
+      <a class="py-1" href={translatePath('/datenschutz/')}>{t.footer.privacy}</a>
+      <a class="py-1" href={translatePath('/impressum/')}>{t.footer.imprint}</a>
+      <a class="py-1" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
     </nav>
     <p class="text-xs text-ink-faint">© Piloti {year}</p>
   </div>

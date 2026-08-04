@@ -57,9 +57,13 @@
   --color-ink: #1f2023;
   --color-ink-soft: #55565a;
   --color-ink-mid: #3d3e3a;
-  --color-ink-mute: #6f706c;
-  --color-ink-faint: #8a8a86;
-  --color-ink-ghost: #a8a8a4;
+  /* The grey ladder is capped by contrast, not by taste: on the paper canvas
+     (#f7f7f3) the lightest grey that still clears WCAG AA 4.5:1 for body-size
+     text is about #717171, so every step below `soft` sits at or under it.
+     Measured ratios on canvas: mute 6.0, faint 5.0, ghost 4.8. */
+  --color-ink-mute: #5f605a;
+  --color-ink-faint: #6a6b64;
+  --color-ink-ghost: #6d6e67;
   --color-panel: #22271a;
   --color-accent-900: #2a301f;
   --color-accent-800: #2c3620;
@@ -74,7 +78,9 @@
   --color-bubble: #ececea;
   --color-paper-dim: #fafaf8;
   --color-hairline: #dcdfd8;
-  --color-ok: #17914d;
+  /* Also used as 12 px option letters in the chat mock, so it has to clear
+     4.5:1 on white — #17914d only reached 4.04. */
+  --color-ok: #157f44;
   --color-chip-law: #e3eafb;
   --color-chip-law-ink: #1c47ab;
   --color-chip-project: #e7f0e0;
@@ -176,7 +182,9 @@
   #nutzung,
   #rollen,
   #daten,
+  #abdeckung,
   #datenschutz,
+  #fragen,
   #kontakt {
     scroll-snap-align: center;
   }

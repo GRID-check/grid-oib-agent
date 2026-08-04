@@ -1,5 +1,7 @@
 ---
 import '../styles/global.css'
+import { getImage } from 'astro:assets'
+import heroImage from '../assets/hero.png'
 import NavBar from '../components/molecules/NavBar.astro'
 import SheetIndex from '../components/molecules/SheetIndex.astro'
 import Footer from '../components/molecules/Footer.astro'
@@ -32,6 +34,33 @@ const canonicalPath = (paths ?? auto)[locale]
 const canonical = new URL(canonicalPath, Astro.site)
 const other: Locale = locale === defaultLang ? 'en' : defaultLang
 const switchPath = switchTo ?? (paths ?? auto)[other]
+
+// Social preview. The hero plate is the only illustration the site owns, so it
+// is reprocessed once at build time into the 1.91:1 box every card reader wants
+// rather than shipped at its native 16:9 and cropped differently everywhere.
+// `layout: 'none'` matters: the project default is `constrained`, which would
+// emit a six-width srcset of a card image nothing responsive ever renders — six
+// unreferenced JPEGs shipped in the client bundle.
+const OG = { width: 1200, height: 630 }
+const ogImage = await getImage({
+  src: heroImage,
+  format: 'jpeg',
+  quality: 82,
+  layout: 'none',
+  ...OG,
+})
+const ogImageUrl = new URL(ogImage.src, Astro.site)
+
+// Deliberately minimal: only facts this repo can stand behind. No founder,
+// no address, no rating — the Impressum is still a placeholder.
+const orgLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'Piloti',
+  url: new URL('/', Astro.site).href,
+  email: 'hallo@piloti.eu',
+  description: pageDescription,
+}
 ---
 
 <!doctype html>
@@ -55,8 +84,19 @@ const switchPath = switchTo ?? (paths ?? auto)[other]
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={pageDescription} />
     <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content="Piloti" />
     <meta property="og:locale" content={locale === 'de' ? 'de_AT' : 'en_GB'} />
     <meta property="og:locale:alternate" content={locale === 'de' ? 'en_GB' : 'de_AT'} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content={String(OG.width)} />
+    <meta property="og:image:height" content={String(OG.height)} />
+    <meta property="og:image:alt" content={pageTitle} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="theme-color" content="#f7f7f3" />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(orgLd)} />
     <link rel="preload" href="/fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link
       rel="preload"
