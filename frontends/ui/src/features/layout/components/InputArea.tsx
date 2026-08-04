@@ -60,6 +60,7 @@ import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/m
 import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
+import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import type { SourcePresetId } from '../types'
@@ -89,9 +90,7 @@ import {
 import { useTypingBroadcast } from '@/features/collaboration/hooks/use-typing-broadcast'
 import {
   findMentionQuery,
-  humanMentions,
   insertMention,
-  reconcileMentions,
   type DraftMention,
   type MentionQuery,
 } from '@/features/collaboration/lib/mention-text'
@@ -991,12 +990,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Mentions that survive the current text, in text order — the single source for
   // what gets sent, what the hint says, and whether the agent will stay quiet.
-  const activeMentions = useMemo(() => reconcileMentions(message, mentions), [message, mentions])
-  const taggedHumans = useMemo(() => humanMentions(activeMentions), [activeMentions])
-  // `@Piloti` alongside a person addresses BOTH (spec MN-1), so the "Piloti stays
-  // quiet" hint below would be a false statement — the addressee line names them
-  // both instead.
-  const agentTagged = activeMentions.length > taggedHumans.length
 
   /*
     The thread's hand-off state, read from the server (never computed here — the
@@ -1017,6 +1010,27 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate && threadSharing === 'shared',
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
+
+  // ONE resolution, shared with the send below: `resolveAddressee` is the only
+  // place the three-way decision is written. `@Piloti` alongside a person
+  // addresses BOTH (spec MN-1), so the "Piloti stays quiet" hint would be a false
+  // statement there; the addressee line names them both instead.
+  //
+  // Memoised so `activeMentions` keeps a stable identity across keystrokes —
+  // AddresseeIndicator takes it by reference.
+  const addressee = useMemo(
+    () =>
+      resolveAddressee({
+        text: message,
+        mentions,
+        awaitingHuman: threadAwaitsHuman,
+        canCollaborate,
+      }),
+    [message, mentions, threadAwaitsHuman, canCollaborate],
+  )
+  const activeMentions = addressee.mentions
+  const taggedHumans = addressee.humans
+  const agentTagged = addressee.agentTagged
 
   /**
    * The picker opens only where collaboration is on, and then only once the
@@ -1058,8 +1072,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // Mentions are structured, and reconciled against the text at the last
     // possible moment: whatever token the user deleted while editing is not sent
     // (spec MN-3).
-    const sentMentions = reconcileMentions(currentMessage, mentions)
-    const sentHumans = humanMentions(sentMentions)
+    // The SAME function the addressee line used, over the same inputs — so what
+    // the user was told and what happens cannot disagree by construction, rather
+    // than by two expressions being kept in step by tests.
+    const sent = resolveAddressee({
+      text: currentMessage,
+      mentions,
+      awaitingHuman: threadAwaitsHuman,
+      canCollaborate,
+    })
+    const sentHumans = sent.humans
 
     // Files may still be uploading/ingesting — we no longer gate the send behind
     // a double-submit banner. The send button surfaces a subtle inline hint
@@ -1081,14 +1103,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         // `awaitingHuman` is what makes a plain message go through the server's
         // ruling too: while a named person is awaited it is a remark to the thread,
         // not a question for Piloti (ADR-0034 addendum), and the agent must be given
-        // it as context rather than as a turn. It reads the SAME hand-off state the
-        // addressee line above states to the user, so what they were told and what
-        // happens cannot disagree.
-        sentMentions.length > 0
-          ? await sendMessage(currentMessage, { mentions: sentMentions })
-          : threadAwaitsHuman
-            ? await sendMessage(currentMessage, { awaitingHuman: true })
-            : await sendMessage(currentMessage),
+        // it as context rather than as a turn.
+        //
+        // The shape comes from `sendMessageArgs`, so the fast path stays the
+        // literal one-argument call it always was — an explicit `undefined` would
+        // push plain messages down the server's ruling path.
+        await (() => {
+          // One ternary, not a re-derivation: `sendMessageOptions` already chose
+          // the case. Omitting the argument entirely is what keeps the fast path
+          // the literal single-argument call it has always been.
+          const options = sendMessageOptions(sent.routing)
+          return options
+            ? sendMessage(currentMessage, options)
+            : sendMessage(currentMessage)
+        })(),
       )
       if (!ok) {
         // Restore the text so nothing the user wrote is lost, and keep the picked
@@ -1114,7 +1142,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         did nothing at all: no waiting banner, no explanation for Piloti's
         silence, no way back short of reloading the page.
       */
-      if (sentMentions.length > 0 && submittingSessionId) {
+      if (sent.mentions.length > 0 && submittingSessionId) {
         bumpThreadRevision(submittingSessionId)
       }
     } catch (error) {
@@ -1135,6 +1163,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     sendMessage,
     noteSendIntent,
     threadAwaitsHuman,
+    // handleSubmit resolves the addressee, which reads the flag — a stale value
+    // would route a send against a state the user is no longer in.
+    canCollaborate,
     currentConversation,
     clearComposerDraft,
     onStoppedTyping,
