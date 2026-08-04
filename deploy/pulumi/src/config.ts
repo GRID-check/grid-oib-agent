@@ -158,6 +158,11 @@ export interface GridConfig {
       web: number;
     };
     /** Counter-store dataset cap. Counters are tiny and expire on their own. */
+    /**
+     * Counter-store `--maxmemory`. Floor: 256mb — Dragonfly refuses to boot
+     * below 256MiB per proactor thread, and we pin `--proactor_threads=1`
+     * (enforced in `data/dragonfly.ts`).
+     */
     storeMaxmemory: string;
     /** Counter-store pod memory limit; must sit above `storeMaxmemory`. */
     storeMemoryLimit: string;
@@ -815,8 +820,8 @@ export function loadConfig(): GridConfig {
         s3: num(cfg, "rateLimitS3", 300),
         web: num(cfg, "rateLimitWeb", 120),
       },
-      storeMaxmemory: cfg.get("rateLimitStoreMaxmemory") ?? "128mb",
-      storeMemoryLimit: cfg.get("rateLimitStoreMemoryLimit") ?? "256Mi",
+      storeMaxmemory: cfg.get("rateLimitStoreMaxmemory") ?? "256mb",
+      storeMemoryLimit: cfg.get("rateLimitStoreMemoryLimit") ?? "384Mi",
     },
 
     networkPolicies: bool(cfg, "networkPolicies", true),

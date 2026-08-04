@@ -48,6 +48,20 @@ function installDragonflyInstance(
   namespace: pulumi.Input<string>,
   opts: DragonflyOptions,
 ): Dragonfly {
+  // Dragonfly refuses to boot below 256MiB per proactor thread ("There are 1
+  // threads, so 256.00MiB are required. Exiting..."). `--proactor_threads=1`
+  // is pinned below, so 256mb is the floor. Catching a bad value here turns a
+  // CrashLoopBackOff discovered after `up` into a preview-time error.
+  const maxmemoryMatch = /^(\d+)\s*(mb|gb)$/i.exec(opts.maxmemory);
+  const maxmemoryMib = maxmemoryMatch
+    ? Number(maxmemoryMatch[1]) * (maxmemoryMatch[2].toLowerCase() === "gb" ? 1024 : 1)
+    : 0;
+  if (maxmemoryMib < 256) {
+    throw new Error(
+      `${opts.name}: --maxmemory=${opts.maxmemory} is below Dragonfly's 256mb-per-thread boot floor (proactor_threads=1)`,
+    );
+  }
+
   const labels = commonLabels(opts.name);
 
   const deployment = new k8s.apps.v1.Deployment(
