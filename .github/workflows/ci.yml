@@ -140,7 +140,14 @@ jobs:
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
+      # These jobs run PR-controlled code — `bun install` executes dependency
+      # lifecycle scripts and the suite runs the app itself — so the checkout
+      # must not leave a repository credential in .git/config for them to find.
+      # Nothing here needs authenticated git: there are no git-URL dependencies
+      # in frontends/ui, and the artifact round-trip uses the Actions API.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # Node stays the RUNTIME (and Turbopack's PostCSS step spawns a real
       # `node`); Bun is only the installer and script runner.
       - uses: actions/setup-node@v7
@@ -164,7 +171,14 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
+      # These jobs run PR-controlled code — `bun install` executes dependency
+      # lifecycle scripts and the suite runs the app itself — so the checkout
+      # must not leave a repository credential in .git/config for them to find.
+      # Nothing here needs authenticated git: there are no git-URL dependencies
+      # in frontends/ui, and the artifact round-trip uses the Actions API.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -194,7 +208,14 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      # These jobs run PR-controlled code — `bun install` executes dependency
+      # lifecycle scripts and the suite runs the app itself — so the checkout
+      # must not leave a repository credential in .git/config for them to find.
+      # Nothing here needs authenticated git: there are no git-URL dependencies
+      # in frontends/ui, and the artifact round-trip uses the Actions API.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
