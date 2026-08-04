@@ -13,6 +13,13 @@ name: Publish Images
 # DEV hosts (app.dev.piloti.at / dev.piloti.at), version-tagged images the PROD
 # hosts (app.piloti.at / piloti.at) — the Dockerfile defaults cover dev, the
 # build args below override for release tags.
+#
+# Path-filtered rebuilds: the `changes` job (dorny/paths-filter) tracks which
+# inputs each image consumes, so on pushes to develop an image is only rebuilt
+# when its own inputs changed — a blog-post commit under frontends/web/** (blog
+# content lives at frontends/web/src/content/**) rebuilds just the web image.
+# Non-develop refs (release/** branches, version tags) and manual
+# workflow_dispatch runs always build ALL three images (unchanged behavior).
 on:
   push:
     branches: [develop, "release/**"]
@@ -28,9 +35,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # Backend filter mirrors exactly what deploy/Dockerfile COPYs from the
+          # repo-root build context (plus the toolchain files and the workflow
+          # itself — a changed Dockerfile/trigger always rebuilds the image).
+          filters: |
+            backend:
+              - 'src/**'
+              - 'sources/**'
+              - 'frontends/aiq_api/**'
+              - 'frontends/cli/**'
+              - 'frontends/debug/**'
+              - 'configs/**'
+              - 'scripts/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'deploy/entrypoint.py'
+              - 'deploy/start_web.py'
+              - 'deploy/Dockerfile'
+              - '.github/workflows/publish-images.yml'
+            frontend:
+              - 'frontends/ui/**'
+              - '.github/workflows/publish-images.yml'
+            # frontends/web/** already covers blog content
+            # (frontends/web/src/content/**), so a blog save rebuilds only grid-web.
+            web:
+              - 'frontends/web/**'
+              - '.github/workflows/publish-images.yml'
+
   backend:
     name: Build & push backend image
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.backend == 'true' }}
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
       # below, never git credentials.
@@ -67,6 +117,8 @@ jobs:
   frontend:
     name: Build & push frontend image
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.frontend == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,8 +150,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   web:
-    name: Build & push web image (landing site)
+    name: Build & push web image
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.web == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
