@@ -82,6 +82,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0038](0038-one-authorization-catalog-and-decision-point.md) | One authorization catalog, one decision point, and a coverage gate | Accepted |
 | [0039](0039-agentic-retrieval-quality-package.md) | Agentic retrieval quality package (filters, hybrid RRF, LLM-judge reranker) | Accepted |
 | [0039](0039-live-shared-turns-and-composing-presence.md) | Live shared turns and composing presence | Accepted |
+| [0040](0040-layered-rate-limiting-and-load-protection.md) | Layered rate limiting — the edge limits traffic, the app limits consumption | Proposed |
 
 > Note: two ADRs were independently numbered 0027, and two more were
 > independently numbered 0039. All are Accepted and in effect; each collision is
