@@ -95,6 +95,30 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
+      # pre-commit builds an isolated env per hook repo on every run — four
+      # virtualenvs plus a node env — and they only change when a `rev:` in
+      # .pre-commit-config.yaml does. Measured locally: ~25s of env building
+      # collapses to ~0.3s warm, against a 113 MB dir that compresses to ~37 MB.
+      #
+      # `env.pythonLocation` is in the key because the cached envs are bound to
+      # an exact interpreter: pre-commit health-checks pyvenv.cfg against the
+      # live python and rebuilds on mismatch, and setup-python floats the patch
+      # version — without it the runner would periodically restore 37 MB and
+      # immediately discard it. That variable is exported by actions/setup-python
+      # inside setup-python-env, so this step MUST come after it, and after
+      # checkout so hashFiles can see the config.
+      #
+      # The whole directory is cached, not just the repo dirs: db.db is the
+      # url+rev -> dir index, and restoring one without the other desynchronises
+      # them. Note this cache deliberately contains no ruff env, since SKIP
+      # suppresses installing those hooks — do not reuse this key from a job
+      # that actually runs ruff.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
       - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |
           . .venv/bin/activate
