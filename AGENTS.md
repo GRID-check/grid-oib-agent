@@ -59,6 +59,13 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 (`.github/workflows/ci.yml`), so `task verify` passing locally means the merge
 gate passes — there is no second copy of the commands to drift out of sync.
 
+CI *distributes* them differently, though: the frontend tier's lint, types and
+build run in one job while the suite is sharded four ways (`fe:test:shard`) and
+stitched back together by `fe:test:merge` for the coverage comment. The commands
+are still the Taskfile's — only the scheduling differs, because run in series on
+one runner the tests were ~63% of the job's wall clock. Locally `task fe:verify`
+still runs all four in order.
+
 The tasks also absorb two things that used to have to be remembered: the venv
 lives in `.venv/Scripts` on Windows and `.venv/bin` elsewhere, and **backend
 tests need `PYTHONPATH=src`** (otherwise pytest resolves `aiq_agent` from

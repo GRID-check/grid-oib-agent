@@ -128,14 +128,17 @@ jobs:
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
 
+  # `task fe:verify` runs lint -> types -> tests -> build in series, which is
+  # right locally but wasteful here: on a 2-core runner the four steps measured
+  # 25s + 38s + 264s + 89s, so the tests alone were ~63% of the job and
+  # everything else waited on them. The work is split across jobs that run
+  # concurrently, and the suite itself is sharded. Each piece still runs through
+  # the root Taskfile, so a local `task fe:verify` executes the same commands.
   frontend:
-    name: Frontend (lint, types, test, build)
+    name: Frontend (lint, types, build)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontends/ui
     steps:
       - uses: actions/checkout@v7
       # Node stays the RUNTIME (and Turbopack's PostCSS step spawns a real
@@ -146,12 +149,64 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-        working-directory: .
-      # lint + type-check + tests (with the json-summary/json reporters the
-      # coverage comment below consumes) + build. Same four steps as
-      # `task fe:verify` locally — defined once, in the root Taskfile.
-      - run: task fe:verify
-        working-directory: .
+      - run: task fe:lint
+      - run: task fe:types
+      - run: task fe:build
+
+  frontend-test:
+    name: Frontend tests (shard ${{ matrix.shard }}/4)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # One shard's failure should not hide the others' results.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      - run: task fe:test:shard SHARD=${{ matrix.shard }}/4
+      # Coverage is collected per shard and merged below: a shard only ever
+      # loads its own slice of the app, so its coverage is meaningless alone and
+      # cannot be recomputed afterwards from the others.
+      - uses: actions/upload-artifact@v4
+        # A failing shard still wrote its blob, and the merged report is where a
+        # reviewer will look — without this the upload is skipped on failure and
+        # the merge job silently reports on a subset.
+        if: always()
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: frontends/ui/.vitest-reports
+          include-hidden-files: true
+          retention-days: 1
+
+  frontend-coverage:
+    name: Frontend coverage
+    needs: [changes, frontend-test]
+    # Runs whenever the shards ran at all: a failing shard still produced a blob,
+    # and the merged report is the most useful thing to look at when one fails.
+    if: ${{ !cancelled() && needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vitest-blob-*
+          merge-multiple: true
+          path: frontends/ui/.vitest-reports
+      - run: task fe:test:merge
       - name: Coverage comment (frontend)
         if: github.event_name == 'pull_request'
         continue-on-error: true
@@ -223,7 +278,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, web, infra, repo-lint]
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, frontend-coverage, web, infra, repo-lint]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

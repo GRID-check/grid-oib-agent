@@ -123,6 +123,25 @@ tasks:
     cmds:
       - bun run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
 
+  fe:test:shard:
+    desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
+    dir: '{{.UI}}'
+    cmds:
+      # `--reporter=blob` writes .vitest-reports/ instead of printing a summary;
+      # fe:test:merge stitches the shards back into one run + one coverage set.
+      # Coverage must be collected per shard — it cannot be recomputed at merge
+      # time, because each shard only ever loaded its own slice of the app.
+      - bun run test:shard -- --shard={{.SHARD}}
+
+  fe:test:merge:
+    desc: Merge sharded blob reports into one result + the coverage CI comments on
+    dir: '{{.UI}}'
+    cmds:
+      - >-
+        bun run test:merge --
+        --coverage.reporter=json-summary --coverage.reporter=json
+        --coverage.reporter=text-summary
+
   fe:build:
     desc: Production build of the UI
     dir: '{{.UI}}'
