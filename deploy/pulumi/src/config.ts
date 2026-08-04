@@ -27,7 +27,15 @@ export interface GridConfig {
     frontend?: string;
     /** Full override for the landing-site (web) image ref. */
     web?: string;
-    pullPolicy: string;
+    /**
+     * Explicit imagePullPolicy override for the app images. When unset the
+     * policy is derived PER IMAGE REF (`appPullPolicy`): a moving tag must
+     * re-pull, an immutable one must not — deriving one value from `tag`
+     * alone is wrong whenever a per-service override points at a different
+     * kind of reference (e.g. imageTag is a SHA while `frontendImage` is a
+     * `:latest` fallback).
+     */
+    pullPolicyOverride?: string;
     /**
      * Registry credentials for pulling the app images when they are PRIVATE
      * (e.g. a private GHCR package — the kubelet pulls anonymously, so a
@@ -733,12 +741,9 @@ export function loadConfig(): GridConfig {
       backend: cfg.get("backendImage"),
       frontend: cfg.get("frontendImage"),
       web: cfg.get("webImage"),
-      // A MOVING tag (`latest`) must re-pull on every pod start, or a rescheduled
-      // pod silently keeps a stale cached image and a deploy "succeeds" without
-      // shipping the new code. Only a pinned/immutable tag (a SHA) is safe as
-      // IfNotPresent. Explicit `imagePullPolicy` always wins.
-      pullPolicy:
-        cfg.get("imagePullPolicy") ?? (imageTag === "latest" ? "Always" : "IfNotPresent"),
+      // Explicit escape hatch only; the default is derived per image ref —
+      // see `appPullPolicy` and the field's doc comment.
+      pullPolicyOverride: cfg.get("imagePullPolicy"),
       pullCredentials:
         registryUsername && registryPassword
           ? { username: registryUsername, password: registryPassword }
@@ -1038,9 +1043,22 @@ export function webImage(c: GridConfig): string {
 }
 
 /**
+ * Pull policy for an app-tier image: the explicit `imagePullPolicy` override
+ * when set, otherwise derived from the resolved reference (`pullPolicyFor`).
+ * Every app workload must use this rather than a single stack-wide value:
+ * CI deploys routinely mix reference kinds (a SHA `imageTag` for rebuilt
+ * services, `:latest` fallbacks for the rest), and only the per-image rule
+ * keeps a moving tag on `Always` — which the `moving-tag-must-repull`
+ * policy-pack rule enforces.
+ */
+export function appPullPolicy(c: GridConfig, image: string): string {
+  return c.images.pullPolicyOverride ?? pullPolicyFor(image);
+}
+
+/**
  * The only correct `imagePullPolicy` for a given image reference.
  *
- * Same rule the app images follow (see `images.pullPolicy` above), applied to
+ * Same rule the app images follow (see `appPullPolicy`), applied to
  * the upstream data-tier images too: a MOVING tag (`latest`, or no tag at all)
  * must re-pull on every pod start or a rescheduled pod silently keeps a stale
  * cached layer; a digest-pinned or version-pinned reference is immutable, so

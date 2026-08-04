@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, backendImage, toResourceRequirements } from "../config";
+import { GridConfig, appPullPolicy, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
@@ -76,7 +76,7 @@ export function installAgentWorker(
               {
                 name: "agent-worker",
                 image: backendImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
+                imagePullPolicy: appPullPolicy(cfg, backendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 env: workerEnv(w),
                 resources: toResourceRequirements(cfg.agentWorker.resources),

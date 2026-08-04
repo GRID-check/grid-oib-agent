@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import {
   GridConfig,
+  appPullPolicy,
   assertHpaTargetIsProportional,
   assertMemoryFitsLimit,
   toResourceRequirements,
@@ -63,7 +64,7 @@ export function installWeb(
               {
                 name: "web",
                 image: webImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
+                imagePullPolicy: appPullPolicy(cfg, webImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 // Astro node adapter: entry.mjs reads HOST/PORT from env.
                 command: ["node", "dist/server/entry.mjs"],

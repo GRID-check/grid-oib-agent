@@ -400,12 +400,15 @@ jobs:
           pulumi config set grid-oib:backendImage "$BACKEND_IMAGE_REF"
           pulumi config set grid-oib:frontendImage "$FRONTEND_IMAGE_REF"
           pulumi config set grid-oib:webImage "$WEB_IMAGE_REF"
-          # `--json` puts EVERYTHING on stdout, diagnostics included, so a bare
-          # redirect leaves a failed preview looking like a naked `exit 1` with
-          # no reason anywhere in the log. Surface the captured output before
-          # failing — the API server's rejection message is the whole story.
+          # `--json` puts the plan on stdout, but policy-pack violations are NOT
+          # part of it — a mandatory CrossGuard failure shows up as a bare
+          # "error: preview failed" with the reason nowhere in the JSON. On
+          # failure, re-run in text mode (cheap: the plan is cached server-side)
+          # so the violating rule and resource are visible in the log.
           if ! pulumi preview --policy-pack ./policy --json > .plan.json; then
-            echo "::error::pulumi preview failed — captured output follows"
+            echo "::error::pulumi preview failed — re-running in text mode to surface the reason"
+            pulumi preview --policy-pack ./policy || true
+            echo "::error::captured JSON plan follows"
             cat .plan.json
             exit 1
           fi

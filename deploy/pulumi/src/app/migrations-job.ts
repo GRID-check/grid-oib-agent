@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, frontendImage } from "../config";
+import { GridConfig, appPullPolicy, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { JOB_DEFAULTS, LIGHT_WORKER_RESOURCES, UID } from "../constants";
@@ -41,7 +41,7 @@ export function runMigrations(
               {
                 name: "migrate",
                 image: frontendImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
+                imagePullPolicy: appPullPolicy(cfg, frontendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "node_modules/drizzle-kit/bin.cjs", "migrate"],
                 env: migrationEnv(),

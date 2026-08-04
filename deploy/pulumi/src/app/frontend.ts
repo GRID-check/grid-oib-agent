@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import {
   GridConfig,
+  appPullPolicy,
   assertHpaTargetIsProportional,
   assertMemoryFitsLimit,
   frontendImage,
@@ -93,7 +94,7 @@ export function installFrontend(
               {
                 name: "frontend",
                 image: frontendImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
+                imagePullPolicy: appPullPolicy(cfg, frontendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 // Skip the image's built-in migrate; the Job owns migrations.
                 command: ["node", "server.js"],
