@@ -37,6 +37,17 @@
  * real, common postures (per-resource FGA lives in services; some endpoints
  * genuinely need only a session). The requirement is that the choice is
  * WRITTEN DOWN next to the route, by someone who had to think about it.
+ *
+ * ## Why rate limiting is NOT a required argument
+ *
+ * `limits` is optional, and that asymmetry is deliberate (ADR-0040). An
+ * ungated route is a security hole with no safe default; an unlimited route is
+ * a cost risk that DOES have one. So the factory charges every mutating method
+ * against `DEFAULT_MUTATION_LIMIT` unless the route says otherwise, and a new
+ * endpoint is bounded the day it ships rather than the day someone remembers.
+ * Declaring `limits` is for the two cases where that default is wrong: an
+ * expensive endpoint that needs a tighter budget, and the handful that must not
+ * be limited at all (which must say why).
  */
 
 import { NextResponse } from 'next/server'
@@ -46,7 +57,11 @@ import { isAuthzError } from '@/lib/auth-utils'
 import { hasPermission, type KnownPermission } from '@/lib/authz/permissions'
 import { requireInternalToken } from '@/lib/internal-auth'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { ApiError, BadRequestError, ForbiddenError } from './errors'
+import { DEFAULT_MUTATION_LIMIT } from '@/lib/limits/catalog'
+import { enforceLimit, rateLimitHeaders } from '@/lib/limits/enforce'
+import { memberSubject } from '@/lib/limits/subject'
+import type { LimitRule } from '@/lib/limits/types'
+import { ApiError, BadRequestError, ForbiddenError, TooManyRequestsError } from './errors'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -94,11 +109,58 @@ export type RouteAuthz =
    */
   | { readonly sessionOnly: true; readonly why: string }
 
+/**
+ * How a route is rate limited (ADR-0040 L2).
+ *
+ * Unlike `authz`, this is optional — and the asymmetry is deliberate. An
+ * unauthorized route is a security hole, so ADR-0038 made the declaration a
+ * compile error. An unlimited route is a cost risk, and the safe default for
+ * one actually exists: the factory applies `DEFAULT_MUTATION_LIMIT` to every
+ * mutating method unless told otherwise, so a new endpoint is bounded on the day
+ * it ships. Requiring 117 existing routes to restate that default would have
+ * bought a large diff and no safety.
+ *
+ * The declaration is for the routes where the default is wrong in either
+ * direction: an expensive endpoint that needs a tighter budget, and the handful
+ * that must not be limited at all.
+ */
+export type RouteLimits =
+  /**
+   * Spend one unit of this rule per call, keyed by `memberSubject` (the member
+   * within their active organization). Use for endpoints whose cost or blast
+   * radius makes the shared default wrong.
+   */
+  | { readonly rule: LimitRule }
+  /**
+   * Exempt. `why` is required for the same reason `sessionOnly` needs one: "no
+   * limit" is exactly the claim that deserves a sentence next to the route.
+   */
+  | { readonly none: true; readonly why: string }
+
 interface RouteOptions {
   /** How this route is authorized. Required — a route may not stay silent. */
   readonly authz: RouteAuthz
+  /**
+   * How this route is rate limited. Optional; mutating methods otherwise get
+   * `DEFAULT_MUTATION_LIMIT` and reads are left to the edge's per-IP budget.
+   */
+  readonly limits?: RouteLimits
   /** Status code for successful non-Response results (default 200). */
   readonly status?: number
+}
+
+/** Methods that change something, and so carry a default budget. */
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+/**
+ * The rule to charge for this call, or null when the route is exempt or is a
+ * read with no declaration.
+ */
+function resolveLimitRule(options: RouteOptions, method: string): LimitRule | null {
+  if (options.limits) {
+    return 'none' in options.limits ? null : options.limits.rule
+  }
+  return MUTATING_METHODS.has(method.toUpperCase()) ? DEFAULT_MUTATION_LIMIT : null
 }
 
 /** Options for routes whose factory already fixes the authorization posture. */
@@ -142,7 +204,12 @@ export function errorResponse(error: unknown, request: Request): Response {
   if (error instanceof ApiError) {
     const body: Record<string, unknown> = { error: error.message, code: error.code }
     if (error.details !== undefined) body.details = error.details
-    return NextResponse.json(body, { status: error.status })
+    // A 429 is the one error whose headers matter as much as its body: a client
+    // that cannot see `Retry-After` has to guess, and guessing produces exactly
+    // the retry storm the limit exists to stop (ADR-0040).
+    const headers =
+      error instanceof TooManyRequestsError ? rateLimitHeaders(error.decision) : undefined
+    return NextResponse.json(body, { status: error.status, headers })
   }
   // Legacy guards (requireGridSession, requireProjectAccess, WorkOS client
   // wrappers) throw plain Errors classified by message. Map them exactly as
@@ -183,6 +250,11 @@ export function apiRoute<TParams = Record<string, string | string[]>>(
       if (permission && !hasPermission(session, permission)) {
         throw new ForbiddenError()
       }
+      // After authorization, before any work: an unauthorized caller should get
+      // a 403 rather than have the refusal tell them a limit exists, and a
+      // refused call must not have already touched the database.
+      const rule = resolveLimitRule(options, request.method)
+      if (rule) await enforceLimit(rule, memberSubject(session))
       const params = (await resolveParams(context)) as TParams
       const result = await handler({ request, session, params })
       return successResponse(result, options.status ?? 200)

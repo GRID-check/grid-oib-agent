@@ -12,7 +12,7 @@ import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { EDGE_SHUTDOWN, SURGE_ONLY_STRATEGY } from "./rollout";
-import { EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
+import { EDGE_RATE_LIMIT, EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
 export const GATEWAY_NAME = "grid-gateway";
@@ -30,7 +30,10 @@ export const GATEWAY_CLASS = "eg";
  * startup to enable its Gateway integration — so install the controller FIRST,
  * then cert-manager, then the Gateway/GatewayClass resources.
  */
-export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Release {
+export function installGatewayController(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+): k8s.helm.v3.Release {
   const ns = new k8s.core.v1.Namespace(
     "envoy-gateway-ns",
     { metadata: { name: "envoy-gateway-system" } },
@@ -43,14 +46,49 @@ export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Re
       chart: "oci://docker.io/envoyproxy/gateway-helm",
       // Unpinned: track the latest Envoy Gateway release.
       namespace: ns.metadata.name,
-      // Install CRDs + controller with the chart's defaults. DO NOT override
-      // `values.crds` or set `skipAwait`: cert-manager (installed next with
-      // enableGatewayAPI) hard-fails at startup if the Gateway API CRDs aren't
-      // Established first, and the default release-await guarantees that order.
-      values: {},
+      // Install CRDs + controller with the chart's defaults, plus (optionally)
+      // the global rate limit service. DO NOT override `values.crds` or set
+      // `skipAwait`: cert-manager (installed next with enableGatewayAPI)
+      // hard-fails at startup if the Gateway API CRDs aren't Established first,
+      // and the default release-await guarantees that order. Touching
+      // `config.envoyGateway` does not disturb any of that.
+      values: cfg.rateLimit.enabled ? { config: { envoyGateway: rateLimitConfig(cfg) } } : {},
     },
     { provider, dependsOn: ns },
   );
+}
+
+/**
+ * The `EnvoyGateway` config fragment that turns on global rate limiting
+ * (ADR-0040 layer L1).
+ *
+ * Without this the `BackendTrafficPolicy` rules in `app/httproutes.ts` are inert
+ * — Envoy Gateway accepts them and the rate limit service they need is simply
+ * not deployed. The two must move together, which is why the same
+ * `cfg.rateLimit.enabled` flag gates both.
+ *
+ * `backend.type: Redis` names the DEDICATED counter store, never the ADR-0020
+ * cache (`data/dragonfly.ts` explains why at length). The store lives in the
+ * app namespace while the rate limit service runs here in
+ * `envoy-gateway-system`, so this crosses a namespace boundary — and `grid` is
+ * default-deny for ingress, so `platform/network-policies.ts` carries the allow
+ * that makes this address reachable. Miss that rule and every lookup fails; the
+ * fail-open default then means the limits silently do nothing.
+ */
+function rateLimitConfig(cfg: GridConfig): Record<string, unknown> {
+  return {
+    rateLimit: {
+      backend: {
+        type: "Redis",
+        redis: { url: `${EDGE_RATE_LIMIT.storeService}.${cfg.namespace}.svc.cluster.local:6379` },
+      },
+      // Fail open: a counter-store blip must degrade to "not limited", never to
+      // "down". See the knob's comment for when to reconsider.
+      failClosed: cfg.rateLimit.failClosed,
+      // Short — this sits in front of every request.
+      timeout: EDGE_RATE_LIMIT.timeout,
+    },
+  };
 }
 
 /**
@@ -234,6 +272,36 @@ export function installGatewayResources(
   const clientTrafficPolicySpec: IClientTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME }],
     timeout: { http: { idleTimeout: EDGE_TIMEOUT, streamIdleTimeout: EDGE_TIMEOUT } },
+    // ── ADR-0040 layer L0 ──
+    //
+    // Client-IP detection FIRST, because everything per-IP rests on it: the edge
+    // rate limit rules (`app/httproutes.ts`), the WS-upgrade limiter in
+    // `server.js`, and any access log anyone ever reads. Leaving it unset does
+    // not disable per-IP limiting — it silently redefines "client" as whatever
+    // address Envoy's downstream connection carries. If a SNATing load balancer
+    // sits in front, that is ONE address for the entire internet, and a limit
+    // meant as "30 per client" becomes "30 for everybody" with nothing to show
+    // for it but a fail-open counter.
+    //
+    // `numTrustedHops: 0` (the default) keeps Envoy's own downstream address,
+    // which is correct when the LoadBalancer preserves the source IP. The knob
+    // exists so a stack that sits behind a proxy can say so. Confirm against a
+    // live cluster before believing any per-IP number.
+    clientIPDetection: { xForwardedFor: { numTrustedHops: cfg.ingress.xffNumTrustedHops } },
+    // A blunt backstop under the request-rate limits: bounds file descriptors
+    // and memory when a client opens connections it never drives. 0 disables.
+    ...(cfg.ingress.maxConnectionsPerProxy > 0
+      ? {
+          connection: {
+            connectionLimit: {
+              value: cfg.ingress.maxConnectionsPerProxy,
+              // Delay the close a touch so a burst of rejects cannot become a
+              // tight accept/close loop against the proxy.
+              closeDelay: "1s",
+            },
+          },
+        }
+      : {}),
   };
   new k8s.apiextensions.CustomResource(
     "grid-client-traffic-policy",

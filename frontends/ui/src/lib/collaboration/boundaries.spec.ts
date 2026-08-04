@@ -79,9 +79,9 @@ vi.mock('@/lib/sharing/directory', async (importActual) => ({
 
 // The real bounds (10 mentions per message, 200 per roster) are the rules under
 // test; only the counter is stubbed.
-vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/sharing/rate-limit')>()),
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 import { ConflictError, ForbiddenError } from '@/lib/api/errors'
@@ -103,7 +103,8 @@ import {
   listOpenRequestsForSubject,
 } from '@/lib/mentions/repository'
 import { applyMessageMentions, getAwaitingState } from '@/lib/mentions/service'
-import { MAX_MENTIONS_PER_MESSAGE, consumeRateLimit } from '@/lib/sharing/rate-limit'
+import { MAX_MENTIONS_PER_MESSAGE, MENTION_LIMIT, consumeLimit, memberSubject } from '@/lib/limits'
+import { allowedDecision } from '@/test-utils/limit-fixtures'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import {
   SHARE_ROSTER_LIMIT,
@@ -214,7 +215,7 @@ beforeEach(() => {
       [BOB, person(BOB, 'Bob')],
     ]),
   )
-  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 100 })
+  vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(MENTION_LIMIT))
   vi.mocked(countGrantsForResource).mockResolvedValue(1)
   vi.mocked(countPendingInboxItems).mockResolvedValue(0)
   vi.mocked(canUserAccessProject).mockResolvedValue(true)
@@ -257,7 +258,11 @@ describe('the per-message mention cap (matrix E26, spec MN-13)', () => {
     const atCap = Array.from({ length: MAX_MENTIONS_PER_MESSAGE }, (_, index) => `user_${index}`)
 
     await expect(send(atCap)).resolves.toBeDefined()
-    expect(consumeRateLimit).toHaveBeenCalledWith(expect.anything(), session.userId, MAX_MENTIONS_PER_MESSAGE)
+    expect(consumeLimit).toHaveBeenCalledWith(
+      MENTION_LIMIT,
+      memberSubject(session),
+      MAX_MENTIONS_PER_MESSAGE,
+    )
   })
 })
 
@@ -398,7 +403,7 @@ describe('duplicate mention targets in one message (matrix E31, spec MN-13)', ()
     expect(result.addressees).toEqual({ agent: false, users: [ANNA] })
     expect(vi.mocked(insertMentionRequests).mock.calls[0]![0]).toHaveLength(1)
     expect(vi.mocked(upsertInboxItems).mock.calls[0]![0]).toHaveLength(1)
-    expect(consumeRateLimit).toHaveBeenCalledWith(expect.anything(), session.userId, 1)
+    expect(consumeLimit).toHaveBeenCalledWith(MENTION_LIMIT, memberSubject(session), 1)
   })
 })
 

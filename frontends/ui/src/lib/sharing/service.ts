@@ -24,7 +24,7 @@ import { publishToUsers } from '@/lib/events/bus'
 import { resolveResourceAccess, requireResourceAccess } from './access'
 import { loadOrganizationDirectory, unknownPerson } from './directory'
 import { describeResource, roleSatisfies } from './registry'
-import { consumeRateLimit, SHARE_RATE_LIMIT } from './rate-limit'
+import { consumeLimit, memberSubject, SHARE_LIMIT } from '@/lib/limits'
 import {
   countGrantsForResource,
   deleteGrant,
@@ -191,7 +191,7 @@ export async function grantResourceAccess(
   }
 
   // Rate limit BEFORE any write (spec SH-16, NF-5).
-  const limit = await consumeRateLimit(SHARE_RATE_LIMIT, `${session.userId}`)
+  const limit = await consumeLimit(SHARE_LIMIT, memberSubject(session))
   if (!limit.allowed) {
     throw new ForbiddenError('Too many sharing changes. Please wait a few minutes and try again.', {
       reason: SHARING_ERROR_REASONS.rateLimited,

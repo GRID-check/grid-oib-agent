@@ -472,6 +472,24 @@ see §10.
   rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the
   deploy workflow already pins staging services to SHA tags.
+- **Edge rate limiting** (`grid-oib:rateLimitEnabled`, default **on**;
+  ADR-0040 L1): Envoy Gateway's global rate limit service, backed by a
+  **dedicated** Dragonfly (`dragonfly-ratelimit`) that is deliberately not the
+  ADR-0020 cache — that one runs `--cache_mode=true`, so ordinary cache pressure
+  would evict rate-limit counters and silently lift the limits. Per-route,
+  per-client-IP budgets attach to the existing `BackendTrafficPolicy` objects
+  (`src/app/httproutes.ts`); the `envoy-gateway-system → dragonfly-ratelimit`
+  allow is NetworkPolicy rule 5c, and without it every lookup fails and — fail-open
+  — nothing is enforced while the config reads as correct.
+
+  **It ships in shadow mode** (`rateLimitShadowMode`, default `true`): rules
+  evaluate and emit telemetry, nothing is refused. Read the would-have-blocked
+  counts off the Aspire pane (§9), pick real numbers, then set it false.
+
+  **Verify client-IP preservation before trusting any per-IP number.**
+  `xffNumTrustedHops` defaults to 0 — correct only if the managed LoadBalancer
+  preserves the source IP. If it SNATs instead, every caller is bucketed as the
+  LB and a per-client limit silently becomes a per-product one.
 
 ## 7b. Rolling updates — how a deploy actually lands
 

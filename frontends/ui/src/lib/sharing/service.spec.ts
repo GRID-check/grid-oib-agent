@@ -50,9 +50,9 @@ vi.mock('./directory', () => ({
   unknownPerson: (userId: string) => ({ userId, email: null, name: userId, profilePictureUrl: null }),
 }))
 
-vi.mock('./rate-limit', () => ({
-  consumeRateLimit: vi.fn(),
-  SHARE_RATE_LIMIT: { action: 'share', limit: 60, windowMs: 3_600_000 },
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 vi.mock('./repository', () => ({
@@ -72,7 +72,8 @@ import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { requireResourceAccess, resolveResourceAccess } from './access'
 import { loadOrganizationDirectory } from './directory'
-import { consumeRateLimit } from './rate-limit'
+import { SHARE_LIMIT, consumeLimit } from '@/lib/limits'
+import { allowedDecision } from '@/test-utils/limit-fixtures'
 import { countGrantsForResource, deleteGrant, listGrantsForResource, upsertGrant } from './repository'
 import {
   changeResourceRole,
@@ -135,7 +136,7 @@ beforeEach(() => {
   stubConversation('user_owner')
   stubGrants([])
   vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
-  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 60 })
+  vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(SHARE_LIMIT))
   vi.mocked(countGrantsForResource).mockResolvedValue(0)
   vi.mocked(canUserAccessProject).mockResolvedValue(true)
   vi.mocked(isUserInOrganization).mockResolvedValue(true)

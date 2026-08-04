@@ -77,6 +77,82 @@ export interface GridConfig {
      * across a Gateway/service re-creation. Empty = let the provider assign one.
      */
     loadBalancerIp?: string;
+    /**
+     * Trusted hops when deriving the client IP from `X-Forwarded-For` (ADR-0040
+     * layer L0). This is the setting every per-IP limit depends on, and getting
+     * it wrong is silent in both directions: too low and every client is
+     * bucketed as the load balancer (one shared limit for the whole product),
+     * too high and a client can forge its own address by sending an XFF header.
+     *
+     * 0 = trust Envoy's own downstream connection address, correct when the
+     * LoadBalancer preserves the source IP (the common case with
+     * `externalTrafficPolicy: Local` or a DSR/L2 load balancer). Raise to 1 when
+     * a SNATing proxy sits in front and appends exactly one hop.
+     *
+     * VERIFY THIS ON A LIVE CLUSTER before trusting any per-IP number: compare
+     * the edge access-log client address against a known external IP.
+     */
+    xffNumTrustedHops: number;
+    /**
+     * Maximum concurrent downstream connections per Envoy proxy replica, or 0
+     * to leave it unbounded. A blunt backstop underneath the request-rate
+     * limits: it bounds file descriptors and memory when something opens
+     * connections without ever completing a request.
+     */
+    maxConnectionsPerProxy: number;
+  };
+
+  /**
+   * Edge rate limiting — ADR-0040 layer L1. Enforced by Envoy Gateway's global
+   * rate limit service against a dedicated counter store, so no application
+   * implements it.
+   *
+   * Everything here is an ABUSE BOUND: fail-open by default, per client IP, per
+   * route. Cost and quota live in other layers (ADR-0015 budgets, job
+   * admission) and are deliberately not expressible here.
+   */
+  rateLimit: {
+    /**
+     * Install the rate limit service + counter store and attach the per-route
+     * rules. When false, nothing edge-side is created and the app-layer limiters
+     * remain the only ones — which is the pre-ADR-0040 behaviour.
+     */
+    enabled: boolean;
+    /**
+     * Evaluate every rule and emit its telemetry, but never actually refuse a
+     * request (`shadowMode` on each rule).
+     *
+     * This is how the feature is meant to be introduced: run it here, read the
+     * would-have-blocked counts off the ADR-0029 pane, and only then pick real
+     * numbers. Enforcing limits chosen from intuition is how a rate limiter
+     * becomes an outage. Defaults to TRUE for exactly that reason.
+     */
+    shadowMode: boolean;
+    /**
+     * Refuse traffic when the rate limit service cannot be reached.
+     *
+     * FALSE (the default, and Envoy Gateway's) is the right answer for abuse
+     * bounds: a counter-store blip must not read as an outage. Set true only if
+     * an unlimited flood is genuinely worse than a refused one.
+     */
+    failClosed: boolean;
+    /** Per-client-IP request budgets, per minute. See `EDGE_RATE_LIMIT`. */
+    limits: {
+      /** Everything on the app host that no more specific rule claims. */
+      app: number;
+      /** `/api/auth/*` — the credential-stuffing surface. */
+      appAuth: number;
+      /** `/websocket` upgrades. Mirrors `GRID_WS_UPGRADE_RATE_LIMIT`. */
+      appWsUpgrade: number;
+      /** Presigned S3 preview/download URLs. */
+      s3: number;
+      /** The public landing site + blog. */
+      web: number;
+    };
+    /** Counter-store dataset cap. Counters are tiny and expire on their own. */
+    storeMaxmemory: string;
+    /** Counter-store pod memory limit; must sit above `storeMaxmemory`. */
+    storeMemoryLimit: string;
   };
 
   postgres: {
@@ -686,6 +762,11 @@ export function loadConfig(): GridConfig {
       // Default FALSE: the managed provider ships an unremovable metrics stack.
       installMetricsServer: bool(cfg, "installMetricsServer", false),
       loadBalancerIp: cfg.get("loadBalancerIp"),
+      // 0 = trust Envoy's own downstream address. See the interface comment:
+      // this is the one setting every per-IP limit rests on, and it must be
+      // confirmed against a live cluster rather than assumed.
+      xffNumTrustedHops: num(cfg, "xffNumTrustedHops", 0),
+      maxConnectionsPerProxy: num(cfg, "maxConnectionsPerProxy", 10000),
     },
 
     postgres: {
@@ -709,6 +790,28 @@ export function loadConfig(): GridConfig {
     dragonfly: {
       maxmemory: cfg.get("dragonflyMaxmemory") ?? "512mb",
       memoryLimit: cfg.get("dragonflyMemoryLimit") ?? "768Mi",
+    },
+
+    rateLimit: {
+      enabled: bool(cfg, "rateLimitEnabled", true),
+      // Ships observing, not enforcing. Flip this to false only with the
+      // would-have-blocked counts in front of you.
+      shadowMode: bool(cfg, "rateLimitShadowMode", true),
+      failClosed: bool(cfg, "rateLimitFailClosed", false),
+      limits: {
+        // Starting points, not measurements. A chat session is chatty (polling
+        // the inbox, presence, conversation reads), so the catch-all is
+        // deliberately loose — it is there to stop a runaway loop, not to shape
+        // traffic. The two narrow rules are the ones with a real threat behind
+        // them.
+        app: num(cfg, "rateLimitApp", 600),
+        appAuth: num(cfg, "rateLimitAppAuth", 20),
+        appWsUpgrade: num(cfg, "rateLimitAppWsUpgrade", 30),
+        s3: num(cfg, "rateLimitS3", 300),
+        web: num(cfg, "rateLimitWeb", 120),
+      },
+      storeMaxmemory: cfg.get("rateLimitStoreMaxmemory") ?? "128mb",
+      storeMemoryLimit: cfg.get("rateLimitStoreMemoryLimit") ?? "256Mi",
     },
 
     networkPolicies: bool(cfg, "networkPolicies", true),

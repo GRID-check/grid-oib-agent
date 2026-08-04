@@ -110,7 +110,20 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `useStagingIssuer` | `true` | LE staging CA until DNS/TLS verified, then flip false |
 | `installMetricsServer` | `false` | Only for bare clusters; the provider ships metrics already |
 | `loadBalancerIp` | — | Pin the Envoy LB IP via `k8s.at/managed-loadbalancer-ip` |
+| `xffNumTrustedHops` | `0` | Trusted hops when deriving the client IP from `X-Forwarded-For`. **Every per-IP limit rests on this.** 0 = trust Envoy's downstream address (correct when the LB preserves the source IP); 1 when a SNATing proxy appends one hop. Verify on a live cluster — wrong low buckets the whole internet as one client, wrong high lets a client forge its address |
+| `maxConnectionsPerProxy` | `10000` | Max concurrent downstream connections per Envoy replica (0 = unbounded) |
 | `networkPolicies` | `true` | Default-deny ingress + least-privilege allows |
+| **Edge rate limiting (ADR-0040 L1)** | | |
+| `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
+| `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |
+| `rateLimitFailClosed` | `false` | Refuse traffic when the rate limit service is unreachable. Fail-open is right for abuse bounds — a counter-store blip must not read as an outage |
+| `rateLimitApp` | `600`/min | Catch-all budget per client IP on the app host (deliberately loose — stops runaway clients, does not shape traffic) |
+| `rateLimitAppAuth` | `20`/min | `/api/auth/*` — the credential-stuffing surface |
+| `rateLimitAppWsUpgrade` | `30`/min | `/websocket` upgrades; mirrors `GRID_WS_UPGRADE_RATE_LIMIT` |
+| `rateLimitS3` | `300`/min | Presigned preview/download URLs (one preview fans out into many GETs) |
+| `rateLimitWeb` | `120`/min | Landing site + blog |
+| `rateLimitStoreMaxmemory` | `128mb` | Counter-store dataset cap |
+| `rateLimitStoreMemoryLimit` | `256Mi` | Counter-store pod memory limit; must exceed maxmemory |
 | `protectDataResources` | `true` | Pulumi `protect` on the CNPG Cluster + SeaweedFS/Chroma StatefulSets: refuses any delete/replace, so a stray rename or `pulumi destroy` fails loudly instead of destroying data. `false` on scratch stacks; lift one resource with `pulumi state unprotect <urn>` |
 | **Postgres (CNPG)** | | |
 | `pgInstances` | `1` (prod template: 3) | 1 = single primary; 3 = HA with auto-failover |

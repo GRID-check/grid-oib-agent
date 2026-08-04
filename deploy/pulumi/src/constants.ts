@@ -126,6 +126,45 @@ export const DATA_RESOURCES = {
   },
 } as const;
 
+/**
+ * Edge rate limiting (ADR-0040, layer L1) — the fixed parts.
+ *
+ * The per-route budgets themselves are knobs (`config.ts` → `rateLimit.limits`)
+ * because they are the numbers an operator retunes from observed traffic. What
+ * lives here is the machinery that must not drift: where the counter store is,
+ * how long Envoy waits for a verdict, and the path prefixes the rules select on.
+ *
+ * Every limit is per client IP and per route. They are ABUSE BOUNDS, never
+ * accounting — anything that must be exact belongs in the ADR-0015 ledger.
+ */
+export const EDGE_RATE_LIMIT = {
+  /**
+   * Service name of the DEDICATED counter store. Deliberately not the ADR-0020
+   * cache: that instance runs `--cache_mode=true` and evicts under memory
+   * pressure, so a burst of ordinary cache traffic would quietly drop rate-limit
+   * counters and reset the limits with nothing in any log to say so.
+   */
+  storeService: "dragonfly-ratelimit",
+  /**
+   * How long Envoy waits for the rate limit service before giving up. Short on
+   * purpose: this sits in front of EVERY request, so a slow store must cost
+   * milliseconds, not seconds. Combined with fail-open (see `failClosed` in
+   * `config.ts`), a dead store degrades to "not limited", never to "down".
+   */
+  timeout: "250ms",
+  /** Request-path prefixes the per-route rules select on. */
+  paths: {
+    /** Session/login endpoints — the credential-stuffing surface. */
+    auth: "/api/auth",
+    /**
+     * The chat WebSocket (`frontends/ui/server.js` upgrade handler). One upgrade
+     * here fans out into agent runs — and it is the LAST thing the edge sees of
+     * that session, because every later turn rides the open socket (ADR-0009).
+     */
+    ws: "/websocket",
+  },
+} as const;
+
 /** Kubernetes Job retry/cleanup defaults for bootstrap work. */
 export const JOB_DEFAULTS = {
   /** Generous retry budget: bootstrap Jobs wait on other services. */

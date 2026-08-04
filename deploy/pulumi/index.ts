@@ -25,7 +25,7 @@ import { installGatewayController, installGatewayResources } from "./src/platfor
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installNetworkPolicies } from "./src/platform/network-policies";
 import { installPostgres } from "./src/data/postgres";
-import { installDragonfly } from "./src/data/dragonfly";
+import { installDragonfly, installRateLimitStore } from "./src/data/dragonfly";
 import { installSeaweedFS } from "./src/data/seaweedfs";
 import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
@@ -55,7 +55,7 @@ if (cfg.networkPolicies) {
 
 // Gateway API edge: install the Envoy Gateway controller (+ Gateway API CRDs)
 // FIRST so cert-manager can enable its Gateway integration at startup.
-const gatewayController = installGatewayController(provider);
+const gatewayController = installGatewayController(cfg, provider);
 const certManager = installCertManager(cfg, provider, namespace, [gatewayController]);
 if (cfg.ingress.installMetricsServer) {
   installMetricsServer(provider);
@@ -76,6 +76,13 @@ const postgres = installPostgres(
   cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
 );
 const dragonfly = installDragonfly(cfg, provider, namespace);
+// Counter store for edge rate limiting (ADR-0040 L1) — deliberately a SECOND
+// instance, never the cache above; `data/dragonfly.ts` explains why. Only the
+// rate limit service in `envoy-gateway-system` talks to it, over the allow in
+// `platform/network-policies.ts`.
+const rateLimitStore = cfg.rateLimit.enabled
+  ? installRateLimitStore(cfg, provider, namespace)
+  : undefined;
 const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
@@ -151,6 +158,10 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
   frontend.service,
   seaweed.service,
   web.service,
+  // Don't program rate limit rules before their counter store exists: the
+  // window in between is fail-open, so the limits would read as configured
+  // while enforcing nothing.
+  ...(rateLimitStore ? [rateLimitStore.service] : []),
 ]);
 
 // ── Observability (OTel Collector + Aspire dashboard, ADR-0029) ──────────────
