@@ -160,6 +160,37 @@ Note that `protectDataResources` (default true on prod) makes Pulumi refuse to
 delete or replace the Postgres cluster and the storage StatefulSets, so a
 rollback can never quietly take the data tier with it.
 
+## Workflow gotchas
+
+Traps this pipeline has actually hit. Each one broke a real run — the code that
+avoids them looks odd without the reason, so don't "simplify" it back.
+
+- **A shallow checkout with `persist-credentials: false` cannot diff a push.**
+  `paths-filter` compares against `github.event.before`; that commit is absent
+  from a depth-1 clone, so the action falls back to `git fetch` — which has no
+  token and dies with `could not read Username for 'https://github.com'`. The
+  "Detect changes" job therefore uses `fetch-depth: 0`: the base commit is
+  already local, so nothing is fetched and no credential is persisted. Applies
+  to any step that reads history (diffing, `git describe`, changelog
+  generation), not just this one.
+- **A failed "Detect changes" publishes nothing at all.** All three build jobs
+  `needs: changes`, so one broken filter job skips the whole fleet — and the
+  chained deploy then skips too (`workflow_run` sees `conclusion: failure`).
+  When staging looks stale, check that job first; the images for that sha may
+  simply never have been built.
+- **There is no `/repos/{owner}/{repo}/packages/...` REST endpoint.** It 404s.
+  Packages live under `/orgs/{org}/...` or `/users/{user}/...`, which differ by
+  owner type and need pagination over every sha ever published. The rollback
+  check asks GHCR itself instead — a manifest `HEAD` with a scoped pull token,
+  the same lookup the kubelet performs. It needs `packages: read` on the job
+  token, which `deploy.yml` declares.
+- **GHCR repository paths are lowercase; `$GITHUB_REPOSITORY_OWNER` is not.**
+  The owner login is `GRID-check`, `docker/metadata-action` lowercases the image
+  name on push, and containerd rejects a mixed-case reference outright
+  (`repository name must be lowercase`). Anything composing an image ref from
+  the owner must fold the case first — an uppercase ref reaches the cluster as
+  an unpullable image, not as a workflow error.
+
 ## Day-to-day
 - Merge to `develop` → staging deploys automatically once green.
 - Fast-forward/merge `develop` → `prod` → production deploys after approval.

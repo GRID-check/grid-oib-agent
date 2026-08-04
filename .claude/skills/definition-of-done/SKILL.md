@@ -188,6 +188,19 @@ the detail — read the doc, don't guess.
   (`cardInteractions` via `useCardDecision`), never in component-local
   `useState`. A lost decision re-offers a button that applies the patch / writes
   the memory a second time — neither endpoint is idempotent. **ADR-0030.**
+- **CI workflows have their own traps, and they fail at deploy time, not review
+  time.** A shallow checkout with `persist-credentials: false` cannot diff a
+  push (paths-filter needs `fetch-depth: 0`); `/repos/{owner}/{repo}/packages/…`
+  is not a REST endpoint and 404s; GHCR paths are lowercase while
+  `$GITHUB_REPOSITORY_OWNER` is `GRID-check`, and a mixed-case image ref reaches
+  the cluster as an unpullable image rather than a workflow error. Details and
+  the reasons the current code looks the way it does: **`docs/deployment/cd.md`
+  § Workflow gotchas**.
+- **A workflow-only change is still verifiable — verify it.** Load the run's
+  actual logs (not the summary) to find the failing line, `yaml.safe_load` the
+  file, `bash -n` any `run:` block you edited, and exercise external calls
+  (registry/API) against the real service before claiming the fix works. Say
+  plainly which paths only run post-merge and are therefore unproven.
 - **Raw `sql<T>` results aren't runtime-validated** — coerce at the repository
   boundary (`new Date(...)`, `Number(...)`). See the AGENTS.md Conventions note.
 
