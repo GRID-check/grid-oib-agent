@@ -131,7 +131,8 @@ which jobs it actually built (GitHub API, by job name) and pins **per service**:
 The gates are unchanged — CI + Security green, tag-shape validation, preflight,
 plan validation and the policy pack all still run for every deploy. Manual
 rollback dispatches (operator-supplied `imageTag`) still pin **all three**
-services to that tag — see "Rolling back".
+services to that tag, after the workflow verifies the tag is published for
+every image — see "Rolling back".
 
 ## Rolling back
 Deploys pin rebuilt services to immutable `sha-<40-hex>` image tags (non-rebuilt
@@ -141,7 +142,13 @@ not a revert:
 1. Actions → **Deploy (staging)** → *Run workflow*.
 2. Set **`imageTag`** to the previous good build's tag (`sha-` + the full commit
    sha; find it in that commit's Publish Images run). A rollback pins **all
-   three** services to that tag.
+   three** services to that tag — the workflow first verifies the tag is
+   published for **all three** images, so a rollback to a commit whose Publish
+   Images run built only some images fails fast with a clear error instead of
+   rolling the others into ImagePullBackOff. Single-tag rollbacks are therefore
+   restricted to commits that built all three images; roll back an older
+   **partial** state by pinning the exact per-service refs via the stack config
+   instead.
 3. It goes through the identical gates and the identical gated rollout — surge,
    readiness soak, drain. Nothing special-cases a rollback.
 

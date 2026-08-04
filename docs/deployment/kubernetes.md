@@ -138,8 +138,15 @@ redeploy after publishing new images changes no pod spec, so nothing rolls and
 the migration Job does not re-fire — but a later pod restart (e.g. a node
 drain) silently pulls the new code, possibly against an un-migrated schema.
 The CI workflow avoids this by pinning rebuilt services to `sha-<commit>` per
-deploy; for manual deploys either pin `imageTag` to a SHA or run
-`pulumi up --refresh`.
+deploy; for manual deploys, pin `imageTag` to a commit SHA the same way.
+`pulumi up --refresh` does **not** help: Pulumi only asserts desired state,
+and a moving tag never changes the Deployment spec, so a refresh neither rolls
+the pods nor re-fires the migration Job. If you must pull a moving tag in an
+emergency, do it as an explicit rollout operation — remove the per-service
+pins and point the stack at the moving tag (`pulumi config rm
+grid-oib:backendImage grid-oib:frontendImage grid-oib:webImage`, `pulumi
+config set grid-oib:imageTag latest`, then `pulumi up`, which changes the pod
+specs and flips pullPolicy to `Always`) — never a bare `pulumi up --refresh`.
 
 **Size worker groups against the HPA ceilings.** The autoscaler only adds
 nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
@@ -595,8 +602,10 @@ kubectl -n grid rollout undo deploy/frontend
 
 The supported rollback is a deploy of an older image: run the **Deploy
 (staging)** workflow with the `imageTag` input set to a previous
-`sha-<40-hex>` (pinning all three services to it). It goes through the same
-gates as a forward deploy.
+`sha-<40-hex>` (pinning all three services to it). The workflow verifies the
+tag is published for **all three** images before deploying, so a rollback to a
+commit that only built some images fails fast instead of rolling the others
+into ImagePullBackOff. It goes through the same gates as a forward deploy.
 
 ## 7c. Guardrails — CrossGuard policy pack
 
@@ -676,7 +685,8 @@ tab with full logs and diffs regardless of where the CLI ran. Manual
 `workflow_dispatch` is refused outside `develop`
 (no images exist for other branches) and accepts an optional **`imageTag`
 input** — the supported rollback path, which pins **all three** services to
-the supplied tag through the identical gates. Prod is promoted manually.
+the supplied tag through the identical gates, after verifying the tag is
+published for all three images. Prod is promoted manually.
 
 **Pulumi stack config is file-based for plaintext, ESC-based for secrets — the
 configured stack file must be committed.** `Pulumi.dev.yaml` holds the
