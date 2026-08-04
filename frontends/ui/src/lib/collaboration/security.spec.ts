@@ -102,9 +102,9 @@ vi.mock('@/lib/sharing/directory', async (importActual) => ({
   resolvePeople: vi.fn(),
 }))
 
-vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/sharing/rate-limit')>()),
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 import { drizzle as proxyDrizzle } from 'drizzle-orm/pg-proxy'
@@ -166,7 +166,8 @@ import {
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory, resolvePeople } from '@/lib/sharing/directory'
 import { SHAREABLE_REGISTRY, describeResource } from '@/lib/sharing/registry'
-import { consumeRateLimit } from '@/lib/sharing/rate-limit'
+import { MENTION_LIMIT, consumeLimit } from '@/lib/limits'
+import { allowedDecision } from '@/test-utils/limit-fixtures'
 import {
   countGrantsForResource,
   findGrantForSubject,
@@ -322,7 +323,7 @@ beforeEach(() => {
   vi.mocked(listOpenRequestsForSubject).mockResolvedValue([])
   vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
   vi.mocked(resolvePeople).mockResolvedValue(new Map())
-  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 100 })
+  vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(MENTION_LIMIT))
   vi.mocked(insertMessages).mockImplementation(async (rows) => rows as Message[])
   vi.mocked(insertConversation).mockResolvedValue(null)
   vi.mocked(listMessagesForConversation).mockResolvedValue([])

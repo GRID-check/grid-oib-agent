@@ -1,12 +1,13 @@
 # Rate limiting & load protection — state of the art, and what Grid should build
 
-> Research note + design proposal. Commissioned as "a sophisticated rate limiter
-> that plays nicely with Kubernetes and doesn't need requirements implemented in
-> each app." This document answers three questions in order: **does that ask hold
-> up** (partly — §1), **what the state of the art actually is in 2026** (§2), and
-> **what to build here, in what order** (§3–§5).
+> Research note and the design it produced. Commissioned as "a sophisticated
+> rate limiter that plays nicely with Kubernetes and doesn't need requirements
+> implemented in each app." It answers three questions in order: **does that ask
+> hold up** (partly — §1), **what the state of the art actually is in 2026**
+> (§2), and **what was built here** (§3–§5).
 >
-> Decision record: ADR-0040 (Proposed).
+> **Status: implemented.** §4 is what landed, not a plan. Decision record:
+> ADR-0040.
 
 ---
 
@@ -200,18 +201,28 @@ three will be wrong in at least two ways.
 |---|---|---|---|
 | **Fixed window** | 2× the limit across a boundary | 1 `INCR` | Envoy RLS (not your choice); fine for coarse abuse bounds |
 | **Sliding window (counter)** | smooth | 2 reads + weighting | app-side, when the boundary spike matters |
-| **Token bucket / GCRA** | configurable burst + steady rate, one key, exact | 1 Lua eval | the right choice for anything app-side and identity-scoped |
+| **Token bucket / rolling window** | configurable burst + steady rate, exact | 1 Lua eval | the right choice for anything app-side and identity-scoped |
 | **Concurrency (semaphore)** | n/a | count/CAS | expensive long-running work — jobs, agent turns |
 | **Adaptive concurrency** | self-tuning from latency | more moving parts | later, once L3 exists and is measured |
 
 Note the honesty already in `sharing/rate-limit.ts:8-15` about its non-atomic
-read-modify-write. That is the correct instinct and the right fix is not more
-prose — it is a Lua GCRA script against Dragonfly, which makes it exact for the
+read-modify-write. That is the correct instinct, and the right fix is not more
+prose — it is an atomic Lua counter against Dragonfly, which is exact for the
 same round-trip count.
+
+**Buy, don't build, at this layer.** The first draft of §4 hand-rolled GCRA in
+about forty lines. That was the wrong call and it was cut: `rate-limiter-flexible`
+(MIT) implements the same thing against Redis-protocol stores, has been run by
+other people, and throws in `blockDuration` and insurance-limiter strategies for
+free. The stated reason for building — that `server.js` is CommonJS and cannot
+share a TypeScript module — did not survive contact, because the library
+`require()`s from CommonJS perfectly well. What is genuinely worth owning here
+is the *vocabulary* (a rule catalog, one decision type, one 429 contract), which
+no library provides; the counting is not.
 
 ---
 
-## 3. What to build: five layers, each with one job
+## 3. The design: five layers, each with one job
 
 Nothing below is "the rate limiter". Each layer answers a different question, and
 the value of the design is that each layer's failure mode is understood.
@@ -252,13 +263,22 @@ be argued rather than assumed. Two options:
   sibling. Coverage is provable the same way `authz-coverage.spec.ts` proves
   authorization coverage.
 
-**Recommendation: (b), for now.** The premise's real goal is *"I don't want to
-re-implement this in every app"* — and that is already satisfied, because there is
-exactly **one** user-facing app. `frontends/web` is a static Astro site (L1 covers
-it), `frontends/aiq_api` is not publicly routed (no HTTPRoute), and the workers
-have no ingress. Option (a) buys architectural purity for the price of a new
-always-in-path service that can take chat down; revisit it if and when a second
-authenticated ingress appears.
+**Decision: (b).** The premise's real goal is *"I don't want to re-implement this
+in every app"* — and that is already satisfied, because there is exactly **one**
+user-facing app. `frontends/web` is a static Astro site (L1 covers it),
+`frontends/aiq_api` is not publicly routed (no HTTPRoute), and the workers have
+no ingress. Option (a) buys architectural purity for the price of a new
+always-in-path service that can take chat down, and it would have to duplicate
+AuthKit session unsealing to serve one ingress. Revisit if a second authenticated
+ingress ever appears.
+
+Worth naming the Next.js-specific alternative, since it is the conventional one:
+**middleware**. Since Next 15.5 it can run on the Node runtime, so the old
+Edge-runtime blocker on `ioredis` is gone, and in a greenfield app it would be
+the idiomatic choke point. It lost here on a specific fact: middleware runs
+*before* session resolution, so it would have to unseal the AuthKit cookie itself
+to key a bucket by member — while `apiRoute` is already mandatory (ADR-0038),
+already runs after authorization, and already has a coverage spec.
 
 **L3 — admission control & fair share.** `MAX_ACTIVE_JOBS_PER_ORG = 3` is already
 the most valuable limiter you have, because it limits the *right unit*. Three
@@ -288,103 +308,118 @@ cost of refusing legitimate traffic during a Redis outage.
 
 ---
 
-## 4. Implementation plan for this repo
+## 4. As built
 
-Phased so each step is independently valuable and reversible.
+Everything below is in the tree. Read this section as a map of where each layer
+lives, not as a plan.
 
-### Phase 0 — measure before limiting (do this first)
+### L0 + L1 — the edge (`deploy/pulumi/`, zero application code)
 
-1. **Verify client-IP preservation** (§1 finding). Check the LoadBalancer's
-   `externalTrafficPolicy` and whether Envoy's downstream address is the real
-   client; set `clientIPDetection` on the `ClientTrafficPolicy` accordingly.
-   Until this is green, every per-IP number is fiction.
-2. Turn on the RLS in **`shadow_mode`** and dashboard `near_limit` + would-block
-   counts against the existing Aspire/OTel pane (ADR-0029). Pick limits from the
-   observed p99, not from intuition.
+| What | Where |
+|---|---|
+| Client-IP detection + connection cap | `src/platform/gateway.ts` (`ClientTrafficPolicy`) |
+| Rate limit service on Redis, `failClosed: false`, 250 ms timeout | `src/platform/gateway.ts` (`rateLimitConfig`, Helm values) |
+| Dedicated counter store — a **second** Dragonfly, `cache_mode` OFF | `src/data/dragonfly.ts` (`installRateLimitStore`) |
+| `envoy-gateway-system → dragonfly-ratelimit` allow | `src/platform/network-policies.ts` (rule 5c) |
+| Per-route, per-client-IP rules | `src/app/httproutes.ts` (`perClientIpRule`, `edgeRateLimit`) |
+| Knobs (`rateLimit*`, `xffNumTrustedHops`) | `src/config.ts`, tabled in `deploy/pulumi/README.md` |
 
-### Phase 1 — edge limits (`deploy/pulumi/`, no app change)
+Three things this had to get right, each of which fails silently if missed:
 
-Enable the rate limit service in the chart values (`platform/gateway.ts`, which
-today passes `values: {}` — note its comment forbids touching `values.crds`, not
-`config.envoyGateway`):
+- **The counter store is not the ADR-0020 cache.** That instance runs
+  `--cache_mode=true` on a shared `maxmemory`, so ordinary cache pressure would
+  evict rate-limit counters — a silently reset counter is a silently lifted
+  limit. The dedicated instance runs with eviction OFF: past `maxmemory` writes
+  are refused, the rate limit service logs errors, and (fail-open) traffic flows
+  while a metric moves. Loud degradation beats quiet.
+- **The NetworkPolicy allow is half of the feature.** `grid` is default-deny for
+  ingress and the rate limit service runs in `envoy-gateway-system`. Without rule
+  5c every lookup fails and — fail-open — the limits enforce nothing while
+  reading as configured.
+- **It ships in shadow mode.** `rateLimitShadowMode` defaults to **true**: every
+  rule evaluates and emits telemetry, and no request is refused. Pick real
+  numbers from the would-have-blocked counts on the ADR-0029 pane, then turn it
+  off. Enforcing limits chosen from intuition is how a rate limiter becomes an
+  outage.
 
-```ts
-values: {
-  config: {
-    envoyGateway: {
-      rateLimit: {
-        backend: { type: "Redis", redis: { url: "dragonfly-ratelimit.grid.svc.cluster.local:6379" } },
-        failClosed: false,
-        timeout: "250ms",
-      },
-    },
-  },
-},
-```
+Starting budgets (per client IP, per minute) — placeholders until measured:
+`grid-web` 120, `grid-s3` 300, `/websocket` 30, `/api/auth/*` 20, app catch-all
+600.
 
-Then per-route policies alongside the existing timeout policies in
-`app/httproutes.ts`:
+**Still to verify on a live cluster:** whether the LoadBalancer preserves the
+source IP (§1). `xffNumTrustedHops` defaults to 0, which is right only if it
+does. Every per-IP number above is provisional until someone checks.
 
-```ts
-const webRateLimit: IBackendTrafficPolicySpec["rateLimit"] = {
-  type: "Global",
-  global: {
-    rules: [{
-      clientSelectors: [{ sourceCIDR: { value: "0.0.0.0/0", type: "Distinct" } }],
-      limit: { requests: 120, unit: "Minute" },
-    }],
-  },
-};
-```
+### L2 — per-member limits (`frontends/ui/src/lib/limits/`)
 
-Three repo-specific things this must get right:
+Enforcement is **`rate-limiter-flexible`**, not our own algorithm (see §2.5).
+What this module owns is the vocabulary around it:
 
-- **Do not point the RLS at the existing Dragonfly.** ADR-0020's instance runs
-  `cache_mode` with eviction under memory pressure and one replica; evicted
-  counters silently reset a limit. Deploy a **second, small Dragonfly** for
-  rate-limit counters (same manifest, different name, no eviction), or accept
-  documented sloppiness. Counters are ephemeral either way — no persistence
-  needed.
-- **A NetworkPolicy rule is missing.** `grid` is default-deny ingress and the
-  allow-list (`platform/network-policies.ts` rules 4–9) has no entry for
-  `envoy-gateway-system → dragonfly`. The RLS pod lives in
-  `envoy-gateway-system`; without a new rule it will silently fail every lookup
-  and — fail-open — enforce nothing.
-- **Set the WS upgrade limit here, and delete limiter #1 from `server.js`** once
-  it is proven equivalent. That is one real reduction in app-level code, and the
-  clearest single win the premise asks for.
+| File | Role |
+|---|---|
+| `rules.js` | The catalog — every budget, with the reasoning. CommonJS so `server.js` can load the same data |
+| `factory.js` | Builds the limiters and normalises every outcome (allowed / refused / store-down) into one shape |
+| `catalog.ts` | The typed face of `rules.js`; `satisfies` keeps the two from drifting |
+| `types.ts` | `LimitRule`, `RateLimitDecision` — including `degraded`, so fail-open is *visible* |
+| `store.ts` | Owns the ioredis connection, memoises one limiter per rule |
+| `enforce.ts` | `consumeLimit` / `enforceLimit` / `rateLimitHeaders` |
+| `subject.ts` | `memberSubject` — `organizationId:userId`, so the same person in two tenants is two callers |
 
-Starting numbers (per client IP, to be replaced by Phase 0 data):
+A rule may carry a **burst clause** ("30 per 5 minutes, and never more than 5 in
+any 10 seconds"), enforced together via `RateLimiterUnion`. One behaviour worth
+knowing: a request refused by the burst clause has still spent a point of the
+sustained one, so a client that ignores `Retry-After` depletes its own longer
+budget. For an abuse bound that is the right direction.
 
-| Route | Limit | Rationale |
-|---|---|---|
-| `grid-web` (landing/blog) | 120/min | static site; anything above is a scraper |
-| `grid-s3` (presigned) | 300/min | a document preview fans out to many object GETs |
-| `grid-app` — WS upgrade path | 30/min | matches today's `GRID_WS_UPGRADE_RATE_LIMIT` |
-| `grid-app` — `/api/auth/*` | 20/min | credential stuffing; the one candidate for fail-closed |
-| `grid-app` — rest | 600/min | a chat session is chatty; do not clip real use |
+**Wired into the route factory.** `apiRoute` now takes an optional `limits`
+declaration and otherwise charges every mutating method against
+`DEFAULT_MUTATION_LIMIT`. The asymmetry with `authz` (which ADR-0038 made
+mandatory) is deliberate: an ungated route is a security hole with no safe
+default, an unlimited route is a cost risk that has one. Reads are left to the
+edge's per-IP budget.
 
-### Phase 2 — the WebSocket blind spot (`frontends/ui/server.js`, one file)
+`@/lib/sharing/rate-limit` is **deleted**; its three rules moved to the catalog
+with their budgets unchanged, so that migration was an algorithm change and not a
+silent retune.
 
-The edge counts the upgrade once and then sees nothing. Add a per-session token
-bucket on inbound WS frames in the proxy — the single place all chat traffic
-passes — keyed by session, not IP, with the message *class* (chat turn vs.
-typing/presence) as the cost. This is the layer that actually bounds "how many
-agent runs can one open tab start", and no gateway-only design can supply it.
+### L2b — WebSocket frames (`frontends/ui/server.js`)
 
-### Phase 3 — one vocabulary (`frontends/ui/src/lib/`)
+The blind spot of §1.2, closed. `src/lib/limits/ws-frames.js` is a passive
+incremental frame parser attached as an extra `data` listener on the client
+socket — nothing about what gets forwarded changes. It counts frames, peeks at
+up to 512 bytes to tell a `user_message` from a control frame, and charges the
+`chat-turn` or `ws-control` rule accordingly. Over budget, the socket is closed
+with WebSocket status **1008** (there is no 429 to send on an open socket) and
+the client reconnects on its jittered backoff, where the upgrade limiter paces
+it.
 
-Introduce `lib/limits/` with a single `RateLimitDecision` type, an atomic Lua
-**GCRA** implementation against Dragonfly, and a declaration on `apiRoute`
-mirroring ADR-0038's `authz` requirement. Migrate `sharing/rate-limit.ts`'s three
-rules onto it (fixing the non-atomic window) and give L1–L4 one 429 + `Retry-After`
-+ error-code contract so the UI renders one consistent message.
+A frame it cannot positively identify is charged as **cheap, not expensive**:
+charging the wrong rule would refuse honest traffic, which is the failure an
+abuse bound must avoid. The close handshake is never throttled.
 
-### Phase 4 — fair share for the expensive path (`frontends/aiq_api/`, `src/aiq_agent/`)
+Covered by `tests/gateway/ws-frame-limits.test.ts`, which spawns the real gateway
+and pushes real frames — the same harness style as the existing upgrade tests,
+because `server.js` has no unit seam.
 
-Extend admission control to interactive turns; partition interactive vs.
-background capacity; report queue position. Measure with the same near-limit
-dashboards before tuning.
+### L3 — interactive-turn admission (`src/aiq_agent/common/turn_admission.py`)
+
+A lease-based semaphore around `agent.run(...)` in `chat_researcher/register.py`:
+slots held for the duration of a turn, per organization and globally, refused
+turns answered with a friendly message the way a budget refusal already is.
+
+- **Concurrency, not a rate** — "30 turns per 5 minutes" happily admits a sixth
+  simultaneous research run at a steady trickle, because it counts arrivals
+  rather than occupancy.
+- **A separate pool from `GRID_MAX_ACTIVE_JOBS`** — that separation *is* the
+  partition. Background research cannot consume interactive capacity, and a busy
+  chat hour cannot block scheduled research.
+- **Leases, not counters** — a replica OOM-killed mid-turn would leak a slot
+  forever with increment/decrement, shrinking the pool until nobody can chat. A
+  lease self-heals.
+
+### L4 — cost
+
+Unchanged (ADR-0015). Still the only fail-**closed** refusal in the system.
 
 ---
 

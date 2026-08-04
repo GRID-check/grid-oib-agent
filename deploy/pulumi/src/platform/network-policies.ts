@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { PORT } from "../constants";
+import { EDGE_RATE_LIMIT, PORT } from "../constants";
 
 /**
  * `app.kubernetes.io/name` of the Aspire dashboard. Referenced by rule 2 (which
@@ -138,6 +138,36 @@ export function installNetworkPolicies(
     ],
   });
 
+  // 5c. Rate limit service → the edge rate-limit counter store (ADR-0040 L1).
+  //
+  //     Envoy Gateway's rate limit service runs in `envoy-gateway-system`; its
+  //     Redis-protocol counter store runs here in `grid`. Rule 2's wholesale
+  //     intra-namespace allow does not cover a caller from another namespace,
+  //     and rules 4/5/5b grant the edge exactly three destinations — none of
+  //     them this one. Without this rule every rate-limit lookup fails.
+  //
+  //     That failure is INVISIBLE by design: the rate limiter is configured
+  //     fail-open, so a policy gap does not break traffic, it just quietly
+  //     enforces nothing. This rule and `platform/gateway.ts`'s backend address
+  //     are two halves of one thing; changing either alone is the bug.
+  //
+  //     Only the dedicated store is exposed, never the ADR-0020 cache — the
+  //     edge has no business reading application cache entries.
+  const edgeRateLimitStore = cfg.rateLimit.enabled
+    ? mk("allow-edge-to-ratelimit-store", {
+        podSelector: {
+          matchLabels: { "app.kubernetes.io/name": EDGE_RATE_LIMIT.storeService },
+        },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [nsLabel("envoy-gateway-system")],
+            ports: [{ protocol: "TCP", port: PORT.redis }],
+          },
+        ],
+      })
+    : undefined;
+
   // 6. Edge → cert-manager ACME HTTP-01 solver. Some cert-manager versions place
   //    the temporary solver pod in the Gateway's namespace (`grid`); if so, the
   //    default-deny would black-hole the ACME challenge and TLS would never
@@ -208,6 +238,7 @@ export function installNetworkPolicies(
     edgeFrontend,
     edgeS3,
     edgeWeb,
+    ...(edgeRateLimitStore ? [edgeRateLimitStore] : []),
     acmeSolver,
     ...(edgeOtel ? [edgeOtel] : []),
     ...(collectorToDashboard ? [collectorToDashboard] : []),

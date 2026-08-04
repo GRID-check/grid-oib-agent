@@ -12,7 +12,7 @@
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { createConversationMessages, listConversationMessages } from '@/lib/conversations/service'
-import { MAX_MENTIONS_PER_MESSAGE } from '@/lib/sharing/rate-limit'
+import { MAX_MENTIONS_PER_MESSAGE } from '@/lib/limits'
 
 type Params = { id: string }
 

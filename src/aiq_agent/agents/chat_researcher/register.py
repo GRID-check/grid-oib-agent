@@ -88,6 +88,24 @@ def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
     return True
 
 
+def _admission_organization_id() -> str | None:
+    """Tenant this turn is admitted against (ADR-0040 L3), or None.
+
+    Read from the signed request-context envelope rather than threaded down
+    through the turn: the organization is needed at exactly one point, and the
+    envelope is the authority for it. Degrades to None — the turn is then
+    admitted against the global pool only — because a missing tenant must cost
+    a coarser limit, never a failed answer.
+    """
+    try:
+        from aiq_agent.project_context import GridRequestContext
+
+        return GridRequestContext.from_context().organization_id
+    except Exception:
+        logger.debug("No organization in request context for turn admission", exc_info=True)
+        return None
+
+
 def _available_documents_limit() -> int:
     """Top-N cap for the per-turn ``available_documents`` prompt block.
 
@@ -979,10 +997,30 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             from aiq_agent.common.cost_tracking import BudgetExceededError
             from aiq_agent.common.cost_tracking import track_llm_costs
             from aiq_agent.common.profiler import track_agent_profile
+            from aiq_agent.common.turn_admission import TurnAdmissionError
+            from aiq_agent.common.turn_admission import admit_turn
 
             try:
-                with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
+                # Concurrency admission (ADR-0040 L3). A turn OCCUPIES capacity
+                # for as long as it runs, so the slot is held around the run
+                # itself — outside it, a per-minute rate limit would still admit
+                # an unbounded number of simultaneous research runs at a steady
+                # trickle. Interactive turns have their own pool, so background
+                # deep research can never crowd them out.
+                with (
+                    admit_turn(_admission_organization_id()),
+                    track_agent_profile(agent_name="chat_researcher"),
+                    track_llm_costs(),
+                ):
                     result = await agent.run(state, thread_id=nat_context_conversation_id)
+            except TurnAdmissionError as admission_error:
+                logger.warning("Turn refused by admission control: %s", admission_error)
+                busy_response = _create_chat_response(
+                    str(admission_error), response_id="turn_admission", model=workflow_id
+                )
+                for _chunk in _response_to_chunks(busy_response, stream=False):
+                    yield _chunk
+                return
             except BudgetExceededError as budget_error:
                 logger.warning("Turn stopped by budget enforcement: %s", budget_error)
                 budget_response = _create_chat_response(

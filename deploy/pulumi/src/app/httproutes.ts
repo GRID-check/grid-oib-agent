@@ -6,8 +6,10 @@ import type { IBackendTrafficPolicySpec } from "@kubernetes-models/envoy-gateway
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import type { IRetry } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/Retry";
+import type { IRateLimitRule } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/RateLimitRule";
+import type { IRateLimitSpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/RateLimitSpec";
 import { GATEWAY_NAME } from "../platform/gateway";
-import { EDGE_RETRY, EDGE_TIMEOUT, PORT } from "../constants";
+import { EDGE_RATE_LIMIT, EDGE_RETRY, EDGE_TIMEOUT, PORT } from "../constants";
 
 /**
  * Retry policy applied to both public routes.
@@ -42,6 +44,59 @@ const edgeRetry: IRetry = {
     backOff: { baseInterval: EDGE_RETRY.baseInterval, maxInterval: EDGE_RETRY.maxInterval },
   },
 };
+
+/**
+ * One per-client-IP rate limit rule (ADR-0040 layer L1).
+ *
+ * `sourceCIDR` with `type: Distinct` over `0.0.0.0/0` is what makes the bucket
+ * PER CLIENT rather than one shared bucket for the internet — `Exact` would give
+ * every caller in the range a single counter between them. Which address counts
+ * as "the client" is decided by `clientIPDetection` on the ClientTrafficPolicy
+ * (`platform/gateway.ts`); this rule is only as meaningful as that setting.
+ *
+ * `path` is optional and narrows the rule to a prefix. Rules are NOT mutually
+ * exclusive: Envoy evaluates every matching rule and refuses if any one of them
+ * is over, so a request to `/api/auth/x` counts against both the auth rule and
+ * the catch-all. That is the intent — a narrow rule tightens a surface, it does
+ * not exempt it from the route's overall budget.
+ */
+function perClientIpRule(
+  cfg: GridConfig,
+  requestsPerMinute: number,
+  pathPrefix?: string,
+): IRateLimitRule {
+  return {
+    clientSelectors: [
+      {
+        sourceCIDR: { value: "0.0.0.0/0", type: "Distinct" },
+        ...(pathPrefix ? { path: { type: "PathPrefix", value: pathPrefix } } : {}),
+      },
+    ],
+    limit: { requests: requestsPerMinute, unit: "Minute" },
+    // Ships observing, not enforcing. Every counter moves and every near-limit
+    // metric is emitted; only the refusal is withheld. Turning this off is a
+    // deliberate act taken with the would-have-blocked numbers in hand — see
+    // `rateLimit.shadowMode` in config.ts.
+    shadowMode: cfg.rateLimit.shadowMode,
+  };
+}
+
+/**
+ * Wrap rules into a `rateLimit` spec, or nothing at all when the feature is off.
+ *
+ * `type: "Global"` is redundant on current Envoy Gateway (the `global` field
+ * alone is enough, and `type` is marked deprecated) but harmless, and it keeps
+ * the policy valid against the older CRD schema — the chart tracks latest, so
+ * the cluster may be ahead of or behind this program.
+ *
+ * Global, not Local: Local rate limits are per Envoy process, and the edge runs
+ * 2 replicas behind one LoadBalancer, so a "30/min" local limit is really
+ * 60/min — and changes meaning the moment the fleet scales.
+ */
+function edgeRateLimit(cfg: GridConfig, rules: IRateLimitRule[]): { rateLimit?: IRateLimitSpec } {
+  if (!cfg.rateLimit.enabled) return {};
+  return { rateLimit: { type: "Global", global: { rules } } };
+}
 
 /**
  * Gateway API HTTPRoutes (replacing the legacy Ingress resources):
@@ -88,6 +143,21 @@ export function installHttpRoutes(
     // Ride out the endpoint-programming race on every frontend rolling update
     // instead of surfacing it to the browser.
     retry: edgeRetry,
+    // Three budgets, narrowest threat first:
+    //   - `/api/auth/*` is the credential-stuffing surface, and no honest client
+    //     touches it in a loop.
+    //   - `/websocket` is where a reconnect storm turns into session resolution,
+    //     FGA lookups and budget reads in the BFF — the amplification
+    //     `server.js`'s own limiter was added for. Same number, so moving the
+    //     limit here is a like-for-like swap rather than a behaviour change.
+    //   - everything else gets a deliberately loose catch-all: a chat session is
+    //     chatty (inbox polling, presence, conversation reads) and this rule
+    //     exists to stop a runaway client, not to shape normal traffic.
+    ...edgeRateLimit(cfg, [
+      perClientIpRule(cfg, cfg.rateLimit.limits.appAuth, EDGE_RATE_LIMIT.paths.auth),
+      perClientIpRule(cfg, cfg.rateLimit.limits.appWsUpgrade, EDGE_RATE_LIMIT.paths.ws),
+      perClientIpRule(cfg, cfg.rateLimit.limits.app),
+    ]),
   };
   new k8s.apiextensions.CustomResource(
     "grid-app-backend-traffic-policy",
@@ -108,6 +178,10 @@ export function installHttpRoutes(
     timeout: { http: { requestTimeout: EDGE_TIMEOUT } },
     // Same race, and a presigned GET is idempotent besides.
     retry: edgeRetry,
+    // One document preview fans out into many object GETs, so this budget is
+    // generous by design. It bounds someone walking presigned URLs, not a user
+    // opening a PDF.
+    ...edgeRateLimit(cfg, [perClientIpRule(cfg, cfg.rateLimit.limits.s3)]),
   };
 
   const s3RouteSpec: IHTTPRouteSpec = {
@@ -162,6 +236,10 @@ export function installHttpRoutes(
   const webBackendPolicySpec: IBackendTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-web" }],
     retry: edgeRetry,
+    // Prerendered marketing pages: a human reads a few per minute, a scraper
+    // reads hundreds. This is the one route where the honest and abusive
+    // patterns are far enough apart that a tight number is safe.
+    ...edgeRateLimit(cfg, [perClientIpRule(cfg, cfg.rateLimit.limits.web)]),
   };
   new k8s.apiextensions.CustomResource(
     "grid-web-backend-traffic-policy",

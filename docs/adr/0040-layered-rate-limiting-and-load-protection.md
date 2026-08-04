@@ -1,6 +1,6 @@
 # ADR-0040: Layered rate limiting — the edge limits traffic, the app limits consumption
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-04
 - **Deciders:** Grid Agent team (commissioned by the platform owner: "a rate limiter that plays nicely with Kubernetes and is not implemented per app")
 - **Related:** ADR-0009 (WebSocket-only chat), ADR-0015 (LLM budgets & usage ledger), ADR-0020 (Dragonfly shared cache), ADR-0028 (horizontal agent scaling), ADR-0029 (Aspire telemetry), ADR-0038 (one authorization catalog + coverage gate), [`../architecture/rate-limiting-and-load-protection.md`](../architecture/rate-limiting-and-load-protection.md) (the research this decision rests on)
@@ -67,17 +67,28 @@ Specifically, we will:
    `envoy-gateway-system → dragonfly` NetworkPolicy allow.
 3. **Roll it out in `shadow_mode`**, choose limits from observed `near_limit` and
    would-block metrics on the ADR-0029 pane, and only then enforce.
-4. **Move the WS-upgrade limiter from `server.js` to L1** once shadow mode proves
-   equivalence, deleting application code rather than adding it.
-5. **Add a per-session WebSocket message limiter in the WS proxy** — the one
-   place all chat frames pass — because no gateway-only design can see past the
+4. **Give the edge the same WS-upgrade budget** (`rateLimitAppWsUpgrade`) while
+   KEEPING `server.js`'s own upgrade limiter, rebuilt on the shared catalog. The
+   app-side one is what still works while the edge policy is in shadow mode, and
+   the only one that applies to traffic that never crossed the gateway. Removing
+   it is a follow-up for after shadow mode proves the edge equivalent — not part
+   of this change.
+5. **Add a per-session WebSocket frame limiter in the WS proxy** — the one place
+   all chat frames pass — because no gateway-only design can see past the
    upgrade.
 6. **Express identity-scoped limits as a declaration on `apiRoute`**, enforced
-   centrally and proven by a coverage spec, exactly as ADR-0038 does for
-   authorization. Not as per-route logic, and not (yet) as an `extAuth` service.
-7. **Extend admission control to interactive chat turns** and partition
+   centrally, exactly as ADR-0038 does for authorization. Not as per-route logic,
+   not as Next.js middleware, and not (yet) as an `extAuth` service.
+7. **Buy the counting, own the vocabulary.** Enforcement is
+   **`rate-limiter-flexible`** (MIT) against the shared cache — not an algorithm
+   of ours. What we own is the rule catalog, the single `RateLimitDecision`
+   type, the 429 + `Retry-After` contract and the subject convention, none of
+   which a library provides. An earlier draft hand-rolled GCRA; it was cut on
+   review, and the reason given for it (that CommonJS `server.js` cannot share a
+   TypeScript module) did not hold, because the library loads from CommonJS.
+8. **Extend admission control to interactive chat turns** and partition
    interactive from background capacity, so deep research cannot starve chat.
-8. **Fail open everywhere except the ADR-0015 budget refusal**, which stays
+9. **Fail open everywhere except the ADR-0015 budget refusal**, which stays
    fail-closed. The `/api/auth/*` edge rule is the one candidate for fail-closed
    and will be decided with data.
 
@@ -91,8 +102,9 @@ exact — spend, quota billing — belongs in the ADR-0015 ledger.
 - The half of the brief that can be declarative becomes declarative: edge limits
   are CRDs in `deploy/pulumi/`, reviewed and typechecked like the rest of the
   infrastructure, with no application involvement.
-- Net **removal** of application code (the `server.js` upgrade limiter), and the
-  non-atomic collaboration window gets replaced by an exact one.
+- The non-atomic collaboration window is replaced by an exact, library-backed
+  one, and `@/lib/sharing/rate-limit` is deleted outright — three rules that lived
+  in a sharing module now sit in a catalog with everything else.
 - Each layer's failure mode is written down and deliberate rather than incidental.
 - The WebSocket blind spot and the client-IP question are now named problems with
   owners instead of silent assumptions.
@@ -110,10 +122,12 @@ exact — spend, quota billing — belongs in the ADR-0015 ledger.
 
 ### Risks
 
-- **Wrong limits break real users.** Mitigated by shadow mode and Phase 0
-  measurement; no number in the design doc is authoritative until observed.
+- **Wrong limits break real users.** Mitigated by shadow mode at the edge and by
+  budgets chosen above what honest use costs; no number in the design doc is
+  authoritative until observed.
 - **Client-IP misconfiguration makes per-IP limits meaningless or global.** This
-  risk exists *today* and is the first item of work.
+  risk existed *before* this change and is not resolved by it: `xffNumTrustedHops`
+  ships at 0 and only a live cluster can confirm that is right.
 - **Envoy Gateway issue #8707** (a Gateway-attached policy landing on only one
   listener) would silently under-apply limits on a four-listener Gateway.
   Mitigated by attaching policies per HTTPRoute, as the timeout policies already
@@ -131,6 +145,20 @@ exact — spend, quota billing — belongs in the ADR-0015 ledger.
   rejected: it adds an always-in-path service that can take chat down and must
   duplicate AuthKit session unsealing, to serve exactly one authenticated ingress.
   Revisit when a second one appears.
+- **Next.js middleware for L2** — the conventional choke point in a Next app, and
+  since 15.5 it can run on the Node runtime, so `ioredis` is no longer a blocker.
+  Rejected on a specific fact rather than on taste: middleware runs before
+  session resolution, so it would have to unseal the AuthKit cookie itself to key
+  a bucket by member, while `apiRoute` is already mandatory (ADR-0038), already
+  runs after authorization, and already carries a coverage spec.
+- **A managed edge in front (Cloudflare)** — would solve the client-IP question
+  outright via `CF-Connecting-IP` and adds WAF/bot detection we cannot build.
+  Deferred by the platform owner: the in-cluster L1 keeps the limits in the same
+  repo as the rest of the infrastructure and adds no vendor. Revisit if scraping
+  or bot traffic becomes an observed problem rather than a hypothetical one.
+- **Arcjet for L2** — Next-native SDK combining rate limiting, bot detection and
+  shield. Rejected for now: paid, and it puts a vendor SDK in the request path of
+  every route to replace a free library doing the one job we need.
 - **Kuadrant (`RateLimitPolicy` / `TokenRateLimitPolicy` + Limitador)** — rejected
   for now: it would add an operator and a policy plane for capability Envoy
   Gateway already has natively, when we are not multi-gateway. Its
@@ -144,11 +172,14 @@ exact — spend, quota billing — belongs in the ADR-0015 ledger.
 
 ## Open Questions / Follow-ups
 
-- Does the managed LoadBalancer preserve the source IP? Everything per-IP depends
-  on the answer.
+- **Does the managed LoadBalancer preserve the source IP?** `xffNumTrustedHops`
+  ships at 0, which is correct only if it does. Everything per-IP depends on the
+  answer, and it cannot be settled from this repo — it needs a live cluster.
 - Should `/api/auth/*` fail closed at L1 when the RLS is unavailable?
-- What is the right cost unit for a WebSocket chat frame — one per turn, or
-  weighted by agent group (a deep-research turn is not a typing ping)?
+- What is the right cost unit for a WebSocket chat frame? Today a frame is one
+  unit of `chat-turn` or `ws-control`; weighting by agent group (a deep-research
+  turn is not a clarifier reply) would need the proxy to understand more of the
+  payload than it currently peeks at.
 - Does the running Envoy Gateway version exhibit #8707 on a four-listener Gateway?
 - When L3 gains queueing, what does the UI show for queue position?
 

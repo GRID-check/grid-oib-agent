@@ -160,6 +160,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/l
 # file from disk — missing from the image, `server.js` dies with
 # MODULE_NOT_FOUND before ever listening (update 67 CrashLoopBackOff).
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./src/lib/images/avatar-hosts.ts
+# `server.js` requires these three at startup for WebSocket rate limiting
+# (ADR-0040 L2b). They are CommonJS precisely so the proxy can load them — the
+# same shared catalog the TypeScript side imports — which means they must be on
+# disk in the runtime image, not merely inside the Next bundle. Missing, the
+# gateway dies with MODULE_NOT_FOUND before it ever listens (the failure mode
+# that took the avatar-hosts copy above to learn).
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/rules.js ./src/lib/limits/rules.js
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/factory.js ./src/lib/limits/factory.js
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src/lib/limits/ws-frames.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 

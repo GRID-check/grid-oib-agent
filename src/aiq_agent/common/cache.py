@@ -184,3 +184,25 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
         count = int(entry[1]) + 1
         _local_store[key] = (entry[0], str(count))
         return count
+
+
+def eval_script(script: str, keys: list[str], args: list[Any]) -> Any | None:
+    """Run a Lua script on the shared store; None when it is unavailable.
+
+    The one primitive the JSON helpers above cannot express: a read-modify-write
+    that is atomic on the server. `turn_admission` needs it — a semaphore built
+    from separate count and add calls admits more than its limit under exactly
+    the concurrency it exists to bound.
+
+    Returns None (never raises) when there is no shared store or the call fails,
+    so callers decide their own failure policy rather than inheriting one.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        return client.eval(script, len(keys), *keys, *args)
+    except Exception:
+        logger.warning("Shared cache eval failed", exc_info=True)
+        _mark_client_failed()
+        return None

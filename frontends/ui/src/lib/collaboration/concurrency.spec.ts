@@ -94,9 +94,9 @@ vi.mock('@/lib/sharing/directory', async (importActual) => ({
   loadOrganizationDirectory: vi.fn(),
 }))
 
-vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/sharing/rate-limit')>()),
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 import { drizzle as proxyDrizzle } from 'drizzle-orm/pg-proxy'

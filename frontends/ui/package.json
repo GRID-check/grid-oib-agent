@@ -77,6 +77,7 @@
     "motion": "^12.42.2",
     "next": "^16.2.10",
     "postgres": "^3.4.0",
+    "rate-limiter-flexible": "^11.2.0",
     "react": "^18.2.0",
     "react-complex-tree": "^2.6.2",
     "react-dom": "^18.2.0",

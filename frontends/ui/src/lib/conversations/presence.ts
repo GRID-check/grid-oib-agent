@@ -31,7 +31,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { publishToUsers } from '@/lib/events/bus'
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
-import { consumeRateLimit, TYPING_RATE_LIMIT } from '@/lib/sharing/rate-limit'
+import { consumeLimit, memberSubject, TYPING_LIMIT } from '@/lib/limits'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 // The cadence pair lives in a client-safe module so the composer can import it
@@ -75,7 +75,7 @@ export async function publishTypingPresence(
   // which publishes nothing and costs nothing past this point — spent the user's
   // budget anyway, so time spent typing alone could shed presence in a thread
   // where somebody was actually watching.
-  const limit = await consumeRateLimit(TYPING_RATE_LIMIT, session.userId)
+  const limit = await consumeLimit(TYPING_LIMIT, memberSubject(session))
   if (!limit.allowed) return
 
   const participants = await resolveParticipants(
