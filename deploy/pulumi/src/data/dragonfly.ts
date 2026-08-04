@@ -2,7 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "../platform/namespaces";
-import { ROLLOUT, gracefulShutdown, surgeRollout } from "../platform/rollout";
+import { ROLLOUT, gracefulShutdown, recreateRollout, surgeRollout } from "../platform/rollout";
 import { DATA_RESOURCES, EDGE_RATE_LIMIT, PORT } from "../constants";
 
 const DRAGONFLY_IMAGE = "docker.dragonflydb.io/dragonflydb/dragonfly:latest";
@@ -62,7 +62,7 @@ function installDragonflyInstance(
         // (`recreateOnRollout`), because a split keyspace there means doubled
         // limits rather than a few extra misses.
         ...(opts.recreateOnRollout
-          ? { strategy: { type: "Recreate" } }
+          ? recreateRollout(ROLLOUT.dataPlane)
           : surgeRollout(ROLLOUT.dataPlane)),
         selector: { matchLabels: labels },
         template: {
