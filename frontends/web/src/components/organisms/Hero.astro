@@ -1,7 +1,9 @@
 ---
 import { Image } from 'astro:assets'
 import Pill from '../atoms/Pill.astro'
-import hero from '../../assets/hero.png'
+// JPEG, not PNG: the source is an opaque photograph, so the PNG's alpha channel
+// was 1.6 MB of dead weight that shipped alongside every generated webp variant.
+import hero from '../../assets/hero.jpg'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
