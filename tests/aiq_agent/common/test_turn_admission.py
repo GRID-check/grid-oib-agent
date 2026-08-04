@@ -9,7 +9,9 @@ store that cannot answer admits rather than refuses.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import threading
 
 import pytest
 
@@ -198,6 +200,59 @@ async def test_async_manager_returns_the_slot_when_the_turn_raises(
 
     async with admit_turn_async("org_1"):
         pass
+
+
+@pytest.mark.asyncio
+async def test_cancelling_mid_acquire_does_not_strand_the_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A client that hangs up during the store round trip must not cost a slot.
+
+    `asyncio.to_thread` cannot cancel its worker: the thread runs on and takes
+    the slot regardless. If nothing hands that slot back, it is held by a turn
+    that will never run until the lease expires — 15 minutes by default — and a
+    few flaky connections shrink the pool to nothing.
+
+    Made deterministic by blocking the acquire inside the worker thread, so the
+    cancellation is guaranteed to land while the acquisition is genuinely in
+    flight, and the worker is then released to go and take the slot.
+    """
+    _limits(monkeypatch, total=10, per_org=1)
+
+    entered = threading.Event()
+    release_worker = threading.Event()
+    real_acquire_all = turn_admission._acquire_all
+
+    def blocking_acquire_all(organization_id: str | None, member: str):
+        entered.set()
+        release_worker.wait(5)
+        return real_acquire_all(organization_id, member)
+
+    monkeypatch.setattr(turn_admission, "_acquire_all", blocking_acquire_all)
+
+    async def turn() -> None:
+        async with admit_turn_async("org_1"):
+            pass
+
+    task = asyncio.create_task(turn())
+    await asyncio.to_thread(entered.wait, 5)
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    # Only now does the worker finish and actually take the slot — the exact
+    # ordering that a release racing the acquire would fail to clean up.
+    release_worker.set()
+
+    monkeypatch.setattr(turn_admission, "_acquire_all", real_acquire_all)
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if turn_admission._acquire(turn_admission._org_key("org_1"), 1, "probe"):
+            turn_admission._release(turn_admission._org_key("org_1"), "probe")
+            break
+    else:
+        pytest.fail("the cancelled turn's slot was never returned")
 
 
 def test_a_slot_taken_locally_is_returned_after_the_store_recovers(

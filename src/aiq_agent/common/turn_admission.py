@@ -233,6 +233,53 @@ def _release_all(held: list[str], member: str) -> None:
             logger.warning("Failed to release turn slot on %s", key, exc_info=True)
 
 
+def _acquire_all(organization_id: str | None, member: str) -> tuple[list[str], str | None]:
+    """Take every pool this turn needs, or none of them.
+
+    Returns `(held, refusal)`: the keys actually held, and the refusal message
+    when a pool was full. On refusal the partial acquisition is rolled back
+    before returning, so `held` is empty and the caller has nothing to clean up
+    — a tenant sitting at its own limit must not leave the global slot it took
+    on the way in.
+
+    One function rather than a loop at each call site because the async manager
+    runs this in a worker thread: acquisition has to be atomic from the event
+    loop's point of view, or a cancellation landing between two acquires leaves
+    a slot held by a turn that will never run.
+    """
+    held: list[str] = []
+    for key, limit, message in _pools(organization_id):
+        if not _acquire(key, limit, member):
+            _release_all(held, member)
+            return [], message
+        held.append(key)
+    return held, None
+
+
+def _release_abandoned(acquisition: asyncio.Task, member: str) -> None:
+    """Hand back slots taken by an acquisition nobody is waiting for any more.
+
+    Runs as the done-callback of a shielded `_acquire_all` whose awaiter was
+    cancelled — a client that hung up while the store round trip was in flight.
+    The worker could not be stopped, so it may well have taken the slots; this
+    is the only code left that knows about them.
+    """
+    if acquisition.cancelled():
+        return
+    if acquisition.exception() is not None:
+        # `_acquire_all` swallows store errors and admits; an exception here is
+        # a bug, and it means no slot was recorded to give back.
+        return
+    held, _refusal = acquisition.result()
+    if not held:
+        return
+    logger.info("Releasing %d turn slot(s) from a cancelled admission", len(held))
+    try:
+        asyncio.get_running_loop().run_in_executor(None, _release_all, held, member)
+    except RuntimeError:  # pragma: no cover - loop already closed during shutdown
+        _release_all(held, member)
+
+
 @contextmanager
 def admit_turn(organization_id: str | None) -> Iterator[None]:
     """Hold an interactive-turn slot for the duration of the block.
@@ -241,12 +288,10 @@ def admit_turn(organization_id: str | None) -> Iterator[None]:
     full. Synchronous — callers on an event loop want `admit_turn_async`.
     """
     member = uuid.uuid4().hex
-    held: list[str] = []
+    held, refusal = _acquire_all(organization_id, member)
+    if refusal is not None:
+        raise TurnAdmissionError(refusal)
     try:
-        for key, limit, message in _pools(organization_id):
-            if not _acquire(key, limit, member):
-                raise TurnAdmissionError(message)
-            held.append(key)
         yield
     finally:
         _release_all(held, member)
@@ -265,14 +310,35 @@ async def admit_turn_async(organization_id: str | None) -> AsyncIterator[None]:
     `asyncio.to_thread` keeps the semantics identical (same ordering, same
     partial-acquisition rollback, same `finally`) and moves the waiting to a
     worker thread.
+
+    One asymmetry with the sync version, and it drives the shape below:
+    `asyncio.to_thread` cannot cancel the worker. A client that hangs up
+    mid-acquire cancels this coroutine while the thread runs on and quite
+    possibly takes the slot — which would then be held by a turn that never
+    runs, until the lease expires 15 minutes later. A few of those and the pool
+    is gone.
+
+    Two things prevent that. Acquisition is ONE thread hop (`_acquire_all`), so
+    there is no half-acquired state for a cancellation to land in. And the task
+    is shielded, so on cancellation the release is chained onto its completion
+    rather than raced against it: the slots go back whenever the worker
+    finishes, in the right order, without this coroutine having to survive to
+    see it.
     """
     member = uuid.uuid4().hex
-    held: list[str] = []
+    acquisition = asyncio.create_task(asyncio.to_thread(_acquire_all, organization_id, member))
     try:
-        for key, limit, message in _pools(organization_id):
-            if not await asyncio.to_thread(_acquire, key, limit, member):
-                raise TurnAdmissionError(message)
-            held.append(key)
+        held, refusal = await asyncio.shield(acquisition)
+    except asyncio.CancelledError:
+        # Cannot reliably await anything once cancelled, so hand the cleanup to
+        # the task itself. `add_done_callback` fires after the worker returns,
+        # which is the ordering that matters: releasing before the acquire lands
+        # would ZREM nothing and strand the slot anyway.
+        acquisition.add_done_callback(lambda task: _release_abandoned(task, member))
+        raise
+    if refusal is not None:
+        raise TurnAdmissionError(refusal)
+    try:
         yield
     finally:
         await asyncio.to_thread(_release_all, held, member)

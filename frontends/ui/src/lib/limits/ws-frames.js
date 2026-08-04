@@ -28,21 +28,24 @@
  * It reads at most `MAX_PEEK` bytes of a MESSAGE's payload — enough to see the
  * `type` field the client writes first — and never buffers a whole message.
  *
- * The peek accumulates across a message's FRAGMENTS, and that is deliberate: a
- * client can legally split one text message into an initial frame plus
- * continuations, so hiding `"type":"user_message"` past the first 512 bytes
- * would otherwise buy the cheap `ws-control` budget for something that starts an
- * agent run. Accumulating means the fragment that reveals the type is charged as
- * the chat turn it is. The trade is that a fragmented user message is charged
- * once per fragment from that point on — over-charging a client that fragments
- * to hide, never under-charging it, and no honest client fragments a few hundred
- * bytes of JSON.
+ * The peek accumulates across a message's FRAGMENTS rather than resetting per
+ * frame, because a client may legally split one text message into an initial
+ * frame plus continuations, and a type revealed by the third fragment still
+ * belongs to the message as a whole.
  *
- * An UNFRAGMENTED frame it cannot classify is charged as CHEAP, not expensive:
- * charging the wrong rule would refuse honest traffic, which is the failure an
- * abuse bound must avoid. A fragmented one goes the other way — see
- * `classifyFrame`. CommonJS for the same reason as its siblings: `server.js`
- * cannot import TypeScript.
+ * Accumulating is not sufficient on its own, though, and that shapes
+ * `classifyFrame`: a client controls its own bytes, so it can pad past
+ * `MAX_PEEK` before writing `type` — in one frame or several — and the window
+ * closes before the answer arrives. So the classifier keys on whether the whole
+ * message was READ, not on whether it was recognised, and this parser reports
+ * `truncated` and `fragmented` to let it. Anything unread is charged the
+ * expensive rule; anything read in full and found not to be a user message is
+ * charged the cheap one, which is a fact rather than a guess.
+ *
+ * The residual cost is one-sided by construction: a message that hides its type
+ * is over-charged, never under-charged, and no honest client pads or fragments a
+ * few hundred bytes of JSON. CommonJS for the same reason as its siblings:
+ * `server.js` cannot import TypeScript.
  */
 
 /** Payload bytes inspected per frame. The client writes `type` first. */
@@ -65,6 +68,9 @@ const OPCODE = {
  *   (accumulated across fragments), '' for control frames.
  * @property {boolean} fragmented Whether this frame is part of a fragmented
  *   message (a non-FIN frame or any continuation of one).
+ * @property {boolean} truncated Whether the message carried more payload than
+ *   the peek window could read, so `peek` is a prefix rather than the whole of
+ *   it. Always false for control frames, which are not peeked.
  */
 
 /**
@@ -92,6 +98,14 @@ function createFrameObserver(onFrame) {
   /** @type {Buffer[]} */
   let peeked = []
   let peekedBytes = 0
+  /**
+   * Whether this message had payload the peek window could not reach.
+   *
+   * The difference that matters to `classifyFrame`: a message read in FULL and
+   * found not to be a `user_message` definitively is not one, while a message
+   * whose tail we never saw could be hiding anything past the padding.
+   */
+  let peekTruncated = false
   /** Opcode of the fragmented message in progress, or 0 when between messages. */
   let messageOpcode = 0
 
@@ -125,11 +139,14 @@ function createFrameObserver(onFrame) {
     const peek = control || !peeked.length ? '' : Buffer.concat(peeked).toString('utf8')
     const fragmented = !control && (!fin || opcode === OPCODE.CONTINUATION)
 
+    const truncated = !control && peekTruncated
+
     if (!control) {
       if (fin) {
         // Message complete: start the next one from nothing.
         peeked = []
         peekedBytes = 0
+        peekTruncated = false
         messageOpcode = 0
       } else if (!messageOpcode) {
         messageOpcode = opcode
@@ -139,7 +156,7 @@ function createFrameObserver(onFrame) {
     maskOffset = 0
     state = 'header'
     try {
-      onFrame({ opcode: effectiveOpcode, peek, fragmented })
+      onFrame({ opcode: effectiveOpcode, peek, fragmented, truncated })
     } catch {
       // Observing must never break the connection it observes.
     }
@@ -177,16 +194,23 @@ function createFrameObserver(onFrame) {
         const peekable =
           opcode === OPCODE.TEXT ||
           (opcode === OPCODE.CONTINUATION && messageOpcode === OPCODE.TEXT)
-        if (peekable && peekedBytes < MAX_PEEK) {
-          const wanted = Math.min(take, MAX_PEEK - peekedBytes)
-          const slice = Buffer.from(pending.subarray(0, wanted))
-          if (maskKey) {
-            for (let i = 0; i < slice.length; i++) {
-              slice[i] ^= maskKey[(maskOffset + i) % 4]
+        if (peekable) {
+          if (peekedBytes < MAX_PEEK) {
+            const wanted = Math.min(take, MAX_PEEK - peekedBytes)
+            const slice = Buffer.from(pending.subarray(0, wanted))
+            if (maskKey) {
+              for (let i = 0; i < slice.length; i++) {
+                slice[i] ^= maskKey[(maskOffset + i) % 4]
+              }
             }
+            peeked.push(slice)
+            peekedBytes += slice.length
+            // More payload than window: the rest of this message is unread.
+            if (take > wanted) peekTruncated = true
+          } else {
+            // Window already full and payload still arriving.
+            peekTruncated = true
           }
-          peeked.push(slice)
-          peekedBytes += slice.length
         }
 
         maskOffset = (maskOffset + take) % 4
@@ -202,12 +226,32 @@ function createFrameObserver(onFrame) {
  * What a frame costs.
  *
  * `'chat-turn'` when the message identifies itself as a user message — the one
- * thing that starts an agent run — or when it was fragmented at all. An
- * unrecognised, unfragmented frame (a binary frame, a payload past the peek
- * window) falls through to `'control'` rather than being assumed expensive: charging
- * the wrong rule would refuse honest traffic, which is the failure mode an
- * abuse bound must avoid. `'ignore'` is for the close handshake, which must
- * never be throttled or the socket cannot shut down cleanly.
+ * thing that starts an agent run — or when the peek could not rule one out.
+ * `'ignore'` is for the close handshake, which must never be throttled or the
+ * socket cannot shut down cleanly.
+ *
+ * The rule that decides the rest is **whether the whole message was read**, not
+ * whether it was recognised:
+ *
+ *   - Read in FULL and not a `user_message` → definitively not one. Cheap, and
+ *     that is a fact rather than an assumption. This is the honest client's
+ *     path: interaction and control messages are small, so the window sees all
+ *     of them.
+ *   - NOT read in full (padded past `MAX_PEEK`, or fragmented) → nothing can be
+ *     concluded, so charge the expensive rule.
+ *
+ * Both un-read cases exist because a client controls its own bytes. It can pad
+ * with 600 bytes of JSON before writing `type`, in one frame or split across
+ * several, and either way the window closes before the answer arrives —
+ * accumulating the peek across fragments does not save it. Charging cheap on
+ * "unrecognised" is what turns that into roughly 40x the agent runs the budget
+ * allows; charging expensive on "unread" closes both doors with one rule.
+ *
+ * This app's client sends one small `ws.send` per message with `type` first
+ * (`websocket-client.ts`), so no honest frame reaches either un-read case. The
+ * cost of being wrong is bounded and one-sided: an unusual-but-honest large
+ * message is charged the stricter budget, never refused outright by
+ * misclassification of something small.
  *
  * @param {ObservedFrame} frame
  * @returns {'chat-turn' | 'control' | 'ignore'}
@@ -216,16 +260,7 @@ function classifyFrame(frame) {
   if (frame.opcode === OPCODE.CLOSE) return 'ignore'
   if (frame.opcode !== OPCODE.TEXT) return 'control'
   if (/"type"\s*:\s*"user_message"/.test(frame.peek)) return 'chat-turn'
-  // A FRAGMENTED text message is charged as a chat turn even when the peek
-  // never revealed a type. Accumulating across fragments (above) is not enough
-  // on its own: a client can pad past `MAX_PEEK` before writing `type` and the
-  // window closes before the answer arrives. Fragmentation is itself the tell —
-  // this app's client sends one frame per message (`websocket-client.ts` calls
-  // `ws.send` with a complete JSON string), so splitting a few hundred bytes of
-  // JSON is not something honest traffic does. Charging the expensive rule here
-  // costs a well-behaved oddity nothing it can notice, and closes the only way
-  // left to buy 40x the agent runs.
-  if (frame.fragmented) return 'chat-turn'
+  if (frame.fragmented || frame.truncated) return 'chat-turn'
   return 'control'
 }
 

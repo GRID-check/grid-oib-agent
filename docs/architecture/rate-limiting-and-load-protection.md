@@ -403,16 +403,26 @@ with WebSocket status **1008** (there is no 429 to send on an open socket) and
 the client reconnects on its jittered backoff, where the upgrade limiter paces
 it.
 
-An **unfragmented** frame it cannot positively identify is charged as *cheap*:
-charging the wrong rule would refuse honest traffic, which is the failure an
-abuse bound must avoid. A **fragmented** text message goes the other way and is
-charged as a chat turn regardless — the peek accumulates across fragments, but a
-client can pad past 512 bytes before writing `type`, so fragmentation itself is
-treated as the tell. This app's client sends one frame per message, so splitting
-a few hundred bytes of JSON is not something honest traffic does; without this,
-hiding the type behind padding bought the `ws-control` budget (240/min) for
-something entitled to the `chat-turn` one (30/5min). The close handshake is
-never throttled.
+The classifier keys on **whether the whole message was read**, not on whether it
+was recognised, and that distinction is the whole defence. A message read in
+full and found not to be a `user_message` definitively is not one, so it is
+charged *cheap* — a fact, not a guess, and the path every honest frame takes
+since interaction and control messages are small. A message the window could
+*not* read to the end — padded past 512 bytes, or fragmented — supports no
+conclusion, so it is charged as a chat turn.
+
+Both un-read cases exist because a client controls its own bytes: it can write
+600 bytes of padding before `type`, in one frame or split across several, and
+either way the window closes before the answer arrives. Accumulating the peek
+across fragments does not save it. Charging *cheap* on merely "unrecognised" is
+what turned that into the `ws-control` budget (240/min) for something entitled
+to the `chat-turn` one (30/5min) — roughly 40x the agent runs. Keying on unread
+closes the single-frame and fragmented variants with one rule.
+
+This app's client sends one small `ws.send` per message with `type` first, so no
+honest frame reaches either un-read case, and the residual cost is one-sided: an
+unusual-but-honest large message is charged the stricter budget, never refused by
+a misreading of something small. The close handshake is never throttled.
 
 Covered by `tests/gateway/ws-frame-limits.test.ts`, which spawns the real gateway
 and pushes real frames — the same harness style as the existing upgrade tests,
