@@ -56,7 +56,37 @@ there is one place to change it.
 
 The originals stay in the build output (Astro keeps them for the image endpoint),
 so a huge upload still costs image-layer size and build time even though no
-visitor downloads it. Resize before uploading when it is easy to do.
+visitor downloads it — the content guard warns above 4 MB for that reason.
+
+Astro's cache is relocated to `frontends/web/.astro-cache` (`cacheDir` in
+`astro.config.mjs`) because the default `node_modules/.astro` is deleted by the
+`npm ci` in `task web:install`, which made every CI build reprocess every image
+from cold — 44s versus 19s warm on current content. `ci.yml` and
+`publish-images.yml` both restore it via `actions/cache`; the latter feeds it
+into the Docker build context, since a layer cache cannot help a `RUN npm run
+build` that `COPY . .` has already invalidated.
+
+### Previewing a post
+
+`blog-preview.yml` runs on any PR touching `src/content/**`: it builds with
+`PUBLIC_INCLUDE_DRAFTS=1`, screenshots the posts that PR changed at desktop and
+mobile widths, and links the PNGs from a sticky comment. Drafts render there and
+nowhere else — a draft is the thing an author most wants to look at, and it is
+invisible on the deployed site.
+
+`PUBLIC_INCLUDE_DRAFTS` is preview-only. `astro build` bakes the result into the
+image, so setting it on a release build would publish every unfinished draft.
+
+Locally, the same harness works against a built server:
+
+```bash
+PUBLIC_INCLUDE_DRAFTS=1 npm run build && node dist/server/entry.mjs &
+npm i --no-save playwright-core
+node scripts/preview-shots.mjs ./preview-out http://localhost:4321 /blog/<slug>/
+```
+
+In the dev container, point it at the pinned browser with
+`PREVIEW_CHROMIUM_PATH=/opt/pw-browsers/chromium-*/chrome-linux/chrome`.
 
 ### Publishing safely
 

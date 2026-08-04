@@ -14,7 +14,7 @@
  *   2. an image with no alt text
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -43,8 +43,26 @@ function resolveRef(ref, mdxPath) {
     : resolve(dirname(mdxPath), clean)
 }
 
+/**
+ * Astro reprocesses a source image into every breakpoint on a cache miss, so an
+ * oversized upload is paid for on each cold build — the first CMS post shipped
+ * an 11 MB scan that cost ~25s on its own. Visitors never see it (they get the
+ * srcset variants), so this is a warning, not a failure: the build is correct,
+ * just slower than it needs to be, and the author is the only one who can fix it.
+ */
+const SIZE_WARN_BYTES = 4 * 1024 * 1024
+
 const problems = []
+const warnings = []
 const files = findMdx(blogRoot).sort()
+
+function checkWeight(target, ref, rel) {
+  const { size } = statSync(target)
+  if (size > SIZE_WARN_BYTES) {
+    const mb = (size / 1024 / 1024).toFixed(1)
+    warnings.push(`${rel}: "${ref}" is ${mb} MB — resizing it would speed up every cold build`)
+  }
+}
 
 for (const file of files) {
   const rel = relative(webRoot, file)
@@ -58,6 +76,8 @@ for (const file of files) {
     const target = resolveRef(cover, file)
     if (target && !existsSync(target)) {
       problems.push(`${rel}: cover image not found — "${cover}"`)
+    } else if (target) {
+      checkWeight(target, cover, rel)
     }
   }
 
@@ -65,12 +85,16 @@ for (const file of files) {
     const target = resolveRef(ref, file)
     if (target && !existsSync(target)) {
       problems.push(`${rel}: image not found — "${ref}"`)
+    } else if (target) {
+      checkWeight(target, ref, rel)
     }
     if (!alt.trim()) {
       problems.push(`${rel}: image "${ref}" has no alt text`)
     }
   }
 }
+
+for (const warning of warnings) console.warn(`  ! ${warning}`)
 
 if (problems.length > 0) {
   console.error(`\nContent check failed (${problems.length}):\n`)

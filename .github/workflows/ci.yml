@@ -175,6 +175,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontends/web/package-lock.json
       - uses: ./.github/actions/setup-task
+      # Astro reprocesses every blog image on a cold cache — the first CMS
+      # upload alone cost ~25s of the job. The cache is keyed on the image
+      # sources so it only misses when an image actually changed; `restore-keys`
+      # makes that miss a partial hit (the unchanged images stay warm) instead of
+      # a full reprocess. `cacheDir` puts it outside node_modules, where
+      # `task web:install`'s `npm ci` would otherwise delete it.
+      - uses: actions/cache@v4
+        with:
+          path: frontends/web/.astro-cache
+          key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
+          restore-keys: |
+            astro-cache-${{ runner.os }}-
       - run: task web:verify
         working-directory: .
 

@@ -120,6 +120,14 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache, scoped per image so the three do not evict each other.
+          # `mode=max` is required: these are multi-stage builds and the layer
+          # worth reusing is the dependency install in an intermediate stage,
+          # which `mode=min` does not export. This does NOT make an unchanged
+          # `RUN build` reusable — `COPY . .` invalidates it on any source
+          # change; it saves the install, not the build.
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
   frontend:
     name: Build & push frontend image
@@ -155,6 +163,14 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache, scoped per image so the three do not evict each other.
+          # `mode=max` is required: these are multi-stage builds and the layer
+          # worth reusing is the dependency install in an intermediate stage,
+          # which `mode=min` does not export. This does NOT make an unchanged
+          # `RUN build` reusable — `COPY . .` invalidates it on any source
+          # change; it saves the install, not the build.
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
   web:
     name: Build & push web image
@@ -173,6 +189,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The layer cache above cannot help `RUN npm run build`, so the image
+      # pipeline would reprocess every blog image from cold inside the container
+      # on every publish. Restoring the cache into the build context lets the
+      # container start warm — `.astro-cache` is deliberately absent from
+      # frontends/web/.dockerignore for this reason, and the runner stage copies
+      # only dist/, node_modules/ and package.json, so it never reaches the
+      # shipped image. Restore-only: this job cannot extract the container's
+      # cache afterwards, so the CI web job is what writes the entry (one commit
+      # behind, which `restore-keys` handles).
+      - name: Restore the Astro asset cache into the build context
+        uses: actions/cache/restore@v4
+        with:
+          path: frontends/web/.astro-cache
+          key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
+          restore-keys: |
+            astro-cache-${{ runner.os }}-
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -193,3 +225,11 @@ jobs:
           build-args: |
             PUBLIC_APP_URL=${{ startsWith(github.ref, 'refs/tags/') && 'https://app.piloti.at' || 'https://app.dev.piloti.at' }}
             PUBLIC_SITE_URL=${{ startsWith(github.ref, 'refs/tags/') && 'https://piloti.at' || 'https://dev.piloti.at' }}
+          # Layer cache, scoped per image so the three do not evict each other.
+          # `mode=max` is required: these are multi-stage builds and the layer
+          # worth reusing is the dependency install in an intermediate stage,
+          # which `mode=min` does not export. This does NOT make an unchanged
+          # `RUN build` reusable — `COPY . .` invalidates it on any source
+          # change; it saves the install, not the build.
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
