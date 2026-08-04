@@ -59,6 +59,7 @@ import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
+import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import type { SourcePresetId } from '../types'
@@ -749,37 +750,52 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // server-side, so the composer is read-only BEFORE the attempt (a ghost bubble
   // only the viewer would see is the alternative).
   const myThreadRole = useThreadRole(canCollaborate ? currentSessionId : null)
-  const isViewerInSharedThread = myThreadRole === 'viewer'
+  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
+
+  /*
+    One gate for "may this person change anything about this conversation", and
+    one for "may they type right now".
+
+    `disabled` used to reach only the textarea and the send button, so a viewer
+    in a shared thread — whose whole point is that they may read and not write —
+    still had a live paperclip, a live drop zone, and a live *Datengrundlage*
+    popover whose toggles persist onto the conversation. They could not send a
+    message but they could rewrite which sources the next person's turn would
+    use, and upload files into the thread. Hence two capabilities, not one flag.
+
+    The decision moved to `collaboration/lib/composer-capabilities` because it
+    was a role-NAME comparison (`myThreadRole === 'viewer'`) where the rest of
+    the codebase ranks a ladder, and because every denial was anonymous. Both
+    are ADR-0038 requirements. Behaviour is unchanged, including the
+    allow-while-the-role-is-unknown window, which is now a named field with a
+    test on it instead of a consequence of `null !== 'viewer'`.
+  */
+  const capabilities = composerCapabilities({
+    isAuthenticated,
+    canCollaborate,
+    sharing: threadSharing,
+    myRole: myThreadRole,
+    isBusy,
+    isResponseMode,
+    researchLocked: isResearchSessionSuccessful,
+    otherPersonsTurn: Boolean(otherPersonsTurnName),
+  })
 
   // Composing presence. Only where somebody could actually see it: a shared
   // thread, collaboration on, and a role that may contribute — a viewer's draft
   // will never become a message, so announcing it would be a claim about
   // something that cannot happen. The server enforces all three regardless; this
   // is what keeps a private thread from issuing the request at all (spec NF-8).
-  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
   const { onTyping, onStoppedTyping } = useTypingBroadcast({
     conversationId: currentSessionId ?? null,
-    enabled: canCollaborate && threadSharing === 'shared' && !isViewerInSharedThread,
+    enabled: capabilities.canBroadcastTyping,
   })
 
   const isDisabledByAuth = !isAuthenticated
-  /*
-    One gate for "may this person change anything about this conversation".
-
-    `disabled` below only ever reached the textarea and the send button, so a
-    viewer in a shared thread — whose whole point is that they may read and not
-    write — still had a live paperclip, a live drop zone, and a live
-    *Datengrundlage* popover whose toggles persist onto the conversation. They
-    could not send a message but they could rewrite which sources the next
-    person's turn would use, and upload files into the thread.
-  */
-  const cannotContribute = isDisabledByAuth || isViewerInSharedThread
-  const disabled =
-    isDisabledByAuth ||
-    (isBusy && !isResponseMode) ||
-    isResearchSessionSuccessful ||
-    Boolean(otherPersonsTurnName) ||
-    isViewerInSharedThread
+  /** Read-only because of the role specifically — drives the viewer notice. */
+  const isViewerInSharedThread = capabilities.deniedBy === 'read-only-role'
+  const cannotContribute = !capabilities.canContribute
+  const disabled = !capabilities.canCompose
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
