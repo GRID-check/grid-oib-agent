@@ -123,6 +123,13 @@ tasks:
     cmds:
       - bun run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
 
+  db:test:rls:
+    desc: >-
+      Tenant-isolation suite against a throwaway Postgres, connected as the
+      restricted runtime role (ADR-0041). Needs PostgreSQL server binaries.
+    cmds:
+      - bash scripts/rls-test-db.sh
+
   fe:test:shard:
     desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
     dir: '{{.UI}}'

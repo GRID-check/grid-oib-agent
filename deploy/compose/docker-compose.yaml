@@ -178,7 +178,13 @@ services:
       # the built image, so it cannot be used for this).
       - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Runtime connection: the least-privilege role, subject to row-level
+      # security (ADR-0041). A repository that forgets its organization
+      # predicate returns no rows instead of another tenant's.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+      # This container's CMD runs `drizzle-kit migrate` before the server
+      # starts, and DDL needs the schema owner — grid_app_rw holds none.
+      - GRID_APP_MIGRATION_DATABASE_URL=${GRID_APP_MIGRATION_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly
@@ -279,7 +285,10 @@ services:
     container_name: grid-purger
     command: ["node", "purger/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Least-privilege runtime role (ADR-0041). This worker sweeps every
+      # organization, so it steps up to grid_app_platform per transaction
+      # — see frontends/ui/workers/platform-scope.js.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
@@ -314,7 +323,10 @@ services:
     container_name: grid-workflow-scheduler
     command: ["node", "scheduler/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Least-privilege runtime role (ADR-0041). This worker sweeps every
+      # organization, so it steps up to grid_app_platform per transaction
+      # — see frontends/ui/workers/platform-scope.js.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # Deployment start gate: the scheduler refuses to run (clean exit 0) unless

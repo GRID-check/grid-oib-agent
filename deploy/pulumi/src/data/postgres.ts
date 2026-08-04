@@ -52,6 +52,26 @@ CREATE TABLE IF NOT EXISTS summaries (
 CREATE INDEX IF NOT EXISTS idx_summaries_collection ON summaries(collection);
 `;
 
+/**
+ * LOGIN password for the row-level-security runtime role (ADR-0041).
+ *
+ * Drizzle migration 0030 creates the role, its grants and every policy — it
+ * owns the boundary. Only the password lives here, because a password is a
+ * deployment secret rather than something to check into a migration, and
+ * because this Job runs before the migration Job on a fresh cluster.
+ */
+const GRID_APP_ROLES_SQL = `
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_rw') THEN
+    EXECUTE format('CREATE ROLE grid_app_rw LOGIN NOINHERIT PASSWORD %L', :'runtime_password');
+  ELSE
+    EXECUTE format('ALTER ROLE grid_app_rw LOGIN PASSWORD %L', :'runtime_password');
+  END IF;
+END
+$$;
+`;
+
 const CHECKPOINTS_SQL = `
 CREATE TABLE IF NOT EXISTS checkpoint_migrations (v INTEGER PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS checkpoints (
@@ -267,15 +287,26 @@ export function installPostgres(
 
   const rwHost = `${CLUSTER_NAME}-rw`;
 
-  const user = encodeURIComponent(cfg.postgres.appUser);
-  const dsn = (opts: { db: string; driver?: string }): pulumi.Output<string> => {
+  const appUser = encodeURIComponent(cfg.postgres.appUser);
+  /**
+   * Build a DSN. `as` selects a non-default role — used for the least-privilege
+   * runtime credential (ADR-0041), which is the same cluster with a different
+   * login, not a different database.
+   */
+  const dsn = (opts: {
+    db: string;
+    driver?: string;
+    as?: { user: string; password: pulumi.Output<string> };
+  }): pulumi.Output<string> => {
     const scheme = opts.driver ?? "postgresql";
+    const user = opts.as ? encodeURIComponent(opts.as.user) : appUser;
+    const password = opts.as ? opts.as.password : cfg.postgres.appPassword;
     // Percent-encode the password. The `pgAppPassword` value is documented as
     // `openssl rand -base64 24`, which routinely contains `/` or `+` — raw
     // interpolation there breaks URI parsing (asyncpg/psycopg/node-pg/psql all
     // misparse the authority), which looks like an auth failure across the whole
     // stack. Encoding in the DSN keeps the Postgres role password itself intact.
-    return cfg.postgres.appPassword.apply(
+    return password.apply(
       (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}`,
     );
   };
@@ -286,7 +317,11 @@ export function installPostgres(
     "pg-init-sql",
     {
       metadata: { namespace },
-      data: { "jobs.sql": JOBS_SQL, "checkpoints.sql": CHECKPOINTS_SQL },
+      data: {
+        "jobs.sql": JOBS_SQL,
+        "checkpoints.sql": CHECKPOINTS_SQL,
+        "grid-app-roles.sql": GRID_APP_ROLES_SQL,
+      },
     },
     { provider },
   );
@@ -301,6 +336,10 @@ export function installPostgres(
       stringData: {
         JOBS_DSN: dsn({ db: "aiq_jobs" }),
         CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints" }),
+        // Owner credential for grid_app, used only to give the runtime role its
+        // LOGIN password (ADR-0041).
+        GRID_APP_DSN: dsn({ db: "grid_app" }),
+        GRID_APP_RUNTIME_PASSWORD: cfg.postgres.runtimePassword,
       },
     },
     { provider },
@@ -334,6 +373,12 @@ export function installPostgres(
                     'until pg_isready -d "$JOBS_DSN" >/dev/null 2>&1; do sleep 2; done;',
                     'psql "$JOBS_DSN" -v ON_ERROR_STOP=1 -f /sql/jobs.sql;',
                     'psql "$CHECKPOINTS_DSN" -v ON_ERROR_STOP=1 -f /sql/checkpoints.sql;',
+                    // The password is passed as a psql variable rather than
+                    // interpolated into the SQL, so it is never rendered into
+                    // the ConfigMap or a process argument.
+                    'psql "$GRID_APP_DSN" -v ON_ERROR_STOP=1',
+                    '-v runtime_password="$GRID_APP_RUNTIME_PASSWORD"',
+                    "-f /sql/grid-app-roles.sql;",
                     "echo 'db init complete';",
                   ].join(" "),
                 ],

@@ -177,6 +177,15 @@ export interface GridConfig {
     /** App role password. Secret. Drives every DSN. */
     appPassword: pulumi.Output<string>;
     /**
+     * Password for `grid_app_rw`, the least-privilege role the app tier
+     * connects as under row-level security (ADR-0041). Defaults to the app
+     * password: what bounds this role is its PRIVILEGES (DML only, RLS
+     * enforced, no DDL), not password distinctness — so an existing stack
+     * deploys without a coordinated rotation. Setting `pgRuntimePassword`
+     * separates them, which is recommended.
+     */
+    runtimePassword: pulumi.Output<string>;
+    /**
      * How CNPG rolls the primary during an operator/image update.
      * "unsupervised" = automatic switchover + restart (no human), which is what
      * you want on a provider that drains/replaces nodes automatically.
@@ -784,6 +793,7 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("pgStorageSize") ?? "20Gi",
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
+      runtimePassword: cfg.getSecret("pgRuntimePassword") ?? cfg.requireSecret("pgAppPassword"),
       primaryUpdateStrategy:
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {

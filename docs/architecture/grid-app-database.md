@@ -27,8 +27,19 @@ The Python agent continues to own `aiq_jobs` (job metadata, summaries) and `aiq_
 The BFF connects via **Drizzle ORM** with the **`postgres` driver**.
 
 - **Environment variable:** `GRID_APP_DATABASE_URL`
-- **Example:** `postgresql://postgres:postgres@localhost:5432/grid_app`
+- **Role:** `grid_app_rw` — DML only, no DDL, and **subject to row-level
+  security** (ADR-0041). Migrations use the owner credential in
+  `GRID_APP_MIGRATION_DATABASE_URL` instead.
 - **Client file:** `frontends/ui/src/lib/db/index.ts`
+
+> **Every query carries a tenant.** `frontends/ui/src/lib/db/index.ts` wraps the
+> postgres-js client so each statement runs with `grid.organization_id` set from
+> the caller's context, and Postgres policies filter rows to that organization.
+> A query that loses its `organization_id` filter returns nothing rather than
+> another tenant's data; a query with no context at all throws
+> `MissingTenantContextError`. Authenticated paths get the context from
+> `getGridSession()` automatically — see
+> [row-level-security.md](../database/row-level-security.md).
 
 ```typescript
 import { getDb } from "@/lib/db";
@@ -119,4 +130,6 @@ The init script is idempotent (`IF NOT EXISTS`) and runs automatically when the 
 
 - [Architecture Overview](overview.md) — container/topology diagram showing the three databases.
 - [Multitenancy & Auth Spec](multitenancy-and-auth-spec.md) — data model and ownership rules.
+- [Row-level security](../database/row-level-security.md) — the tenant boundary this database enforces, and how to add a table to it.
 - ADR-0003 — Next.js BFF + stateless Python agent.
+- [ADR-0041](../adr/0041-row-level-security-for-tenant-isolation.md) — why isolation is enforced in the database, and what that boundary does not cover.

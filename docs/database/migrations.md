@@ -41,6 +41,18 @@ This reads the current schema, diffs against the last snapshot in `drizzle/meta/
 
 ### 3. Apply Migration
 
+> **Migrations connect as the schema OWNER.** `GRID_APP_DATABASE_URL` now points
+> at `grid_app_rw`, which holds DML only and is subject to row-level security —
+> correct for serving requests, useless for DDL, and actively dangerous for a
+> data backfill, which would silently touch zero rows. Set
+> `GRID_APP_MIGRATION_DATABASE_URL` to the owner credential; `drizzle.config.ts`
+> prefers it and falls back to `GRID_APP_DATABASE_URL` for a throwaway local
+> database. See [row-level-security.md](row-level-security.md) and ADR-0041.
+>
+> **A new table must join the tenant boundary in the same migration that creates
+> it** — one `SELECT grid_secure_table('<table>', '<predicate>');` line.
+> `src/lib/db/rls-coverage.spec.ts` fails by name until it does.
+
 ```bash
 # Locally
 npx drizzle-kit migrate
