@@ -42,15 +42,31 @@ export function installSeaweedFS(
   const labels = commonLabels("seaweedfs");
 
   // S3 identities config. Same shape the compose entrypoint printf-generates.
+  // Two identities: the root `grid` (Admin, every bucket — frontend presigning,
+  // uploads, PG backups) and `grid-backend-read` (READ-ONLY: `Read` on the
+  // documents bucket only — the aiq-agent tier's `view_knowledge_image`
+  // get_object calls, ADR-0039). The backend pod only ever holds the latter's
+  // credential; its secret key must be distinct from the root's (see config.ts).
   const s3Config = pulumi
-    .all([pulumi.output(cfg.seaweedfs.accessKey), cfg.seaweedfs.secretKey])
-    .apply(([ak, sk]) =>
+    .all([
+      pulumi.output(cfg.seaweedfs.accessKey),
+      cfg.seaweedfs.secretKey,
+      pulumi.output(cfg.seaweedfs.backendReadAccessKey),
+      cfg.seaweedfs.backendReadSecretKey,
+    ])
+    .apply(([ak, sk, brak, brsk]) =>
       JSON.stringify({
         identities: [
           {
             name: "grid",
             credentials: [{ accessKey: ak, secretKey: sk }],
             actions: ["Admin", "Read", "Write", "List", "Tagging"],
+          },
+          {
+            name: "grid-backend-read",
+            credentials: [{ accessKey: brak, secretKey: brsk }],
+            actions: ["Read"],
+            buckets: [cfg.seaweedfs.bucket],
           },
         ],
       }),

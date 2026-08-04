@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders, type Document, type NewDocument } from '@/lib/db/schema'
 
@@ -66,6 +66,39 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
     .select()
     .from(documents)
     .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * Resolve a document's SeaweedFS storage key from its `(collectionName,
+ * filename)` pair — the only identity the Python backend carries. Used by the
+ * internal document-file lookup (`/api/internal/document-file`), which is
+ * service-token guarded, so tenancy relies on the collection name itself
+ * (`proj_<uuid>` / `archiv_<orgId>` are unguessable). When the caller can
+ * supply one, `organizationId` narrows the row to that org (belt-and-braces
+ * for `archiv_` collections); when omitted the lookup stays collection-only.
+ * Soft-deleted rows are never returned, and when a filename is re-uploaded
+ * into the same collection, the most-recent row wins.
+ */
+export async function findStorageKeyByCollectionAndFilename(
+  collectionName: string,
+  filename: string,
+  organizationId?: string,
+): Promise<{ storageKey: string; contentType: string | null } | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({ storageKey: documents.storageKey, contentType: documents.contentType })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.collectionName, collectionName),
+        eq(documents.filename, filename),
+        isNull(documents.deletedAt),
+        ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+      ),
+    )
+    .orderBy(desc(documents.createdAt))
     .limit(1)
   return row ?? null
 }

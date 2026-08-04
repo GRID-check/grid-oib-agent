@@ -101,6 +101,9 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
     GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
     SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
+    // Dedicated READ-ONLY bucket-scoped identity for the aiq-agent tier — the
+    // backend must never hold the root `grid` Admin credential (ADR-0039).
+    SEAWEED_BACKEND_READ_SECRET_KEY: cfg.seaweedfs.backendReadSecretKey,
     // DSNs (embed the PG password → secret).
     NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
@@ -204,11 +207,20 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
-    // NOTE: no SEAWEED_* here on purpose — the backend Python tree has zero
-    // consumers (verified by grep across src/, frontends/aiq_api/, sources/,
-    // shared/; compose gives them only to frontend + purger). Injecting the S3
-    // root credential into tiers that never use it just widens the attack
-    // surface.
+    // Object storage for the `view_knowledge_image` tool (ADR-0039): the backend
+    // fetches project/Archiv document bytes directly from SeaweedFS (it resolves
+    // the storage key via the internal BFF lookup first). This OVERRIDES the
+    // earlier "no SEAWEED_* on the backend" separation — that held while the
+    // Python tree had zero S3 consumers (thumbnails went through presigned PUT
+    // URLs). The fetch is read-only (get_object only), so the credential is the
+    // DEDICATED read-only identity `grid-backend-read` (Read on the documents
+    // bucket only, distinct key material) — never the root `grid` Admin
+    // credential. The identity is provisioned in the SeaweedFS s3.json by
+    // deploy/pulumi/src/data/seaweedfs.ts.
+    { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
+    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.backendReadAccessKey },
+    srefAs("SEAWEED_SECRET_KEY", "SEAWEED_BACKEND_READ_SECRET_KEY"),
+    { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
   ];
   // Shared Chroma server (horizontal scaling): when set, the adapter uses an
   // HttpClient instead of the embedded per-pod store.

@@ -16,8 +16,15 @@ The adapter modules can be used standalone without NAT.
 try:
     from .register import KnowledgeRetrievalConfig
     from .register import knowledge_retrieval
+    from .view_image import ViewKnowledgeImageToolConfig
+    from .view_image import view_knowledge_image
 
-    __all__ = ["KnowledgeRetrievalConfig", "knowledge_retrieval"]
+    __all__ = [
+        "KnowledgeRetrievalConfig",
+        "knowledge_retrieval",
+        "ViewKnowledgeImageToolConfig",
+        "view_knowledge_image",
+    ]
 except ImportError:
     # NAT not installed - skip function registration
     __all__ = []

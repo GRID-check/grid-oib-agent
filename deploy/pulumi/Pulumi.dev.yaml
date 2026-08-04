@@ -55,6 +55,9 @@ config:
   grid-oib:seaweedfsStorageSize: 10Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid
+  # Read-only identity for the aiq-agent tier (view_knowledge_image, ADR-0039).
+  grid-oib:seaweedfsBackendReadSecretKey:
+    secure: AAABAMgLCSPRIGVbS+2Qqu/PaTFNt6j3hrxVVJ5q4noYPVAHqbOErFG7vBMa8KN/e+wmVSy5uybmUvk0FgSeE0TNvRELoEnJLMf+Az7WREs=
   # ── Shared Chroma ──
   grid-oib:chromaEnabled: "true"
   grid-oib:chromaStorageSize: 10Gi

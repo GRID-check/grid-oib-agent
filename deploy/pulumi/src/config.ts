@@ -179,6 +179,16 @@ export interface GridConfig {
     bucket: string;
     accessKey: string;
     secretKey: pulumi.Output<string>;
+    /**
+     * Dedicated READ-ONLY, bucket-scoped S3 identity for the aiq-agent tier
+     * (ADR-0039 `view_knowledge_image`): its SeaweedFS s3.json entry grants
+     * `Read` on the documents bucket only — no Write/Admin — and the backend
+     * never receives the root `grid` access key. The secret key MUST be
+     * distinct from `seaweedfsSecretKey`: shared key material would let the
+     * backend pod authenticate as the root Admin identity.
+     */
+    backendReadAccessKey: string;
+    backendReadSecretKey: pulumi.Output<string>;
   };
 
   /**
@@ -722,6 +732,11 @@ export function loadConfig(): GridConfig {
       bucket: cfg.get("seaweedfsBucket") ?? "grid-documents",
       accessKey: cfg.get("seaweedfsAccessKey") ?? "grid",
       secretKey: cfg.requireSecret("seaweedfsSecretKey"),
+      // Read-only, bucket-scoped identity for the aiq-agent tier (see the type
+      // doc above). The secret key must be its own value, set like the root:
+      // `pulumi config set --secret grid-oib:seaweedfsBackendReadSecretKey "…"`.
+      backendReadAccessKey: cfg.get("seaweedfsBackendReadAccessKey") ?? "grid-backend-read",
+      backendReadSecretKey: cfg.requireSecret("seaweedfsBackendReadSecretKey"),
     },
 
     backend: {
