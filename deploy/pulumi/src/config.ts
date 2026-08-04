@@ -781,9 +781,12 @@ export function loadConfig(): GridConfig {
 
     web: {
       // Static-first site: requests are a floor for the HPA and the scheduler,
-      // limits only a burst ceiling. The Astro server barely idles above zero.
+      // limits only a burst ceiling. The Astro server barely idles above zero,
+      // but the request must stay proportional to the HPA: at 70% target the
+      // trigger (70m at 100m requests) must clear ~15% of the 250m limit or
+      // assertHpaTargetIsProportional fails the deploy (see frontend tier).
       resources: {
-        requestsCpu: cfg.get("webRequestsCpu") ?? "50m",
+        requestsCpu: cfg.get("webRequestsCpu") ?? "100m",
         requestsMemory: cfg.get("webRequestsMemory") ?? "128Mi",
         limitsCpu: cfg.get("webLimitsCpu") ?? "250m",
         limitsMemory: cfg.get("webLimitsMemory") ?? "256Mi",
