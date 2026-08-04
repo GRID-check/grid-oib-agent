@@ -259,7 +259,7 @@ describe('the per-message mention cap (matrix E26, spec MN-13)', () => {
 
     await expect(send(atCap)).resolves.toBeDefined()
     expect(consumeLimit).toHaveBeenCalledWith(
-      expect.anything(),
+      MENTION_LIMIT,
       memberSubject(session),
       MAX_MENTIONS_PER_MESSAGE,
     )
@@ -403,7 +403,7 @@ describe('duplicate mention targets in one message (matrix E31, spec MN-13)', ()
     expect(result.addressees).toEqual({ agent: false, users: [ANNA] })
     expect(vi.mocked(insertMentionRequests).mock.calls[0]![0]).toHaveLength(1)
     expect(vi.mocked(upsertInboxItems).mock.calls[0]![0]).toHaveLength(1)
-    expect(consumeLimit).toHaveBeenCalledWith(expect.anything(), memberSubject(session), 1)
+    expect(consumeLimit).toHaveBeenCalledWith(MENTION_LIMIT, memberSubject(session), 1)
   })
 })
 

@@ -205,10 +205,24 @@ const { createFrameObserver, classifyFrame } = require('./src/lib/limits/ws-fram
 // `GRID_WS_UPGRADE_RATE_LIMIT` predates the catalog and stays honoured: an
 // operator who tuned it should not have it silently reverted by this refactor.
 // 0 still disables the upgrade limit entirely.
-const WS_UPGRADE_OVERRIDE = parseInt(
+const parsedUpgradeOverride = parseInt(
   process.env.GRID_WS_UPGRADE_RATE_LIMIT || String(WS_UPGRADE_LIMIT.limit),
   10
 )
+if (!Number.isFinite(parsedUpgradeOverride)) {
+  console.warn(
+    '[Gateway] invalid GRID_WS_UPGRADE_RATE_LIMIT=%s, using catalog default %d',
+    process.env.GRID_WS_UPGRADE_RATE_LIMIT,
+    WS_UPGRADE_LIMIT.limit
+  )
+}
+// A typo must not silently switch the limit off. `parseInt('thirty')` is NaN,
+// and `NaN > 0` is false — so without this guard a malformed value took the
+// `upgradeLimiter = null` path and disabled upgrade limiting with nothing in the
+// logs. Only an explicit 0 disables it.
+const WS_UPGRADE_OVERRIDE = Number.isFinite(parsedUpgradeOverride)
+  ? parsedUpgradeOverride
+  : WS_UPGRADE_LIMIT.limit
 // Frames per session. 0 disables, for an operator who needs the old behaviour
 // back in a hurry.
 const WS_MESSAGE_LIMITS_ENABLED = process.env.GRID_WS_MESSAGE_LIMITS !== '0'
@@ -280,7 +294,7 @@ async function wsUpgradeAllowed(clientKey) {
  * upgrade limiter above then paces it.
  */
 function watchClientFrames(socket, key) {
-  if (!frameLimiters) return
+  if (!frameLimiters) return null
 
   let closing = false
   const observer = createFrameObserver((frame) => {
@@ -307,6 +321,7 @@ function watchClientFrames(socket, key) {
   })
 
   socket.on('data', (chunk) => observer.push(chunk))
+  return observer
 }
 
 // In production, we run Next.js in the same process
@@ -734,7 +749,14 @@ const startServer = async () => {
       // Count what this client sends once the socket is live (ADR-0040 L2b).
       // Attached BEFORE the splice so no frame is missed, and passive, so the
       // proxying below is unchanged.
-      watchClientFrames(socket, sessionKey(req))
+      const frameObserver = watchClientFrames(socket, sessionKey(req))
+      // `head` holds bytes already read off the socket during the upgrade —
+      // Node hands them to us rather than leaving them in the stream, and
+      // `backendProxy.ws` forwards them upstream. They never arrive as a 'data'
+      // event, so an observer that only listens for 'data' would miss them. A
+      // partial frame there desynchronises the parser for the life of the
+      // connection, and the chat-turn limiter silently stops counting.
+      if (frameObserver && head && head.length > 0) frameObserver.push(head)
 
       // Guard the proxy call itself: http-proxy can throw SYNCHRONOUSLY from
       // ws() (e.g. an invalid header value) and an uncaught throw in the

@@ -15,24 +15,26 @@ import { classifyFrame, createFrameObserver } from './ws-frames.js'
 interface Observed {
   opcode: number
   peek: string
+  fragmented: boolean
 }
 
 /** Build a client→server frame the way a browser does: always masked. */
-function frame(opcode: number, payload: string | Buffer = ''): Buffer {
+function frame(opcode: number, payload: string | Buffer = '', fin = true): Buffer {
   const body = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, 'utf8')
   const mask = Buffer.from([0x37, 0xfa, 0x21, 0x3d])
+  const first = (fin ? 0x80 : 0x00) | opcode
 
   let header: Buffer
   if (body.length < 126) {
-    header = Buffer.from([0x80 | opcode, 0x80 | body.length])
+    header = Buffer.from([first, 0x80 | body.length])
   } else if (body.length < 65536) {
     header = Buffer.alloc(4)
-    header[0] = 0x80 | opcode
+    header[0] = first
     header[1] = 0x80 | 126
     header.writeUInt16BE(body.length, 2)
   } else {
     header = Buffer.alloc(10)
-    header[0] = 0x80 | opcode
+    header[0] = first
     header[1] = 0x80 | 127
     header.writeBigUInt64BE(BigInt(body.length), 2)
   }
@@ -113,20 +115,89 @@ describe('createFrameObserver', () => {
 
 describe('classifyFrame', () => {
   it('charges a user message as a chat turn', () => {
-    expect(classifyFrame({ opcode: 0x1, peek: userMessage })).toBe('chat-turn')
+    expect(classifyFrame({ opcode: 0x1, peek: userMessage, fragmented: false })).toBe('chat-turn')
   })
 
   it('charges anything it cannot positively identify as cheap, not expensive', () => {
     // Charging the wrong rule would refuse honest traffic — the failure mode an
     // abuse bound must avoid.
-    expect(classifyFrame({ opcode: 0x1, peek: interaction })).toBe('control')
-    expect(classifyFrame({ opcode: 0x1, peek: '{"typ' })).toBe('control')
-    expect(classifyFrame({ opcode: 0x2, peek: '' })).toBe('control')
-    expect(classifyFrame({ opcode: 0x9, peek: '' })).toBe('control')
+    expect(classifyFrame({ opcode: 0x1, peek: interaction, fragmented: false })).toBe('control')
+    expect(classifyFrame({ opcode: 0x1, peek: '{"typ', fragmented: false })).toBe('control')
+    expect(classifyFrame({ opcode: 0x2, peek: '', fragmented: false })).toBe('control')
+    expect(classifyFrame({ opcode: 0x9, peek: '', fragmented: false })).toBe('control')
   })
 
   it('never throttles the close handshake', () => {
     // A rate-limited close frame would leave sockets unable to shut down.
-    expect(classifyFrame({ opcode: 0x8, peek: '' })).toBe('ignore')
+    expect(classifyFrame({ opcode: 0x8, peek: '', fragmented: false })).toBe('ignore')
+  })
+})
+
+describe('fragmented messages', () => {
+  it('classifies a message whose type only appears in a continuation', () => {
+    // The bypass this closes: split the message so the type never appears in
+    // the peek window, and every fragment would otherwise be charged as a cheap
+    // control frame — buying roughly 40x the agent runs the budget allows.
+    // 600 bytes of padding outruns MAX_PEEK entirely, so accumulation alone
+    // cannot save it; fragmentation itself is what condemns it.
+    const head = '{"padding":"' + 'p'.repeat(600) + '",'
+    const tail = '"type":"user_message","id":"m1"}'
+    const seen = collect([
+      Buffer.concat([frame(0x1, head, false), frame(0x0, tail, true)]),
+    ])
+
+    expect(seen).toHaveLength(2)
+    expect(seen.map(classifyFrame)).toEqual(['chat-turn', 'chat-turn'])
+  })
+
+  it('reports a continuation under its message opcode, not as opcode 0', () => {
+    const seen = collect([
+      Buffer.concat([frame(0x1, '{"type":', false), frame(0x0, '"user_message"}', true)]),
+    ])
+
+    expect(seen[1].opcode).toBe(0x1)
+    expect(classifyFrame(seen[1])).toBe('chat-turn')
+  })
+
+  it('does not let a control frame between fragments reset the accumulator', () => {
+    // Ping/pong may legally interleave with a fragmented message. If they wiped
+    // the peek, interleaving would restore the bypass.
+    const seen = collect([
+      Buffer.concat([
+        frame(0x1, '{"type":', false),
+        frame(0x9),
+        frame(0x0, '"user_message"}', true),
+      ]),
+    ])
+
+    expect(seen.map((f) => f.opcode)).toEqual([0x1, 0x9, 0x1])
+    expect(classifyFrame(seen[2])).toBe('chat-turn')
+  })
+
+  it('starts a fresh message after FIN', () => {
+    const seen = collect([
+      Buffer.concat([
+        frame(0x1, '{"type":"user_message"}', true),
+        frame(0x1, '{"type":"user_interaction_message"}', true),
+      ]),
+    ])
+
+    // A completed message must not leak its classification into the next one.
+    expect(classifyFrame(seen[0])).toBe('chat-turn')
+    expect(classifyFrame(seen[1])).toBe('control')
+  })
+
+  it('stays in sync when a frame declares a huge 127-encoded length', () => {
+    // A client that declares more than it sends leaves the parser mid-payload.
+    // What matters is that it cannot make the observer emit phantom frames.
+    const header = Buffer.alloc(10)
+    header[0] = 0x81
+    header[1] = 0x80 | 127
+    header.writeBigUInt64BE(BigInt(1_000_000), 2)
+    const seen = collect([
+      Buffer.concat([header, Buffer.from([0, 0, 0, 0]), Buffer.from('short')]),
+    ])
+
+    expect(seen).toHaveLength(0)
   })
 })

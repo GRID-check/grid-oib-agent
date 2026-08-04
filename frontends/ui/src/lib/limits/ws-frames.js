@@ -25,12 +25,24 @@
  *
  * ## What it deliberately does NOT do
  *
- * It reads at most `MAX_PEEK` bytes of each frame's payload — enough to see the
- * `type` field the client writes first — and never buffers a whole message. A
- * frame it cannot classify is charged as CHEAP, not expensive: this is an abuse
- * bound, and a caller who fragments cleverly to dodge the expensive class still
- * has to get past the cheap rule. CommonJS for the same reason as its siblings:
- * `server.js` cannot import TypeScript.
+ * It reads at most `MAX_PEEK` bytes of a MESSAGE's payload — enough to see the
+ * `type` field the client writes first — and never buffers a whole message.
+ *
+ * The peek accumulates across a message's FRAGMENTS, and that is deliberate: a
+ * client can legally split one text message into an initial frame plus
+ * continuations, so hiding `"type":"user_message"` past the first 512 bytes
+ * would otherwise buy the cheap `ws-control` budget for something that starts an
+ * agent run. Accumulating means the fragment that reveals the type is charged as
+ * the chat turn it is. The trade is that a fragmented user message is charged
+ * once per fragment from that point on — over-charging a client that fragments
+ * to hide, never under-charging it, and no honest client fragments a few hundred
+ * bytes of JSON.
+ *
+ * An UNFRAGMENTED frame it cannot classify is charged as CHEAP, not expensive:
+ * charging the wrong rule would refuse honest traffic, which is the failure an
+ * abuse bound must avoid. A fragmented one goes the other way — see
+ * `classifyFrame`. CommonJS for the same reason as its siblings: `server.js`
+ * cannot import TypeScript.
  */
 
 /** Payload bytes inspected per frame. The client writes `type` first. */
@@ -47,8 +59,12 @@ const OPCODE = {
 
 /**
  * @typedef {Object} ObservedFrame
- * @property {number} opcode
- * @property {string} peek Unmasked leading payload bytes, '' for non-text.
+ * @property {number} opcode Effective opcode: a continuation reports the opcode
+ *   of the message it belongs to, not 0.
+ * @property {string} peek Unmasked leading bytes of the MESSAGE so far
+ *   (accumulated across fragments), '' for control frames.
+ * @property {boolean} fragmented Whether this frame is part of a fragmented
+ *   message (a non-FIN frame or any continuation of one).
  */
 
 /**
@@ -64,14 +80,20 @@ function createFrameObserver(onFrame) {
   let pending = Buffer.alloc(0)
   let state = 'header'
   let opcode = 0
+  let fin = true
   let masked = false
   /** @type {Buffer|null} */
   let maskKey = null
   let payloadRemaining = 0
   let maskOffset = 0
+  // Peek accumulates across the FRAGMENTS of one message, not per frame — see
+  // the header. Reset when a message completes (FIN), never by a control frame
+  // interleaved between fragments.
   /** @type {Buffer[]} */
   let peeked = []
   let peekedBytes = 0
+  /** Opcode of the fragmented message in progress, or 0 when between messages. */
+  let messageOpcode = 0
 
   /** Header length once the first two bytes are known, or null if unknowable. */
   const headerLength = (buf) => {
@@ -91,14 +113,33 @@ function createFrameObserver(onFrame) {
     return len7
   }
 
+  const isControl = (code) => (code & 0x8) !== 0
+
   const finishFrame = () => {
-    const peek = peeked.length ? Buffer.concat(peeked).toString('utf8') : ''
-    peeked = []
-    peekedBytes = 0
+    const control = isControl(opcode)
+    // A continuation carries the opcode of the message it belongs to, so a
+    // fragment that reveals `"type":"user_message"` is charged as the chat turn
+    // it is rather than as a cheap control frame.
+    const effectiveOpcode =
+      opcode === OPCODE.CONTINUATION && messageOpcode ? messageOpcode : opcode
+    const peek = control || !peeked.length ? '' : Buffer.concat(peeked).toString('utf8')
+    const fragmented = !control && (!fin || opcode === OPCODE.CONTINUATION)
+
+    if (!control) {
+      if (fin) {
+        // Message complete: start the next one from nothing.
+        peeked = []
+        peekedBytes = 0
+        messageOpcode = 0
+      } else if (!messageOpcode) {
+        messageOpcode = opcode
+      }
+    }
+
     maskOffset = 0
     state = 'header'
     try {
-      onFrame({ opcode, peek })
+      onFrame({ opcode: effectiveOpcode, peek, fragmented })
     } catch {
       // Observing must never break the connection it observes.
     }
@@ -115,6 +156,7 @@ function createFrameObserver(onFrame) {
           if (needed === null || pending.length < needed) return
 
           opcode = pending[0] & 0x0f
+          fin = (pending[0] & 0x80) !== 0
           masked = (pending[1] & 0x80) !== 0
           payloadRemaining = readPayloadLength(pending)
           maskKey = masked ? pending.subarray(needed - 4, needed) : null
@@ -130,7 +172,12 @@ function createFrameObserver(onFrame) {
         if (pending.length === 0) return
         const take = Math.min(payloadRemaining, pending.length)
 
-        if (opcode === OPCODE.TEXT && peekedBytes < MAX_PEEK) {
+        // Accumulate for TEXT and its continuations; control frames are not
+        // part of any message and must not pollute the accumulator.
+        const peekable =
+          opcode === OPCODE.TEXT ||
+          (opcode === OPCODE.CONTINUATION && messageOpcode === OPCODE.TEXT)
+        if (peekable && peekedBytes < MAX_PEEK) {
           const wanted = Math.min(take, MAX_PEEK - peekedBytes)
           const slice = Buffer.from(pending.subarray(0, wanted))
           if (maskKey) {
@@ -154,10 +201,10 @@ function createFrameObserver(onFrame) {
 /**
  * What a frame costs.
  *
- * `'chat-turn'` only when the frame positively identifies itself as a user
- * message — the one thing that starts an agent run. Anything unrecognised
- * (a continuation fragment, a binary frame, a payload past the peek window)
- * falls through to `'control'` rather than being assumed expensive: charging
+ * `'chat-turn'` when the message identifies itself as a user message — the one
+ * thing that starts an agent run — or when it was fragmented at all. An
+ * unrecognised, unfragmented frame (a binary frame, a payload past the peek
+ * window) falls through to `'control'` rather than being assumed expensive: charging
  * the wrong rule would refuse honest traffic, which is the failure mode an
  * abuse bound must avoid. `'ignore'` is for the close handshake, which must
  * never be throttled or the socket cannot shut down cleanly.
@@ -167,9 +214,18 @@ function createFrameObserver(onFrame) {
  */
 function classifyFrame(frame) {
   if (frame.opcode === OPCODE.CLOSE) return 'ignore'
-  if (frame.opcode === OPCODE.TEXT && /"type"\s*:\s*"user_message"/.test(frame.peek)) {
-    return 'chat-turn'
-  }
+  if (frame.opcode !== OPCODE.TEXT) return 'control'
+  if (/"type"\s*:\s*"user_message"/.test(frame.peek)) return 'chat-turn'
+  // A FRAGMENTED text message is charged as a chat turn even when the peek
+  // never revealed a type. Accumulating across fragments (above) is not enough
+  // on its own: a client can pad past `MAX_PEEK` before writing `type` and the
+  // window closes before the answer arrives. Fragmentation is itself the tell —
+  // this app's client sends one frame per message (`websocket-client.ts` calls
+  // `ws.send` with a complete JSON string), so splitting a few hundred bytes of
+  // JSON is not something honest traffic does. Charging the expensive rule here
+  // costs a well-behaved oddity nothing it can notice, and closes the only way
+  // left to buy 40x the agent runs.
+  if (frame.fragmented) return 'chat-turn'
   return 'control'
 }
 

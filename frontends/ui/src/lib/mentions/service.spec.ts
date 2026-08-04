@@ -216,7 +216,7 @@ describe('applyMessageMentions — addressing (spec MN-1)', () => {
     await send([ANNA, ANNA])
 
     expect(vi.mocked(insertMentionRequests).mock.calls[0][0]).toHaveLength(1)
-    expect(consumeLimit).toHaveBeenCalledWith(expect.anything(), memberSubject(session), 1)
+    expect(consumeLimit).toHaveBeenCalledWith(MENTION_LIMIT, memberSubject(session), 1)
   })
 })
 

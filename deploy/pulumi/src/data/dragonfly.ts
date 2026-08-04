@@ -28,6 +28,18 @@ interface DragonflyOptions {
    * `installRateLimitStore`.
    */
   cacheMode: boolean;
+  /**
+   * Replace the pod instead of surging a second one alongside it.
+   *
+   * A surge briefly puts TWO independent instances behind one Service, and a
+   * Service load-balances across both. For a cache that is harmless (a split
+   * keyspace costs a few misses). For rate-limit COUNTERS it is not: each
+   * instance keeps its own count, so for the length of the rollout a client can
+   * spend its budget twice — the limit quietly doubles with nothing to show it.
+   * A brief gap is the better failure: no store means the rate limit service
+   * errors, which is the documented fail-open path.
+   */
+  recreateOnRollout?: boolean;
 }
 
 /** The shared Deployment+Service shape both instances use. */
@@ -44,12 +56,14 @@ function installDragonflyInstance(
       metadata: { name: opts.name, namespace, labels },
       spec: {
         replicas: 1,
-        // Surge, not Recreate. Recreate would leave a window with NO instance at
-        // all; surging leaves a few seconds where two sit behind the Service and
-        // split the keyspace. Both instances hold only regenerable or
-        // short-lived state and both fail open, so the surge is strictly the
-        // milder of the two — and it avoids a hard-down window.
-        ...surgeRollout(ROLLOUT.dataPlane),
+        // The CACHE surges: Recreate would leave a window with no cache at all,
+        // while surging only splits the keyspace for a few seconds, and every
+        // value there is regenerable. The COUNTER store does the opposite
+        // (`recreateOnRollout`), because a split keyspace there means doubled
+        // limits rather than a few extra misses.
+        ...(opts.recreateOnRollout
+          ? { strategy: { type: "Recreate" } }
+          : surgeRollout(ROLLOUT.dataPlane)),
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
@@ -170,5 +184,7 @@ export function installRateLimitStore(
     maxmemory: cfg.rateLimit.storeMaxmemory,
     memoryLimit: cfg.rateLimit.storeMemoryLimit,
     cacheMode: false,
+    // Never two counter stores behind one Service — see the option's comment.
+    recreateOnRollout: true,
   });
 }

@@ -202,7 +202,16 @@ def eval_script(script: str, keys: list[str], args: list[Any]) -> Any | None:
         return None
     try:
         return client.eval(script, len(keys), *keys, *args)
-    except Exception:
+    except Exception as exc:
+        from redis.exceptions import ResponseError
+
+        if isinstance(exc, ResponseError):
+            # A Lua compile error or a WRONGTYPE key. The store is healthy; this
+            # call is not. Marking the client failed here would take the whole
+            # shared cache offline for _CLIENT_RETRY_SECONDS — for every
+            # consumer of this module, over a bug in one script.
+            logger.warning("Shared cache eval rejected by server", exc_info=True)
+            return None
         logger.warning("Shared cache eval failed", exc_info=True)
         _mark_client_failed()
         return None

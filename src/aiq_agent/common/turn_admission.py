@@ -44,12 +44,15 @@ be the reason chat stops.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
 import time
 import uuid
+from collections.abc import AsyncIterator
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from contextlib import contextmanager
 
 from aiq_agent.common import cache
@@ -182,8 +185,52 @@ def _acquire(key: str, limit: int, member: str) -> bool:
 
 
 def _release(key: str, member: str) -> None:
-    if cache.eval_script(_RELEASE_LUA, [key], [member]) is None:
-        _local_release(key, member)
+    """Return one slot, to whichever pool is actually holding it.
+
+    Both paths run unconditionally, because the store's availability can change
+    between acquire and release: a turn admitted against the LOCAL table while
+    Dragonfly was down would otherwise never hand its slot back once Dragonfly
+    recovered (the script returns a ZREM count of 0, not None), and the replica
+    pool would shrink by one for a full lease every time the store flapped.
+    `_local_release` is a no-op when the member is absent, so running both is
+    free.
+    """
+    cache.eval_script(_RELEASE_LUA, [key], [member])
+    _local_release(key, member)
+
+
+# The two pools a turn is admitted against, in acquisition order. Global first,
+# so a tenant sitting at its own limit cannot drain the shared pool with turns
+# that never ran: if the per-org slot is refused, the global one is handed back
+# on the way out.
+def _pools(organization_id: str | None) -> list[tuple[str, int, str]]:
+    """`(key, limit, refusal message)` for each pool that applies to this turn."""
+    pools: list[tuple[str, int, str]] = []
+    if MAX_ACTIVE_TURNS > 0:
+        pools.append(
+            (
+                _GLOBAL_KEY,
+                MAX_ACTIVE_TURNS,
+                "The assistant is busy right now. Please send your message again in a moment.",
+            )
+        )
+    if MAX_ACTIVE_TURNS_PER_ORG > 0 and organization_id:
+        pools.append(
+            (
+                _org_key(organization_id),
+                MAX_ACTIVE_TURNS_PER_ORG,
+                "Your organization already has several answers in progress. Please wait for one to finish.",
+            )
+        )
+    return pools
+
+
+def _release_all(held: list[str], member: str) -> None:
+    for key in held:
+        try:
+            _release(key, member)
+        except Exception:  # pragma: no cover - release must never mask the turn's own error
+            logger.warning("Failed to release turn slot on %s", key, exc_info=True)
 
 
 @contextmanager
@@ -191,30 +238,41 @@ def admit_turn(organization_id: str | None) -> Iterator[None]:
     """Hold an interactive-turn slot for the duration of the block.
 
     Raises `TurnAdmissionError` when the global or the organization's pool is
-    full. Both pools are acquired in that order, and the global slot is returned
-    immediately if the per-org one is refused — otherwise a tenant at its own
-    limit would slowly drain the shared pool with turns that never ran.
+    full. Synchronous — callers on an event loop want `admit_turn_async`.
     """
     member = uuid.uuid4().hex
     held: list[str] = []
-
     try:
-        if MAX_ACTIVE_TURNS > 0:
-            if not _acquire(_GLOBAL_KEY, MAX_ACTIVE_TURNS, member):
-                raise TurnAdmissionError("The assistant is busy right now. Please send your message again in a moment.")
-            held.append(_GLOBAL_KEY)
-
-        if MAX_ACTIVE_TURNS_PER_ORG > 0 and organization_id:
-            if not _acquire(_org_key(organization_id), MAX_ACTIVE_TURNS_PER_ORG, member):
-                raise TurnAdmissionError(
-                    "Your organization already has several answers in progress. Please wait for one to finish."
-                )
-            held.append(_org_key(organization_id))
-
+        for key, limit, message in _pools(organization_id):
+            if not _acquire(key, limit, member):
+                raise TurnAdmissionError(message)
+            held.append(key)
         yield
     finally:
-        for key in held:
-            try:
-                _release(key, member)
-            except Exception:  # pragma: no cover - release must never mask the turn's own error
-                logger.warning("Failed to release turn slot on %s", key, exc_info=True)
+        _release_all(held, member)
+
+
+@asynccontextmanager
+async def admit_turn_async(organization_id: str | None) -> AsyncIterator[None]:
+    """`admit_turn`, off the event loop.
+
+    The store calls underneath are the synchronous `redis` client, and a chat
+    turn runs inside an async generator serving a live WebSocket. Up to four
+    blocking round trips (two acquires, two releases) at the 500 ms socket
+    timeout would stall EVERY other conversation this replica is streaming, not
+    just this one — the classic way a protective control becomes the outage.
+
+    `asyncio.to_thread` keeps the semantics identical (same ordering, same
+    partial-acquisition rollback, same `finally`) and moves the waiting to a
+    worker thread.
+    """
+    member = uuid.uuid4().hex
+    held: list[str] = []
+    try:
+        for key, limit, message in _pools(organization_id):
+            if not await asyncio.to_thread(_acquire, key, limit, member):
+                raise TurnAdmissionError(message)
+            held.append(key)
+        yield
+    finally:
+        await asyncio.to_thread(_release_all, held, member)

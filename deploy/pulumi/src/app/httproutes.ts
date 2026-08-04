@@ -48,10 +48,10 @@ const edgeRetry: IRetry = {
 /**
  * One per-client-IP rate limit rule (ADR-0040 layer L1).
  *
- * `sourceCIDR` with `type: Distinct` over `0.0.0.0/0` is what makes the bucket
- * PER CLIENT rather than one shared bucket for the internet — `Exact` would give
- * every caller in the range a single counter between them. Which address counts
- * as "the client" is decided by `clientIPDetection` on the ClientTrafficPolicy
+ * `sourceCIDR` with `type: Distinct` is what makes the bucket PER CLIENT rather
+ * than one shared bucket for the whole range — `Exact` would give every caller
+ * in it a single counter between them. Which address counts as "the client" is
+ * decided by `clientIPDetection` on the ClientTrafficPolicy
  * (`platform/gateway.ts`); this rule is only as meaningful as that setting.
  *
  * `path` is optional and narrows the rule to a prefix. Rules are NOT mutually
@@ -63,12 +63,13 @@ const edgeRetry: IRetry = {
 function perClientIpRule(
   cfg: GridConfig,
   requestsPerMinute: number,
+  cidr: string,
   pathPrefix?: string,
 ): IRateLimitRule {
   return {
     clientSelectors: [
       {
-        sourceCIDR: { value: "0.0.0.0/0", type: "Distinct" },
+        sourceCIDR: { value: cidr, type: "Distinct" },
         ...(pathPrefix ? { path: { type: "PathPrefix", value: pathPrefix } } : {}),
       },
     ],
@@ -96,6 +97,30 @@ function perClientIpRule(
 function edgeRateLimit(cfg: GridConfig, rules: IRateLimitRule[]): { rateLimit?: IRateLimitSpec } {
   if (!cfg.rateLimit.enabled) return {};
   return { rateLimit: { type: "Global", global: { rules } } };
+}
+
+/**
+ * One budget, expressed for BOTH address families.
+ *
+ * A CIDR selector matches one family only: `0.0.0.0/0` never matches an IPv6
+ * address, so on a dual-stack LoadBalancer an IPv6 client would walk past every
+ * rule while the config read as covering "everyone". The two cannot be merged
+ * into a single selector, so each budget becomes two rules with the same limit.
+ *
+ * They are independent buckets, which is correct: a client has one address, and
+ * only one of the two rules can ever match it. On an IPv4-only cluster the v6
+ * rule simply never fires — a few unused descriptors, and no way to be silently
+ * uncovered the day the cluster gains an IPv6 address.
+ */
+function perClientRules(
+  cfg: GridConfig,
+  requestsPerMinute: number,
+  pathPrefix?: string,
+): IRateLimitRule[] {
+  return [
+    perClientIpRule(cfg, requestsPerMinute, "0.0.0.0/0", pathPrefix),
+    perClientIpRule(cfg, requestsPerMinute, "::/0", pathPrefix),
+  ];
 }
 
 /**
@@ -154,9 +179,9 @@ export function installHttpRoutes(
     //     chatty (inbox polling, presence, conversation reads) and this rule
     //     exists to stop a runaway client, not to shape normal traffic.
     ...edgeRateLimit(cfg, [
-      perClientIpRule(cfg, cfg.rateLimit.limits.appAuth, EDGE_RATE_LIMIT.paths.auth),
-      perClientIpRule(cfg, cfg.rateLimit.limits.appWsUpgrade, EDGE_RATE_LIMIT.paths.ws),
-      perClientIpRule(cfg, cfg.rateLimit.limits.app),
+      ...perClientRules(cfg, cfg.rateLimit.limits.appAuth, EDGE_RATE_LIMIT.paths.auth),
+      ...perClientRules(cfg, cfg.rateLimit.limits.appWsUpgrade, EDGE_RATE_LIMIT.paths.ws),
+      ...perClientRules(cfg, cfg.rateLimit.limits.app),
     ]),
   };
   new k8s.apiextensions.CustomResource(
@@ -181,7 +206,7 @@ export function installHttpRoutes(
     // One document preview fans out into many object GETs, so this budget is
     // generous by design. It bounds someone walking presigned URLs, not a user
     // opening a PDF.
-    ...edgeRateLimit(cfg, [perClientIpRule(cfg, cfg.rateLimit.limits.s3)]),
+    ...edgeRateLimit(cfg, perClientRules(cfg, cfg.rateLimit.limits.s3)),
   };
 
   const s3RouteSpec: IHTTPRouteSpec = {
@@ -239,7 +264,7 @@ export function installHttpRoutes(
     // Prerendered marketing pages: a human reads a few per minute, a scraper
     // reads hundreds. This is the one route where the honest and abusive
     // patterns are far enough apart that a tight number is safe.
-    ...edgeRateLimit(cfg, [perClientIpRule(cfg, cfg.rateLimit.limits.web)]),
+    ...edgeRateLimit(cfg, perClientRules(cfg, cfg.rateLimit.limits.web)),
   };
   new k8s.apiextensions.CustomResource(
     "grid-web-backend-traffic-policy",

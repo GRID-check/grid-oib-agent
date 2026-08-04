@@ -227,7 +227,7 @@ no library provides; the counting is not.
 Nothing below is "the rate limiter". Each layer answers a different question, and
 the value of the design is that each layer's failure mode is understood.
 
-```
+```text
  L0  connection hygiene      ClientTrafficPolicy         per-IP conns, TLS, header caps
  L1  edge request limits     BackendTrafficPolicy        per-IP/route RPS  ← zero app code
  L2  identity-scoped quota   extAuth OR apiRoute limits  per-org/user/action
@@ -393,9 +393,16 @@ with WebSocket status **1008** (there is no 429 to send on an open socket) and
 the client reconnects on its jittered backoff, where the upgrade limiter paces
 it.
 
-A frame it cannot positively identify is charged as **cheap, not expensive**:
+An **unfragmented** frame it cannot positively identify is charged as *cheap*:
 charging the wrong rule would refuse honest traffic, which is the failure an
-abuse bound must avoid. The close handshake is never throttled.
+abuse bound must avoid. A **fragmented** text message goes the other way and is
+charged as a chat turn regardless — the peek accumulates across fragments, but a
+client can pad past 512 bytes before writing `type`, so fragmentation itself is
+treated as the tell. This app's client sends one frame per message, so splitting
+a few hundred bytes of JSON is not something honest traffic does; without this,
+hiding the type behind padding bought the `ws-control` budget (240/min) for
+something entitled to the `chat-turn` one (30/5min). The close handshake is
+never throttled.
 
 Covered by `tests/gateway/ws-frame-limits.test.ts`, which spawns the real gateway
 and pushes real frames — the same harness style as the existing upgrade tests,

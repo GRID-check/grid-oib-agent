@@ -16,6 +16,7 @@ import pytest
 from aiq_agent.common import turn_admission
 from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.common.turn_admission import admit_turn
+from aiq_agent.common.turn_admission import admit_turn_async
 
 
 @pytest.fixture(autouse=True)
@@ -160,3 +161,66 @@ def test_admits_when_the_check_itself_breaks(monkeypatch: pytest.MonkeyPatch) ->
     with admit_turn("org_1"):
         with admit_turn("org_1"):
             pass
+
+
+@pytest.mark.asyncio
+async def test_async_manager_enforces_the_same_pools(monkeypatch: pytest.MonkeyPatch) -> None:
+    _limits(monkeypatch, total=10, per_org=1)
+
+    async with admit_turn_async("org_1"):
+        # The async manager exists so the store round trips leave the event loop,
+        # not to relax anything: same pools, same refusal.
+        with pytest.raises(TurnAdmissionError):
+            async with admit_turn_async("org_1"):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_async_manager_returns_the_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    _limits(monkeypatch, total=10, per_org=1)
+
+    async with admit_turn_async("org_1"):
+        pass
+
+    async with admit_turn_async("org_1"):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_async_manager_returns_the_slot_when_the_turn_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _limits(monkeypatch, total=10, per_org=1)
+
+    with pytest.raises(ValueError):
+        async with admit_turn_async("org_1"):
+            raise ValueError("the agent blew up mid-turn")
+
+    async with admit_turn_async("org_1"):
+        pass
+
+
+def test_a_slot_taken_locally_is_returned_after_the_store_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store flap between acquire and release must not strand a slot.
+
+    Acquire while the store is unreachable (local table), then release once it
+    answers again. `eval_script` then returns a ZREM count of 0 rather than
+    None, so a release that only fell back on `None` would leave the local slot
+    held for the whole 900s lease — and every flap would shrink the replica pool
+    by one, permanently.
+    """
+    _limits(monkeypatch, total=10, per_org=1)
+
+    monkeypatch.setattr(turn_admission.cache, "eval_script", lambda *_a, **_k: None)
+    manager = admit_turn("org_1")
+    manager.__enter__()
+
+    # The store comes back: every call now answers, including the release.
+    monkeypatch.setattr(turn_admission.cache, "eval_script", lambda *_a, **_k: 0)
+    manager.__exit__(None, None, None)
+
+    monkeypatch.setattr(turn_admission.cache, "eval_script", lambda *_a, **_k: None)
+    with admit_turn("org_1"):
+        pass

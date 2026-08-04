@@ -103,7 +103,10 @@ async function consumeLimiter(limiter, key, points = 1) {
     return { allowed: true, retryAfterMs: 0, remaining: minRemaining(result), degraded: false }
   } catch (rejection) {
     if (rejection instanceof Error) {
-      console.warn(`[limits] store unavailable for ${key}, allowing:`, rejection.message)
+      // The rule, never the key: `key` is the subject, and the API path passes
+      // `organizationId:userId` — identifiers that should not land in logs to
+      // record that a cache was briefly unreachable.
+      console.warn('[limits] store unavailable, allowing:', rejection.message)
       return { allowed: true, retryAfterMs: 0, remaining: 0, degraded: true }
     }
     return {

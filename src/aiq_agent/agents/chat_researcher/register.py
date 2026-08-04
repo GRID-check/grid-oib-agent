@@ -998,7 +998,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             from aiq_agent.common.cost_tracking import track_llm_costs
             from aiq_agent.common.profiler import track_agent_profile
             from aiq_agent.common.turn_admission import TurnAdmissionError
-            from aiq_agent.common.turn_admission import admit_turn
+            from aiq_agent.common.turn_admission import admit_turn_async
 
             try:
                 # Concurrency admission (ADR-0040 L3). A turn OCCUPIES capacity
@@ -1007,17 +1007,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 # an unbounded number of simultaneous research runs at a steady
                 # trickle. Interactive turns have their own pool, so background
                 # deep research can never crowd them out.
-                with (
-                    admit_turn(_admission_organization_id()),
-                    track_agent_profile(agent_name="chat_researcher"),
-                    track_llm_costs(),
-                ):
-                    result = await agent.run(state, thread_id=nat_context_conversation_id)
+                async with admit_turn_async(_admission_organization_id()):
+                    with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
+                        result = await agent.run(state, thread_id=nat_context_conversation_id)
             except TurnAdmissionError as admission_error:
                 logger.warning("Turn refused by admission control: %s", admission_error)
                 busy_response = _create_chat_response(
                     str(admission_error), response_id="turn_admission", model=workflow_id
                 )
+                # Same contract as every other refusal in the system: say WHEN to
+                # come back, not just no. Without it the client has to guess, and
+                # guessing is what turns a refusal into a retry storm.
+                busy_response.retry_after_seconds = admission_error.retry_after_seconds
                 for _chunk in _response_to_chunks(busy_response, stream=False):
                     yield _chunk
                 return

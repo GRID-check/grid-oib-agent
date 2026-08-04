@@ -87,6 +87,10 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
     env: {
       ...process.env,
       NODE_ENV: 'development',
+      // Per-process buckets only. An inherited REDIS_URL would carry frame
+      // counts across spawns AND across runs — and these budgets span minutes,
+      // so a second run inside the window would start already spent.
+      REDIS_URL: '',
       PORT: String(port),
       NEXT_INTERNAL_URL: `http://127.0.0.1:${upstreamPort}`,
       BACKEND_URL: `http://127.0.0.1:${upstreamPort}`,
@@ -100,6 +104,21 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
   running.push(child)
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('gateway did not start')), 20_000)
+    // Without these, a gateway that dies on startup — MODULE_NOT_FOUND for one
+    // of the CommonJS limit modules, say — costs 20 seconds and reports only
+    // "did not start", with the actual cause on a stderr nobody reads.
+    let stderr = ''
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      reject(new Error(`gateway exited with ${code}: ${stderr}`))
+    })
     child.stdout?.on('data', (chunk: Buffer) => {
       if (chunk.toString().includes('Frontend:')) {
         clearTimeout(timer)
