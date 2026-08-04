@@ -45,6 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # paths-filter diffs the pushed range against `github.event.before`.
+          # In the default shallow clone that commit is missing, so the action
+          # falls back to `git fetch` — which cannot authenticate here (the
+          # checkout below persists no credentials) and dies with "could not
+          # read Username for 'https://github.com'". Full history keeps the base
+          # commit local, so no fetch is attempted and the token stays off disk.
+          fetch-depth: 0
           persist-credentials: false
       - uses: dorny/paths-filter@v4
         id: filter
