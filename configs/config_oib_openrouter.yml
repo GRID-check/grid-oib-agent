@@ -124,7 +124,17 @@ llms:
     # Pure router: classification must be repeatable for the same query.
     # temperature 1.0 made shallow-vs-deep depth noisy across runs; greedy
     # decoding pins the decision so identical queries route identically.
+    #
+    # CAVEAT — temperature is NOT honoured by every model. OpenRouter DROPS a
+    # sampling parameter an endpoint does not advertise (and
+    # provider.require_parameters is deliberately unset, see the note below), so
+    # on a model whose supported_parameters omits `temperature` — the current
+    # default, openai/gpt-5.6-luna, is one — this line is silently inert and the
+    # routing noise returns. `seed` is the lever those models do expose; it is
+    # best-effort (providers may still vary) but it is what remains. Keep BOTH:
+    # temperature serves models that honour it, seed serves the rest.
     temperature: 0
+    seed: 1
     top_p: 1.0
     max_tokens: 4096
     max_retries: 2
@@ -281,12 +291,18 @@ llms:
   # rerank_candidates chunks. Dedicated entry: summary_llm's 100-token cap is
   # too small for a 15-candidate JSON scores reply. Greedy decoding (0) pins the
   # judgment; pure JSON extraction needs no reasoning effort.
+  #
+  # NOTE: rerank_llm has NO agent group, so no platform default or org override
+  # can re-point it — this literal is what every request uses, always. That also
+  # means the temperature caveat on intent_llm applies here with no way to route
+  # around it from the admin surface; `seed` is set for the same reason.
   rerank_llm:
     _type: openai
     model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 0
+    seed: 1
     top_p: 1.0
     max_tokens: 256
     max_retries: 2

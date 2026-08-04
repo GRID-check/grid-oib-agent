@@ -15,9 +15,9 @@ def client() -> TestClient:
     app = FastAPI()
     router = APIRouter()
     llm_configs = {
-        "intent_llm": SimpleNamespace(model_name="deepseek/deepseek-v4-flash"),
-        "card_llm": SimpleNamespace(model_name="deepseek/deepseek-v4-flash"),
-        "weird_llm": SimpleNamespace(),  # no model field → None
+        "intent_llm": SimpleNamespace(model_name="deepseek/deepseek-v4-flash", base_url="https://openrouter.ai/api/v1"),
+        "card_llm": SimpleNamespace(model_name="deepseek/deepseek-v4-flash", base_url="https://openrouter.ai/api/v1"),
+        "weird_llm": SimpleNamespace(),  # no model/base_url field → None
     }
     add_config_info_routes(router, llm_configs)
     app.include_router(router)
@@ -36,6 +36,23 @@ def test_returns_llm_defaults_without_token_in_dev(client, monkeypatch):
     # `vlm` key so the model-config UI's ingest_vlm group shows a workflow
     # default (it is not a `llms:` entry).
     assert isinstance(llms["vlm"], str) and llms["vlm"]
+
+
+def test_reports_the_base_url_each_llm_targets(client, monkeypatch):
+    """The BFF refuses to seed a platform default unless the deployment actually
+    targets the platform catalog's provider, so the endpoint each LLM talks to is
+    part of the contract — not just the model id."""
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    base_urls = client.get("/v1/config/llm-defaults").json()["baseUrls"]
+
+    assert base_urls["intent_llm"] == "https://openrouter.ai/api/v1"
+    assert base_urls["card_llm"] == "https://openrouter.ai/api/v1"
+    # An LLM config without a base_url reports None rather than being omitted:
+    # "unknown endpoint" must be distinguishable from "no such LLM".
+    assert base_urls["weird_llm"] is None
+    # The ingestion VLM has its own credential plane (AIQ_VLM_BASE_URL) and is
+    # routinely a different provider from the `llms:` block.
+    assert isinstance(base_urls["vlm"], str) and base_urls["vlm"]
 
 
 def test_vlm_default_reflects_env(monkeypatch):

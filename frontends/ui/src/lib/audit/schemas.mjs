@@ -145,6 +145,14 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'platform_model_defaults' }],
     metadata: MODEL_GROUP_METADATA,
   },
+  // The same fleet-wide decision, taken by the app on first boot rather than by
+  // an owner (`lib/model-config/bootstrap-defaults.ts`). A distinct action so the
+  // trail distinguishes "nobody chose this yet, the system did" from a
+  // deliberate save — the actor is `system:bootstrap`, not a WorkOS user.
+  'platform.model_defaults.bootstrapped': {
+    targets: [{ type: 'platform_model_defaults' }],
+    metadata: MODEL_GROUP_METADATA,
+  },
   'platform.norm_registry.updated': {
     targets: [{ type: 'norm_registry' }],
     metadata: { entries: 'number', version: 'number' },

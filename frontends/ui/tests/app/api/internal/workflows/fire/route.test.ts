@@ -13,8 +13,18 @@ vi.mock('@/lib/workflows/service', () => ({
 
 import { POST } from '@/app/api/internal/workflows/fire/route'
 import { loadWorkflowForFire, fireScheduledWorkflow } from '@/lib/workflows/service'
+import type { Workflow, WorkflowRun } from '@/lib/db/schema/workflows'
 
 const mockLoad = vi.mocked(loadWorkflowForFire)
+
+/**
+ * These tests exercise the ROUTE, not the workflow row: the handler reads only
+ * `id` and `enabled`, so the fixtures state those two fields. `as unknown as`
+ * confines the widening to this one named boundary rather than switching off
+ * checking at each call site with `any`.
+ */
+const asWorkflow = (row: Pick<Workflow, 'id' | 'enabled'>): Workflow => row as unknown as Workflow
+const asRun = (row: { id: string; status: string }): WorkflowRun => row as unknown as WorkflowRun
 const mockFire = vi.mocked(fireScheduledWorkflow)
 
 const REAL_TOKEN = 'a-real-secret-token'
@@ -69,7 +79,7 @@ describe('POST /api/internal/workflows/fire', () => {
 
   it('relays a not-fired result (disabled race guard)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
-    mockLoad.mockResolvedValue({ id: WORKFLOW_ID, enabled: false } as any)
+    mockLoad.mockResolvedValue(asWorkflow({ id: WORKFLOW_ID, enabled: false }))
     mockFire.mockResolvedValue({ fired: false, reason: 'disabled' })
     const res = await POST(makeRequest({ workflowId: WORKFLOW_ID }, REAL_TOKEN))
     expect(res.status).toBe(200)
@@ -79,8 +89,8 @@ describe('POST /api/internal/workflows/fire', () => {
 
   it('fires an enabled workflow through the scheduled-fire wrapper', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
-    mockLoad.mockResolvedValue({ id: WORKFLOW_ID, enabled: true } as any)
-    mockFire.mockResolvedValue({ fired: true, run: { id: 'run-1', status: 'submitted' } as any })
+    mockLoad.mockResolvedValue(asWorkflow({ id: WORKFLOW_ID, enabled: true }))
+    mockFire.mockResolvedValue({ fired: true, run: asRun({ id: 'run-1', status: 'submitted' }) })
     const res = await POST(makeRequest({ workflowId: WORKFLOW_ID }, REAL_TOKEN))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ fired: true, run: { id: 'run-1', status: 'submitted' } })

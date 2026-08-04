@@ -279,7 +279,7 @@ frontend renders them in `frontends/ui/src/features/grid-cards/`.
 
 Card generation is a **second LLM call** (`ChatResearcherAgent._generate_cards`,
 `agent.py`) run in `run()` after the graph produces an answer, using the
-`card_generator_llm` (config: `deepseek_super_llm`). Post-fix behaviour:
+`card_generator_llm` (config: `card_llm`). Post-fix behaviour:
 
 - Cards are generated whenever a turn produced a real answer (`query` + `context`).
   The old code hard-gated on `intent == "research"` and was inconsistent between

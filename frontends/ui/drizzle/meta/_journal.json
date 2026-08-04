@@ -40,14 +40,14 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1743552000000,
+      "when": 1782850583192,
       "tag": "0005_project_folders",
       "breakpoints": true
     },
     {
       "idx": 6,
       "version": "7",
-      "when": 1751550000000,
+      "when": 1782850583193,
       "tag": "0006_remove_profile_highlights",
       "breakpoints": true
     },
@@ -210,13 +210,6 @@
       "version": "7",
       "when": 1785456000000,
       "tag": "0029_platform_retrieval_settings",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "7",
-      "when": 1785542400000,
-      "tag": "0030_seed_platform_model_defaults",
       "breakpoints": true
     }
   ]

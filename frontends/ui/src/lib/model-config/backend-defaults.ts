@@ -29,11 +29,19 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 // falls through to the generic "workflow default" label instead of hanging.
 const LLM_DEFAULTS_TIMEOUT_MS = 10_000
 
-let cache: { fetchedAt: number; llms: Record<string, string | null> } | null = null
+/** `{configLlmName: baseUrl | null}` — the endpoint each workflow LLM targets. */
+export type LlmBaseUrls = Record<string, string | null>
 
-async function fetchLlmDefaults(): Promise<Record<string, string | null>> {
+interface LlmDefaults {
+  llms: Record<string, string | null>
+  baseUrls: LlmBaseUrls
+}
+
+let cache: { fetchedAt: number; defaults: LlmDefaults } | null = null
+
+async function fetchLlmDefaults(): Promise<LlmDefaults> {
   if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
-    return cache.llms
+    return cache.defaults
   }
   const base = (process.env.BACKEND_URL ?? 'http://localhost:8000').replace(/\/$/, '')
   const headers: Record<string, string> = { Accept: 'application/json' }
@@ -48,10 +56,26 @@ async function fetchLlmDefaults(): Promise<Record<string, string | null>> {
   if (!response.ok) {
     throw new Error(`llm-defaults request failed: HTTP ${response.status}`)
   }
-  const body = (await response.json()) as { llms?: Record<string, string | null> }
-  const llms = body.llms ?? {}
-  cache = { fetchedAt: Date.now(), llms }
-  return llms
+  const body = (await response.json()) as {
+    llms?: Record<string, string | null>
+    baseUrls?: LlmBaseUrls
+  }
+  // `baseUrls` is absent when the BFF is newer than the backend (rolling
+  // deploy). An empty map means "endpoint unknown", which the seeding path
+  // treats as "do not seed" rather than "assume OpenRouter".
+  const defaults: LlmDefaults = { llms: body.llms ?? {}, baseUrls: body.baseUrls ?? {} }
+  cache = { fetchedAt: Date.now(), defaults }
+  return defaults
+}
+
+/**
+ * `{configLlmName: baseUrl | null}` for the backend's loaded `llms:` block,
+ * plus the synthetic `vlm` key. Throws when the backend is unreachable — the
+ * seeding caller must be able to tell "not OpenRouter" from "could not ask".
+ */
+export async function getWorkflowLlmBaseUrls(): Promise<LlmBaseUrls> {
+  const { baseUrls } = await fetchLlmDefaults()
+  return baseUrls
 }
 
 /**
@@ -62,7 +86,7 @@ async function fetchLlmDefaults(): Promise<Record<string, string | null>> {
 export async function getWorkflowGroupDefaults(): Promise<GroupDefaults> {
   const defaults: GroupDefaults = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, null]))
   try {
-    const llms = await fetchLlmDefaults()
+    const { llms } = await fetchLlmDefaults()
     for (const group of AGENT_GROUPS) {
       const models = [
         ...new Set(group.configLlmRefs.map((ref) => llms[ref]).filter((m): m is string => typeof m === 'string')),

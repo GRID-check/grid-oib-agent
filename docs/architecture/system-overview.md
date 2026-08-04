@@ -34,7 +34,7 @@ tier horizontally scalable and replaceable, and concentrates security and data
 ownership in one place.
 
 The system is **LLM-agnostic**: any OpenAI-compatible endpoint is a valid
-provider (the reference config uses DeepSeek via OpenRouter).
+provider (the reference config uses OpenAI GPT-5.6 Luna via OpenRouter).
 
 ---
 
@@ -303,7 +303,7 @@ frontend start). → `docs/database/`.
 | Frontend | Next.js 16, React 18, TypeScript, shadcn/ui + Tailwind v4 |
 | BFF / gateway | Next.js app-router API routes + a Node `server.js` WS/HTTP proxy |
 | AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; Dask for async jobs |
-| LLM + embeddings | any OpenAI-compatible endpoint (reference: DeepSeek via OpenRouter) |
+| LLM + embeddings | any OpenAI-compatible endpoint (reference: OpenAI GPT-5.6 Luna via OpenRouter) |
 | RAG / vector store | ChromaDB (+ LlamaIndex ingestion) |
 | Web search | Tavily |
 | Relational DB | PostgreSQL 16 (Drizzle ORM on the BFF side) |

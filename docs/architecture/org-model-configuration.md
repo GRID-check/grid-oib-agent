@@ -31,22 +31,67 @@ Resolution is **per agent group**, so the layers mix: an org that pinned only
 | **Platform default** | `platform_model_defaults` | platform owner, Platform → Models | every tenant that has not overridden the group |
 | Workflow YAML | `configs/*.yml` → `llms:` → `model_name` | a commit + redeploy | boot floor only |
 
-The YAML is not where the fleet's model is decided — its `model_name` values are
-`${GRID_DEFAULT_MODEL:-…}` floors for a process with no BFF to ask (local
-`nat run`, a detached worker, an unreachable frontend). What the YAML still
-solely owns is the plumbing an override may never touch: `base_url`, `api_key`,
-`temperature`, `max_tokens`, `reasoning_effort`, timeouts and retries.
+For an LLM an agent group covers, the YAML is not where the fleet's model is
+decided — its `model_name` values are `${GRID_DEFAULT_MODEL:-…}` floors for a
+process with no BFF to ask (local `nat run`, a detached worker, an unreachable
+frontend). What the YAML solely owns everywhere is the plumbing an override may
+never touch: `base_url`, `api_key`, `temperature`, `max_tokens`,
+`reasoning_effort`, timeouts and retries.
 
-**Migration `0030` seeds layer 2 for every agent group**, so on a migrated
-database the platform layer always answers and the YAML values are never what a
-served request resolves to. Before it, a deployment whose owner had not yet
-visited Platform → Models resolved through an *empty* middle layer and silently
-ran whatever literal sat in the YAML — a model nobody had declared as a
-decision, invisible in the admin surface and absent from the audit trail. The
-seed only ever populates an entirely empty table, so a deployment that already
-has defaults of its own is left untouched. The two floors are pinned to the same
-model id by `tests/db/seed-platform-model-defaults.test.ts`, so a request served
-without a database cannot resolve to a different model than one served with it.
+> **Not every `llms:` entry has an agent group.** `summary_llm` (document and
+> project summaries) and `rerank_llm` (chunk reranking inside every knowledge
+> search) are reached by no `apply_model_override` call site, so they resolve to
+> the config file on **every** request, always — no platform default or org
+> override can re-point them, and no admin can change them without a redeploy.
+> Editing their `model_name` is a real, unconditional fleet-wide model change.
+> The other eight entries map to the seven groups in the table below.
+
+### Where layer 2 comes from on a fresh deployment
+
+`platform_model_defaults` is created empty, and an empty middle layer means
+resolution falls through to the YAML. So until a platform owner visited
+Platform → Models, the fleet ran on a literal in a config file: a model nobody
+had declared as a decision, invisible in the admin surface and absent from the
+audit trail. **`lib/model-config/bootstrap-defaults.ts` closes that on first
+boot**, from `instrumentation.ts`.
+
+It is deliberately *not* a SQL migration. A platform default replaces the model
+id and nothing else — `override_model` leaves `base_url` and `api_key` alone so
+an override can never re-point traffic at another provider — while a migration
+runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. This
+repo ships configs pointing at Kimi (`config_grid_oib.yml`) and NVIDIA
+(`config_web_default_llamaindex.yml`) as well as OpenRouter; seeding an
+OpenRouter id there would send an unknown model to that provider on every
+request, and the admin UI could not repair it because its save path only accepts
+ids the OpenRouter catalog knows.
+
+Running in the application instead buys four things SQL cannot do:
+
+1. **Ask what the deployment actually runs.** `GET /v1/config/llm-defaults`
+   reports the base URL per LLM (`baseUrls`); a group qualifies only when *every*
+   workflow LLM behind it is on the platform provider. Anything else is left
+   alone — the correct reading of "no row" is "this deployment's own config
+   decides". An unreachable backend means "do not decide", never "assume
+   OpenRouter".
+2. **Validate**, against the live catalog, exactly as the admin PUT does — rather
+   than asserting capabilities in a comment.
+3. **Record `model_snapshot`**, including `_zdr.safe`, so ZDR tenants inheriting
+   the default can be warned. A SQL seed would leave it NULL and silently
+   disable that control.
+4. **Invalidate the cache and write an audit event**
+   (`platform.model_defaults.bootstrapped`, actor `system:bootstrap`), so the
+   change reaches traffic at once and a decision no human made is still visible
+   in the trail as distinct from a deliberate save.
+
+It runs only when the table is entirely empty, holds a Postgres advisory lock so
+replicas cannot race, and never throws into boot — every failure path leaves the
+table empty, which is the pre-existing working state.
+
+`ingest_vlm` is normally skipped by rule 1: the ingestion VLM has its own
+credential plane (`AIQ_VLM_BASE_URL`) whose shipped default routes to NVIDIA, so
+seeding it would make an operator's `AIQ_VLM_MODEL` dead config and fail every
+caption call against that endpoint. It is bootstrapped only where the VLM itself
+runs on the platform provider.
 
 The merge happens **BFF-side**, in `getEffectiveModelOverrides()`
 (`frontends/ui/src/lib/model-config/service.ts`). Every submission path already
@@ -96,6 +141,13 @@ section). Two things differ from a chat group:
 - **Workflow default.** The VLM is env-configured (`AIQ_VLM_MODEL`), not a
   `llms:` entry, so `/v1/config/llm-defaults` reports its resolved default under
   a synthetic `vlm` key and the group's `configLlmRefs: ['vlm']` maps to it.
+- **Separate credential plane.** `AIQ_VLM_BASE_URL` is independent of the `llms:`
+  block and the shipped default routes to NVIDIA while the chat models route to
+  OpenRouter. An override here replaces the model id only, so a model id from a
+  different provider's catalog fails every caption call — which is why the
+  first-boot bootstrap skips this group unless `vlm`'s own base URL is on the
+  platform provider, and why an *org's* deliberate override of it is validated
+  against that org's catalog rather than assumed.
 
 BYOK (org key + base URL) is resolved via `resolve_vlm_credential(org_id)`; the
 selected model rides the standard override header/stored-config path.
@@ -113,15 +165,12 @@ platform_model_defaults
 
 Global — no `organization_id`, mirroring `platform_workflow_templates`
 (ADR-0016/0027). One row per group; **no row = that group falls through to the
-YAML** — which is why `0030_seed_platform_model_defaults.sql` seeds a row for
-every group in the registry, and why adding an `AGENT_GROUPS` entry without
-extending that seed reintroduces the silent fallthrough for the new group (the
-seed is pinned against the registry in
-`tests/db/seed-platform-model-defaults.test.ts`). Rows written by the seed carry
-the sentinel actor `system:migration-0030` rather than a WorkOS user id, and a
-`model_snapshot` of NULL: a migration has no catalog access, so the admin UI
-cannot report the seeded model's ZDR status until the first real save fills it
-in. A save REPLACES the set: groups omitted from the payload are deleted,
+YAML**, which is what the first-boot bootstrap above exists to prevent for the
+groups it can safely fill. Rows it writes carry the sentinel actor
+`system:bootstrap` rather than a WorkOS user id; everything else about them —
+the catalog-validated model, the `model_snapshot` with `_zdr.safe` — is
+identical to a row an owner saved, because it goes through the same
+`savePlatformModelDefaults` path. A save REPLACES the set: groups omitted from the payload are deleted,
 which is how a group is handed back to the workflow config. Not versioned like
 the org table — the trail is the WorkOS audit event
 `platform.model_defaults.updated` (recorded in the platform org, carrying the

@@ -12,10 +12,20 @@ vi.mock('@/lib/workflows/service', () => ({
 import { GET, POST } from '@/app/api/projects/[id]/workflows/route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { listWorkflows, createWorkflow } from '@/lib/workflows/service'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { Workflow } from '@/lib/db/schema/workflows'
 
 const mockSession = vi.mocked(requireAuthorizedSession)
 const mockList = vi.mocked(listWorkflows)
 const mockCreate = vi.mocked(createWorkflow)
+
+/**
+ * These tests exercise the ROUTE, not the row/session shapes: the handler
+ * passes the session straight through and reads only `id` off a workflow. The
+ * two helpers below confine the widening to one named boundary each, instead
+ * of switching off checking per call site with `any`.
+ */
+const asWorkflow = (row: Pick<Workflow, 'id'>): Workflow => row as unknown as Workflow
 
 const session = {
   userId: 'user_1',
@@ -47,7 +57,7 @@ function req(body?: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockSession.mockResolvedValue(session as any)
+  mockSession.mockResolvedValue(session as unknown as AuthorizedSession)
 })
 
 afterEach(() => {
@@ -65,7 +75,7 @@ describe('GET /api/projects/[id]/workflows', () => {
 
   it('lists workflows when the env gate is on', async () => {
     process.env.GRID_WORKFLOWS_ENABLED = 'true'
-    mockList.mockResolvedValue([{ id: 'wf-1' } as any])
+    mockList.mockResolvedValue([asWorkflow({ id: 'wf-1' })])
     const res = await GET(req(), makeParams('proj_1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ workflows: [{ id: 'wf-1' }] })
@@ -89,7 +99,7 @@ describe('POST /api/projects/[id]/workflows', () => {
 
   it('creates a workflow (201) on a valid body', async () => {
     process.env.GRID_WORKFLOWS_ENABLED = 'true'
-    mockCreate.mockResolvedValue({ id: 'wf-new' } as any)
+    mockCreate.mockResolvedValue(asWorkflow({ id: 'wf-new' }))
     const res = await POST(req(validBody), makeParams('proj_1'))
     expect(res.status).toBe(201)
     expect(await res.json()).toEqual({ id: 'wf-new' })

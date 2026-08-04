@@ -20,16 +20,19 @@ covers a wide range of backends with **no code change**:
 ## Choosing the active config
 
 `CONFIG_FILE` (env, set in compose) selects the active workflow config. The shipped
-**reference config** is `configs/config_oib_openrouter.yml` (DeepSeek + embeddings
-via OpenRouter).
+**reference config** is `configs/config_oib_openrouter.yml` (OpenAI GPT-5.6 Luna
++ embeddings via OpenRouter). The `model_name` values there are the boot floor
+only — the model a served request runs on is an admin decision resolved at
+runtime (see `org-model-configuration.md`), except for `summary_llm` and
+`rerank_llm`, which have no agent group and always use the config file.
 
 ```yaml
 # configs/config_oib_openrouter.yml (excerpt) — an OpenAI-compatible LLM
 llms:
-  deepseek_super_llm:
+  shallow_llm:
     _type: openai
     base_url: "https://openrouter.ai/api/v1"
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     api_key: ${OPENROUTER_API_KEY}
     # max_tokens / max_retries / reasoning_effort tuned per role
 ```

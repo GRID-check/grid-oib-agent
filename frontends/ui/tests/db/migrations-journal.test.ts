@@ -22,6 +22,7 @@ const DRIZZLE_DIR = path.resolve(__dirname, '../../drizzle')
 interface JournalEntry {
   idx: number
   tag: string
+  when: number
 }
 
 const journal: { entries: JournalEntry[] } = JSON.parse(
@@ -59,5 +60,29 @@ describe('drizzle migration journal', () => {
     for (const entry of journal.entries) {
       expect(entry.tag.startsWith(String(entry.idx).padStart(4, '0'))).toBe(true)
     }
+  })
+
+  /**
+   * `when` — not the hash, not `idx` — is what drizzle compares to decide
+   * whether a migration has already run:
+   *
+   *   if (!lastDbMigration || Number(lastDbMigration.created_at) < migration.folderMillis)
+   *
+   * against `select … order by created_at desc limit 1`. So an entry whose
+   * `when` is less than OR EQUAL TO an already-applied one is skipped — and
+   * skipped SILENTLY, with `migrate()` reporting success. This repo stamps
+   * hand-picked round midnight-UTC values rather than `drizzle-kit generate`'s
+   * `Date.now()`, which makes an exact collision between two migrations authored
+   * the same day not just possible but likely. Verified: two entries sharing a
+   * `when` leave the second's table uncreated; +1 ms applies it.
+   *
+   * This is the same failure class as issue #283 (a migration in the diff that
+   * never runs) on the axis the tests above do not cover.
+   */
+  it('has strictly increasing, unique `when` timestamps', () => {
+    const whens = journal.entries.map((entry) => entry.when)
+    const duplicated = whens.filter((value, index) => whens.indexOf(value) !== index)
+    expect(duplicated).toEqual([])
+    expect(whens).toEqual([...whens].sort((a, b) => a - b))
   })
 })
