@@ -1,18 +1,26 @@
-# Weekly external-link sweep across the tracked Markdown.
+# Weekly EXTERNAL link sweep across the tracked Markdown.
 #
-# This used to run inside `repo-lint` on every push to every PR, where it cost
-# ~90s of the job and produced all of its variance — it makes a real network
-# request per link across 221 files, so two runs with identical content measured
-# 35.6s and 64.8s. It is also the wrong shape for a merge gate: the thing it
-# detects is a third party's site going down, which has nothing to do with the
-# diff under review, so it failed PRs for reasons their authors could not fix.
+# Nothing else checks external URLs. The markdown-link-check pre-commit hook that
+# runs in repo-lint on every PR is pointed at ci/markdown-link-check-config.json,
+# which ignores '^https?://' — so the merge gate validates relative links inside
+# the repo and nothing beyond it. That split is the right one and stays:
 #
-# Link rot is a calendar problem, so it gets a calendar job. Monday morning,
-# an hour after security.yml's weekly sweep so the two do not contend for
-# runners. `workflow_dispatch` is there for checking a docs change on demand.
+#   on the gate   relative links — deterministic, caused by the author moving or
+#                 renaming a doc, fixable in the same PR (~3s for all 221 files)
+#   here, weekly  external links — network-bound and flaky, and what breaks is
+#                 someone else's site, which no PR author can fix
 #
-# Deliberately NOT a required check anywhere: a red run here means the web
-# moved, and should be triaged, not merged around.
+# So this closes a real gap rather than duplicating the gate. Monday 07:00 UTC,
+# an hour after security.yml's sweep so the two do not contend for runners, plus
+# workflow_dispatch for checking a docs change on demand.
+#
+# Deliberately NOT a required check anywhere: a red run here means the web moved,
+# and should be triaged, not merged around.
+#
+# Invoked directly rather than through pre-commit, because a hook's `args` are
+# fixed in .pre-commit-config.yaml and cannot be overridden per invocation — the
+# whole point here is the other config file. Version pinned to match the hook's
+# `rev` so the two cannot drift apart silently.
 
 name: Docs links
 
@@ -28,29 +36,30 @@ concurrency:
   group: docs-links
   cancel-in-progress: true
 
+env:
+  # Keep in step with the markdown-link-check `rev` in .pre-commit-config.yaml.
+  MARKDOWN_LINK_CHECK_VERSION: 3.11.2
+
 jobs:
   link-check:
     name: External link sweep (weekly)
     runs-on: ubuntu-latest
     steps:
-      # Same reasoning as repo-lint: this executes repository-defined pre-commit
-      # hooks, which clone their own repos over anonymous https and must not
-      # find a credential in the workspace.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-python-env
-      # A distinct key prefix from repo-lint's on purpose: that job's cache is
-      # built under SKIP and so contains no markdown-link-check env, while this
-      # one contains little else. Sharing a key would mean each job takes a hit
-      # and then builds the environment it actually needs.
-      - uses: actions/cache@v4
+      - uses: actions/setup-node@v7
         with:
-          path: ~/.cache/pre-commit
-          key: pre-commit-docs-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            pre-commit-docs-${{ runner.os }}-${{ env.pythonLocation }}-
-      - name: markdown-link-check (all tracked Markdown)
+          node-version: "22"
+      - name: Check external links in tracked Markdown
+        env:
+          # Same exclusion the pre-commit hook applies: skill cards are generated
+          # blobs, not prose anyone maintains links in.
+          EXCLUDE: '^skills/[^/]+/skill-card\.md$'
         run: |
-          . .venv/bin/activate
-          pre-commit run markdown-link-check --all-files
+          set -uo pipefail
+          mapfile -t FILES < <(git ls-files '*.md' | grep -Ev "$EXCLUDE")
+          echo "Checking ${#FILES[@]} files"
+          npx --yes "markdown-link-check@${MARKDOWN_LINK_CHECK_VERSION}" \
+            --config ci/markdown-link-check-external-config.json \
+            "${FILES[@]}"

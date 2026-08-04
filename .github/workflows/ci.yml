@@ -119,20 +119,12 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
-      # markdown-link-check is skipped here and runs weekly instead
-      # (.github/workflows/docs-links.yml). It made real network requests for
-      # every link across 221 tracked Markdown files — ~90s of the job, on every
-      # push to every PR, and the sole source of its variance (two warm runs
-      # measured 35.6s and 64.8s). Its failure mode is a third party's site being
-      # down, which is unrelated to the diff under review and does not belong in
-      # a merge gate. Link rot happens on the calendar, not on push.
-      #
       # `pytest` in SKIP is a no-op kept for clarity: that local hook is
       # stages: [push], so it never runs at the default stage anyway.
-      - name: Pre-commit (non-ruff, non-pytest, non-linkcheck hooks)
+      - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |
           . .venv/bin/activate
-          SKIP=ruff-check,ruff-format,pytest,markdown-link-check pre-commit run --all-files
+          SKIP=ruff-check,ruff-format,pytest pre-commit run --all-files
 
   backend-test:
     name: Backend tests (py${{ matrix.python }})
