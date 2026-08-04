@@ -10,7 +10,7 @@ const { locale = 'de' } = Astro.props
 const t = ui[locale]
 ---
 
-<div data-pin="story" id="problem" data-screen-label="02 Problem und Lösung">
+<div data-pin="story" id="problem" data-screen-label={t.sheets.story}>
   <div data-pin-sticky class="box-border flex min-h-screen items-center p-2 sm:p-4">
     <div
       data-story-panel

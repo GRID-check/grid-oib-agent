@@ -134,6 +134,25 @@
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
+/* Panels are sheets of drafting paper: they carry the same grid the page
+   background does, so a coloured panel reads as a sheet laid on the drawing
+   rather than as a card pasted over it. */
+@utility sheet-dark {
+  background-image:
+    linear-gradient(to right, rgb(238 242 228 / 0.045) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(238 242 228 / 0.045) 0 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: center top;
+}
+
+@utility sheet-light {
+  background-image:
+    linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: center top;
+}
+
 /* Base element styles MUST live in `@layer base`: unlayered rules beat every
    Tailwind utility, so a bare `a { color: … }` silently overrides `text-*` on
    every link (which is what turned the solid CTA into dark-on-dark). */

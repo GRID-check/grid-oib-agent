@@ -12,10 +12,10 @@ const t = ui[locale]
 
 <section
   id="nutzung"
-  data-screen-label="04 Nutzung"
+  data-screen-label={t.sheets.nutzung}
   class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
 >
-  <div class="box-border rounded-panel bg-surface-dim px-6 py-16 sm:px-16 sm:py-18">
+  <div class="box-border rounded-panel bg-surface-dim px-6 py-16 sheet-light sm:px-16 sm:py-18">
     <div class="grid grid-cols-[minmax(17.5rem,4fr)_8fr] items-center gap-12 max-lg:grid-cols-1">
       <div data-reveal>
         <SectionTag class="mb-5">{t.nutzung.tag}</SectionTag>
@@ -25,14 +25,13 @@ const t = ui[locale]
         <p class="m-0 mb-8 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
           {t.nutzung.body}
         </p>
-        <div class="flex items-baseline gap-3.5 border-t border-ink/15 pt-6">
-          <span class="font-display text-4xl font-bold tracking-tight text-accent-900"
-            >{t.nutzung.big}</span
-          >
+        <!-- The one hard claim on the page — given the weight of one. -->
+        <div class="border-t border-ink/15 pt-7">
+          <p class="m-0 font-display text-h4 text-accent-900">{t.nutzung.big}</p>
+          <p class="m-0 mt-2 max-w-sm text-sm leading-relaxed text-ink-mute">
+            {t.nutzung.sub}
+          </p>
         </div>
-        <p class="mb-0 mt-2 text-sm text-ink-mute">
-          {t.nutzung.sub}
-        </p>
       </div>
       <ChatMock locale={locale} />
     </div>
