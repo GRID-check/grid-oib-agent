@@ -126,7 +126,7 @@ jobs:
       # to them, so enforce it here by polling both workflows' conclusions for
       # the deploy SHA (they usually finish long before the image build).
       - name: Require green CI + Security for this commit
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const required = ["CI", "Security"];
