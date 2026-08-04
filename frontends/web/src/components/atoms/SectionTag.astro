@@ -1,12 +1,14 @@
 ---
 interface Props {
-  tone?: 'light' | 'dark'
+  /** Which sheet the tag is written on — open/light, dark panel, or tint panel. */
+  tone?: 'light' | 'dark' | 'tint'
   class?: string
 }
 const { tone = 'light', class: className = '' } = Astro.props
 const tones = {
   light: 'text-accent-600',
   dark: 'text-on-dark-label',
+  tint: 'text-accent-900/80',
 }
 ---
 

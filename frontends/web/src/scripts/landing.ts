@@ -58,6 +58,10 @@ function initHeroCta() {
     cta.style.opacity = on ? '0' : '1'
     cta.style.transform = on ? 'translateY(-10px)' : 'translateY(0)'
     cta.style.pointerEvents = on ? 'none' : 'auto'
+    // `pointer-events` only stops the mouse. Without this the two faded-out
+    // hero buttons stay in the tab order, so keyboard focus lands on invisible
+    // controls two stops into the page.
+    cta.style.visibility = on ? 'hidden' : 'visible'
   }
   apply(window.scrollY)
   scrollInfo(({ y }) => apply(y.current))

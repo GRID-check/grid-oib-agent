@@ -11,7 +11,10 @@ export const showDefaultLang = false
 const de = {
   meta: {
     title: 'Piloti — Die KI-Plattform für Architektur- und Planungsbüros',
-    description: 'Die KI-Plattform für Architektur- und Planungsbüros',
+    // A description is a search result, not a tagline: it has ~155 characters
+    // to say what the tool does and what makes the answer worth trusting.
+    description:
+      'Piloti verknüpft Ihr Projektarchiv mit österreichischem Baurecht — Landesbauordnungen, OIB-Richtlinien, Materialdaten. Jede Aussage mit ihrer Fundstelle.',
   },
   skipLink: 'Zum Inhalt springen',
   // Drawing-set index shown in the page margin (see SheetIndex.astro).
@@ -40,6 +43,8 @@ const de = {
       nutzung: 'Nutzung',
       rollen: 'Für wen',
       daten: 'Datengrundlage',
+      abdeckung: 'Abdeckung',
+      fragen: 'Fragen',
     },
   },
   hero: {
@@ -130,7 +135,7 @@ const de = {
     cards: [
       { title: 'Regelwerke', body: 'Landesbauordnungen, OIB-Richtlinien' },
       { title: 'Ihr Büro', body: 'Pläne und Erfahrung aus vergangenen Projekten' },
-      { title: 'Ihr Projekt', body: 'Standortresearch, Grundstück, Auflagen' },
+      { title: 'Ihr Projekt', body: 'Standortrecherche, Grundstück, Auflagen' },
       { title: 'Fachdaten', body: 'Materialkennwerte, CO₂-Bilanzen' },
     ],
   },
@@ -249,6 +254,16 @@ const de = {
       'Mehrkosten 4.200 € in die Kostenschätzung übernehmen',
     ],
     replay: '↻ Erneut abspielen',
+    // The animated diagram is the richest content on the page and is drawn in
+    // absolutely positioned boxes a screen reader cannot make sense of, so it
+    // is `aria-hidden` and these labels caption the same material as prose.
+    a11y: {
+      label: 'Fiktives Beispiel: Ablauf einer Antwort mit Entscheidungskette',
+      questionLabel: 'Frage',
+      sourcesLabel: 'Herangezogene Quellen',
+      optionsLabel: 'Entscheidung — drei Wege',
+      stepsLabel: 'Umsetzung — Weg B, drei Schritte',
+    },
   },
   chain: {
     typing: 'Frage wird eingegeben',
@@ -351,7 +366,8 @@ const de = {
 const en: typeof de = {
   meta: {
     title: 'Piloti — The AI platform for architecture and planning firms',
-    description: 'The AI platform for architecture and planning firms',
+    description:
+      'Piloti connects your project archive with Austrian building law — state building codes, OIB guidelines, material data. Every statement cites its source.',
   },
   skipLink: 'Skip to content',
   // Drawing-set index shown in the page margin (see SheetIndex.astro).
@@ -380,6 +396,10 @@ const en: typeof de = {
       nutzung: 'Usage',
       rollen: 'Who it’s for',
       daten: 'Data foundation',
+      abdeckung: 'Coverage',
+      // Shorter than the section heading on purpose: "Open questions" is 100 px
+      // of bar and the English set is already the wider of the two.
+      fragen: 'FAQ',
     },
   },
   hero: {
@@ -588,6 +608,13 @@ const en: typeof de = {
       'Carry the additional €4,200 into the cost estimate',
     ],
     replay: '↻ Replay',
+    a11y: {
+      label: 'Fictional example: how an answer and its decision chain come together',
+      questionLabel: 'Question',
+      sourcesLabel: 'Sources drawn on',
+      optionsLabel: 'Decision — three options',
+      stepsLabel: 'Implementation — option B, three steps',
+    },
   },
   chain: {
     typing: 'Entering question',

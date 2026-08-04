@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Piloti">
+  <rect width="64" height="64" rx="14" fill="#2a301f"/>
+  <path d="M22 14h6v36h-6z" fill="#eef2e4"/>
+  <path d="M28 14h8a11 11 0 0 1 0 22h-8v-6h8a5 5 0 0 0 0-10h-8z" fill="#eef2e4"/>
+</svg>

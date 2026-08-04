@@ -10,11 +10,11 @@ const posts = await getBlogPosts('de')
 ---
 
 <BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
-  <section class="px-6 pb-28 pt-36 md:px-10">
+  <section class="section-shell pb-28 pt-36">
     <div class="mx-auto max-w-5xl">
       <SectionTag>{t.tag}</SectionTag>
       <h1
-        class="mt-6 max-w-2xl font-display text-h3 text-ink"
+        class="mt-5 max-w-2xl font-display text-h2 text-ink"
       >
         {t.heading}
       </h1>

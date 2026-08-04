@@ -1,6 +1,11 @@
 ---
+// `/de/...` is not a locale prefix this site serves — German lives at the root
+// (`showDefaultLang` is false). Anything that guessed otherwise is redirected
+// permanently rather than 404'd, so old links and hand-typed URLs still land.
 export const prerender = false
 
-const rest = Astro.url.pathname.replace(/^\/de(?=\/|$)/, '')
-return Astro.redirect(`${rest === '' ? '/' : rest}${Astro.url.search}`, 301)
+return Astro.redirect(
+  (Astro.url.pathname.replace(/^\/de(?=\/|$)/, '') || '/') + Astro.url.search,
+  301
+)
 ---

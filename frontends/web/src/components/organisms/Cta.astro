@@ -13,7 +13,7 @@ const t = ui[locale]
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="mx-auto box-border flex min-h-[85vh] max-w-[80rem] flex-col justify-center px-6 py-28 text-center sm:px-12"
+  class="section-shell flex min-h-[85vh] flex-col justify-center py-24 text-center sm:py-28"
 >
   <h2
     data-reveal
@@ -24,7 +24,7 @@ const t = ui[locale]
   <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
     {
       t.cta.chips.map((c) => (
-        <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs uppercase tracking-widest text-accent-600">
+        <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs font-medium uppercase tracking-label text-accent-600">
           {c}
         </span>
       ))

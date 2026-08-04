@@ -3,51 +3,54 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import Pill from '../components/atoms/Pill.astro'
 import { ui } from '../i18n/ui'
 
+// One document serves both locales: a miss under /en/ has no route of its own to
+// branch on, so the German copy is rendered and the inline script below swaps the
+// text. It used to ship the two versions as two blocks, which meant two `h1`s in
+// the document — one of them merely `hidden`, which is a heading-outline error a
+// screen reader would still trip over on the visible one. Now the outline is
+// fixed and only the words change.
 const de = ui.de.notFound
 const en = ui.en.notFound
 ---
 
-<BaseLayout locale="de" title={de.metaTitle} description={de.metaDescription} alternates={false}>
-  <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-36 text-center">
-    <p class="font-mono text-xs uppercase tracking-label text-accent-600">404</p>
-    <div data-404-de>
-      <h1
-        class="mt-5 max-w-xl font-display text-h2 text-ink"
-      >
-        {de.heading}
-      </h1>
-      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
-        {de.body}
-      </p>
-      <div class="mt-9">
-        <Pill href="/" variant="solid" size="lg">{de.home}</Pill>
-      </div>
-    </div>
-    <div data-404-en hidden>
-      <h1
-        class="mt-5 max-w-xl font-display text-h2 text-ink"
-      >
-        {en.heading}
-      </h1>
-      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
-        {en.body}
-      </p>
-      <div class="mt-9">
-        <Pill href="/en/" variant="solid" size="lg">{en.home}</Pill>
-      </div>
+<BaseLayout
+  locale="de"
+  title={de.metaTitle}
+  description={de.metaDescription}
+  alternates={false}
+  noindex
+>
+  <section
+    class="section-shell flex min-h-[70vh] flex-col items-center justify-center pb-24 pt-36 text-center"
+  >
+    <p class="font-mono text-2xs uppercase tracking-widest text-ink-faint">404</p>
+    <h1 data-404-heading class="mt-5 max-w-xl font-display text-h2 text-ink" style="text-wrap: balance">
+      {de.heading}
+    </h1>
+    <p data-404-body class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
+      {de.body}
+    </p>
+    <div class="mt-9" data-404-home>
+      <Pill href="/" variant="solid" size="lg">{de.home}</Pill>
     </div>
   </section>
 </BaseLayout>
 
-<script is:inline>
+<script is:inline define:vars={{ en }}>
   if (window.location.pathname.startsWith('/en')) {
     document.documentElement.lang = 'en'
-    document.title = 'Page not found — Piloti'
-    const de = document.querySelector('[data-404-de]')
-    const en = document.querySelector('[data-404-en]')
-    if (de instanceof HTMLElement && en instanceof HTMLElement) {
-      de.hidden = true
-      en.hidden = false
+    document.title = en.metaTitle
+    document.querySelector('meta[name="description"]')?.setAttribute('content', en.metaDescription)
+    const set = (sel, text) => {
+      const el = document.querySelector(sel)
+      if (el) el.textContent = text
+    }
+    set('[data-404-heading]', en.heading)
+    set('[data-404-body]', en.body)
+    const home = document.querySelector('[data-404-home] a')
+    if (home) {
+      home.textContent = en.home
+      home.setAttribute('href', '/en/')
     }
   }
 </script>

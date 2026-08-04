@@ -14,6 +14,8 @@ interface Props {
   locale?: Locale
   alternates?: { de: string; en: string } | false
   switchTo?: string
+  /** Keep the page out of the index — error pages, not content. */
+  noindex?: boolean
 }
 const {
   title,
@@ -21,6 +23,7 @@ const {
   locale = getLangFromUrl(Astro.url),
   alternates,
   switchTo,
+  noindex = false,
 } = Astro.props
 
 const t = ui[locale]
@@ -70,6 +73,7 @@ const orgLd = {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
     <meta name="description" content={pageDescription} />
+    {noindex && <meta name="robots" content="noindex, follow" />}
     <link rel="canonical" href={canonical} />
     {
       paths && (
@@ -112,7 +116,13 @@ const orgLd = {
       type="font/woff2"
       crossorigin
     />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a301f'/%3E%3Ctext x='16' y='21' font-family='sans-serif' font-size='14' font-weight='700' fill='%23eef2e4' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E" />
+    <!-- The mark is drawn as paths, not as a `<text>` element: the data-URI
+         favicon this replaces rendered its "P" in whatever the reader's default
+         sans happened to be, so the logo changed shape per platform. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <script is:inline>
       document.documentElement.classList.add('js')
     </script>

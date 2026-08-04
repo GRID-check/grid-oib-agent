@@ -14,17 +14,23 @@ const t = ui[locale]
   works; this answers what it costs, what it takes, and who carries the
   liability — the four minutes a partner spends deciding whether to write.
 
-  A `dl` on the open sheet, two columns of question/answer with a rule over
-  each, so it reads as a list of answered items rather than as an accordion the
-  reader has to operate. The liability item leads because it is the one that
-  decides.
+  A `dl` on the open sheet, one answered item per row with a rule over each, so
+  it reads as a list of answered items rather than as an accordion the reader
+  has to operate. The liability item leads because it is the one that decides.
+
+  Rows rather than the two-up card grid it started as: the answers are between
+  210 and 460 characters, and in a two-column grid every row is as tall as its
+  longer half — the liability answer alone left 150 px of dead sheet beside it.
+  Set as rows the question takes the left rail (the same figure the coverage
+  list and the numbered lists in the transparency panel use) and each answer
+  takes exactly the height it needs.
 -->
 <section
   id="fragen"
   data-screen-label={t.sheets.fragen}
-  class="mx-auto box-border max-w-[85rem] px-4 py-24 sm:px-10 sm:py-28"
+  class="section-shell py-24 sm:py-28"
 >
-  <div data-reveal class="mb-12 max-w-3xl sm:mb-14">
+  <div data-reveal class="section-head">
     <SectionTag class="mb-5">{t.fragen.tag}</SectionTag>
     <h2 class="m-0 mb-6 font-display text-h2" style="text-wrap: balance">
       {t.fragen.title}
@@ -34,19 +40,24 @@ const t = ui[locale]
     </p>
   </div>
 
-  <!-- Two columns only from `lg`: at tablet width the answers are long enough
-       that a half-column sets them at ~40 characters, which reads as a stack of
-       shards rather than as prose. -->
-  <dl class="m-0 grid grid-cols-2 gap-x-12 gap-y-10 p-0 max-lg:grid-cols-1 max-lg:gap-y-8 xl:gap-x-16">
+  <dl class="m-0 border-t border-ink/15 p-0">
     {
       t.fragen.items.map((item) => (
-        <div data-reveal class="group relative border-t border-ink/15 pt-7">
+        <div
+          data-reveal
+          class="group relative grid grid-cols-[minmax(0,20rem)_1fr] gap-x-10 border-b border-ink/15 py-8 max-md:grid-cols-1 max-md:gap-y-3 lg:gap-x-16 lg:py-9"
+        >
           <span
             class="absolute left-0 top-0 h-4 w-px bg-accent-600/45 transition-[height] duration-500 group-hover:h-7"
             aria-hidden="true"
           />
-          <dt class="font-display text-lg font-semibold tracking-tight text-ink">{item.q}</dt>
-          <dd class="m-0 mt-3 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
+          <dt class="font-display text-xl font-semibold tracking-tight text-ink" style="text-wrap: pretty">
+            {item.q}
+          </dt>
+          <dd
+            class="m-0 max-w-3xl text-base leading-relaxed text-ink-soft"
+            style="text-wrap: pretty"
+          >
             {item.a}
           </dd>
         </div>
