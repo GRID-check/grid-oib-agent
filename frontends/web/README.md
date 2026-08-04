@@ -37,11 +37,28 @@ platform owners are added there, no GitHub account or repository permissions
 needed. Published posts are plain files, so they are picked up by the normal
 Astro build.
 
+The admin UI is a React island (`client:only="react"`), so `@astrojs/react` +
+`react`/`react-dom` are hard runtime requirements and `react()` must stay in the
+`integrations` array in `astro.config.mjs`. Removing them does **not** break the
+build - `astro build` still succeeds and `astro check` still passes, because the
+island is never server-rendered. The breakage shows up only when someone
+requests `/keystatic`: the route throws `NoMatchingRenderer` mid-stream and the
+browser gets a blank page. Verify the route by hand after touching the
+integration list (see Checks).
+
 ## Checks
 
 ```bash
 npm run check    # astro check (types + diagnostics)
 npm run build    # astro build (prerenders all static routes)
+```
+
+Neither check exercises the Keystatic admin route. To confirm it still renders,
+run the built server and look for the hydration island rather than a blank body:
+
+```bash
+node dist/server/entry.mjs &
+curl -s localhost:4321/keystatic | grep -q 'renderer-url' && echo OK || echo BROKEN
 ```
 
 ## Docker
