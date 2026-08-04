@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The route factory (`@/lib/api/handler`) statically imports the session

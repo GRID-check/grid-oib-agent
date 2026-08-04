@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * `/api/conversations/[id]` — GET / PATCH happy paths and input validation.
  *
  * **Rewritten for the collaboration authorization model (ADR-0032).** These tests

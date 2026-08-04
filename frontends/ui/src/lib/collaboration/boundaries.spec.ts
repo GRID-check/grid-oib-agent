@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Boundaries and degenerate inputs (spec SH-16, MN-13, IB-3, IB-8, MG-2).
  *
  * Every bound here exists because the unbounded version is an abuse vector or a

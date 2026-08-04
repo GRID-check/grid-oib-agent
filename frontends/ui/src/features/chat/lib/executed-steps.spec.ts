@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { deriveExecutedSteps } from './executed-steps'
 import type { ThinkingStep } from '../types'

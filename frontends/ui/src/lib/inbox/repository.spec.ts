@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The two inbox behaviours that only exist in generated SQL: the mark-read paths
  * spending the group counter, and the batch fan-out folding a conflict exactly as
  * the single-row upsert does. Neither survives a chain-spy — what matters is the

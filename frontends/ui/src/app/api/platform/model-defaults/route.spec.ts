@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The platform default-model endpoint. The contract worth pinning down: only
  * the platform owner may write it, the catalog validates every choice
  * server-side, and an omitted group is a *clear*, not a no-op — that is how a

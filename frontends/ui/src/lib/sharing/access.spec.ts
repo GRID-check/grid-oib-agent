@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Effective-access rules (ADR-0032, spec SH-4…SH-6).
  *
  * These are the security-critical cases: each one is a way access could leak or

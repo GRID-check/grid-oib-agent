@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect, vi, afterEach } from 'vitest'
 import { normalizeDeepResearchTodos } from './deep-research-todos'
 

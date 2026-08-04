@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * `listVisibleConversations` is the only place the visibility rule is expressed in
  * SQL, and getting it wrong is a data leak (ADR-0032, spec SH-4). So these tests
  * assert the **generated statement**, not a mock's arguments: the point is which

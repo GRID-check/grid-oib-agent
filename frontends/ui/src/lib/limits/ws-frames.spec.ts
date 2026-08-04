@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The WebSocket frame observer (ADR-0040 L2b).
  *
  * The property under test is SYNC. This parser rides a live byte stream it does
