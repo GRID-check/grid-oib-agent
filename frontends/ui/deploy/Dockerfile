@@ -155,6 +155,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # app (which reaches it through the bundle, not from disk), so it lives in
 # lib/audit rather than being duplicated into scripts/.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/lib/audit/schemas.mjs
+# `next.config.ts` imports this at server start (AVATAR_IMAGE_PATTERNS); Next
+# transpiles the config to `next.config.compiled.js`, which then requires the
+# file from disk — missing from the image, `server.js` dies with
+# MODULE_NOT_FOUND before ever listening (update 67 CrashLoopBackOff).
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./src/lib/images/avatar-hosts.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
