@@ -299,7 +299,13 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, frontend-coverage, web, infra, repo-lint]
+    # `frontend-coverage` is deliberately NOT here. It is serialised after all
+    # four shards but produces only the coverage comment — correctness is
+    # already gated by the shards themselves, which do fail this gate. Requiring
+    # it added ~58s to every run (shards finished 18:57:57, CI OK landed
+    # 18:58:55) for a job whose real work is a 5s merge. It still reports its own
+    # red check if the merge breaks; it just no longer holds the gate open.
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, web, infra, repo-lint]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
