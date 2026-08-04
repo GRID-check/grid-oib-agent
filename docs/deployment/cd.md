@@ -7,6 +7,12 @@ develop ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  dev
 prod    ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  prod stack ──▶ production domain
 ```
 
+On `develop`, Publish Images rebuilds only the images whose files changed (a
+blog-post commit rebuilds just `grid-web`); deploy.yml pins exactly those
+services at the new `sha-<commit>` and leaves the rest on their previously
+deployed image. `release/**` pushes, version tags and manual runs build and pin
+all three images.
+
 - **State + secrets**: [Pulumi Cloud](https://app.pulumi.com). Stack state lives
   there, and the app secrets live in the **ESC environment `grid-oib/<stack>`**,
   imported by the stack file's `environment:` block — not in GitHub and not as
@@ -14,7 +20,7 @@ prod    ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  pro
   config changes stay reviewable in the PR diff); after the ESC migration it
   contains no `secure:` blocks.
 - **The only GitHub secret** the pipeline needs is `PULUMI_ACCESS_TOKEN`.
-- **Gating**: `deploy.yml` triggers on the **CI** workflow completing successfully,
+- **Gating**: `deploy.yml` triggers on **Publish Images** completing successfully,
   then re-checks that both aggregate gates (`CI OK` **and** `Security OK`) are green
   on the exact commit before it touches the cluster.
 
@@ -96,20 +102,46 @@ plan twice:
   Run it locally with `cd deploy/pulumi && npm run policy`.
 
 The apply itself then runs on the same runner (`pulumi up --yes`), deploying the
-same commit the gates validated — the image tag was pinned before the preview,
+same commit the gates validated — the image pins were set before the preview,
 and the update is recorded in the Pulumi Cloud console's **Activity** tab with
 the full diff and logs. The policy pack does not re-run on the apply; the GHA
 preview is the policy checkpoint, and drift between gate and apply is the
 accepted residual (see
 [pulumi-cloud-feature-audit.md](pulumi-cloud-feature-audit.md)).
 
+## Partial deploys (per-service images)
+
+`publish-images.yml` has a "Detect changes" job (dorny/paths-filter) that gates
+the three image builds on `develop`: an image rebuilds only when files it
+depends on changed (backend / frontend / web filters; blog content lives under
+`frontends/web/src/content/**`, inside the web filter, so a blog-post commit
+rebuilds only `grid-web`). `release/**` pushes, version tags and manual
+`workflow_dispatch` always build all three.
+
+On a `workflow_run` deploy, `deploy.yml` asks the triggering Publish Images run
+which jobs it actually built (GitHub API, by job name) and pins **per service**:
+
+- rebuilt services are pinned to the commit's `sha-<40-hex>` tag;
+- services that were **not** rebuilt keep the image reference already stored in
+  the stack config — `grid-oib:backendImage` / `grid-oib:frontendImage` /
+  `grid-oib:webImage`, falling back to the previously set `grid-oib:imageTag`,
+  then `latest` (a first partial deploy after this change therefore still
+  serves the last globally pinned image).
+
+The gates are unchanged — CI + Security green, tag-shape validation, preflight,
+plan validation and the policy pack all still run for every deploy. Manual
+rollback dispatches (operator-supplied `imageTag`) still pin **all three**
+services to that tag — see "Rolling back".
+
 ## Rolling back
-Deploys are pinned to an immutable `sha-<40-hex>` image tag, so a rollback is a
-deploy of an older tag — not a revert:
+Deploys pin rebuilt services to immutable `sha-<40-hex>` image tags (non-rebuilt
+services keep their current image), so a rollback is a deploy of an older tag —
+not a revert:
 
 1. Actions → **Deploy (staging)** → *Run workflow*.
 2. Set **`imageTag`** to the previous good build's tag (`sha-` + the full commit
-   sha; find it in that commit's Publish Images run).
+   sha; find it in that commit's Publish Images run). A rollback pins **all
+   three** services to that tag.
 3. It goes through the identical gates and the identical gated rollout — surge,
    readiness soak, drain. Nothing special-cases a rollback.
 

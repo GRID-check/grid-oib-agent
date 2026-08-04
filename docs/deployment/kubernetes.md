@@ -58,9 +58,15 @@ Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──
 - The provider's **StorageClass** name for block volumes — this is your
   **Lightbits** (NVMe/TCP) class. Find it: `kubectl get storageclass`.
 - Container images in a registry. The [`publish-images`](../../.github/workflows/publish-images.yml)
-  workflow builds and pushes `grid-oib-backend` and `grid-oib-frontend` to GHCR
-  on merge to `develop`. Pin `imageTag` to a commit SHA for reproducible deploys.
-  The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
+  workflow builds and pushes `grid-oib-backend`, `grid-oib-frontend` and
+  `grid-oib-web` to GHCR on merge to `develop` — on `develop` only the images
+  whose files changed are rebuilt (per-service change detection; a blog-post
+  commit rebuilds just `grid-web`), while `release/**` pushes, version tags and
+  manual runs build all three. Deploys pin each rebuilt service to its commit-SHA
+  tag; services that were not rebuilt keep the image reference already stored in
+  the stack config (`grid-oib:backendImage` / `grid-oib:frontendImage` /
+  `grid-oib:webImage`, falling back to `grid-oib:imageTag`, then `latest`) — see
+  [cd.md](cd.md). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
   `registryUsername` + `registryPassword` (a token with `read:packages`) so the
   program creates the `grid-registry-pull` imagePullSecret — otherwise every app
   pod lands in ImagePullBackOff.
@@ -131,8 +137,9 @@ Both shipped stack templates use `db` mode, which drains one replica at a time.
 redeploy after publishing new images changes no pod spec, so nothing rolls and
 the migration Job does not re-fire — but a later pod restart (e.g. a node
 drain) silently pulls the new code, possibly against an un-migrated schema.
-The CI workflow avoids this by pinning `sha-<commit>` per deploy; for manual
-deploys either pin `imageTag` to a SHA or run `pulumi up --refresh`.
+The CI workflow avoids this by pinning rebuilt services to `sha-<commit>` per
+deploy; for manual deploys either pin `imageTag` to a SHA or run
+`pulumi up --refresh`.
 
 **Size worker groups against the HPA ceilings.** The autoscaler only adds
 nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
@@ -457,7 +464,7 @@ see §10.
 - **Image pull policy** resolves to `Always` for the moving `latest` tag (so a
   rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the
-  deploy workflow already does this for staging.
+  deploy workflow already pins staging services to SHA tags.
 
 ## 7b. Rolling updates — how a deploy actually lands
 
@@ -588,7 +595,8 @@ kubectl -n grid rollout undo deploy/frontend
 
 The supported rollback is a deploy of an older image: run the **Deploy
 (staging)** workflow with the `imageTag` input set to a previous
-`sha-<40-hex>`. It goes through the same gates as a forward deploy.
+`sha-<40-hex>` (pinning all three services to it). It goes through the same
+gates as a forward deploy.
 
 ## 7c. Guardrails — CrossGuard policy pack
 
@@ -643,23 +651,32 @@ pulumi state unprotect 'urn:pulumi:prod::grid-oib::kubernetes:apiextensions.k8s.
 ## 8. CI/CD
 
 `.github/workflows/deploy.yml` deploys the **dev** stack automatically after
-`Publish Images` succeeds on `develop`. Before `pulumi up` it enforces four
-gates: the commit's **CI and Security workflows must be green** (Publish Images
-runs in parallel with them, so the chain alone would deploy untested code — a
-polling gate closes that race), a **preflight** that the committed stack file
-is configured (see below), `tsc --noEmit` (typed manifests), and two checks on
-the *same commit* the apply runs — `scripts/validate-crs.mjs`
-(schema-validates every CustomResource against the real upstream CRD schemas)
-and the **CrossGuard policy pack** (§7c). The plan is previewed with the same
-imageTag the deploy applies; the apply then runs on the same runner
-(`pulumi up --yes`) — the policy pack does not re-run on the apply (accepted
-residual, see `docs/deployment/pulumi-cloud-feature-audit.md`). Because the
+`Publish Images` succeeds on `develop` — which on `develop` rebuilds only the
+images whose files changed (a paths-filter gate per service; blog content under
+`frontends/web/src/content/**` rebuilds only `grid-web`; `release/**` pushes,
+version tags and manual dispatch always build all three). Before `pulumi up`
+it enforces four gates: the commit's **CI and Security workflows must be
+green** (Publish Images runs in parallel with them, so the chain alone would
+deploy untested code — a polling gate closes that race), a **preflight** that
+the committed stack file is configured (see below), `tsc --noEmit` (typed
+manifests), and two checks on the *same commit* the apply runs —
+`scripts/validate-crs.mjs` (schema-validates every CustomResource against the
+real upstream CRD schemas) and the **CrossGuard policy pack** (§7c). The plan
+is previewed with the same image pins the apply deploys: the deploy asks the
+triggering Publish Images run which jobs it actually built (GitHub API, by job
+name) and pins **per service** — rebuilt services to the commit's
+`sha-<40-hex>` tag, the rest to the image reference already in the stack config
+(`grid-oib:backendImage` / `grid-oib:frontendImage` / `grid-oib:webImage`,
+falling back to the previously set `grid-oib:imageTag`, then `latest`). The
+apply then runs on the same runner (`pulumi up --yes`) — the policy pack does
+not re-run on the apply (accepted residual, see
+`docs/deployment/pulumi-cloud-feature-audit.md`). Because the
 state backend is Pulumi Cloud, the update lands in the console's **Activity**
 tab with full logs and diffs regardless of where the CLI ran. Manual
 `workflow_dispatch` is refused outside `develop`
 (no images exist for other branches) and accepts an optional **`imageTag`
-input** — the supported rollback path, deploying a previous `sha-<40-hex>`
-build through the identical gates. Prod is promoted manually.
+input** — the supported rollback path, which pins **all three** services to
+the supplied tag through the identical gates. Prod is promoted manually.
 
 **Pulumi stack config is file-based for plaintext, ESC-based for secrets — the
 configured stack file must be committed.** `Pulumi.dev.yaml` holds the
