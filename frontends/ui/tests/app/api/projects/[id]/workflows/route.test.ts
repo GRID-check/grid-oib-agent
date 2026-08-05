@@ -26,6 +26,8 @@ const mockCreate = vi.mocked(createWorkflow)
  * of switching off checking per call site with `any`.
  */
 const asWorkflow = (row: Pick<Workflow, 'id'>): Workflow => row as unknown as Workflow
+const asAuthorizedSession = (fixture: Omit<AuthorizedSession, 'featureFlags'> & { featureFlags: null }): AuthorizedSession =>
+  fixture as unknown as AuthorizedSession
 
 const session = {
   userId: 'user_1',
@@ -57,7 +59,7 @@ function req(body?: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockSession.mockResolvedValue(session as unknown as AuthorizedSession)
+  mockSession.mockResolvedValue(asAuthorizedSession(session))
 })
 
 afterEach(() => {

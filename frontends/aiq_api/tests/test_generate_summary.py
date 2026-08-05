@@ -298,3 +298,22 @@ async def test_generate_summary_no_api_key_returns_not_configured(app, monkeypat
     assert response.status_code == 200
     assert response.json() == {"summary": "", "error": "llm_not_configured"}
     mock_post.assert_not_called()
+
+
+def test_placeholder_openrouter_key_does_not_select_the_openrouter_endpoint(monkeypatch):
+    """Same placeholder trap as the consistency route: an uninterpolated
+    `${OPENROUTER_API_KEY}` is truthy but not a key, and reading it raw sent
+    LLM_API_KEY to openrouter.ai."""
+    from aiq_api.routes.generate_summary import _llm_settings
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "${OPENROUTER_API_KEY}")
+    monkeypatch.setenv("LLM_API_KEY", "sk-some-other-provider")
+    for name in ("SUMMARY_LLM_MODEL", "SUMMARY_LLM_BASE_URL", "SUMMARY_LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+    model, api_key, base_url = _llm_settings()
+
+    assert "openrouter.ai" not in base_url
+    assert base_url == "https://api.openai.com/v1"
+    assert model == "gpt-4o-mini"
+    assert api_key == "sk-some-other-provider"  # pragma: allowlist secret

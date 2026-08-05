@@ -24,7 +24,7 @@ const mockLoad = vi.mocked(loadWorkflowForFire)
  * checking at each call site with `any`.
  */
 const asWorkflow = (row: Pick<Workflow, 'id' | 'enabled'>): Workflow => row as unknown as Workflow
-const asRun = (row: { id: string; status: string }): WorkflowRun => row as unknown as WorkflowRun
+const asRun = (row: Pick<WorkflowRun, 'id' | 'status'>): WorkflowRun => row as unknown as WorkflowRun
 const mockFire = vi.mocked(fireScheduledWorkflow)
 
 const REAL_TOKEN = 'a-real-secret-token'
