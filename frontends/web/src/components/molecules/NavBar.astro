@@ -26,7 +26,27 @@ const home = translatePath('/')
     <div
       class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
     >
-      <a href={SIGN_IN_URL} class="hidden text-ink hover:text-accent-600 sm:inline">{t.nav.signIn}</a>
+      <a
+        href={SIGN_IN_URL}
+        data-sign-in
+        data-sign-in-pending={t.nav.signInPending}
+        class="hidden items-center gap-1.5 whitespace-nowrap text-ink hover:text-accent-600 sm:inline-flex"
+      >
+        <svg
+          data-sign-in-spinner
+          class="hidden size-3.5 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          style="animation: chain-spin 0.9s linear infinite"
+          aria-hidden="true"
+        >
+          <path d="M12 3a9 9 0 1 0 9 9" />
+        </svg>
+        <span data-sign-in-label aria-live="polite">{t.nav.signIn}</span>
+      </a>
       <Pill href={`${home}#kontakt`} variant="outline" size="sm">
         {t.nav.cta}
       </Pill>
