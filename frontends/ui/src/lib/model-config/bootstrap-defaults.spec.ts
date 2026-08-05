@@ -136,6 +136,7 @@ describe('groupsEligibleForBootstrap', () => {
 describe('bootstrapPlatformModelDefaults', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('GRID_APP_DATABASE_URL', 'postgres://stub')
     executeResults = []
     getWorkflowLlmBaseUrls.mockResolvedValue(allOn(OPENROUTER))
     fetchModelCatalog.mockResolvedValue([{ id: BOOTSTRAP_DEFAULT_MODEL }])
@@ -276,8 +277,21 @@ describe('bootstrapPlatformModelDefaults', () => {
   })
 
   it('never throws into boot when the database is unreachable', async () => {
+    vi.stubEnv('GRID_APP_DATABASE_URL', 'postgres://stub')
     getPlatformModelDefaults.mockRejectedValue(new Error('db down'))
 
     await expect(bootstrapPlatformModelDefaults()).resolves.toEqual([])
+    vi.unstubAllEnvs()
+  })
+
+  it('skips quietly when no application database is configured', async () => {
+    // Local dev, the screenshot harness and build steps all run without one.
+    // Reporting that as a failure on every boot trains people to ignore the log
+    // line that matters.
+    vi.stubEnv('GRID_APP_DATABASE_URL', '')
+
+    expect(await bootstrapPlatformModelDefaults()).toEqual([])
+    expect(getPlatformModelDefaults).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
   })
 })

@@ -15,9 +15,17 @@ def client() -> TestClient:
     app = FastAPI()
     router = APIRouter()
     llm_configs = {
-        "intent_llm": SimpleNamespace(model_name="deepseek/deepseek-v4-flash", base_url="https://openrouter.ai/api/v1"),
-        "card_llm": SimpleNamespace(model_name="deepseek/deepseek-v4-flash", base_url="https://openrouter.ai/api/v1"),
-        "weird_llm": SimpleNamespace(),  # no model/base_url field → None
+        "intent_llm": SimpleNamespace(
+            model_name="deepseek/deepseek-v4-flash",
+            base_url="https://openrouter.ai/api/v1",
+            reasoning_effort="none",
+        ),
+        "card_llm": SimpleNamespace(
+            model_name="deepseek/deepseek-v4-flash",
+            base_url="https://openrouter.ai/api/v1",
+            reasoning_effort="medium",
+        ),
+        "weird_llm": SimpleNamespace(),  # no model/base_url/effort field → None
     }
     add_config_info_routes(router, llm_configs)
     app.include_router(router)
@@ -78,3 +86,16 @@ def test_requires_matching_token_when_configured(client, monkeypatch):
     ok = client.get("/v1/config/llm-defaults", headers={"x-grid-internal-token": "secret-token"})
     assert ok.status_code == 200
     assert ok.json()["llms"]["intent_llm"] == "deepseek/deepseek-v4-flash"
+
+
+def test_reports_the_reasoning_effort_each_llm_ships_with(client, monkeypatch):
+    """The platform owner can override the thinking level per agent group, so the
+    admin surface must be able to name what clearing that override returns to."""
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    efforts = client.get("/v1/config/llm-defaults").json()["reasoningEfforts"]
+
+    assert efforts["intent_llm"] == "none"
+    assert efforts["card_llm"] == "medium"
+    # An LLM config without the field reports None rather than being omitted:
+    # "role ships no effort" must be distinguishable from "no such LLM".
+    assert efforts["weird_llm"] is None

@@ -110,6 +110,13 @@ export function groupsEligibleForBootstrap(baseUrls: LlmBaseUrls): string[] {
  * every boot; returns the groups actually written (empty when it did nothing).
  */
 export async function bootstrapPlatformModelDefaults(): Promise<string[]> {
+  // A process with no database configured is not a broken deployment — it is
+  // local dev, the screenshot harness, or a build step. Reporting that as a
+  // failure on every boot trains people to ignore the log line that matters.
+  if (!process.env.GRID_APP_DATABASE_URL) {
+    console.debug('[Model Config] Skipping default bootstrap: no application database configured')
+    return []
+  }
   try {
     return await runBootstrap()
   } catch (error) {

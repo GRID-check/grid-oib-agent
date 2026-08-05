@@ -52,6 +52,12 @@ def add_config_info_routes(router: APIRouter, llm_configs: Mapping[str, Any]) ->
     # id. Not secret — the same host names are in the config file and the docs.
     base_urls = {name: getattr(config, "base_url", None) for name, config in llm_configs.items()}
 
+    # The `reasoning_effort` each role ships with. The platform owner can now
+    # override this per agent group (Platform → Models), so the admin surface
+    # needs to name what a group falls back to when the override is cleared —
+    # the same contract the `llms` map above serves for the model.
+    reasoning_efforts = {name: getattr(config, "reasoning_effort", None) for name, config in llm_configs.items()}
+
     # The ingestion VLM is env-configured (AIQ_VLM_MODEL), not a `llms:` entry,
     # so surface its resolved default under a stable synthetic `vlm` key. The
     # org model-config UI's `ingest_vlm` group maps to this via configLlmRefs so
@@ -75,4 +81,4 @@ def add_config_info_routes(router: APIRouter, llm_configs: Mapping[str, Any]) ->
     async def llm_defaults(request: Request) -> dict[str, Any]:
         if not _token_ok(request):
             raise HTTPException(status_code=403, detail="Forbidden")
-        return {"llms": defaults, "baseUrls": base_urls}
+        return {"llms": defaults, "baseUrls": base_urls, "reasoningEfforts": reasoning_efforts}

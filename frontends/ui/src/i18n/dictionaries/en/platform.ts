@@ -631,6 +631,28 @@ export const platform = {
     zdrWarning:
       'No zero-data-retention endpoint — organizations with that policy on keep their own model instead.',
     noZdr: 'No zero-data-retention endpoint',
+    // Thinking level per group — the second lever on the same row.
+    effortPinnedBadge: 'Platform level',
+    effortInherit: 'Workflow config',
+    effortClear: 'Thinking level back to the workflow configuration',
+    effortSelectLabel: 'Thinking level for {group}',
+    effortSaveError: 'The thinking levels could not be saved.',
+    // The levels themselves (OpenRouter vocabulary). The hint names the cost,
+    // not just the name — reasoning tokens are invisible until the bill arrives.
+    levels: {
+      none: {
+        label: 'Off',
+        hint: 'No hidden thinking. For pure routing and one-liners. Models that must reason reject this level.',
+      },
+      minimal: { label: 'Minimal', hint: 'The shortest thinking. Fast and cheap.' },
+      low: { label: 'Low', hint: 'Little thinking. For quick answers with some deliberation.' },
+      medium: { label: 'Medium', hint: 'Balanced — the default for most roles.' },
+      high: { label: 'High', hint: 'A lot of thinking. Noticeably more hidden tokens and runtime.' },
+      xhigh: {
+        label: 'Very high',
+        hint: 'Maximum thinking. Multiplies cost and runtime across hundreds of agent steps.',
+      },
+    },
     // Picker.
     searchPlaceholder: 'Search models…',
     contextWindow: 'Context',
@@ -647,7 +669,7 @@ export const platform = {
     loadError: 'Could not load the default models.',
     confirmTitle: 'Change the default for every organization?',
     confirmDescription:
-      'Every organization that has not picked its own model for these parts of the agent switches over on its next message. Organizations with their own choice are unaffected.',
+      'Every organization that has not picked its own model for these parts of the agent switches over on its next message. Organizations with their own choice are unaffected. Changed thinking levels apply to EVERY organization — higher levels multiply hidden reasoning tokens and runtime.',
     confirmSave: 'Change defaults',
   },
   /** Platform → retrieval: the fleet-wide retrieval depths (chunks/results per search). */

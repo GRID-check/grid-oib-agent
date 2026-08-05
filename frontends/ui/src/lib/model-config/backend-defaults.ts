@@ -35,6 +35,7 @@ export type LlmBaseUrls = Record<string, string | null>
 interface LlmDefaults {
   llms: Record<string, string | null>
   baseUrls: LlmBaseUrls
+  reasoningEfforts: Record<string, string | null>
 }
 
 let cache: { fetchedAt: number; defaults: LlmDefaults } | null = null
@@ -59,11 +60,16 @@ async function fetchLlmDefaults(): Promise<LlmDefaults> {
   const body = (await response.json()) as {
     llms?: Record<string, string | null>
     baseUrls?: LlmBaseUrls
+    reasoningEfforts?: Record<string, string | null>
   }
   // `baseUrls` is absent when the BFF is newer than the backend (rolling
   // deploy). An empty map means "endpoint unknown", which the seeding path
   // treats as "do not seed" rather than "assume OpenRouter".
-  const defaults: LlmDefaults = { llms: body.llms ?? {}, baseUrls: body.baseUrls ?? {} }
+  const defaults: LlmDefaults = {
+    llms: body.llms ?? {},
+    baseUrls: body.baseUrls ?? {},
+    reasoningEfforts: body.reasoningEfforts ?? {},
+  }
   cache = { fetchedAt: Date.now(), defaults }
   return defaults
 }
@@ -76,6 +82,35 @@ async function fetchLlmDefaults(): Promise<LlmDefaults> {
 export async function getWorkflowLlmBaseUrls(): Promise<LlmBaseUrls> {
   const { baseUrls } = await fetchLlmDefaults()
   return baseUrls
+}
+
+/**
+ * `{agentGroupId: yamlReasoningEffort | null}` — what each group's role ships
+ * with in the workflow config, so the platform surface can name what clearing
+ * an effort returns to. Best-effort: an unreachable backend yields nulls.
+ *
+ * A group spanning several config LLMs (deep research) normally shares one
+ * effort; if they ever diverge, all of them are shown, mirroring
+ * `getWorkflowGroupDefaults`.
+ */
+export async function getWorkflowGroupReasoningEfforts(): Promise<GroupDefaults> {
+  const efforts: GroupDefaults = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, null]))
+  try {
+    const { reasoningEfforts } = await fetchLlmDefaults()
+    for (const group of AGENT_GROUPS) {
+      const values = [
+        ...new Set(
+          group.configLlmRefs
+            .map((ref) => reasoningEfforts[ref])
+            .filter((value): value is string => typeof value === 'string'),
+        ),
+      ]
+      efforts[group.id] = values.length > 0 ? values.join(', ') : null
+    }
+  } catch (error) {
+    console.warn('[Model Config] Could not resolve workflow reasoning efforts from backend:', error)
+  }
+  return efforts
 }
 
 /**

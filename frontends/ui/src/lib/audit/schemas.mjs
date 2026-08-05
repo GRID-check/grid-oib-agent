@@ -153,6 +153,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'platform_model_defaults' }],
     metadata: MODEL_GROUP_METADATA,
   },
+  // A fleet-wide reasoning-effort change: it re-tunes how many hidden thinking
+  // tokens every organization spends per turn, so it belongs in the platform
+  // org's trail next to the model decision it sits beside in the UI.
+  'platform.reasoning_efforts.updated': {
+    targets: [{ type: 'platform_reasoning_efforts' }],
+    metadata: MODEL_GROUP_METADATA,
+  },
   'platform.norm_registry.updated': {
     targets: [{ type: 'norm_registry' }],
     metadata: { entries: 'number', version: 'number' },

@@ -93,6 +93,40 @@ seeding it would make an operator's `AIQ_VLM_MODEL` dead config and fail every
 caption call against that endpoint. It is bootstrapped only where the VLM itself
 runs on the platform provider.
 
+## Thinking level (reasoning effort)
+
+The platform owner also sets the **reasoning effort** per agent group, on the
+same screen as the model — they are two settings of one decision: together they
+determine what a turn costs and how good it is.
+
+| | Model | Thinking level |
+|---|---|---|
+| Table | `platform_model_defaults` | `platform_reasoning_efforts` (0030) |
+| Org override | yes, per group, wins | **no — platform only** |
+| Validated against | the live OpenRouter catalog | a closed vocabulary we own |
+| Reaches the backend via | the `x-grid-model-overrides` header (or the org-id fallback) | `GET /api/internal/reasoning-efforts`, TTL-cached |
+| Falls back to | the YAML `model_name` | the YAML `reasoning_effort` for that role |
+
+There is deliberately no org layer for effort: a tenant choosing its own model is
+a product feature, a tenant dialling its own reasoning spend is not. And no
+catalog round-trip on save — the accepted values are a closed vocabulary, and
+whether a given model honours a level is OpenRouter's business (it maps a
+requested effort to the nearest level each model supports, server-side, which is
+what lets a chosen level survive the group's model changing underneath it). That
+matters operationally: turning reasoning spend DOWN is the lever an operator
+reaches for when a run is burning tokens, and an upstream outage must never block
+it.
+
+`None` from the resolver means "leave the role's configured value alone" and is
+NOT the level `none`, which actively disables reasoning. Both sides encode the
+vocabulary — the BFF validates on write, `aiq_agent/common/reasoning_settings.py`
+on read — so a hand-edited row can never push a provider-native tier name (e.g.
+DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
+`tests/fixtures/reasoning_efforts_catalog.json` from both languages.
+
+Applied at the same seam as the model, in `apply_model_override` — so every
+existing call site picks it up with no new plumbing.
+
 The merge happens **BFF-side**, in `getEffectiveModelOverrides()`
 (`frontends/ui/src/lib/model-config/service.ts`). Every submission path already
 forwards whatever that function returns, so the Python backend keeps its single
