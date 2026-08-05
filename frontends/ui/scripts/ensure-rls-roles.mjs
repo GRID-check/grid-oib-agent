@@ -41,8 +41,10 @@ function log(message) {
 
 if (!runtimeUrl || !ownerUrl) {
   // Single-credential setup (a local checkout against a throwaway database).
-  // There is no privilege split to bootstrap.
-  log("GRID_APP_MIGRATION_DATABASE_URL not set — nothing to do.");
+  // There is no privilege split to bootstrap. Name the one that is actually
+  // missing — telling an operator the wrong variable sends them to fix
+  // something that was never set wrong.
+  log(`${runtimeUrl ? "GRID_APP_MIGRATION_DATABASE_URL" : "GRID_APP_DATABASE_URL"} not set — nothing to do.`);
   process.exit(0);
 }
 
@@ -70,6 +72,18 @@ if (!runtimePassword) {
 
 const sql = postgres(ownerUrl, { max: 1, prepare: false, connect_timeout: 10 });
 try {
+  // Unconditionally, and BEFORE the runtime role is considered: the two roles
+  // are provisioned independently, and an upgraded volume can easily have one
+  // without the other. Creating the platform role only when the runtime role is
+  // absent left exactly that deployment — `grid_app_rw` already there from an
+  // earlier release, `grid_app_platform` never created — failing the GRANT
+  // below, which the catch swallows, so migration 0030 aborted with "row-level
+  // security roles are missing" and nothing said why.
+  await sql.unsafe(`CREATE ROLE ${PLATFORM_ROLE} NOLOGIN BYPASSRLS`).catch((error) => {
+    // Already there is the common case on a re-run.
+    if (!/already exists/i.test(error.message)) throw error;
+  });
+
   const [existing] = await sql`SELECT 1 FROM pg_roles WHERE rolname = ${RUNTIME_ROLE}`;
 
   if (!existing) {
@@ -81,15 +95,17 @@ try {
         'CREATE ROLE %I LOGIN NOINHERIT PASSWORD %L', ${RUNTIME_ROLE}::text, ${runtimePassword}::text
       ) AS statement
     `;
-    await sql.unsafe(`CREATE ROLE ${PLATFORM_ROLE} NOLOGIN BYPASSRLS`).catch((error) => {
-      // Already there is the common case on a re-run.
-      if (!/already exists/i.test(error.message)) throw error;
-    });
     await sql.unsafe(created.statement);
     log(`created ${RUNTIME_ROLE} and ${PLATFORM_ROLE}.`);
   } else {
+    // NOINHERIT matters as much on this path as on the creating one. Without it
+    // a pre-existing INHERIT role picks up `grid_app_platform`'s object
+    // privileges automatically — platform-table writes it is not supposed to
+    // have — instead of having to `SET LOCAL ROLE` for them. (Membership never
+    // confers BYPASSRLS implicitly either way; that one always needs the
+    // step-up.)
     const [built] = await sql`
-      SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', ${RUNTIME_ROLE}::text, ${runtimePassword}::text) AS statement
+      SELECT format('ALTER ROLE %I LOGIN NOINHERIT PASSWORD %L', ${RUNTIME_ROLE}::text, ${runtimePassword}::text) AS statement
     `;
     await sql.unsafe(built.statement);
     log(`${RUNTIME_ROLE} login synchronised with GRID_APP_DATABASE_URL.`);

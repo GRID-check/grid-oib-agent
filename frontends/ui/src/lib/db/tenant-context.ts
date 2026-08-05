@@ -210,6 +210,20 @@ export function enterTenantContext(session: {
 }
 
 /**
+ * Publish "nobody is asking" for the rest of this request.
+ *
+ * The signed-OUT counterpart of {@link enterTenantContext}, and needed for the
+ * same reason its `null` branch is an assignment rather than an early return: a
+ * request that resolves no session at all must not be left holding whatever
+ * scope happened to be in the slot. Anything that queries afterwards then fails
+ * closed with `MissingTenantContextError` instead of reading as a previous
+ * tenant.
+ */
+export function clearTenantContext(): void {
+  enterTenantContext({ organizationId: null, userId: '' })
+}
+
+/**
  * Run `fn` scoped to one organization. For callers that have no session.
  *
  * `fn`'s result is awaited INSIDE the scope, and that detail is load-bearing.

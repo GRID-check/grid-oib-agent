@@ -26,7 +26,11 @@ const eventSchema = z.object({
 })
 
 const batchSchema = z.object({
-  organizationId: z.string().max(120).nullable().optional(),
+  // `.min(1)`: an empty string is falsy, so it took the org-less branch below
+  // and wrote `organization_id = ''` — a row that no tenant predicate can ever
+  // match and that is not the NULL the fail-closed design expects. Two
+  // different "no organization" values is one too many.
+  organizationId: z.string().min(1).max(120).nullable().optional(),
   conversationId: z.string().max(255).nullable().optional(),
   turnId: z.string().min(1).max(64),
   jobId: z.string().max(255).nullable().optional(),

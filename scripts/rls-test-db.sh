@@ -13,7 +13,11 @@ set -euo pipefail
 
 UI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../frontends/ui" && pwd)"
 PORT="${RLS_TEST_PORT:-55433}"
-PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}"
+# `|| true` matters: under `set -e` a glob that matches nothing makes the
+# substitution non-zero and kills the script here, so the friendly "install
+# postgresql, or set PGBIN" message below would never be the thing an operator
+# without server binaries actually sees.
+PGBIN="${PGBIN:-$(find /usr/lib/postgresql -mindepth 2 -maxdepth 2 -type d -name bin 2>/dev/null | sort -V | tail -1 || true)}"
 WORKDIR="$(mktemp -d)"
 PGDATA="$WORKDIR/pgdata"
 RUNTIME_PASSWORD="rls_test_pw"  # pragma: allowlist secret (throwaway cluster, destroyed on exit)

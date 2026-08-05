@@ -5,7 +5,7 @@
 import { getTokenClaims, withAuth } from '@workos-inc/authkit-nextjs'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached } from '@/lib/cache'
-import { enterTenantContext } from '@/lib/db/tenant-context'
+import { clearTenantContext, enterTenantContext } from '@/lib/db/tenant-context'
 import type { GridSession } from './types'
 
 /**
@@ -51,6 +51,11 @@ export async function getGridSession(): Promise<GridSession | null> {
   const auth = await withAuth()
 
   if (!auth.user || !auth.accessToken) {
+    // Clear rather than leave alone. Pages and layouts call this without a
+    // route factory around them, so the slot may still hold a scope; returning
+    // null while leaving it in place lets anything that queries afterwards read
+    // as whoever was there before. Signed out means no tenant.
+    clearTenantContext()
     return null
   }
 

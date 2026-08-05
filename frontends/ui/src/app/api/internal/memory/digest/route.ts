@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
-import { withOptionalTenant } from '@/lib/db/tenant-context'
-import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 
 /**
  * INTERNAL service endpoint — the per-turn READ path for the agent's core
@@ -38,19 +38,27 @@ export const GET = internalApiRoute(
     const { projectId, organizationId } = parseQuery(request, digestQuerySchema)
 
     // The schema accepts a projectId on its own, so the organization is not
-    // always known here. When it is, the digest is read inside that tenant;
-    // when it is not, the project row itself is what names the tenant and
-    // `buildProjectMemoryDigest` pins the branch to it.
-    return withOptionalTenant(
-      organizationId,
-      'memory digest addressed by project id alone; the project row names the tenant',
-      async () => {
-        // `digest` is null when there is no active memory — a valid empty result,
-        // not an error. The backend treats null as "no memory this turn".
-        const digest = await buildProjectMemoryDigest(projectId, organizationId)
-        return { digest }
-      }
-    )
+    // always known here. It has to be RESOLVED rather than skipped: reading the
+    // digest without a tenant meant platform scope — a full RLS bypass — while
+    // the query filtered on projectId alone, so any project id returned that
+    // project's memory. An internal token is not a licence to read every
+    // tenant, and "the project row names the tenant" is only true if something
+    // actually goes and asks the project row.
+    const tenant = organizationId ?? (projectId ? await withPlatformAccess(
+      'resolving the project row that names the tenant for a project-only digest',
+      () => resolveProjectOrganization(projectId)
+    ) : null)
+
+    // No such project, so no tenant to enter and nothing that could be read.
+    // Same shape as an empty digest, which is what the backend already handles.
+    if (!tenant) return { digest: null }
+
+    return withTenant({ organizationId: tenant }, async () => {
+      // `digest` is null when there is no active memory — a valid empty result,
+      // not an error. The backend treats null as "no memory this turn".
+      const digest = await buildProjectMemoryDigest(projectId, tenant)
+      return { digest }
+    })
   },
-  { tenancy: { fromPayload: '?organizationId, else the project row' } }
+  { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }
 )

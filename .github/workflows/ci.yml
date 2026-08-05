@@ -55,6 +55,11 @@ jobs:
               - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
+              # `scripts/rls-test-db.sh` IS the tenant-isolation gate. Without
+              # this line a change to it leaves `frontend` false, the gate job
+              # is skipped, and `ci-ok` counts skipped as passed — so a broken
+              # row-level-security harness merges unverified.
+              - 'scripts/**'
             web:
               - 'frontends/web/**'
               - 'Taskfile.yml'

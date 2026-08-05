@@ -43,6 +43,17 @@ type Connection = postgres.TransactionSql<Record<string, never>>;
  */
 const SAFE_SETTING_VALUE = /^[A-Za-z0-9_-]*$/;
 
+/**
+ * postgres-js members that open a route to the database the tenant context
+ * cannot follow: a connection held outside a transaction (`reserve`), an
+ * asynchronous notification channel (`listen`/`notify`), a file replayed
+ * verbatim (`file`), or a logical-replication stream reading the WAL directly,
+ * where policies were never in the path (`subscribe`). The proxy refuses all of
+ * them so that "there is no second way in" stays a property of the code rather
+ * than of the current call sites.
+ */
+const UNSCOPED_CLIENT_MEMBERS = new Set(["reserve", "listen", "notify", "file", "subscribe"]);
+
 function settingLiteral(name: string, value: string): string {
   if (!SAFE_SETTING_VALUE.test(value)) {
     throw new Error(`[db] refusing to set ${name}: value is not a plain identifier`);
@@ -172,8 +183,10 @@ function tenantScopedClient(base: ReturnType<typeof postgres>): ReturnType<typeo
 
       // Ways to reach Postgres that would not carry a context. None is used in
       // this codebase; refusing them keeps "there is no second way in" true
-      // rather than aspirational.
-      if (property === "reserve" || property === "listen" || property === "notify" || property === "file") {
+      // rather than aspirational. `subscribe` belongs here for the same reason
+      // as `listen`: it opens a logical-replication stream that delivers rows
+      // straight from the WAL, where policies were never in the path at all.
+      if (UNSCOPED_CLIENT_MEMBERS.has(property as string)) {
         return () => {
           throw new Error(
             `[db] client.${String(property)}() bypasses the tenant context. Use getDb() ` +

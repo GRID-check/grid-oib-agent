@@ -284,7 +284,34 @@ ALTER TABLE project_folders
   ADD CONSTRAINT project_folders_parent_id_project_id_fkey
   FOREIGN KEY (parent_id, project_id) REFERENCES project_folders (id, project_id);
 
+-- `documents.project_id` is nullable — org-wide `archiv` documents have no
+-- project — and a composite foreign key is MATCH SIMPLE by default, which skips
+-- the check entirely when ANY column of the key is NULL. So `(folder_id =
+-- <another tenant's folder>, project_id = NULL)` was accepted without the
+-- folder ever being looked at: the same cross-tenant reference this key exists
+-- to prevent, reachable by omitting one field.
+--
+-- MATCH FULL is the textbook answer and is wrong here: it demands all-null or
+-- all-non-null, so it also rejects `(folder_id = NULL, project_id = <a
+-- project>)` — an ordinary document sitting at the root of a project, which is
+-- the common case. Verified on Postgres 16: "MATCH FULL does not allow mixing
+-- of null and nonnull key values."
+--
+-- The invariant that is actually wanted is narrower: a document that IS in a
+-- folder must have a project. Stated as a CHECK, it leaves the FK's only
+-- unchecked case as `folder_id IS NULL` — no folder reference to validate —
+-- and every row that names a folder now has both columns non-null, so MATCH
+-- SIMPLE does check it.
+-- Any row already in that shape is exactly the corruption above: a document
+-- with no project pointing at some project's folder. Detach it rather than
+-- delete it — the document itself is real data belonging to a real tenant, and
+-- only the folder reference was never legitimate.
+UPDATE documents SET folder_id = NULL WHERE folder_id IS NOT NULL AND project_id IS NULL;
+
 ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_folder_id_project_folders_id_fk;
+ALTER TABLE documents
+  ADD CONSTRAINT documents_folder_requires_project
+  CHECK (folder_id IS NULL OR project_id IS NOT NULL);
 ALTER TABLE documents
   ADD CONSTRAINT documents_folder_id_project_id_fkey
   FOREIGN KEY (folder_id, project_id) REFERENCES project_folders (id, project_id)
