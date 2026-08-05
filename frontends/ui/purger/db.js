@@ -96,6 +96,7 @@ async function releaseHeld(sql, entryId) {
   `)
 }
 
+/** Mark an entry done: nothing left in object storage or the database. */
 async function markPurged(sql, entryId) {
   await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
@@ -104,6 +105,11 @@ async function markPurged(sql, entryId) {
   `)
 }
 
+/**
+ * Record a failed attempt. Back to `pending` for another pass until the attempt
+ * count reaches MAX_ATTEMPTS, then `failed` so it stops consuming the queue and
+ * becomes visible as something needing a human.
+ */
 async function markFailed(sql, entryId, message) {
   await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue

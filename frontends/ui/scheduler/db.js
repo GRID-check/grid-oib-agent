@@ -6,6 +6,12 @@
 
 const postgres = require('postgres')
 
+/**
+ * The scheduler's own postgres-js client, connecting as `grid_app_rw` like the
+ * BFF. Its work spans tenants, so every transaction steps up to the platform
+ * role explicitly (see `withPlatformScope`) rather than this connection being
+ * privileged (ADR-0041).
+ */
 function createSql() {
   const url = process.env.GRID_APP_DATABASE_URL
   if (!url) throw new Error('GRID_APP_DATABASE_URL is not defined')

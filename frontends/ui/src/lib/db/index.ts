@@ -85,6 +85,14 @@ function reportSlotWait(waitedMs: number): void {
   );
 }
 
+/**
+ * Render one `SET LOCAL` statement, or refuse.
+ *
+ * `SET LOCAL` takes no bind parameters, so the value has to be inlined — which
+ * means the only safe input is one that cannot carry quoting at all. Anything
+ * outside {@link SAFE_SETTING_VALUE} throws instead of being escaped and hoped
+ * about.
+ */
 function settingLiteral(name: string, value: string): string {
   if (!SAFE_SETTING_VALUE.test(value)) {
     throw new Error(`[db] refusing to set ${name}: value is not a plain identifier`);
@@ -247,6 +255,12 @@ function tenantScopedClient(base: ReturnType<typeof postgres>): ReturnType<typeo
   }) as ReturnType<typeof postgres>;
 }
 
+/**
+ * Build the singleton drizzle client, wrapped so every statement carries a
+ * tenant context (ADR-0041). Idempotent: the second call returns the first
+ * client, because the pool bound below is per-process and a second pool would
+ * silently double it.
+ */
 export function createDb() {
   if (dbInstance) {
     return dbInstance;
@@ -282,6 +296,15 @@ export function createDb() {
   return dbInstance;
 }
 
+/**
+ * The tenant-scoped database handle. This is the ONLY supported way in: the
+ * client it returns refuses every postgres-js entry point that would not carry
+ * a context, and throws `MissingTenantContextError` rather than returning an
+ * empty result when there is none.
+ *
+ * Never call it inside an open `db.transaction()` body — use the `tx` handle the
+ * callback receives. See `transaction-shape.spec.ts` for why.
+ */
 export function getDb() {
   if (!dbInstance) {
     return createDb();
@@ -290,6 +313,11 @@ export function getDb() {
   return dbInstance;
 }
 
+/**
+ * Drain the pool and forget the singleton, so the next `getDb()` builds a fresh
+ * one. For test teardown and graceful shutdown; nothing in a request path needs
+ * it.
+ */
 export async function closeDb() {
   if (client) {
     await client.end();
