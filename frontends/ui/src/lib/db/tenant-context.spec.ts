@@ -269,7 +269,10 @@ describe('route factories open a request-scoped slot', () => {
       }
     }
     walk(apiDir)
-    expect(routes.length).toBeGreaterThan(100)
+    // Only that the walk found something — the `unscoped` assertion below is
+    // what actually guards anything. A threshold near the current route count
+    // would fail on a consolidation, pointing at the wrong problem.
+    expect(routes.length, 'the API route walk found no route.ts files').toBeGreaterThan(0)
 
     // Matched at the EXPORT, not anywhere in the file: a leftover import used
     // to satisfy the old file-wide substring check.

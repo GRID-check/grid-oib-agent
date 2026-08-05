@@ -47,8 +47,24 @@ GRANT ALL PRIVILEGES ON DATABASE grid_app TO aiq;
 -- Kubernetes does the same job through CloudNativePG's managed roles.
 --
 -- Note this file runs ONLY when Postgres initialises a fresh data directory.
--- On an existing volume the frontend container's `ensure-runtime-role.mjs`
--- keeps `grid_app_rw`'s password in step with GRID_APP_DATABASE_URL instead.
+-- On an existing volume the `grid-migrate` service's `ensure-rls-roles.mjs`
+-- creates whichever roles are absent and keeps `grid_app_rw`'s password in step
+-- with GRID_APP_DATABASE_URL instead.
+--
+-- WHO ACTUALLY OWNS THE SCHEMA HERE: `aiq`, the compose superuser — not
+-- `grid_app_owner`. This stack points GRID_APP_MIGRATION_DATABASE_URL at `aiq`,
+-- and only the test harness (`scripts/rls-test-db.sh`) migrates as
+-- `grid_app_owner`. That is deliberate: the harness runs the restricted shape on
+-- purpose, because it is the shape that catches privilege mistakes a
+-- superuser-run migration hides. `grid_app_owner` is provisioned here anyway so
+-- migration 0030's role assertion passes and so a deployment can switch the
+-- migration credential over without a schema change.
+--
+-- And note what ownership means for RLS: 0030 uses ENABLE ROW LEVEL SECURITY,
+-- not FORCE, so whoever owns a table is exempt from its policies. That is the
+-- reason migrations and backfills work at all — they run as the owner — and the
+-- reason the SERVING tier must never connect as one. `grid_app_rw` is what the
+-- app uses, and it owns nothing.
 --
 -- The dev password below is exactly that: a DEV default, matching `aiq_dev`
 -- alongside it, for a compose stack on a laptop.

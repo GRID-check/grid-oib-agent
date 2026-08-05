@@ -77,7 +77,12 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.GRID_APP_DATABASE_URL!,
+    // The OWNER credential (ADR-0041). `GRID_APP_DATABASE_URL` is the runtime
+    // role: DML only, RLS-enforced, and unable to run DDL — a migration pointed
+    // at it fails, and a backfill pointed at it "succeeds" having touched
+    // nothing. The fallback covers a local single-credential database only.
+    url:
+      process.env.GRID_APP_MIGRATION_DATABASE_URL ?? process.env.GRID_APP_DATABASE_URL!,
   },
 });
 ```

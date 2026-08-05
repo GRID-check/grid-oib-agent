@@ -12,7 +12,12 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.GRID_APP_DATABASE_URL,
+    // The OWNER credential — migrations run DDL and backfills, and `grid_app_rw`
+    // can do neither (ADR-0041). The fallback exists only so a local checkout
+    // pointed at a single-credential throwaway database still works; it is not a
+    // supported way to migrate a deployment.
+    url:
+      process.env.GRID_APP_MIGRATION_DATABASE_URL ?? process.env.GRID_APP_DATABASE_URL,
   },
 })
 ```

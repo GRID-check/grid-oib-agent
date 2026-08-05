@@ -54,6 +54,37 @@ const SAFE_SETTING_VALUE = /^[A-Za-z0-9_-]*$/;
  */
 const UNSCOPED_CLIENT_MEMBERS = new Set(["reserve", "listen", "notify", "file", "subscribe"]);
 
+/**
+ * How long a caller may wait for a pool slot before we say so.
+ *
+ * postgres-js has no ACQUISITION timeout — `connect_timeout` bounds the
+ * TCP/startup handshake only — so a saturated pool does not produce errors, it
+ * produces silence: callers queue, latency climbs, and nothing in the logs
+ * distinguishes that from a slow database. Since ADR-0041 every statement holds
+ * a slot for a full transaction, which makes saturation both likelier and more
+ * expensive, so it is worth naming when it happens.
+ */
+const SLOT_WAIT_WARN_MS = 1_000;
+/** One line per interval, not one per queued statement — the log is the symptom. */
+const SLOT_WAIT_LOG_INTERVAL_MS = 60_000;
+let lastSlotWaitLogAt = 0;
+
+/**
+ * Time how long `begin` took to hand us a connection, and warn when that wait
+ * is long enough to mean queueing rather than latency.
+ */
+function reportSlotWait(waitedMs: number): void {
+  if (waitedMs < SLOT_WAIT_WARN_MS) return;
+  const now = Date.now();
+  if (now - lastSlotWaitLogAt < SLOT_WAIT_LOG_INTERVAL_MS) return;
+  lastSlotWaitLogAt = now;
+  console.warn(
+    `[db] waited ${Math.round(waitedMs)}ms for a connection from a pool of ` +
+      `${resolveDbPoolMax()} (GRID_DB_POOL_MAX). Callers queue silently past this ` +
+      `bound; if this persists, raise the bound or find what is holding slots.`,
+  );
+}
+
 function settingLiteral(name: string, value: string): string {
   if (!SAFE_SETTING_VALUE.test(value)) {
     throw new Error(`[db] refusing to set ${name}: value is not a plain identifier`);
@@ -144,7 +175,9 @@ function tenantScopedClient(base: ReturnType<typeof postgres>): ReturnType<typeo
           const started: { rows?: Promise<unknown>; values?: Promise<unknown> } = {};
           const run = (positional: boolean): Promise<unknown> => {
             const key = positional ? "values" : "rows";
+            const requestedAt = performance.now();
             started[key] ??= target.begin(async (connection) => {
+              reportSlotWait(performance.now() - requestedAt);
               await applyContext(connection, context);
               const pending = connection.unsafe(
                 query,
@@ -172,7 +205,9 @@ function tenantScopedClient(base: ReturnType<typeof postgres>): ReturnType<typeo
           // while `db.execute()` rejects. Callers should not have to handle
           // both shapes for the same condition.
           if (!context) return Promise.reject(new MissingTenantContextError());
+          const requestedAt = performance.now();
           return target.begin(async (connection) => {
+            reportSlotWait(performance.now() - requestedAt);
             // Applied once at BEGIN, so it covers every statement the
             // transaction goes on to run.
             await applyContext(connection, context);

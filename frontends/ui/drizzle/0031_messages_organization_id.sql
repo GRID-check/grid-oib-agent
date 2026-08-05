@@ -30,6 +30,21 @@
 --
 -- The column also defaults from the tenant context, so no application code has
 -- to remember to set it, and `WITH CHECK` still verifies whatever is set.
+--
+-- ## Locks — read before deploying this online
+--
+-- Everything below runs in ONE transaction, and on `messages` that is not free:
+-- `SET NOT NULL` scans the table under ACCESS EXCLUSIVE, and the composite
+-- `ADD CONSTRAINT ... FOREIGN KEY` takes SHARE ROW EXCLUSIVE on both `messages`
+-- and `conversations` while it validates every row. Writes to both tables block
+-- for the duration. At the measured 395k messages that is a maintenance-window
+-- change, which is how it is intended to ship.
+--
+-- If it ever has to run against a live system, split it: add the foreign keys
+-- `NOT VALID`, then `VALIDATE CONSTRAINT` in a separate transaction (that takes
+-- only SHARE UPDATE EXCLUSIVE and does not block writes). The backfill `UPDATE`
+-- would want batching at that point too. Not done here because the window
+-- exists and a one-transaction migration is the one that cannot half-apply.
 
 -- ---------------------------------------------------------------------------
 -- conversations: the target the composite key references

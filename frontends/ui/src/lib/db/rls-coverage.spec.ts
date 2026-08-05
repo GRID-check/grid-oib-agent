@@ -222,7 +222,21 @@ describe('settings parity between the app and the policies', () => {
     // Defence in depth behind the read-only policy: the grant itself withholds
     // writes, so a bug cannot rewrite platform-wide config even in its own
     // transaction.
-    expect(MIGRATION).toContain('GRANT SELECT ON %I TO grid_app_rw')
-    expect(MIGRATION).not.toMatch(/GRANT[^;]*INSERT[^;]*TO grid_app_rw[^,]*;/)
+    //
+    // Scoped to `grid_secure_platform_table`'s body rather than the whole file.
+    // Tenant tables legitimately grant INSERT/UPDATE/DELETE to `grid_app_rw`, so
+    // a file-wide "no write grant" regex is only ever one edit away from either
+    // matching the tenant helper or being written so narrowly that it stops
+    // matching anything. Read the one function this claim is about.
+    const platformHelper = MIGRATION.match(
+      /CREATE OR REPLACE FUNCTION grid_secure_platform_table\([\s\S]*?\n\$\$;/
+    )?.[0]
+
+    expect(platformHelper, 'grid_secure_platform_table is gone from the migration').toBeDefined()
+    expect(platformHelper).toContain('GRANT SELECT ON %I TO grid_app_rw')
+    expect(
+      platformHelper,
+      'the platform helper grants the runtime role a write it must not have'
+    ).not.toMatch(/GRANT[^;']*(INSERT|UPDATE|DELETE)[^;']*grid_app_rw/)
   })
 })

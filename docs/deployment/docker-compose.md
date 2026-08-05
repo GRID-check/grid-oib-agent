@@ -194,7 +194,7 @@ The Next.js UI application.
 
 **Healthcheck**: `curl -f http://localhost:3000/` — interval 30s, timeout 10s, start period 30s, retries 3.
 
-**Depends on**: `aiq-agent` (healthy), `seaweedfs` (healthy), `postgres` (healthy).
+**Depends on**: `grid-migrate` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `postgres` (healthy).
 
 **Restart**: `unless-stopped`.
 

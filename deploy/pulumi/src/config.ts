@@ -178,11 +178,18 @@ export interface GridConfig {
     appPassword: pulumi.Output<string>;
     /**
      * Password for `grid_app_rw`, the least-privilege role the app tier
-     * connects as under row-level security (ADR-0041). Defaults to the app
-     * password: what bounds this role is its PRIVILEGES (DML only, RLS
-     * enforced, no DDL), not password distinctness — so an existing stack
-     * deploys without a coordinated rotation. Setting `pgRuntimePassword`
-     * separates them, which is recommended.
+     * connects as under row-level security (ADR-0041). REQUIRED, and
+     * deliberately without a fallback to `pgAppPassword`.
+     *
+     * It used to default to the app password, on the reasoning that what bounds
+     * this role is its PRIVILEGES — DML only, RLS enforced, no DDL — rather than
+     * password distinctness. That reasoning is wrong: Postgres authenticates by
+     * (role, password), so anyone holding the runtime DSN could present the same
+     * password as `appUser`, the schema owner, who is exempt from every policy.
+     * The privilege split is only worth what the credential split is worth.
+     *
+     * `pulumi config set --secret pgRuntimePassword <value>` on each stack; an
+     * existing stack must set it (and rotate) before the next deploy.
      */
     runtimePassword: pulumi.Output<string>;
     /**
@@ -793,7 +800,7 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("pgStorageSize") ?? "20Gi",
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
-      runtimePassword: cfg.getSecret("pgRuntimePassword") ?? cfg.requireSecret("pgAppPassword"),
+      runtimePassword: cfg.requireSecret("pgRuntimePassword"),
       primaryUpdateStrategy:
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {

@@ -49,9 +49,21 @@ policies to migrations too, and a data backfill would then silently update zero
 rows — a migration that reports success and does nothing. `grid_app_platform`
 is `NOLOGIN` and reachable only through `SET LOCAL ROLE`, so a cross-tenant
 read is recorded as `current_user` in `pg_stat_activity` and the query log
-rather than merely asserted in application code. Role *attributes* are not
-inherited through membership, so granting it to `grid_app_rw` does not leak
-`BYPASSRLS`; only the explicit step-up does.
+rather than merely asserted in application code.
+
+What membership does and does not confer, precisely, because the difference is
+the whole security argument:
+
+- Role **attributes** (`BYPASSRLS`, `SUPERUSER`, `CREATEROLE`) are never
+  inherited. Granting `grid_app_platform` to `grid_app_rw` does not give the
+  runtime role `BYPASSRLS`; only the explicit `SET LOCAL ROLE` step-up does.
+- Role **object privileges** (the table grants) *are* inherited — but only by an
+  `INHERIT` role. `grid_app_rw` is created `NOINHERIT` for exactly this reason,
+  so even the platform tables' grants require the step-up. Both provisioning
+  paths in `ensure-rls-roles.mjs` set it: the `CREATE ROLE` path and the
+  `ALTER ROLE` path taken when the role already exists. Missing it on the second
+  was a real defect — an upgraded `INHERIT` role would have picked up
+  platform-table writes silently.
 
 **One policy per table**, from two settings the caller supplies:
 `grid.organization_id` and `grid.user_id`. `current_setting(name, true)` yields
@@ -70,8 +82,8 @@ change and no call site can forget to pass an organization, which is the exact
 mistake this ADR exists to prevent. Callers with no session state it
 explicitly: `withTenant`, `withPlatformAccess`, `withOptionalTenant`.
 
-**Every scope comes from `run()`, never a bare `enterWith()`.** This is a
-correctness requirement and it was found the hard way. `enterWith` has no scope
+**Route factories open the scope with `run()`; `enterWith()` is a bounded
+fallback.** This is a correctness requirement and it was found the hard way. `enterWith` has no scope
 end: it writes into the current async resource, and Node reuses that resource
 for the next request on the same keep-alive socket. Reproduced against a plain
 `node:http` server — one request published a tenant, awaited, and the two
@@ -181,13 +193,30 @@ revoked.
   invisible in the database's own logs. The role makes each tenant policy a
   single predicate with no bypass branch, and makes the bypass auditable.
 - **Denormalise `organization_id` onto `messages`, `conversation_reads` and
-  `project_folders`** for a uniform policy. Rejected: it creates a second source
-  of a fact that can disagree with the parent, plus a backfill and a drizzle
-  schema change, to avoid a primary-key probe that Postgres plans as a
-  semi-join.
-- **A second connection pool for platform access.** Rejected as cost without
-  benefit: since a stolen credential can set any organization anyway, a separate
-  pool does not raise the floor, and it doubles the connection budget.
+  `project_folders`** for a uniform policy. Rejected at first, then **adopted for
+  `messages` and `conversation_reads`** in migration `0031` once the cost was
+  measured rather than assumed. The rejection rested on two claims that did not
+  survive: that the subquery plans as a semi-join (it does not — a policy's
+  `EXISTS` is expanded after sublink pull-up, giving a per-row correlated
+  SubPlan for a large tenant), and that a denormalised copy is a second source of
+  truth (it is not, once a composite foreign key makes
+  `(conversation_id, organization_id)` reference
+  `conversations (id, organization_id)` — Postgres then refuses a row whose
+  organization disagrees with its parent's). Measured on 395k messages:
+  4.01 ms → 0.70 ms, buffers 7 075 → 55. `project_folders` was **not**
+  denormalised; a composite foreign key alone was enough there.
+- **A second connection pool, or a separate login, for platform access.**
+  Rejected. The obvious form of the objection — a compromised BFF can
+  `SET LOCAL ROLE grid_app_platform`, so give the workers their own login and
+  withhold the membership from the BFF — does not hold, because the BFF has its
+  own legitimate platform surface: every platform-owner route runs under
+  `platformApiRoute`, which steps up. Withholding the membership would break
+  those routes; keeping a second credential *as well* would add a secret to
+  manage without removing the capability from the process that worried us. And
+  since a stolen `grid_app_rw` credential can set any `grid.organization_id`
+  regardless, neither variant raises the floor. What does the work is that the
+  step-up is explicit (`NOINHERIT`), transaction-scoped, and visible as
+  `current_user` in the query log.
 - **Wrap each request in one long transaction.** Rejected: a request that waits
   on WorkOS or the agent backend would hold a pooled connection for its whole
   duration. The context holds plain data instead, and connections are taken per
@@ -204,12 +233,16 @@ revoked.
   rather than the page size. Adding the column with a composite foreign key to
   `conversations (id, organization_id)` measured 4.01 ms → 0.70 ms and answers
   the "second source of truth" objection, because the database then refuses to
-  let the copy diverge. Deferred here only because it needs a backfill.
+  let the copy diverge. **Done** in migration `0031`, in this same change.
 
-- `pgRuntimePassword` currently defaults to `pgAppPassword`, so existing stacks
-  deploy without a coordinated rotation. What bounds `grid_app_rw` is its
-  privileges rather than password distinctness, but separating them is
-  recommended and should become the default once stacks have rotated.
+- `pgRuntimePassword` is required and has no fallback. It briefly defaulted to
+  `pgAppPassword` so existing stacks could deploy without a coordinated
+  rotation, on the reasoning that what bounds `grid_app_rw` is its privileges
+  rather than password distinctness. Review caught the flaw: Postgres
+  authenticates by (role, password), so a shared password let anyone holding the
+  runtime DSN authenticate as `aiq`, the schema owner, who is exempt from every
+  policy — the privilege split is worth exactly what the credential split is
+  worth. Existing stacks must set and rotate it before their next deploy.
 - Roles are provisioned by each deployment rather than by the migration, and
   migration 0030 asserts them. An earlier draft created them in SQL and could
   not run on Kubernetes at all: `CREATE ROLE ... BYPASSRLS` requires the creator

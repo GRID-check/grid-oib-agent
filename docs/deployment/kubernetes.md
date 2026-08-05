@@ -57,18 +57,34 @@ Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──
 The `grid_app` database enforces tenant isolation in Postgres, and the app tier
 connects as `grid_app_rw` — DML only, no DDL, and subject to every policy.
 
+Two credentials, and they are not interchangeable:
+
+| Role | Used by | Can do |
+|------|---------|--------|
+| `aiq` (the application user, `pgAppUser`) | the migration Job only | owns the schema; DDL and backfills. Row-level security does **not** apply to a table's owner — that is what makes a backfill touch rows instead of silently touching none. |
+| `grid_app_rw` | every serving container: frontend, purger, scheduler | DML only. No DDL, no `CREATEROLE`, no `BYPASSRLS`, and subject to every policy. |
+
 The three roles are declared on the CloudNativePG `Cluster` under
 `spec.managed.roles`, not created by a migration. That is not a preference:
-creating `grid_app_platform` requires the creator to hold `BYPASSRLS`, and the
-application user has neither that nor `CREATEROLE` — nor should it, since it is
-the credential that runs migrations. The operator reconciles them as superuser
-on every pass, including `grid_app_rw`'s password from the
-`pg-runtime-credentials` Secret (Pulumi config `pgRuntimePassword`, defaulting
-to `pgAppPassword`).
+creating `grid_app_platform` requires the creator to hold `BYPASSRLS`, which
+neither credential above has. The operator reconciles them as superuser on every
+pass, including `grid_app_rw`'s password from the `pg-runtime-credentials`
+Secret.
+
+That password comes from Pulumi config `pgRuntimePassword`, which is **required
+and has no fallback**. It used to default to `pgAppPassword`; that was wrong,
+because Postgres authenticates by (role, password), so a shared password let
+anyone holding the runtime DSN log in as the schema owner instead — and the
+owner is exempt from every policy. Set it per stack:
+
+```bash
+pulumi config set --secret pgRuntimePassword "$(openssl rand -base64 32)"
+```
 
 Migration `0030` therefore only *asserts* the roles, failing with a hint rather
 than half-applying the boundary. `GRID_APP_MIGRATION_DATABASE_URL` carries the
-owner credential and is set only on the migration Job.
+`aiq` owner credential and is set only on the migration Job — never on a
+long-lived Pod.
 
 Runbook: [row-level security](../database/row-level-security.md).
 

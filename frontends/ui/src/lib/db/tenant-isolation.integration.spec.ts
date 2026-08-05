@@ -112,6 +112,10 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
 
   afterAll(async () => {
+    // `beforeAll` may have thrown before `db` was assigned. Cleaning up then
+    // raises a TypeError that REPLACES the real setup failure in the output,
+    // which is the one worth reading.
+    if (!db) return
     await withPlatformAccess('test teardown', async () => {
       await db.execute(sql`delete from projects where organization_id in (${ORG_A}, ${ORG_B})`)
       await db.execute(

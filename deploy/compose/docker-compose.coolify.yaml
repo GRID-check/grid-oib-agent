@@ -323,10 +323,40 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # One-shot migrator, matching compose and Kubernetes. It exists so the
+  # long-lived container that serves requests never holds the schema-owner
+  # credential: an owner connection is exempt from every row-level-security
+  # policy, so any bug in the serving process that reached it would get a full
+  # tenant-isolation bypass inside the very process RLS exists to constrain
+  # (ADR-0041). This stack was the last one where that credential was still
+  # mounted on `frontend`.
+  grid-migrate:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate
+    environment:
+      # Schema owner: DDL and data backfills. RLS does not apply to a table's
+      # owner, which is what keeps backfills working.
+      - GRID_APP_MIGRATION_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Read only so `ensure-rls-roles` can keep grid_app_rw's login in step
+      # with the credential the app actually uses.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./frontends/ui
       dockerfile: deploy/Dockerfile
+    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # so this container only serves.
+    command: ["node", "server.js"]
     environment:
       # Exposes this service (port 3000) under a generated https domain and
       # makes the FQDN available as ${SERVICE_FQDN_FRONTEND} to the whole stack.
@@ -341,12 +371,8 @@ services:
       # (ADR-0041). The container's CMD synchronises this role's login from
       # this very URL before starting, so there is one source of truth.
       - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
-      # Owner credential — this stack has no separate migrator service, so the
-      # image CMD provisions the RLS roles and migrates before serving. That
-      # means the long-lived container DOES hold the schema-owner credential
-      # here, unlike compose and Kubernetes; splitting it out is the follow-up.
-      # ADR-0041 §"What this does NOT defend against" covers the consequence.
-      - GRID_APP_MIGRATION_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # No GRID_APP_MIGRATION_DATABASE_URL here, deliberately: the owner
+      # credential belongs to `grid-migrate` above and nowhere else.
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly
       # enabled here (see app/api/internal/memory/route.ts). Leave false in production.
@@ -400,6 +426,8 @@ services:
     expose:
       - "3000"
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
       seaweedfs:
@@ -438,6 +466,10 @@ services:
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     depends_on:
+      # Reaches Postgres directly rather than through the frontend, so it needs
+      # the migration to have finished on its own account.
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       seaweedfs:

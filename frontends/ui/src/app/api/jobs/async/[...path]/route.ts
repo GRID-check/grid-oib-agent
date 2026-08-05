@@ -192,7 +192,14 @@ export const GET = tenantSlotRoute(async function GET(
         return noResponseBodyEnvelope('Backend returned no SSE stream body')
       }
 
-      // Stream the SSE response back to the client
+      // Stream the SSE response back to the client.
+      //
+      // NOTE: the body is piped AFTER this handler returns, so it runs outside
+      // the `runWithTenantSlot` scope this route opened. The pipeline only
+      // forwards upstream bytes, so nothing there touches the database today —
+      // but a database read added inside the stream would throw
+      // `MissingTenantContextError` at an awkward moment. Read what you need
+      // before returning, or open a fresh scope inside the stream.
       return sseStreamResponse(response.body, {
         'Cache-Control': 'no-cache, no-transform',
         'X-Accel-Buffering': 'no', // Disable nginx buffering

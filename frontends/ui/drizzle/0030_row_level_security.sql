@@ -156,6 +156,7 @@ COMMENT ON FUNCTION grid_current_user_id() IS
 
 CREATE OR REPLACE FUNCTION grid_secure_table(target text, tenancy_predicate text)
   RETURNS void LANGUAGE plpgsql AS $$
+DECLARE seq text;
 BEGIN
   EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', target);
   EXECUTE format('DROP POLICY IF EXISTS grid_tenant_isolation ON %I', target);
@@ -164,11 +165,25 @@ BEGIN
     target, tenancy_predicate, tenancy_predicate);
   EXECUTE format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO grid_app_rw, grid_app_platform', target);
-  -- The table's own identity/serial sequences, so a later table added by a
-  -- later migration does not fail at INSERT with a confusing
-  -- "permission denied for sequence" long after its SELECTs started working.
-  EXECUTE format(
-    'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO grid_app_rw, grid_app_platform');
+  -- The table's own identity/serial sequences, so a table added by a LATER
+  -- migration does not fail at INSERT with a confusing "permission denied for
+  -- sequence" long after its SELECTs started working. (The schema-wide grant at
+  -- the end of this file only covers sequences that exist when it runs.)
+  --
+  -- Scoped to `target` via pg_depend rather than `ON ALL SEQUENCES IN SCHEMA
+  -- public`: the blunt form re-granted every sequence in the schema on every
+  -- one of this file's ~25 calls, and did not do what this comment says.
+  FOR seq IN
+    SELECT s.relname
+    FROM pg_class s
+    JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass
+    JOIN pg_class t ON t.oid = d.refobjid
+    WHERE s.relkind = 'S'
+      AND t.relname = target
+      AND t.relnamespace = 'public'::regnamespace
+  LOOP
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I TO grid_app_rw, grid_app_platform', seq);
+  END LOOP;
 END
 $$;
 

@@ -203,9 +203,12 @@ variable.
   not created by the migration: only the operator runs as superuser, and
   `BYPASSRLS` cannot be granted by a role that lacks it. `ensure-rls-roles.mjs`
   does not run there — the frontend Deployment overrides the image CMD.
-  `pgRuntimePassword` defaults to `pgAppPassword` so an existing stack deploys
-  without a coordinated rotation; setting it separately is recommended. What
-  bounds this role is its *privileges*, not password distinctness.
+  `pgRuntimePassword` is **required, with no fallback**. It used to default to
+  `pgAppPassword`, on the reasoning that what bounds `grid_app_rw` is its
+  *privileges* rather than password distinctness. That reasoning was wrong:
+  Postgres authenticates by (role, password), so sharing one let a holder of the
+  runtime DSN log in as the schema owner — who is exempt from every policy. An
+  existing stack must set and rotate it before the next deploy.
 - **Roles are provisioned by the deployment, not by the migration.** They are
   cluster-level objects, and creating `grid_app_platform` needs the creator to
   hold `BYPASSRLS` itself — Postgres refuses to let a role hand out an attribute
