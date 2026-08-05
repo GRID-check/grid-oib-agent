@@ -28,6 +28,12 @@ import { AGENT_GROUP_IDS } from './agent-groups'
 const DEFAULTS_CACHE_TTL_MS = 5 * 60 * 1000
 const DEFAULTS_CACHE_KEY = 'platformmodeldefaults'
 
+/**
+ * Anything that can run this module's writes: the pooled handle, or a
+ * transaction a caller already opened (see `savePlatformModelDefaults`).
+ */
+export type PlatformDefaultsExecutor = Pick<ReturnType<typeof getDb>, 'transaction'>
+
 /** `{agentGroupId: modelId}` — only groups the platform owner has pinned. */
 export type PlatformModelDefaults = Record<string, string>
 
@@ -77,8 +83,21 @@ export async function listPlatformModelDefaults(): Promise<PlatformModelDefault[
  * the workflow YAML default. One transaction, so a partial write can never
  * leave the fleet split across two model generations.
  */
-export async function savePlatformModelDefaults(input: PlatformModelDefaultInput): Promise<PlatformModelDefault[]> {
-  const db = getDb()
+export async function savePlatformModelDefaults(
+  input: PlatformModelDefaultInput,
+  /**
+   * Run inside an existing transaction instead of opening one.
+   *
+   * `getDb()` is a POOL, so a caller that needs this write to share a session
+   * with something else — the first-boot bootstrap holds a transaction-scoped
+   * advisory lock across its guard and this save — cannot get that by calling
+   * the pooled handle: the two would land on different connections and the lock
+   * would not cover the write. Passing the transaction makes drizzle open a
+   * SAVEPOINT on the same connection instead.
+   */
+  executor?: PlatformDefaultsExecutor,
+): Promise<PlatformModelDefault[]> {
+  const db = executor ?? getDb()
   const entries = Object.entries(input.defaults)
   const keep = entries.map(([agentGroup]) => agentGroup)
 

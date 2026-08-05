@@ -43,6 +43,21 @@ def add_config_info_routes(router: APIRouter, llm_configs: Mapping[str, Any]) ->
         for name, config in llm_configs.items()
     }
 
+    # Which endpoint each LLM actually talks to. The BFF's first-boot seeding of
+    # `platform_model_defaults` needs this: a platform default only replaces the
+    # model id, never the base URL (see `override_model`), so seeding an
+    # OpenRouter id into a deployment whose `llms:` point at Kimi or NVIDIA would
+    # send an unknown model to that provider on every request. Reporting the base
+    # URL lets the BFF refuse to seed rather than guess from the shape of a model
+    # id. Not secret — the same host names are in the config file and the docs.
+    base_urls = {name: getattr(config, "base_url", None) for name, config in llm_configs.items()}
+
+    # The `reasoning_effort` each role ships with. The platform owner can now
+    # override this per agent group (Platform → Models), so the admin surface
+    # needs to name what a group falls back to when the override is cleared —
+    # the same contract the `llms` map above serves for the model.
+    reasoning_efforts = {name: getattr(config, "reasoning_effort", None) for name, config in llm_configs.items()}
+
     # The ingestion VLM is env-configured (AIQ_VLM_MODEL), not a `llms:` entry,
     # so surface its resolved default under a stable synthetic `vlm` key. The
     # org model-config UI's `ingest_vlm` group maps to this via configLlmRefs so
@@ -50,9 +65,15 @@ def add_config_info_routes(router: APIRouter, llm_configs: Mapping[str, Any]) ->
     try:
         from knowledge_layer.llamaindex.adapter import resolve_vlm_credential
 
-        vlm_model = resolve_vlm_credential().model
-        if vlm_model:
-            defaults.setdefault("vlm", vlm_model)
+        vlm_cred = resolve_vlm_credential()
+        if vlm_cred.model:
+            defaults.setdefault("vlm", vlm_cred.model)
+        # The VLM sits on its own credential plane (AIQ_VLM_BASE_URL), which is
+        # routinely a different provider from the `llms:` block — the shipped
+        # default routes to NVIDIA while the chat models route to OpenRouter. Its
+        # base URL is reported separately for exactly that reason.
+        if vlm_cred.base_url:
+            base_urls.setdefault("vlm", vlm_cred.base_url)
     except Exception:  # pragma: no cover - display-only; never block the endpoint
         logger.warning("Could not resolve VLM default model for llm-defaults", exc_info=True)
 
@@ -60,4 +81,4 @@ def add_config_info_routes(router: APIRouter, llm_configs: Mapping[str, Any]) ->
     async def llm_defaults(request: Request) -> dict[str, Any]:
         if not _token_ok(request):
             raise HTTPException(status_code=403, detail="Forbidden")
-        return {"llms": defaults}
+        return {"llms": defaults, "baseUrls": base_urls, "reasoningEfforts": reasoning_efforts}

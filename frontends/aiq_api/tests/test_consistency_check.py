@@ -394,3 +394,33 @@ async def test_reply_truncated_by_the_token_cap_is_recovered(app):
     assert data["error"] is None
     assert len(data["findings"]) == 2
     assert data["findings"][1]["explanation"] == "A rooftop bar in a GK1"
+
+
+def test_placeholder_openrouter_key_does_not_select_the_openrouter_endpoint(monkeypatch):
+    """A compose `env_file` does not interpolate `${VAR}`, so OPENROUTER_API_KEY can
+    arrive as a literal placeholder: truthy, but not a key.
+
+    Read raw, that selected openrouter.ai as the base URL while the credential
+    resolver — which normalizes placeholders — treated the key as unset and fell
+    back to LLM_API_KEY. The route then sent an unrelated provider's key in the
+    Authorization header to OpenRouter.
+    """
+    from aiq_api.routes.consistency_check import _llm_settings
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "${OPENROUTER_API_KEY}")
+    monkeypatch.setenv("LLM_API_KEY", "sk-some-other-provider")
+    for name in (
+        "CONSISTENCY_LLM_MODEL",
+        "CONSISTENCY_LLM_BASE_URL",
+        "CONSISTENCY_LLM_API_KEY",
+        "LLM_MODEL",
+        "LLM_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    model, api_key, base_url = _llm_settings()
+
+    assert "openrouter.ai" not in base_url
+    assert base_url == "https://api.openai.com/v1"
+    assert model == "gpt-4o-mini"
+    assert api_key == "sk-some-other-provider"  # pragma: allowlist secret

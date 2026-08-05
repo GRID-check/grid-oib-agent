@@ -275,7 +275,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/platform-models',
     description:
-      'Platform default models — the model each agent group runs on for every organization that has not chosen its own. Shows all three per-group states: pinned to a platform default, still on the workflow config, and pinned to a model with no zero-data-retention endpoint (flagged, because ZDR tenants cannot inherit it).',
+      'Platform default models and thinking levels — the model each agent group runs on and how hard it thinks, for every organization that has not chosen its own. Shows all three per-group model states (pinned, still on the workflow config, and pinned to a model with no zero-data-retention endpoint, which is flagged because ZDR tenants cannot inherit it) plus the thinking level on the same row, pinned at both ends of the scale and inheriting the concrete workflow level elsewhere.',
     waitFor: '[data-testid="platform-models-preview"]',
   },
   {

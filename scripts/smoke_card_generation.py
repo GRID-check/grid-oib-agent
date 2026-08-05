@@ -5,7 +5,7 @@ Reconstructs the minimal real path used by ``ChatResearcherAgent._generate_cards
 builder/graph: build the shared card-generation system prompt from
 ``aiq_agent.cards.prompt``, call the real OpenRouter chat/completions endpoint
 with the ``card_generator_llm`` model configured in
-``configs/config_oib_openrouter.yml`` (deepseek_super_llm), and validate the
+``configs/config_oib_openrouter.yml`` (card_llm), and validate the
 response through the real ``aiq_agent.cards.models.validate_cards``.
 
 Run inside the backend Docker image so it has deps + the OPENROUTER_API_KEY:
@@ -28,7 +28,7 @@ from aiq_agent.cards.models import validate_cards
 from aiq_agent.cards.prompt import build_card_generation_prompt
 
 # Model wired as card_generator_llm in configs/config_oib_openrouter.yml.
-MODEL_NAME = "deepseek/deepseek-v4-flash"
+MODEL_NAME = "openai/gpt-5.6-luna"
 BASE_URL = "https://openrouter.ai/api/v1"
 
 SAMPLE_QUERY = (
