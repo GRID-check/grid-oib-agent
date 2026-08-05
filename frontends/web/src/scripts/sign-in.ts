@@ -18,14 +18,18 @@ export function initSignIn() {
 
   const label = link.querySelector<HTMLElement>('[data-sign-in-label]')
   const spinner = link.querySelector<HTMLElement>('[data-sign-in-spinner]')
+  const icon = link.querySelector<HTMLElement>('[data-sign-in-icon]')
   const pendingLabel = link.dataset.signInPending
-  if (!label || !spinner || !pendingLabel) return
+  if (!label || !spinner || !icon || !pendingLabel) return
 
   const idleLabel = label.textContent ?? ''
 
   const setPending = (pending: boolean) => {
     label.textContent = pending ? pendingLabel : idleLabel
     spinner.classList.toggle('hidden', !pending)
+    // Below sm the icon is the only visible part, so the spinner has to take
+    // its place rather than sit beside it — otherwise the row grows mid-click.
+    icon.classList.toggle('hidden', pending)
     link.setAttribute('aria-busy', String(pending))
   }
 
