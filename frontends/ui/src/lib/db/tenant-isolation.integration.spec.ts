@@ -53,14 +53,23 @@ async function rejectionCause(run: () => PromiseLike<unknown>): Promise<Error> {
  * nothing — a typo'd variable, a renamed script or a dropped `env:` line would
  * silently remove every isolation guarantee from the merge gate. This asserts
  * the suite actually ran.
+ *
+ * The trigger is deliberately NOT `CI`: this file is part of the ordinary unit
+ * suite too, and the six unit shards run in CI with no database anywhere near
+ * them, so keying on `CI` fails whichever shard happens to own this file. The
+ * marker is set by the `tenant-isolation` JOB rather than by
+ * `scripts/rls-test-db.sh`, so that the job — the thing wired into the merge
+ * gate — is what demands a database, and a harness that stops handing one over
+ * still fails here instead of quietly skipping.
  */
 describe('the isolation suite is not silently skipped in CI', () => {
   it('has a database to run against', () => {
-    if (!process.env.CI) return
+    if (!process.env.GRID_RLS_SUITE_REQUIRED) return
     expect(
       url,
-      'GRID_TEST_DATABASE_URL is unset in CI, so the tenant-isolation suite ' +
-        'skipped and nothing verified the boundary. Check `task db:test:rls`.'
+      'GRID_TEST_DATABASE_URL is unset while GRID_RLS_SUITE_REQUIRED is set, so ' +
+        'the tenant-isolation suite skipped and nothing verified the boundary. ' +
+        'Check `task db:test:rls`.'
     ).toBeTruthy()
   })
 })

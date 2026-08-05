@@ -210,6 +210,12 @@ jobs:
       # cluster; the script builds a throwaway one and tears it down.
       - name: Tenant-isolation suite against a real Postgres
         run: task db:test:rls
+        env:
+          # Turns "the suite skipped" into a failure for THIS job only. The
+          # suite self-skips without a database, and the unit shards legitimately
+          # have none — so the demand for one has to come from the job that is
+          # supposed to provide it, not from `CI` being set.
+          GRID_RLS_SUITE_REQUIRED: "1"
 
   frontend-test:
     name: Frontend tests (shard ${{ matrix.shard }}/6)
