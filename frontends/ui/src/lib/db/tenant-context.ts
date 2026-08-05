@@ -2,7 +2,7 @@
  * The tenant context — who the database is answering as, for the duration of
  * one request (ADR-0041).
  *
- * Migration `0030_row_level_security` makes Postgres enforce tenant isolation
+ * Migration `0031_row_level_security` makes Postgres enforce tenant isolation
  * from two settings: `grid.organization_id` and `grid.user_id`. This module is
  * the only place that decides what those settings hold. `@/lib/db` reads the
  * context established here and applies it to every statement it sends.
@@ -49,7 +49,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 /**
  * Postgres settings the RLS policies read. These names are also written in
- * `drizzle/0030_row_level_security.sql`; `tenant-context.spec.ts` parses that
+ * `drizzle/0031_row_level_security.sql`; `tenant-context.spec.ts` parses that
  * migration and fails if the two ever disagree.
  */
 export const ORGANIZATION_SETTING = 'grid.organization_id'

@@ -22,7 +22,10 @@
 #   1. Install this suite's evaluator plugin (editable, from repo root):
 #        pip install -e frontends/benchmarks/oib_compliance
 #   2. Set OPENROUTER_API_KEY (deploy/.env or exported) — the workflow below
-#      uses the same DeepSeek-via-OpenRouter models as production.
+#      tracks the production boot floor. NOTE: production's effective model
+#      is an admin decision at runtime (Platform → Models); the literals below
+#      track the boot floor in config_oib_openrouter.yml, so if the fleet has
+#      been moved under Platform → Models this benchmark no longer mirrors it.
 #   3. Set TAVILY_API_KEY if you want web_search/advanced_web_search live
 #      (the deep_research_agent tool list below requires it to be usable,
 #      though a case can still run using knowledge_search/RIS alone).
@@ -49,7 +52,7 @@ general:
 llms:
   intent_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -60,7 +63,7 @@ llms:
 
   shallow_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -71,7 +74,7 @@ llms:
 
   clarifier_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -82,7 +85,7 @@ llms:
 
   deep_orchestrator_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -93,7 +96,7 @@ llms:
 
   deep_planner_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -104,7 +107,7 @@ llms:
 
   deep_researcher_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -115,7 +118,7 @@ llms:
 
   deep_router_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -126,7 +129,7 @@ llms:
 
   card_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -137,7 +140,7 @@ llms:
 
   summary_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: openai/gpt-5.6-luna
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0

@@ -52,6 +52,11 @@ jobs:
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              # The BFF's model-config tests read the workflow config (the agent
+              # groups it seeds are derived from `llms:`), so a PR touching only
+              # `configs/` must still run them — otherwise a drift between the
+              # two lands green because no frontend job ran at all.
+              - 'configs/**'
               - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'

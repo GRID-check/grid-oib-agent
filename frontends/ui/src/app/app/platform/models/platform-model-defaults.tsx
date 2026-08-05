@@ -1,7 +1,8 @@
 'use client'
 
 /**
- * Platform → models: the default model every organization inherits.
+ * Platform → models: the default model AND thinking level every organization
+ * inherits.
  *
  * The default a group runs on used to be a literal in the workflow YAML, so
  * moving the fleet to a newer model meant a commit and a backend redeploy. Here
@@ -16,6 +17,18 @@
  *  - Which choices Zero-Data-Retention tenants cannot inherit. Those orgs pin
  *    every request to a ZDR endpoint; a default without one leaves them on
  *    their own model, and that is worth knowing before saving, not after.
+ *
+ * Model and reasoning effort live on ONE row because they are two settings of
+ * one decision: together they determine what a turn costs and how good it is,
+ * and tuning either blind to the other is how a fleet ends up on an expensive
+ * model at a high thinking level. They are persisted through two endpoints
+ * (a model change is catalog-validated and an upstream outage can block it; an
+ * effort change never is, so turning reasoning spend DOWN always works), and a
+ * save that half-succeeds says exactly which half.
+ *
+ * The effort layer is platform-only — no org override, unlike the model. A
+ * tenant choosing its own model is a product feature; a tenant dialling its own
+ * reasoning spend is not.
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -31,6 +44,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Spinner } from '@/components/ui/spinner'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { useTranslations } from '@/i18n'
+import { REASONING_EFFORTS, type ReasoningEffort } from '@/lib/reasoning-settings/catalog'
 
 interface AgentGroupDto {
   id: string
@@ -59,6 +73,20 @@ interface PayloadDto {
   defaults: Record<string, DefaultDto>
   workflowDefaults: Record<string, string | null>
 }
+
+interface EffortDto {
+  effort: string
+  updatedByEmail: string | null
+  updatedAt: string
+}
+
+interface EffortPayloadDto {
+  efforts: Record<string, EffortDto>
+  workflowEfforts: Record<string, string | null>
+}
+
+/** Sentinel for "no platform level — follow the workflow config". */
+const INHERIT = ''
 
 const formatContext = (tokens: number): string =>
   tokens >= 1024 ? `${Math.round(tokens / 1024)}k` : String(tokens)
@@ -165,6 +193,8 @@ export const PlatformModelDefaults: FC = () => {
   const tc = useTranslations('common')
   const [payload, setPayload] = useState<PayloadDto | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
+  const [effortPayload, setEffortPayload] = useState<EffortPayloadDto | null>(null)
+  const [effortDraft, setEffortDraft] = useState<Record<string, ReasoningEffort>>({})
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -176,11 +206,28 @@ export const PlatformModelDefaults: FC = () => {
     setLoading(true)
     setError(false)
     try {
-      const res = await fetch('/api/platform/model-defaults')
+      // Two endpoints, one screen: fetched together so the card never renders
+      // half its state. Either failing is a load failure — a row that showed a
+      // model but no thinking level would read as "no level set".
+      const [res, effortRes] = await Promise.all([
+        fetch('/api/platform/model-defaults'),
+        fetch('/api/platform/reasoning-efforts'),
+      ])
       if (!res.ok) throw new Error(String(res.status))
+      if (!effortRes.ok) throw new Error(String(effortRes.status))
       const body = (await res.json()) as PayloadDto
+      const effortBody = (await effortRes.json()) as EffortPayloadDto
       setPayload(body)
+      setEffortPayload(effortBody)
       setDraft(Object.fromEntries(Object.entries(body.defaults).map(([group, value]) => [group, value.model])))
+      setEffortDraft(
+        Object.fromEntries(
+          Object.entries(effortBody.efforts).map(([group, value]) => [
+            group,
+            value.effort as ReasoningEffort,
+          ]),
+        ),
+      )
     } catch {
       setError(true)
     } finally {
@@ -200,15 +247,26 @@ export const PlatformModelDefaults: FC = () => {
   // spread, so resetting a group and re-picking the model it already had
   // reorders the keys. Stringifying would call that dirty and let Save fire a
   // real PUT — and a fleet-wide audit event — for a no-op.
+  const savedEfforts = useMemo(
+    () => Object.fromEntries(Object.entries(effortPayload?.efforts ?? {}).map(([g, v]) => [g, v.effort])),
+    [effortPayload],
+  )
+
   const dirty = useMemo(() => {
     const keys = new Set([...Object.keys(draft), ...Object.keys(saved)])
     return [...keys].some((key) => draft[key] !== saved[key])
   }, [draft, saved])
 
-  const handleSave = useCallback(async () => {
-    setSaving(true)
+  const effortDirty = useMemo(() => {
+    const keys = new Set([...Object.keys(effortDraft), ...Object.keys(savedEfforts)])
+    return [...keys].some((key) => effortDraft[key] !== savedEfforts[key])
+  }, [effortDraft, savedEfforts])
+
+  /** PUT the models half; returns an error string, or null on success/no-op. */
+  const saveModels = useCallback(async (): Promise<string | null> => {
+    if (!dirty) return null
+    const defaults = Object.fromEntries(Object.entries(draft).map(([g, model]) => [g, { model }]))
     try {
-      const defaults = Object.fromEntries(Object.entries(draft).map(([g, model]) => [g, { model }]))
       const res = await fetch('/api/platform/model-defaults', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -216,19 +274,51 @@ export const PlatformModelDefaults: FC = () => {
       })
       if (res.status === 422) {
         const body = (await res.json()) as { details?: Record<string, string> }
-        toast.error(`${t('models.saveError')} ${Object.values(body.details ?? {}).join('; ')}`)
-        return
+        return `${t('models.saveError')} ${Object.values(body.details ?? {}).join('; ')}`
       }
       if (!res.ok) throw new Error(String(res.status))
-      toast.success(t('models.saved'))
-      setNote('')
-      await load()
+      return null
     } catch {
-      toast.error(t('models.saveError'))
+      return t('models.saveError')
+    }
+  }, [dirty, draft, note, t])
+
+  /** PUT the thinking-level half; returns an error string, or null. */
+  const saveEfforts = useCallback(async (): Promise<string | null> => {
+    if (!effortDirty) return null
+    try {
+      const res = await fetch('/api/platform/reasoning-efforts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ efforts: effortDraft, note: note.trim() || null }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      return null
+    } catch {
+      return t('models.effortSaveError')
+    }
+  }, [effortDirty, effortDraft, note, t])
+
+  const handleSave = useCallback(async () => {
+    setSaving(true)
+    try {
+      // Sequential, models first: the model save is the one an upstream catalog
+      // outage can reject, and a rejected model must not leave the fleet on a
+      // thinking level chosen for a model that never landed.
+      const modelError = await saveModels()
+      const effortError = modelError ? null : await saveEfforts()
+      // A half-failure is named as such: silently reporting success for the part
+      // that worked is how an owner walks away believing both took effect.
+      if (modelError && effortError) toast.error(`${modelError} ${effortError}`)
+      else if (modelError) toast.error(modelError)
+      else if (effortError) toast.error(effortError)
+      else toast.success(t('models.saved'))
+      if (!modelError) setNote('')
+      await load()
     } finally {
       setSaving(false)
     }
-  }, [draft, note, t, load])
+  }, [saveModels, saveEfforts, t, load])
 
   const groups = payload?.agentGroups ?? []
 
@@ -261,12 +351,16 @@ export const PlatformModelDefaults: FC = () => {
           const pinned = draft[group.id]
           const fallback = payload?.workflowDefaults?.[group.id] ?? null
           const zdrSafe = payload?.defaults?.[group.id]?.zdrSafe ?? null
+          const pinnedEffort = effortDraft[group.id]
+          const effortFallback = effortPayload?.workflowEfforts?.[group.id] ?? null
           return (
-            <li
-              key={group.id}
-              className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-4"
-            >
-              <div className="min-w-0 sm:flex-1">
+            // Controls on their OWN row, not beside the text: the row carries
+            // five of them (state badge, model, reset, picker, thinking level)
+            // and competing with the description for one line squeezed the text
+            // column to a word per line at the widths this page actually renders
+            // at.
+            <li key={group.id} className="flex flex-col gap-2 py-3">
+              <div className="min-w-0">
                 <p className="text-sm font-medium">{group.label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
                 {pinned && pinned === saved[group.id] && zdrSafe === false && (
@@ -276,7 +370,7 @@ export const PlatformModelDefaults: FC = () => {
                   </p>
                 )}
               </div>
-              <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:shrink-0">
+              <div className="flex w-full flex-wrap items-center gap-1.5 sm:justify-end">
                 {pinned ? (
                   <Badge variant="secondary" className="font-normal">
                     {t('models.pinnedBadge')}
@@ -329,13 +423,43 @@ export const PlatformModelDefaults: FC = () => {
                     />
                   </PopoverContent>
                 </Popover>
+                {/* Thinking level — the second lever of the same decision. A
+                    native select: six fixed options with nothing to search, and
+                    it stays keyboard- and screen-reader-native for free. */}
+                <select
+                  className="h-8 w-full min-w-0 rounded-md border bg-background px-2 text-xs sm:w-48"
+                  aria-label={t('models.effortSelectLabel', { group: group.label })}
+                  value={pinnedEffort ?? INHERIT}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setEffortDraft((prev) => {
+                      const next = { ...prev }
+                      if (value === INHERIT) delete next[group.id]
+                      else next[group.id] = value as ReasoningEffort
+                      return next
+                    })
+                  }}
+                >
+                  <option value={INHERIT}>
+                    {/* Naming the concrete config level makes "inherit" a fact
+                        rather than an abstraction. */}
+                    {effortFallback
+                      ? `${t('models.effortInherit')} (${effortFallback})`
+                      : t('models.effortInherit')}
+                  </option>
+                  {REASONING_EFFORTS.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {t(`models.levels.${effort}.label`)}
+                    </option>
+                  ))}
+                </select>
               </div>
             </li>
           )
         })}
       </ul>
 
-      {dirty && (
+      {(dirty || effortDirty) && (
         <div className="mt-4 flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
           <p className="text-sm text-muted-foreground">{t('models.unsavedChanges')}</p>
           <div className="flex flex-col gap-1.5">
@@ -352,7 +476,11 @@ export const PlatformModelDefaults: FC = () => {
             <Button className="w-full sm:w-auto" onClick={() => setConfirmOpen(true)} disabled={saving}>
               {saving ? t('models.saving') : t('models.save')}
             </Button>
-            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setDraft(saved)} disabled={saving}>
+            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => {
+                setDraft(saved)
+                setEffortDraft(savedEfforts as Record<string, ReasoningEffort>)
+              }}
+              disabled={saving}>
               {t('models.discard')}
             </Button>
           </div>

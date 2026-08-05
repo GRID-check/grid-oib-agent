@@ -310,6 +310,36 @@ organizations. Resolution at
 runtime is per group: org override → platform default → YAML. Schema:
 `frontends/ui/src/lib/db/schema/platform-model-defaults.ts`.
 
+**Rows are provisioned on first boot, not by a migration.**
+`lib/model-config/bootstrap-defaults.ts` fills the table when it is entirely
+empty — without it the fleet ran on an undeclared YAML literal until an admin
+visited Platform → Models. It is application code rather than SQL because it must
+first ask the backend which provider the deployment actually runs
+(`GET /v1/config/llm-defaults` → `baseUrls`) and skip any group not on the
+platform catalog's provider: a platform default replaces the model id but not the
+`base_url`, so an OpenRouter id written blindly into a Kimi or NVIDIA deployment
+would fail every request. It also validates against the live catalog, records
+`model_snapshot` (including `_zdr.safe`), invalidates the cache and emits
+`platform.model_defaults.bootstrapped` — none of which SQL can do. Rows it writes
+carry `updated_by = 'system:bootstrap'`.
+
+## platform_reasoning_efforts (migration 0030)
+
+The platform-controlled reasoning effort ("thinking level") per agent group —
+how hard each part of the agent thinks before answering, for every organization
+at once. Global: no `organization_id`, one row per `agent_group` (PK), carrying
+an `effort` from OpenRouter's unified vocabulary (`none` | `minimal` | `low` |
+`medium` | `high` | `xhigh`), an optional `note`, and
+`updated_by`/`updated_by_email`. **No row = that group uses the workflow YAML
+`reasoning_effort` for its role**, so deleting a row hands the group back to the
+config file. Unlike the model, there is deliberately NO org layer — a tenant
+choosing its own model is a product feature, a tenant dialling its own reasoning
+spend is not. Read by the backend through `GET /api/internal/reasoning-efforts`
+(TTL-cached, fail-open). A separate table rather than a column on
+`platform_model_defaults` because `model` there is `NOT NULL`: a shared row would
+force an owner to pin a model in order to change the thinking level. Schema:
+`frontends/ui/src/lib/db/schema/platform-reasoning-efforts.ts`.
+
 ## platform_retrieval_settings (migration 0029)
 
 The platform-controlled retrieval counts — how many chunks and results each

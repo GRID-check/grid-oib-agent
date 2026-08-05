@@ -236,7 +236,7 @@ nothing outside the test harness and holds no grants, so pointing at it is an
 outage, not a rollback.) RLS does not apply
 to a table's owner, so enforcement stops immediately with no schema change and
 no downtime — useful as a break-glass step while a missed code path is fixed.
-`0030_row_level_security.down.sql` removes the policies entirely; it leaves the
+`0031_row_level_security.down.sql` removes the policies entirely; it leaves the
 roles alone, since dropping a role a live deployment is connected as would take
 the deployment with it.
 

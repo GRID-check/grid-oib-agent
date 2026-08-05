@@ -338,6 +338,7 @@ SELECT grid_secure_table('user_preferences', 'workos_user_id = grid_current_user
 
 -- Platform-wide configuration: every tenant reads, only the platform tier writes.
 SELECT grid_secure_platform_table('platform_model_defaults');
+SELECT grid_secure_platform_table('platform_reasoning_efforts');
 SELECT grid_secure_platform_table('platform_retrieval_settings');
 SELECT grid_secure_platform_table('platform_workflow_templates');
 

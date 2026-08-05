@@ -69,7 +69,7 @@ the whole security argument:
 `grid.organization_id` and `grid.user_id`. `current_setting(name, true)` yields
 NULL when unset and `organization_id = NULL` is not TRUE, so a query with no
 context matches no rows — fail-closed by default rather than by remembering.
-Migration `0030_row_level_security.sql` puts all 28 tables inside the boundary
+Migration `0031_row_level_security.sql` puts all 28 tables inside the boundary
 through a `grid_secure_table(table, predicate)` helper, so joining the boundary
 is one line stating the tenancy rule.
 
@@ -253,7 +253,7 @@ revoked.
 ## References
 
 - [`docs/database/row-level-security.md`](../database/row-level-security.md) — operator and contributor runbook
-- `frontends/ui/drizzle/0030_row_level_security.sql` — the boundary itself
+- `frontends/ui/drizzle/0031_row_level_security.sql` — the boundary itself
 - `frontends/ui/src/lib/db/tenant-context.ts` — where context comes from
 - `frontends/ui/src/lib/db/index.ts` — the chokepoint that applies it
 - PostgreSQL manual, [Row Security Policies](https://www.postgresql.org/docs/16/ddl-rowsecurity.html)

@@ -19,7 +19,7 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'messages' AND column_name = 'organization_id'
   ) THEN
     RAISE EXCEPTION 'migration 0031 is still applied'
-      USING HINT = 'Roll back 0031_messages_organization_id.down.sql first: its policies '
+      USING HINT = 'Roll back 0032_messages_organization_id.down.sql first: its policies '
                    'depend on grid_current_org(), and the CASCADE in this file would drop '
                    'them silently, leaving both tables RLS-enabled with no policy.';
   END IF;

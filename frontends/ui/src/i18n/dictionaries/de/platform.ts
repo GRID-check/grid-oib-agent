@@ -644,6 +644,28 @@ export const platform: typeof en.platform = {
     zdrWarning:
       'Kein Zero-Data-Retention-Endpunkt — Organisationen mit dieser Richtlinie bleiben bei ihrem eigenen Modell.',
     noZdr: 'Kein Zero-Data-Retention-Endpunkt',
+    // Denkstufe je Bereich — der zweite Hebel derselben Zeile.
+    effortPinnedBadge: 'Plattform-Stufe',
+    effortInherit: 'Workflow-Konfig.',
+    effortClear: 'Denkstufe zurück zur Workflow-Konfiguration',
+    effortSelectLabel: 'Denkstufe für {group}',
+    effortSaveError: 'Die Denkstufen konnten nicht gespeichert werden.',
+    // Die Stufen selbst (OpenRouter-Vokabular). Der Hinweis nennt die Kosten,
+    // nicht nur den Namen — Denk-Tokens sind unsichtbar, bis die Rechnung kommt.
+    levels: {
+      none: {
+        label: 'Aus',
+        hint: 'Kein verstecktes Nachdenken. Für reines Routing und Einzeiler. Modelle mit Denkpflicht lehnen diese Stufe ab.',
+      },
+      minimal: { label: 'Minimal', hint: 'Kürzestes Nachdenken. Schnell und günstig.' },
+      low: { label: 'Niedrig', hint: 'Wenig Nachdenken. Für schnelle Antworten mit etwas Abwägung.' },
+      medium: { label: 'Mittel', hint: 'Ausgewogen — die Voreinstellung der meisten Rollen.' },
+      high: { label: 'Hoch', hint: 'Viel Nachdenken. Deutlich mehr versteckte Tokens und Laufzeit.' },
+      xhigh: {
+        label: 'Sehr hoch',
+        hint: 'Maximales Nachdenken. Vervielfacht Kosten und Laufzeit über hunderte Agentenschritte.',
+      },
+    },
     // Auswahl.
     searchPlaceholder: 'Modelle suchen…',
     contextWindow: 'Kontext',
@@ -660,7 +682,7 @@ export const platform: typeof en.platform = {
     loadError: 'Die Standardmodelle konnten nicht geladen werden.',
     confirmTitle: 'Standard für alle Organisationen ändern?',
     confirmDescription:
-      'Jede Organisation, die für diese Teile des Agenten kein eigenes Modell gewählt hat, wechselt mit ihrer nächsten Nachricht. Organisationen mit eigener Wahl bleiben unberührt.',
+      'Jede Organisation, die für diese Teile des Agenten kein eigenes Modell gewählt hat, wechselt mit ihrer nächsten Nachricht. Organisationen mit eigener Wahl bleiben unberührt. Geänderte Denkstufen gelten für JEDE Organisation — höhere Stufen vervielfachen versteckte Denk-Tokens und Laufzeit.',
     confirmSave: 'Standards ändern',
   },
   /** Plattform → Abruf: die flottenweiten Abruf-Tiefen (Chunks/Ergebnisse je Suche). */

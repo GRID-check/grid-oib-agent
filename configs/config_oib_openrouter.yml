@@ -65,15 +65,23 @@ general:
 
 llms:
   # ───────────────────────────────────────────────────────────────────────────
-  # THIS FILE NO LONGER DECIDES WHICH MODEL RUNS.
+  # THIS FILE DOES NOT DECIDE WHICH MODEL RUNS.
   #
-  # `model_name` below is the BOOT FALLBACK only — what a role runs on before
-  # anything has been configured, or if the BFF is unreachable. The real default
-  # is an admin decision taken at runtime: the platform owner picks it under
-  # Platform → Models (`platform_model_defaults`), and every organization that
-  # has not chosen its own model for that agent group follows on its next turn.
-  # A tenant's own choice (Organization → Models) still wins over both.
+  # `model_name` below is the BOOT FLOOR only — what a role runs on in a process
+  # that has no BFF to ask (local `nat run`, a detached worker, an unreachable
+  # frontend). The default an actual user gets is a row in the database:
+  # `platform_model_defaults`, provisioned by the BFF on first boot when the
+  # table is empty and edited under Platform → Models. Every organization that
+  # has not chosen its own model for an agent group follows that row on its next
+  # turn; a tenant's own choice (Organization → Models) still wins over both.
   # Resolution order: org override → platform default → the value here.
+  #
+  # TWO EXCEPTIONS, and they are real: `summary_llm` and `rerank_llm` have no
+  # agent group, so nothing can re-point them — they resolve to the literals
+  # below on EVERY request, always, and editing them is an unconditional
+  # fleet-wide model change no admin can revert. Bootstrap also declines to
+  # provision a group whose endpoint is not the platform model provider, which
+  # leaves that group on the value below too.
   # See docs/architecture/org-model-configuration.md.
   #
   # So: do NOT edit these to move the fleet to a newer model — that is a save in
@@ -112,13 +120,23 @@ llms:
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
   intent_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     # Pure router: classification must be repeatable for the same query.
     # temperature 1.0 made shallow-vs-deep depth noisy across runs; greedy
     # decoding pins the decision so identical queries route identically.
+    #
+    # CAVEAT — temperature is NOT honoured by every model. OpenRouter DROPS a
+    # sampling parameter an endpoint does not advertise (and
+    # provider.require_parameters is deliberately unset, see the note below), so
+    # on a model whose supported_parameters omits `temperature` — the current
+    # default, openai/gpt-5.6-luna, is one — this line is silently inert and the
+    # routing noise returns. `seed` is the lever those models do expose; it is
+    # best-effort (providers may still vary) but it is what remains. Keep BOTH:
+    # temperature serves models that honour it, seed serves the rest.
     temperature: 0
+    seed: 1
     top_p: 1.0
     max_tokens: 4096
     max_retries: 2
@@ -134,7 +152,7 @@ llms:
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -153,7 +171,7 @@ llms:
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -166,7 +184,7 @@ llms:
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -179,7 +197,7 @@ llms:
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -192,7 +210,7 @@ llms:
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -205,7 +223,7 @@ llms:
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -221,7 +239,7 @@ llms:
   # which is also the deep-research source_router_llm where medium still matters.
   ris_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -234,7 +252,7 @@ llms:
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -248,7 +266,7 @@ llms:
   # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
   compliance_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -261,7 +279,7 @@ llms:
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -275,12 +293,18 @@ llms:
   # rerank_candidates chunks. Dedicated entry: summary_llm's 100-token cap is
   # too small for a 15-candidate JSON scores reply. Greedy decoding (0) pins the
   # judgment; pure JSON extraction needs no reasoning effort.
+  #
+  # NOTE: rerank_llm has NO agent group, so no platform default or org override
+  # can re-point it — this literal is what every request uses, always. That also
+  # means the temperature caveat on intent_llm applies here with no way to route
+  # around it from the admin surface; `seed` is set for the same reason.
   rerank_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 0
+    seed: 1
     top_p: 1.0
     max_tokens: 256
     max_retries: 2

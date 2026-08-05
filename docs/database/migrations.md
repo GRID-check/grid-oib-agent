@@ -25,7 +25,7 @@ export default defineConfig({
 - **Schema source:** `./src/lib/db/schema/*.ts` (6 files, barrel-exported)
 - **Output directory:** `./drizzle/`
 - **Dialect:** PostgreSQL
-- **Connection:** via `GRID_APP_DATABASE_URL` environment variable — must point to the `grid_app` database.
+- **Connection:** via `GRID_APP_MIGRATION_DATABASE_URL` — the schema OWNER, and what every deployment must use. `GRID_APP_DATABASE_URL` is only a fallback for a local single-credential database; it is the DML-only runtime role, which cannot run DDL and whose backfills would touch zero rows under row-level security (ADR-0041). Either way it must point at the `grid_app` database.
 
 ---
 

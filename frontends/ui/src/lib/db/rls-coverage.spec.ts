@@ -8,7 +8,7 @@
  *
  * So the drizzle schema — which is where a new table actually gets declared —
  * is the checklist, and this spec fails until the table also appears in
- * `0030_row_level_security.sql`. Same shape as `authz-coverage.spec.ts` and the
+ * `0031_row_level_security.sql`. Same shape as `authz-coverage.spec.ts` and the
  * exhaustive `CARD_INTERACTIVITY` map: the reminder is a failing build, not a
  * review comment.
  */
@@ -26,7 +26,7 @@ import { ORGANIZATION_SETTING, PLATFORM_ROLE, USER_SETTING } from './tenant-cont
  * the parent subquery onto their own column), so "secured twice" must mean
  * "twice in the same migration", not "changed later".
  */
-const BOUNDARY_MIGRATIONS = ['0030_row_level_security.sql', '0031_messages_organization_id.sql']
+const BOUNDARY_MIGRATIONS = ['0031_row_level_security.sql', '0032_messages_organization_id.sql']
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
   readFileSync(join(process.cwd(), 'drizzle', file), 'utf8')
@@ -114,6 +114,7 @@ describe('row-level security coverage', () => {
     // unreadable for every tenant instead.
     expect(platform).toEqual([
       'platform_model_defaults',
+      'platform_reasoning_efforts',
       'platform_retrieval_settings',
       'platform_workflow_templates',
     ])
