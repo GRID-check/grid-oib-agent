@@ -303,7 +303,8 @@ frontend start). → `docs/database/`.
 | Frontend | Next.js 16, React 18, TypeScript, shadcn/ui + Tailwind v4 |
 | BFF / gateway | Next.js app-router API routes + a Node `server.js` WS/HTTP proxy |
 | AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; Dask for async jobs |
-| LLM + embeddings | any OpenAI-compatible endpoint (reference: OpenAI GPT-5.6 Luna via OpenRouter) |
+| LLM | any OpenAI-compatible endpoint (reference boot floor: OpenAI GPT-5.6 Luna via OpenRouter; the served model is an admin decision at runtime) |
+| Embeddings | any OpenAI-compatible endpoint (reference: OpenAI text-embedding-3-large via OpenRouter) |
 | RAG / vector store | ChromaDB (+ LlamaIndex ingestion) |
 | Web search | Tavily |
 | Relational DB | PostgreSQL 16 (Drizzle ORM on the BFF side) |

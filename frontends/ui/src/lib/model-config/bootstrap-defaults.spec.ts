@@ -36,7 +36,8 @@ const getPlatformModelDefaults = vi.fn()
 const savePlatformModelDefaults = vi.fn()
 vi.mock('./platform-defaults', () => ({
   getPlatformModelDefaults: (): unknown => getPlatformModelDefaults(),
-  savePlatformModelDefaults: (input: unknown): unknown => savePlatformModelDefaults(input),
+  savePlatformModelDefaults: (input: unknown, executor?: unknown): unknown =>
+    savePlatformModelDefaults(input, executor),
 }))
 
 const getWorkflowLlmBaseUrls = vi.fn()
@@ -67,9 +68,13 @@ vi.mock('@/lib/authz/platform', () => ({
  * the count. Stated as data so a test says what the database holds.
  */
 let executeResults: unknown[][] = []
+const tx = { execute: async () => executeResults.shift() ?? [] }
 vi.mock('@/lib/db', () => ({
   getDb: () => ({
-    execute: async () => executeResults.shift() ?? [],
+    // The lock, the re-check and the write all run on ONE connection now, so the
+    // mock hands the same `tx` to the callback rather than exposing `execute`
+    // on the pooled handle.
+    transaction: async (fn: (t: unknown) => Promise<unknown>) => fn(tx),
   }),
 }))
 
@@ -128,8 +133,17 @@ describe('groupsEligibleForBootstrap', () => {
   })
 
   it('is not fooled by a look-alike host', () => {
+    // A prefixed domain is the one a bare `endsWith` lets through: it really
+    // does end with "openrouter.ai" while belonging to someone else.
+    expect(groupsEligibleForBootstrap(allOn('https://notopenrouter.ai/v1'))).toEqual([])
     expect(groupsEligibleForBootstrap(allOn('https://openrouter.ai.evil.test/v1'))).toEqual([])
     expect(groupsEligibleForBootstrap(allOn('not a url'))).toEqual([])
+  })
+
+  it('accepts a real subdomain', () => {
+    expect(groupsEligibleForBootstrap(allOn('https://eu.openrouter.ai/api/v1')).length).toBe(
+      AGENT_GROUPS.length,
+    )
   })
 })
 
@@ -182,14 +196,6 @@ describe('bootstrapPlatformModelDefaults', () => {
 
   it('does nothing when the deployment already has defaults', async () => {
     getPlatformModelDefaults.mockResolvedValue({ intent: 'vendor/owner-pick' })
-
-    expect(await bootstrapPlatformModelDefaults()).toEqual([])
-    expect(savePlatformModelDefaults).not.toHaveBeenCalled()
-  })
-
-  it('does nothing when another replica holds the lock', async () => {
-    getPlatformModelDefaults.mockResolvedValue({})
-    executeResults = [[{ locked: false }]]
 
     expect(await bootstrapPlatformModelDefaults()).toEqual([])
     expect(savePlatformModelDefaults).not.toHaveBeenCalled()
@@ -274,6 +280,26 @@ describe('bootstrapPlatformModelDefaults', () => {
 
     expect(await bootstrapPlatformModelDefaults()).not.toEqual([])
     expect(savePlatformModelDefaults).toHaveBeenCalled()
+  })
+
+  it('takes the lock, re-checks and writes on ONE connection', async () => {
+    // `getDb()` is a pool. A session-scoped lock taken on one pooled connection
+    // and released on another leaks forever, and every later boot would then
+    // skip provisioning silently — so the whole sequence must share a session,
+    // and the save must be handed that same transaction.
+    freshDeployment()
+
+    await bootstrapPlatformModelDefaults()
+
+    expect(savePlatformModelDefaults.mock.calls[0][1]).toBe(tx)
+  })
+
+  it('writes nothing when another replica holds the lock', async () => {
+    getPlatformModelDefaults.mockResolvedValue({})
+    executeResults = [[{ locked: false }]]
+
+    expect(await bootstrapPlatformModelDefaults()).toEqual([])
+    expect(savePlatformModelDefaults).not.toHaveBeenCalled()
   })
 
   it('never throws into boot when the database is unreachable', async () => {

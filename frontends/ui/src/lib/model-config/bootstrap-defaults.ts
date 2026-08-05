@@ -40,7 +40,9 @@
  *
  * - Runs only when the table is entirely EMPTY. A deployment that has any
  *   default of its own has an opinion, and this must not add rows underneath it.
- * - Holds a Postgres advisory lock, so concurrent replicas cannot race.
+ * - Holds a transaction-scoped Postgres advisory lock across the empty-table
+ *   check and the write, so concurrent replicas cannot race and the lock cannot
+ *   outlive the connection that took it.
  * - Never throws into boot: every failure logs and leaves the table empty, which
  *   is exactly the pre-existing behaviour (fall through to the YAML).
  * - Skips `ingest_vlm` unless the ingestion VLM is itself on the platform
@@ -73,16 +75,30 @@ export const BOOTSTRAP_ACTOR = 'system:bootstrap'
 const BOOTSTRAP_NOTE = 'Initial platform default, set on first boot — change under Platform → Models.'
 
 /**
- * Advisory-lock key. Arbitrary but fixed; `pg_try_advisory_lock` is per-database
- * and session-scoped, so two replicas booting together cannot both seed.
+ * Advisory-lock key. Arbitrary but fixed.
+ *
+ * Taken with `pg_try_advisory_xact_lock` inside the write transaction, NOT the
+ * session-scoped `pg_try_advisory_lock`. `getDb()` is a pool: a session lock
+ * taken on one pooled connection and released on another is never released at
+ * all, and every later boot would then see the lock held and skip provisioning —
+ * silently, forever. A transaction lock is released by COMMIT/ROLLBACK on the
+ * connection that took it, so it cannot leak, and holding it for the write means
+ * two replicas booting together still cannot both provision.
  */
 const BOOTSTRAP_LOCK_KEY = 4_130_026
 
-/** Hosts whose model ids the platform OpenRouter catalog can validate. */
+/**
+ * Hosts whose model ids the platform OpenRouter catalog can validate.
+ *
+ * Exact host or a DOT-delimited subdomain — a bare `endsWith` would also accept
+ * `notopenrouter.ai`, which is a different operator's domain, and qualifying it
+ * would write OpenRouter model ids into a deployment pointed at it.
+ */
 function targetsPlatformProvider(baseUrl: string | null | undefined): boolean {
   if (!baseUrl) return false
   try {
-    return new URL(baseUrl).hostname.endsWith('openrouter.ai')
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')
   } catch {
     return false
   }
@@ -128,134 +144,141 @@ export async function bootstrapPlatformModelDefaults(): Promise<string[]> {
 }
 
 async function runBootstrap(): Promise<string[]> {
-  // Cheap pre-check before taking a lock: the steady state is "already set".
+  // Cheap pre-check before touching the database: the steady state is "already
+  // set", and this read is cached.
   if (Object.keys(await getPlatformModelDefaults()).length > 0) return []
 
-  const db = getDb()
-  const lockRows = Array.from(
-    await db.execute<{ locked: boolean }>(
-      sql`SELECT pg_try_advisory_lock(${BOOTSTRAP_LOCK_KEY}) AS locked`
+  // Everything that can be decided WITHOUT the database is decided first, so the
+  // transaction below (which holds the advisory lock) covers only the guard and
+  // the write and never waits on a network call.
+
+  // What does this deployment actually run? A failure here is NOT "assume
+  // OpenRouter" — an unreachable backend leaves the table empty and the workflow
+  // config in charge, the same state as before this ran.
+  let baseUrls: LlmBaseUrls
+  try {
+    baseUrls = await getWorkflowLlmBaseUrls()
+  } catch (error) {
+    console.warn(
+      '[Model Config] Skipping default bootstrap: could not read the backend workflow config:',
+      error
     )
-  )
-  if (!lockRows[0]?.locked) {
-    console.warn('[Model Config] Skipping default bootstrap: another replica holds the lock')
     return []
   }
 
+  const eligible = groupsEligibleForBootstrap(baseUrls)
+  const skipped = AGENT_GROUPS.map((group) => group.id).filter((id) => !eligible.includes(id))
+  if (eligible.length === 0) {
+    // The expected path on a Kimi/NVIDIA deployment. Not an error: those
+    // deployments are correctly governed by their own workflow config.
+    console.warn(
+      '[Model Config] Skipping default bootstrap: no agent group runs on the platform model provider'
+    )
+    return []
+  }
+  if (skipped.length > 0) {
+    console.warn(
+      `[Model Config] Bootstrapping platform defaults for ${eligible.join(', ')}; leaving ${skipped.join(', ')} on the deployment's own configuration`
+    )
+  }
+
+  const defaults = Object.fromEntries(eligible.map((id) => [id, BOOTSTRAP_DEFAULT_MODEL]))
+
+  // Same validation the admin PUT refuses to skip. A catalog outage must not
+  // pin the fleet to an unvalidated id, so it aborts rather than writing.
+  let catalog
   try {
-    // Re-read under the lock — the replica that held it may have just seeded.
+    catalog = await fetchModelCatalog()
+  } catch (error) {
+    console.warn('[Model Config] Skipping default bootstrap: model catalog unavailable:', error)
+    return []
+  }
+  const validation = validateOverrides(catalog, defaults, true)
+  if (!validation.ok) {
+    console.error(
+      `[Model Config] Skipping default bootstrap: ${BOOTSTRAP_DEFAULT_MODEL} failed validation:`,
+      validation.errors
+    )
+    return []
+  }
+
+  // Best-effort, like the admin path: a missing ZDR listing records `null`
+  // ("unknown") rather than blocking, but is never silently recorded as safe.
+  let zdrModelIds: Set<string> | null = null
+  try {
+    zdrModelIds = await fetchZdrModelIds()
+  } catch (error) {
+    console.warn('[Model Config] Could not resolve the ZDR model listing during bootstrap:', error)
+  }
+  const modelSnapshot = Object.fromEntries(
+    Object.entries(validation.snapshot).map(([group, model]) => [
+      group,
+      { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null } },
+    ])
+  )
+
+  // One transaction, one connection: take the lock, re-check that the table is
+  // still empty, and write — so a second replica cannot slip between the check
+  // and the write, and the lock is released by COMMIT/ROLLBACK either way.
+  const written = await getDb().transaction(async (tx) => {
+    const lockRows = Array.from(
+      await tx.execute<{ locked: boolean }>(
+        sql`SELECT pg_try_advisory_xact_lock(${BOOTSTRAP_LOCK_KEY}) AS locked`
+      )
+    )
+    if (!lockRows[0]?.locked) {
+      console.warn('[Model Config] Skipping default bootstrap: another replica holds the lock')
+      return []
+    }
+
+    // Re-read under the lock — the replica that held it may have just written.
     const countRows = Array.from(
-      await db.execute<{ count: number }>(
+      await tx.execute<{ count: number }>(
         sql`SELECT count(*)::int AS count FROM platform_model_defaults`
       )
     )
     if (Number(countRows[0]?.count ?? 0) > 0) return []
 
-    // What does this deployment actually run? A failure here is NOT "assume
-    // OpenRouter" — an unreachable backend leaves the table empty and the YAML
-    // in charge, the same state as before this ran.
-    let baseUrls: LlmBaseUrls
-    try {
-      baseUrls = await getWorkflowLlmBaseUrls()
-    } catch (error) {
-      console.warn(
-        '[Model Config] Skipping default bootstrap: could not read the backend workflow config:',
-        error
-      )
-      return []
-    }
-
-    const eligible = groupsEligibleForBootstrap(baseUrls)
-    const skipped = AGENT_GROUPS.map((group) => group.id).filter((id) => !eligible.includes(id))
-    if (eligible.length === 0) {
-      // The expected path on a Kimi/NVIDIA deployment. Not an error: those
-      // deployments are correctly governed by their own workflow config.
-      console.warn(
-        '[Model Config] Skipping default bootstrap: no agent group runs on the platform model provider'
-      )
-      return []
-    }
-    if (skipped.length > 0) {
-      console.warn(
-        `[Model Config] Bootstrapping platform defaults for ${eligible.join(', ')}; leaving ${skipped.join(', ')} on the deployment's own configuration`
-      )
-    }
-
-    const defaults = Object.fromEntries(eligible.map((id) => [id, BOOTSTRAP_DEFAULT_MODEL]))
-
-    // Same validation the admin PUT refuses to skip. A catalog outage must not
-    // pin the fleet to an unvalidated id, so it aborts rather than writing.
-    let catalog
-    try {
-      catalog = await fetchModelCatalog()
-    } catch (error) {
-      console.warn('[Model Config] Skipping default bootstrap: model catalog unavailable:', error)
-      return []
-    }
-    const validation = validateOverrides(catalog, defaults, true)
-    if (!validation.ok) {
-      console.error(
-        `[Model Config] Skipping default bootstrap: ${BOOTSTRAP_DEFAULT_MODEL} failed validation:`,
-        validation.errors
-      )
-      return []
-    }
-
-    // Best-effort, like the admin path: a missing ZDR listing records `null`
-    // ("unknown") rather than blocking, but is never silently recorded as safe.
-    let zdrModelIds: Set<string> | null = null
-    try {
-      zdrModelIds = await fetchZdrModelIds()
-    } catch (error) {
-      console.warn('[Model Config] Could not resolve the ZDR model listing during bootstrap:', error)
-    }
-    const modelSnapshot = Object.fromEntries(
-      Object.entries(validation.snapshot).map(([group, model]) => [
-        group,
-        { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null } },
-      ])
-    )
-
-    await savePlatformModelDefaults({
-      defaults,
-      modelSnapshot,
-      note: BOOTSTRAP_NOTE,
-      actorUserId: BOOTSTRAP_ACTOR,
-      actorEmail: null,
-    })
-
-    // A fleet-wide model decision belongs in the trail whoever made it. Failing
-    // to audit must not un-write the defaults, so this is deliberately after the
-    // save and swallowed — but loudly.
-    try {
-      const platformOrgId = await getPlatformOrganizationId()
-      if (platformOrgId) {
-        await recordAuditEvent({
-          organizationId: platformOrgId,
-          actor: { userId: BOOTSTRAP_ACTOR, email: null },
-          action: 'platform.model_defaults.bootstrapped',
-          targetType: 'platform_model_defaults',
-          targetId: 'platform',
-          metadata: defaults,
-        })
-      } else {
-        console.error(
-          '[Model Config] Bootstrapped fleet defaults without an audit event: the platform organization did not resolve'
-        )
-      }
-    } catch (error) {
-      console.error('[Model Config] Could not audit the platform default bootstrap:', error)
-    }
-
-    console.warn(
-      `[Model Config] Bootstrapped platform default ${BOOTSTRAP_DEFAULT_MODEL} for: ${eligible.join(', ')}`
+    await savePlatformModelDefaults(
+      {
+        defaults,
+        modelSnapshot,
+        note: BOOTSTRAP_NOTE,
+        actorUserId: BOOTSTRAP_ACTOR,
+        actorEmail: null,
+      },
+      tx
     )
     return eligible
-  } finally {
-    try {
-      await db.execute(sql`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY})`)
-    } catch {
-      // Session-scoped: the lock dies with the connection anyway.
+  })
+
+  if (written.length === 0) return []
+
+  // A fleet-wide model decision belongs in the trail whoever made it. Failing
+  // to audit must not un-write the defaults, so this is deliberately after the
+  // commit and swallowed — but loudly.
+  try {
+    const platformOrgId = await getPlatformOrganizationId()
+    if (platformOrgId) {
+      await recordAuditEvent({
+        organizationId: platformOrgId,
+        actor: { userId: BOOTSTRAP_ACTOR, email: null },
+        action: 'platform.model_defaults.bootstrapped',
+        targetType: 'platform_model_defaults',
+        targetId: 'platform',
+        metadata: defaults,
+      })
+    } else {
+      console.error(
+        '[Model Config] Bootstrapped fleet defaults without an audit event: the platform organization did not resolve'
+      )
     }
+  } catch (error) {
+    console.error('[Model Config] Could not audit the platform default bootstrap:', error)
   }
+
+  console.warn(
+    `[Model Config] Bootstrapped platform default ${BOOTSTRAP_DEFAULT_MODEL} for: ${written.join(', ')}`
+  )
+  return written
 }

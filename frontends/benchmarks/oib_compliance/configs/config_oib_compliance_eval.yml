@@ -22,7 +22,7 @@
 #   1. Install this suite's evaluator plugin (editable, from repo root):
 #        pip install -e frontends/benchmarks/oib_compliance
 #   2. Set OPENROUTER_API_KEY (deploy/.env or exported) — the workflow below
-#      uses the same OpenRouter models as production. NOTE: production's model
+#      tracks the production boot floor. NOTE: production's effective model
 #      is an admin decision at runtime (Platform → Models); the literals below
 #      track the boot floor in config_oib_openrouter.yml, so if the fleet has
 #      been moved under Platform → Models this benchmark no longer mirrors it.

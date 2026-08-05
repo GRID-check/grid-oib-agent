@@ -70,16 +70,18 @@ llms:
   # `model_name` below is the BOOT FLOOR only — what a role runs on in a process
   # that has no BFF to ask (local `nat run`, a detached worker, an unreachable
   # frontend). The default an actual user gets is a row in the database:
-  # `platform_model_defaults`, seeded by migration 0030 and edited under
-  # Platform → Models. Every organization that has not chosen its own model for
-  # an agent group follows that row on its next turn; a tenant's own choice
-  # (Organization → Models) still wins over both.
+  # `platform_model_defaults`, provisioned by the BFF on first boot when the
+  # table is empty and edited under Platform → Models. Every organization that
+  # has not chosen its own model for an agent group follows that row on its next
+  # turn; a tenant's own choice (Organization → Models) still wins over both.
   # Resolution order: org override → platform default → the value here.
   #
-  # Because 0030 seeds every agent group, a migrated database always answers at
-  # layer 2 and the values below are never what a served request resolves to.
-  # They are kept in sync with the seed so the two floors cannot disagree — not
-  # because anything reads them in a normal deployment.
+  # TWO EXCEPTIONS, and they are real: `summary_llm` and `rerank_llm` have no
+  # agent group, so nothing can re-point them — they resolve to the literals
+  # below on EVERY request, always, and editing them is an unconditional
+  # fleet-wide model change no admin can revert. Bootstrap also declines to
+  # provision a group whose endpoint is not the platform model provider, which
+  # leaves that group on the value below too.
   # See docs/architecture/org-model-configuration.md.
   #
   # So: do NOT edit these to move the fleet to a newer model — that is a save in
