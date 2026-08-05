@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The authorization coverage gate (ADR-0038).
  *
  * The audit that produced ADR-0038 found 117 route files enforcing access four

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, test } from 'vitest'
 import {
   ANSWER_CONFIDENCE_REASON_MAX_CHARS,

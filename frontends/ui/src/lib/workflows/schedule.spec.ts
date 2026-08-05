@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_MIN_INTERVAL_MINUTES,

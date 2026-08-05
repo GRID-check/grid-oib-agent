@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import fixtureData from '../../tests/fixtures/grid_request_context.json'
 import { describe, expect, it } from 'vitest'
 

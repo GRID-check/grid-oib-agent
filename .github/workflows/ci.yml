@@ -95,6 +95,32 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
+      # pre-commit builds an isolated env per hook repo on every run — four
+      # virtualenvs plus a node env — and they only change when a `rev:` in
+      # .pre-commit-config.yaml does. Measured locally: ~25s of env building
+      # collapses to ~0.3s warm, against a 113 MB dir that compresses to ~37 MB.
+      #
+      # `env.pythonLocation` is in the key because the cached envs are bound to
+      # an exact interpreter: pre-commit health-checks pyvenv.cfg against the
+      # live python and rebuilds on mismatch, and setup-python floats the patch
+      # version — without it the runner would periodically restore 37 MB and
+      # immediately discard it. That variable is exported by actions/setup-python
+      # inside setup-python-env, so this step MUST come after it, and after
+      # checkout so hashFiles can see the config.
+      #
+      # The whole directory is cached, not just the repo dirs: db.db is the
+      # url+rev -> dir index, and restoring one without the other desynchronises
+      # them. Note this cache deliberately contains no ruff env, since SKIP
+      # suppresses installing those hooks — do not reuse this key from a job
+      # that actually runs ruff.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
+      # `pytest` in SKIP is a no-op kept for clarity: that local hook is
+      # stages: [push], so it never runs at the default stage anyway.
       - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |
           . .venv/bin/activate
@@ -186,15 +212,27 @@ jobs:
         run: task db:test:rls
 
   frontend-test:
-    name: Frontend tests (shard ${{ matrix.shard }}/4)
+    name: Frontend tests (shard ${{ matrix.shard }}/6)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     strategy:
       # One shard's failure should not hide the others' results.
       fail-fast: false
+      # Six, not four. Measured per-shard wall clock locally at 2 workers (to
+      # match the 2-core runners), calibrated against the real N=4 CI run — the
+      # runners came out 1.68x slower, and the model then predicted N=4's slowest
+      # job at 194s against an actual 194s.
+      #
+      #   N=4   slowest 194s    N=6   152s    N=8   132s    N=10  ~116s
+      #
+      # So 4->6 buys 42s, 6->8 only 20s more, and each step adds ~14% runner
+      # time — this is where the curve flattens. Note the floor: vitest shards by
+      # FILE, and InputArea.spec.tsx alone is 45.9s of the suite's 209.6s of test
+      # execution, so it lands in whichever shard is slowest at every N. Raising N
+      # further cannot beat that file; splitting it can.
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       # These jobs run PR-controlled code — `bun install` executes dependency
       # lifecycle scripts and the suite runs the app itself — so the checkout
@@ -210,7 +248,7 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-      - run: task fe:test:shard SHARD=${{ matrix.shard }}/4
+      - run: task fe:test:shard SHARD=${{ matrix.shard }}/6
       # Coverage is collected per shard and merged below: a shard only ever
       # loads its own slice of the app, so its coverage is meaningless alone and
       # cannot be recomputed afterwards from the others.
@@ -324,7 +362,17 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, frontend-coverage, tenant-isolation, web, infra, repo-lint]
+    # `frontend-coverage` is deliberately NOT here. It is serialised after all
+    # four shards but produces only the coverage comment — correctness is
+    # already gated by the shards themselves, which do fail this gate. Requiring
+    # it added ~58s to every run (shards finished 18:57:57, CI OK landed
+    # 18:58:55) for a job whose real work is a 5s merge. It still reports its own
+    # red check if the merge breaks; it just no longer holds the gate open.
+    #
+    # `tenant-isolation` IS here, and must stay: it is the only check that proves
+    # the row-level-security boundary actually holds (ADR-0041). The unit shards
+    # cannot — the integration suite self-skips without a database.
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

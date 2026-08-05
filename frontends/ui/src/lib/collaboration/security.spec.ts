@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Security probes for the collaboration feature (spec SH-5, SH-6, IB-1, IB-13,
  * IB-14, NF-8).
  *

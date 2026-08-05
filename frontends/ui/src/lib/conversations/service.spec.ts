@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The conversations service is where the collaboration feature's security fix
  * lives: a conversation used to be resolved **org-scoped only**, so any signed-in
  * colleague holding an id could read the thread and the unfiltered list returned

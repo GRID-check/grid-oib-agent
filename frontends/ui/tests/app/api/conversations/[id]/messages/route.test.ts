@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * `GET /api/conversations/[id]/messages` — listing a thread's history.
  *
  * **Rewritten for the collaboration authorization model (ADR-0032)**, for the

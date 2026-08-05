@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, test } from 'vitest'
 import { getDictionary } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'

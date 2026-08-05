@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Collaboration lifecycle: deletion, modification, revocation (spec SH-13, IB-14,
  * IB-15, MN-9.4).
  *

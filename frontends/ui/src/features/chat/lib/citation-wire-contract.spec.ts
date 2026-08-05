@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Cross-language contract: the frontend must parse what the backend emits.
  *
  * Three formats cross the Python→TypeScript boundary, so no single test can

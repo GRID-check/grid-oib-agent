@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * What a BATCH post to this route costs (ADR-0040 L2).
  *
  * The route factory charges one unit of `DEFAULT_MUTATION_LIMIT` per request,

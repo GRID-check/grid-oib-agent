@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, test } from 'vitest'
 import { mapHumanPromptType } from './use-websocket-chat'
 import { HumanPromptType } from '@/adapters/api/websocket-client'

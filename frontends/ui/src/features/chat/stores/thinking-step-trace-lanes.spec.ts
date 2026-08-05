@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * A turn's retrieval is CUMULATIVE — a document the turn has read cannot become
  * un-read halfway through the stream.
  *
