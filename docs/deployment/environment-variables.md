@@ -54,10 +54,22 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 ## Database
 
+> **The passwords in the "Default (Docker)" column are development values and
+> nothing else.** `grid_app_rw_dev` and `aiq_dev` are in this repository, so they
+> are public; they exist so `docker compose up` works on a laptop against a
+> throwaway Postgres that is not reachable from anywhere. A deployment must
+> inject its own — compose reads `GRID_APP_RUNTIME_PASSWORD` and
+> `SERVICE_PASSWORD_POSTGRES` from the environment, Coolify supplies them per
+> stack, and Kubernetes takes them from the `pg-runtime-credentials` and
+> `pg-app-credentials` Secrets. If you can reach your database from outside the
+> host, these defaults are already wrong for you. Note also that the default
+> compose stack publishes Postgres on `5432`; bind it to `127.0.0.1` or drop the
+> port mapping on anything that is not a laptop.
+
 | Variable | Required | Default (Docker) | Default (Local) | Description |
 |----------|----------|------------------|-----------------|-------------|
 | `GRID_APP_DATABASE_URL` | Yes | `postgresql://grid_app_rw:grid_app_rw_dev@postgres:5432/grid_app` <!-- pragma: allowlist secret (documented compose default) --> | `postgresql://grid_app_rw:…@localhost:5432/grid_app` | PostgreSQL URL for the Next.js BFF application database (Drizzle ORM), and for the purger and workflow-scheduler workers. Connects as **`grid_app_rw`**, the least-privilege role: DML only, no DDL, and subject to row-level security, so a query that loses its organization filter returns no rows rather than another tenant's (ADR-0041). Pointing this at the owner credential silently disables enforcement — RLS does not apply to a table's owner. |
-| `GRID_APP_RUNTIME_PASSWORD` | No | `grid_app_rw_dev` | n/a | Compose only, and only a substitution into the DSNs below — the ROLE's password is set from `GRID_APP_DATABASE_URL` by `scripts/ensure-rls-roles.mjs`, so the two cannot drift. On Kubernetes CloudNativePG reconciles the role from the `pg-runtime-credentials` Secret (Pulumi config `pgRuntimePassword`, defaulting to `pgAppPassword`); this variable is not used there. |
+| `GRID_APP_RUNTIME_PASSWORD` | No | `grid_app_rw_dev` | n/a | Compose only, and only a substitution into the DSNs below — the ROLE's password is set from `GRID_APP_DATABASE_URL` by `scripts/ensure-rls-roles.mjs`, so the two cannot drift. On Kubernetes CloudNativePG reconciles the role from the `pg-runtime-credentials` Secret (Pulumi config `pgRuntimePassword`, which is **required and has no fallback** — sharing the owner's password would let a runtime-DSN holder authenticate as the owner, who is exempt from every policy); this variable is not used there. |
 | `GRID_APP_MIGRATION_DATABASE_URL` | No | `postgresql://aiq:aiq_dev@postgres:5432/grid_app` | unset | Owner credential, set only on the workload that runs `drizzle-kit migrate`. DDL needs the schema owner, and a data backfill run as `grid_app_rw` would silently update zero rows. `drizzle.config.ts` prefers this and falls back to `GRID_APP_DATABASE_URL`. |
 | `GRID_DB_POOL_MAX` | No | `10` | `10` | Max PostgreSQL connections the BFF connection pool holds open. Bounds resource use so connection acquisition fails fast under load instead of piling requests up behind a saturated/unreachable database. Invalid/non-positive values fall back to `10`. |
 | `NAT_JOB_STORE_DB_URL` | No (SQLite fallback) | `postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs` | `sqlite+aiosqlite:///./jobs.db` | NAT job store URL. PostgreSQL for Docker, SQLite for local dev. |
