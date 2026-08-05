@@ -150,6 +150,29 @@ export function installPostgres(
     { provider },
   );
 
+  /**
+   * Login for `grid_app_rw`, the least-privilege role the app tier connects as
+   * under row-level security (ADR-0041).
+   *
+   * CloudNativePG reads this and reconciles the role's password itself, as
+   * superuser. That is the whole reason the roles are declared on the Cluster
+   * rather than created by a migration: `grid_app_platform` needs BYPASSRLS,
+   * and Postgres only lets a role grant an attribute it already holds — which
+   * the application user does not, and must not.
+   */
+  const runtimeCredentials = new k8s.core.v1.Secret(
+    "pg-runtime-credentials",
+    {
+      metadata: { name: `${CLUSTER_NAME}-runtime-credentials`, namespace },
+      type: "kubernetes.io/basic-auth",
+      stringData: {
+        username: "grid_app_rw",
+        password: cfg.postgres.runtimePassword,
+      },
+    },
+    { provider },
+  );
+
   // 2b. Object-store credentials for continuous backup (only when enabled). The
   //     provider's StorageClasses reclaim `Delete`, so WAL archiving + scheduled
   //     base backups to SeaweedFS are the only path to point-in-time recovery
@@ -224,6 +247,27 @@ export function installPostgres(
           size: cfg.postgres.storageSize,
           storageClass: cfg.storage.className,
         },
+        // Row-level-security roles (ADR-0041). Declared here, NOT in a migration:
+        // creating a BYPASSRLS role requires the creator to hold BYPASSRLS
+        // itself, and the application user has neither that nor CREATEROLE.
+        // The operator reconciles these as superuser, so they exist before the
+        // migration Job runs — and migration 0030 asserts exactly that rather
+        // than trying to create them.
+        managed: {
+          roles: [
+            { name: "grid_app_owner", ensure: "present", login: true, superuser: false, createdb: false, createrole: false },
+            { name: "grid_app_platform", ensure: "present", login: false, bypassrls: true },
+            {
+              name: "grid_app_rw",
+              ensure: "present",
+              login: true,
+              inherit: false,
+              bypassrls: false,
+              inRoles: ["grid_app_platform"],
+              passwordSecret: { name: runtimeCredentials.metadata.apply((m) => m!.name!) },
+            },
+          ],
+        },
         bootstrap: {
           initdb: {
             database: "aiq_jobs",
@@ -267,15 +311,26 @@ export function installPostgres(
 
   const rwHost = `${CLUSTER_NAME}-rw`;
 
-  const user = encodeURIComponent(cfg.postgres.appUser);
-  const dsn = (opts: { db: string; driver?: string }): pulumi.Output<string> => {
+  const appUser = encodeURIComponent(cfg.postgres.appUser);
+  /**
+   * Build a DSN. `as` selects a non-default role — used for the least-privilege
+   * runtime credential (ADR-0041), which is the same cluster with a different
+   * login, not a different database.
+   */
+  const dsn = (opts: {
+    db: string;
+    driver?: string;
+    as?: { user: string; password: pulumi.Output<string> };
+  }): pulumi.Output<string> => {
     const scheme = opts.driver ?? "postgresql";
+    const user = opts.as ? encodeURIComponent(opts.as.user) : appUser;
+    const password = opts.as ? opts.as.password : cfg.postgres.appPassword;
     // Percent-encode the password. The `pgAppPassword` value is documented as
     // `openssl rand -base64 24`, which routinely contains `/` or `+` — raw
     // interpolation there breaks URI parsing (asyncpg/psycopg/node-pg/psql all
     // misparse the authority), which looks like an auth failure across the whole
     // stack. Encoding in the DSN keeps the Postgres role password itself intact.
-    return cfg.postgres.appPassword.apply(
+    return password.apply(
       (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}`,
     );
   };

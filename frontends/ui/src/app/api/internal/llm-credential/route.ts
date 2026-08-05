@@ -12,16 +12,33 @@
  * holds it in process memory for at most its 60 s TTL.
  */
 
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
+import { withTenant } from '@/lib/db/tenant-context'
 import { resolveActiveCredentialForBackend } from '@/lib/llm-credentials/service'
 
 const querySchema = z.object({
   organizationId: z.string().regex(/^org_[A-Za-z0-9]+$/, 'not a WorkOS organization id'),
 })
 
-export const GET = internalApiRoute('llm-credential', async ({ request }) => {
-  const { organizationId } = parseQuery(request, querySchema)
-  const credential = await resolveActiveCredentialForBackend(organizationId)
-  return { credential }
-})
+export const GET = internalApiRoute(
+  'llm-credential',
+  async ({ request }) => {
+    const { organizationId } = parseQuery(request, querySchema)
+    // The org's own encrypted credential row and nothing else: row-level
+    // security now backs the service's scoping rather than trusting it alone.
+    const credential = await withTenant({ organizationId }, () =>
+      resolveActiveCredentialForBackend(organizationId)
+    )
+    // The header the file header above has been asserting all along. This body
+    // carries a plaintext key; without `no-store` nothing stops a proxy, a
+    // service worker or a `fetch` cache from keeping it. `successResponse`
+    // passes a Response through untouched, which is why it is built here.
+    return NextResponse.json(
+      { credential },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
+  },
+  { tenancy: { fromPayload: '?organizationId' } }
+)

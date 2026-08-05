@@ -218,6 +218,20 @@
       "when": 1785542400000,
       "tag": "0030_platform_reasoning_efforts",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785542400001,
+      "tag": "0031_row_level_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785542400002,
+      "tag": "0032_messages_organization_id",
+      "breakpoints": true
     }
   ]
 }

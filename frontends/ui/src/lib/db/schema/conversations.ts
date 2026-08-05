@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
 import { type ResourceVisibility } from './resource-shares'
 
@@ -60,6 +60,14 @@ export const conversations = pgTable('conversations', {
   orgUpdatedIdx: index('conversations_org_updated_idx').on(table.organizationId, table.updatedAt),
   projectIdx: index('conversations_project_idx').on(table.projectId),
   tagsIdx: index('conversations_tags_idx').using('gin', table.tags),
+  /**
+   * Redundant on its own — `id` is already the primary key — and required all
+   * the same: a composite foreign key can only reference a uniquely-constrained
+   * column set, and `messages` / `conversation_reads` reference exactly this
+   * pair so their denormalised tenant column cannot drift from ours (migration
+   * 0031, ADR-0041).
+   */
+  idOrganizationKey: unique('conversations_id_organization_id_key').on(table.id, table.organizationId),
 }))
 
 export type Conversation = typeof conversations.$inferSelect

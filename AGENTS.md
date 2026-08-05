@@ -99,11 +99,14 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | Web check (Astro typecheck + build) | `task web:verify` |
 | Repo lint (pre-commit, all files) | `task lint:repo` |
 | UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
+| Tenant-isolation suite (throwaway Postgres, restricted role) | `task db:test:rls` |
 | WorkOS authz drift | `WORKOS_API_KEY=sk_… task fe:provision:authz` (read-only; `-- --apply` reconciles) |
 
 `task --list` is the full, always-current list. CI calls these same tasks
-(`.github/workflows/ci.yml`), so `task verify` passing locally means the merge
-gate passes — there is no second copy of the commands to drift out of sync.
+(`.github/workflows/ci.yml`), so there is no second copy of the commands to
+drift out of sync. One caveat: `task db:test:rls` is a required merge check but
+is NOT part of `task verify` (it needs PostgreSQL server binaries), so run it
+separately when you touch the tenant boundary.
 
 CI *distributes* them differently, though: the frontend tier's lint, types and
 build run in one job while the suite is sharded four ways (`fe:test:shard`) and
@@ -158,6 +161,43 @@ Resource topology is `Organization → Project → Workflow`; Organization is th
 immutable WorkOS root. Provisioning runbook:
 [`docs/deployment/workos-provisioning.md`](docs/deployment/workos-provisioning.md).
 
+## Tenant isolation is enforced in the database (obligation)
+
+Authorization decides whether a caller may act; it says nothing about which rows
+a query returns. That second half is enforced by **PostgreSQL row-level
+security** (ADR-0041) — a real boundary underneath the `WHERE organization_id`
+convention, not a replacement for it. Three things to know:
+
+1. **The app connects as `grid_app_rw`**, which holds DML only and is subject to
+   every policy. Migrations connect as the owner (`GRID_APP_MIGRATION_DATABASE_URL`),
+   because RLS does not apply to a table's owner — that is what keeps DDL and
+   data backfills working.
+2. **A new table must join the boundary in the same migration that creates it**:
+   one `SELECT grid_secure_table('<table>', '<tenancy predicate>');` line.
+   `src/lib/db/rls-coverage.spec.ts` fails by name until you do, and there is no
+   `ALTER DEFAULT PRIVILEGES`, so forgetting yields `permission denied` rather
+   than a quiet cross-tenant read.
+3. **Context comes from `getGridSession()`** for every authenticated path, so
+   repositories keep their signatures. Callers without a session state it —
+   `withTenant`, `withPlatformAccess`, `withOptionalTenant` — and
+   `internalApiRoute` does not compile without a `tenancy` declaration.
+
+Cross-tenant access is never implicit: it is a `SET LOCAL ROLE` to
+`grid_app_platform`, visible as `current_user` in the query log.
+
+**What this does and does not buy you.** `grid_app_rw` is `NOINHERIT`, so it
+never picks up the platform role's privileges by accident — but it *is* a member
+of that role, so `SET ROLE grid_app_platform` is always available to it, and that
+role holds `BYPASSRLS`. The settings the policies read are unprivileged too, so
+anything that can run arbitrary SQL as `grid_app_rw` can name any tenant. RLS is
+a boundary against **application bugs** — the missing `WHERE`, the widened join,
+the raw fragment — not against a compromised process or a stolen credential.
+Which is why every platform-scope caller still carries its own authorization
+check: keep `withPlatformAccess` behind `platformApiRoute` or an equivalent gate,
+and never treat "we stepped up" as the authorization itself.
+
+Runbook: [`docs/database/row-level-security.md`](docs/database/row-level-security.md).
+
 ## Environment variables
 
 Secrets and deployment knobs live in environment variables only (`deploy/.env`). Beyond the LLM API keys, notable variables:
@@ -165,6 +205,9 @@ Secrets and deployment knobs live in environment variables only (`deploy/.env`).
 | Variable | Purpose |
 |----------|---------|
 | `GRID_INTERNAL_API_TOKEN` | Shared token for the internal BFF API (e.g. `POST /api/internal/memory`). Must match between the frontend and aiq-agent services. **Never ship the dev default.** |
+| `GRID_APP_DATABASE_URL` | PostgreSQL URL for the BFF and both workers. Connects as **`grid_app_rw`** — DML only, no DDL, and subject to row-level security (ADR-0041), so a query that loses its `organization_id` filter returns no rows instead of another tenant's. Pointing it at the owner credential silently disables enforcement, because RLS does not apply to a table's owner. |
+| `GRID_APP_MIGRATION_DATABASE_URL` | Owner credential, set **only** on the one-shot migrator — `grid-migrate` in both compose stacks, the migration Job on Kubernetes — and never on a long-lived serving container, which would hand a compromised frontend a full RLS bypass. DDL needs the schema owner, and a backfill run as `grid_app_rw` would silently update zero rows. `drizzle.config.ts` falls back to `GRID_APP_DATABASE_URL` only for a single-credential local database. |
+| `GRID_APP_RUNTIME_PASSWORD` | Password set on `grid_app_rw` by `deploy/compose/init-db.sql` (dev default `grid_app_rw_dev`); Kubernetes takes it from the Pulumi secret `pgRuntimePassword`. |
 | `GRID_DB_POOL_MAX` | Default `10`. Upper bound on PostgreSQL connections the Next.js BFF pool holds open. Bounds resource use so connection acquisition fails fast under load rather than piling requests up behind a saturated/unreachable database. Invalid/non-positive values fall back to `10`. |
 | `GRID_ALLOW_AGENT_ORG_MEMORY` | Default `false`. When `true`, the internal memory endpoint accepts agent-authored **organization-scoped** writes. Default-deny protects against tenant-wide memory poisoning (audit finding S1); org-wide findings are otherwise a human-only action. |
 | `GRID_MEMORY_REFLECTION_ENABLED` | Default `true`. Non-enforced-flags fallback that gates the post-answer **memory-reflection** stage (the agent's cross-chat learning loop). With `GRID_ENFORCE_FEATURE_FLAGS=true`, the per-org `memory-reflection` WorkOS flag controls it instead (fail-closed, including org-less sessions); without enforcement it defaults ON, anonymous sessions included. Reflection is a shipped core capability, not a dark-launched product gate. Frontend service; on Kubernetes set via the Pulumi stack key `grid-oib:memoryReflectionEnabled` (default `true`); see `docs/architecture/project-memory-design.md` §3.5. |

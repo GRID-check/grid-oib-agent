@@ -18,6 +18,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
+import { withTenant } from '@/lib/db/tenant-context'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 
@@ -25,11 +26,19 @@ const querySchema = z.object({
   organizationId: z.string().regex(/^org_[A-Za-z0-9]+$/, 'not a WorkOS organization id'),
 })
 
-export const GET = internalApiRoute('model-overrides', async ({ request }) => {
-  const { organizationId } = parseQuery(request, querySchema)
-  const [overrides, zdrOnly] = await Promise.all([
-    getEffectiveModelOverrides(organizationId),
-    isZdrOnlyForOrg(organizationId),
-  ])
-  return { overrides, zdrOnly }
-})
+export const GET = internalApiRoute(
+  'model-overrides',
+  async ({ request }) => {
+    const { organizationId } = parseQuery(request, querySchema)
+    // Reads the org's own configuration plus the platform defaults, which every
+    // tenant is allowed to read but none may write.
+    return withTenant({ organizationId }, async () => {
+      const [overrides, zdrOnly] = await Promise.all([
+        getEffectiveModelOverrides(organizationId),
+        isZdrOnlyForOrg(organizationId),
+      ])
+      return { overrides, zdrOnly }
+    })
+  },
+  { tenancy: { fromPayload: '?organizationId' } }
+)

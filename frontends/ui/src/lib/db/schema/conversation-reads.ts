@@ -1,4 +1,5 @@
-import { pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { foreignKey, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 import { conversations } from './conversations'
 
 /**
@@ -17,9 +18,10 @@ import { conversations } from './conversations'
 export const conversationReads = pgTable(
   'conversation_reads',
   {
-    conversationId: text('conversation_id')
-      .notNull()
-      .references(() => conversations.id, { onDelete: 'cascade' }),
+    // Composite in the database since 0031 — see the foreign key below.
+    conversationId: text('conversation_id').notNull(),
+    /** Owning tenant, denormalised from the conversation — see `messages`. */
+    organizationId: text('organization_id').notNull().default(sql`nullif(current_setting('grid.organization_id', true), '')`),
     /** WorkOS user id. */
     userId: text('user_id').notNull(),
     /** High-water mark: everything created at or before this is read. */
@@ -33,6 +35,12 @@ export const conversationReads = pgTable(
       name: 'conversation_reads_pk',
       columns: [table.conversationId, table.userId],
     }),
+    /** See `messages`: the copy above cannot disagree with the parent row. */
+    conversationTenantFk: foreignKey({
+      name: 'conversation_reads_conversation_id_organization_id_fkey',
+      columns: [table.conversationId, table.organizationId],
+      foreignColumns: [conversations.id, conversations.organizationId],
+    }).onDelete('cascade'),
   }),
 )
 

@@ -33,4 +33,9 @@ export const POST = internalApiRoute('CollaborationPrune', async () => {
     cutoff: retention.cutoff,
     orphansRemoved: orphans,
   }
+}, {
+  tenancy: {
+    crossTenant:
+      'retention housekeeping sweeps expired and orphaned rows across every organization at once',
+  },
 })

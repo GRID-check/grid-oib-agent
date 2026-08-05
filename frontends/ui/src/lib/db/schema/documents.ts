@@ -1,4 +1,15 @@
-import { pgTable, uuid, text, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core'
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  jsonb,
+  integer,
+  check,
+  foreignKey,
+  index,
+} from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { projectFolders } from './project-folders'
 
@@ -29,12 +40,40 @@ export const documents = pgTable('documents', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   errorMessage: text('error_message'),
   metadata: jsonb('metadata'),
-  folderId: uuid('folder_id').references(() => projectFolders.id, { onDelete: 'cascade' }),
+  // No inline `.references()`: the real constraint is composite (below).
+  folderId: uuid('folder_id'),
 }, (table) => ({
   projectIdx: index('documents_project_idx').on(table.projectId),
   collectionIdx: index('documents_collection_idx').on(table.collectionName),
   statusIdx: index('documents_status_idx').on(table.status),
   orgScopeIdx: index('documents_org_scope_idx').on(table.organizationId, table.scope),
+  /**
+   * A document's folder must belong to the document's own project (migration
+   * 0030). The project is pinned to the tenant by its row-level-security
+   * policy, so same-project implies same-organization — which is what stops one
+   * tenant filing a document into another tenant's folder, without a recursive
+   * policy and without a subquery.
+   */
+  folderProjectFk: foreignKey({
+    name: 'documents_folder_id_project_id_fkey',
+    columns: [table.folderId, table.projectId],
+    foreignColumns: [projectFolders.id, projectFolders.projectId],
+  }).onDelete('cascade'),
+  /**
+   * What makes the composite key above actually check anything. `projectId` is
+   * nullable (org-wide `archiv` documents have no project) and a composite
+   * foreign key is MATCH SIMPLE, so it skips the check whenever any column of
+   * the key is NULL — `(someone else's folder, NULL)` passed unexamined. This
+   * leaves the only unchecked case as "no folder to validate".
+   *
+   * MATCH FULL would be the reflex fix and is wrong: it demands all-null or
+   * all-non-null, which rejects an ordinary document sitting at the root of a
+   * project.
+   */
+  folderRequiresProject: check(
+    'documents_folder_requires_project',
+    sql`${table.folderId} IS NULL OR ${table.projectId} IS NOT NULL`
+  ),
 }))
 
 export type Document = typeof documents.$inferSelect

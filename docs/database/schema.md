@@ -1,5 +1,13 @@
 # Database Schema — grid_app
 
+> **Every table below sits inside a row-level-security boundary** (ADR-0041).
+> The application connects as `grid_app_rw`, which sees only rows belonging to
+> the active organization, so a query that loses its `organization_id` filter
+> returns nothing rather than another tenant's data. Adding a table means
+> adding one `grid_secure_table()` line to its migration — see
+> [row-level-security.md](row-level-security.md).
+
+
 The `grid_app` database stores application state managed by the Next.js BFF. It uses **Drizzle ORM** (PostgreSQL dialect) with schema definitions in `frontends/ui/src/lib/db/schema/`.
 
 ---

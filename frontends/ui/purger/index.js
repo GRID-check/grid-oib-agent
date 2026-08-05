@@ -28,6 +28,9 @@ const {
 const { createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 const { initOtelLogs } = require('../observability/otel-logs')
+// The deletion queue spans every organization, so the purger's transactions
+// step up to the BYPASSRLS role (ADR-0041).
+const { withPlatformScope } = require('../workers/platform-scope')
 
 // No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
 initOtelLogs()
@@ -53,7 +56,7 @@ const purgers = {
 
 async function processOne() {
   // Phase A: claim (own transaction so the claim + attempts survive failures).
-  const claimed = await sql.begin(async (tx) => claimNext(tx))
+  const claimed = await withPlatformScope(sql, (tx) => claimNext(tx))
   if (!claimed) return false
 
   // Phase B: purge. grid_app row deletes are atomic within this transaction;
@@ -72,7 +75,7 @@ async function processOne() {
   }
 
   try {
-    await sql.begin(async (tx) => purge(tx, claimed, deps))
+    await withPlatformScope(sql, (tx) => purge(tx, claimed, deps))
     await markPurged(sql, claimed.id)
     console.log(`[purger] purged ${claimed.entity_type} ${claimed.entity_id} ("${claimed.display_name}")`)
     return true

@@ -189,7 +189,10 @@ same tasks, so there is no second copy to drift:
 
 ```bash
 task setup        # one-time: backend venv, UI deps, Pulumi deps
-task verify       # the full merge gate — repo lint + be:verify + fe:verify + infra:types
+task verify       # repo lint + be:verify + fe:verify + infra:types
+task db:test:rls  # tenant-isolation suite — a required check that verify does NOT run
+                  # (it needs PostgreSQL server binaries); run it when you touch
+                  # the tenant boundary. See docs/database/row-level-security.md
 task verify:fast  # same, minus only the slow production build
 
 task fe:types     # or fe:lint / fe:test / fe:build

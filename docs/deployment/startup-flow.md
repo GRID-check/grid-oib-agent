@@ -75,16 +75,28 @@ docker compose up -d --build
          │      │   • /api/v1/ingest/* (file ingestion)
          │      └── AIQ API worker starts (async job processing with SSE)
          │
-         └── 6. frontend starts (depends on aiq-agent + postgres + seaweedfs healthy)
+         ├── 6. grid-migrate runs to completion (depends on postgres healthy)
+         │      • Container name: aiq-blueprint-migrate
+         │      • One-shot (restart: "no"); everything below waits for it to exit 0
+         │      │
+         │      │   Step 6a: node scripts/ensure-rls-roles.mjs
+         │      │   • Creates grid_app_rw / grid_app_platform if absent
+         │      │   • Syncs the runtime password from GRID_APP_DATABASE_URL
+         │      │
+         │      └── Step 6b: node node_modules/drizzle-kit/bin.cjs migrate
+         │          • Reads GRID_APP_MIGRATION_DATABASE_URL — the schema OWNER
+         │          • DDL and backfills need it; row-level security exempts the
+         │            owner, which is what keeps a backfill from touching 0 rows
+         │          • Runs pending migrations from drizzle/ directory
+         │
+         └── 7. frontend starts (depends on grid-migrate completed, plus
+                aiq-agent + postgres + seaweedfs healthy)
                 • Container name: aiq-blueprint-ui
-                • CMD: node node_modules/drizzle-kit/bin.js migrate && node server.js
+                • command: ["node", "server.js"] — it serves, it does not migrate.
+                  The serving container never holds the owner credential (ADR-0041).
+                • Connects as grid_app_rw via GRID_APP_DATABASE_URL
                 │
-                │   Step 6a: Drizzle Kit migration
-                │   • Reads GRID_APP_DATABASE_URL for grid_app database
-                │   • Runs pending migrations from drizzle/ directory
-                │   • Creates/updates grid_app schema tables
-                │
-                │   Step 6b: server.js starts
+                │   server.js starts
                 │   • Production mode (NODE_ENV=production)
                 │   • Initializes Next.js internally on port 3001
                 │   • Prepares Next.js app
@@ -130,6 +142,23 @@ This command:
 3. Uploads new/changed files to the LlamaIndex ingestor
 4. Polls file status until SUCCESS or FAILED (2s interval, 600s timeout)
 5. Records successful hashes so unchanged files are skipped on next run
+
+## Row-level security roles and migrations (ADR-0041)
+
+This is step 6 of the sequence above, spelled out. Migrations no longer run from
+the `frontend` container in any stack — compose, Coolify or Kubernetes. The
+one-shot `grid-migrate` service runs, in order:
+
+1. `node scripts/ensure-rls-roles.mjs` — creates `grid_app_rw` and
+   `grid_app_platform` if absent and syncs the runtime password from
+   `GRID_APP_DATABASE_URL`. Idempotent and fail-soft.
+2. `node node_modules/drizzle-kit/bin.cjs migrate` — as the schema owner via
+   `GRID_APP_MIGRATION_DATABASE_URL`, because DDL and backfills need the owner
+   (row-level security does not apply to it).
+
+`frontend` then starts with `command: ["node", "server.js"]` and connects as
+`grid_app_rw`. On Kubernetes the roles come from CloudNativePG's
+`managed.roles` instead and the migration Job does step 2 alone.
 
 ## Init Database Script
 

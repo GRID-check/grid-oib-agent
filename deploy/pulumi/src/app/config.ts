@@ -15,7 +15,11 @@ export interface AppWiring {
   seaweedPublicEndpoint: pulumi.Output<string>;
   /** Shared Chroma server URL (set when cfg.chroma.enabled). */
   chromaUrl?: pulumi.Output<string>;
-  dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
+  dsn: (opts: {
+    db: string;
+    driver?: string;
+    as?: { user: string; password: pulumi.Output<string> };
+  }) => pulumi.Output<string>;
   /**
    * imagePullSecrets for every app pod spec — references the registry pull
    * Secret when the app images are private, empty when they are public.
@@ -110,7 +114,14 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-    GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
+    // The app tier connects as the least-privilege role, so row-level security
+    // applies to it (ADR-0041). Migrations get the owner credential below —
+    // RLS does not apply to a table's owner, so DDL and backfills still work.
+    GRID_APP_DATABASE_URL: w.dsn({
+      db: "grid_app",
+      as: { user: "grid_app_rw", password: cfg.postgres.runtimePassword },
+    }),
+    GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app" }),
   };
 
   const secret = new k8s.core.v1.Secret(
@@ -384,7 +395,10 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
 
 /** Minimal env for the drizzle migration Job. */
 export function migrationEnv(): EnvVar[] {
-  return [sref("GRID_APP_DATABASE_URL")];
+  // drizzle.config.ts prefers this over GRID_APP_DATABASE_URL: DDL needs the
+  // schema owner, and a backfill run as the RLS-bound runtime role would
+  // silently update zero rows (ADR-0041).
+  return [sref("GRID_APP_MIGRATION_DATABASE_URL")];
 }
 
 /**
