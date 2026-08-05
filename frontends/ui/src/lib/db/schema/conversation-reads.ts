@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 import { conversations } from './conversations'
 
@@ -20,6 +21,8 @@ export const conversationReads = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
+    /** Owning tenant, denormalised from the conversation — see `messages`. */
+    organizationId: text('organization_id').notNull().default(sql`nullif(current_setting('grid.organization_id', true), '')`),
     /** WorkOS user id. */
     userId: text('user_id').notNull(),
     /** High-water mark: everything created at or before this is read. */

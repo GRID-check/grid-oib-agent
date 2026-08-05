@@ -218,6 +218,13 @@
       "when": 1785456000001,
       "tag": "0030_row_level_security",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785456000002,
+      "tag": "0031_messages_organization_id",
+      "breakpoints": true
     }
   ]
 }

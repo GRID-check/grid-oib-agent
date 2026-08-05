@@ -245,11 +245,13 @@ describe('route factories open a request-scoped slot', () => {
         .filter((index) => index > start)
       const body = source.slice(start, next.length ? Math.min(...next) : undefined)
 
+      // Call position, not a mention: `toContain` was satisfied by an unused
+      // import or a `void runWithTenantSlot` left behind by a refactor.
       expect(
         body,
-        `${factory} must wrap its handler in runWithTenantSlot, or a request can ` +
+        `${factory} must RETURN runWithTenantSlot(...), or a request can ` +
           `inherit the previous request's tenant off a keep-alive socket.`
-      ).toContain('runWithTenantSlot')
+      ).toMatch(/return\s+runWithTenantSlot\(/)
     }
   })
 
@@ -269,9 +271,13 @@ describe('route factories open a request-scoped slot', () => {
     walk(apiDir)
     expect(routes.length).toBeGreaterThan(100)
 
-    const FACTORIES_OR_SLOT = /apiRoute|internalApiRoute|publicApiRoute|platformApiRoute|tenantSlotRoute/
+    // Matched at the EXPORT, not anywhere in the file: a leftover import used
+    // to satisfy the old file-wide substring check.
+    // The generic parameter is common (`apiRoute<Params>(...)`), so allow it.
+    const SCOPED_EXPORT =
+      /export\s+const\s+(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s*=\s*(?:apiRoute|internalApiRoute|publicApiRoute|platformApiRoute|tenantSlotRoute)\s*(?:<[^>]*>)?\s*\(/
     const unscoped = routes
-      .filter((path) => !FACTORIES_OR_SLOT.test(readFileSync(path, 'utf8')))
+      .filter((path) => !SCOPED_EXPORT.test(readFileSync(path, 'utf8')))
       .map((path) => relative(apiDir, path))
 
     expect(

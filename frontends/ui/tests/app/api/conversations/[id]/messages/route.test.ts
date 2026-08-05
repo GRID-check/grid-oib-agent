@@ -86,6 +86,7 @@ describe('/api/conversations/[id]/messages', () => {
     vi.mocked(listMessagesForConversation).mockResolvedValue([
       {
         id: '550e8400-e29b-41d4-a716-446655440000',
+        organizationId: 'org_1',
         conversationId: 's_conv_1',
         role: 'user',
         // Written before authorship existed — attribution happens on read.
@@ -96,6 +97,7 @@ describe('/api/conversations/[id]/messages', () => {
       },
       {
         id: '550e8400-e29b-41d4-a716-446655440001',
+        organizationId: 'org_1',
         conversationId: 's_conv_1',
         role: 'assistant',
         authorUserId: null,

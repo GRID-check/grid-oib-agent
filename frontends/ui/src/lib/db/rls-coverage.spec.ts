@@ -20,10 +20,20 @@ import { describe, expect, it } from 'vitest'
 import * as schema from './schema'
 import { ORGANIZATION_SETTING, PLATFORM_ROLE, USER_SETTING } from './tenant-context'
 
-const MIGRATION = readFileSync(
-  join(process.cwd(), 'drizzle', '0030_row_level_security.sql'),
-  'utf8'
+/**
+ * Every migration that touches the boundary, oldest first. A later migration may
+ * REPLACE a table's policy (0031 moves `messages` and `conversation_reads` off
+ * the parent subquery onto their own column), so "secured twice" must mean
+ * "twice in the same migration", not "changed later".
+ */
+const BOUNDARY_MIGRATIONS = ['0030_row_level_security.sql', '0031_messages_organization_id.sql']
+
+const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
+  readFileSync(join(process.cwd(), 'drizzle', file), 'utf8')
 )
+
+/** The 0030 text, for the assertions that are specifically about it. */
+const MIGRATION = MIGRATION_SOURCES[0]
 
 /** Every table the application declares, from the schema barrel. */
 function declaredTables(): string[] {
@@ -38,9 +48,28 @@ function declaredTables(): string[] {
 
 /** Tables the migration puts inside the boundary, by how they are secured. */
 function securedTables(): { tenant: string[]; platform: string[] } {
-  const collect = (fn: string) =>
-    [...MIGRATION.matchAll(new RegExp(`${fn}\\(\\s*'([a-z_]+)'`, 'g'))].map((m) => m[1]).sort()
+  const collect = (fn: string) => {
+    const seen = new Set<string>()
+    for (const source of MIGRATION_SOURCES) {
+      for (const match of source.matchAll(new RegExp(`${fn}\\(\\s*'([a-z_]+)'`, 'g'))) {
+        seen.add(match[1])
+      }
+    }
+    return [...seen].sort()
+  }
   return { tenant: collect('grid_secure_table'), platform: collect('grid_secure_platform_table') }
+}
+
+/** Tables secured more than once WITHIN one migration — a genuine duplicate. */
+function duplicatedWithinAMigration(): string[] {
+  const duplicates: string[] = []
+  for (const source of MIGRATION_SOURCES) {
+    const calls = [...source.matchAll(/grid_secure_(?:platform_)?table\(\s*'([a-z_]+)'/g)].map(
+      (m) => m[1]
+    )
+    duplicates.push(...calls.filter((name, index) => calls.indexOf(name) !== index))
+  }
+  return duplicates
 }
 
 describe('row-level security coverage', () => {
@@ -66,14 +95,15 @@ describe('row-level security coverage', () => {
     )
   })
 
-  it('secures each table exactly once', () => {
-    const { tenant, platform } = securedTables()
-    const all = [...tenant, ...platform]
-    const duplicated = all.filter((table, index) => all.indexOf(table) !== index)
-
-    // Two permissive policies OR together, so a second entry for a table would
-    // silently widen the first rather than tighten it.
-    expect(duplicated, 'Tables secured twice — the policies would OR together.').toEqual([])
+  it('secures each table exactly once per migration', () => {
+    // Two permissive policies OR together, so a second entry for a table in the
+    // SAME migration would silently widen the first rather than tighten it.
+    // `grid_secure_table` drops the old policy first, so replacing one in a
+    // LATER migration is the supported way to change a rule.
+    expect(
+      duplicatedWithinAMigration(),
+      'Tables secured twice in one migration — the policies would OR together.'
+    ).toEqual([])
   })
 
   it('keeps platform configuration out of the tenant-predicate set', () => {
@@ -88,6 +118,69 @@ describe('row-level security coverage', () => {
       'platform_workflow_templates',
     ])
     expect(tenant.filter((table) => table.startsWith('platform_'))).toEqual([])
+  })
+})
+
+/**
+ * The coverage tests above check THAT a table is secured. These check WHAT
+ * predicate it got — the difference between a guard and a checklist. Mutating a
+ * predicate to `true`, or dropping the organization half of one, was invisible
+ * to every unit test before this: only the database job could see it, and that
+ * job is the one that can skip.
+ */
+describe('policy predicates say what they should', () => {
+  /** Every `grid_secure_table('t', 'predicate')` pair, latest definition wins. */
+  function predicates(): Map<string, string> {
+    const found = new Map<string, string>()
+    for (const source of MIGRATION_SOURCES) {
+      for (const match of source.matchAll(
+        /grid_secure_table\(\s*'([a-z_]+)',\s*'([\s\S]*?)'\s*\)/g
+      )) {
+        found.set(match[1], match[2])
+      }
+    }
+    return found
+  }
+
+  it('ties every table that has an organization_id to grid_current_org()', () => {
+    const withOrgColumn = new Set(
+      (Object.values(schema) as unknown[])
+        .filter((value): value is Table => is(value, Table))
+        .filter((table) => 'organizationId' in table)
+        .map((table) => getTableName(table))
+    )
+
+    const wrong: string[] = []
+    for (const [table, predicate] of predicates()) {
+      if (!withOrgColumn.has(table)) continue
+      if (!predicate.includes('organization_id = grid_current_org()')) wrong.push(table)
+    }
+
+    expect(
+      wrong,
+      'These tables carry organization_id but their policy does not compare it to ' +
+        'grid_current_org(). Without that half, a row with a NULL optional foreign ' +
+        'key is readable by every tenant.'
+    ).toEqual([])
+  })
+
+  it('keys user_preferences to the acting user, not the organization', () => {
+    expect(predicates().get('user_preferences')).toContain('grid_current_user_id()')
+  })
+
+  it('has no policy that matches everything', () => {
+    const permissive = [...predicates()].filter(([, p]) => p.trim() === 'true').map(([t]) => t)
+    expect(permissive, 'A predicate of `true` secures nothing.').toEqual([])
+  })
+
+  it('keeps the composite foreign keys that replace the recursive folder policy', () => {
+    // These are the ONLY thing stopping cross-tenant folder parentage and
+    // document-to-folder linkage: a policy there recurses and takes `documents`
+    // down with it. Deleting them is otherwise invisible.
+    const all = MIGRATION_SOURCES.join('\n')
+    expect(all).toContain('FOREIGN KEY (parent_id, project_id)')
+    expect(all).toContain('FOREIGN KEY (folder_id, project_id)')
+    expect(all).toContain('FOREIGN KEY (conversation_id, organization_id)')
   })
 })
 

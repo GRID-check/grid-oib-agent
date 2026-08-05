@@ -1,9 +1,23 @@
+import { sql } from 'drizzle-orm'
 import { index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { conversations } from './conversations'
 
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
+  /**
+   * The owning tenant, denormalised from the conversation (migration 0031).
+   *
+   * Not a second source of truth: a composite foreign key ties
+   * `(conversation_id, organization_id)` to `conversations (id, organization_id)`,
+   * so Postgres refuses a message whose organization disagrees with its
+   * conversation's. It exists so the row-level-security policy is a plain
+   * column comparison rather than a subquery — measured at 4.01 ms -> 0.70 ms
+   * on the hottest read in the product (ADR-0041).
+   *
+   * Defaulted from the tenant context in SQL, so inserts need not set it.
+   */
+  organizationId: text('organization_id').notNull().default(sql`nullif(current_setting('grid.organization_id', true), '')`),
   role: text('role').notNull(),
   /**
    * WorkOS user id of the human who wrote this message; NULL for assistant,

@@ -47,6 +47,24 @@ async function rejectionCause(run: () => PromiseLike<unknown>): Promise<Error> {
   throw new Error('expected the query to be refused, but it succeeded')
 }
 
+/**
+ * The suite below is opt-in, and `describe.skipIf` exits 0 when it skips. That
+ * makes a green `tenant-isolation` job indistinguishable from one that ran
+ * nothing — a typo'd variable, a renamed script or a dropped `env:` line would
+ * silently remove every isolation guarantee from the merge gate. This asserts
+ * the suite actually ran.
+ */
+describe('the isolation suite is not silently skipped in CI', () => {
+  it('has a database to run against', () => {
+    if (!process.env.CI) return
+    expect(
+      url,
+      'GRID_TEST_DATABASE_URL is unset in CI, so the tenant-isolation suite ' +
+        'skipped and nothing verified the boundary. Check `task db:test:rls`.'
+    ).toBeTruthy()
+  })
+})
+
 describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   let db: Awaited<ReturnType<typeof loadDb>>
   let withTenant: typeof import('./tenant-context').withTenant
@@ -149,6 +167,64 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
 
     expect([...fromA].map((row) => row.organization_id)).toEqual([ORG_A])
     expect([...fromB].map((row) => row.organization_id)).toEqual([ORG_B])
+  })
+
+  it('isolates rows keyed to a person, not an organization', async () => {
+    // `user_preferences` is the only table whose rule is grid.user_id. Both the
+    // policy and the app-side SET LOCAL for that setting could be deleted with
+    // a green suite before this existed.
+    await withTenant({ organizationId: ORG_A, userId: 'user_one' }, () =>
+      db.execute(
+        sql`insert into user_preferences (workos_user_id, prefs) values ('user_one', '{"a":1}')
+            on conflict do nothing`
+      )
+    )
+
+    const asOwner = await withTenant({ organizationId: ORG_A, userId: 'user_one' }, () =>
+      db.execute(sql`select workos_user_id from user_preferences`)
+    )
+    expect([...asOwner].map((row) => row.workos_user_id)).toEqual(['user_one'])
+
+    const asOther = await withTenant({ organizationId: ORG_A, userId: 'user_two' }, () =>
+      db.execute(sql`select workos_user_id from user_preferences`)
+    )
+    expect([...asOther]).toEqual([])
+
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A, userId: 'user_one' }, () =>
+        db.execute(
+          sql`insert into user_preferences (workos_user_id, prefs) values ('user_two', '{"b":2}')`
+        )
+      )
+    )
+    expect(cause.message).toMatch(/row-level security/i)
+
+    await withPlatformAccess('test cleanup', () =>
+      db.execute(sql`delete from user_preferences where workos_user_id in ('user_one','user_two')`)
+    )
+  })
+
+  it('keeps a tenant-scoped row isolated even when its optional FK is NULL', async () => {
+    // The org clause is load-bearing precisely BECAUSE the FK clause is
+    // `project_id IS NULL OR EXISTS(...)`: for a project-less row that half is
+    // TRUE for everyone, so dropping the org half would make the row globally
+    // readable while every FK test still passed.
+    const id = `conv_orphan_${ORG_A}`
+    await withTenant({ organizationId: ORG_A }, () =>
+      db.execute(
+        sql`insert into conversations (id, organization_id, created_by, project_id)
+            values (${id}, ${ORG_A}, 'u', NULL)`
+      )
+    )
+
+    const seenByB = await withTenant({ organizationId: ORG_B }, () =>
+      db.execute(sql`select id from conversations where id = ${id}`)
+    )
+    expect([...seenByB]).toEqual([])
+
+    await withPlatformAccess('test cleanup', () =>
+      db.execute(sql`delete from conversations where id = ${id}`)
+    )
   })
 
   it('refuses to write a row belonging to another tenant', async () => {
@@ -349,7 +425,11 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
         )
       )
     )
-    expect(cause.message).toMatch(/row-level security/i)
+    // Since 0031 this is refused by the composite foreign key rather than the
+    // policy: the row's organization defaults to the active tenant, and
+    // `(conv_of_A, ORG_B)` is not a pair that exists in `conversations`. A
+    // stronger refusal than the policy's, and it fires before it.
+    expect(cause.message).toMatch(/row-level security|violates foreign key/i)
 
     await withPlatformAccess('test cleanup', async () => {
       await db.execute(sql`delete from messages where conversation_id = ${conversationId}`)
