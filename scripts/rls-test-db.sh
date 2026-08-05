@@ -54,20 +54,32 @@ run_pg "'$PGBIN/pg_ctl' -D '$PGDATA' -o '-p $PORT -k $WORKDIR' -l '$PGDATA/serve
 # NOTICEs from the idempotent DROP ... IF EXISTS guards are expected noise.
 export PGOPTIONS="-c client_min_messages=warning"
 PSQL="$PGBIN/psql -h $WORKDIR -p $PORT -U postgres"
-$PSQL -q -c "CREATE DATABASE grid_app;"
 
-echo "==> applying the migration chain"
+# Reproduce the DEPLOYMENT topology, not a convenient one. Migrations run as a
+# plain non-superuser database owner with no CREATEROLE and no BYPASSRLS —
+# exactly what CloudNativePG hands the app. Running this chain as `postgres`
+# instead is why an earlier version of the migration shipped a CREATE ROLE that
+# could never have executed on Kubernetes.
+echo "==> provisioning roles (a deployment concern, not a migration one)"
+$PSQL -q -v ON_ERROR_STOP=1 \
+  -c "CREATE ROLE grid_app_owner LOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB;" \
+  -c "CREATE ROLE grid_app_platform NOLOGIN BYPASSRLS;" \
+  -c "CREATE ROLE grid_app_rw LOGIN NOINHERIT PASSWORD '$RUNTIME_PASSWORD';" \
+  -c "GRANT grid_app_platform TO grid_app_rw;" \
+  -c "CREATE DATABASE grid_app OWNER grid_app_owner;"
+
+echo "==> applying the migration chain as grid_app_owner (no CREATEROLE, no BYPASSRLS)"
 cd "$UI_DIR"
+MIGRATE="$PGBIN/psql -h $WORKDIR -p $PORT -U grid_app_owner -d grid_app"
 node -e '
   const j = require("./drizzle/meta/_journal.json");
   console.log(j.entries.map((e) => e.tag).join("\n"));
 ' | while read -r tag; do
-  $PSQL -d grid_app -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null
+  $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null || {
+    echo "MIGRATION FAILED at $tag — re-run without -q to see the error" >&2
+    exit 1
+  }
 done
-
-# The migration creates the roles; only the LOGIN password is a deployment
-# concern, exactly as in init-db.sql and the Pulumi bootstrap Job.
-$PSQL -d grid_app -q -c "ALTER ROLE grid_app_rw LOGIN PASSWORD '$RUNTIME_PASSWORD';"
 
 echo "==> running the isolation suite as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \

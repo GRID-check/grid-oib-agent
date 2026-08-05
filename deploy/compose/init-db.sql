@@ -37,32 +37,42 @@ GRANT ALL PRIVILEGES ON DATABASE aiq_checkpoints TO aiq;
 GRANT ALL PRIVILEGES ON DATABASE grid_app TO aiq;
 
 -- =============================================================================
--- Runtime login for the row-level-security roles (ADR-0041)
+-- Row-level-security roles (ADR-0041)
 -- =============================================================================
--- The roles themselves, their grants and the policies are created by drizzle
--- migration 0030 — it owns the boundary so that any database the migrations
--- have run against has it. All this adds is a LOGIN password for the runtime
--- role, because a password is a deployment secret and does not belong in a
--- migration checked into git.
+-- These are CLUSTER-level objects, so they are provisioned here rather than by
+-- drizzle migration 0030 — which only asserts they exist, and says so loudly if
+-- they do not. That split is not tidiness: creating `grid_app_platform`
+-- requires the creator to hold BYPASSRLS itself, and the migration role must
+-- never hold that. This script runs as the compose superuser, so it can.
+-- Kubernetes does the same job through CloudNativePG's managed roles.
 --
--- The dev default below is exactly that: a DEV default, matching `aiq_dev`
--- alongside it, for a compose stack on a laptop. Real deployments set
--- GRID_APP_RUNTIME_PASSWORD (see deploy/.env.example) and Kubernetes takes it
--- from the Pulumi secret instead.
+-- Note this file runs ONLY when Postgres initialises a fresh data directory.
+-- On an existing volume the frontend container's `ensure-runtime-role.mjs`
+-- keeps `grid_app_rw`'s password in step with GRID_APP_DATABASE_URL instead.
 --
--- Ordering note: this runs on every start and the migration may not have run
--- yet on a brand-new volume, so the role is created here if absent. Migration
--- 0030 is written to adopt an existing role rather than fail.
+-- The dev password below is exactly that: a DEV default, matching `aiq_dev`
+-- alongside it, for a compose stack on a laptop.
 
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_owner') THEN
+    -- Owns the schema and runs migrations. Deliberately no CREATEROLE and no
+    -- BYPASSRLS: it is the one credential that must not be able to ignore the
+    -- policies it installs.
+    CREATE ROLE grid_app_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD 'grid_app_owner_dev';  -- pragma: allowlist secret (compose dev default)
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_platform') THEN
+    CREATE ROLE grid_app_platform NOLOGIN BYPASSRLS;
+  END IF;
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_rw') THEN
     CREATE ROLE grid_app_rw LOGIN NOINHERIT PASSWORD 'grid_app_rw_dev';  -- pragma: allowlist secret (dev default; real deployments set GRID_APP_RUNTIME_PASSWORD)
-  ELSE
-    ALTER ROLE grid_app_rw LOGIN PASSWORD 'grid_app_rw_dev';  -- pragma: allowlist secret (dev default; real deployments set GRID_APP_RUNTIME_PASSWORD)
   END IF;
 END
 $$;
+
+-- The runtime role may BECOME the platform role, but only by explicitly asking
+-- (`SET LOCAL ROLE`). NOINHERIT above is what makes that explicit.
+GRANT grid_app_platform TO grid_app_rw;
 
 -- =============================================================================
 -- Create tables in aiq_jobs database

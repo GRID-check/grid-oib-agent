@@ -10,7 +10,7 @@
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
-import { withPlatformAccess } from '@/lib/db/tenant-context'
+import { runWithTenantSlot, withPlatformAccess } from '@/lib/db/tenant-context'
 import type { GridSession } from '@/lib/auth/types'
 import {
   errorResponse,
@@ -45,24 +45,29 @@ export function platformApiRoute<TParams = Record<string, string | string[]>>(
   options: FixedAuthzRouteOptions = {}
 ) {
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
-    try {
-      const session = await getGridSession()
-      await requirePlatformOwner(session)
-      const params = (await resolveParams(context)) as TParams
-      // The platform tier is cross-organization by definition, so its queries
-      // run under the audited bypass (ADR-0041) rather than as one tenant. The
-      // gate above has already established that the caller is a platform owner,
-      // which is exactly the authorization this bypass rests on.
-      const result = await withPlatformAccess(`platformApiRoute ${request.method}`, () =>
-        // requirePlatformOwner throws unless the session is non-null.
-        handler({ request, session: session as GridSession, params })
-      )
-      return successResponse(result, options.status ?? 200)
-    } catch (error) {
-      if (error instanceof PlatformAccessDeniedError) {
-        return NextResponse.json({ error: 'Forbidden', code: 'FORBIDDEN' }, { status: 403 })
+    // Bounded slot per request — see `runWithTenantSlot`. Without it a platform
+    // route could inherit a tenant scope from the previous request on this
+    // socket and run its handler under that instead of the bypass below.
+    return runWithTenantSlot(async () => {
+      try {
+        const session = await getGridSession()
+        await requirePlatformOwner(session)
+        const params = (await resolveParams(context)) as TParams
+        // The platform tier is cross-organization by definition, so its queries
+        // run under the audited bypass (ADR-0041) rather than as one tenant. The
+        // gate above has already established that the caller is a platform owner,
+        // which is exactly the authorization this bypass rests on.
+        const result = await withPlatformAccess(`platformApiRoute ${request.method}`, () =>
+          // requirePlatformOwner throws unless the session is non-null.
+          handler({ request, session: session as GridSession, params })
+        )
+        return successResponse(result, options.status ?? 200)
+      } catch (error) {
+        if (error instanceof PlatformAccessDeniedError) {
+          return NextResponse.json({ error: 'Forbidden', code: 'FORBIDDEN' }, { status: 403 })
+        }
+        return errorResponse(error, request)
       }
-      return errorResponse(error, request)
-    }
+    })
   }
 }

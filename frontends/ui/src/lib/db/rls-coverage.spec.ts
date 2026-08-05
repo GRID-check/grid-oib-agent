@@ -99,8 +99,30 @@ describe('settings parity between the app and the policies', () => {
     expect(MIGRATION).toContain(`current_setting('${USER_SETTING}', true)`)
   })
 
-  it('names the same bypass role the migration creates', () => {
-    expect(MIGRATION).toContain(`CREATE ROLE ${PLATFORM_ROLE} NOLOGIN BYPASSRLS`)
+  it('names the same bypass role the migration requires', () => {
+    // The migration no longer CREATES roles — creating a BYPASSRLS role needs
+    // the creator to hold BYPASSRLS, which no migration credential should. It
+    // asserts them instead, and the name it asserts must be the one the app
+    // steps up to.
+    expect(MIGRATION).toContain(`'${PLATFORM_ROLE}'`)
+    expect(MIGRATION).not.toContain(`CREATE ROLE ${PLATFORM_ROLE}`)
+  })
+
+  it('is provisioned by every deployment that has to run the migration', () => {
+    // Roles moved out of the migration, so "who creates them" became a thing
+    // that can be forgotten per deployment — and forgetting it fails the whole
+    // deploy at migration time. Each place that migrates must also provision.
+    const provisioners = [
+      'deploy/compose/init-db.sql',
+      'scripts/rls-test-db.sh',
+      'deploy/pulumi/src/data/postgres.ts',
+    ]
+    for (const file of provisioners) {
+      const source = readFileSync(join(process.cwd(), '..', '..', file), 'utf8')
+      for (const role of ['grid_app_owner', 'grid_app_rw', PLATFORM_ROLE]) {
+        expect(source, `${file} must provision ${role}`).toContain(role)
+      }
+    }
   })
 
   it('grants the runtime role no write access to platform configuration', () => {

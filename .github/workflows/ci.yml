@@ -160,6 +160,31 @@ jobs:
       - run: task fe:types
       - run: task fe:build
 
+  tenant-isolation:
+    # The ONLY check that proves tenant isolation actually holds. The unit suite
+    # cannot: `tenant-isolation.integration.spec.ts` self-skips without a
+    # database, so without this job CI is green whether the policies work or
+    # not. It also runs migrations as a non-superuser owner, which is what
+    # catches privilege mistakes that a superuser-run migration hides.
+    name: Tenant isolation (row-level security)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      # ubuntu-latest ships PostgreSQL server binaries but does not run a
+      # cluster; the script builds a throwaway one and tears it down.
+      - name: Tenant-isolation suite against a real Postgres
+        run: task db:test:rls
+
   frontend-test:
     name: Frontend tests (shard ${{ matrix.shard }}/4)
     needs: changes
@@ -299,7 +324,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, frontend-coverage, web, infra, repo-lint]
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, frontend-coverage, tenant-isolation, web, infra, repo-lint]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

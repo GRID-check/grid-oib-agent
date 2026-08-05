@@ -195,10 +195,23 @@ variable.
   `pgRuntimePassword` defaults to `pgAppPassword` so an existing stack deploys
   without a coordinated rotation; setting it separately is recommended. What
   bounds this role is its *privileges*, not password distinctness.
-- **The migrating role needs `CREATEROLE`**, because migration 0030 creates the
-  roles — the invariant travels with the schema. On a managed provider that
-  forbids it, pre-create `grid_app_owner`, `grid_app_rw` and `grid_app_platform`
-  and the migration adopts them.
+- **Roles are provisioned by the deployment, not by the migration.** They are
+  cluster-level objects, and creating `grid_app_platform` needs the creator to
+  hold `BYPASSRLS` itself — Postgres refuses to let a role hand out an attribute
+  it lacks:
+
+  ```
+  ERROR:  permission denied to create role
+  DETAIL: Only roles with the BYPASSRLS attribute may create roles with the
+          BYPASSRLS attribute.
+  ```
+
+  Giving the migration role `BYPASSRLS` to get around that would be exactly
+  backwards — it is the one credential that must never be able to ignore the
+  policies. So each deployment provisions the three roles where it already has
+  admin rights (`managed.roles` on the CloudNativePG Cluster, `init-db.sql` for
+  compose, `scripts/rls-test-db.sh` locally), and **migration 0030 asserts they
+  exist**, failing with a hint rather than half-applying the boundary.
 
 ### Rolling back
 

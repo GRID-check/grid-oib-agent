@@ -164,12 +164,44 @@ services:
       - aiq-network
     restart: "no"
 
+  # One-shot migrator. Separate from `frontend` so the long-lived container that
+  # serves requests never holds the schema-owner credential — otherwise any bug
+  # that opens a second connection gets a full row-level-security bypass in the
+  # very process RLS exists to constrain (ADR-0041). Kubernetes already worked
+  # this way; compose now matches it.
+  grid-migrate:
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: aiq-blueprint-migrate
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - node node_modules/drizzle-kit/bin.cjs migrate && node scripts/ensure-runtime-role.mjs
+    environment:
+      # Schema owner: DDL and data backfills. RLS does not apply to a table's
+      # owner, which is what keeps backfills working.
+      - GRID_APP_MIGRATION_DATABASE_URL=${GRID_APP_MIGRATION_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Read only so `ensure-runtime-role` can keep grid_app_rw's login in step
+      # with the credential the app actually uses.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aiq-network
+
   frontend:
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
       context: ../../frontends/ui
       dockerfile: deploy/Dockerfile
     container_name: aiq-blueprint-ui
+    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # so this container only serves.
+    command: ["node", "server.js"]
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       # APP_ENV lets the internal memory route distinguish dev from prod: the
@@ -182,9 +214,6 @@ services:
       # security (ADR-0041). A repository that forgets its organization
       # predicate returns no rows instead of another tenant's.
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
-      # This container's CMD runs `drizzle-kit migrate` before the server
-      # starts, and DDL needs the schema owner — grid_app_rw holds none.
-      - GRID_APP_MIGRATION_DATABASE_URL=${GRID_APP_MIGRATION_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly
@@ -248,6 +277,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
       seaweedfs:
@@ -300,6 +331,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       seaweedfs:
@@ -339,6 +372,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       frontend:

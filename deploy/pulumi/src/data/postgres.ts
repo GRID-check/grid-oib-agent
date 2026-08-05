@@ -52,26 +52,6 @@ CREATE TABLE IF NOT EXISTS summaries (
 CREATE INDEX IF NOT EXISTS idx_summaries_collection ON summaries(collection);
 `;
 
-/**
- * LOGIN password for the row-level-security runtime role (ADR-0041).
- *
- * Drizzle migration 0030 creates the role, its grants and every policy — it
- * owns the boundary. Only the password lives here, because a password is a
- * deployment secret rather than something to check into a migration, and
- * because this Job runs before the migration Job on a fresh cluster.
- */
-const GRID_APP_ROLES_SQL = `
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_rw') THEN
-    EXECUTE format('CREATE ROLE grid_app_rw LOGIN NOINHERIT PASSWORD %L', :'runtime_password');
-  ELSE
-    EXECUTE format('ALTER ROLE grid_app_rw LOGIN PASSWORD %L', :'runtime_password');
-  END IF;
-END
-$$;
-`;
-
 const CHECKPOINTS_SQL = `
 CREATE TABLE IF NOT EXISTS checkpoint_migrations (v INTEGER PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS checkpoints (
@@ -170,6 +150,29 @@ export function installPostgres(
     { provider },
   );
 
+  /**
+   * Login for `grid_app_rw`, the least-privilege role the app tier connects as
+   * under row-level security (ADR-0041).
+   *
+   * CloudNativePG reads this and reconciles the role's password itself, as
+   * superuser. That is the whole reason the roles are declared on the Cluster
+   * rather than created by a migration: `grid_app_platform` needs BYPASSRLS,
+   * and Postgres only lets a role grant an attribute it already holds — which
+   * the application user does not, and must not.
+   */
+  const runtimeCredentials = new k8s.core.v1.Secret(
+    "pg-runtime-credentials",
+    {
+      metadata: { name: `${CLUSTER_NAME}-runtime-credentials`, namespace },
+      type: "kubernetes.io/basic-auth",
+      stringData: {
+        username: "grid_app_rw",
+        password: cfg.postgres.runtimePassword,
+      },
+    },
+    { provider },
+  );
+
   // 2b. Object-store credentials for continuous backup (only when enabled). The
   //     provider's StorageClasses reclaim `Delete`, so WAL archiving + scheduled
   //     base backups to SeaweedFS are the only path to point-in-time recovery
@@ -244,6 +247,27 @@ export function installPostgres(
           size: cfg.postgres.storageSize,
           storageClass: cfg.storage.className,
         },
+        // Row-level-security roles (ADR-0041). Declared here, NOT in a migration:
+        // creating a BYPASSRLS role requires the creator to hold BYPASSRLS
+        // itself, and the application user has neither that nor CREATEROLE.
+        // The operator reconciles these as superuser, so they exist before the
+        // migration Job runs — and migration 0030 asserts exactly that rather
+        // than trying to create them.
+        managed: {
+          roles: [
+            { name: "grid_app_owner", ensure: "present", login: true, superuser: false, createdb: false, createrole: false },
+            { name: "grid_app_platform", ensure: "present", login: false, bypassrls: true },
+            {
+              name: "grid_app_rw",
+              ensure: "present",
+              login: true,
+              inherit: false,
+              bypassrls: false,
+              inRoles: ["grid_app_platform"],
+              passwordSecret: { name: runtimeCredentials.metadata.apply((m) => m!.name!) },
+            },
+          ],
+        },
         bootstrap: {
           initdb: {
             database: "aiq_jobs",
@@ -317,11 +341,7 @@ export function installPostgres(
     "pg-init-sql",
     {
       metadata: { namespace },
-      data: {
-        "jobs.sql": JOBS_SQL,
-        "checkpoints.sql": CHECKPOINTS_SQL,
-        "grid-app-roles.sql": GRID_APP_ROLES_SQL,
-      },
+      data: { "jobs.sql": JOBS_SQL, "checkpoints.sql": CHECKPOINTS_SQL },
     },
     { provider },
   );
@@ -336,10 +356,6 @@ export function installPostgres(
       stringData: {
         JOBS_DSN: dsn({ db: "aiq_jobs" }),
         CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints" }),
-        // Owner credential for grid_app, used only to give the runtime role its
-        // LOGIN password (ADR-0041).
-        GRID_APP_DSN: dsn({ db: "grid_app" }),
-        GRID_APP_RUNTIME_PASSWORD: cfg.postgres.runtimePassword,
       },
     },
     { provider },
@@ -373,12 +389,6 @@ export function installPostgres(
                     'until pg_isready -d "$JOBS_DSN" >/dev/null 2>&1; do sleep 2; done;',
                     'psql "$JOBS_DSN" -v ON_ERROR_STOP=1 -f /sql/jobs.sql;',
                     'psql "$CHECKPOINTS_DSN" -v ON_ERROR_STOP=1 -f /sql/checkpoints.sql;',
-                    // The password is passed as a psql variable rather than
-                    // interpolated into the SQL, so it is never rendered into
-                    // the ConfigMap or a process argument.
-                    'psql "$GRID_APP_DSN" -v ON_ERROR_STOP=1',
-                    '-v runtime_password="$GRID_APP_RUNTIME_PASSWORD"',
-                    "-f /sql/grid-app-roles.sql;",
                     "echo 'db init complete';",
                   ].join(" "),
                 ],

@@ -26,7 +26,7 @@
  *   - Background workers, which sweep every tenant: {@link withPlatformAccess}
  *     to find the work, then {@link withTenant} per tenant to do it.
  *
- * ## Why AsyncLocalStorage, and why `enterWith`
+ * ## Why AsyncLocalStorage, and why a slot
  *
  * The context has to reach `@/lib/db` without every repository signature
  * growing an `organizationId` parameter that a caller could pass wrongly — the
@@ -36,10 +36,12 @@
  * free even when that request spends most of its time waiting on WorkOS or the
  * agent backend.
  *
- * `enterTenantContext` uses `enterWith` rather than `run` because a session
- * helper returns a value; it does not wrap a callback. Each Next.js request
- * already runs in its own async resource, so the write is confined to that
- * request's execution and its continuations.
+ * The scope comes from `run()`, never from a bare `enterWith()`. That is a
+ * correctness requirement, not a style choice: `enterWith` has no scope end, so
+ * on a keep-alive connection its value survives into the NEXT request on the
+ * same socket. See {@link TenantSlot} — and `tenant-context.spec.ts`, which
+ * reproduces the leak against a real HTTP server and proves this design does
+ * not have it.
  */
 
 import 'server-only'
@@ -82,7 +84,30 @@ export interface PlatformScope {
 
 export type TenantContext = TenantScope | PlatformScope
 
-const storage = new AsyncLocalStorage<TenantContext>()
+/**
+ * A per-request slot the session helper fills in later.
+ *
+ * The indirection is what makes the context SAFE, and it is not optional.
+ * `AsyncLocalStorage.enterWith()` has no scope end: it writes into the current
+ * async resource, and on a keep-alive connection Node reuses that resource for
+ * the NEXT request on the same socket. Measured, not theorised — a request that
+ * set a tenant leaked it to the two requests that followed it, and an enclosing
+ * `run()` on another AsyncLocalStorage did not contain it either.
+ *
+ * A leak like that turns this feature inside out. The danger is not the request
+ * that sets a tenant; it is the request that sets NONE and should therefore
+ * fail closed, but instead inherits whoever used the socket last and quietly
+ * reads or writes as them.
+ *
+ * So requests get their scope from `run()`, which is properly bounded — and
+ * because `run()` fixes its value up front while the session resolves later,
+ * the value it fixes is this mutable slot.
+ */
+interface TenantSlot {
+  scope: TenantContext | null
+}
+
+const storage = new AsyncLocalStorage<TenantSlot>()
 
 /**
  * Thrown when a statement is about to run with no context at all.
@@ -109,14 +134,28 @@ export class MissingTenantContextError extends Error {
 
 /** The active context, or `undefined` when there is none. */
 export function getTenantContext(): TenantContext | undefined {
-  return storage.getStore()
+  return storage.getStore()?.scope ?? undefined
 }
 
 /** The active context, or throw {@link MissingTenantContextError}. */
 export function requireTenantContext(): TenantContext {
-  const context = storage.getStore()
+  const context = getTenantContext()
   if (!context) throw new MissingTenantContextError()
   return context
+}
+
+/**
+ * Open an empty, request-scoped slot for `fn` to fill.
+ *
+ * Every route factory calls this before running its handler, which does two
+ * things at once: it gives `getGridSession()` somewhere to publish the tenant,
+ * and — because `run()` restores the previous store when it returns — it
+ * guarantees the request starts with NO inherited tenant and leaves none
+ * behind. That is what makes "no context" mean no context, rather than
+ * "whatever the last request on this socket was".
+ */
+export function runWithTenantSlot<T>(fn: () => PromiseLike<T> | T): Promise<T> {
+  return storage.run({ scope: null }, async () => await fn())
 }
 
 /**
@@ -125,17 +164,31 @@ export function requireTenantContext(): TenantContext {
  * Called by `getGridSession()` the moment a session resolves. A session with no
  * active organization publishes nothing: there is no tenant to answer as, and
  * `requireAuthorizedSession` is about to reject the request anyway.
+ *
+ * Writes into the slot {@link runWithTenantSlot} opened for this request.
+ * Without one — a server component or server action, which no factory wraps —
+ * it falls back to `enterWith`, and that fallback is deliberately a fresh slot
+ * OBJECT rather than a bare value: if a previous request on this socket leaked
+ * its slot, the next `getGridSession()` replaces it wholesale instead of
+ * inheriting it. Pages resolve their session before they query, so the slot is
+ * always filled by the time a query runs.
  */
 export function enterTenantContext(session: {
   organizationId: string | null
   userId: string
 }): void {
   if (!session.organizationId) return
-  storage.enterWith({
+  const scope: TenantContext = {
     kind: 'tenant',
     organizationId: session.organizationId,
     userId: session.userId,
-  })
+  }
+  const slot = storage.getStore()
+  if (slot) {
+    slot.scope = scope
+    return
+  }
+  storage.enterWith({ scope })
 }
 
 /**
@@ -156,7 +209,7 @@ export function withTenant<T>(
   fn: () => PromiseLike<T> | T
 ): Promise<T> {
   return storage.run(
-    { kind: 'tenant', organizationId: scope.organizationId, userId: scope.userId ?? null },
+    { scope: { kind: 'tenant', organizationId: scope.organizationId, userId: scope.userId ?? null } },
     async () => await fn()
   )
 }
@@ -171,7 +224,7 @@ export function withTenant<T>(
  */
 export function withPlatformAccess<T>(reason: string, fn: () => PromiseLike<T> | T): Promise<T> {
   // Awaited inside the scope for the same reason as `withTenant` — see there.
-  return storage.run({ kind: 'platform', reason }, async () => await fn())
+  return storage.run({ scope: { kind: 'platform', reason } }, async () => await fn())
 }
 
 /**

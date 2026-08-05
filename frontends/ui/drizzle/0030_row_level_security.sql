@@ -9,9 +9,13 @@
 --
 -- ## Three roles
 --
---   grid_app_owner     Owns every table; runs migrations. RLS does NOT apply to
---                      a table's owner (we deliberately do not FORCE it), so
+--   grid_app_owner     Owns the tables and runs migrations. RLS does NOT apply
+--                      to a table's owner (we deliberately do not FORCE it), so
 --                      DDL and data backfills keep working exactly as before.
+--                      **Who owns the tables is the single most security-
+--                      relevant fact in this design**, because ownership is the
+--                      bypass. The migration below asserts it rather than
+--                      assuming it.
 --   grid_app_rw        The runtime role the BFF connects as. DML only — no DDL,
 --                      no ownership — so every policy below APPLIES to it.
 --   grid_app_platform  BYPASSRLS. Deliberate cross-organization access (the
@@ -30,42 +34,80 @@
 -- It defends against APPLICATION BUGS — the missing or wrong tenant predicate.
 -- That is the realistic, recurring threat and RLS closes it completely.
 --
--- It does NOT defend against a stolen grid_app_rw credential: GUCs are
--- unprivileged, so anyone holding the credential can set grid.organization_id
--- to any value. Defending against that needs per-tenant credentials, which
--- costs a connection pool per tenant. Least privilege still bounds the damage
--- (no DDL, no other databases, no writes to platform configuration). This is
--- stated plainly here so nobody mistakes the boundary for one it is not.
+-- It does NOT defend against anything that can issue arbitrary SQL as
+-- grid_app_rw — a stolen credential, or a SQL-injection bug in the BFF. Two
+-- reasons, both structural:
+--
+--   * GUCs are unprivileged, so `SET grid.organization_id` to any value works.
+--   * grid_app_rw is a MEMBER of grid_app_platform, so `SET ROLE
+--     grid_app_platform` is always available to it, and that lifts RLS and
+--     grants write access to the platform_* tables. NOINHERIT means the bypass
+--     must be ASKED for, not that it can be refused.
+--
+-- Closing that would need a second login role whose credential never enters the
+-- tenant-facing process, or per-tenant credentials. We are not buying either.
+-- Least privilege still bounds the damage (no DDL, no ownership), but do not
+-- describe this boundary as more than it is.
 
 -- ---------------------------------------------------------------------------
--- Roles
+-- Roles: required, but NOT created here
 -- ---------------------------------------------------------------------------
--- Created here rather than only in deployment scripts so the invariant travels
--- with the schema: any database this migration has run against has the roles.
--- The migrating role therefore needs CREATEROLE. No passwords are set — those
--- are secrets and belong in the deployment's secret store, never in git.
+-- Roles are cluster-level objects, not schema, and creating them needs
+-- privileges a migration has no business holding. Creating `grid_app_platform`
+-- specifically requires BOTH CREATEROLE **and** BYPASSRLS — Postgres will not
+-- let a role hand out an attribute it does not itself have:
+--
+--   ERROR:  permission denied to create role
+--   DETAIL: Only roles with the BYPASSRLS attribute may create roles with the
+--           BYPASSRLS attribute.
+--
+-- CloudNativePG's application user has neither, so an earlier version of this
+-- migration failed every Kubernetes deploy. Granting a migration role BYPASSRLS
+-- to work around that would be exactly backwards: the one credential that must
+-- never be able to ignore the policies.
+--
+-- So provisioning belongs to the deployment, which already runs as an admin:
+--
+--   Kubernetes  deploy/pulumi/src/data/postgres.ts  (CloudNativePG managed roles)
+--   Compose     deploy/compose/init-db.sql
+--   Local tests scripts/rls-test-db.sh
+--
+-- This migration only asserts they are there, and says exactly what to do when
+-- they are not — a clear failure at deploy time beats a half-applied boundary.
 
 DO $$
+DECLARE missing text;
 BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_owner') THEN
-    CREATE ROLE grid_app_owner NOLOGIN;
+  SELECT string_agg(expected, ', ' ORDER BY expected) INTO missing
+  FROM unnest(ARRAY['grid_app_owner', 'grid_app_rw', 'grid_app_platform']) AS expected
+  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = expected);
+
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION
+      'row-level security roles are missing: %', missing
+      USING HINT = 'Provision them in the deployment before migrating — see '
+                   'docs/database/row-level-security.md. They are cluster-level '
+                   'objects and are deliberately not created by this migration.';
   END IF;
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_platform') THEN
-    CREATE ROLE grid_app_platform NOLOGIN BYPASSRLS;
-  ELSE
-    ALTER ROLE grid_app_platform BYPASSRLS;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_roles WHERE rolname = 'grid_app_platform' AND rolbypassrls
+  ) THEN
+    RAISE EXCEPTION 'grid_app_platform exists but does not hold BYPASSRLS'
+      USING HINT = 'Cross-tenant work would silently see nothing. Fix the role '
+                   'in the deployment, then re-run this migration.';
   END IF;
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grid_app_rw') THEN
-    CREATE ROLE grid_app_rw LOGIN NOINHERIT;
-  ELSE
-    ALTER ROLE grid_app_rw NOINHERIT;
+
+  IF NOT pg_has_role('grid_app_rw', 'grid_app_platform', 'MEMBER') THEN
+    RAISE EXCEPTION 'grid_app_rw is not a member of grid_app_platform'
+      USING HINT = 'Without the membership the platform step-up (SET LOCAL ROLE) '
+                   'is rejected and every background sweep goes quiet.';
   END IF;
 END
 $$;
 
--- The runtime role may become the platform role, but only by saying so.
-GRANT grid_app_platform TO grid_app_rw;
-
+-- Table and schema privileges ARE the schema's business, and the owner can
+-- grant them without any special role attribute.
 GRANT USAGE ON SCHEMA public TO grid_app_rw, grid_app_platform;
 
 -- Nobody gets to create objects in `public` by default (PostgreSQL 15+ already
@@ -121,6 +163,11 @@ BEGIN
     target, tenancy_predicate, tenancy_predicate);
   EXECUTE format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO grid_app_rw, grid_app_platform', target);
+  -- The table's own identity/serial sequences, so a later table added by a
+  -- later migration does not fail at INSERT with a confusing
+  -- "permission denied for sequence" long after its SELECTs started working.
+  EXECUTE format(
+    'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO grid_app_rw, grid_app_platform');
 END
 $$;
 
@@ -151,14 +198,18 @@ COMMENT ON FUNCTION grid_secure_platform_table(text) IS
 -- fails when a table in the drizzle schema is missing here, so a new table
 -- cannot ship outside the boundary.
 
--- Tables carrying organization_id: the tenant is the row's own column.
+-- Tenant tables whose rows point at nothing outside themselves: the tenant is
+-- the row's own column, and that is the whole rule.
 SELECT grid_secure_table('agent_profiler_spans',      'organization_id = grid_current_org()');
-SELECT grid_secure_table('answer_feedback',           'organization_id = grid_current_org()');
+SELECT grid_secure_table('answer_feedback',
+  'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org()))');
 SELECT grid_secure_table('budget_policies',           'organization_id = grid_current_org()');
 SELECT grid_secure_table('citation_events',           'organization_id = grid_current_org()');
-SELECT grid_secure_table('conversations',             'organization_id = grid_current_org()');
+SELECT grid_secure_table('conversations',
+  'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org()))');
 SELECT grid_secure_table('deletion_queue',            'organization_id = grid_current_org()');
-SELECT grid_secure_table('documents',                 'organization_id = grid_current_org()');
+SELECT grid_secure_table('documents',
+  'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())) AND (folder_id IS NULL OR EXISTS (SELECT 1 FROM project_folders f JOIN projects fp ON fp.id = f.project_id WHERE f.id = folder_id AND fp.organization_id = grid_current_org()))');
 SELECT grid_secure_table('inbox_items',               'organization_id = grid_current_org()');
 SELECT grid_secure_table('legal_holds',               'organization_id = grid_current_org()');
 SELECT grid_secure_table('llm_usage_events',          'organization_id = grid_current_org()');
@@ -166,12 +217,16 @@ SELECT grid_secure_table('llm_usage_rollups',         'organization_id = grid_cu
 SELECT grid_secure_table('mention_requests',          'organization_id = grid_current_org()');
 SELECT grid_secure_table('org_llm_credentials',       'organization_id = grid_current_org()');
 SELECT grid_secure_table('org_model_config_versions', 'organization_id = grid_current_org()');
-SELECT grid_secure_table('org_model_configs',         'organization_id = grid_current_org()');
-SELECT grid_secure_table('project_memory',            'organization_id = grid_current_org()');
+SELECT grid_secure_table('org_model_configs',
+  'organization_id = grid_current_org() AND (active_version_id IS NULL OR EXISTS (SELECT 1 FROM org_model_config_versions v WHERE v.id = active_version_id AND v.organization_id = grid_current_org()))');
+SELECT grid_secure_table('project_memory',
+  'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org()))');
 SELECT grid_secure_table('projects',                  'organization_id = grid_current_org()');
 SELECT grid_secure_table('resource_shares',           'organization_id = grid_current_org()');
-SELECT grid_secure_table('workflow_runs',             'organization_id = grid_current_org()');
-SELECT grid_secure_table('workflows',                 'organization_id = grid_current_org()');
+SELECT grid_secure_table('workflow_runs',
+  'organization_id = grid_current_org() AND EXISTS (SELECT 1 FROM workflows w WHERE w.id = workflow_id AND w.organization_id = grid_current_org())');
+SELECT grid_secure_table('workflows',
+  'organization_id = grid_current_org() AND EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())');
 
 -- The organization registry itself: a tenant sees its own row and no other.
 SELECT grid_secure_table('organizations', 'workos_organization_id = grid_current_org()');
@@ -185,7 +240,9 @@ SELECT grid_secure_table('messages',
 SELECT grid_secure_table('conversation_reads',
   'EXISTS (SELECT 1 FROM conversations c WHERE c.id = conversation_id AND c.organization_id = grid_current_org())');
 SELECT grid_secure_table('project_folders',
-  'EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())');
+  'EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())
+   AND (parent_id IS NULL OR EXISTS (SELECT 1 FROM project_folders f JOIN projects fp ON fp.id = f.project_id
+        WHERE f.id = parent_id AND fp.organization_id = grid_current_org()))');
 
 -- Keyed to a person, not an organization: preferences follow the user across
 -- every organization they belong to, so the user GUC is the tenancy rule.
@@ -198,6 +255,17 @@ SELECT grid_secure_platform_table('platform_workflow_templates');
 
 -- Sequences behind the SERIAL primary keys; INSERT fails without USAGE.
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO grid_app_rw, grid_app_platform;
+
+-- The helpers above take a RAW predicate string and run DDL with it. They are
+-- SECURITY INVOKER, so a non-owner calling one fails at the first ALTER TABLE —
+-- but EXECUTE defaults to PUBLIC, and the day somebody "fixes" a permissions
+-- error by adding SECURITY DEFINER, that raw predicate becomes arbitrary SQL as
+-- the owner. Take the invitation away, and pin the search path.
+ALTER FUNCTION grid_secure_table(text, text) SET search_path = pg_catalog, public;
+ALTER FUNCTION grid_secure_platform_table(text) SET search_path = pg_catalog, public;
+REVOKE ALL ON FUNCTION grid_secure_table(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION grid_secure_platform_table(text) FROM PUBLIC;
+-- NEVER make these SECURITY DEFINER.
 
 -- Deliberately NO `ALTER DEFAULT PRIVILEGES`. A table added by a later
 -- migration is unreadable until it calls grid_secure_table(), so the failure

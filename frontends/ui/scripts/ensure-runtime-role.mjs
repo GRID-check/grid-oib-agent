@@ -13,11 +13,14 @@
  * `GRID_APP_DATABASE_URL`, which already carries the credential the app is about
  * to connect with. One source of truth, and the two cannot drift.
  *
- * Runs before `drizzle-kit migrate` in the image's CMD, using the OWNER
- * credential. It is idempotent and fail-soft on every path that is merely "not
- * applicable", so it can never block a boot it was not needed for. On
- * Kubernetes the `pg-init-tables` Job does this instead and the frontend
- * Deployment overrides the CMD, so this does not run there.
+ * Runs AFTER `drizzle-kit migrate` (the migration must have applied the grants
+ * first), using the OWNER credential. Idempotent and fail-soft on every path
+ * that is merely "not applicable", so it can never block a boot it was not
+ * needed for.
+ *
+ * Not used on Kubernetes: there CloudNativePG reconciles the role and its
+ * password declaratively from the Cluster spec, and the frontend Deployment
+ * overrides the image CMD anyway.
  */
 
 import postgres from "postgres";

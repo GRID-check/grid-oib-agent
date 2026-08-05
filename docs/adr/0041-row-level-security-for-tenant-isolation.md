@@ -70,6 +70,27 @@ change and no call site can forget to pass an organization, which is the exact
 mistake this ADR exists to prevent. Callers with no session state it
 explicitly: `withTenant`, `withPlatformAccess`, `withOptionalTenant`.
 
+**Every scope comes from `run()`, never a bare `enterWith()`.** This is a
+correctness requirement and it was found the hard way. `enterWith` has no scope
+end: it writes into the current async resource, and Node reuses that resource
+for the next request on the same keep-alive socket. Reproduced against a plain
+`node:http` server — one request published a tenant, awaited, and the two
+requests that followed it on that socket inherited it. An enclosing `run()` on
+a different `AsyncLocalStorage` did not contain it either.
+
+The danger is not the request that sets a tenant. It is a later request that
+sets NONE, should therefore fail closed, and instead reads or writes as whoever
+used the socket last — turning this feature's central guarantee inside out, and
+turning `internalApiRoute`'s "the handler must open its own scope" from a
+fail-closed contract into a fail-open one.
+
+So every route factory opens an empty, request-scoped **slot** with `run()`,
+and `getGridSession()` fills it in. `run()` bounds it: the request starts with
+no inherited tenant and leaves none behind. `enterWith` survives only as the
+fallback for server components and server actions, which no factory wraps — and
+even there it installs a fresh slot object rather than a bare value, so a
+leaked slot is replaced rather than read.
+
 **`lib/db` applies it at one chokepoint.** drizzle's postgres-js driver reaches
 the database through exactly two methods — `client.unsafe()` for statements and
 `client.begin()` for transactions — and both are wrapped, so every statement
@@ -122,6 +143,12 @@ organization arrives, or `{ crossTenant }`, recording why there is none.
   hide every row, the queue would look empty, and the tick would report healthy.
   The purger and scheduler share one helper and both have specs asserting the
   step-up is issued.
+- **A refactor could drop a factory's `run()`** and reintroduce the keep-alive
+  leak, which fails open and silently. `tenant-context.spec.ts` asserts every
+  factory opens a slot and that `enterWith` has exactly one call site. The
+  keep-alive reproduction itself is deliberately not a test: it asserts Node's
+  scheduling rather than our code and does not fire under the vitest runner, so
+  it would be a flake that proves nothing.
 
 ### What this does NOT defend against
 
@@ -162,9 +189,12 @@ bounds the blast radius: no DDL, no other database, no platform writes.
   deploy without a coordinated rotation. What bounds `grid_app_rw` is its
   privileges rather than password distinctness, but separating them is
   recommended and should become the default once stacks have rotated.
-- The migration creates roles, so the migrating role needs `CREATEROLE`. On a
-  managed provider that forbids it, the roles must be pre-created; the runbook
-  covers this.
+- Roles are provisioned by each deployment rather than by the migration, and
+  migration 0030 asserts them. An earlier draft created them in SQL and could
+  not run on Kubernetes at all: `CREATE ROLE ... BYPASSRLS` requires the creator
+  to hold `BYPASSRLS`, which CloudNativePG's application user does not — and
+  granting it would defeat the purpose. Roles are cluster objects; schema
+  migrations are the wrong place for them.
 
 ## References
 

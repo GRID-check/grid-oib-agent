@@ -56,7 +56,7 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { isAuthzError } from '@/lib/auth-utils'
 import { hasPermission, type KnownPermission } from '@/lib/authz/permissions'
 import { requireInternalToken } from '@/lib/internal-auth'
-import { withPlatformAccess } from '@/lib/db/tenant-context'
+import { runWithTenantSlot, withPlatformAccess } from '@/lib/db/tenant-context'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { DEFAULT_MUTATION_LIMIT } from '@/lib/limits/catalog'
 import { enforceLimit, rateLimitHeaders } from '@/lib/limits/enforce'
@@ -274,22 +274,27 @@ export function apiRoute<TParams = Record<string, string | string[]>>(
 ) {
   const permission = 'permission' in options.authz ? options.authz.permission : null
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
-    try {
-      const session = await requireAuthorizedSession()
-      if (permission && !hasPermission(session, permission)) {
-        throw new ForbiddenError()
+    // Open an empty, request-scoped tenant slot for `getGridSession()` to fill.
+    // `run()` bounds it, so this request cannot inherit a tenant from the
+    // previous request on the same keep-alive socket, nor leave one behind.
+    return runWithTenantSlot(async () => {
+      try {
+        const session = await requireAuthorizedSession()
+        if (permission && !hasPermission(session, permission)) {
+          throw new ForbiddenError()
+        }
+        // After authorization, before any work: an unauthorized caller should get
+        // a 403 rather than have the refusal tell them a limit exists, and a
+        // refused call must not have already touched the database.
+        const rule = resolveLimitRule(options, request.method)
+        if (rule) await enforceLimit(rule, memberSubject(session))
+        const params = (await resolveParams(context)) as TParams
+        const result = await handler({ request, session, params })
+        return successResponse(result, options.status ?? 200)
+      } catch (error) {
+        return errorResponse(error, request)
       }
-      // After authorization, before any work: an unauthorized caller should get
-      // a 403 rather than have the refusal tell them a limit exists, and a
-      // refused call must not have already touched the database.
-      const rule = resolveLimitRule(options, request.method)
-      if (rule) await enforceLimit(rule, memberSubject(session))
-      const params = (await resolveParams(context)) as TParams
-      const result = await handler({ request, session, params })
-      return successResponse(result, options.status ?? 200)
-    } catch (error) {
-      return errorResponse(error, request)
-    }
+    })
   }
 }
 
@@ -305,20 +310,25 @@ export function internalApiRoute<TParams = Record<string, string | string[]>>(
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
     const denied = requireInternalToken(request, label)
     if (denied) return denied
-    try {
-      const params = (await resolveParams(context)) as TParams
-      const run = () => handler({ request, params })
-      // `fromPayload` routes establish their own scope once they have parsed the
-      // organization out of the body; until they do, any query throws
-      // MissingTenantContextError rather than reading across tenants.
-      const result =
-        'crossTenant' in options.tenancy
-          ? await withPlatformAccess(`internal:${label} — ${options.tenancy.crossTenant}`, run)
-          : await run()
-      return successResponse(result, options.status ?? 200)
-    } catch (error) {
-      return errorResponse(error, request)
-    }
+    // The slot matters most here: these routes carry no session, so a
+    // `fromPayload` handler that forgot its scope MUST fail closed rather than
+    // silently inherit whatever tenant last used this socket.
+    return runWithTenantSlot(async () => {
+      try {
+        const params = (await resolveParams(context)) as TParams
+        const run = () => handler({ request, params })
+        // `fromPayload` routes establish their own scope once they have parsed the
+        // organization out of the body; until they do, any query throws
+        // MissingTenantContextError rather than reading across tenants.
+        const result =
+          'crossTenant' in options.tenancy
+            ? await withPlatformAccess(`internal:${label} — ${options.tenancy.crossTenant}`, run)
+            : await run()
+        return successResponse(result, options.status ?? 200)
+      } catch (error) {
+        return errorResponse(error, request)
+      }
+    })
   }
 }
 
@@ -334,13 +344,18 @@ export function publicApiRoute<TParams = Record<string, string | string[]>>(
   options: PublicRouteOptions
 ) {
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
-    try {
-      const params = (await resolveParams(context)) as TParams
-      const result = await handler({ request, params })
-      return successResponse(result, options.status ?? 200)
-    } catch (error) {
-      return errorResponse(error, request)
-    }
+    // Health checks hold no session and touch no tenant data, but they still get
+    // a slot: without one they would run under whatever tenant the previous
+    // request on this socket left behind.
+    return runWithTenantSlot(async () => {
+      try {
+        const params = (await resolveParams(context)) as TParams
+        const result = await handler({ request, params })
+        return successResponse(result, options.status ?? 200)
+      } catch (error) {
+        return errorResponse(error, request)
+      }
+    })
   }
 }
 

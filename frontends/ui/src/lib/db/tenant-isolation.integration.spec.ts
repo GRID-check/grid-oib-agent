@@ -182,6 +182,75 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     expect(cause.message).toMatch(/permission denied/i)
   })
 
+  /**
+   * A row's own organization_id is not the whole rule. Nothing stopped a tenant
+   * from REFERENCING another tenant's row, and the FKs cascade: org A could
+   * attach its conversation to org B's project, and org B deleting that project
+   * — an ordinary, authorised action — would destroy org A's data. The policies
+   * validate the referenced row's organization for exactly this reason.
+   */
+  it('refuses to reference another tenant\'s row', async () => {
+    const [projectOfB] = [
+      ...(await withTenant({ organizationId: ORG_B }, () =>
+        db.execute(sql`select id from projects where organization_id = ${ORG_B}`)
+      )),
+    ]
+
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id)
+              values (${'conv_cross_' + ORG_A}, ${ORG_A}, 'u', ${projectOfB.id})`
+        )
+      )
+    )
+    expect(cause.message).toMatch(/row-level security/i)
+  })
+
+  it('refuses to re-point an existing row at another tenant', async () => {
+    const [projectOfB] = [
+      ...(await withTenant({ organizationId: ORG_B }, () =>
+        db.execute(sql`select id from projects where organization_id = ${ORG_B}`)
+      )),
+    ]
+    const conversationId = `conv_repoint_${ORG_A}`
+
+    await withTenant({ organizationId: ORG_A }, async () => {
+      const [own] = [
+        ...(await db.execute(sql`select id from projects where organization_id = ${ORG_A}`)),
+      ]
+      await db.execute(
+        sql`insert into conversations (id, organization_id, created_by, project_id)
+            values (${conversationId}, ${ORG_A}, 'u', ${own.id})`
+      )
+    })
+
+    // The UPDATE that used to be accepted: the row keeps its own organization,
+    // but the project underneath it becomes another tenant's. WITH CHECK now
+    // rejects it outright rather than letting it through.
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`update conversations set project_id = ${projectOfB.id} where id = ${conversationId}`
+        )
+      )
+    )
+    expect(cause.message).toMatch(/row-level security/i)
+
+    const survived = await withPlatformAccess('test: verify no cross-tenant link', () =>
+      db.execute(
+        sql`select p.organization_id as owner
+            from conversations c join projects p on p.id = c.project_id
+            where c.id = ${conversationId}`
+      )
+    )
+    expect([...survived][0]?.owner).toBe(ORG_A)
+
+    await withPlatformAccess('test cleanup', () =>
+      db.execute(sql`delete from conversations where id = ${conversationId}`)
+    )
+  })
+
   it('isolates child tables through their parent', async () => {
     const conversationId = `conv_${ORG_A}`
     await withTenant({ organizationId: ORG_A }, async () => {
