@@ -16,7 +16,7 @@ npm run dev        # http://localhost:4321
 
 | Variable          | Default              | Purpose                                            |
 |-------------------|----------------------|----------------------------------------------------|
-| `PUBLIC_APP_URL`  | `https://app.piloti.at` | "Anmelden" link in the nav (public, baked at build) |
+| `PUBLIC_APP_URL`  | `https://app.piloti.at` | Base URL of the app. The nav's "Anmelden" link uses `SIGN_IN_URL` (`src/consts.ts`), which appends `/?sign-in` — the app's root bounces logged-out visitors back to this site, so the bare URL is a loop. Public, baked at build. |
 | `PUBLIC_SITE_URL` | `http://localhost:4321` | Canonical site URL for OG/sitemap metadata (public) |
 | `HOST` / `PORT`   | `0.0.0.0` / `4321`   | Node adapter listen address (runtime)              |
 

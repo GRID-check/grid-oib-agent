@@ -1,7 +1,7 @@
 ---
 import Logo from '../atoms/Logo.astro'
 import Pill from '../atoms/Pill.astro'
-import { APP_URL } from '../../consts'
+import { SIGN_IN_URL } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -26,7 +26,7 @@ const home = translatePath('/')
     <div
       class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
     >
-      <a href={APP_URL} class="hidden text-ink hover:text-accent-600 sm:inline">{t.nav.signIn}</a>
+      <a href={SIGN_IN_URL} class="hidden text-ink hover:text-accent-600 sm:inline">{t.nav.signIn}</a>
       <Pill href={`${home}#kontakt`} variant="outline" size="sm">
         {t.nav.cta}
       </Pill>
