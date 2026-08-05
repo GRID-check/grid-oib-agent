@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The engagement mode (ADR-0036) — when the agent answers a message that tags
  * nobody.
  *

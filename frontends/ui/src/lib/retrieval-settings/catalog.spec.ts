@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 
 import catalogFixture from '../../../tests/fixtures/retrieval_settings_catalog.json'

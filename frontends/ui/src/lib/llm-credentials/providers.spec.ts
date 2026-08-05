@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { assertSafeBaseUrl, isKnownProvider, resolveBaseUrl } from './providers'

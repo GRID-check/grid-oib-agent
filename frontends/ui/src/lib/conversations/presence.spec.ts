@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Composing presence: who may claim it, and who hears about it.
  *
  * Four properties are worth a test each, because each one is a way this feature

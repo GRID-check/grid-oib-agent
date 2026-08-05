@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Concurrency and idempotency across the collaboration feature (spec CC-15, MN-2,
  * MN-9, IB-8).
  *

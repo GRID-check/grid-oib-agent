@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Break the authkit-nextjs import chain (pulls in next/cache) at load time.

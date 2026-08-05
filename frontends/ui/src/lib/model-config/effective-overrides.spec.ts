@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The three-layer model resolution, at the layer where the layers actually
  * meet: platform default < org override, merged per agent group.
  *

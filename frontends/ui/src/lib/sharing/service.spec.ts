@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Sharing invariants (ADR-0032, spec SH-2, SH-5, SH-11, SH-14).
  *
  * Three rules are worth a regression test each, because each one is a way the

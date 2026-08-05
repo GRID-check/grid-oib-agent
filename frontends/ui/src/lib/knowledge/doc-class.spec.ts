@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Parity guard: the frontend Dokumentart vocabulary must match the backend enum.
  *
  * The canonical doc_class vocabulary lives in the Python backend

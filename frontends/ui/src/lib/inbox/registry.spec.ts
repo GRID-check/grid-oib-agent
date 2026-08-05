@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 import { INBOX_ITEM_TYPES } from '@/lib/db/schema/inbox'
 import {

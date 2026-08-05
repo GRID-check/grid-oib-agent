@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { listResearchRuns } from './research-runs-client'
 import { ApiRequestError } from './api-error'

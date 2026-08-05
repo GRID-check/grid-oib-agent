@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { deriveLiveActivity } from './live-activity'
 import { getDisplayName } from './intermediate-step-parser'

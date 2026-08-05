@@ -59,6 +59,8 @@ import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
+import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
+import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import type { SourcePresetId } from '../types'
@@ -88,9 +90,7 @@ import {
 import { useTypingBroadcast } from '@/features/collaboration/hooks/use-typing-broadcast'
 import {
   findMentionQuery,
-  humanMentions,
   insertMention,
-  reconcileMentions,
   type DraftMention,
   type MentionQuery,
 } from '@/features/collaboration/lib/mention-text'
@@ -749,37 +749,52 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // server-side, so the composer is read-only BEFORE the attempt (a ghost bubble
   // only the viewer would see is the alternative).
   const myThreadRole = useThreadRole(canCollaborate ? currentSessionId : null)
-  const isViewerInSharedThread = myThreadRole === 'viewer'
+  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
+
+  /*
+    One gate for "may this person change anything about this conversation", and
+    one for "may they type right now".
+
+    `disabled` used to reach only the textarea and the send button, so a viewer
+    in a shared thread — whose whole point is that they may read and not write —
+    still had a live paperclip, a live drop zone, and a live *Datengrundlage*
+    popover whose toggles persist onto the conversation. They could not send a
+    message but they could rewrite which sources the next person's turn would
+    use, and upload files into the thread. Hence two capabilities, not one flag.
+
+    The decision moved to `collaboration/lib/composer-capabilities` because it
+    was a role-NAME comparison (`myThreadRole === 'viewer'`) where the rest of
+    the codebase ranks a ladder, and because every denial was anonymous. Both
+    are ADR-0038 requirements. Behaviour is unchanged, including the
+    allow-while-the-role-is-unknown window, which is now a named field with a
+    test on it instead of a consequence of `null !== 'viewer'`.
+  */
+  const capabilities = composerCapabilities({
+    isAuthenticated,
+    canCollaborate,
+    sharing: threadSharing,
+    myRole: myThreadRole,
+    isBusy,
+    isResponseMode,
+    researchLocked: isResearchSessionSuccessful,
+    otherPersonsTurn: Boolean(otherPersonsTurnName),
+  })
 
   // Composing presence. Only where somebody could actually see it: a shared
   // thread, collaboration on, and a role that may contribute — a viewer's draft
   // will never become a message, so announcing it would be a claim about
   // something that cannot happen. The server enforces all three regardless; this
   // is what keeps a private thread from issuing the request at all (spec NF-8).
-  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
   const { onTyping, onStoppedTyping } = useTypingBroadcast({
     conversationId: currentSessionId ?? null,
-    enabled: canCollaborate && threadSharing === 'shared' && !isViewerInSharedThread,
+    enabled: capabilities.canBroadcastTyping,
   })
 
   const isDisabledByAuth = !isAuthenticated
-  /*
-    One gate for "may this person change anything about this conversation".
-
-    `disabled` below only ever reached the textarea and the send button, so a
-    viewer in a shared thread — whose whole point is that they may read and not
-    write — still had a live paperclip, a live drop zone, and a live
-    *Datengrundlage* popover whose toggles persist onto the conversation. They
-    could not send a message but they could rewrite which sources the next
-    person's turn would use, and upload files into the thread.
-  */
-  const cannotContribute = isDisabledByAuth || isViewerInSharedThread
-  const disabled =
-    isDisabledByAuth ||
-    (isBusy && !isResponseMode) ||
-    isResearchSessionSuccessful ||
-    Boolean(otherPersonsTurnName) ||
-    isViewerInSharedThread
+  /** Read-only because of the role specifically — drives the viewer notice. */
+  const isViewerInSharedThread = capabilities.deniedBy === 'read-only-role'
+  const cannotContribute = !capabilities.canContribute
+  const disabled = !capabilities.canCompose
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
@@ -975,12 +990,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Mentions that survive the current text, in text order — the single source for
   // what gets sent, what the hint says, and whether the agent will stay quiet.
-  const activeMentions = useMemo(() => reconcileMentions(message, mentions), [message, mentions])
-  const taggedHumans = useMemo(() => humanMentions(activeMentions), [activeMentions])
-  // `@Piloti` alongside a person addresses BOTH (spec MN-1), so the "Piloti stays
-  // quiet" hint below would be a false statement — the addressee line names them
-  // both instead.
-  const agentTagged = activeMentions.length > taggedHumans.length
 
   /*
     The thread's hand-off state, read from the server (never computed here — the
@@ -1001,6 +1010,27 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate && threadSharing === 'shared',
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
+
+  // ONE resolution, shared with the send below: `resolveAddressee` is the only
+  // place the three-way decision is written. `@Piloti` alongside a person
+  // addresses BOTH (spec MN-1), so the "Piloti stays quiet" hint would be a false
+  // statement there; the addressee line names them both instead.
+  //
+  // Memoised so `activeMentions` keeps a stable identity across keystrokes —
+  // AddresseeIndicator takes it by reference.
+  const addressee = useMemo(
+    () =>
+      resolveAddressee({
+        text: message,
+        mentions,
+        awaitingHuman: threadAwaitsHuman,
+        canCollaborate,
+      }),
+    [message, mentions, threadAwaitsHuman, canCollaborate],
+  )
+  const activeMentions = addressee.mentions
+  const taggedHumans = addressee.humans
+  const agentTagged = addressee.agentTagged
 
   /**
    * The picker opens only where collaboration is on, and then only once the
@@ -1042,8 +1072,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // Mentions are structured, and reconciled against the text at the last
     // possible moment: whatever token the user deleted while editing is not sent
     // (spec MN-3).
-    const sentMentions = reconcileMentions(currentMessage, mentions)
-    const sentHumans = humanMentions(sentMentions)
+    // The SAME function the addressee line used, over the same inputs — so what
+    // the user was told and what happens cannot disagree by construction, rather
+    // than by two expressions being kept in step by tests.
+    const sent = resolveAddressee({
+      text: currentMessage,
+      mentions,
+      awaitingHuman: threadAwaitsHuman,
+      canCollaborate,
+    })
+    const sentHumans = sent.humans
 
     // Files may still be uploading/ingesting — we no longer gate the send behind
     // a double-submit banner. The send button surfaces a subtle inline hint
@@ -1065,14 +1103,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         // `awaitingHuman` is what makes a plain message go through the server's
         // ruling too: while a named person is awaited it is a remark to the thread,
         // not a question for Piloti (ADR-0034 addendum), and the agent must be given
-        // it as context rather than as a turn. It reads the SAME hand-off state the
-        // addressee line above states to the user, so what they were told and what
-        // happens cannot disagree.
-        sentMentions.length > 0
-          ? await sendMessage(currentMessage, { mentions: sentMentions })
-          : threadAwaitsHuman
-            ? await sendMessage(currentMessage, { awaitingHuman: true })
-            : await sendMessage(currentMessage),
+        // it as context rather than as a turn.
+        //
+        // The shape comes from `sendMessageArgs`, so the fast path stays the
+        // literal one-argument call it always was — an explicit `undefined` would
+        // push plain messages down the server's ruling path.
+        await (() => {
+          // One ternary, not a re-derivation: `sendMessageOptions` already chose
+          // the case. Omitting the argument entirely is what keeps the fast path
+          // the literal single-argument call it has always been.
+          const options = sendMessageOptions(sent.routing)
+          return options
+            ? sendMessage(currentMessage, options)
+            : sendMessage(currentMessage)
+        })(),
       )
       if (!ok) {
         // Restore the text so nothing the user wrote is lost, and keep the picked
@@ -1098,7 +1142,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         did nothing at all: no waiting banner, no explanation for Piloti's
         silence, no way back short of reloading the page.
       */
-      if (sentMentions.length > 0 && submittingSessionId) {
+      if (sent.mentions.length > 0 && submittingSessionId) {
         bumpThreadRevision(submittingSessionId)
       }
     } catch (error) {
@@ -1119,6 +1163,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     sendMessage,
     noteSendIntent,
     threadAwaitsHuman,
+    // handleSubmit resolves the addressee, which reads the flag — a stale value
+    // would route a send against a state the user is no longer in.
+    canCollaborate,
     currentConversation,
     clearComposerDraft,
     onStoppedTyping,

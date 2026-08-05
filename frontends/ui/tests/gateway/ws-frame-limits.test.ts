@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Gateway WebSocket FRAME limiting (ADR-0040 layer L2b).
  *
  * `server.js` has no unit-test seam — it is plain CommonJS with no exports — so

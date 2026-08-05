@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it, vi } from 'vitest'
 import { claimDue, pruneOldRuns, PRUNE_BATCH } from './db.js'
 
