@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The route factory's rate-limit behaviour (ADR-0040 L2).
  *
  * The contract worth pinning is the DEFAULT, because that is what protects

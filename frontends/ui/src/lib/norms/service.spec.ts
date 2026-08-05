@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Sever the workos/server-only import chains pulled in transitively.

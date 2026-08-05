@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The route factory statically imports the session guard (authkit); internal

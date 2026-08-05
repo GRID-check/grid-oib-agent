@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The signed image route is the ONLY document route that serves bytes without a
  * session, so these tests are the gate on that decision: an unsigned, forged,
  * cross-tenant or non-image request must not get bytes back.

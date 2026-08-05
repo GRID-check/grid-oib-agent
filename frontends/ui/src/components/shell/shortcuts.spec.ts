@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 
 import { railSections, paletteSections } from './project-sections'

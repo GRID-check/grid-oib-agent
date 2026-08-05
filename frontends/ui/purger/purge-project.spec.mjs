@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it, vi } from 'vitest'
 import { LEGAL_HOLD_CODE, purgeProject } from './purge-project.js'
 

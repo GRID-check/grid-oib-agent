@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The platform retrieval-settings endpoint. The contract worth pinning down:
  * only the platform owner may read or write it, the catalog validates every
  * value server-side (invalid pins surface as 422 with per-key errors), and an

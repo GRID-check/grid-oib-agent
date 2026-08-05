@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The sharing repository's ONE documented exception to "every tenant read is
  * org-scoped", pinned so the argument for it cannot die silently.
  *

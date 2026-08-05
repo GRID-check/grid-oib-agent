@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { isAuthzError } from '@/lib/auth-utils'

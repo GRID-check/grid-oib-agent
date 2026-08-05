@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * `drizzle/meta/_journal.json` is the list `drizzle-kit migrate` actually
  * executes — the `.sql` files on disk are inert without an entry pointing at
  * them. That asymmetry is silent in every check we run: the migration is in the

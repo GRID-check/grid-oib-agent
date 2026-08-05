@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The mention hand-off (ADR-0034, spec MN-1…MN-16).
  *
  * The behaviour under test is *the agent deliberately not answering*, which is

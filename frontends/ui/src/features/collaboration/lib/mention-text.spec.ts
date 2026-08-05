@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, test } from 'vitest'
 
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'

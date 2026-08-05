@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The Herleitung fan-out, as a projection of the citation model.
  *
  * Ported from `trace-lanes.spec.ts`, which used to pin a SECOND presentation

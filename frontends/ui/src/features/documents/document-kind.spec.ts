@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from './document-kind'
 

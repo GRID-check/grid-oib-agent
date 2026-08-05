@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Behaviour of the L2 limiter, exercised against REAL counting.
  *
  * These specs use the per-process store rather than a mock, so they test the

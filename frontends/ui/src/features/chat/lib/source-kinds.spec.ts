@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import {
   KIND_TO_SIGNAL,
