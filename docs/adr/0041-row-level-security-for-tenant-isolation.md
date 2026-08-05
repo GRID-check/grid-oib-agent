@@ -40,7 +40,7 @@ owns the schema:
 
 | Role | Used by | RLS | Privileges |
 |---|---|---|---|
-| `grid_app_owner` | drizzle migrations | exempt (owner; we do not `FORCE`) | DDL + DML |
+| the table owner (`aiq` in compose/Kubernetes) | drizzle migrations | exempt (owner; we do not `FORCE`) | DDL + DML |
 | `grid_app_rw` | the BFF and both workers | **enforced** | DML only, per-table grants |
 | `grid_app_platform` | deliberate cross-tenant work | bypassed (`BYPASSRLS`) | DML only |
 
@@ -109,9 +109,12 @@ organization arrives, or `{ crossTenant }`, recording why there is none.
 
 - A missing or wrong `WHERE organization_id` stops being a data leak. It
   becomes an empty result — a visible bug with no cross-tenant consequence.
-- The runtime credential can no longer run DDL, reach another database, or
-  write platform-wide configuration. `platform_*` tables grant `SELECT` only to
-  `grid_app_rw`, so a tenant-facing bug cannot rewrite platform defaults.
+- The runtime credential can no longer run DDL or write platform-wide
+    configuration by accident: `platform_*` tables grant it `SELECT` only, so an
+    ordinary tenant-facing bug cannot rewrite platform defaults. (It can still
+    `SET ROLE grid_app_platform` deliberately — see the boundary note below —
+    and `CONNECT` to the other databases on the cluster is not revoked, though
+    it holds no table grants there.)
 - Cross-tenant access is explicit, greppable and attributable: a named
   `withPlatformAccess(reason, …)` in the code and a distinct `current_user` in
   the database log.
@@ -123,8 +126,12 @@ organization arrives, or `{ crossTenant }`, recording why there is none.
 ### Negative
 
 - Every statement now runs inside a transaction so the settings are
-  transaction-local. postgres-js pipelines a transaction's statements, so the
-  cost is well under one extra round trip, but it is not zero.
+  transaction-local: BEGIN, the `SET LOCAL`s, the statement, COMMIT. These are
+  NOT pipelined — postgres-js awaits its own BEGIN before invoking the callback
+  — so it is ~4 round trips per statement, measured at 4-5x a bare statement
+  over a unix socket. Negligible on a local link, ~3 ms per statement on a 1 ms
+  network, and a pool slot is held throughout. If it bites, the fix is a
+  connection reserved per REQUEST with the settings applied once.
 - Two tables (`agent_profiler_spans`, `citation_events`) have a nullable
   `organization_id`. Such a row belongs to no tenant and satisfies no tenant
   predicate, so it is written under `withOptionalTenant` and is thereafter
@@ -158,7 +165,10 @@ unprivileged, so anyone holding the `grid_app_rw` credential can set
 **application bugs**, not against a compromised application or a stolen
 credential. Defending against those requires per-tenant credentials — a
 connection pool per tenant — which we are not buying. Least privilege still
-bounds the blast radius: no DDL, no other database, no platform writes.
+bounds what a BUG can do — no DDL, no ownership — but not what deliberate SQL
+can: `grid_app_rw` is a member of `grid_app_platform`, so `SET ROLE` is always
+available to it, and `CONNECT` to the cluster's other databases is not
+revoked.
 
 ## Alternatives Considered
 
@@ -184,6 +194,17 @@ bounds the blast radius: no DDL, no other database, no platform writes.
   statement.
 
 ## Open Questions / Follow-ups
+
+- **`messages` should carry its own `organization_id`.** Its policy resolves
+  tenancy through `conversations`, and a policy's `EXISTS` never becomes a
+  semi-join — for a large tenant it degrades to a per-row correlated subplan.
+  Measured on 395k messages: loading 1000 rows for a tenant with 100k
+  conversations is 6.7x slower and touches 104x the buffers versus the same
+  query as the owner, and the cost scales with the tenant's conversation count
+  rather than the page size. Adding the column with a composite foreign key to
+  `conversations (id, organization_id)` measured 4.01 ms → 0.70 ms and answers
+  the "second source of truth" objection, because the database then refuses to
+  let the copy diverge. Deferred here only because it needs a backfill.
 
 - `pgRuntimePassword` currently defaults to `pgAppPassword`, so existing stacks
   deploy without a coordinated rotation. What bounds `grid_app_rw` is its

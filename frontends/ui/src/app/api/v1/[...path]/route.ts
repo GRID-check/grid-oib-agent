@@ -23,6 +23,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { isAuthzError } from '@/lib/auth-utils'
 import {
@@ -109,7 +110,7 @@ const rejectBlockedPath = (path: string[]): NextResponse | null => {
   return null
 }
 
-export async function GET(
+export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -159,9 +160,9 @@ export async function GET(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
-export async function POST(
+export const POST = tenantSlotRoute(async function POST(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -233,9 +234,9 @@ export async function POST(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = tenantSlotRoute(async function DELETE(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -298,4 +299,4 @@ export async function DELETE(
 
     return proxyErrorEnvelope(error)
   }
-}
+})

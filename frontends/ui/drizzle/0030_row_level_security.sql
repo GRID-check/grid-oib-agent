@@ -9,13 +9,14 @@
 --
 -- ## Three roles
 --
---   grid_app_owner     Owns the tables and runs migrations. RLS does NOT apply
---                      to a table's owner (we deliberately do not FORCE it), so
---                      DDL and data backfills keep working exactly as before.
---                      **Who owns the tables is the single most security-
---                      relevant fact in this design**, because ownership is the
---                      bypass. The migration below asserts it rather than
---                      assuming it.
+--   the table owner    Runs migrations. RLS does NOT apply to a table's owner
+--                      (we deliberately do not FORCE it), so DDL and data
+--                      backfills keep working exactly as before. Ownership is
+--                      therefore the real bypass in this design — and the owner
+--                      is whichever role the deployment migrates as (`aiq` in
+--                      compose and Kubernetes), NOT a role this migration
+--                      names. `grid_app_owner` exists only in the local test
+--                      harness.
 --   grid_app_rw        The runtime role the BFF connects as. DML only — no DDL,
 --                      no ownership — so every policy below APPLIES to it.
 --   grid_app_platform  BYPASSRLS. Deliberate cross-organization access (the
@@ -150,7 +151,7 @@ COMMENT ON FUNCTION grid_current_user_id() IS
 -- that states the tenancy rule and nothing else.
 --
 -- The policy is PERMISSIVE and there is exactly one per table by construction;
--- `rls-policies.spec.ts` asserts that, because two permissive policies OR
+-- `rls-coverage.spec.ts` asserts that, because two permissive policies OR
 -- together and the second one would silently widen the first.
 
 CREATE OR REPLACE FUNCTION grid_secure_table(target text, tenancy_predicate text)
@@ -194,7 +195,7 @@ COMMENT ON FUNCTION grid_secure_platform_table(text) IS
 -- ---------------------------------------------------------------------------
 -- The boundary, table by table
 -- ---------------------------------------------------------------------------
--- Every table in grid_app appears exactly once below. `rls-policies.spec.ts`
+-- Every table in grid_app appears exactly once below. `rls-coverage.spec.ts`
 -- fails when a table in the drizzle schema is missing here, so a new table
 -- cannot ship outside the boundary.
 
@@ -209,7 +210,7 @@ SELECT grid_secure_table('conversations',
   'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org()))');
 SELECT grid_secure_table('deletion_queue',            'organization_id = grid_current_org()');
 SELECT grid_secure_table('documents',
-  'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())) AND (folder_id IS NULL OR EXISTS (SELECT 1 FROM project_folders f JOIN projects fp ON fp.id = f.project_id WHERE f.id = folder_id AND fp.organization_id = grid_current_org()))');
+  'organization_id = grid_current_org() AND (project_id IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org()))');
 SELECT grid_secure_table('inbox_items',               'organization_id = grid_current_org()');
 SELECT grid_secure_table('legal_holds',               'organization_id = grid_current_org()');
 SELECT grid_secure_table('llm_usage_events',          'organization_id = grid_current_org()');
@@ -233,16 +234,61 @@ SELECT grid_secure_table('organizations', 'workos_organization_id = grid_current
 
 -- Child tables with no organization_id of their own. The parent's column is the
 -- truth; denormalising a copy onto the child would create a second source of it
--- that can silently disagree. The parent lookup is a primary-key probe, and
--- Postgres plans it as a semi-join rather than a per-row subquery.
+-- that can silently disagree.
+--
+-- COST, measured — this is NOT free, and an earlier version of this comment
+-- claimed it was ("Postgres plans it as a semi-join"). It does not: a policy's
+-- EXISTS is expanded after sublink pull-up, so it can never become a semi-join.
+-- It becomes a hashed SubPlan for a small tenant, and a PER-ROW correlated
+-- SubPlan for a large one. Loading 1000 messages for a tenant with 100k
+-- conversations measured 6.7x slower and 104x the buffers of the same query as
+-- the RLS-exempt owner — and it scales with the TENANT's conversation count,
+-- not with what was asked for.
+--
+-- The fix, when that bites, is an `organization_id` column on `messages` kept
+-- honest by a composite foreign key to `conversations (id, organization_id)` —
+-- which answers the "second source of truth" objection, because the database
+-- then refuses to let the two disagree. Measured at 0.70 ms vs 4.01 ms. Not
+-- done here because it needs a backfill; tracked as the follow-up in ADR-0041.
 SELECT grid_secure_table('messages',
   'EXISTS (SELECT 1 FROM conversations c WHERE c.id = conversation_id AND c.organization_id = grid_current_org())');
 SELECT grid_secure_table('conversation_reads',
   'EXISTS (SELECT 1 FROM conversations c WHERE c.id = conversation_id AND c.organization_id = grid_current_org())');
 SELECT grid_secure_table('project_folders',
-  'EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())
-   AND (parent_id IS NULL OR EXISTS (SELECT 1 FROM project_folders f JOIN projects fp ON fp.id = f.project_id
-        WHERE f.id = parent_id AND fp.organization_id = grid_current_org()))');
+  'EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.organization_id = grid_current_org())');
+
+-- ---------------------------------------------------------------------------
+-- Folder parentage: a constraint, not a policy
+-- ---------------------------------------------------------------------------
+-- `project_folders.parent_id` and `documents.folder_id` can each point at
+-- another tenant's folder, which is the same hole the predicates above close
+-- for every other foreign key. They CANNOT be closed the same way: a policy on
+-- `project_folders` that reads `project_folders` is refused outright —
+--
+--   ERROR:  infinite recursion detected in policy for relation "project_folders"
+--
+-- and because `documents`' policy joined that table, it took `documents` down
+-- with it. Both tables were completely unreadable for the runtime role.
+--
+-- So the rule moves into the schema, where it is both cheaper and stronger:
+-- a composite foreign key makes a folder's parent, and a document's folder,
+-- belong to the SAME PROJECT. The project is already pinned to the tenant by
+-- the policies above, so same-project implies same-organization — enforced by
+-- the database on every write, with no policy, no subquery and no recursion.
+
+ALTER TABLE project_folders
+  ADD CONSTRAINT project_folders_id_project_id_key UNIQUE (id, project_id);
+
+ALTER TABLE project_folders DROP CONSTRAINT IF EXISTS project_folders_parent_id_fkey;
+ALTER TABLE project_folders
+  ADD CONSTRAINT project_folders_parent_id_project_id_fkey
+  FOREIGN KEY (parent_id, project_id) REFERENCES project_folders (id, project_id);
+
+ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_folder_id_project_folders_id_fk;
+ALTER TABLE documents
+  ADD CONSTRAINT documents_folder_id_project_id_fkey
+  FOREIGN KEY (folder_id, project_id) REFERENCES project_folders (id, project_id)
+  ON DELETE CASCADE;
 
 -- Keyed to a person, not an organization: preferences follow the user across
 -- every organization they belong to, so the user GUC is the tenancy rule.

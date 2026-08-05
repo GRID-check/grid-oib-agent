@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
 import {
   getPlatformOrganizationId,
@@ -13,7 +14,7 @@ import {
 } from '@/lib/authz/platform'
 import { generateAuditPortalLink, trustedAppOrigin } from '@/lib/audit/service'
 
-export async function POST(request: Request): Promise<Response> {
+export const POST = tenantSlotRoute(async function POST(request: Request): Promise<Response> {
   const session = await getGridSession()
   try {
     await requirePlatformOwner(session)
@@ -36,4 +37,4 @@ export async function POST(request: Request): Promise<Response> {
     console.error('[Platform Audit Portal] WorkOS link generation failed:', error)
     return NextResponse.json({ error: 'portal-unavailable' }, { status: 502 })
   }
-}
+})

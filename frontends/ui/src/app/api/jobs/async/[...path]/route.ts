@@ -26,6 +26,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
@@ -126,7 +127,7 @@ const JOBS_BASE_PATH = '/v1/jobs/async'
 /**
  * Handle GET requests (status, stream, state, report)
  */
-export async function GET(
+export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -210,12 +211,12 @@ export async function GET(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
 /**
  * Handle POST requests (submit, cancel)
  */
-export async function POST(
+export const POST = tenantSlotRoute(async function POST(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -297,12 +298,12 @@ export async function POST(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
 /**
  * Handle DELETE requests (cancel)
  */
-export async function DELETE(
+export const DELETE = tenantSlotRoute(async function DELETE(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -351,4 +352,4 @@ export async function DELETE(
 
     return proxyErrorEnvelope(error)
   }
-}
+})

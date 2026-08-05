@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute, withPlatformAccess } from '@/lib/db/tenant-context'
 import { ZodError, z } from 'zod'
 import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
@@ -54,16 +55,23 @@ const putSchema = z.object({
   note: z.string().trim().max(500).nullable().optional(),
 })
 
-export async function GET(): Promise<Response> {
+export const GET = tenantSlotRoute(async function GET(): Promise<Response> {
   try {
     await requirePlatformOwner(await getGridSession())
 
-    const [rows, workflowDefaults] = await Promise.all([
-      listPlatformModelDefaults(),
-      // Best-effort: an unreachable backend just means the UI cannot name the
-      // YAML fallback, which must not block managing the defaults themselves.
-      getWorkflowGroupDefaults(),
-    ])
+    // Platform-wide configuration, deliberately not one tenant's — and a
+    // platform owner may have no active organization at all (the break-glass
+    // first-run case), which would otherwise leave no scope and throw.
+    const [rows, workflowDefaults] = await withPlatformAccess(
+      'platform model defaults: read fleet-wide configuration',
+      () =>
+        Promise.all([
+          listPlatformModelDefaults(),
+          // Best-effort: an unreachable backend just means the UI cannot name the
+          // YAML fallback, which must not block managing the defaults themselves.
+          getWorkflowGroupDefaults(),
+        ])
+    )
 
     const defaults = Object.fromEntries(
       rows.map((row) => [
@@ -85,9 +93,9 @@ export async function GET(): Promise<Response> {
   } catch (error) {
     return handleError(error)
   }
-}
+})
 
-export async function PUT(request: Request): Promise<Response> {
+export const PUT = tenantSlotRoute(async function PUT(request: Request): Promise<Response> {
   try {
     const session = await getGridSession()
     await requirePlatformOwner(session)
@@ -133,13 +141,21 @@ export async function PUT(request: Request): Promise<Response> {
       ])
     )
 
-    const rows = await savePlatformModelDefaults({
-      defaults: flat,
-      modelSnapshot,
-      note: input.note ?? null,
-      actorUserId: session.userId,
-      actorEmail: session.email ?? null,
-    })
+    // `platform_model_defaults` grants the runtime role SELECT only, on purpose
+    // (ADR-0041) — a tenant-facing bug must not be able to rewrite fleet-wide
+    // configuration. Writing it is exactly what the platform tier is for, so the
+    // write says so.
+    const rows = await withPlatformAccess(
+      'platform model defaults: write fleet-wide configuration',
+      () =>
+        savePlatformModelDefaults({
+          defaults: flat,
+          modelSnapshot,
+          note: input.note ?? null,
+          actorUserId: session.userId,
+          actorEmail: session.email ?? null,
+        })
+    )
 
     // Audit into the platform org's trail — a fleet-wide model swap is the
     // single most far-reaching change this surface can make.
@@ -184,7 +200,7 @@ export async function PUT(request: Request): Promise<Response> {
   } catch (error) {
     return handleError(error)
   }
-}
+})
 
 /** `true`/`false` when the ZDR listing was reachable at save time, else null. */
 function zdrSafeFromSnapshot(snapshot: unknown): boolean | null {

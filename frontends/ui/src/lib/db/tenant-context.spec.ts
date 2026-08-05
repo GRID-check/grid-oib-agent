@@ -18,8 +18,8 @@
  * factories actually open one.
  */
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import http from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -130,6 +130,20 @@ describe('enterTenantContext', () => {
     })
   })
 
+  it('CLEARS an existing scope when the session has no organization', async () => {
+    // The dangerous shape: a slot already carries a tenant (inherited, or from
+    // an earlier resolve in the same request) and then an org-less session
+    // resolves. Leaving the old value would read as the previous tenant.
+    await runWithTenantSlot(async () => {
+      enterTenantContext({ organizationId: 'ORG_A', userId: 'u1' })
+      expect(getTenantContext()).toMatchObject({ organizationId: 'ORG_A' })
+
+      enterTenantContext({ organizationId: null, userId: 'u2' })
+      expect(getTenantContext()).toBeUndefined()
+      expect(() => requireTenantContext()).toThrow(MissingTenantContextError)
+    })
+  })
+
   it('replaces an inherited slot wholesale rather than reusing it', async () => {
     // The server-component path has no factory to open a slot, so it falls back
     // to enterWith. A later request must overwrite that value, never read it.
@@ -237,6 +251,35 @@ describe('route factories open a request-scoped slot', () => {
           `inherit the previous request's tenant off a keep-alive socket.`
       ).toContain('runWithTenantSlot')
     }
+  })
+
+  it('every API route opens a slot, by factory or explicitly', () => {
+    // The factory check above cannot see a route that skips the factories —
+    // which is exactly how seven hand-rolled routes ended up on the unbounded
+    // `enterWith` fallback. This one walks the whole surface instead.
+    const apiDir = join(process.cwd(), 'src', 'app', 'api')
+    const routes: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) walk(path)
+        else if (entry.name === 'route.ts') routes.push(path)
+      }
+    }
+    walk(apiDir)
+    expect(routes.length).toBeGreaterThan(100)
+
+    const FACTORIES_OR_SLOT = /apiRoute|internalApiRoute|publicApiRoute|platformApiRoute|tenantSlotRoute/
+    const unscoped = routes
+      .filter((path) => !FACTORIES_OR_SLOT.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(apiDir, path))
+
+    expect(
+      unscoped,
+      'These routes open no tenant slot, so they run on the unbounded enterWith ' +
+        'fallback and can inherit the previous request\'s tenant. Declare them ' +
+        'through a factory, or wrap them in tenantSlotRoute().'
+    ).toEqual([])
   })
 
   it('nothing calls the unbounded enterWith except the documented session fallback', () => {

@@ -57,8 +57,10 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | WorkOS authz drift | `WORKOS_API_KEY=sk_… task fe:provision:authz` (read-only; `-- --apply` reconciles) |
 
 `task --list` is the full, always-current list. CI calls these same tasks
-(`.github/workflows/ci.yml`), so `task verify` passing locally means the merge
-gate passes — there is no second copy of the commands to drift out of sync.
+(`.github/workflows/ci.yml`), so there is no second copy of the commands to
+drift out of sync. One caveat: `task db:test:rls` is a required merge check but
+is NOT part of `task verify` (it needs PostgreSQL server binaries), so run it
+separately when you touch the tenant boundary.
 
 CI *distributes* them differently, though: the frontend tier's lint, types and
 build run in one job while the suite is sharded four ways (`fe:test:shard`) and

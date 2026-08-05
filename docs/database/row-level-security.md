@@ -31,7 +31,7 @@ somehow were.
 
 | Role | Who uses it | RLS | May do |
 |---|---|---|---|
-| `grid_app_owner` | drizzle migrations | **exempt** (owner) | DDL + DML |
+| the table owner (`aiq`) | drizzle migrations | **exempt** (owner) | DDL + DML |
 | `grid_app_rw` | BFF, purger, scheduler | **enforced** | DML on granted tables |
 | `grid_app_platform` | deliberate cross-tenant work | **bypassed** | DML on granted tables |
 
@@ -107,10 +107,15 @@ Internal routes must declare where their tenant comes from — it does not
 compile otherwise:
 
 ```ts
+// The handler parses the organization out of its payload and opens the scope:
 export const POST = internalApiRoute('Label', handler, {
-  tenancy: { fromPayload: 'body.organizationId' },   // handler opens the scope
-  // or
-  tenancy: { crossTenant: 'why this serves no single tenant' },  // factory does
+  tenancy: { fromPayload: 'body.organizationId' },
+})
+
+// …or the route genuinely serves no single tenant, and the factory opens an
+// audited platform scope for it:
+export const GET = internalApiRoute('Label', handler, {
+  tenancy: { crossTenant: 'why this serves no single tenant' },
 })
 ```
 
@@ -176,22 +181,28 @@ Migrations and runtime use **different credentials**:
 | Variable | Role | Set on |
 |---|---|---|
 | `GRID_APP_DATABASE_URL` | `grid_app_rw` | frontend, purger, workflow-scheduler |
-| `GRID_APP_MIGRATION_DATABASE_URL` | owner (`aiq`) | whatever runs `drizzle-kit migrate` |
+| `GRID_APP_MIGRATION_DATABASE_URL` | the table owner (`aiq`) | the `grid-migrate` service (compose) / the migration Job (Kubernetes) |
 
 `drizzle.config.ts` prefers the migration URL and falls back to the runtime one,
 so a local checkout pointed at a throwaway database still works with one
 variable.
 
-- **Compose** — `deploy/compose/init-db.sql` gives `grid_app_rw` its LOGIN
-  password (dev default `grid_app_rw_dev`; override with
-  `GRID_APP_RUNTIME_PASSWORD`). That file runs only when Postgres initialises a
-  **fresh** data directory, so on an upgraded stack the frontend container's
-  `scripts/ensure-runtime-role.mjs` step synchronises the role's password from
-  `GRID_APP_DATABASE_URL` before the server starts — one source of truth, and
-  no manual step. The purger and scheduler connect as the same role, so on a
-  first boot they may restart once or twice until the frontend has run that
-  step; both are restart-safe and no state is lost.
-- **Kubernetes** — the `pg-init-tables` Job sets it from the Pulumi secret.
+- **Compose** — `deploy/compose/init-db.sql` creates the roles, but ONLY when
+  Postgres initialises a fresh data directory. On an upgraded stack it never
+  runs, so `scripts/ensure-rls-roles.mjs` creates them and syncs
+  `grid_app_rw`'s password from `GRID_APP_DATABASE_URL` — one source of truth,
+  no manual step. It runs in the one-shot `grid-migrate` service **before**
+  `drizzle-kit migrate`, because migration 0030 asserts the roles and aborts
+  without them. `frontend`, `purger` and `workflow-scheduler` all wait on that
+  service via `depends_on: service_completed_successfully`.
+  `GRID_APP_RUNTIME_PASSWORD` only substitutes into the compose DSNs; the role's
+  password follows the DSN, not the variable.
+- **Kubernetes** — CloudNativePG owns the roles declaratively via the Cluster's
+  `managed.roles`, reconciling them (including `grid_app_rw`'s password, from
+  the `pg-runtime-credentials` Secret) on every pass. That is why the roles are
+  not created by the migration: only the operator runs as superuser, and
+  `BYPASSRLS` cannot be granted by a role that lacks it. `ensure-rls-roles.mjs`
+  does not run there — the frontend Deployment overrides the image CMD.
   `pgRuntimePassword` defaults to `pgAppPassword` so an existing stack deploys
   without a coordinated rotation; setting it separately is recommended. What
   bounds this role is its *privileges*, not password distinctness.
@@ -215,7 +226,11 @@ variable.
 
 ### Rolling back
 
-Point `GRID_APP_DATABASE_URL` back at the owner credential. RLS does not apply
+Point `GRID_APP_DATABASE_URL` back at the credential that OWNS the tables —
+`aiq` in compose and Kubernetes, i.e. the same value as
+`GRID_APP_MIGRATION_DATABASE_URL`. (Not `grid_app_owner`: that role owns
+nothing outside the test harness and holds no grants, so pointing at it is an
+outage, not a rollback.) RLS does not apply
 to a table's owner, so enforcement stops immediately with no schema change and
 no downtime — useful as a break-glass step while a missed code path is fixed.
 `0030_row_level_security.down.sql` removes the policies entirely; it leaves the

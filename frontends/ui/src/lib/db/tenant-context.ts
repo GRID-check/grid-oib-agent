@@ -159,6 +159,22 @@ export function runWithTenantSlot<T>(fn: () => PromiseLike<T> | T): Promise<T> {
 }
 
 /**
+ * Wrap a route handler that is NOT declared through one of the factories.
+ *
+ * The seven hand-rolled routes (`authz-coverage.spec.ts` lists them, each with
+ * a reason) bypass the factories, and therefore bypassed the slot the factories
+ * open — leaving them on the unbounded `enterWith` fallback, which is the one
+ * path that can inherit a tenant from the previous request on a keep-alive
+ * socket. This gives them the same bounded scope in one line, without forcing
+ * them through a factory whose response shape they cannot use.
+ */
+export function tenantSlotRoute<TArgs extends unknown[]>(
+  handler: (...args: TArgs) => Promise<Response>
+): (...args: TArgs) => Promise<Response> {
+  return (...args: TArgs) => runWithTenantSlot(() => handler(...args))
+}
+
+/**
  * Publish the tenant for the rest of this request.
  *
  * Called by `getGridSession()` the moment a session resolves. A session with no
@@ -177,12 +193,14 @@ export function enterTenantContext(session: {
   organizationId: string | null
   userId: string
 }): void {
-  if (!session.organizationId) return
-  const scope: TenantContext = {
-    kind: 'tenant',
-    organizationId: session.organizationId,
-    userId: session.userId,
-  }
+  // No active organization means NO scope — never "whatever was there". This
+  // assigns `null` rather than returning early, and the difference is a
+  // cross-tenant read: a request that inherited a scope and then resolved an
+  // org-less session would otherwise keep the PREVIOUS tenant and read as them.
+  const scope: TenantContext | null = session.organizationId
+    ? { kind: 'tenant', organizationId: session.organizationId, userId: session.userId }
+    : null
+
   const slot = storage.getStore()
   if (slot) {
     slot.scope = scope

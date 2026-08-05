@@ -186,9 +186,9 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -f http://localhost:3000/api/healthz || exit 1
 
-# Migrate as the schema owner, then make sure the least-privilege runtime role
-# can actually log in before the server tries to use it (ADR-0041). The
-# ensure-runtime-role step is idempotent and fail-soft; it exists because
-# `init-db.sql` only runs when Postgres initialises a FRESH data directory, so
-# an upgraded stack would otherwise have the role without a password.
-CMD ["sh", "-c", "node node_modules/drizzle-kit/bin.cjs migrate && node scripts/ensure-runtime-role.mjs && node server.js"]
+# Provision the row-level-security roles, THEN migrate, then serve (ADR-0041).
+# The order is load-bearing: migration 0030 asserts the roles exist and aborts
+# if they do not, and `init-db.sql` only runs when Postgres initialises a FRESH
+# data directory — so on an upgraded stack nothing else would ever create them
+# and the container would never start. The step is idempotent and fail-soft.
+CMD ["sh", "-c", "node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]

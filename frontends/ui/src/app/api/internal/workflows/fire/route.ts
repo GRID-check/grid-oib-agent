@@ -10,6 +10,7 @@
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { NotFoundError } from '@/lib/api/errors'
 import { fireScheduledWorkflow, loadWorkflowForFire } from '@/lib/workflows/service'
 import { internalFireSchema } from '@/lib/workflows/types'
@@ -19,18 +20,21 @@ export const POST = internalApiRoute(
   async ({ request }) => {
     const { workflowId } = await parseJsonBody(request, internalFireSchema)
 
-    const workflow = await loadWorkflowForFire(workflowId)
+    // Narrow on purpose: the BYPASS covers only the lookup that genuinely has
+    // no tenant yet. Everything the run then does — recording the run, reading
+    // budgets, building the project scope — is one organization's work and is
+    // done as that organization, so row-level security still applies to it.
+    // Wrapping the whole fire instead would silently exempt every scheduled run
+    // from the boundary this feature exists to enforce.
+    const workflow = await withPlatformAccess(
+      'workflow fire: the scheduler identifies work by id, before any organization is known',
+      () => loadWorkflowForFire(workflowId)
+    )
     if (!workflow) throw new NotFoundError('Unknown workflow')
 
-    return fireScheduledWorkflow(workflow)
+    return withTenant({ organizationId: workflow.organizationId }, () =>
+      fireScheduledWorkflow(workflow)
+    )
   },
-  {
-    tenancy: {
-      // The scheduler holds a workflow id and no organization — the row is what
-      // names its tenant. `fireScheduledWorkflow` re-reads `enabled` and the
-      // org's feature gate from that row, so tenancy is decided from stored
-      // state rather than from anything the caller supplied.
-      crossTenant: 'the scheduler identifies work by workflow id, before any organization is known',
-    },
-  }
+  { tenancy: { fromPayload: 'the workflow row named by body.workflowId' } }
 )

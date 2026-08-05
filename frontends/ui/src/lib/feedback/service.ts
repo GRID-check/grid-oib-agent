@@ -14,6 +14,7 @@
  */
 
 import 'server-only'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { BadRequestError } from '@/lib/api/errors'
 import { requirePlatformOwner } from '@/lib/authz/platform'
@@ -117,7 +118,14 @@ export async function getAnswerFeedbackHealth(
   filters: FeedbackHealthFilters = {},
 ): Promise<FeedbackHealth> {
   await requirePlatformOwner(session)
-  return getFeedbackHealth(filters)
+  // The read groups BY organization across every tenant, so it must not run
+  // pinned to the owner's active one — row-level security would quietly return
+  // that org's rows, or none at all, and the page would look merely empty
+  // rather than broken (ADR-0041). The gate above is the authorization this
+  // bypass rests on; it sits here so no caller can reach the data without it.
+  return withPlatformAccess('answer feedback: cross-organization quality view', () =>
+    getFeedbackHealth(filters),
+  )
 }
 
 /**
@@ -137,6 +145,9 @@ export async function getAnswerFeedbackDigest(
   options: FeedbackDigestOptions = {},
 ): Promise<FeedbackDigestResult> {
   await requirePlatformOwner(session)
-  const health = await getFeedbackHealth({ ...filters, limit: 0 })
+  const health = await withPlatformAccess(
+    'answer feedback digest: cross-organization quality view',
+    () => getFeedbackHealth({ ...filters, limit: 0 }),
+  )
   return getFeedbackDigest(health, filters, options)
 }

@@ -7,6 +7,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
@@ -18,7 +19,7 @@ import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
 
-export async function GET(req: Request): Promise<Response> {
+export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Response> {
   try {
     const { searchParams } = new URL(req.url)
     const projectId = searchParams.get('projectId') || undefined
@@ -169,4 +170,4 @@ export async function GET(req: Request): Promise<Response> {
 
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
-}
+})

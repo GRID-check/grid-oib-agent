@@ -341,8 +341,11 @@ services:
       # (ADR-0041). The container's CMD synchronises this role's login from
       # this very URL before starting, so there is one source of truth.
       - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
-      # Owner credential — the same CMD runs `drizzle-kit migrate`, and DDL
-      # needs the schema owner.
+      # Owner credential — this stack has no separate migrator service, so the
+      # image CMD provisions the RLS roles and migrates before serving. That
+      # means the long-lived container DOES hold the schema-owner credential
+      # here, unlike compose and Kubernetes; splitting it out is the follow-up.
+      # ADR-0041 §"What this does NOT defend against" covers the consequence.
       - GRID_APP_MIGRATION_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly

@@ -9,6 +9,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { authzErrorResponse } from '@/lib/auth/require-auth'
 import { getGridSession } from '@/lib/auth/session'
 import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
@@ -20,7 +21,7 @@ import {
   searchModelsForGroup,
 } from '@/lib/model-config/openrouter'
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = tenantSlotRoute(async function GET(request: Request): Promise<Response> {
   try {
     await requirePlatformOwner(await getGridSession())
 
@@ -69,4 +70,4 @@ export async function GET(request: Request): Promise<Response> {
     if (denied) return denied
     throw error
   }
-}
+})

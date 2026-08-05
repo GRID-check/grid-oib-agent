@@ -96,6 +96,45 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
 
   /**
+   * The cheapest test here, and the one that would have caught the worst bug in
+   * this feature's history: a policy on `project_folders` that referenced
+   * `project_folders` is rejected by Postgres outright —
+   * "infinite recursion detected in policy" — and because `documents`' policy
+   * joined that table, BOTH were completely unreadable for the runtime role.
+   * Every other test passed, because none of them touched those two tables.
+   *
+   * So: every secured table, selected as the role the app actually uses. Not a
+   * sample.
+   */
+  it('can SELECT from every table inside the boundary', async () => {
+    const secured = await withPlatformAccess('test: enumerate secured tables', () =>
+      db.execute(sql`
+        SELECT c.relname AS table_name
+        FROM pg_policy p
+        JOIN pg_class c ON c.oid = p.polrelid
+        WHERE p.polname = 'grid_tenant_isolation'
+          AND c.relnamespace = 'public'::regnamespace
+        ORDER BY 1
+      `)
+    )
+    const names = [...secured].map((row) => String(row.table_name))
+    expect(names.length).toBeGreaterThanOrEqual(28)
+
+    const broken: Array<{ table: string; error: string }> = []
+    for (const table of names) {
+      try {
+        await withTenant({ organizationId: ORG_A, userId: `user_${ORG_A}` }, () =>
+          db.execute(sql.raw(`SELECT count(*) FROM "${table}"`))
+        )
+      } catch (error) {
+        broken.push({ table, error: rootCause(error).message })
+      }
+    }
+
+    expect(broken, 'These tables are inside the boundary but cannot be read.').toEqual([])
+  })
+
+  /**
    * The reason this feature exists. The query has NO tenant predicate — it is
    * the mistake a repository makes when someone forgets the WHERE clause — and
    * it still cannot see another tenant's rows.
@@ -134,6 +173,34 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
       db.execute(sql`select name from projects`)
     )
     expect([...survived].map((row) => row.name)).toEqual([`project of ${ORG_B}`])
+  })
+
+  /**
+   * `SET LOCAL` is a UTILITY statement; `SELECT set_config(...)` is a query, and
+   * Postgres refuses `SET TRANSACTION ISOLATION LEVEL` after any query. So an
+   * earlier version of the context broke isolation levels for tenant scopes
+   * while leaving the platform path (already `SET LOCAL ROLE`) working — the
+   * kind of asymmetry that hides for a long time.
+   */
+  it('still allows an isolation level to be set on the transaction', async () => {
+    const rows = await withTenant({ organizationId: ORG_A }, () =>
+      db.transaction((tx) => tx.execute(sql`select organization_id from projects`), {
+        isolationLevel: 'serializable',
+      })
+    )
+    expect([...rows].map((row) => row.organization_id)).toEqual([ORG_A])
+  })
+
+  it('refuses a setting value that is not a plain identifier', async () => {
+    // `SET LOCAL` takes no bind parameters, so the value is interpolated. It is
+    // validated rather than escaped: anything that could carry quoting fails
+    // closed instead of reaching the server.
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: "org_a'; drop table projects; --" }, () =>
+        db.execute(sql`select 1`)
+      )
+    )
+    expect(cause.message).toMatch(/not a plain identifier/i)
   })
 
   it('carries the context through an explicit transaction', async () => {
