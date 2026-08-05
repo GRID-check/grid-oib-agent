@@ -352,6 +352,14 @@ flowchart TD
 For a resource `R` and a request token `{ sub = user_id, org_id, role, permissions }`:
 
 > **Grant access iff** `R.organization_id == token.org_id`
+>
+> **Since ADR-0041 this is no longer only an application rule.** PostgreSQL
+> enforces the same predicate underneath, on every table in `grid_app`: the app
+> connects as `grid_app_rw`, which is subject to a row-level-security policy per
+> table, so a query that loses its `organization_id` filter returns **no rows**
+> rather than another tenant's. The application check remains — it produces the
+> right *error* — but it is no longer the only thing standing between two
+> tenants. See [row-level security](../database/row-level-security.md).
 > **AND** ( the user is a member of `R.project_id` via `project_members`
 > **OR** the user holds an **org‑level role/permission** granting cross‑project access ).
 

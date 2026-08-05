@@ -131,6 +131,22 @@ This command:
 4. Polls file status until SUCCESS or FAILED (2s interval, 600s timeout)
 5. Records successful hashes so unchanged files are skipped on next run
 
+## Row-level security roles and migrations (ADR-0041)
+
+Migrations no longer run from the `frontend` container in compose. The one-shot
+`grid-migrate` service runs, in order:
+
+1. `node scripts/ensure-rls-roles.mjs` — creates `grid_app_rw` and
+   `grid_app_platform` if absent and syncs the runtime password from
+   `GRID_APP_DATABASE_URL`. Idempotent and fail-soft.
+2. `node node_modules/drizzle-kit/bin.cjs migrate` — as the schema owner via
+   `GRID_APP_MIGRATION_DATABASE_URL`, because DDL and backfills need the owner
+   (row-level security does not apply to it).
+
+`frontend` then starts with `command: ["node", "server.js"]` and connects as
+`grid_app_rw`. On Kubernetes the roles come from CloudNativePG's
+`managed.roles` instead and the migration Job does step 2 alone.
+
 ## Init Database Script
 
 The `init-db.sql` script (`deploy/compose/init-db.sql`) runs as part of PostgreSQL initialization. It creates 3 databases and their schemas. Key details:

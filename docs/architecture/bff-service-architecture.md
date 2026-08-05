@@ -19,7 +19,7 @@ Routes are **thin transport adapters**. They:
   - `apiRoute(handler, options?)` — session-authenticated routes (the default).
     `options.permission` enforces an org/platform permission from the registry
     (`@/lib/authz/permissions`) before the handler runs.
-  - `internalApiRoute(label, handler)` — service-to-service routes guarded by
+  - `internalApiRoute(label, handler, { tenancy })` — service-to-service routes guarded by
     `GRID_INTERNAL_API_TOKEN` (fail-closed).
   - `publicApiRoute(handler)` — intentionally unauthenticated (health checks
     only; anything else needs an ADR).

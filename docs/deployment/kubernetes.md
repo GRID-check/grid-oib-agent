@@ -52,6 +52,26 @@ Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──
 
 ---
 
+## Row-level security roles (ADR-0041)
+
+The `grid_app` database enforces tenant isolation in Postgres, and the app tier
+connects as `grid_app_rw` — DML only, no DDL, and subject to every policy.
+
+The three roles are declared on the CloudNativePG `Cluster` under
+`spec.managed.roles`, not created by a migration. That is not a preference:
+creating `grid_app_platform` requires the creator to hold `BYPASSRLS`, and the
+application user has neither that nor `CREATEROLE` — nor should it, since it is
+the credential that runs migrations. The operator reconciles them as superuser
+on every pass, including `grid_app_rw`'s password from the
+`pg-runtime-credentials` Secret (Pulumi config `pgRuntimePassword`, defaulting
+to `pgAppPassword`).
+
+Migration `0030` therefore only *asserts* the roles, failing with a hint rather
+than half-applying the boundary. `GRID_APP_MIGRATION_DATABASE_URL` carries the
+owner credential and is set only on the migration Job.
+
+Runbook: [row-level security](../database/row-level-security.md).
+
 ## 2. Prerequisites
 
 - A kubeconfig for the cluster (the provider gives you this).
