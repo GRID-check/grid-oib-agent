@@ -27,6 +27,7 @@ import { installNetworkPolicies } from "./src/platform/network-policies";
 import { installPostgres } from "./src/data/postgres";
 import { installDragonfly, installRateLimitStore } from "./src/data/dragonfly";
 import { installSeaweedFS } from "./src/data/seaweedfs";
+import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
 import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
@@ -69,6 +70,14 @@ const seaweed = installSeaweedFS(
   namespace,
   cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [],
 );
+// Offsite backup for the documents bucket (ADR-0042). Gated on an EXTERNAL S3
+// target; `loadConfig` refuses an in-cluster endpoint, which would put the
+// backup on the very volumes it exists to survive.
+installSeaweedFSBackup(cfg, provider, namespace, [
+  seaweed.service,
+  seaweed.bucketInitJob,
+]);
+
 const postgres = installPostgres(
   cfg,
   provider,

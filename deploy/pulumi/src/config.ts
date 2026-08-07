@@ -294,6 +294,39 @@ export interface GridConfig {
      */
     backendReadAccessKey: string;
     backendReadSecretKey: pulumi.Output<string>;
+    /**
+     * Offsite backup for the documents bucket (ADR-0042).
+     *
+     * Disabled by default because it needs an EXTERNAL S3 target to mean
+     * anything: pointing it back at this cluster's own SeaweedFS reproduces the
+     * exact hole it exists to close. Enabling it without `endpoint`/keys is
+     * refused at load time rather than silently running a backup to nowhere.
+     */
+    backup: {
+      enabled: boolean;
+      /** External S3 endpoint. MUST NOT be the in-cluster SeaweedFS. */
+      endpoint: string;
+      bucket: string;
+      region: string;
+      accessKey: pulumi.Output<string>;
+      secretKey: pulumi.Output<string>;
+      /** 5-field cron for the `fs.meta.save` snapshot. Default: nightly 03:00. */
+      metadataSchedule: string;
+    };
+    /**
+     * Encrypt chunk data written to volume servers (a FILER flag,
+     * `-encryptVolumeData`; the volume server has no concept of encryption).
+     *
+     * Read the trade-off before enabling: keys are generated per chunk and
+     * stored IN THE FILER METADATA, so the filer store becomes the key store for
+     * every object — lose it and the data is unrecoverable ciphertext. It also
+     * only protects against someone obtaining volume disks WITHOUT the filer
+     * store, which is not the usual failure in a single-namespace cluster.
+     * Provider-level disk encryption is the better control for "disks at rest
+     * are encrypted"; this is for the GDPR-erasure property (drop the metadata,
+     * the bytes become undecryptable). Applies to NEW writes only.
+     */
+    encryptVolumeData: boolean;
   };
 
   /**
@@ -625,6 +658,34 @@ export function loadConfig(): GridConfig {
     );
   }
 
+  // Fail fast: a documents backup that writes back into this cluster's own
+  // SeaweedFS is not a backup — it is a second copy on the disk you are trying
+  // to survive losing. Refuse the two ways that happens: no endpoint at all, and
+  // an endpoint pointing at the in-cluster service.
+  const seaweedBackupEnabled = cfg.getBoolean("seaweedfsBackupEnabled") ?? false;
+  if (seaweedBackupEnabled) {
+    const backupEndpoint = cfg.get("seaweedfsBackupEndpoint") ?? "";
+    if (!backupEndpoint) {
+      throw new Error(
+        "grid-oib:seaweedfsBackupEndpoint is required when seaweedfsBackupEnabled is true. " +
+          "Point it at an EXTERNAL S3 endpoint — an in-cluster target does not survive the " +
+          "cluster loss the backup exists to cover.",
+      );
+    }
+    if (backupEndpoint.includes("seaweedfs:8333") || backupEndpoint.includes("//seaweedfs")) {
+      throw new Error(
+        `grid-oib:seaweedfsBackupEndpoint points at the in-cluster SeaweedFS (${backupEndpoint}). ` +
+          "That stores the backup on the same volumes as the data. Use an external S3 endpoint.",
+      );
+    }
+    if (cfg.getSecret("seaweedfsBackupAccessKey") === undefined) {
+      throw new Error(
+        "grid-oib:seaweedfsBackupAccessKey and seaweedfsBackupSecretKey are required when " +
+          "seaweedfsBackupEnabled is true (set with `pulumi config set --secret`).",
+      );
+    }
+  }
+
   const registryUsername = cfg.get("registryUsername");
   const registryPassword = cfg.getSecret("registryPassword");
   if ((registryUsername === undefined) !== (registryPassword === undefined)) {
@@ -867,6 +928,16 @@ export function loadConfig(): GridConfig {
       // `pulumi config set --secret grid-oib:seaweedfsBackendReadSecretKey "…"`.
       backendReadAccessKey: cfg.get("seaweedfsBackendReadAccessKey") ?? "grid-backend-read",
       backendReadSecretKey: cfg.requireSecret("seaweedfsBackendReadSecretKey"),
+      backup: {
+        enabled: cfg.getBoolean("seaweedfsBackupEnabled") ?? false,
+        endpoint: cfg.get("seaweedfsBackupEndpoint") ?? "",
+        bucket: cfg.get("seaweedfsBackupBucket") ?? "grid-documents-backup",
+        region: cfg.get("seaweedfsBackupRegion") ?? "us-east-1",
+        accessKey: cfg.getSecret("seaweedfsBackupAccessKey") ?? pulumi.secret(""),
+        secretKey: cfg.getSecret("seaweedfsBackupSecretKey") ?? pulumi.secret(""),
+        metadataSchedule: cfg.get("seaweedfsMetaSnapshotSchedule") ?? "0 3 * * *",
+      },
+      encryptVolumeData: cfg.getBoolean("seaweedfsEncryptVolumeData") ?? false,
     },
 
     backend: {

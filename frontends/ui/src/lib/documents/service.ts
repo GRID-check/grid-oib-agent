@@ -24,6 +24,7 @@ import { ALLOWED_TAGS } from './tag-vocabulary'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
+import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
@@ -477,6 +478,10 @@ export async function uploadDocument(
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
   assertFileSizeAllowed(file.size)
+  // Org-wide ceiling, checked after the per-file one so the caller gets the
+  // more specific complaint first, and BEFORE any bytes reach SeaweedFS so a
+  // refusal leaves no orphan object behind (ADR-0042).
+  await assertWithinStorageQuota(session.organizationId, file.size)
 
   let folderPath: string | null = null
   if (folderId) {

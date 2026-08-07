@@ -47,6 +47,10 @@ export function installSeaweedFS(
   // documents bucket only — the aiq-agent tier's `view_knowledge_image`
   // get_object calls, ADR-0039). The backend pod only ever holds the latter's
   // credential; its secret key must be distinct from the root's (see config.ts).
+  // Buckets the root identity is allowed to touch — the documents bucket plus
+  // whatever else this deployment pre-creates (today: the Postgres PITR bucket).
+  const grantedBuckets = [cfg.seaweedfs.bucket, ...extraBuckets];
+
   const s3Config = pulumi
     .all([
       pulumi.output(cfg.seaweedfs.accessKey),
@@ -60,7 +64,21 @@ export function installSeaweedFS(
           {
             name: "grid",
             credentials: [{ accessKey: ak, secretKey: sk }],
-            actions: ["Admin", "Read", "Write", "List", "Tagging"],
+            // NOT `Admin`, and no longer bucket-unscoped (ADR-0042). `Admin`
+            // grants every action on every bucket including DeleteBucket, and
+            // the frontend/purger only ever need object CRUD on the buckets
+            // this stack creates. Buckets are still created by the init Job over
+            // `weed shell` (gRPC to master), which does not go through S3 auth,
+            // so dropping Admin costs nothing.
+            //
+            // Scoped per bucket rather than bare: a bare `Read` matches every
+            // bucket, including any created later by something else.
+            actions: grantedBuckets.flatMap((bucket) => [
+              `Read:${bucket}`,
+              `Write:${bucket}`,
+              `List:${bucket}`,
+              `Tagging:${bucket}`,
+            ]),
           },
           {
             name: "grid-backend-read",
@@ -147,7 +165,14 @@ export function installSeaweedFS(
                   // explicit, modest cap; SeaweedFS grows volumes lazily, so 8
                   // slots on a 10 Gi PVC is fine (they aren't pre-allocated).
                   "exec weed server -dir=/data -volume.max=8 -s3 " +
-                    "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333",
+                    "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333" +
+                    // Chunk encryption is a FILER concern — the volume server
+                    // has no concept of it and stores the ciphertext as opaque
+                    // bytes. Keys are per chunk and live in the FILER METADATA,
+                    // so enabling this makes the filer store the key store for
+                    // every object (see the config doc). New writes only;
+                    // existing objects stay plaintext and keep working.
+                    (cfg.seaweedfs.encryptVolumeData ? " -filer.encryptVolumeData" : ""),
                 ],
                 ports: seaweedPorts.map((p) => ({ containerPort: p.port, name: p.name })),
                 volumeMounts: [
@@ -155,13 +180,13 @@ export function installSeaweedFS(
                   { name: "s3config", mountPath: "/etc/seaweedfs", readOnly: true },
                 ],
                 readinessProbe: {
-                  httpGet: { path: "/cluster/status", port: 9333 },
+                  httpGet: { path: "/cluster/healthz", port: 9333 },
                   initialDelaySeconds: 10,
                   periodSeconds: 5,
                   failureThreshold: 12,
                 },
                 livenessProbe: {
-                  httpGet: { path: "/cluster/status", port: 9333 },
+                  httpGet: { path: "/cluster/healthz", port: 9333 },
                   initialDelaySeconds: 30,
                   periodSeconds: 15,
                 },

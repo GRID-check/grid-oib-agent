@@ -10,6 +10,45 @@ export const formatEur = (value: number, locale?: string): string =>
   new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(value)
 
 /**
+ * Byte sizes for humans ("1.4 GB" / "1,4 GB").
+ *
+ * Decimal units (1000-based), not binary: the number sits next to a quota an
+ * administrator typed in GB, and showing 1 GB of quota as "0.93 GiB used" reads
+ * as a bug. `Intl.NumberFormat`'s `unit` style handles the locale's separator
+ * and spacing, so German gets "1,4 GB" without a second code path.
+ *
+ * One decimal place from MB up, none below: "1.4 GB" is a size, "1.4 kB" is
+ * noise. Negative input is clamped — a size is never below zero, and a bad
+ * subtraction upstream should not render as "-2 MB".
+ */
+export const formatBytes = (bytes: number, locale?: string): string => {
+  const safe = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+  const units: Array<{ unit: string; scale: number }> = [
+    { unit: 'byte', scale: 1 },
+    { unit: 'kilobyte', scale: 1e3 },
+    { unit: 'megabyte', scale: 1e6 },
+    { unit: 'gigabyte', scale: 1e9 },
+    { unit: 'terabyte', scale: 1e12 },
+  ]
+
+  let chosen = units[0]
+  for (const candidate of units) {
+    if (safe >= candidate.scale) chosen = candidate
+  }
+
+  const value = safe / chosen.scale
+  const fractionDigits = chosen.scale >= 1e6 && value < 1000 ? 1 : 0
+
+  return new Intl.NumberFormat(locale, {
+    style: 'unit',
+    unit: chosen.unit,
+    unitDisplay: 'short',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits,
+  }).format(value)
+}
+
+/**
  * Localized relative timestamp ("3 hours ago" / "vor 3 Stunden"). Falls back
  * to the raw ISO string for unparseable input. Truncates toward zero at unit
  * boundaries so a value never rounds up into a misleading "in 60 minutes".

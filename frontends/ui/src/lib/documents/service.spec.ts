@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/storage/service', () => ({
+  // The quota check is exercised in src/lib/storage/service.spec.ts; here it is
+  // stubbed to a no-op so these specs keep testing the upload path itself
+  // rather than reaching Postgres for org settings.
+  assertWithinStorageQuota: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
