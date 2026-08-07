@@ -15,10 +15,12 @@
  * The fixtures deliberately exercise every interesting row: an unread actionable
  * mention request, a resolved one, a grouped activity row (`count: 3`), a
  * shared-with-you row, a READ grouped row with `count: 0` (the third counted
- * title — nothing new since it was opened), a row whose type this build does not
- * know (the runtime fallback that keeps one bad row from taking the page down),
- * and an INERT row whose target is gone — the last one is a security-visible
- * state (IB-13), so it must be in the evidence.
+ * title — nothing new since it was opened), the OPERATIONAL storage-quota
+ * warning (ADR-0042 — no actor, `tone: 'warning'`, pointing at the organization
+ * rather than a conversation), a row whose type this build does not know (the
+ * runtime fallback that keeps one bad row from taking the page down), and an
+ * INERT row whose target is gone — the last one is a security-visible state
+ * (IB-13), so it must be in the evidence.
  *
  * Pinned to German (`I18nProvider initialLocale="de" fixedLocale`): German is the product's
  * primary language, so the committed evidence must carry the copy most users
@@ -124,6 +126,36 @@ const ITEMS: InboxItemView[] = [
     excerpt: null,
     createdAt: ago(2_600),
     updatedAt: ago(2_600),
+  },
+  {
+    /*
+      The OPERATIONAL row (ADR-0042) — the one item type that is not a
+      collaboration event. It has to be in the evidence because it is the only
+      row with no actor (a system alert that fell back to the actor placeholder
+      would invent a colleague), the only one carrying `tone: 'warning'`, and the
+      only one pointing at the organization rather than a conversation. It is
+      also the row a tenant WITHOUT collaboration sees on its own, so how it
+      reads unaccompanied is the whole design question.
+    */
+    id: 'i5a',
+    type: 'storage.quota_warning',
+    state: 'unread',
+    actionable: false,
+    resourceType: 'organization',
+    resourceId: 'org-1',
+    // The crossed threshold bucket, which is what makes the alert fire once per
+    // crossing rather than once per sweep.
+    anchorId: '80',
+    actorName: null,
+    actorUserId: null,
+    count: 1,
+    href: '/app/organization/storage',
+    // Locale-neutral token: the sentence around it is translated, the number is
+    // not, so the server never formats an English sentence.
+    subject: '82%',
+    excerpt: null,
+    createdAt: ago(140),
+    updatedAt: ago(140),
   },
   {
     /*
