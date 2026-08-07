@@ -343,6 +343,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="source-list-preview"]',
   },
   {
+    id: 'platform-storage',
+    path: '/dev/platform-storage',
+    description:
+      'Platform storage table (ADR-0042) — the operator side of the quota. A table rather than meters, because the question here is comparative ("who is about to cause a problem") rather than personal, and rows are ordered by consumption so the answer is at the top. The fixture covers every row state that has to be distinguishable at a glance: over quota, near quota, comfortably within, explicitly unlimited, and inheriting the platform default. One org has no display name so the id fallback is visible, and sizes span GB to MB to exercise the byte formatter across units. Editing is inline and one row at a time — a quota is a per-tenant commercial commitment, so there is no bulk path.',
+    waitFor: '[data-testid="platform-storage"]',
+  },
+  {
     id: 'storage-usage',
     mobile: true,
     path: '/dev/storage-usage',

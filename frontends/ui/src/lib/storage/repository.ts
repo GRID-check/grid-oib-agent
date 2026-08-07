@@ -17,6 +17,7 @@
 import 'server-only'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { documents, type DocumentScope } from '@/lib/db/schema'
 
 /** Bytes and document count for one scope. */
@@ -92,4 +93,43 @@ export async function sumStorageBytes(organizationId: string): Promise<number> {
     .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)))
 
   return Number(row?.bytes) || 0
+}
+
+/**
+ * Stored bytes per organization, across every tenant — the platform-owner read.
+ *
+ * Wrapped in `withPlatformAccess` because it deliberately crosses the RLS
+ * boundary (ADR-0041): every other query here is pinned to one tenant, and a
+ * cross-org aggregate has to say out loud that it is not. The reason string ends
+ * up in the audit trail for the escalation.
+ *
+ * One grouped query rather than N per-org ones: the platform overview already
+ * lists every organization, and a per-org round trip would make that page
+ * O(tenants).
+ */
+export async function aggregateStorageUsageByOrganization(): Promise<
+  Map<string, StorageScopeUsage>
+> {
+  const db = getDb()
+
+  const rows = await withPlatformAccess(
+    'platform storage: stored bytes for every organization',
+    () =>
+      db
+        .select({
+          organizationId: documents.organizationId,
+          bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
+          documents: sql<string>`count(*)::bigint`,
+        })
+        .from(documents)
+        .where(isNull(documents.deletedAt))
+        .groupBy(documents.organizationId),
+  )
+
+  return new Map(
+    rows.map((row) => [
+      row.organizationId,
+      { bytes: Number(row.bytes) || 0, documents: Number(row.documents) || 0 },
+    ]),
+  )
 }

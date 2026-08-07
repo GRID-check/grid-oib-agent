@@ -501,6 +501,7 @@ export const platform = {
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
     workflows: 'Workflow templates',
+    storage: 'Storage',
     maintenance: 'Maintenance',
   },
   answerFeedback: {
@@ -611,6 +612,11 @@ export const platform = {
     workflows: {
       title: 'Workflow templates',
       subtitle: 'Templates published into every organization’s gallery.',
+    },
+    storage: {
+      title: 'Storage',
+      subtitle:
+        'Stored bytes per organization, and the quota that bounds each one.',
     },
     maintenance: {
       title: 'Maintenance',
@@ -1008,4 +1014,29 @@ export const platform = {
       deep: 'Deep research',
     },
   },
+  /** Storage: every tenant's consumption and the quota that bounds it. */
+  storage: {
+    title: 'Document storage',
+    description:
+      'Stored bytes per organization, and the quota that refuses further uploads. Quotas are a platform control — tenants can see their own number but never change it.',
+    totals: '{used} stored across {orgs} organizations',
+    columnOrg: 'Organization',
+    columnUsed: 'Used',
+    columnQuota: 'Quota',
+    unlimited: 'Unlimited',
+    inherited: 'Platform default',
+    rowDocuments: '{count} documents',
+    rowOver: 'Quota reached — uploads refused',
+    rowNear: 'Almost full',
+    edit: 'Edit quota for {org}',
+    save: 'Save quota',
+    cancel: 'Cancel',
+    saved: 'Quota updated.',
+    saveError: 'Could not update the quota.',
+    belowUsage: 'That quota is below what the organization already stores. Free space first.',
+    loadError: 'Could not load storage usage.',
+    empty: 'No organization has stored anything yet.',
+    hint: 'Leave the field empty to remove the limit. A quota below current usage is refused — it would strand the tenant with no way to fix it.',
+  },
+
 }
