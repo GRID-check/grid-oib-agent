@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/sharing/access', () => ({ resolveResourceAccess: vi.fn() }))
 vi.mock('@/lib/sharing/directory', () => ({ resolvePeople: vi.fn() }))
@@ -27,7 +27,7 @@ vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { InboxItem } from '@/lib/db/schema'
+import type { InboxItem, InboxItemType } from '@/lib/db/schema'
 import { getDb } from '@/lib/db'
 import { publishToUser } from '@/lib/events/bus'
 import { resolveResourceAccess } from '@/lib/sharing/access'
@@ -43,7 +43,46 @@ import {
   markResourceItemsReadFor,
 } from './service'
 
-const session = { userId: 'user_1', organizationId: 'org_1' } as unknown as AuthorizedSession
+/**
+ * A COMPLETE session, not a two-field cast.
+ *
+ * This fixture used to be `{ userId, organizationId } as unknown as
+ * AuthorizedSession`. That was harmless only while the service ignored
+ * everything else on the session; it stopped being harmless when `listInbox`
+ * began deriving the visible item types from `featureFlags` (ADR-0042), because
+ * the cast made a session carrying NO flags look like a fully specified one.
+ * Spelling the session out means the gate is exercised deliberately in both of
+ * its states — see the `visibleInboxTypes` describe block — rather than
+ * accidentally in whichever one the missing field happened to produce.
+ */
+function makeSession(overrides: Partial<AuthorizedSession> = {}): AuthorizedSession {
+  return {
+    userId: 'user_1',
+    email: 'user_1@grid.test',
+    name: 'Test User',
+    accessToken: 'workos_token',
+    organizationId: 'org_1',
+    organizationMembershipId: 'om_1',
+    role: 'admin',
+    permissions: [],
+    featureFlags: null,
+    ...overrides,
+  }
+}
+
+const session = makeSession()
+
+/** Every type the registry knows — what a collaboration tenant may see. */
+const ALL_TYPES = [
+  'mention.requested',
+  'mention.answered',
+  'conversation.shared_with_you',
+  'conversation.activity',
+  'storage.quota_warning',
+] as const satisfies readonly InboxItemType[]
+
+/** What a tenant WITHOUT collaboration may see: the operational types only. */
+const OPERATIONAL_TYPES = ['storage.quota_warning'] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')
 
@@ -81,6 +120,11 @@ const reachable = {
 }
 
 beforeEach(() => {
+  // Most of this file is about collaboration items, so the default world is a
+  // tenant that HAS collaboration. Flag enforcement is off in tests, so this env
+  // opt-in is what `isCollaborationEnabled` reads. The gate's other state is
+  // exercised explicitly rather than inherited from an unset variable.
+  vi.stubEnv('GRID_COLLABORATION_ENABLED', 'true')
   vi.mocked(repository.listInboxItems).mockResolvedValue([])
   vi.mocked(repository.countPendingInboxItems).mockResolvedValue(3)
   vi.mocked(resolveResourceAccess).mockResolvedValue(reachable)
@@ -92,6 +136,10 @@ beforeEach(() => {
       `/app/projects/${options?.projectId}/chat?session=${resourceId}` +
       (options?.anchorId ? `#message-${options.anchorId}` : ''),
   } as never)
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe('listInbox — read-time re-authorization (IB-13)', () => {
@@ -245,6 +293,9 @@ describe('listInbox — projection', () => {
     expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', {
       pendingOnly: true,
       limit: 50,
+      // The type set travels INTO the query rather than filtering rows after
+      // they come back, so a type this reader may not see is never fetched.
+      types: [...ALL_TYPES],
     })
   })
 
@@ -267,7 +318,11 @@ describe('getInboxSummary', () => {
   it('is one count and nothing else — it runs on every page render', async () => {
     expect(await getInboxSummary(session)).toEqual({ pending: 3 })
 
-    expect(repository.countPendingInboxItems).toHaveBeenCalledWith('org_1', 'user_1')
+    // Counted over the SAME type set the list uses, so the badge can never
+    // promise a row the list will not show.
+    expect(repository.countPendingInboxItems).toHaveBeenCalledWith('org_1', 'user_1', [
+      ...ALL_TYPES,
+    ])
     expect(repository.listInboxItems).not.toHaveBeenCalled()
     expect(resolveResourceAccess).not.toHaveBeenCalled()
     expect(resolvePeople).not.toHaveBeenCalled()
@@ -302,7 +357,11 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
     vi.mocked(repository.countPendingInboxItems).mockResolvedValue(0)
 
     expect(await markAllRead(session)).toEqual({ affected: 5, pending: 0 })
-    expect(repository.markAllInboxItemsRead).toHaveBeenCalledWith('org_1', 'user_1')
+    // "All" means the list in front of the caller — scoped to the types they can
+    // see, so it cannot settle rows they were never shown.
+    expect(repository.markAllInboxItemsRead).toHaveBeenCalledWith('org_1', 'user_1', [
+      ...ALL_TYPES,
+    ])
     expect(publishToUser).toHaveBeenCalledWith('user_1', { kind: 'inbox.changed', pending: 0 })
   })
 
@@ -438,5 +497,61 @@ describe('the SQL predicates behind the filters', () => {
     expect(sql).toContain('"inbox_items"."actionable" = $5')
     expect(sql).toContain('"inbox_items"."read_at" is null')
     expect(params).toEqual(['org_1', 'user_1', 'conversation', 'conv_1', false])
+  })
+})
+
+/**
+ * The per-type gate (ADR-0042).
+ *
+ * The inbox used to be gated as a whole, at the route: without the collaboration
+ * flag every `/api/inbox/*` call answered 403. That became wrong the moment the
+ * inbox carried something that is not a collaboration event, because it made the
+ * storage warning unreachable for precisely the tenants most likely to hit a
+ * quota. The gate now lives on the registry entry and is applied here, so what a
+ * reader sees is decided per ITEM TYPE.
+ */
+describe('visibleInboxTypes gate — the inbox is not collaboration-only', () => {
+  it('a tenant WITHOUT collaboration still sees operational items', async () => {
+    vi.stubEnv('GRID_COLLABORATION_ENABLED', 'false')
+
+    await listInbox(makeSession())
+
+    // Not a 403 and not an empty set: the operational types, and only those.
+    expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', {
+      pendingOnly: false,
+      limit: 50,
+      types: [...OPERATIONAL_TYPES],
+    })
+  })
+
+  it('a tenant WITHOUT collaboration gets a badge counted over the same set', async () => {
+    vi.stubEnv('GRID_COLLABORATION_ENABLED', 'false')
+
+    await getInboxSummary(makeSession())
+
+    expect(repository.countPendingInboxItems).toHaveBeenCalledWith('org_1', 'user_1', [
+      ...OPERATIONAL_TYPES,
+    ])
+  })
+
+  it('a tenant WITH collaboration sees every registered type', async () => {
+    await listInbox(makeSession())
+
+    expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', {
+      pendingOnly: false,
+      limit: 50,
+      types: [...ALL_TYPES],
+    })
+  })
+
+  it('"clear all" without collaboration cannot settle collaboration rows', async () => {
+    vi.stubEnv('GRID_COLLABORATION_ENABLED', 'false')
+    vi.mocked(repository.markAllInboxItemsRead).mockResolvedValue(1)
+
+    await markAllRead(makeSession())
+
+    const [, , types] = vi.mocked(repository.markAllInboxItemsRead).mock.calls[0]!
+    expect(types).toEqual([...OPERATIONAL_TYPES])
+    expect(types).not.toContain('mention.requested')
   })
 })

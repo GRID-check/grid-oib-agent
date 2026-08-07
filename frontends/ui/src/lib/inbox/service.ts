@@ -13,12 +13,18 @@
 
 import 'server-only'
 import { NotFoundError } from '@/lib/api/errors'
-import type { AuthorizedSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
+import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { publishToUser } from '@/lib/events/bus'
-import type { InboxItem, InboxItemType, NewInboxItem, ShareableResourceType } from '@/lib/db/schema'
-import { resolveResourceAccess, type ResourceAccess } from '@/lib/sharing/access'
+import type {
+  InboxItem,
+  InboxItemType,
+  InboxTargetType,
+  NewInboxItem,
+  ShareableResourceType,
+} from '@/lib/db/schema'
 import { resolvePeople } from '@/lib/sharing/directory'
-import { describeResource } from '@/lib/sharing/registry'
+import { findInboxTarget, type InboxTargetAccess } from './targets'
 import {
   archiveInboxItem,
   countPendingInboxItems,
@@ -33,7 +39,7 @@ import {
   upsertInboxItems,
   type InboxResolutionTarget,
 } from './repository'
-import { inboxItemIsActionable } from './registry'
+import { inboxItemIsActionable, visibleInboxTypes } from './registry'
 import type {
   InboxItemState,
   InboxItemView,
@@ -49,7 +55,7 @@ export interface InboxEmission {
   organizationId: string
   recipientUserId: string
   type: InboxItemType
-  resourceType: ShareableResourceType
+  resourceType: InboxTargetType
   resourceId: string
   anchorId?: string | null
   actorUserId?: string | null
@@ -169,8 +175,20 @@ export interface ListInboxParams {
 }
 
 /** Key for the per-page target cache — one entry per DISTINCT resource. */
-function targetKey(resourceType: ShareableResourceType, resourceId: string): string {
+function targetKey(resourceType: InboxTargetType, resourceId: string): string {
   return `${resourceType}:${resourceId}`
+}
+
+/**
+ * The item types this reader may see (see `visibleInboxTypes`).
+ *
+ * Applied to the list AND to the badge count, so the two can never disagree
+ * about what is in the inbox. A tenant without collaboration gets its
+ * operational alerts and nothing else — not a 403, which is what used to make an
+ * operational alert unreachable for precisely the deployments that need it.
+ */
+function typesVisibleTo(session: Pick<GridSession, 'featureFlags'>): InboxItemType[] {
+  return visibleInboxTypes(isCollaborationEnabled(session))
 }
 
 /**
@@ -223,8 +241,8 @@ const EXCERPT_MAX_LENGTH = 500
 async function resolveTargets(
   session: AuthorizedSession,
   rows: readonly InboxItem[],
-): Promise<Map<string, ResourceAccess | null>> {
-  const distinct = new Map<string, { resourceType: ShareableResourceType; resourceId: string }>()
+): Promise<Map<string, InboxTargetAccess | null>> {
+  const distinct = new Map<string, { resourceType: InboxTargetType; resourceId: string }>()
   for (const row of rows) {
     if (row.inertAt) continue
     const key = targetKey(row.resourceType, row.resourceId)
@@ -235,10 +253,13 @@ async function resolveTargets(
 
   const resolved = await Promise.all(
     [...distinct].map(async ([key, target]) => {
+      // An unregistered target type — a row from a newer deploy, read across a
+      // rollback — is unreachable, not a crash. The sharing registry throws for
+      // this case, which is why the inbox resolves targets through its own.
+      const descriptor = findInboxTarget(target.resourceType)
+      if (!descriptor) return [key, null] as const
       try {
-        const access = await resolveResourceAccess(session, target.resourceType, target.resourceId)
-        // `role: null` is "exists, but you have no access" — as unreachable as a 404.
-        return [key, access.role ? access : null] as const
+        return [key, await descriptor.resolve(session, target.resourceId)] as const
       } catch (error) {
         if (!(error instanceof NotFoundError)) {
           console.warn(`[inbox] re-authorization failed for ${key}, redacting item(s):`, error)
@@ -270,7 +291,7 @@ async function resolveTargets(
  */
 function toItemView(
   row: InboxItem,
-  targets: Map<string, ResourceAccess | null>,
+  targets: Map<string, InboxTargetAccess | null>,
   actorNames: Map<string, string>,
 ): InboxItemView {
   const access = row.inertAt ? null : (targets.get(targetKey(row.resourceType, row.resourceId)) ?? null)
@@ -290,12 +311,7 @@ function toItemView(
     actorName: row.actorUserId ? (actorNames.get(row.actorUserId) ?? null) : null,
     actorUserId: row.actorUserId,
     count: row.count,
-    href: access
-      ? describeResource(row.resourceType).deepLink(row.resourceId, {
-          anchorId: row.anchorId ?? undefined,
-          projectId: access.container.projectId,
-        })
-      : null,
+    href: access ? access.deepLink({ itemType: row.type, anchorId: row.anchorId }) : null,
     subject: access ? coerceText(payload.subject, SUBJECT_MAX_LENGTH) : null,
     excerpt: access ? coerceText(payload.excerpt, EXCERPT_MAX_LENGTH) : null,
     createdAt: row.createdAt.toISOString(),
@@ -319,9 +335,11 @@ export async function listInbox(
   session: AuthorizedSession,
   params: ListInboxParams = {},
 ): Promise<InboxListResponse> {
+  const types = typesVisibleTo(session)
   const rows = await listInboxItems(session.organizationId, session.userId, {
     pendingOnly: params.pendingOnly ?? false,
     limit: INBOX_LIST_LIMIT,
+    types,
   })
 
   const actorIds = [...new Set(rows.flatMap((row) => (row.actorUserId ? [row.actorUserId] : [])))]
@@ -329,7 +347,7 @@ export async function listInbox(
   const [targets, people, pending] = await Promise.all([
     resolveTargets(session, rows),
     resolvePeople(session.organizationId, actorIds),
-    countPendingInboxItems(session.organizationId, session.userId),
+    countPendingInboxItems(session.organizationId, session.userId, types),
   ])
 
   const actorNames = new Map([...people].map(([userId, person]) => [userId, person.name]))
@@ -344,7 +362,9 @@ export async function listInbox(
  * it must stay one indexed count — no re-authorization, no directory, no rows.
  */
 export async function getInboxSummary(session: AuthorizedSession): Promise<InboxSummaryResponse> {
-  return { pending: await countPendingInboxItems(session.organizationId, session.userId) }
+  return {
+    pending: await countPendingInboxItems(session.organizationId, session.userId, typesVisibleTo(session)),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +387,11 @@ export interface InboxMutationResult {
  * throws, so this cannot fail the mutation it reports.
  */
 async function publishPending(session: AuthorizedSession, affected: number): Promise<InboxMutationResult> {
-  const pending = await countPendingInboxItems(session.organizationId, session.userId)
+  const pending = await countPendingInboxItems(
+    session.organizationId,
+    session.userId,
+    typesVisibleTo(session),
+  )
   await publishToUser(session.userId, { kind: 'inbox.changed', pending })
   return { affected, pending }
 }
@@ -388,9 +412,20 @@ export async function markRead(
   return publishPending(session, affected)
 }
 
-/** Mark the caller's whole inbox read — the "clear all" affordance (spec IB-20). */
+/**
+ * Mark the caller's whole inbox read — the "clear all" affordance (spec IB-20).
+ *
+ * Scoped to the types the caller can actually SEE. "Clear all" means the list in
+ * front of them; silently marking rows they were never shown (a collaboration
+ * item in a tenant whose flag has since been turned off, say) would decide
+ * something on their behalf about a surface they cannot look at.
+ */
 export async function markAllRead(session: AuthorizedSession): Promise<InboxMutationResult> {
-  const affected = await markAllInboxItemsRead(session.organizationId, session.userId)
+  const affected = await markAllInboxItemsRead(
+    session.organizationId,
+    session.userId,
+    typesVisibleTo(session),
+  )
   return publishPending(session, affected)
 }
 

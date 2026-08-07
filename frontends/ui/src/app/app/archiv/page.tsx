@@ -64,7 +64,7 @@ export default async function ArchivPage(): Promise<JSX.Element> {
           canViewOrganization={navFlags.canViewOrganization}
           canManagePlatform={navFlags.canManagePlatform}
           canAccessArchiv={navFlags.canAccessArchiv}
-          canCollaborate={navFlags.canCollaborate}
+          canAccessInbox={navFlags.canAccessInbox}
         />
         {/* Wider than the org settings column: the library card grid needs room. */}
         <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-hidden px-4 pb-4 md:px-8 md:pb-6">

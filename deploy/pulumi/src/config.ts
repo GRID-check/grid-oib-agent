@@ -575,6 +575,34 @@ export interface GridConfig {
     minIntervalMinutes: number;
   };
 
+  storageAlerts: {
+    /**
+     * The storage-quota warning sweep (ADR-0042).
+     *
+     * Enabled by default, unlike most gates here: the quota already REFUSES the
+     * upload that would cross it, so with no alert the first person to learn
+     * about the limit is whoever happens to break mid-task. A deployment that
+     * sets no quota at all is unaffected — an org with no quota is skipped, so
+     * the sweep costs one grouped aggregate per tick and emits nothing.
+     */
+    enabled: boolean;
+    /**
+     * Share of the quota at which the first warning goes out, as a percentage.
+     * Reaches the frontend as `GRID_STORAGE_ALERT_THRESHOLD_PERCENT`. Escalation
+     * to 90% and 100% is automatic and not configurable — "you have run out" is
+     * a different message from "you are nearly out", and a computed step can
+     * straddle 100%.
+     */
+    thresholdPercent: number;
+    /**
+     * 5-field cron for the sweep. Hourly by default: the condition it reports
+     * changes on the timescale of an ingest, and the alert is suppressed while
+     * it is already live, so a shorter period costs queries without telling
+     * anybody anything new.
+     */
+    schedule: string;
+  };
+
   collaboration: {
     /**
      * Dark-launch gate for collaboration (ADR-0032…0035: shared chats,
@@ -754,6 +782,23 @@ export function loadConfig(): GridConfig {
   // class this guard exists to kill).
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
   rejectPlaceholder("otelDomain", ["example.com"]);
+
+  // The BFF clamps a nonsense threshold back to 80 rather than switching the
+  // warning off, which is the right runtime behaviour and a terrible deploy-time
+  // one: an operator who set 800 meaning 80 would get the default forever and no
+  // sign of it. Caught here, where there is somebody to read the message.
+  const storageAlertThresholdPercent = num(cfg, "storageAlertThresholdPercent", 80);
+  if (
+    !Number.isFinite(storageAlertThresholdPercent) ||
+    storageAlertThresholdPercent <= 0 ||
+    storageAlertThresholdPercent > 100
+  ) {
+    throw new Error(
+      `grid-oib:storageAlertThresholdPercent must be a percentage in (0, 100]; got ` +
+        `"${storageAlertThresholdPercent}". This is the share of its storage quota at which an ` +
+        "organization is warned (ADR-0042); escalation to 90% and 100% is automatic.",
+    );
+  }
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
@@ -1311,6 +1356,12 @@ export function loadConfig(): GridConfig {
     workflows: {
       enabled: bool(cfg, "workflowsEnabled", false),
       minIntervalMinutes: num(cfg, "workflowMinIntervalMinutes", 15),
+    },
+
+    storageAlerts: {
+      enabled: bool(cfg, "storageAlertsEnabled", true),
+      thresholdPercent: storageAlertThresholdPercent,
+      schedule: cfg.get("storageAlertSchedule") ?? "0 * * * *",
     },
 
     collaboration: {

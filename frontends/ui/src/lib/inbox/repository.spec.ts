@@ -30,6 +30,8 @@ const proxyDb = drizzle(async (sql, params) => {
 vi.mock('@/lib/db', () => ({ getDb: () => proxyDb }))
 
 import {
+  archiveInboxItemsOfType,
+  findLiveInboxGroupKeys,
   markAllInboxItemsRead,
   markInboxItemsRead,
   markResourceItemsRead,
@@ -177,5 +179,77 @@ describe('upsertInboxItems — the batch fold matches the single-row fold', () =
   it('does not touch the database for an empty fan-out', async () => {
     expect(await upsertInboxItems([])).toEqual([])
     expect(captured).toHaveLength(0)
+  })
+})
+
+/**
+ * The suppression probe and the retire sweep behind the storage alert's
+ * fire-once-per-crossing behaviour (ADR-0042).
+ *
+ * Both guarantees reduce to one SQL predicate — `archived_at is null` — and
+ * neither survives a chain-spy, so what matters is the statement Postgres
+ * receives. If the probe stopped excluding archived rows, a recovered-then
+ * -re-crossed alert would be suppressed forever and the tenant would walk into
+ * a full disk in silence.
+ */
+describe('findLiveInboxGroupKeys — the fire-once probe', () => {
+  it('asks only about UNARCHIVED rows, which is what re-arms a later crossing', async () => {
+    await findLiveInboxGroupKeys('org_1', [
+      { recipientUserId: 'user_admin', groupKey: 'storage.quota_warning:organization:org_1:80' },
+    ])
+
+    const { sql, params } = onlyQuery()
+    // Retiring an alert (archiving it) must make it invisible to this probe;
+    // otherwise the row that was archived on recovery would still read as "live"
+    // and the next crossing would be swallowed.
+    expect(sql).toContain('"archived_at" is null')
+    expect(sql).toContain('"organization_id" = $1')
+    expect(params).toEqual([
+      'org_1',
+      'user_admin',
+      'storage.quota_warning:organization:org_1:80',
+    ])
+  })
+
+  it('pairs each recipient with its own group key rather than crossing them', async () => {
+    await findLiveInboxGroupKeys('org_1', [
+      { recipientUserId: 'user_a', groupKey: 'k_a' },
+      { recipientUserId: 'user_b', groupKey: 'k_b' },
+    ])
+
+    const { sql, params } = onlyQuery()
+    // An `IN (recipients) AND IN (keys)` shortcut would report user_a as already
+    // holding user_b's alert and silently drop one recipient's notification.
+    expect(sql).toContain('or')
+    expect(params).toEqual(['org_1', 'user_a', 'k_a', 'user_b', 'k_b'])
+  })
+
+  it('issues no statement at all for an empty target list', async () => {
+    expect(await findLiveInboxGroupKeys('org_1', [])).toEqual(new Set())
+    expect(captured).toHaveLength(0)
+  })
+})
+
+describe('archiveInboxItemsOfType — retiring a condition that no longer holds', () => {
+  it('archives every live row of the type when no bucket survives', async () => {
+    await archiveInboxItemsOfType('org_1', 'storage.quota_warning')
+
+    const { sql, params } = onlyQuery()
+    // Archived, not deleted: the row was really shown to somebody, and retention
+    // (spec IB-15) still owns its death.
+    expect(sql).toContain('set "archived_at" = $1')
+    expect(sql).toContain('"archived_at" is null')
+    expect(params.slice(1)).toEqual(['org_1', 'storage.quota_warning'])
+  })
+
+  it('spares the surviving bucket, so an escalation replaces rather than duplicates', async () => {
+    await archiveInboxItemsOfType('org_1', 'storage.quota_warning', { exceptAnchorId: '90' })
+
+    const { sql, params } = onlyQuery()
+    // Rows for OTHER buckets go; the 90% row stays, so the recipient ends up
+    // with one row about one disk instead of two.
+    expect(sql).toContain('"anchor_id" is null or')
+    expect(sql).toContain('"anchor_id" <> ')
+    expect(params).toContain('90')
   })
 })

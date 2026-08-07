@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, ne, notExists, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   conversations,
@@ -102,6 +102,27 @@ export interface ListInboxOptions {
   /** `true` = only things needing attention; `false`/omitted = everything unarchived. */
   pendingOnly?: boolean
   limit?: number
+  /**
+   * Restrict to these item types. The caller decides the set from the registry's
+   * per-type gate (`visibleInboxTypes`); this layer only applies it in SQL, so a
+   * type the reader may not see is never fetched and then filtered in JS.
+   * Omitted = every type.
+   */
+  types?: readonly InboxItemType[]
+}
+
+/**
+ * Type restriction as a SQL predicate.
+ *
+ * An EMPTY list means "no types are visible" and must match nothing —
+ * `inArray(col, [])` is the one shape drizzle turns into a false predicate, but
+ * relying on that implicitly is the kind of thing that changes under you, so it
+ * is stated here once instead of at three call sites.
+ */
+function typeFilter(types: readonly InboxItemType[] | undefined) {
+  if (!types) return undefined
+  if (types.length === 0) return sql`false`
+  return inArray(inboxItems.type, [...types])
 }
 
 /** One recipient's inbox, newest activity first. Never crosses organizations. */
@@ -110,12 +131,13 @@ export async function listInboxItems(
   recipientUserId: string,
   options: ListInboxOptions = {},
 ): Promise<InboxItem[]> {
-  const { pendingOnly = false, limit = INBOX_LIST_LIMIT } = options
+  const { pendingOnly = false, limit = INBOX_LIST_LIMIT, types } = options
   const db = getDb()
   const scope = and(
     eq(inboxItems.organizationId, organizationId),
     eq(inboxItems.recipientUserId, recipientUserId),
     isNull(inboxItems.archivedAt),
+    typeFilter(types),
   )
   return db
     .select()
@@ -141,6 +163,7 @@ function pendingPredicate() {
 export async function countPendingInboxItems(
   organizationId: string,
   recipientUserId: string,
+  types?: readonly InboxItemType[],
 ): Promise<number> {
   const db = getDb()
   const [row] = await db
@@ -152,6 +175,7 @@ export async function countPendingInboxItems(
         eq(inboxItems.recipientUserId, recipientUserId),
         isNull(inboxItems.archivedAt),
         pendingPredicate(),
+        typeFilter(types),
       ),
     )
   // count() arrives as a string from the driver; coerce at the boundary (AGENTS.md).
@@ -192,10 +216,11 @@ export async function markInboxItemsRead(
   return rows.length
 }
 
-/** Mark everything read (the "clear all" affordance). */
+/** Mark everything read (the "clear all" affordance), optionally per type. */
 export async function markAllInboxItemsRead(
   organizationId: string,
   recipientUserId: string,
+  types?: readonly InboxItemType[],
 ): Promise<number> {
   const db = getDb()
   const rows = await db
@@ -206,6 +231,7 @@ export async function markAllInboxItemsRead(
         eq(inboxItems.organizationId, organizationId),
         eq(inboxItems.recipientUserId, recipientUserId),
         isNull(inboxItems.readAt),
+        typeFilter(types),
       ),
     )
     .returning({ id: inboxItems.id })
@@ -473,6 +499,88 @@ export async function pruneInboxItemsOlderThan(cutoff: Date, limit = 1000): Prom
       inArray(
         inboxItems.id,
         stale.map((row) => row.id),
+      ),
+    )
+    .returning({ id: inboxItems.id })
+  return rows.length
+}
+
+/**
+ * Which of these (recipient, group) pairs already have a LIVE row.
+ *
+ * "Live" = not archived. This is the suppression probe behind fire-once-per
+ * -crossing (ADR-0042): {@link upsertInboxItems} deliberately revives a row on
+ * conflict — count + 1, `read_at`/`resolved_at`/`archived_at`/`inert_at` all
+ * cleared — because for a mention or a new message a repeat IS new information.
+ * For a standing condition it is not: re-emitting "storage is 80% full" every
+ * hour would re-surface an alert the recipient had already read and dismissed,
+ * every hour, until somebody freed space. The emitter therefore asks first.
+ *
+ * Archived rows are deliberately EXCLUDED from the answer, which is what makes a
+ * re-crossing alert again: retiring the alert (archiving it) when usage falls
+ * back below the threshold is what re-arms it.
+ *
+ * Returned as `recipientUserId\ngroupKey` keys — `\n` because a WorkOS user id
+ * cannot contain one, whereas `:` appears inside every group key.
+ */
+export async function findLiveInboxGroupKeys(
+  organizationId: string,
+  targets: readonly { recipientUserId: string; groupKey: string }[],
+): Promise<Set<string>> {
+  if (targets.length === 0) return new Set()
+  const db = getDb()
+  const rows = await db
+    .select({ recipientUserId: inboxItems.recipientUserId, groupKey: inboxItems.groupKey })
+    .from(inboxItems)
+    .where(
+      and(
+        eq(inboxItems.organizationId, organizationId),
+        isNull(inboxItems.archivedAt),
+        or(
+          ...targets.map((target) =>
+            and(
+              eq(inboxItems.recipientUserId, target.recipientUserId),
+              eq(inboxItems.groupKey, target.groupKey),
+            ),
+          ),
+        ),
+      ),
+    )
+  return new Set(rows.map((row) => `${row.recipientUserId}\n${row.groupKey}`))
+}
+
+/**
+ * Archive every live item of one type in an organization, optionally sparing one
+ * anchor — the "the condition no longer holds" sweep.
+ *
+ * Archiving rather than deleting: the row is a real thing that was shown to
+ * somebody, and retention (spec IB-15) still owns its death. Archiving takes it
+ * out of the list and out of the badge, which is what "no longer true" should
+ * look like, AND re-arms {@link findLiveInboxGroupKeys} so the next crossing is
+ * announced instead of suppressed.
+ *
+ * `exceptAnchorId` is how an ESCALATION replaces rather than duplicates: when
+ * usage moves from the 80% bucket to the 90% one, the 80% rows are retired in
+ * the same pass that raises the 90% one, so nobody ends up with two rows about
+ * one disk.
+ */
+export async function archiveInboxItemsOfType(
+  organizationId: string,
+  type: InboxItemType,
+  options: { exceptAnchorId?: string } = {},
+): Promise<number> {
+  const db = getDb()
+  const rows = await db
+    .update(inboxItems)
+    .set({ archivedAt: new Date() })
+    .where(
+      and(
+        eq(inboxItems.organizationId, organizationId),
+        eq(inboxItems.type, type),
+        isNull(inboxItems.archivedAt),
+        options.exceptAnchorId === undefined
+          ? undefined
+          : or(isNull(inboxItems.anchorId), ne(inboxItems.anchorId, options.exceptAnchorId)),
       ),
     )
     .returning({ id: inboxItems.id })

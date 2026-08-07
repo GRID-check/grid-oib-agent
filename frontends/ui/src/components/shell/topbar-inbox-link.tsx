@@ -11,9 +11,15 @@
  * — a request for their input was invisible.
  *
  * A client island rather than part of `OrgTopbar`, because the count rides a live
- * event channel and the topbar is a server component. Gated on the collaboration
- * flag: with it off this renders nothing at all, so an org without the feature sees
- * exactly today's frame (spec NF-8).
+ * event channel and the topbar is a server component.
+ *
+ * Gated on `canAccessInbox`, NOT on the collaboration flag. The inbox stopped
+ * being a collaboration-only surface when it started carrying operational alerts
+ * (ADR-0042) — hiding the entry from a tenant without collaboration hid the
+ * warning that its storage was filling up, which is the one notification that
+ * cannot afford to be invisible. `canAccessInbox` is derived from the item-type
+ * registry, so with no operational type registered it collapses back to the
+ * collaboration flag and the frame is exactly the one NF-8 describes.
  */
 
 import Link from 'next/link'
@@ -26,18 +32,18 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 export interface TopbarInboxLinkProps {
-  /** The per-org collaboration flag. False renders nothing. */
-  canCollaborate?: boolean
+  /** Whether the inbox is reachable for this reader. False renders nothing. */
+  canAccessInbox?: boolean
 }
 
-export function TopbarInboxLink({ canCollaborate = false }: TopbarInboxLinkProps): JSX.Element | null {
+export function TopbarInboxLink({ canAccessInbox = false }: TopbarInboxLinkProps): JSX.Element | null {
   const t = useTranslations('collaboration')
   const pathname = usePathname() ?? ''
   // One request on mount, then the live channel. The hook does nothing when
-  // disabled, so a gated org issues no request either.
-  const { pending } = useInboxBadge(canCollaborate)
+  // disabled, so a gated reader issues no request either.
+  const { pending } = useInboxBadge(canAccessInbox)
 
-  if (!canCollaborate) return null
+  if (!canAccessInbox) return null
 
   const isCurrent = pathname.startsWith('/app/inbox')
 

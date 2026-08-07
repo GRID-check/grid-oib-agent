@@ -5,11 +5,14 @@
  * granularities: `{ itemIds }` for the rows the user saw, `{ all: true }` for
  * "clear all". The response carries the recomputed badge count so the caller
  * never needs a follow-up read.
+ *
+ * Gated per ITEM TYPE rather than per route (see `/api/inbox`). `all: true` is
+ * scoped to the types the caller can see, so it cannot silently settle rows
+ * they were never shown.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { requireCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { INBOX_LIST_LIMIT, markAllRead, markRead } from '@/lib/inbox/service'
 
 /**
@@ -28,8 +31,6 @@ const markReadSchema = z
 
 export const POST = apiRoute(
   async ({ session, request }) => {
-    const gated = requireCollaborationEnabled(session)
-    if (gated) return gated
     const body = await parseJsonBody(request, markReadSchema)
     return body.all ? markAllRead(session) : markRead(session, body.itemIds ?? [])
   },

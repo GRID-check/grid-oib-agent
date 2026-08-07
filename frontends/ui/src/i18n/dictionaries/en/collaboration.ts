@@ -363,6 +363,26 @@ export const collaboration = {
         body: 'in {subject}',
       },
       /**
+       * The operational alert (ADR-0042). No `{actor}`: it is system-generated,
+       * and the row's actor fallback ("Someone") would put an imaginary
+       * colleague's name on a message from the platform.
+       *
+       * The numbers live in the BODY and the title states the condition, so the
+       * title still reads correctly for a row whose target was redacted (the
+       * body is replaced wholesale in that state). `{subject}` is the share of
+       * quota in use — a locale-neutral token like `82%`, formatted server-side,
+       * so this sentence is the only thing that needs translating.
+       *
+       * "ask whoever runs Piloti for you" rather than "your administrator": the
+       * quota is set by the PLATFORM operator and deliberately cannot be raised
+       * from inside the tenant (ADR-0042), so pointing an org admin at their own
+       * settings would send them looking for a control that is not there.
+       */
+      storageQuotaWarning: {
+        title: 'Your organisation is running out of storage',
+        body: '{subject} of the storage quota is in use. Once it is full, uploads will start failing — delete documents you no longer need, or ask whoever runs Piloti for you to raise the quota.',
+      },
+      /**
        * A row whose type this build does not know — written by a newer deploy, or
        * read across a rollback. Deliberately vague: claiming more than "something
        * happened" would be inventing a meaning nobody here has.

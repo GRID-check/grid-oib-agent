@@ -9,6 +9,7 @@ import 'server-only'
 import type { GridSession } from '@/lib/auth/types'
 import { isOrgAdmin } from './organizations'
 import { isPlatformOwner } from './platform'
+import { inboxIsReachable } from '@/lib/inbox/registry'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from './feature-flags'
 
 export interface NavFlags {
@@ -35,6 +36,17 @@ export interface NavFlags {
    * this is false for every org until the flag (or the env opt-in) is set.
    */
   canCollaborate: boolean
+  /**
+   * Whether the inbox itself (page, nav entry, badge) is reachable.
+   *
+   * Deliberately NOT the same flag as `canCollaborate`. The inbox stopped being
+   * a collaboration-only surface when it started carrying operational alerts
+   * (ADR-0042): gating it on collaboration meant a tenant without that feature
+   * could never see the warning that its storage was filling up. Derived from
+   * the item-type registry, so it follows what the inbox can actually contain
+   * rather than a hardcoded exception.
+   */
+  canAccessInbox: boolean
 }
 
 export async function getNavFlags(session: GridSession | null): Promise<NavFlags> {
@@ -45,13 +57,16 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
       canManagePlatform: false,
       canAccessArchiv: false,
       canCollaborate: false,
+      canAccessInbox: false,
     }
   }
+  const collaboration = isCollaborationEnabled(session)
   return {
     canManageOrganization: isOrgAdmin(session),
     canViewOrganization: true,
     canManagePlatform: await isPlatformOwner(session),
     canAccessArchiv: isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv),
-    canCollaborate: isCollaborationEnabled(session),
+    canCollaborate: collaboration,
+    canAccessInbox: inboxIsReachable(collaboration),
   }
 }

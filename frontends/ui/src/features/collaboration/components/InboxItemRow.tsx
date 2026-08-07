@@ -29,6 +29,7 @@ import {
   AtSign,
   CheckCircle2,
   EyeOff,
+  HardDrive,
   MessageSquare,
   UserPlus,
   type LucideIcon,
@@ -57,6 +58,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'message-square': MessageSquare,
     'user-plus': UserPlus,
     'check-circle': CheckCircle2,
+    'hard-drive': HardDrive,
   }
 
 /** Dictionary root for the item-type entries. */
@@ -106,6 +108,12 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
   // A request only reads as a request while it is still outstanding; once it is
   // answered it is history, and colouring it would keep shouting for attention.
   const isRequest = presentation.tone === 'request' && item.actionable && !resolved && !inert
+  // An operational warning gets the same tint for the same reason — something
+  // needs attention — but it is not a REQUEST: nobody is waiting on the reader,
+  // so it is not actionable and it does not resolve. Keeping the two conditions
+  // apart rather than widening `isRequest` keeps that distinction readable.
+  const isWarning = presentation.tone === 'warning' && !inert
+  const needsAttention = isRequest || isWarning
 
   // A REDACTED row — inert, or its target no longer reachable — carries no href
   // and no payload, because the server withholds the conversation title exactly
@@ -173,7 +181,7 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
         aria-hidden
         className={cn(
           'mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full border',
-          isRequest
+          needsAttention
             ? 'border-transparent bg-warning-subtle text-warning'
             : 'border-border bg-card text-muted-foreground',
           inert && 'opacity-60',

@@ -203,6 +203,10 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `workflowMinIntervalMinutes` | `15` | Minimum schedule interval |
 | **Collaboration** (ADR-0032…0035) | | |
 | `collaborationEnabled` | `false` | Shared chats, `@`-mentions and the inbox. Reaches the frontend as `GRID_COLLABORATION_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `collaboration` WorkOS flag decides). Default-deny — the feature changes who can see a conversation |
+| **Storage alerts** (ADR-0042) | | |
+| `storageAlertsEnabled` | `true` | Creates the hourly `storage-alerts` CronJob, which calls `POST /api/internal/storage/alerts`. Default-**on**, unlike the dark-launch gates above: the quota already refuses the upload that crosses it, so without the alert the first person to learn about the limit is whoever breaks mid-task. An org with no quota is skipped, so on a deployment that sets none the sweep emits nothing |
+| `storageAlertThresholdPercent` | `80` | Share of quota at which an organization is warned. Reaches the frontend as `GRID_STORAGE_ALERT_THRESHOLD_PERCENT`. Escalation at 90% and 100% is automatic. **Rejected at load time** if outside `(0, 100]` — the BFF would clamp it back to 80, which is right at runtime and wrong at deploy time, where somebody is present to read the error |
+| `storageAlertSchedule` | `0 * * * *` | 5-field cron for the sweep. Hourly because the condition changes on the timescale of an ingest and a live alert suppresses re-emission, so a shorter period costs queries without telling anyone anything new |
 | **Memory** | | |
 | `memoryReflectionEnabled` | `true` | Post-answer memory-reflection stage (the agent's cross-chat learning loop). Reaches the frontend as `GRID_MEMORY_REFLECTION_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `memory-reflection` WorkOS flag decides). Default-on — reflection is a shipped core capability, not a dark-launched gate |
 | **Observability** (ADR-0029) | | |

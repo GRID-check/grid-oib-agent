@@ -84,6 +84,68 @@ role including org admin**, and says who owns the number so nobody hunts for a
 control that is not there. A member whose upload was just refused is usually not
 an admin, and this page is the only thing that explains the refusal.
 
+**3b. Warn before the wall, once per crossing, to whoever can act.**
+
+Decisions 2 and 3 together produce a quota that refuses an upload and cannot be
+raised from inside the tenant. That is correct and, on its own, useless as a
+warning: the first person to learn the limit exists is whoever happens to upload
+the file that breaks, mid-task, and neither thing they could do about it —
+delete documents, or ask the operator — is available in that moment. So an
+hourly sweep (`runStorageAlertSweep`, behind the token-guarded
+`POST /api/internal/storage/alerts`, driven by the `storage-alerts` CronJob)
+raises an inbox item when an organization crosses **80 %** of its quota,
+configurable via `GRID_STORAGE_ALERT_THRESHOLD_PERCENT`, escalating at 90 % and
+100 %.
+
+Four properties, each of which had a plausible wrong version:
+
+- **Once per crossing, not once per sweep.** `upsertInboxItems` deliberately
+  *revives* a row on conflict — `count + 1`, `read_at`/`resolved_at`/
+  `archived_at`/`inert_at` all cleared — because for a mention a repeat genuinely
+  is new information. For a standing condition it is not: relying on the group
+  key alone would have re-surfaced a dismissed warning **every hour** until
+  somebody freed space, which teaches people to ignore the inbox. The emitter
+  therefore probes for a live row first (`findLiveInboxGroupKeys`) and the
+  crossed bucket is part of the group key.
+- **A re-crossing alerts again.** Falling back below the threshold *archives* the
+  outstanding rows. That is not tidiness — an archived row is not "live", so the
+  suppression probe passes again and a later re-crossing is announced. Ingest →
+  bulk delete → ingest is a real sequence, and silently swallowing the second
+  alert would be the worst failure this feature can have, because it looks
+  exactly like nothing being wrong.
+- **The feature gate is per item type, on the registry entry.** The inbox was
+  gated as a whole behind the collaboration flag, which made an *operational*
+  alert unreachable for precisely the tenants least likely to have bought a chat
+  feature. `InboxTypeDefinition.gate` (`'collaboration' | 'operational'`) is now
+  a field, and `visibleInboxTypes` derives the visible set from it in SQL for
+  both the list and the badge — not a hardcoded list of exempt types at the
+  route, which would drift the moment a second operational type is registered.
+  Nav reachability follows the same derivation (`inboxIsReachable`), so removing
+  the last operational type puts the inbox back behind the collaboration flag by
+  itself.
+- **Recipients are derived from a permission.** There is no "responsible for the
+  org" concept in this system, so the closest true statement is "whoever can
+  manage the organization's settings" — holders of `org:settings:manage`,
+  resolved via `listOrganizationMembersWithRoles` + `findRoleSpec`. Those are the
+  people who can both delete documents and talk to the operator, the only two
+  ways out. An unknown role is *not* assumed to hold it. An organization with no
+  such active member logs and does not throw: the sweep must carry on for every
+  other tenant, and "a tenant heading for a wall with nobody home" is exactly the
+  condition an operator needs to see.
+
+**Known cap:** `listOrganizationMembersWithRoles` returns only the first page of
+memberships (`PAGE_LIMIT = 100`), and this is not paginated on purpose — walking
+every membership of every organization each tick to find two or three admins
+would make a housekeeping sweep O(all members of the fleet). In an organization
+with more than 100 memberships, an admin sorted past the first page will not be
+notified. Accepted because the alert only has to reach *someone* who can act; if
+that stops being true the fix is a role-filtered membership query in WorkOS, not
+a loop.
+
+The sweep re-enters each organization with `withTenant` after the one genuinely
+cross-tenant aggregate, so the inbox writes stay subject to row-level security
+rather than inheriting the route's `crossTenant` bypass.
+
 **4. Drop `Admin` from the root S3 identity** and scope it to per-bucket object
 actions on the buckets this stack creates. Bucket creation runs over `weed
 shell` (gRPC to master), which does not go through S3 auth, so nothing needs

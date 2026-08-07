@@ -22,6 +22,9 @@ const ALL: ShortcutFlags = {
   showWorkflows: true,
   canAccessArchiv: true,
   canCollaborate: true,
+  // Separate from `canCollaborate` since ADR-0042: the inbox carries operational
+  // alerts as well as collaboration events, so it is reachable on its own gate.
+  canAccessInbox: true,
 }
 
 /** The floor — a plain member with no optional feature enabled. */
@@ -29,8 +32,9 @@ const MINIMAL: ShortcutFlags = { canViewOrganization: false }
 
 describe('jumpTargets', () => {
   test('every leader key is unique under every flag combination', () => {
-    // 2^5 combinations of the five capability flags; a collision under any one
-    // of them would silently shadow a destination.
+    // Every combination of the capability flags (derived from `ALL`, so adding a
+    // flag widens the sweep automatically); a collision under any one of them
+    // would silently shadow a destination.
     const flagKeys = Object.keys(ALL) as (keyof ShortcutFlags)[]
     for (let mask = 0; mask < 1 << flagKeys.length; mask++) {
       const flags: ShortcutFlags = {}
@@ -60,6 +64,21 @@ describe('jumpTargets', () => {
 
     const all = jumpTargets(ALL).map((target) => target.key)
     for (const key of ['o', 'w', 'a', 'i', 'k']) expect(all).toContain(key)
+  })
+
+  test('the inbox jump follows canAccessInbox, not canCollaborate (ADR-0042)', () => {
+    // The decoupling this flag exists for: a tenant WITHOUT collaboration still
+    // reaches the inbox, because that is where its operational alerts land. If
+    // `g i` were still gated on collaboration, the storage warning would be
+    // unreachable by keyboard for exactly the deployments that need it.
+    const withoutCollaboration = jumpTargets({ canAccessInbox: true, canCollaborate: false })
+    expect(withoutCollaboration.map((target) => target.key)).toContain('i')
+    expect(resolveJump('i', { canAccessInbox: true, canCollaborate: false }, null)).toBe('/app/inbox')
+
+    // …and collaboration on its own no longer opens it, so the two flags are
+    // genuinely independent rather than one aliasing the other.
+    expect(jumpTargets({ canCollaborate: true }).map((target) => target.key)).not.toContain('i')
+    expect(resolveJump('i', { canCollaborate: true }, null)).toBeNull()
   })
 
   test('every rail section a user can see has a jump', () => {

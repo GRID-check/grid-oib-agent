@@ -52,6 +52,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
             showWorkflows={isWorkflowsEnabled(session)}
             canAccessArchiv={navFlags.canAccessArchiv}
             canCollaborate={navFlags.canCollaborate}
+            canAccessInbox={navFlags.canAccessInbox}
           />
         )
       }

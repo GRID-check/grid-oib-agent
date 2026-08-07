@@ -31,13 +31,13 @@ beforeEach(() => {
 })
 
 describe('TopbarInboxLink', () => {
-  test('renders nothing without the collaboration flag — the frame stays exactly today’s (NF-8)', () => {
+  test('renders nothing when the inbox is unreachable — the frame stays exactly today’s (NF-8)', () => {
     const { container } = render(<TopbarInboxLink />)
     expect(container).toBeEmptyDOMElement()
   })
 
   test('links to the inbox with its label', () => {
-    render(<TopbarInboxLink canCollaborate />)
+    render(<TopbarInboxLink canAccessInbox />)
 
     const link = screen.getByTestId('topbar-inbox-link')
     expect(link).toHaveAttribute('href', '/app/inbox')
@@ -46,25 +46,25 @@ describe('TopbarInboxLink', () => {
 
   test('carries the "needs you" count — a link with no badge still hides the signal', () => {
     mockPending = 3
-    render(<TopbarInboxLink canCollaborate />)
+    render(<TopbarInboxLink canAccessInbox />)
 
     expect(screen.getByTestId('topbar-inbox-link')).toHaveTextContent('3')
   })
 
   test('shows no count when nothing needs the reader', () => {
-    render(<TopbarInboxLink canCollaborate />)
+    render(<TopbarInboxLink canAccessInbox />)
     expect(screen.getByTestId('topbar-inbox-link')).not.toHaveTextContent('0')
   })
 
   test('marks itself current on the inbox page', () => {
     mockPathname = '/app/inbox'
-    render(<TopbarInboxLink canCollaborate />)
+    render(<TopbarInboxLink canAccessInbox />)
 
     expect(screen.getByTestId('topbar-inbox-link')).toHaveAttribute('aria-current', 'page')
   })
 
   test('is not current elsewhere', () => {
-    render(<TopbarInboxLink canCollaborate />)
+    render(<TopbarInboxLink canAccessInbox />)
     expect(screen.getByTestId('topbar-inbox-link')).not.toHaveAttribute('aria-current')
   })
 })
