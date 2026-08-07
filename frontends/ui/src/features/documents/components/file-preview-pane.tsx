@@ -10,6 +10,7 @@ import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/t
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
+import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -281,7 +282,11 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           // document, not an image.
           src={(isImage ? previewImageUrl : null) ?? previewUrl}
           isImage={isImage}
-          imageUnoptimized={!previewImageUrl}
+          // Asked of the src actually rendered, rather than inferred from
+          // "did we get a signed path": those are two spellings of one rule,
+          // and only `isOptimizerEligible` is checked against the optimizer's
+          // real allow-list (see `optimizable.ts`).
+          imageUnoptimized={!isOptimizerEligible((isImage ? previewImageUrl : null) ?? previewUrl)}
         />
       )}
 
@@ -329,7 +334,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                 width={0}
                 height={0}
                 sizes="(min-width: 1536px) 720px, 90vw"
-                unoptimized={!previewImageUrl}
+                unoptimized={!isOptimizerEligible(previewImageUrl ?? previewUrl)}
                 // Either URL can be expired or unreachable by the time the
                 // browser fetches the bytes — a presigned link on its own TTL,
                 // or a signed image path whose window has rolled over — and the
