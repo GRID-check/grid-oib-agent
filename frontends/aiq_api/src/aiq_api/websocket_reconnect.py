@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -1231,57 +1232,73 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     # COMPLETE — is preserved exactly.
                     saw_content_delta = False
                     saw_terminal = False
-                    async for value in generate_streaming_response(
-                        payload,
-                        session=session,
-                        streaming=True,
-                        step_adaptor=self._step_adaptor,
-                        result_type=result_type,
-                        output_type=output_type,
-                    ):
-                        if isinstance(value, ResponseObservabilityTrace):
-                            if self._pending_observability_trace is None:
-                                self._pending_observability_trace = value
-                            continue
+                    # `aclosing`, not a bare `async for`. Leaving this loop early
+                    # -- a client disconnect, or any send below raising -- does
+                    # NOT close the generator: Python leaves it suspended and the
+                    # event loop's async-generator finalizer runs `aclose()` later,
+                    # from a DIFFERENT task and context. NAT's stream sets
+                    # contextvars on entry and resets them in its `finally`, so
+                    # that foreign-context teardown raised
+                    # `ValueError: <Token ...> was created in a different Context`
+                    # (issues #337, #338) and left its producer task holding an
+                    # unretrieved `QueueClosed` (#334) -- three ERROR-severity
+                    # reports per dropped connection, none of them a real fault.
+                    # Closing it here runs the same teardown inside the task that
+                    # opened it, where the tokens belong.
+                    async with contextlib.aclosing(
+                        generate_streaming_response(
+                            payload,
+                            session=session,
+                            streaming=True,
+                            step_adaptor=self._step_adaptor,
+                            result_type=result_type,
+                            output_type=output_type,
+                        )
+                    ) as workflow_stream:
+                        async for value in workflow_stream:
+                            if isinstance(value, ResponseObservabilityTrace):
+                                if self._pending_observability_trace is None:
+                                    self._pending_observability_trace = value
+                                continue
 
-                        finish_reason = _chunk_finish_reason(value)
-                        if finish_reason == "stop":
-                            saw_terminal = True
-                            if saw_content_delta:
-                                # Streaming mode: the terminal is the finalizing
-                                # frame (full text + cards/sources), sent COMPLETE.
+                            finish_reason = _chunk_finish_reason(value)
+                            if finish_reason == "stop":
+                                saw_terminal = True
+                                if saw_content_delta:
+                                    # Streaming mode: the terminal is the finalizing
+                                    # frame (full text + cards/sources), sent COMPLETE.
+                                    await self.create_websocket_message(
+                                        data_model=value,
+                                        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                                        status=WebSocketMessageStatus.COMPLETE,
+                                    )
+                                else:
+                                    # Single-response mode (streaming disabled):
+                                    # reproduce the pre-streaming frame pattern exactly.
+                                    await self.create_websocket_message(
+                                        data_model=value,
+                                        status=WebSocketMessageStatus.IN_PROGRESS,
+                                    )
+                                    await self.create_websocket_message(
+                                        data_model=SystemResponseContent(),
+                                        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                                        status=WebSocketMessageStatus.COMPLETE,
+                                    )
+                            elif isinstance(value, ChatResponseChunk):
+                                # A streamed answer delta — accumulate on the client,
+                                # never persist a partial on disconnect.
+                                saw_content_delta = True
                                 await self.create_websocket_message(
                                     data_model=value,
-                                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
-                                    status=WebSocketMessageStatus.COMPLETE,
+                                    status=WebSocketMessageStatus.IN_PROGRESS,
+                                    persist_on_drop=False,
                                 )
                             else:
-                                # Single-response mode (streaming disabled):
-                                # reproduce the pre-streaming frame pattern exactly.
+                                # Non-chunk streamed value — preserve prior behavior.
                                 await self.create_websocket_message(
                                     data_model=value,
                                     status=WebSocketMessageStatus.IN_PROGRESS,
                                 )
-                                await self.create_websocket_message(
-                                    data_model=SystemResponseContent(),
-                                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
-                                    status=WebSocketMessageStatus.COMPLETE,
-                                )
-                        elif isinstance(value, ChatResponseChunk):
-                            # A streamed answer delta — accumulate on the client,
-                            # never persist a partial on disconnect.
-                            saw_content_delta = True
-                            await self.create_websocket_message(
-                                data_model=value,
-                                status=WebSocketMessageStatus.IN_PROGRESS,
-                                persist_on_drop=False,
-                            )
-                        else:
-                            # Non-chunk streamed value — preserve prior behavior.
-                            await self.create_websocket_message(
-                                data_model=value,
-                                status=WebSocketMessageStatus.IN_PROGRESS,
-                            )
 
                 # If the workflow never produced a terminal chunk (empty stream or
                 # an error surfaced elsewhere), still close the turn with the

@@ -15,6 +15,7 @@ a frame the wire schema accepts. These tests drive the real
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -147,4 +148,60 @@ async def test_run_workflow_error_frame_survives_real_serialization(monkeypatch)
     sent = [call.args[1] for call in registry.send.await_args_list]
     assert any(frame.type == WebSocketMessageType.ERROR_MESSAGE for frame in sent), (
         "workflow failed but no ERROR frame reached the client"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_workflow_stream_is_closed_in_the_task_that_opened_it(monkeypatch) -> None:
+    """Regression for issues #334, #337 and #338.
+
+    A `async for` that exits early leaves its generator suspended; the event
+    loop finalizes it later from a different task, so NAT's contextvar resets
+    fail with "was created in a different Context" and its producer task is left
+    holding an unretrieved `QueueClosed`. Driving the stream through
+    `contextlib.aclosing` runs that teardown here instead, in the context that
+    created the tokens.
+
+    The assertion is on WHERE the close happened, not merely that it happened:
+    finalization always happens eventually, and "eventually, elsewhere" is
+    precisely the bug.
+    """
+    closed_in: dict[str, object] = {}
+
+    async def _stream(*args, **kwargs):
+        try:
+            while True:
+                yield SystemResponseContent(text="delta")
+        except GeneratorExit:
+            closed_in["task"] = asyncio.current_task()
+            raise
+
+    monkeypatch.setattr("aiq_api.websocket_reconnect.generate_streaming_response", _stream)
+
+    class _SessionContext:
+        async def __aenter__(self):
+            return SimpleNamespace()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    handler = _handler()
+    handler._flow_handler = None
+    handler._session_manager = SimpleNamespace(session=lambda **kw: _SessionContext())
+    handler._authenticated_user = None
+    handler.human_interaction_callback = AsyncMock()
+    handler._step_adaptor = None
+    handler._pending_observability_trace = None
+    # The first send fails, which is how a dropped client actually surfaces:
+    # the loop leaves through an exception rather than by exhausting the stream.
+    handler.create_websocket_message = AsyncMock(side_effect=RuntimeError("client gone"))
+
+    running = asyncio.current_task()
+    with patch("aiq_api.websocket_reconnect._registry") as registry:
+        registry.send = AsyncMock(return_value=True)
+        await handler._run_workflow(payload={"query": "hello"})
+
+    assert closed_in.get("task") is running, (
+        "the workflow stream was not closed inside the task that opened it -- "
+        "its contextvar teardown will run in a foreign context"
     )
