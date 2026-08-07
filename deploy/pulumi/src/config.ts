@@ -672,6 +672,17 @@ export function loadConfig(): GridConfig {
           "cluster loss the backup exists to cover.",
       );
     }
+    // Plaintext offsite is worse than no offsite: every document, and the
+    // long-lived S3 secret key that signs for them, would cross the open
+    // internet in the clear. The previous check only refused an in-CLUSTER
+    // endpoint, so `http://backup.example.com` sailed through.
+    if (!backupEndpoint.startsWith("https://")) {
+      throw new Error(
+        `grid-oib:seaweedfsBackupEndpoint must be https:// (got ${backupEndpoint}). ` +
+          "The mirror ships every document plus a long-lived S3 credential; over plaintext " +
+          "HTTP both are readable by anyone on the path.",
+      );
+    }
     if (backupEndpoint.includes("seaweedfs:8333") || backupEndpoint.includes("//seaweedfs")) {
       throw new Error(
         `grid-oib:seaweedfsBackupEndpoint points at the in-cluster SeaweedFS (${backupEndpoint}). ` +

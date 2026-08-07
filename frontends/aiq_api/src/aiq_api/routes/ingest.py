@@ -76,7 +76,14 @@ def add_ingest_routes(router: APIRouter):
                 tmp.write(response.content)
                 temp_path = tmp.name
 
-            logger.info(f"Downloaded {len(response.content)} bytes from {file_ref[:80]}...")
+            # NEVER log `file_ref`: it is a presigned S3 URL, i.e. a live bearer
+            # credential to the object with no user, org or IP binding — anyone
+            # holding the string can fetch the bytes until it expires. The old
+            # `file_ref[:80]` truncation was not a control: the prefix length
+            # varies with the org/project/document ids in the key, so whether the
+            # signature survived the cut was luck, and the tenant path leaked in
+            # full for short keys. Log the size and the document, never the URL.
+            logger.info("Downloaded %d bytes for ingestion", len(response.content))
 
             config: dict = {
                 "cleanup_files": True,

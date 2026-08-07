@@ -330,8 +330,22 @@ export function installPostgres(
     // interpolation there breaks URI parsing (asyncpg/psycopg/node-pg/psql all
     // misparse the authority), which looks like an auth failure across the whole
     // stack. Encoding in the DSN keeps the Postgres role password itself intact.
+    // `sslmode=require` on every DSN. CloudNativePG serves TLS on 5432 with a
+    // cert it manages, but nothing was asking for it: postgres-js defaults to
+    // `ssl: false` and libpq defaults to `prefer`, which silently downgrades.
+    // So the role password crossed the pod network in the startup packet, and
+    // every row of every query followed it in cleartext — on a namespace where
+    // the NetworkPolicy lets ANY pod reach 5432.
+    //
+    // `require` (encrypt, do not verify the CA) rather than `verify-full`
+    // deliberately: CNPG issues its own internal CA, and pinning it here means
+    // shipping that CA to five different clients (node, asyncpg, psycopg, psql,
+    // barman) and rotating it in lockstep. `require` closes the passive-sniff
+    // hole today with no moving parts; `verify-full` closes active MITM and is
+    // the documented follow-up.
     return password.apply(
-      (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}`,
+      (pw) =>
+        `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}?sslmode=require`,
     );
   };
 
