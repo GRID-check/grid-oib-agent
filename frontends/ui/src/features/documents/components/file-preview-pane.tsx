@@ -223,7 +223,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 shrink-0 gap-1.5 px-2 @md:px-3"
+          className="h-8 shrink-0 gap-1.5 px-2 pointer-coarse:min-w-11 @md:px-3"
           onClick={handleDownload}
           disabled={isDownloading}
           aria-label={t('preview.download')}
@@ -426,7 +426,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                     type="button"
                     onClick={toggleDetails}
                     aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground touch-target"
                   >
                     {t('preview.visualDetails.title')}
                     <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
@@ -637,7 +637,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target"
               >
                 <X className="size-3" aria-hidden />
               </button>

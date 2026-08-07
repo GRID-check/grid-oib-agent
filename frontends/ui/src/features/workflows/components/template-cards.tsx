@@ -170,7 +170,7 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
                 type="button"
                 onClick={() => onUse(template)}
                 aria-label={t('templates.setUpAria', { name: template.name })}
-                className="ml-auto inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[10px] bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-xs transition-colors hover:bg-interaction-primary-hover"
+                className="ml-auto inline-flex h-[30px] shrink-0 pointer-coarse:h-11 items-center gap-1.5 rounded-[10px] bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-xs transition-colors hover:bg-interaction-primary-hover"
               >
                 {t('templates.setUp')}
                 <ArrowRight className="size-[13px]" strokeWidth={2.2} aria-hidden />

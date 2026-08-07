@@ -435,6 +435,9 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         className={cn(
                           'w-32 shrink-0 truncate rounded text-left text-xs transition-colors',
                           'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+                          // Truncation clips a `touch-target` overlay, so these
+                          // text-height filters buy their 44px with padding instead.
+                          'pointer-coarse:min-h-11 pointer-coarse:py-3.5',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                           reason === reasonKey
                             ? 'font-medium text-foreground decoration-solid'
@@ -494,6 +497,9 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         className={cn(
                           'min-w-0 flex-1 truncate rounded text-left text-foreground',
                           'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+                          // Truncation clips a `touch-target` overlay, so these
+                          // text-height filters buy their 44px with padding instead.
+                          'pointer-coarse:min-h-11 pointer-coarse:py-3.5',
                           'hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                         )}
                       >
@@ -559,6 +565,9 @@ export function AnswerFeedbackHealth(): JSX.Element {
                           className={cn(
                             'min-w-0 flex-1 truncate rounded text-left font-mono text-[11px] text-foreground',
                             'underline decoration-dotted decoration-from-font underline-offset-[3px]',
+                          // Truncation clips a `touch-target` overlay, so these
+                          // text-height filters buy their 44px with padding instead.
+                          'pointer-coarse:min-h-11 pointer-coarse:py-3.5',
                             'hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                           )}
                         >

@@ -433,7 +433,7 @@ export function WorkflowTemplates(): JSX.Element {
                           <button
                             type="button"
                             aria-label={t('editAria', { name })}
-                            className="text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                            className="text-left hover:underline focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11 focus-visible:ring-ring/60"
                             onClick={() => openEdit(template)}
                           >
                             <span className="block truncate text-sm font-medium">{name}</span>

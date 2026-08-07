@@ -270,7 +270,7 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
           // z-10 keeps this above the stretched link's overlay so it stays
           // clickable; it is a sibling of the anchor, never a child.
           className={cn(
-            'relative z-10 mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg',
+            'relative z-10 mt-0.5 inline-flex size-8 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-lg',
             'text-muted-foreground outline-none transition-colors duration-200 ease-out',
             'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
           )}
