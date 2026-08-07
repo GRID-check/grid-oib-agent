@@ -4,7 +4,25 @@ import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } fro
 import Image from 'next/image'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, ChevronDown, Download, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
+import {
+  AlertCircle,
+  ChevronDown,
+  Clock,
+  Download,
+  FileCode2,
+  FileText,
+  FileType2,
+  FolderOpen,
+  HardDrive,
+  Layers,
+  Maximize2,
+  Plus,
+  RotateCcw,
+  Shapes,
+  Sparkles,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { useLocale, useTranslations } from '@/i18n'
@@ -214,9 +232,22 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
-          <p className="truncate text-[11.5px] text-muted-foreground">
-            {ext || file.contentType || t('preview.unknownType')}
-          </p>
+          {/* Type AND status on one line. The status badge used to live only in
+              the metadata column, below the fold on a narrow panel — so the one
+              question a reader has on opening a file ("is this actually indexed,
+              or am I looking at a document the agent cannot see?") was answered
+              further away than the answer to "what format is it". A document in
+              `failed` is the case that matters, and it must not require a
+              scroll. */}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-[11.5px] text-muted-foreground">
+              {ext || file.contentType || t('preview.unknownType')}
+            </p>
+            <span className="text-muted-foreground/40" aria-hidden>
+              ·
+            </span>
+            <DocumentStatusBadge status={file.status} className="shrink-0" />
+          </div>
         </div>
         <Button
           type="button"
@@ -367,7 +398,13 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             Stacked (mobile): plain flow content inside the body's single scroll —
             never `shrink-0` against an unbounded parent, which is what clipped it
             before. Split (@2xl+): a fixed-width column that scrolls on its own. */}
-        <div className="flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
+        {/* `scroll-fade-bottom` dissolves the last rows instead of guillotining
+            them. This column routinely overflows — summary, six metadata rows,
+            tags and the visual-details section — and a hard clip through the
+            middle of a value reads as broken rather than as "there is more".
+            The utility is scroll-driven, so the fade RETRACTS at the bottom of
+            travel: its presence is the signal, not decoration. */}
+        <div className="scroll-fade-bottom flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
           {showMetadataPanel && (
             <section className="space-y-3" aria-label={t('preview.indexed.title')}>
               <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
@@ -377,33 +414,33 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
               {file.summary && <p className="text-[12.5px] leading-relaxed text-foreground">{file.summary}</p>}
               <div className="space-y-2">
                 {detectedType && (
-                  <MetaRow label={t('preview.indexed.documentType')}>
+                  <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
                     <span className="text-xs font-medium text-foreground">{detectedType}</span>
                   </MetaRow>
                 )}
                 {projectName && (
-                  <MetaRow label={t('preview.indexed.project')}>
+                  <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
                     <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
                   </MetaRow>
                 )}
                 {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-                  <MetaRow label={t('preview.pages')}>
+                  <MetaRow label={t('preview.pages')} icon={FileText}>
                     <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
                   </MetaRow>
                 )}
                 {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-                  <MetaRow label={t('preview.chunks')}>
+                  <MetaRow label={t('preview.chunks')} icon={Layers}>
                     <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
                   </MetaRow>
                 )}
                 {hasRichContent && (
-                  <MetaRow label={t('preview.contents')}>
+                  <MetaRow label={t('preview.contents')} icon={Shapes}>
                     <span className="text-xs text-foreground">
                       {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
                     </span>
                   </MetaRow>
                 )}
-                <MetaRow label={t('preview.indexed.updated')}>
+                <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
                   <span className="text-xs font-medium tabular-nums text-foreground">
                     {formatAbsoluteTime(file.createdAt, locale)}
                   </span>
@@ -453,13 +490,12 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           )}
 
           <div className={cn('space-y-2', showMetadataPanel && 'mt-4 border-t pt-4')}>
-            <MetaRow label={t('preview.status')}>
-              <DocumentStatusBadge status={file.status} />
-            </MetaRow>
-            <MetaRow label={t('preview.type')}>
+            {/* No status row here: the header badge already answers it, and
+                the same fact stated twice on one surface reads as two facts. */}
+            <MetaRow label={t('preview.type')} icon={FileCode2}>
               <span className="truncate font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
             </MetaRow>
-            <MetaRow label={t('preview.size')}>
+            <MetaRow label={t('preview.size')} icon={HardDrive}>
               <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
             </MetaRow>
           </div>
@@ -508,7 +544,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
       {/* Footer page indicator — mirrors the click-dummy's "Seite 1 von N". */}
       {typeof file.pageCount === 'number' && file.pageCount > 0 && (
         <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11.5px] text-muted-foreground @2xl:pb-2">
-          {t('preview.pageIndicator', { count: file.pageCount })}
+          {t('preview.pageCountOnly', { count: file.pageCount })}
         </div>
       )}
     </div>
@@ -704,11 +740,35 @@ function DocumentTagsSection({
   )
 }
 
-function MetaRow({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * One label/value row in the indexed-metadata column.
+ *
+ * The icon is not decoration: this is a scan target, not prose, and a column of
+ * six plain text labels forces the reader to actually read each one to find the
+ * row they want. A glyph per row gives the eye something to land on, and the
+ * glyphs are chosen to mean the thing (a page for pages, layers for retrieval
+ * passages) rather than to fill the slot. `aria-hidden` throughout — the label
+ * beside it is already the accessible name, so the icon must not double it.
+ */
+function MetaRow({
+  label,
+  icon: Icon,
+  children,
+}: {
+  label: string
+  icon: LucideIcon
+  children: ReactNode
+}) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {children}
+    <div className="flex items-start justify-between gap-3">
+      {/* The LABEL never truncates — it is the key, and "Cont…" tells the
+          reader nothing. Long values wrap in the right column instead, which is
+          what a five-item content-type list actually needs. */}
+      <span className="flex shrink-0 items-center gap-1.5 pt-px text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+        {label}
+      </span>
+      <span className="min-w-0 text-right">{children}</span>
     </div>
   )
 }

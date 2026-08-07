@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslations } from '@/i18n'
-import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import type { FileItem } from './project-file-workspace'
 import { FilePreviewPane } from './file-preview-pane'
 
@@ -22,12 +22,28 @@ interface FilePreviewDialogProps {
 
 /**
  * The ONE way a document preview opens across the app — a centered modal hosting
- * {@link FilePreviewPane}. Previously the Files workspace opened a centered modal
- * while the Archiv opened a docked side column, so the same file looked different
- * depending on where you clicked it. This unifies both onto one focused dialog:
- * a dimmed backdrop that closes on click or Escape, a panel capped at 920px with
- * the split preview, and full keyboard dismissal. Opening a file now looks and
- * behaves identically everywhere.
+ * {@link FilePreviewPane}. The Files workspace used to open a centered modal
+ * while the Archiv opened a docked side column, so the same file looked
+ * different depending on where you clicked it. This unifies both.
+ *
+ * Built on the shared Radix `Dialog` rather than a hand-rolled `fixed inset-0`.
+ * That was not a refactor for tidiness: the hand-rolled version had **no focus
+ * trap** — the one item from the accessibility audit that was never closed —
+ * so Tab walked straight out of the open modal into the page behind it. Radix
+ * brings the trap, the portal, scroll locking, Escape, and the `data-[state]`
+ * enter/exit animation, and removes the duplicate Escape listener the workspace
+ * had to register alongside this one.
+ *
+ * Two token fixes ride along, both previously raw values that ignored the
+ * design language: the scrim is now `--overlay` (which composites correctly in
+ * dark mode, where the old `black/45` erased the page rather than dimming it)
+ * and the elevation is `shadow-lg` → `--elevation-lg`, the modal token. The old
+ * `shadow-2xl` was unmapped and fell through to Tailwind's stock hard shadow.
+ *
+ * Motion is deliberately the Dialog default — a 200ms fade with a 95% zoom.
+ * The panel grows from the centre as one object, which reads as "this opened"
+ * rather than "something slid in from somewhere". Reduced motion collapses it
+ * to an instant state change via the global rule in `globals.css`.
  */
 export function FilePreviewDialog({
   file,
@@ -42,53 +58,51 @@ export function FilePreviewDialog({
 }: FilePreviewDialogProps) {
   const t = useTranslations('files')
 
-  // Lock background page scroll while the dialog is open — otherwise the page
-  // scrolls behind the hand-rolled `fixed inset-0` overlay on mobile touch.
-  useBodyScrollLock(!!file)
-
-  // Escape closes the dialog (a11y — the hand-rolled modal must honor Escape the
-  // way a native dialog would).
-  useEffect(() => {
-    if (!file) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [file, onClose])
-
-  if (!file) return null
-
   return (
-    <div
-      role="dialog"
-      aria-modal
-      aria-label={t('preview.dialogLabel', { name: file.filename })}
-      className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/45 sm:items-center sm:p-6 md:p-10"
-      onClick={onClose}
-    >
-      {/*
-        Definite height, not `max-h-full` — the pane needs a bounded panel so its
-        scroll chain (body + both metadata/preview columns) has something to bite
-        against. Mobile: a full-screen sheet (`100dvh`, square corners). Desktop
-        (sm+): a centered card capped at 85vh / 960px wide.
-      */}
-      <div
-        className="flex h-[100dvh] w-full flex-col overflow-hidden border bg-card shadow-2xl sm:h-[85vh] sm:max-w-[960px] sm:rounded-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <FilePreviewPane
-          file={file}
-          projectId={projectId}
-          projectName={projectName}
-          canManage={canManage}
-          onClose={onClose}
-          onReingested={onReingested}
-          onTagsUpdated={onTagsUpdated}
-          showMetadataPanel={showMetadataPanel}
-          extraActions={extraActions}
-        />
-      </div>
-    </div>
+    <Dialog open={file !== null} onOpenChange={(open) => !open && onClose()}>
+      {file && (
+        <DialogContent
+          // Definite height, not `max-h-full` — the pane needs a bounded panel
+          // so its scroll chain (body + both columns) has something to bite
+          // against. Mobile: a full-screen sheet. Desktop: centred, capped.
+          //
+          // `sm:max-w-[960px]` MUST carry the `sm:` prefix: DialogContent's base
+          // class ends in `sm:max-w-lg`, so a plain `max-w-*` loses to it at the
+          // exact breakpoint where it matters (see pdf-viewer-dialog.tsx).
+          className="flex h-[100dvh] max-h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border p-0 sm:h-[85vh] sm:max-h-[85vh] sm:max-w-[960px] sm:rounded-2xl"
+          // The pane draws its own close control in the header, beside the
+          // actions it belongs with. A second floating X would be two controls
+          // for one job.
+          showCloseButton={false}
+          // Radix focuses the first focusable child on open, which here is
+          // Download — so opening a file to LOOK at it left a download button
+          // visibly armed under a focus ring, one Enter away. Focus the panel
+          // instead: Escape still closes, Tab still enters the controls in
+          // order, and nothing is pre-selected.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+            ;(event.currentTarget as HTMLElement | null)?.focus()
+          }}
+        >
+          {/* Radix requires a title for the accessible name. The pane renders
+              the filename visually, so this one is screen-reader only. */}
+          <DialogTitle className="sr-only">
+            {t('preview.dialogLabel', { name: file.filename })}
+          </DialogTitle>
+
+          <FilePreviewPane
+            file={file}
+            projectId={projectId}
+            projectName={projectName}
+            canManage={canManage}
+            onClose={onClose}
+            onReingested={onReingested}
+            onTagsUpdated={onTagsUpdated}
+            showMetadataPanel={showMetadataPanel}
+            extraActions={extraActions}
+          />
+        </DialogContent>
+      )}
+    </Dialog>
   )
 }

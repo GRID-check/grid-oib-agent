@@ -216,24 +216,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
 
-  // The preview is a centered modal overlay (matching the click-dummy) on every
-  // breakpoint: dialog semantics, Escape-to-close, backdrop click, and focus
-  // return to the file card that opened it.
-  const previewOpen = selectedFile !== null
-  const previousFocusRef = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    if (!previewOpen) return
-    // Remember the file row that opened the overlay so focus can return to it.
-    previousFocusRef.current = document.activeElement as HTMLElement | null
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedFileId(null)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      previousFocusRef.current?.focus?.()
-    }
-  }, [previewOpen])
+  // The preview is a centered modal on every breakpoint. Dialog semantics,
+  // Escape, backdrop click, focus trapping and focus return to the card that
+  // opened it are all Radix's now (FilePreviewDialog) — this file used to hand
+  // -roll the Escape listener and the focus return, which meant two handlers
+  // raced for the same key and the modal still had no focus trap.
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI

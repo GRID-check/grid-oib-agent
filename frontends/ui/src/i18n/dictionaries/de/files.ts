@@ -90,7 +90,7 @@ export const files: typeof en.files = {
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
-    pageIndicator: 'Seite 1 von {count}',
+    pageCountOnly: '{count} Seiten',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
