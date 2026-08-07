@@ -112,6 +112,6 @@ describe('listProjects', () => {
 
     await listProjects(session({ organizationId: 'org_1' }))
 
-    expect(listProjectsInOrg).toHaveBeenCalledWith('org_1')
+    expect(listProjectsInOrg).toHaveBeenCalledWith('org_1', { order: 'newest' })
   })
 })

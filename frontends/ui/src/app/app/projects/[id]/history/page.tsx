@@ -1,10 +1,8 @@
 import { type Metadata } from 'next'
-import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import { ProjectHistory } from '@/features/projects/components/project-history'
 import { getTranslations } from '@/i18n/server'
 
@@ -32,12 +30,7 @@ export default async function ProjectHistoryPage({ params }: ProjectHistoryPageP
 
   // The research-runs list scopes its fetch to this project's Qdrant
   // collection — same lookup the legacy research page performed.
-  const db = getDb()
-  const [project] = await db
-    .select({ collectionName: projects.collectionName })
-    .from(projects)
-    .where(eq(projects.id, id))
-    .limit(1)
+  const project = await findProjectInOrg(id, session.organizationId)
 
   if (!project) {
     notFound()
