@@ -65,11 +65,9 @@ function translatorBindings(source: string): Map<string, string> {
 }
 
 /**
- * Every key reference in the file, fully qualified.
+ * Every fully-literal key reference in the file, fully qualified.
  *
- * Only literal single-quoted keys are checked. A computed key
- * (`t(\`errors.${code}\`)`) cannot be resolved statically and is skipped rather
- * than guessed at — this guard is for the typo case, which is the common one.
+ * Single quotes only, which is all prettier lets this codebase write.
  */
 function referencedKeys(source: string, bindings: Map<string, string>): string[] {
   const keys: string[] = []
@@ -82,17 +80,50 @@ function referencedKeys(source: string, bindings: Map<string, string>): string[]
   return keys
 }
 
+/**
+ * The static head of every computed key, fully qualified.
+ *
+ * A key like `t(\`roles.${role}\`)` cannot be resolved whole — the suffix is a
+ * runtime value. Its PREFIX can be: `roles` must exist and must be a group of
+ * strings rather than a leaf. That catches the failure that actually happens to
+ * a computed key (the group was renamed or moved), without guessing at which
+ * members it should have.
+ */
+function referencedKeyPrefixes(source: string, bindings: Map<string, string>): string[] {
+  const prefixes: string[] = []
+  for (const [variable, namespace] of bindings) {
+    const call = new RegExp(`\\b${variable}\\(\\s*\`([^\`]+)\``, 'g')
+    for (const match of source.matchAll(call)) {
+      const head = match[1].split('${')[0].replace(/\.$/, '')
+      if (!head) continue // fully dynamic, e.g. t(`${section}.title`) — nothing static to check
+      prefixes.push(namespace ? `${namespace}.${head}` : head)
+    }
+  }
+  return prefixes
+}
+
 describe('translation keys resolve against the dictionary', () => {
   const unresolved: string[] = []
+  const danglingPrefixes: string[] = []
   let checked = 0
+  let prefixesChecked = 0
 
   for (const file of sourceFiles()) {
     const source = readFileSync(file, 'utf8')
     const bindings = translatorBindings(source)
     if (bindings.size === 0) continue
+
     for (const key of referencedKeys(source, bindings)) {
       checked++
       if (typeof getByPath(en, key) !== 'string') unresolved.push(`${key}  (${file})`)
+    }
+
+    for (const prefix of referencedKeyPrefixes(source, bindings)) {
+      prefixesChecked++
+      const node = getByPath(en, prefix)
+      if (node === undefined || typeof node !== 'object') {
+        danglingPrefixes.push(`${prefix}  (${file})`)
+      }
     }
   }
 
@@ -105,9 +136,19 @@ describe('translation keys resolve against the dictionary', () => {
     ).toEqual([])
   })
 
+  it('every computed key is rooted in a group that exists', () => {
+    expect(
+      danglingPrefixes.sort(),
+      'The static head of a computed key names nothing, or names a single ' +
+        'string rather than a group — so every value the suffix can take ' +
+        'resolves to nothing.',
+    ).toEqual([])
+  })
+
   it('is actually looking at the call sites', () => {
     // Guards the guard: a regex that silently stops matching would make the
-    // assertion above pass over nothing at all.
+    // assertions above pass over nothing at all.
     expect(checked).toBeGreaterThan(1500)
+    expect(prefixesChecked).toBeGreaterThan(50)
   })
 })

@@ -115,6 +115,24 @@ describe('validation', () => {
         expect(result.fileErrors).toHaveLength(1)
         expect(result.fileErrors[0].code).toBe('FILE_TOO_LARGE')
       })
+
+      /*
+        The size named in an error is the same size the user can read off the
+        file card beside it, so it has to be punctuated the same way. The card
+        renders through `formatFileSize` with the APP's locale; these messages
+        used a second formatter that hardcoded a period, then briefly used the
+        right formatter with no locale at all — which still disagrees with the
+        card whenever the app language is not the browser's.
+      */
+      test('punctuates the size with the caller-supplied locale', () => {
+        const files = [createFile('large.pdf', MAX_FILE_SIZE + 1)]
+
+        const german = validateFileUpload(files, createEmptyValidationContext(), undefined, 'de')
+        const english = validateFileUpload(files, createEmptyValidationContext(), undefined, 'en-US')
+
+        expect(german.fileErrors[0].message).toContain('100,0 MB')
+        expect(english.fileErrors[0].message).toContain('100.0 MB')
+      })
     })
 
     describe('duplicate detection', () => {

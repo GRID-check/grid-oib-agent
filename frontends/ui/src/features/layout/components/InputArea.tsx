@@ -584,16 +584,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     latestDeepResearchJobStatus(state.currentConversation?.messages ?? [])
   )
 
-  const researchSession = researchSessionState({
+  const {
+    isSuccessful: isResearchSessionSuccessful,
+    isFailed: isResearchSessionFailed,
+    isInProgress: isResearchSessionInProgress,
+  } = researchSessionState({
     latestJobStatus: latestResearchJobStatus,
     ephemeralStatus: deepResearchStatus,
     isStreaming: isDeepResearchStreaming,
     streamOwnerConversationId: deepResearchOwnerConversationId,
     conversationId: currentConversation?.id,
   })
-  const { isSuccessful: isResearchSessionSuccessful, isFailed: isResearchSessionFailed } =
-    researchSession
-  const isResearchSessionInProgress = researchSession.isInProgress
 
   // File upload hook - provides session files and handles validation internally
   const {
