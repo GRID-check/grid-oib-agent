@@ -96,8 +96,16 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `BACKEND_CONFIG` | Yes | `/app/configs/config_grid_oib.yml` | Path to the NAT workflow YAML config file inside the container. The compose stack mounts `configs/` at `/app/configs`. |
-| `AIQ_CHROMA_DIR` | No | `/tmp/chroma_data` | Directory for ChromaDB persistence. In Docker: `/app/data/chroma_data`. |
+| `AIQ_CHROMA_DIR` | No | `/tmp/chroma_data` | Directory for ChromaDB persistence. In Docker: `/app/data/chroma_data`. Ignored once `AIQ_CHROMA_URL`/`AIQ_CHROMA_HOST` selects a shared server. |
+| `AIQ_CHROMA_URL` | No | (unset — embedded client) | Full URL of a **shared** Chroma server (e.g. `http://chroma:8000`). Setting this (or `AIQ_CHROMA_HOST`) makes every backend replica and research worker talk to ONE Chroma over HTTP instead of each opening its own embedded `PersistentClient` on local disk — which is what otherwise pins the vector store to a single pod. A scheme-less value (`chroma:8000`) is accepted; `https://` implies TLS. Unset keeps today's embedded behaviour, so local dev and single-node are untouched. |
+| `AIQ_CHROMA_HOST` | No | (unset — embedded client) | Host of a shared Chroma server, as an alternative to `AIQ_CHROMA_URL`. |
+| `AIQ_CHROMA_PORT` | No | `8000`, or `443` when TLS is on | Port for the shared Chroma server. A port embedded in `AIQ_CHROMA_URL` wins over this. |
+| `AIQ_CHROMA_SSL` | No | `false` | Use TLS when connecting via `AIQ_CHROMA_HOST` (`1`/`true`/`yes` enable). Ignored with `AIQ_CHROMA_URL`, where the `https://` scheme decides. |
 | `COLLECTION_NAME` | No | `oib_knowledge` | Default ChromaDB collection name. |
+| `AIQ_RETRIEVER_TOP_K` | No | `10` | Default number of chunks a retrieval returns when a caller names no `top_k`. |
+| `AIQ_VERBOSE` | No | `false` | Verbose agent/callback logging (`1`/`true`/`yes` enable). Diagnostic only. |
+| `AIQ_ENABLE_DEBUG` | No | `true` | Mounts the debug console at `/debug`. Set to `0`/`false`/`no`/`off` to disable it — worth doing on any deployment where that surface should not be reachable. |
+| `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block; the set is sorted before capping so the cut is deterministic. `0`/negative disables the cap. |
 | `AIQ_EXTRACT_TABLES` | No | `false` | Enable table extraction from documents. |
 | `AIQ_EXTRACT_IMAGES` | No | `false` | Enable extraction of **embedded raster images** (image XObjects) from PDFs for VLM captioning. Does NOT capture vector CAD drawings — see `AIQ_RENDER_VISUAL_PAGES`. |
 | `AIQ_EXTRACT_CHARTS` | No | `false` | Enable chart extraction from documents. |
@@ -151,6 +159,20 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `SUMMARY_LLM_MODEL` | No | `LLM_MODEL`, then `openai/gpt-5.6-luna` (if `OPENROUTER_API_KEY` set) / `gpt-4o-mini` | Model for the AI project-summary endpoint (`POST /v1/generate-summary`). Falls back to the generic `LLM_MODEL`, then the OpenRouter/OpenAI default. BYOK never changes the model. |
 | `SUMMARY_LLM_API_KEY` | No | org BYOK, then `LLM_API_KEY`, then `OPENROUTER_API_KEY`, then provider inference | API key for the summary LLM, resolved through the shared resolver exactly like `CONSISTENCY_LLM_API_KEY` (org BYOK via forwarded `x-grid-organization-id` first, then `SUMMARY_LLM_API_KEY` → `LLM_API_KEY` → `OPENROUTER_API_KEY` → provider inference). If none resolves the endpoint returns `error=llm_not_configured` (HTTP 200). |
 | `SUMMARY_LLM_BASE_URL` | No | `LLM_BASE_URL`, then `https://openrouter.ai/api/v1` (if `OPENROUTER_API_KEY` set) / `https://api.openai.com/v1` | Base URL for the summary LLM (OpenAI-compatible `/chat/completions`). Falls back to `LLM_BASE_URL`, then the OpenRouter/OpenAI default. An org BYOK credential overrides this base URL (and the key) at request time. |
+
+---
+
+## OIB Base Corpus Sync
+
+The platform-owner base corpus (`oib_knowledge`) — repo-shipped OIB Richtlinien PDFs plus admin uploads — is discovered and ingested by `src/aiq_agent/oib_sync.py`. aiq-agent service.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OIB_COLLECTION_NAME` | No | `COLLECTION_NAME`, then `oib_knowledge` | Chroma collection the base corpus is ingested into. |
+| `OIB_UPLOADS_DIR` | No | `data/oib_uploads` | Writable home for base-corpus PDFs uploaded through the platform admin UI (inside the persistent `aiq-data` volume). Scanned by sync alongside the read-only repo corpus. |
+| `OIB_REGISTRY_PATH` | No | `data/oib_registry.json` | Sync bookkeeping: which corpus files have been ingested, and at what content hash. |
+| `OIB_EXCLUDED_PATH` | No | `data/oib_excluded.json` | Persistent set of corpus basenames an admin removed. Repo-shipped PDFs live in git and cannot be physically deleted, so "delete" means excluding them here: their chunks are dropped and both `discover_pdfs()` and `sync()` skip them from then on, so a later sync never silently re-ingests a document that was removed on purpose. Losing this file re-admits every previously deleted document. |
+| `OIB_SYNC_MAX_WORKERS` | No | `4` | Concurrent files ingested per sync run. Invalid values warn and fall back to `4`; values below `1` are clamped to `1`. |
 
 ---
 
@@ -250,6 +272,23 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 | `DASK_LIFETIME` | No | (unset) | Worker lifetime in seconds. Workers are recycled after this time to clear accumulated state. |
 | `DASK_LIFETIME_RESTART` | No | `true` | Set to `false` to let workers exit gracefully without respawning. |
 | `DASK_DISTRIBUTED__LOGGING__DISTRIBUTED` | No | `warning` | Reduce Dask log noise. |
+
+---
+
+## Research Workers (ADR-0021, DB-claimed execution)
+
+The alternative to the Dask section above. With `GRID_JOB_EXECUTION=db` the submit path persists a deep-research job as a `research_job_queue` row instead of dispatching it to a per-pod Dask cluster; dedicated worker containers (`python -m aiq_api.jobs.worker`) claim rows with `FOR UPDATE SKIP LOCKED`, run the job in-process, and heartbeat the claim so a crashed worker's job is reclaimed. This is what lets research execution scale horizontally, independently of the web tier. See `docs/adr/0021-db-claimed-research-workers.md`.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_JOB_EXECUTION` | No | `dask` | Execution backend for research jobs: `dask` (per-pod cluster) or `db` (DB-claimed workers). Any other value is treated as `dask`. |
+| `GRID_JOB_PAYLOAD_KEK` | **In production** | (unset — payloads stored as plaintext JSON) | 32-byte base64 key (`openssl rand -base64 32`) that AES-256-GCM encrypts the queued job payload at rest. The `research_job_queue.payload` row durably persists the full `run_agent_job` payload, which carries **the user's auth token** plus identity/budget context — unlike the Dask path, which held it only transiently in worker memory, so this is real at-rest exposure (table, WAL, backups, replicas). Unset keeps dev/single-node working with a one-time plaintext warning; **set it in any multi-node or production deployment**. Invalid base64, or a key that does not decode to exactly 32 bytes, raises `PayloadKeyError` rather than silently falling back. Only meaningful with `GRID_JOB_EXECUTION=db`. |
+| `GRID_RESEARCH_WORKERS` | No | `1` | Concurrent jobs claimed per worker process. |
+| `GRID_RESEARCH_WORKER_POLL_SECONDS` | No | `5` | Idle poll interval between claim attempts. |
+| `GRID_RESEARCH_WORKER_STALE_SECONDS` | No | `90` | A claim whose heartbeat is older than this is considered dead and may be reclaimed by another worker. Keep comfortably above `GRID_RESEARCH_WORKER_HEARTBEAT_SECONDS`. |
+| `GRID_RESEARCH_WORKER_MAX_ATTEMPTS` | No | `3` | Reclaim attempts before the job is marked FAILURE. |
+| `GRID_RESEARCH_WORKER_HEARTBEAT_SECONDS` | No | `30` | Heartbeat cadence while a job runs. |
+| `GRID_WORKER_LIVENESS_FILE` | No | `/tmp/research-worker.alive` | Marker file the Kubernetes liveness probe checks — the backend image ships no `pgrep`/procps. Touched every loop tick, so a stale mtime means the claim loop hung. A write failure warns rather than killing the worker. |
 
 ---
 
