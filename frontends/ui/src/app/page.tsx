@@ -12,14 +12,17 @@ import { getSignInUrl } from '@workos-inc/authkit-nextjs'
 import { redirect } from 'next/navigation'
 import { isAuthRequired } from '@/lib/auth/auth-required'
 import { getGridSession } from '@/lib/auth/session'
+import { runWithTenantSlot } from '@/lib/db/tenant-context'
 
 export default async function HomePage(): Promise<never> {
-  if (isAuthRequired()) {
-    const session = await getGridSession()
-    if (!session) {
-      const landingUrl = process.env.GRID_LANDING_URL
-      redirect(landingUrl || (await getSignInUrl()))
+  return runWithTenantSlot(async () => {
+    if (isAuthRequired()) {
+      const session = await getGridSession()
+      if (!session) {
+        const landingUrl = process.env.GRID_LANDING_URL
+        redirect(landingUrl || (await getSignInUrl()))
+      }
     }
-  }
-  redirect('/app/projects')
+    redirect('/app/projects')
+  })
 }

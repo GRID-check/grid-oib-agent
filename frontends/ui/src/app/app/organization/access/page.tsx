@@ -28,7 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PeopleDirectory } from '@/features/organization/components/people-directory'
 import { PermissionReference } from '@/features/organization/components/permission-reference'
 import { RoleCatalog } from '@/features/organization/components/role-catalog'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { canManageMembers } from '@/lib/authz/organizations'
 import {
   listOrganizationMembersWithRoles,
@@ -37,67 +37,68 @@ import {
 import { getTranslations } from '@/i18n/server'
 
 export default async function OrganizationAccessPage(): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
-  const t = await getTranslations('organization')
+  return withPageSession(async (session) => {
+    const t = await getTranslations('organization')
 
-  const header = (
-    <PageHeader title={t('sections.access.title')} subtitle={t('sections.access.subtitle')} />
-  )
+    const header = (
+      <PageHeader title={t('sections.access.title')} subtitle={t('sections.access.subtitle')} />
+    )
 
-  // This is the gate. The shared layout deliberately is not one — it only omits
-  // the nav link — so a typed URL, a bookmark or a stale link lands here with no
-  // permission at all, and the roster fetch below must never run for them.
-  // Answer it politely rather than with a 403 wall, the same treatment the
-  // organization overview gives a non-admin.
-  if (!canManageMembers(session)) {
+    // This is the gate. The shared layout deliberately is not one — it only omits
+    // the nav link — so a typed URL, a bookmark or a stale link lands here with no
+    // permission at all, and the roster fetch below must never run for them.
+    // Answer it politely rather than with a 403 wall, the same treatment the
+    // organization overview gives a non-admin.
+    if (!canManageMembers(session)) {
+      return (
+        <div className="flex flex-col gap-6">
+          {header}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="text-muted-foreground size-4" aria-hidden />
+                {t('access.notAllowed.title')}
+              </CardTitle>
+              <CardDescription>{t('access.notAllowed.description')}</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      )
+    }
+
+    let members: OrganizationMemberWithRole[] = []
+    let membersError = false
+    try {
+      members = await listOrganizationMembersWithRoles(session.organizationId)
+    } catch {
+      membersError = true
+    }
+
     return (
       <div className="flex flex-col gap-6">
         {header}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldAlert className="text-muted-foreground size-4" aria-hidden />
-              {t('access.notAllowed.title')}
-            </CardTitle>
-            <CardDescription>{t('access.notAllowed.description')}</CardDescription>
-          </CardHeader>
-        </Card>
+
+        {/* The tab labels are the views' own titles rather than a second set of
+            strings: "People" heading the People card under a tab called anything
+            else would be two names for one thing. */}
+        <Tabs defaultValue="people">
+          <TabsList>
+            <TabsTrigger value="people">{t('access.people.title')}</TabsTrigger>
+            <TabsTrigger value="roles">{t('access.roles.title')}</TabsTrigger>
+            <TabsTrigger value="permissions">{t('access.permissions.title')}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="people" className="mt-4">
+            <PeopleDirectory members={members} error={membersError} />
+          </TabsContent>
+          <TabsContent value="roles" className="mt-4">
+            <RoleCatalog />
+          </TabsContent>
+          <TabsContent value="permissions" className="mt-4">
+            <PermissionReference />
+          </TabsContent>
+        </Tabs>
       </div>
     )
-  }
-
-  let members: OrganizationMemberWithRole[] = []
-  let membersError = false
-  try {
-    members = await listOrganizationMembersWithRoles(session.organizationId)
-  } catch {
-    membersError = true
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      {header}
-
-      {/* The tab labels are the views' own titles rather than a second set of
-          strings: "People" heading the People card under a tab called anything
-          else would be two names for one thing. */}
-      <Tabs defaultValue="people">
-        <TabsList>
-          <TabsTrigger value="people">{t('access.people.title')}</TabsTrigger>
-          <TabsTrigger value="roles">{t('access.roles.title')}</TabsTrigger>
-          <TabsTrigger value="permissions">{t('access.permissions.title')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="people" className="mt-4">
-          <PeopleDirectory members={members} error={membersError} />
-        </TabsContent>
-        <TabsContent value="roles" className="mt-4">
-          <RoleCatalog />
-        </TabsContent>
-        <TabsContent value="permissions" className="mt-4">
-          <PermissionReference />
-        </TabsContent>
-      </Tabs>
-    </div>
-  )
+  })
 }

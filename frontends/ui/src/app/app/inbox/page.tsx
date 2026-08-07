@@ -14,7 +14,7 @@
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
@@ -30,32 +30,32 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function InboxPage(): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
+  return withPageSession(async (session) => {
+    if (!isCollaborationEnabled(session)) {
+      notFound()
+    }
 
-  if (!isCollaborationEnabled(session)) {
-    notFound()
-  }
+    const navFlags = await getNavFlags(session)
+    const t = await getTranslations('collaboration')
 
-  const navFlags = await getNavFlags(session)
-  const t = await getTranslations('collaboration')
-
-  return (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <OrgTopbar
-        user={{ name: session.name, email: session.email }}
-        authRequired={isAuthRequired()}
-        canManageOrganization={navFlags.canManageOrganization}
-        canViewOrganization={navFlags.canViewOrganization}
-        canManagePlatform={navFlags.canManagePlatform}
-        canAccessArchiv={navFlags.canAccessArchiv}
-        canCollaborate={navFlags.canCollaborate}
-      />
-      <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
-        <PageHeader title={t('inbox.title')} subtitle={t('inbox.subtitle')} />
-        <div className="mt-7">
-          <InboxList />
-        </div>
-      </main>
-    </div>
-  )
+    return (
+      <div className="flex min-h-dvh flex-col bg-background text-foreground">
+        <OrgTopbar
+          user={{ name: session.name, email: session.email }}
+          authRequired={isAuthRequired()}
+          canManageOrganization={navFlags.canManageOrganization}
+          canViewOrganization={navFlags.canViewOrganization}
+          canManagePlatform={navFlags.canManagePlatform}
+          canAccessArchiv={navFlags.canAccessArchiv}
+          canCollaborate={navFlags.canCollaborate}
+        />
+        <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+          <PageHeader title={t('inbox.title')} subtitle={t('inbox.subtitle')} />
+          <div className="mt-7">
+            <InboxList />
+          </div>
+        </main>
+      </div>
+    )
+  })
 }

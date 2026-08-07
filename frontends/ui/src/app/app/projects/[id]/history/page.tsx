@@ -1,6 +1,6 @@
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { ProjectHistory } from '@/features/projects/components/project-history'
@@ -23,22 +23,23 @@ export async function generateMetadata(): Promise<Metadata> {
  * loaders — no new data model, no new API.
  */
 export default async function ProjectHistoryPage({ params }: ProjectHistoryPageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
-  const { id } = await params
+  return withPageSession(async (session) => {
+    const { id } = await params
 
-  await requireProjectAccess(session, id, 'project:view')
+    await requireProjectAccess(session, id, 'project:view')
 
-  // The research-runs list scopes its fetch to this project's Qdrant
-  // collection — same lookup the legacy research page performed.
-  const project = await findProjectInOrg(id, session.organizationId)
+    // The research-runs list scopes its fetch to this project's Qdrant
+    // collection — same lookup the legacy research page performed.
+    const project = await findProjectInOrg(id, session.organizationId)
 
-  if (!project) {
-    notFound()
-  }
+    if (!project) {
+      notFound()
+    }
 
-  return (
-    <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-8 md:px-10 md:pt-[34px]">
-      <ProjectHistory projectId={id} projectCollection={project.collectionName} />
-    </div>
-  )
+    return (
+      <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-8 md:px-10 md:pt-[34px]">
+        <ProjectHistory projectId={id} projectCollection={project.collectionName} />
+      </div>
+    )
+  })
 }
