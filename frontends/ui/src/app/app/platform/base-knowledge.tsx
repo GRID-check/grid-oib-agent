@@ -587,7 +587,9 @@ export function BaseKnowledge() {
           type="button"
           onClick={() => toggleSort(key)}
           aria-label={t('knowledgeAdmin.sortBy', { column: label })}
-          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          // A column header is text-height by design; `touch-target` makes it
+          // tappable without turning the header row into a row of buttons.
+          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target"
         >
           {label}
           <Icon className="size-3" aria-hidden />
@@ -937,7 +939,7 @@ export function BaseKnowledge() {
                               <TableCell className="max-w-[22rem]">
                                 <button
                                   type="button"
-                                  className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                                  className="block w-full text-left pointer-coarse:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                                   aria-label={t('knowledgeAdmin.openDetail', { name: file.fileName })}
                                   onClick={(event) => {
                                     event.stopPropagation()

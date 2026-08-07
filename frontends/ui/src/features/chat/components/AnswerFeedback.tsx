@@ -37,7 +37,9 @@ export interface AnswerFeedbackProps {
 }
 
 const thumbButtonBase =
-  'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out active:scale-95 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  // The thumbs sit under an answer as a quiet aside, so the 24px button stays
+  // 24px and `touch-target` gives the finger the 44px it needs.
+  'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out active:scale-95 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring touch-target'
 
 export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversationId, compact = false, className }) => {
   const t = useTranslations('chat')

@@ -1428,7 +1428,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
               key={key}
               type="button"
               onClick={() => setComposerPrefill(question)}
-              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2"
+              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
             >
               {question}
             </button>

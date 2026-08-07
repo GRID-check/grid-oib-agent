@@ -378,6 +378,10 @@ const FileChip: FC<{
     <span
       className={cn(
         'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        // A finger has to be able to hit the remove-x, and that button can only
+        // grow inside a taller chip — the strip scrolls horizontally, so the
+        // extra height costs nothing but a slightly shorter filename.
+        'pointer-coarse:h-11',
         // `border-error` is a static `@utility` in globals.css with no
         // `--modifier()`, so the slash form (`border-error/50`) matched nothing
         // and this chip kept the neutral default border — a failed upload was
@@ -392,7 +396,7 @@ const FileChip: FC<{
           type="button"
           onClick={() => onOpen(file)}
           aria-label={t('inputArea.openFile', { name: file.fileName })}
-          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11"
         >
           {statusIcon}
           <span className="min-w-0 truncate">{file.fileName}</span>
@@ -409,7 +413,7 @@ const FileChip: FC<{
           onClick={() => onRetry(file.id)}
           aria-label={t('inputArea.retryUpload')}
           title={t('inputArea.retryUpload')}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:size-9"
         >
           <RotateCw className="size-3" aria-hidden="true" />
         </button>
@@ -420,7 +424,7 @@ const FileChip: FC<{
           onClick={() => onRemove(file.id)}
           aria-label={t('inputArea.removeFile', { name: file.fileName })}
           title={t('inputArea.removeFile', { name: file.fileName })}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:size-9"
         >
           <X className="size-3" aria-hidden="true" />
         </button>
@@ -1421,7 +1425,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <button
             type="button"
             onClick={() => setManageFilesOpen(true)}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:hidden"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
           >
             {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
           </button>
@@ -1437,7 +1441,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // its own. `outline-hidden!` beats the app's global :focus-visible
           // outline (globals.css, unlayered) with an important utility — otherwise
           // focus is drawn twice: a nested box inside the card's ring.
-          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 md:text-[14.5px]"
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
@@ -1510,7 +1514,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 disabled={cannotContribute}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
                   <span className="bg-status-active size-[5px] rounded-full" />
@@ -1567,7 +1571,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   total: totalSourcesCount,
                 })}
                 title={t('inputArea.selectedConnections')}
-                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 text-[12.5px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Layers className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="hidden sm:inline">{tChat('composer.sources')}</span>
@@ -1606,7 +1610,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             disabled={cannotContribute}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
+              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
               'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
               deepResearchIntent
                 ? 'border-primary bg-primary text-primary-foreground shadow-xs'
@@ -1657,7 +1661,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 // (browse + upload zone) remains available on wider viewports.
                 // Mobile reaches the same dialog via the "manage" text entry
                 // under the chip strip.
-                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
+                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 pointer-coarse:h-11 sm:inline-flex"
                 disabled={cannotContribute || !knowledgeLayerAvailable}
                 onClick={() => setManageFilesOpen(true)}
                 aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
@@ -1985,7 +1989,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               signal={signal}
               active={activeSourcePreset === id}
               onClick={() => handlePresetClick(id)}
-              className="h-8 gap-[7px] rounded-[10px] px-[13px] text-[12.5px]"
+              className="h-8 gap-[7px] rounded-[10px] px-[13px] text-[12.5px] pointer-coarse:h-11"
               aria-label={tChat('shortcuts.presetAria', {
                 label: tChat(`shortcuts.presets.${id}`),
               })}
