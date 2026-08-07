@@ -51,6 +51,10 @@ config:
   # ── Postgres ──
   grid-oib:pgInstances: "1"
   grid-oib:pgStorageSize: 10Gi
+  # Password for `grid_app_rw`, the least-privilege RLS role (ADR-0041).
+  # Distinct from pgAppPassword — see src/config.ts. Set per config.ts:191.
+  grid-oib:pgRuntimePassword:
+    secure: AAABAP+0FzCMfjSbTI4yV5tfwQm7hUmPVKhdCgc0z5GaOc37WV51A2FHivbTrBWNpLHmMg4AsX4=
   # ── SeaweedFS ──
   grid-oib:seaweedfsStorageSize: 10Gi
   grid-oib:seaweedfsBucket: grid-documents
