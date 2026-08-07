@@ -108,6 +108,10 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     // Dedicated READ-ONLY bucket-scoped identity for the aiq-agent tier — the
     // backend must never hold the root `grid` Admin credential (ADR-0039).
     SEAWEED_BACKEND_READ_SECRET_KEY: cfg.seaweedfs.backendReadSecretKey,
+    // Embeds the Dragonfly password in its userinfo → secret, exactly like the
+    // DSNs below. Inlining it on each pod spec would publish the cache
+    // credential to anything with `get pod` in the namespace.
+    REDIS_URL: w.redisUrl,
     // DSNs (embed the PG password → secret).
     NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
@@ -136,8 +140,15 @@ export function buildSecrets(w: AppWiring): AppSecrets {
   return { secret, checksum: secretChecksum(values) };
 }
 
-/** EnvVar sourced from the shared Secret. */
-function sref(key: string): EnvVar {
+/**
+ * EnvVar sourced from the shared Secret.
+ *
+ * Exported so a pod spec built outside this module (the storage-alert CronJob)
+ * references the Secret by the same constant rather than re-typing its name — a
+ * literal that drifted would surface as a pod stuck in CreateContainerConfigError
+ * at deploy time, not here.
+ */
+export function sref(key: string): EnvVar {
   return { name: key, valueFrom: { secretKeyRef: { name: SECRET_NAME, key } } };
 }
 
@@ -176,8 +187,8 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     sref("AIQ_LISTEN_DB_URL"),
     // Durable per-job LangGraph checkpointing for async deep-research runs.
     sref("AIQ_DEEP_CHECKPOINT_DB"),
-    // Shared cache.
-    { name: "REDIS_URL", value: w.redisUrl },
+    // Shared cache (authenticated: the URL carries the password).
+    sref("REDIS_URL"),
     // Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
     // ON by default — the intended architecture; uses REDIS_URL, fails open to
     // local delivery. Set conversationBus=false to fall back to affinity.
@@ -310,7 +321,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_DISABLE_SELF_SERVE_ORGS", value: String(cfg.auth.disableSelfServeOrgs) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
-    { name: "REDIS_URL", value: w.redisUrl },
+    // Authenticated: the URL carries the password, so it comes from the Secret.
+    sref("REDIS_URL"),
     { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: String(APP_DEFAULTS.wsUpgradeRateLimit) },
     // Graceful shutdown: how long server.js keeps serving after SIGTERM before
     // forcing exit. Chat WebSockets are long-lived, so the 2s dev default would

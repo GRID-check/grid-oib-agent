@@ -26,6 +26,10 @@
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosApiKey          "sk_test_..." --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosCookiePassword  "$(openssl rand -hex 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:jobPayloadKek         "$(openssl rand -base64 32)" --secret
+#   # Dragonfly `requirepass`, cache + edge counter store. REQUIRED (fail-closed;
+#   # grid-oib:allowUnauthenticatedRedis=true opts out) and enforced DISTINCT.
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:dragonflyPassword      "$(openssl rand -base64 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:registryPassword      "<token w/ read:packages>" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelPrimaryApiKey     "$(openssl rand -hex 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelOidcClientSecret  "<WorkOS Connect secret>" --secret

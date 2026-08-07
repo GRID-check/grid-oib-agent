@@ -64,6 +64,12 @@ pulumi config set --secret grid-oib:workosApiKey         "sk_live_..."
 pulumi config set --secret grid-oib:workosCookiePassword "$(openssl rand -hex 32)"
 # REQUIRED with the template's jobExecution=db (deploy fails closed without it):
 pulumi config set --secret grid-oib:jobPayloadKek      "$(openssl rand -base64 32)"
+# REQUIRED: Dragonfly `requirepass` on both instances. Deploy fails closed
+# without them (opt out deliberately with allowUnauthenticatedRedis=true). The
+# two MUST differ — every app pod holds the cache password in its REDIS_URL, and
+# sharing it would let the app tier flush the edge rate-limit counters.
+pulumi config set --secret grid-oib:dragonflyPassword       "$(openssl rand -base64 32)"
+pulumi config set --secret grid-oib:rateLimitStorePassword  "$(openssl rand -base64 32)"
 
 pulumi preview
 pulumi up
@@ -137,9 +143,13 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `pgBackupAccessKey` / 🔒 `pgBackupSecretKey` | SeaweedFS keys | Credentials for an external endpoint |
 | `pgBackupRetention` | `30d` | Barman retention window |
 | `pgBackupSchedule` | `0 0 2 * * *` | 6-field CNPG cron (sec min hour …) |
+| `pgBackupEncryption` | unset | Server-side encryption on the PITR archive: `AES256` or `aws:kms`, written to `barmanObjectStore.{wal,data}.encryption`. **Refused against the in-cluster SeaweedFS**, which has no SSE and would answer 200 while storing plaintext — use it only with an external S3 that documents SSE. Unset (the default) means the archive is unencrypted and `pulumi up` warns. See `docs/deployment/kubernetes.md` §7e |
 | **Dragonfly (cache)** | | |
 | `dragonflyMaxmemory` | `512mb` | Dataset cap (cache evicts above it) |
 | `dragonflyMemoryLimit` | `768Mi` | Pod memory limit; must exceed maxmemory |
+| 🔒 **`dragonflyPassword`** | — | REQUIRED. `requirepass` for the cache. Without it any pod in the namespace can read the conversation bus (every chat frame), the cached user directory, authz decisions and budget state |
+| 🔒 **`rateLimitStorePassword`** | — | REQUIRED while `rateLimitEnabled`. `requirepass` for the counter store; enforced DISTINCT from `dragonflyPassword` |
+| `allowUnauthenticatedRedis` | `false` | Dev-only escape hatch for both passwords above (warns on every deploy) |
 | **Chroma (vectors)** | | |
 | `chromaEnabled` | `true` | Shared vector server; REQUIRED for db mode (fails closed) |
 | `chromaImage` | `chromadb/chroma:1.5.9` | Pinned to match the backend's chromadb client |

@@ -22,6 +22,14 @@
 #   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
 #   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 #   pulumi config set --secret grid-oib:jobPayloadKek          "$(openssl rand -base64 32)"
+#   # `requirepass` for the two Dragonfly instances (cache + edge counter store).
+#   # REQUIRED — the deploy fails closed without them; set
+#   # grid-oib:allowUnauthenticatedRedis=true to run without authentication
+#   # deliberately. The two MUST DIFFER: every app pod carries the cache password
+#   # in its REDIS_URL, and sharing it would let the app tier flush the edge
+#   # rate-limit counters.
+#   pulumi config set --secret grid-oib:dragonflyPassword      "$(openssl rand -base64 32)"
+#   pulumi config set --secret grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)"
 #   # Optional (only if using the local BYOK backend):
 #   pulumi config set --secret grid-oib:byokLocalKek          "$(openssl rand -base64 32)"
 #

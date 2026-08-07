@@ -40,6 +40,22 @@ export function installGatewayController(
     { provider },
   );
 
+  // The counter store's `requirepass`, for the rate limit service that talks to
+  // it. It lives HERE, not in the app namespace, because the rate limit
+  // Deployment the Envoy Gateway controller generates runs here — a
+  // `secretKeyRef` cannot cross namespaces.
+  const redisAuthSecret =
+    cfg.rateLimit.enabled && cfg.rateLimit.storePassword
+      ? new k8s.core.v1.Secret(
+          "ratelimit-redis-auth",
+          {
+            metadata: { name: RATE_LIMIT_REDIS_AUTH_SECRET, namespace: ns.metadata.name },
+            stringData: { [RATE_LIMIT_REDIS_AUTH_KEY]: cfg.rateLimit.storePassword },
+          },
+          { provider, dependsOn: ns },
+        )
+      : undefined;
+
   return new k8s.helm.v3.Release(
     "envoy-gateway",
     {
@@ -52,11 +68,26 @@ export function installGatewayController(
       // hard-fails at startup if the Gateway API CRDs aren't Established first,
       // and the default release-await guarantees that order. Touching
       // `config.envoyGateway` does not disturb any of that.
-      values: cfg.rateLimit.enabled ? { config: { envoyGateway: rateLimitConfig(cfg) } } : {},
+      //
+      // Helm DEEP-merges these over the chart's own `config.envoyGateway`, so
+      // adding `provider.kubernetes` below keeps the chart's
+      // `provider.type: Kubernetes` rather than replacing the block.
+      values: cfg.rateLimit.enabled
+        ? { config: { envoyGateway: rateLimitConfig(cfg, redisAuthSecret !== undefined) } }
+        : {},
     },
-    { provider, dependsOn: ns },
+    { provider, dependsOn: [ns, ...(redisAuthSecret ? [redisAuthSecret] : [])] },
   );
 }
+
+/** Secret (in `envoy-gateway-system`) holding the counter store's password. */
+const RATE_LIMIT_REDIS_AUTH_SECRET = "grid-ratelimit-redis-auth"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+/**
+ * Env var the upstream `envoyproxy/ratelimit` service reads its Redis password
+ * from (`RedisAuth string \`envconfig:"REDIS_AUTH"\``). Also the Secret key, so
+ * the two can never drift.
+ */
+const RATE_LIMIT_REDIS_AUTH_KEY = "REDIS_AUTH"; // pragma: allowlist secret (env var name, not a credential)
 
 /**
  * The `EnvoyGateway` config fragment that turns on global rate limiting
@@ -74,8 +105,23 @@ export function installGatewayController(
  * default-deny for ingress, so `platform/network-policies.ts` carries the allow
  * that makes this address reachable. Miss that rule and every lookup fails; the
  * fail-open default then means the limits silently do nothing.
+ *
+ * **The password does not go in `redis.url`.** `RateLimitRedisSettings` has
+ * exactly three fields — `url`, `urlRef` and `tls` — and no password member;
+ * Envoy Gateway renders `url` verbatim into the rate limit Deployment's
+ * `REDIS_URL`, which the upstream `envoyproxy/ratelimit` service uses as a bare
+ * `host:port` dial address, not as a URI. A `redis://:pw@host` there would be
+ * parsed as a hostname. The password instead reaches the same container as
+ * `REDIS_AUTH` (`envconfig:"REDIS_AUTH"`), injected through
+ * `provider.kubernetes.rateLimitDeployment.container.env` — the one supported
+ * seam for extra env on that generated Deployment.
+ *
+ * Getting this wrong is FAIL-OPEN, not an outage: an AUTH failure makes the
+ * rate limit service error, and `failClosed` is false, so traffic flows
+ * unlimited while the ADR-0029 pane shows the errors. Worth knowing when
+ * reading a "limits stopped enforcing" report.
  */
-function rateLimitConfig(cfg: GridConfig): Record<string, unknown> {
+function rateLimitConfig(cfg: GridConfig, withRedisAuth: boolean): Record<string, unknown> {
   return {
     rateLimit: {
       backend: {
@@ -88,6 +134,30 @@ function rateLimitConfig(cfg: GridConfig): Record<string, unknown> {
       // Short — this sits in front of every request.
       timeout: EDGE_RATE_LIMIT.timeout,
     },
+    ...(withRedisAuth
+      ? {
+          provider: {
+            type: "Kubernetes",
+            kubernetes: {
+              rateLimitDeployment: {
+                container: {
+                  env: [
+                    {
+                      name: RATE_LIMIT_REDIS_AUTH_KEY,
+                      valueFrom: {
+                        secretKeyRef: {
+                          name: RATE_LIMIT_REDIS_AUTH_SECRET,
+                          key: RATE_LIMIT_REDIS_AUTH_KEY,
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }
+      : {}),
   };
 }
 

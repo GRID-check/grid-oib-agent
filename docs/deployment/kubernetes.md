@@ -348,6 +348,23 @@ schema.
   cron, default `0 0 2 * * *`). Restore is `kubectl cnpg` / a bootstrap
   `recovery` from the same object store.
 
+  **The archive is not encrypted by default, and on the in-cluster destination
+  it cannot be.** It is a byte-for-byte copy of all three databases — every
+  conversation, every LangGraph checkpoint, WAL included — so this is the
+  largest single at-rest exposure in the stack when backups are on.
+  `grid-oib:pgBackupEncryption` (`AES256` or `aws:kms`, unset by default) sets
+  CloudNativePG's `barmanObjectStore.{wal,data}.encryption` — note it lives on
+  `wal`/`data`, not at the top level, and its CRD enum has no empty member, so
+  "off" is the key being absent. barman-cloud turns it into an
+  `x-amz-server-side-encryption` header, which encrypts nothing unless the
+  destination implements SSE; SeaweedFS 3.80 does not (SSE-S3/KMS/C arrive in
+  3.97, and no KMS is configured here on any image) and would answer `200` while
+  storing plaintext. `loadConfig` therefore **refuses** the setting against an
+  in-cluster endpoint rather than let the spec claim an encryption that is not
+  happening, and warns on every deploy where backups are on without it. Set it
+  only alongside an external S3 destination that documents SSE support. Full
+  picture in §7e.
+
 - **Document backups (ADR-0042) — IMPLEMENTED, opt-in.** The `grid-documents`
   bucket is backed up in two layers, both off `false` by default because both
   need an **external** S3 target to mean anything:
@@ -594,6 +611,14 @@ see §10.
   edge (Envoy) to `frontend`/`seaweedfs`, and the CNPG operator to its pods.
   Egress is deliberately open (the agent calls many external LLM/search APIs);
   tightening it is the one item that needs a live-cluster validation pass first.
+- **Dragonfly authentication** (`grid-oib:dragonflyPassword` and
+  `grid-oib:rateLimitStorePassword`, both **required**): `requirepass` on both
+  instances, delivered as `DFLY_requirepass` from a Kubernetes Secret rather
+  than a container arg (a pod spec is readable by anything with `get pod`).
+  Consumers get the password inside `REDIS_URL`, which for that reason moved
+  into the `grid-secrets` Secret. The two passwords must differ — see §7e for
+  why, and for what stays plaintext on the wire. `allowUnauthenticatedRedis`
+  is the explicit, warned opt-out; there is no silent one.
 - **Image pull policy** resolves to `Always` for the moving `latest` tag (so a
   rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the
@@ -800,6 +825,60 @@ resource still standing. Lifting it is deliberate and auditable:
 ```bash
 pulumi state unprotect 'urn:pulumi:prod::grid-oib::kubernetes:apiextensions.k8s.io/v1:CustomResource::grid-pg'
 ```
+
+## 7e. Encryption posture
+
+What is and is not encrypted, per store and per channel. Written to be cited in
+a security review, so it errs toward saying "no" — a control that only *looks*
+like encryption is listed as absent, with the reason.
+
+Three things are true of this whole table and are easy to miss:
+
+- **"Server-side encryption" is a request, not a guarantee.** An S3 client that
+  sends `x-amz-server-side-encryption` gets a `200` from a store that ignores
+  it, and the object is plaintext. The header is only worth what the
+  *destination* implements.
+- **Encryption at rest and encryption in transit are different questions.** A
+  store can be authenticated and still speak cleartext on the wire.
+- **The PVCs underneath everything are the base layer.** If they are not
+  encrypted (see below), then "at rest" for Postgres, SeaweedFS, Chroma and the
+  agent's `/app/data` all bottom out at the same unencrypted disk.
+
+### At rest
+
+| Store | Encrypted? | Detail |
+|---|---|---|
+| BYOK LLM credentials | **Yes** | WorkOS Vault (`byokSecretBackend`), or AES-256-GCM under `GRID_BYOK_LOCAL_KEK` in the local backend. ADR-0022. |
+| DB-claimed job payloads | **Yes** | AES-256-GCM under `GRID_JOB_PAYLOAD_KEK`; they carry the user auth token. `jobExecution=db` refuses to deploy without the KEK unless `allowPlaintextJobPayloads` opts out. |
+| SeaweedFS chunk data | **Yes, with a caveat** | `-filer.encryptVolumeData` (`seaweedfsEncryptVolumeData`, default **on**). Per-chunk AES-256-GCM, **new writes only** — objects written before it was enabled stay plaintext, and there is no bulk-encrypt tool. The per-chunk keys live in the **filer metadata store**, which in the current single-node topology sits on the *same* PVC as the volume data — so this is not disk-theft protection today; its real value is the GDPR-erasure property. ADR-0042. |
+| Postgres data files (tables, indexes, WAL on disk) | **No** | Postgres has no native TDE. Confidentiality at rest here is entirely the PVC's (see below). |
+| **Postgres PITR archive** (`pgBackupsEnabled`) | **No by default** | The archive is a byte-for-byte copy of all three databases — every conversation, every LangGraph checkpoint, the whole `grid_app` schema, WAL included. `pgBackupEncryption` (`AES256` \| `aws:kms`) sets CloudNativePG's `barmanObjectStore.{wal,data}.encryption`, which becomes an SSE request header. **It is refused when the destination is the in-cluster SeaweedFS**, because SeaweedFS has no SSE at all on the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this program configures no KMS for them on any image): it would answer `200` and store plaintext while the Cluster spec read `encryption: AES256`. So the archive is encrypted **only** when it goes to an external S3 destination that documents SSE support *and* `pgBackupEncryption` is set. With the default in-cluster destination it is as protected as the SeaweedFS volumes under it, and no more. `pulumi up` warns on every deploy in that state. |
+| SeaweedFS offsite documents backup (`seaweedfsBackupEnabled`) | **Destination's problem** | The mirror is pushed over `https://` (enforced at config load), so it is encrypted in transit. Whether the target bucket encrypts at rest is a property of that bucket, which this program does not configure. |
+| Chroma vector store | **No** | Persisted on a PVC, no application-level encryption. Embeddings are derived from document text and should be treated as sensitive. |
+| Kubernetes Secrets in etcd | **Unknown to this repo — operator action** | Every credential above (DSNs, S3 keys, the KEKs themselves, the Dragonfly passwords) is a Kubernetes Secret, which is **base64, not encryption**. Encrypting them at rest needs an `EncryptionConfiguration` on the API server, which is a control-plane file on a managed cluster and is not reachable from this program. **Ask the provider whether etcd encryption-at-rest is enabled**, and treat the answer as the ceiling on every "encrypted" row in this table — the KEKs are stored there. |
+| **PVCs (all of them)** | **Unknown to this repo — operator action** | The StorageClass is provider-supplied (`grid-oib:storageClass`, e.g. `premium` / `single-replica`, Lightbits NVMe/TCP) and **nothing in this repo creates a StorageClass**. Kubernetes has no per-PVC encryption field: whether volumes are encrypted is decided by the StorageClass's `parameters`, which are fixed when the class is created. There is therefore no config key here that could enable it, and adding one would be a setting that does nothing. **Operator action:** obtain (or have the provider create) an encrypted StorageClass and point `grid-oib:storageClass` at it; `kubectl get storageclass <name> -o yaml` shows the parameters actually in force. This remains the control that actually matches "encrypted at rest", and it is the one ADR-0042 named as the better answer than volume-chunk encryption. |
+
+### In transit
+
+| Channel | Encrypted? | Detail |
+|---|---|---|
+| Browser → edge (app, S3, landing site, Aspire) | **Yes** | TLS terminated at the Gateway, certs from Let's Encrypt via cert-manager. |
+| App → Postgres | **Yes** | Every DSN carries `sslmode=require`; CloudNativePG serves TLS on 5432 with a cert it manages. `require` encrypts but does **not** verify the CA — it closes passive sniffing, not active MITM. `verify-full` is the documented follow-up and needs the CNPG internal CA distributed to five clients (node, asyncpg, psycopg, psql, barman). |
+| App → SeaweedFS S3 | **No** | `http://seaweedfs:8333` inside the pod network. |
+| App → Dragonfly (cache / conversation bus) | **No — but authenticated** | Plaintext RESP on 6379. Dragonfly is not configured with TLS here. What *did* change: `requirepass` is now **required** (`dragonflyPassword`, or an explicit `allowUnauthenticatedRedis` opt-out), so a pod that can open the socket can no longer read the ADR-0028 conversation bus (every WebSocket frame of every chat, with a replayable 500-event backlog), the cached WorkOS directory (`directory:<orgId>` — email, name, avatar), authorization decisions or budget state. The password reaches consumers inside `REDIS_URL`, which for that reason now lives in the `grid-secrets` Secret rather than inline on each pod spec. |
+| Envoy rate limit service → counter store | **No — but authenticated** | Same plaintext RESP. `rateLimitStorePassword` is a **separate** credential from `dragonflyPassword` and is enforced distinct: every app pod holds the cache password in its `REDIS_URL`, and sharing it would let the app tier authenticate to the counter store and flush its own rate limits. It reaches the rate limit service as `REDIS_AUTH` (Envoy Gateway's `RateLimitRedisSettings` has no password field — only `url`, `urlRef`, `tls` — so it is injected via `provider.kubernetes.rateLimitDeployment.container.env`). An auth failure here is **fail-open**: limits stop enforcing, traffic keeps flowing. |
+| Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
+| Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
+| Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
+| App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
+| Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
+
+Everything in the "No" rows above is confined to the pod network of a
+single-tenant namespace, and the intra-namespace NetworkPolicy is what bounds
+it. That is a real control, but it is **one** control: it stops traffic from
+outside `grid`, not a compromised pod inside it. Closing the in-namespace rows
+properly means mTLS between services — i.e. a service mesh — which is a
+deliberate non-goal here (§10), not an oversight.
 
 ## 8. CI/CD
 
@@ -1052,6 +1131,20 @@ required on the Python tiers.
 - SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
   loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
+- **In-namespace mTLS (a service mesh).** The plaintext channels in §7e —
+  `ws://` chat, `http://aiq-agent`, `http://chroma`, plaintext RESP to
+  Dragonfly, OTLP — are bounded by the NetworkPolicy set, which stops traffic
+  from outside `grid` but not a compromised pod inside it. Closing them
+  properly means mTLS between every pair of services; that is a mesh (Cilium,
+  Linkerd, Istio) with its own control plane, upgrade cadence and failure
+  modes, and it is not a per-service TLS flag anyone can just switch on. A
+  deliberate non-goal for a single-tenant namespace, listed here so the gap is
+  a decision on record rather than an omission.
+- **`EncryptionConfiguration` for Kubernetes Secrets in etcd**, and an
+  **encrypted StorageClass for the PVCs** (§7e). Both are control-plane /
+  provider-side; neither is reachable from this program, and inventing config
+  for them would produce settings that do nothing. Confirm both with the
+  provider — they are the ceiling on every at-rest claim in this document.
 - A metrics/alerting stack (Prometheus/Grafana/Loki) — the Aspire dashboard
   (§9) covers live traces only. Envoy Gateway, cert-manager, CNPG, and
   SeaweedFS all expose Prometheus metrics, so this is a natural next layer —

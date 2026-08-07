@@ -101,6 +101,56 @@ control for "disks at rest are encrypted"; this is for the GDPR-erasure property
 
 We do **not** claim SSE support on 3.80, because there is none.
 
+**Amendment (2026-08-07) — the same rule, applied to the rest of the data
+path.** Auditing what else was plaintext produced three findings; the honesty
+rule above decided all three, and the outcomes differ because the facts do.
+
+*The Postgres PITR archive was the worst of them.* `barmanObjectStore` set
+compression and no encryption, so with `pgBackupsEnabled` the WAL stream and
+every base backup — a byte-for-byte copy of all three databases, every
+conversation and every LangGraph checkpoint — were written to object storage in
+the clear. CloudNativePG does support encryption there, and the exact shape was
+verified against the CRD this repo's `validate-crs.mjs` pins (v1.28.0) rather
+than assumed: the field lives on `barmanObjectStore.wal` and
+`barmanObjectStore.data`, **not** at the top level, and its enum is
+`["AES256", "aws:kms"]` with no empty member — "off" is the key being absent.
+It is exposed as `grid-oib:pgBackupEncryption`.
+
+But it is *server-side* encryption: barman-cloud turns it into an
+`x-amz-server-side-encryption` header, which is exactly the request 3.80 answers
+`200` to while storing plaintext — the silent compliance hazard this ADR opened
+with, arriving from a second direction. So the setting is **refused** when the
+destination is the in-cluster SeaweedFS, rather than accepted into a Cluster
+spec that would read `encryption: AES256` over unencrypted bytes. It is usable,
+and useful, against an external S3 destination that documents SSE support. With
+the default in-cluster destination the archive stays as protected as the
+SeaweedFS volumes beneath it and no more, `pulumi up` says so on every deploy,
+and `docs/deployment/kubernetes.md` §7e says so in the table someone will cite.
+
+*Dragonfly had no authentication at all* — no password, no TLS, on a namespace
+whose NetworkPolicy lets any pod dial 6379 — while holding the ADR-0028
+conversation bus (every WebSocket frame of every chat, replayable), the cached
+WorkOS directory, authorization decisions and budget state. "Cache semantics"
+described its durability and had been quietly read as describing its
+sensitivity. `requirepass` is now required on both instances
+(`dragonflyPassword`, `rateLimitStorePassword`, enforced distinct, with an
+explicit `allowUnauthenticatedRedis` opt-out). The transport stays plaintext
+RESP; that is stated rather than papered over, because closing it means mTLS
+between services, which means a mesh, which is a separate decision.
+
+*PVC encryption at rest could not be fixed here, so it was not pretended to
+be.* This ADR already named provider-level disk encryption as the control that
+actually matches "encrypted at rest". Investigating it produced no
+implementation: Kubernetes has no per-PVC encryption field, the property comes
+from the StorageClass's `parameters`, those are fixed at class-creation time,
+and nothing in this repo creates a StorageClass — `grid-oib:storageClass` only
+names a provider-supplied one. Any config key added here would have done
+nothing. It is recorded as an operator action instead, alongside the
+`EncryptionConfiguration` for Secrets in etcd, which is likewise control-plane
+and likewise out of reach. Both are the ceiling on every at-rest claim the stack
+makes, including this ADR's own chunk encryption, whose keys are Kubernetes
+Secrets.
+
 ## Consequences
 
 ### Positive
@@ -115,6 +165,11 @@ We do **not** claim SSE support on 3.80, because there is none.
   control rather than a suggestion.
 - The limits are written down where they are enforced, so nobody has to
   rediscover that `filer.backup` starts empty or that 3.80 ignores SSE headers.
+- There is now one page (`docs/deployment/kubernetes.md` §7e) that answers
+  "what is encrypted?" per store and per channel, including the rows where the
+  answer is "no" and the rows where the answer belongs to the provider.
+- A pod that gets a foothold in `grid` can no longer read every chat frame and
+  every cached user record out of the cache for free.
 
 ### Negative
 
@@ -123,6 +178,12 @@ We do **not** claim SSE support on 3.80, because there is none.
 - The quota check adds one aggregate query to the upload path.
 - Enabling volume encryption makes the filer store unrecoverable-if-lost, which
   raises the stakes on the metadata snapshot rather than lowering them.
+- Two more required secrets on every stack (`dragonflyPassword`,
+  `rateLimitStorePassword`), and an existing stack cannot deploy until it sets
+  them. That is the intended cost of not leaving authentication off by default.
+- The Dragonfly password now travels inside `REDIS_URL`, which makes that
+  variable secret and moves it into the `grid-secrets` Secret — so rotating it
+  is a rolling update of the app tier, not a config edit.
 
 ### Risks
 
@@ -173,7 +234,17 @@ We do **not** claim SSE support on 3.80, because there is none.
 - Decide whether SSE justifies an upgrade to ≥3.97, which brings its own key
   management (lose the KEK, lose the objects).
 - Provider-level encryption for the PVCs, which is the control that actually
-  matches "encrypted at rest".
+  matches "encrypted at rest". Investigated (see the 2026-08-07 amendment) and
+  confirmed to be an **operator action**, not a config change: the StorageClass
+  is provider-supplied and this repo creates none, so ask the provider for an
+  encrypted class and point `grid-oib:storageClass` at it.
+- Confirm with the provider whether the API server runs an
+  `EncryptionConfiguration` for Secrets in etcd. Every KEK in this stack — the
+  BYOK local KEK, the job-payload KEK, the Dragonfly passwords — is a Secret,
+  so the answer bounds every at-rest claim above.
+- TLS on the intra-namespace hops (`ws://` chat, `http://aiq-agent`,
+  `http://chroma`, RESP to Dragonfly, OTLP). Deferred as a mesh decision, not a
+  per-service flag.
 - Per-org quota defaults per plan/tier, once there are plans.
 - A platform-tier UI for the quota. The API exists and is gated; the operator
   currently sets it with an authenticated `PUT`, which is enough to run the

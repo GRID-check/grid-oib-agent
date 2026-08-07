@@ -127,7 +127,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `GRID_RESEARCHER_RECURSION_LIMIT` | No | `100` | Per-worker LangGraph step cap for single-query researcher runnables (`RESEARCHER_RECURSION_LIMIT` in `tools/research.py`). A stuck researcher hits this and is caught by the `GraphRecursionError` → terminal unresearchable-note path instead of burning its budget or looping through plan → batch → resubmit. `0`/invalid values fall back to `100`. |
 | `GRID_MAX_QUERY_SUBMISSIONS` | No | `3` | Maximum times the same query digest may be re-submitted to `run_research_batch` before it is returned as a terminal unresearchable gap instead of being run again (`MAX_QUERY_SUBMISSIONS` in `tools/research.py`). `0`/invalid values fall back to `3`. |
 | `GRID_WRITER_CHAR_BUDGET` | No | `200000` | Total-character ceiling for the writer's tool-result context (`ToolResultPruningMiddleware.total_char_budget`, wired in `deep_researcher/factory.py`). When the sum of kept oversized tool results exceeds it, the oldest are truncated so the writer's context cannot grow unbounded across many research notes. `0`/invalid values fall back to `200000`. |
-| `REDIS_URL` | No | unset (compose: `redis://dragonfly:6379/0`) | Redis-protocol URL of the shared cache (Dragonfly, ADR-0020). Consumed by BOTH the frontend (read-through caches, WS rate limiter) and the backend (citation-registry snapshots). Unset = per-process in-memory fallback. |
+| `REDIS_URL` | No | unset (compose: `redis://dragonfly:6379/0`) | Redis-protocol URL of the shared cache (Dragonfly, ADR-0020). Consumed by BOTH the frontend (read-through caches, WS rate limiter) and the backend (citation-registry snapshots). Unset = per-process in-memory fallback. **On Kubernetes this URL is a SECRET**: Dragonfly requires a password there, so the value is `redis://:<url-encoded-password>@dragonfly:6379/0` and Pulumi delivers it from the `grid-secrets` Secret, never inline on a pod spec. Empty username is intentional — both clients (ioredis, redis-py) read that as "no username" and send the one-argument `AUTH <password>` that `requirepass` expects. Percent-encode the password: the documented generator is `openssl rand -base64 32`, whose `/`, `+` and `=` would otherwise break URL parsing and surface as an auth failure. The compose stack still runs Dragonfly without a password (single host, no shared network), which is why its value has no userinfo. |
 | `GRID_CONVERSATION_BUS` | No | `1` (on) | The Dragonfly pub/sub conversation bus (ADR-0028) that makes the chat tier stateless — any replica serves any conversation's WebSocket (owner publishes stream frames + HITL prompts; the socket-holding relay subscribes; HITL answers round-trip on `conv:<id>:input`). **On by default**, using `REDIS_URL`; **fails open** to local delivery on any Redis error, so a single node behaves exactly as before. With no `REDIS_URL` it uses an in-process transport (byte-identical single-process path). Set to `0` to opt out and fall back to conversation affinity. |
 | `GRID_CONV_STREAM_MAXLEN` | No | `500` | Max frames buffered per conversation in the Redis reconnect-replay stream (`conv:<id>:stream`), bounding Dragonfly memory. Best-effort — the Postgres checkpoint is source of truth. |
 | `GRID_CONV_OWNER_TTL_SECONDS` | No | `15` | TTL of the conversation owner key (`conv:<id>:owner`, `SET NX EX`) that elects the single replica running a turn once affinity is off; renewed by heartbeat. |
@@ -281,6 +281,19 @@ they stay unset and no producer exports.
 The Aspire ingestion key is NOT an env var on producers — it lives in the
 Kubernetes Secret `aspire-dashboard-secrets`, referenced only by the collector and the
 dashboard (see `docs/deployment/kubernetes.md` §9).
+
+## Data-tier authentication (Kubernetes/Pulumi-injected)
+
+Set by the Pulumi stack on infrastructure containers, not on any first-party
+service and not in `deploy/.env`. Listed because they are the other half of the
+`REDIS_URL` above: they are what the *server* checks the URL's password
+against. Both arrive by `secretKeyRef` — never as a container argument, since a
+pod spec is readable by anything with `get pod` in the namespace.
+
+| Variable | Container | Description |
+|----------|-----------|-------------|
+| `DFLY_requirepass` | both Dragonfly instances (`dragonfly`, `dragonfly-ratelimit`) | Dragonfly's `--requirepass` supplied as an env var. `DFLY_<flag>` is **case sensitive** and must be spelled exactly like this; the older `DFLY_PASSWORD` is deprecated and makes Dragonfly exit fatally. Sourced from the Secret `<instance>-auth`, whose contents are hashed onto the pod template so a rotation is a rolling update rather than a silent split-brain between the server and its consumers. Set from `grid-oib:dragonflyPassword` / `grid-oib:rateLimitStorePassword`, which must differ. |
+| `REDIS_AUTH` | Envoy Gateway's rate limit service (`envoy-gateway-system`) | The counter store's password, read by upstream `envoyproxy/ratelimit`. It cannot travel in the URL: Envoy Gateway's `RateLimitRedisSettings` has only `url`, `urlRef` and `tls`, and renders `url` into `REDIS_URL` as a bare `host:port` dial address, not a URI. Injected through `provider.kubernetes.rateLimitDeployment.container.env` from the Secret `grid-ratelimit-redis-auth` in that namespace. A mismatch is **fail-open** — rate limits stop enforcing, traffic keeps flowing. |
 
 ---
 

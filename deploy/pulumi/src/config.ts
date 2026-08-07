@@ -11,6 +11,14 @@ import * as pulumi from "@pulumi/pulumi";
  * Secret values are typed as `pulumi.Output<string>` — they stay encrypted in
  * the stack state and are only ever materialised inside k8s Secrets.
  */
+/**
+ * Server-side-encryption modes CloudNativePG accepts on `barmanObjectStore`'s
+ * `wal.encryption` / `data.encryption`. Mirrors the CRD enum exactly
+ * (`Enum=AES256;"aws:kms"`) — "off" is the absence of the key, not `""`, so it
+ * has no member here.
+ */
+export type BarmanEncryption = "AES256" | "aws:kms";
+
 export interface GridConfig {
   namespace: string;
   /** Raw kubeconfig for the target cluster (from the provider). Secret. */
@@ -55,6 +63,19 @@ export interface GridConfig {
      * provider's Lightbits (NVMe/TCP) class — discover it with
      * `kubectl get storageclass`. The CSI driver is provider-installed; we only
      * reference the class by name.
+     *
+     * **Encryption at rest is NOT something this program can request.**
+     * Kubernetes has no per-PVC encryption field: whether a volume is encrypted
+     * is decided entirely by the StorageClass's `parameters`, which are fixed
+     * when the class is created — and nothing in this repo creates a
+     * StorageClass. So there is no config key here that could turn PVC
+     * encryption on; inventing one would be a setting that does nothing.
+     *
+     * It is an OPERATOR action against the provider: obtain (or have the
+     * provider create) a StorageClass whose backing volumes are encrypted, then
+     * point this key at it. `kubectl get storageclass <name> -o yaml` shows the
+     * parameters actually in force. See docs/deployment/kubernetes.md
+     * § Encryption posture.
      */
     className: string;
   };
@@ -166,6 +187,23 @@ export interface GridConfig {
     storeMaxmemory: string;
     /** Counter-store pod memory limit; must sit above `storeMaxmemory`. */
     storeMemoryLimit: string;
+    /**
+     * `requirepass` for the counter store. Required (with the same
+     * `allowUnauthenticatedRedis` opt-out) whenever rate limiting is enabled,
+     * and deliberately a SEPARATE key from `dragonflyPassword`.
+     *
+     * The distinctness is the point, for the same reason `pgRuntimePassword`
+     * stopped defaulting to `pgAppPassword`: every app pod holds the cache
+     * credential in its own `REDIS_URL`. Share one password and any app pod —
+     * or anything that reads one app pod's env — can also authenticate to the
+     * counter store and `FLUSHALL` the edge rate limits, which is precisely the
+     * control the app tier is not supposed to be able to lift.
+     *
+     * Consumed by Envoy Gateway's rate limit service (`REDIS_AUTH`), which runs
+     * in `envoy-gateway-system`, so it is materialised into a Secret there
+     * rather than in the app namespace.
+     */
+    storePassword?: pulumi.Output<string>;
   };
 
   postgres: {
@@ -223,6 +261,44 @@ export interface GridConfig {
       retention: string;
       /** 6-field cron (CNPG uses seconds-first): default nightly 02:00. */
       schedule: string;
+      /**
+       * **Server-side** encryption barman-cloud asks the destination for, on
+       * both the WAL stream and the base backups. Undefined (the default) means
+       * the key is omitted entirely and the bucket's own policy decides — which,
+       * on a bucket with no policy, means the archive is written in the clear.
+       *
+       * This matters more than any other encryption knob in the program: the
+       * PITR archive is a byte-for-byte copy of every database — every
+       * conversation, every LangGraph checkpoint, every WAL record — sitting in
+       * object storage.
+       *
+       * The accepted values are CloudNativePG's, not ours. The field lives on
+       * `wal` and `data` inside `barmanObjectStore` (NOT at its top level) and
+       * the CRD pins it to an enum:
+       *
+       *   `+kubebuilder:validation:Enum=AES256;"aws:kms"`
+       *   "Whenever to force the encryption of files (if the bucket is not
+       *    already configured for that). Allowed options are empty string (use
+       *    the bucket policy, default), `AES256` and `aws:kms`."
+       *   — barman-cloud `pkg/api`, {Wal,Data}BackupConfiguration.Encryption
+       *
+       * Because the enum has no empty member, an explicit `encryption: ""` is
+       * REJECTED by the webhook; "off" must be the key being absent, which is
+       * why this is `undefined` rather than `""`.
+       *
+       * **SSE only encrypts if the DESTINATION implements it.** barman-cloud
+       * turns this into an `x-amz-server-side-encryption` header; a store that
+       * does not implement SSE answers 200 and writes plaintext. The default
+       * destination here is the in-cluster SeaweedFS, which has NO SSE at all on
+       * the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this
+       * program configures no KMS for them even on a newer image). Setting this
+       * against that endpoint would be a setting that reads as encryption and
+       * is not — so `loadConfig` REFUSES the combination outright rather than
+       * letting it ship. Use it with an external S3 destination
+       * (`pgBackupEndpoint` + `pgBackupAccessKey`/`pgBackupSecretKey`) that
+       * documents SSE support.
+       */
+      encryption?: BarmanEncryption;
     };
   };
 
@@ -234,6 +310,25 @@ export interface GridConfig {
      * higher, so limit == maxmemory guarantees OOMKills under load.
      */
     memoryLimit: string;
+    /**
+     * `requirepass` for the ADR-0020 shared cache. REQUIRED unless
+     * `allowUnauthenticatedRedis` is set — see the check in `loadConfig`.
+     *
+     * Undefined ONLY in the explicit opt-out case, where the instance keeps its
+     * historical behaviour: no password, no TLS, reachable at
+     * `redis://dragonfly:6379/0` by any pod in the namespace (the
+     * intra-namespace NetworkPolicy allows it).
+     *
+     * That default was not a small hole. This instance carries the ADR-0028
+     * conversation bus — every WebSocket frame of every chat, with a replayable
+     * 500-event backlog per conversation — plus the cached WorkOS directory
+     * (`directory:<orgId>`: email, display name, avatar), authorization
+     * decisions and budget state. A password does not make it confidential on
+     * the wire (Dragonfly here still speaks plaintext RESP; see
+     * docs/deployment/kubernetes.md § Encryption posture), but it does stop any
+     * pod that can open a TCP connection from reading and rewriting all of it.
+     */
+    password?: pulumi.Output<string>;
   };
 
   /**
@@ -731,6 +826,109 @@ export function loadConfig(): GridConfig {
     );
   }
 
+  // ── Postgres PITR archive encryption ──────────────────────────────────────
+  // The archive is the single largest plaintext surface in the stack when it is
+  // on: WAL + base backups are a byte-for-byte copy of all three databases.
+  // `pgBackupEncryption` asks the DESTINATION for server-side encryption, so it
+  // is only ever as real as the destination — hence the two checks below and
+  // the warning that names the exposure when there is none.
+  const pgBackupsEnabled = bool(cfg, "pgBackupsEnabled", false);
+  const pgBackupEndpoint = cfg.get("pgBackupEndpoint") ?? "http://seaweedfs:8333";
+  const pgBackupEncryptionRaw = (cfg.get("pgBackupEncryption") ?? "").trim();
+  const pgBackupEncryption: BarmanEncryption | undefined =
+    pgBackupEncryptionRaw === "" ? undefined : (pgBackupEncryptionRaw as BarmanEncryption);
+  if (pgBackupEncryption !== undefined && !["AES256", "aws:kms"].includes(pgBackupEncryption)) {
+    // The CNPG webhook would reject this too, but only ~20 min into a `pulumi
+    // up` that has already started mutating the cluster.
+    throw new Error(
+      `grid-oib:pgBackupEncryption must be "AES256" or "aws:kms" (got "${pgBackupEncryptionRaw}"). ` +
+        "Leave it unset to inherit the bucket policy — CloudNativePG's enum has no empty member, " +
+        "so \"off\" is the key being absent, not an empty string.",
+    );
+  }
+  // `//seaweedfs` also catches `http://seaweedfs.grid.svc.cluster.local:8333`.
+  const pgBackupIsInCluster =
+    pgBackupEndpoint.includes("//seaweedfs") || pgBackupEndpoint.includes("seaweedfs:8333");
+  if (pgBackupEncryption !== undefined && pgBackupIsInCluster) {
+    // Refuse rather than warn. barman-cloud turns this into an
+    // `x-amz-server-side-encryption` request header; SeaweedFS 3.80 (the pinned
+    // production image) implements no SSE at all, answers 200, and stores the
+    // object unencrypted. Accepting the setting here would put "encryption:
+    // AES256" in the Cluster spec, in the plan, and in any audit of it — while
+    // the bytes on disk are plaintext. That is worse than no setting.
+    throw new Error(
+      `grid-oib:pgBackupEncryption is set ("${pgBackupEncryptionRaw}") but pgBackupEndpoint points at ` +
+        `the in-cluster SeaweedFS (${pgBackupEndpoint}), which implements no server-side encryption ` +
+        "(SSE-S3/KMS/C first appear in 3.97; prod pins 3.80, and this program configures no KMS for " +
+        "them on any image). SeaweedFS answers such a request 200 and stores the object in the clear, " +
+        "so the setting would claim an encryption that does not exist. Point pgBackupEndpoint at an " +
+        "external S3 destination that documents SSE support, or leave pgBackupEncryption unset.",
+    );
+  }
+  if (pgBackupsEnabled && pgBackupEncryption === undefined) {
+    pulumi.log.warn(
+      "Postgres PITR archive is UNENCRYPTED at rest. WAL and base backups are a byte-for-byte copy " +
+        "of all three databases (conversations, LangGraph checkpoints, the whole grid_app schema) " +
+        `and go to ${pgBackupEndpoint} with no encryption requested. On the in-cluster SeaweedFS ` +
+        "there is no fix available in this program — SeaweedFS 3.80 has no SSE, and volume-chunk " +
+        "encryption (seaweedfsEncryptVolumeData) is the only at-rest control that applies. For a " +
+        "real guarantee use an external S3 destination and set grid-oib:pgBackupEncryption=AES256. " +
+        "See docs/deployment/kubernetes.md § Encryption posture.",
+    );
+  }
+
+  // ── Dragonfly authentication ──────────────────────────────────────────────
+  // Both instances shipped with NO password and NO TLS while the intra-namespace
+  // NetworkPolicy lets any pod open 6379. The cache is the serious one: it
+  // carries the ADR-0028 conversation bus (every chat frame, replayable), the
+  // cached WorkOS directory (email/name/avatar), authz decisions and budget
+  // state. Fail closed like `jobPayloadKek` does — a password must be a
+  // decision, in one direction or the other, never a default nobody noticed.
+  const rateLimitEnabled = bool(cfg, "rateLimitEnabled", true);
+  const allowUnauthenticatedRedis = bool(cfg, "allowUnauthenticatedRedis", false);
+  const dragonflyPassword = cfg.getSecret("dragonflyPassword");
+  const rateLimitStorePassword = cfg.getSecret("rateLimitStorePassword");
+  const missingRedisPasswords = [
+    dragonflyPassword === undefined ? "dragonflyPassword" : undefined,
+    rateLimitEnabled && rateLimitStorePassword === undefined ? "rateLimitStorePassword" : undefined,
+  ].filter((k): k is string => k !== undefined);
+  if (missingRedisPasswords.length > 0 && !allowUnauthenticatedRedis) {
+    throw new Error(
+      `Dragonfly would run with no authentication: ${missingRedisPasswords
+        .map((k) => `grid-oib:${k}`)
+        .join(", ")} unset. Any pod in the namespace could then read the conversation bus (every ` +
+        "chat frame), the cached user directory, authorization decisions and budget state — or reset " +
+        "the edge rate-limit counters. Set them:\n" +
+        "  pulumi config set --secret grid-oib:dragonflyPassword $(openssl rand -base64 32)\n" +
+        "  pulumi config set --secret grid-oib:rateLimitStorePassword $(openssl rand -base64 32)\n" +
+        "To deliberately run WITHOUT authentication (dev/single-node only), set:\n" +
+        "  pulumi config set grid-oib:allowUnauthenticatedRedis true",
+    );
+  }
+  // Distinctness, for the same reason pgRuntimePassword stopped falling back to
+  // pgAppPassword: every app pod holds the cache credential in its own
+  // REDIS_URL, so reusing it for the counter store hands the app tier the
+  // ability to flush the edge rate limits. Compared, never printed.
+  if (
+    dragonflyPassword !== undefined &&
+    rateLimitStorePassword !== undefined &&
+    cfg.get("dragonflyPassword") === cfg.get("rateLimitStorePassword")
+  ) {
+    throw new Error(
+      "grid-oib:rateLimitStorePassword must differ from grid-oib:dragonflyPassword. Every app pod " +
+        "carries the cache password in REDIS_URL; sharing it would let the app tier authenticate to " +
+        "the edge counter store and lift its own rate limits.",
+    );
+  }
+  if (allowUnauthenticatedRedis && missingRedisPasswords.length > 0) {
+    pulumi.log.warn(
+      "Dragonfly is running WITHOUT authentication (allowUnauthenticatedRedis=true): " +
+        missingRedisPasswords.map((k) => `grid-oib:${k}`).join(", ") +
+        " unset. Any pod in the namespace can read and rewrite the conversation bus, the cached " +
+        "user directory, authorization decisions and budget state.",
+    );
+  }
+
   const registryUsername = cfg.get("registryUsername");
   const registryPassword = cfg.getSecret("registryPassword");
   if ((registryUsername === undefined) !== (registryPassword === undefined)) {
@@ -910,23 +1108,25 @@ export function loadConfig(): GridConfig {
       primaryUpdateStrategy:
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {
-        enabled: bool(cfg, "pgBackupsEnabled", false),
-        endpoint: cfg.get("pgBackupEndpoint") ?? "http://seaweedfs:8333",
+        enabled: pgBackupsEnabled,
+        endpoint: pgBackupEndpoint,
         accessKey: cfg.get("pgBackupAccessKey"),
         secretKey: cfg.getSecret("pgBackupSecretKey"),
         bucket: cfg.get("pgBackupBucket") ?? "grid-pg-backups",
         retention: cfg.get("pgBackupRetention") ?? "30d",
         schedule: cfg.get("pgBackupSchedule") ?? "0 0 2 * * *",
+        encryption: pgBackupEncryption,
       },
     },
 
     dragonfly: {
       maxmemory: cfg.get("dragonflyMaxmemory") ?? "512mb",
       memoryLimit: cfg.get("dragonflyMemoryLimit") ?? "768Mi",
+      password: dragonflyPassword,
     },
 
     rateLimit: {
-      enabled: bool(cfg, "rateLimitEnabled", true),
+      enabled: rateLimitEnabled,
       // Ships observing, not enforcing. Flip this to false only with the
       // would-have-blocked counts in front of you.
       shadowMode: bool(cfg, "rateLimitShadowMode", true),
@@ -945,6 +1145,7 @@ export function loadConfig(): GridConfig {
       },
       storeMaxmemory: cfg.get("rateLimitStoreMaxmemory") ?? "256mb",
       storeMemoryLimit: cfg.get("rateLimitStoreMemoryLimit") ?? "384Mi",
+      storePassword: rateLimitStorePassword,
     },
 
     networkPolicies: bool(cfg, "networkPolicies", true),

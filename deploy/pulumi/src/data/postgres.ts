@@ -198,6 +198,29 @@ export function installPostgres(
   // on current operators but is being superseded by the barman-cloud plugin;
   // if a future auto-pulled operator (chart is unpinned) drops the in-tree path,
   // the webhook will reject this at `pulumi up` — switch to the plugin then.
+  //
+  // ENCRYPTION. `encryption` is a field of `wal` and `data`, NOT of
+  // `barmanObjectStore` itself, and its CRD enum is `AES256;"aws:kms"` with no
+  // empty member — so "inherit the bucket policy" is the key being ABSENT, and
+  // emitting `encryption: ""` would be rejected by the webhook. That is why this
+  // spreads conditionally instead of always setting the field.
+  //
+  // What it actually does: barman-cloud sends `--encryption`, which becomes an
+  // `x-amz-server-side-encryption` header on the PUT. It therefore encrypts
+  // exactly nothing unless the DESTINATION implements SSE. The default
+  // destination is this cluster's own SeaweedFS, which does not: SSE-S3/KMS/C
+  // land in 3.97, prod pins 3.80, and even a newer image would need a KMS this
+  // program never configures. SeaweedFS answers such a PUT 200 and writes the
+  // object in the clear, so the header would leave "encryption: AES256" in the
+  // Cluster spec while the bytes are plaintext. `loadConfig` refuses that
+  // combination outright; the knob is here for a real external S3 destination.
+  //
+  // With the in-cluster destination and no SSE, the archive — every row of every
+  // database, WAL included — is at rest exactly as protected as the SeaweedFS
+  // volumes underneath it (`seaweedfsEncryptVolumeData`) and nothing more. Said
+  // plainly in docs/deployment/kubernetes.md § Encryption posture.
+  const backupEncryption = cfg.postgres.backups.encryption;
+  const encryptionField = backupEncryption ? { encryption: backupEncryption } : {};
   const backupSpec = cfg.postgres.backups.enabled
     ? {
         backup: {
@@ -209,8 +232,8 @@ export function installPostgres(
               accessKeyId: { name: backupSecretName, key: "ACCESS_KEY_ID" },
               secretAccessKey: { name: backupSecretName, key: "SECRET_ACCESS_KEY" },
             },
-            wal: { compression: "gzip", maxParallel: 2 },
-            data: { compression: "gzip" },
+            wal: { compression: "gzip", maxParallel: 2, ...encryptionField },
+            data: { compression: "gzip", ...encryptionField },
           },
         },
       }
