@@ -18,7 +18,7 @@
 import 'server-only'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { withTenant } from '@/lib/db/tenant-context'
+import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, projects, type Project } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated org-wide lists. */
@@ -66,17 +66,36 @@ export async function findProjectInOrg(
 
 /**
  * Tenancy probe for authorization: id + org + deletion state only.
- * Unscoped by design — the caller decides whether an org mismatch is a 404.
+ *
+ * Deliberately NOT filtered by organization — the caller compares the owning
+ * org against the session's and decides whether a mismatch is a 404. That is
+ * what makes it a genuine cross-tenant read, so it runs under
+ * {@link withPlatformAccess} with a stated reason rather than `withTenant`.
+ *
+ * The "unscoped by design" note this replaces was about the WHERE clause, and
+ * it was read as covering the tenant context too. It does not: an unfiltered
+ * predicate still has to run as somebody. `requireProjectAccess` calls this on
+ * every project page, so once row-level security was enforced every one of
+ * those pages threw `MissingTenantContextError` (issue #344) — the same class
+ * the rest of this repository was fixed for, missed because the docstring made
+ * "unscoped" sound deliberate in both senses.
+ *
+ * Scoping it to the session's organization instead would also stop the throw,
+ * but it would make the caller's `organizationId !== session.organizationId`
+ * comparison unreachable — a guard that looks live and can never fire is worse
+ * than the bypass, which at least names itself.
  */
 export async function findProjectTenancy(
   projectId: string,
 ): Promise<Pick<Project, 'organizationId' | 'deletedAt'> | null> {
   const db = getDb()
-  const [row] = await db
-    .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt })
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1)
+  const [row] = await withPlatformAccess('project tenancy probe: resolve the owning org before authorizing', () =>
+    db
+      .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1),
+  )
   return row ?? null
 }
 
@@ -93,9 +112,18 @@ export async function insertProject(values: {
   return row
 }
 
-export async function setProjectWorkosResourceId(projectId: string, workosResourceId: string): Promise<void> {
+export async function setProjectWorkosResourceId(
+  projectId: string,
+  organizationId: string,
+  workosResourceId: string,
+): Promise<void> {
   const db = getDb()
-  await db.update(projects).set({ workosResourceId }).where(eq(projects.id, projectId))
+  await withTenant({ organizationId }, () =>
+    db
+      .update(projects)
+      .set({ workosResourceId })
+      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId))),
+  )
 }
 
 export async function renameProjectInOrg(
@@ -189,18 +217,20 @@ export async function updateProjectProfileIfVersion(
   values: ProjectProfileState,
 ): Promise<ProjectProfileState | null> {
   const db = getDb()
-  const [row] = await db
-    .update(projects)
-    .set(values)
-    .where(
-      and(
-        eq(projects.id, projectId),
-        eq(projects.organizationId, organizationId),
-        isNull(projects.deletedAt),
-        eq(projects.profileVersion, expectedVersion),
-      ),
-    )
-    .returning(profileColumns)
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .update(projects)
+      .set(values)
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.deletedAt),
+          eq(projects.profileVersion, expectedVersion),
+        ),
+      )
+      .returning(profileColumns),
+  )
   return row ?? null
 }
 
@@ -223,16 +253,18 @@ export async function setProjectProfileSummaryInOrg(
     eq(projects.organizationId, organizationId),
     isNull(projects.deletedAt),
   )
-  const [current] = await db
-    .select({ profileDisplay: projects.profileDisplay })
-    .from(projects)
-    .where(scope)
-    .limit(1)
-  if (!current?.profileDisplay) return
-  await db
-    .update(projects)
-    .set({ profileDisplay: { ...current.profileDisplay, summary, summaryLocale } })
-    .where(scope)
+  await withTenant({ organizationId }, async () => {
+    const [current] = await db
+      .select({ profileDisplay: projects.profileDisplay })
+      .from(projects)
+      .where(scope)
+      .limit(1)
+    if (!current?.profileDisplay) return
+    await db
+      .update(projects)
+      .set({ profileDisplay: { ...current.profileDisplay, summary, summaryLocale } })
+      .where(scope)
+  })
 }
 
 /** The WorkOS FGA resource id backing a project, or null when unregistered. */
@@ -241,13 +273,15 @@ export async function findProjectWorkosResourceId(
   organizationId: string,
 ): Promise<string | null> {
   const db = getDb()
-  const [row] = await db
-    .select({ workosResourceId: projects.workosResourceId })
-    .from(projects)
-    .where(
-      and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
-    )
-    .limit(1)
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ workosResourceId: projects.workosResourceId })
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
+      )
+      .limit(1),
+  )
   return row?.workosResourceId ?? null
 }
 
@@ -258,25 +292,27 @@ export async function findProjectWorkosResourceId(
  * whose Chroma/SeaweedFS data was already destroyed — a hollow, corrupt restore.
  * Returns false when there is nothing safe to restore.
  */
-export async function restoreProjectIfPending(projectId: string): Promise<boolean> {
+export async function restoreProjectIfPending(projectId: string, organizationId: string): Promise<boolean> {
   const db = getDb()
-  return db.transaction(async (tx) => {
-    const [entry] = await tx
-      .update(deletionQueue)
-      .set({ status: 'restored' })
-      .where(
-        and(
-          eq(deletionQueue.entityType, 'project'),
-          eq(deletionQueue.entityId, projectId),
-          eq(deletionQueue.status, 'pending'),
-          isNull(deletionQueue.claimedAt),
-        ),
-      )
-      .returning()
+  return withTenant({ organizationId }, () =>
+    db.transaction(async (tx) => {
+      const [entry] = await tx
+        .update(deletionQueue)
+        .set({ status: 'restored' })
+        .where(
+          and(
+            eq(deletionQueue.entityType, 'project'),
+            eq(deletionQueue.entityId, projectId),
+            eq(deletionQueue.status, 'pending'),
+            isNull(deletionQueue.claimedAt),
+          ),
+        )
+        .returning()
 
-    if (!entry) return false
+      if (!entry) return false
 
-    await tx.update(projects).set({ deletedAt: null }).where(eq(projects.id, projectId))
-    return true
-  })
+      await tx.update(projects).set({ deletedAt: null }).where(eq(projects.id, projectId))
+      return true
+    }),
+  )
 }

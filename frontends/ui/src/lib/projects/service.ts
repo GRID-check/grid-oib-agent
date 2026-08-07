@@ -128,7 +128,7 @@ export async function createProject(
     name: input.name,
   })
 
-  await setProjectWorkosResourceId(project.id, resource.id)
+  await setProjectWorkosResourceId(project.id, session.organizationId, resource.id)
 
   await workos.authorization.assignRole({
     organizationMembershipId: session.organizationMembershipId,
@@ -227,7 +227,7 @@ export async function restoreProject(
 ): Promise<void> {
   await requireProjectAccess(session, projectId, 'project:manage', { includeDeleted: true })
 
-  const restored = await restoreProjectIfPending(projectId)
+  const restored = await restoreProjectIfPending(projectId, session.organizationId)
   if (!restored) {
     throw new ConflictError('No pending deletion to restore (already purged, or purge in progress).')
   }

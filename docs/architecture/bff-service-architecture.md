@@ -91,6 +91,26 @@ does not survive the way this Next version renders a page — the scope is gone 
 the time a query runs. Going through a repository is what makes it reliable,
 because the repository opens the scope itself with `withTenant`.
 
+That applies to **every** query on a page's call path, including the ones that
+do not look like tenant data. `findProjectTenancy` — the probe
+`requireProjectAccess` runs on every project page — carried the note "unscoped
+by design", which was true of its WHERE clause and false of its context: an
+unfiltered predicate still has to run as somebody. It was missed for exactly
+that reason and took the project pages down a second time (#344). A query that
+genuinely spans organizations is not context-free; it is
+`withPlatformAccess(reason)`.
+
+`projects/repository-tenant-scope.spec.ts` is the guard for this: it drives
+every exported repository function inside an *empty* tenant slot — the state a
+server component is actually in — and fails any query that runs without a scope.
+Copy that spec when a repository starts being reached from a page.
+
+**Currently only the projects and documents repositories are reached from server
+components, and only those are fully self-scoping.** The rest still rely on the
+ambient context their API-route callers get from the route factories, which is
+sound today and becomes a bug the moment a page calls them. Scope a repository
+before you put a page in front of it.
+
 `frontends/ui/src/lib/db/server-component-db-access.spec.ts` enforces this: it
 parses every file under `src/app` and fails the build when one imports values
 from `@/lib/db`. Route handlers that predate the rule are held in an explicit
