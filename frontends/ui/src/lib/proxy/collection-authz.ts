@@ -17,6 +17,7 @@
 
 import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withTenant } from '@/lib/db/tenant-context'
 import { projects } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
@@ -87,11 +88,13 @@ export interface CollectionAuthzDeps {
 const defaultDeps: CollectionAuthzDeps = {
   async findProjectIdByCollection(collectionName, organizationId) {
     const db = getDb()
-    const [project] = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, organizationId)))
-      .limit(1)
+    const [project] = await withTenant({ organizationId }, () =>
+      db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, organizationId)))
+        .limit(1),
+    )
     return project?.id ?? null
   },
   requireProjectAccess: (session, projectId, permission) => requireProjectAccess(session, projectId, permission),

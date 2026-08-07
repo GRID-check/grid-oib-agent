@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { projects, userPreferences } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findConversationTenancy } from '@/lib/conversations/repository'
@@ -25,7 +26,7 @@ function isAuthRequired(): boolean {
 
 export async function resolveActiveProjectId(
   session: GridSession | null,
-  explicitProjectId?: string,
+  explicitProjectId?: string
 ): Promise<string | undefined> {
   if (explicitProjectId) {
     return explicitProjectId
@@ -36,11 +37,18 @@ export async function resolveActiveProjectId(
   }
 
   const db = getDb()
-  const [row] = await db
-    .select({ prefs: userPreferences.prefs })
-    .from(userPreferences)
-    .where(eq(userPreferences.workosUserId, session.userId))
-    .limit(1)
+  // `user_preferences` keys on the user, and a session may have no organization
+  // selected (anonymous deployments), which is what withOptionalTenant covers.
+  const [row] = await withOptionalTenant(
+    session.organizationId,
+    'active-project preference lookup for a session with no organization selected',
+    () =>
+      db
+        .select({ prefs: userPreferences.prefs })
+        .from(userPreferences)
+        .where(eq(userPreferences.workosUserId, session.userId))
+        .limit(1)
+  )
 
   if (row?.prefs && typeof row.prefs === 'object') {
     const activeId = (row.prefs as Record<string, unknown>).active_project_id
@@ -78,7 +86,7 @@ export async function resolveActiveProjectId(
  */
 async function authorizeConversationScope(
   session: AuthorizedSession,
-  conversationId: string,
+  conversationId: string
 ): Promise<void> {
   const tenancy = await findConversationTenancy(conversationId)
   if (!tenancy) return
@@ -87,25 +95,27 @@ async function authorizeConversationScope(
 
 async function resolveProjectCollectionName(
   projectId: string | undefined,
-  organizationId: string | undefined,
+  organizationId: string | undefined
 ): Promise<string | undefined> {
   if (!projectId || !organizationId) {
     return undefined
   }
 
   const db = getDb()
-  const [project] = await db
-    .select({ collectionName: projects.collectionName })
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
-    .limit(1)
+  const [project] = await withTenant({ organizationId }, () =>
+    db
+      .select({ collectionName: projects.collectionName })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+      .limit(1)
+  )
 
   return project?.collectionName
 }
 
 export async function buildCollectionScopeFromRequest(
   session: GridSession | null,
-  context: RequestContext,
+  context: RequestContext
 ): Promise<{
   scope: string[]
   headerValue: string

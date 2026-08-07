@@ -211,7 +211,7 @@ export async function getConversation(
   // Derived only for a shared thread, and only on open. A solo thread is always
   // `ask` by definition — one author — so it pays for no aggregate.
   const engagement = shared
-    ? await resolveEngagement(conversationId, conversation.engagement, { withSuggestion: true })
+    ? await resolveEngagement(conversationId, session.organizationId, conversation.engagement, { withSuggestion: true })
     : { mode: 'ask' as const, stored: conversation.engagement, suggestion: null }
 
   return {
@@ -733,7 +733,7 @@ export async function createConversationMessages(
   // message that tags someone — never asks the question at all.
   let engagementState: EngagementState | null = null
   const engagement = async (): Promise<EngagementState> =>
-    (engagementState ??= await resolveEngagementFor(conversationId))
+    (engagementState ??= await resolveEngagementFor(conversationId, session.organizationId))
 
   // Sequential, not parallel: mention application writes grants and requests,
   // and a batch must not race itself over the same conversation.

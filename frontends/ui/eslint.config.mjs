@@ -59,18 +59,6 @@ export default [
       'src/lib/reasoning-settings/service.ts', // 3
       'src/lib/projects/overview-query.ts', // 3
       'src/lib/projects/folder-service.ts', // 3
-      'src/lib/profiler/repository.ts', // 3
-      'src/lib/conversations/engagement.ts', // 3
-      'src/lib/user-preferences/repository.ts', // 2
-      'src/lib/retrieval-settings/repository.ts', // 2
-      'src/lib/project-profile/prompt-view.ts', // 2
-      'src/lib/organizations/service.ts', // 2
-      'src/lib/model-config/platform-defaults.ts', // 2
-      'src/lib/collection-scope-request.ts', // 2
-      'src/lib/proxy/collection-authz.ts', // 1
-      'src/lib/platform/vector-reconcile.ts', // 1
-      'src/lib/platform/service.ts', // 1
-      'src/lib/model-config/bootstrap-defaults.ts', // 1
     ],
     rules: { 'grid/require-tenant-scope': 'warn' },
   },

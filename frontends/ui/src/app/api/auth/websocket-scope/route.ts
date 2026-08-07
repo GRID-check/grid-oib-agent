@@ -123,7 +123,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       // session exists (defense-in-depth); fully gating anonymous mode is a
       // product decision.
       response.projectId = projectId
-      const projectContext = await loadProjectPromptView(projectId)
+      const projectContext = await loadProjectPromptView(projectId, session?.organizationId)
       if (projectContext) {
         response.projectContext = projectContext
       }
@@ -135,7 +135,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       // Best-effort: a lookup failure must not block the chat handshake, it
       // just means the backend falls back to prompt-text parsing.
       try {
-        const bundesland = await loadProjectBundesland(projectId)
+        const bundesland = await loadProjectBundesland(projectId, session?.organizationId)
         if (bundesland) {
           response.bundesland = bundesland
         }

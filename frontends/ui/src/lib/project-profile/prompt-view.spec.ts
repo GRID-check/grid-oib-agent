@@ -84,8 +84,8 @@ describe('project profile cache invalidation (Fix 1)', () => {
   it('caches both the prompt view and the structured bundesland under their own keys', async () => {
     dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
 
-    expect(await loadProjectBundesland('proj-1')).toBe('wien')
-    expect(await loadProjectPromptView('proj-1')).toBe('PROJECT_CONTEXT v1')
+    expect(await loadProjectBundesland('proj-1', 'org-1')).toBe('wien')
+    expect(await loadProjectPromptView('proj-1', 'org-1')).toBe('PROJECT_CONTEXT v1')
 
     // Two SEPARATE keys — the crux of the bug: invalidating one leaves the other.
     expect(store.map.has('bundesland:proj-1')).toBe(true)
@@ -94,8 +94,8 @@ describe('project profile cache invalidation (Fix 1)', () => {
 
   it('reproduces the bug: prompt-view-only invalidation leaves bundesland stale', async () => {
     dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
-    await loadProjectBundesland('proj-1')
-    await loadProjectPromptView('proj-1')
+    await loadProjectBundesland('proj-1', 'org-1')
+    await loadProjectPromptView('proj-1', 'org-1')
 
     // The user changes the location and saves; the DB now holds the new value.
     dbRows = rowFor('tirol', 'PROJECT_CONTEXT v2')
@@ -104,14 +104,14 @@ describe('project profile cache invalidation (Fix 1)', () => {
     await invalidateProjectPromptViewCache('proj-1')
 
     // …so the prompt view re-reads fresh, but bundesland is served STALE.
-    expect(await loadProjectPromptView('proj-1')).toBe('PROJECT_CONTEXT v2')
-    expect(await loadProjectBundesland('proj-1')).toBe('wien') // stale — the bug
+    expect(await loadProjectPromptView('proj-1', 'org-1')).toBe('PROJECT_CONTEXT v2')
+    expect(await loadProjectBundesland('proj-1', 'org-1')).toBe('wien') // stale — the bug
   })
 
   it('the fix: invalidateProjectProfileCaches drops BOTH keys so neither goes stale', async () => {
     dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
-    await loadProjectBundesland('proj-1')
-    await loadProjectPromptView('proj-1')
+    await loadProjectBundesland('proj-1', 'org-1')
+    await loadProjectPromptView('proj-1', 'org-1')
 
     // Location changed + saved.
     dbRows = rowFor('tirol', 'PROJECT_CONTEXT v2')
@@ -121,7 +121,7 @@ describe('project profile cache invalidation (Fix 1)', () => {
     // Both keys were cleared, so both loaders re-read the new stored profile.
     expect(store.map.has('bundesland:proj-1')).toBe(false)
     expect(store.map.has('promptview:proj-1')).toBe(false)
-    expect(await loadProjectBundesland('proj-1')).toBe('tirol')
-    expect(await loadProjectPromptView('proj-1')).toBe('PROJECT_CONTEXT v2')
+    expect(await loadProjectBundesland('proj-1', 'org-1')).toBe('tirol')
+    expect(await loadProjectPromptView('proj-1', 'org-1')).toBe('PROJECT_CONTEXT v2')
   })
 })

@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { projects } from '@/lib/db/schema'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { buildProjectBriefView } from './brief-view'
@@ -28,16 +29,27 @@ const bundeslandCacheKey = (projectId: string) => `bundesland:${projectId}`
  * on one replica invalidates for all replicas — the per-process Map this
  * replaces served stale project context for up to 5 minutes after an edit.
  */
-export async function loadProjectPromptView(projectId: string | undefined): Promise<string | null> {
+export async function loadProjectPromptView(
+  projectId: string | undefined,
+  organizationId: string | null | undefined,
+): Promise<string | null> {
   if (!projectId) return null
 
   return getCached(promptViewCacheKey(projectId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
     const db = getDb()
-    const [project] = await db
-      .select({ profilePromptView: projects.profilePromptView })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1)
+    // `withOptionalTenant` rather than `withTenant`: anonymous single-tenant
+    // deployments (REQUIRE_AUTH=false) reach here with no session and therefore
+    // no organization, which is the case that helper exists for.
+    const [project] = await withOptionalTenant(
+      organizationId,
+      'anonymous deployment: project prompt view requested without a session',
+      () =>
+        db
+          .select({ profilePromptView: projects.profilePromptView })
+          .from(projects)
+          .where(eq(projects.id, projectId))
+          .limit(1),
+    )
     const promptView = project?.profilePromptView?.trim()
     return promptView || null
   })
@@ -77,16 +89,24 @@ export async function invalidateProjectProfileCaches(projectId: string): Promise
  * validated intake vocabulary (a stale/corrupt row must never leak an
  * unvalidated token onto the wire).
  */
-export async function loadProjectBundesland(projectId: string | undefined): Promise<string | null> {
+export async function loadProjectBundesland(
+  projectId: string | undefined,
+  organizationId: string | null | undefined,
+): Promise<string | null> {
   if (!projectId) return null
 
   return getCached(bundeslandCacheKey(projectId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
     const db = getDb()
-    const [project] = await db
-      .select({ profile: projects.profile })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1)
+    const [project] = await withOptionalTenant(
+      organizationId,
+      'anonymous deployment: project jurisdiction requested without a session',
+      () =>
+        db
+          .select({ profile: projects.profile })
+          .from(projects)
+          .where(eq(projects.id, projectId))
+          .limit(1),
+    )
     const value = project?.profile?.facts?.bundesland?.value
     return typeof value === 'string' && isValidBundeslandToken(value) ? value : null
   })
