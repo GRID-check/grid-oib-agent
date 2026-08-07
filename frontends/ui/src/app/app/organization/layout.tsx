@@ -30,8 +30,8 @@ import {
   OrganizationNav,
   type OrganizationSectionKey,
 } from '@/features/organization/components/organization-nav'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 export default async function OrganizationLayout({
   children,

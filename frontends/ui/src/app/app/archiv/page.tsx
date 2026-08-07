@@ -19,8 +19,8 @@ import { OrgTopbar } from '@/components/shell'
 import { getTranslations } from '@/i18n/server'
 import { ArchivWorkspace } from '@/features/documents/components/archiv-workspace'
 import { resolveArchivBackLink } from '@/features/documents/archiv-back-link'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('archiv')

@@ -9,8 +9,8 @@ import { listProjects } from '@/lib/projects/service'
 import { AppSidebar } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 interface ProjectLayoutProps {
   children: React.ReactNode

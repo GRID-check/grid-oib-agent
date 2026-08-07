@@ -21,8 +21,8 @@ import { OrgTopbar } from '@/components/shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { InboxList } from '@/features/collaboration/components'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('collaboration')
