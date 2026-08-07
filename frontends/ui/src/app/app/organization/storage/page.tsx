@@ -6,24 +6,23 @@
  *
  * Deliberately NOT gated, for the same reason as budgets: when the quota is
  * reached every upload in the tenant is refused, and the person it refused is
- * usually not an admin. `canManageStorage` therefore decides what the card
- * shows — admins additionally get the quota editor — rather than whether the
- * route opens. This page is the only place that explains why an upload failed.
+ * usually not an admin. This page is the only place that explains why.
+ *
+ * Read-only for everyone, including org admins. The quota is set by the
+ * platform operator (ADR-0042) — a tenant that could raise its own limit would
+ * not be limited — so there is no editor here for any role.
  */
 
 import { HardDrive } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
-import { canManageStorage } from '@/lib/authz/organizations'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { StorageUsageCard } from '../storage-usage-card'
 
 export default async function OrganizationStoragePage(): Promise<JSX.Element> {
-  return withPageSession(async (session) => {
+  return withPageSession(async () => {
     const t = await getTranslations('organization')
-
-    const isAdmin = canManageStorage(session)
 
     return (
       <div className="flex flex-col gap-6">
@@ -35,12 +34,10 @@ export default async function OrganizationStoragePage(): Promise<JSX.Element> {
               <HardDrive className="size-4 text-muted-foreground" aria-hidden />
               {t('storage.title')}
             </CardTitle>
-            <CardDescription>
-              {isAdmin ? t('storage.description') : t('storage.memberDescription')}
-            </CardDescription>
+            <CardDescription>{t('storage.description')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <StorageUsageCard isAdmin={isAdmin} />
+            <StorageUsageCard />
           </CardContent>
         </Card>
       </div>

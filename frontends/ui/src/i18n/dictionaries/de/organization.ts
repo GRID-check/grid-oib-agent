@@ -260,8 +260,6 @@ export const organization: typeof en.organization = {
     title: 'Dokumentenspeicher',
     description:
       'Jedes hochgeladene Dokument wird aufbewahrt, damit es erneut gelesen, neu eingebettet und geprüft werden kann. Das Kontingent verhindert, dass eine Organisation den gemeinsamen Speicher füllt.',
-    memberDescription:
-      'Jedes hochgeladene Dokument wird aufbewahrt, damit es erneut gelesen, neu eingebettet und geprüft werden kann. Wenden Sie sich an eine Administratorin oder einen Administrator, wenn Sie mehr Platz benötigen.',
     used: 'Belegt',
     ofQuota: '{used} von {quota}',
     noQuota: '{used} belegt (kein Kontingent)',
@@ -270,14 +268,8 @@ export const organization: typeof en.organization = {
     projectDocuments: 'Projektdokumente',
     archivDocuments: 'Organisations-Archiv',
     documentCount: '{count} Dokumente',
-    quotaLabel: 'Kontingent',
-    quotaHint: 'Leer lassen für kein Limit.',
-    quotaUnit: 'GB',
-    save: 'Kontingent speichern',
-    saving: 'Wird gespeichert…',
-    saved: 'Kontingent aktualisiert.',
-    saveError: 'Kontingent konnte nicht aktualisiert werden.',
-    belowUsage: 'Dieses Kontingent liegt unter dem bereits belegten Speicher.',
+    setByPlatform:
+      'Ihr Speicherkontingent wird von Piloti festgelegt. Wenden Sie sich an den Support, wenn Sie mehr Platz benötigen.',
     loadError: 'Speichernutzung konnte nicht geladen werden.',
   },
   budgets: {

@@ -19,10 +19,9 @@
 import 'server-only'
 import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
 import { aggregateStorageUsage, sumStorageBytes, type StorageUsageByScope } from './repository'
-import { ForbiddenError, InsufficientStorageError, UnprocessableError } from '@/lib/api/errors'
+import { InsufficientStorageError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { canManageStorage } from '@/lib/authz/organizations'
-import type { AuthorizedSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
 /** Key under `organizations.settings` holding the quota, in bytes. */
 export const STORAGE_QUOTA_SETTING = 'storageQuotaBytes'
@@ -59,16 +58,14 @@ export interface StorageOverview {
   usage: StorageUsageByScope
   /** Effective quota in bytes, or null when unlimited. */
   quotaBytes: number | null
-  /** Whether the caller may change the quota (drives the UI, not the gate). */
-  canManage: boolean
 }
 
 /**
- * Usage + quota for the caller's own organization.
+ * Usage + quota for the caller's own organization. READ ONLY.
  *
- * Readable by every member: knowing how full the shared drive is, is not
- * privileged information, and a member who cannot upload needs to see why.
- * Only the quota WRITE requires `org:settings:manage`.
+ * Readable by every member: how full the shared drive is is not privileged, and
+ * a member whose upload was refused needs to see why. Nobody inside the tenant
+ * can change the number — see {@link setStorageQuota}.
  */
 export async function getStorageOverview(session: AuthorizedSession): Promise<StorageOverview> {
   const [usage, quotaBytes] = await Promise.all([
@@ -76,7 +73,24 @@ export async function getStorageOverview(session: AuthorizedSession): Promise<St
     getStorageQuotaBytes(session.organizationId),
   ])
 
-  return { usage, quotaBytes, canManage: canManageStorage(session) }
+  return { usage, quotaBytes }
+}
+
+/**
+ * Usage + quota for ANY organization, by id — the platform-owner read.
+ *
+ * Separate from {@link getStorageOverview} because that one derives the org
+ * from the caller's session, which is exactly what a platform owner browsing
+ * someone else's tenant does not have.
+ */
+export async function getOrganizationStorage(
+  organizationId: string
+): Promise<StorageOverview> {
+  const [usage, quotaBytes] = await Promise.all([
+    aggregateStorageUsage(organizationId),
+    getStorageQuotaBytes(organizationId),
+  ])
+  return { usage, quotaBytes }
 }
 
 /**
@@ -105,25 +119,36 @@ export async function assertWithinStorageQuota(
 }
 
 /**
- * Set (or clear, with null) the organization's storage quota.
+ * Set (or clear, with null) an organization's storage quota. PLATFORM ONLY.
  *
- * Refuses a quota below what the org already stores: accepting one would put
- * every subsequent upload into a state the uploader cannot fix, while silently
- * doing nothing about the bytes already there. Freeing space first is the only
- * honest order of operations.
+ * Deliberately unreachable from inside the tenant, and deliberately taking an
+ * explicit `organizationId` instead of reading one off the caller's session: a
+ * quota is a commercial constraint the platform operator imposes, and a limit
+ * the constrained party can raise is not a limit. Same reason
+ * `platform_model_defaults` sits at the platform tier — the tenant sees the
+ * number and plans around it, only the operator sets it.
+ *
+ * Authorization is `platformApiRoute`'s `requirePlatformOwner`, which runs
+ * before the handler and so cannot be lost by editing it. Takes a `GridSession`
+ * because a platform owner browsing another org holds no membership in it, and
+ * does no check of its own — the route is the gate and names itself in its
+ * `enforcedBy` posture.
+ *
+ * Refuses a quota below what the org already stores: accepting one strands the
+ * tenant in a state no upload can fix while doing nothing about the bytes
+ * already there. Freeing space first is the only honest order of operations.
  */
 export async function setStorageQuota(
-  session: AuthorizedSession,
+  session: GridSession,
+  organizationId: string,
   quotaBytes: number | null,
   request?: Request
 ): Promise<StorageOverview> {
-  if (!canManageStorage(session)) throw new ForbiddenError()
-
   if (quotaBytes !== null) {
     if (!Number.isFinite(quotaBytes) || quotaBytes <= 0) {
       throw new UnprocessableError('Quota must be a positive number of bytes')
     }
-    const usedBytes = await sumStorageBytes(session.organizationId)
+    const usedBytes = await sumStorageBytes(organizationId)
     if (quotaBytes < usedBytes) {
       throw new UnprocessableError(
         'Quota is below the storage this organization already uses',
@@ -132,19 +157,23 @@ export async function setStorageQuota(
     }
   }
 
-  await updateOrgSettings(session.organizationId, {
+  await updateOrgSettings(organizationId, {
     settings: { [STORAGE_QUOTA_SETTING]: quotaBytes === null ? null : Math.floor(quotaBytes) },
   })
 
   await recordAuditEvent({
-    organizationId: session.organizationId,
+    organizationId: organizationId,
     actor: { userId: session.userId, email: session.email },
     action: 'org.storage_quota.updated',
     targetType: 'organization',
-    targetId: session.organizationId,
+    targetId: organizationId,
     metadata: { quotaBytes: quotaBytes === null ? 0 : Math.floor(quotaBytes) },
     request,
   })
 
-  return getStorageOverview(session)
+  const [usage, effective] = await Promise.all([
+    aggregateStorageUsage(organizationId),
+    getStorageQuotaBytes(organizationId),
+  ])
+  return { usage, quotaBytes: effective }
 }

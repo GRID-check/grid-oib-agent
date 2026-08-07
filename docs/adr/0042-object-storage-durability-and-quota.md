@@ -70,11 +70,19 @@ block tenants who were never given a limit.
 The quota lives in the `organizations.settings` jsonb bag, not a new table: it
 is one nullable scalar with no history requirement.
 
-**3. Show storage in Organization settings, readable by every member.**
+**3. The quota is set by the platform owner, never by the tenant.**
 
-A member whose upload was just refused is usually not an admin, and this page is
-the only thing that explains the refusal. Only `org:settings:manage` may change
-the quota.
+A limit the constrained party can raise is not a limit. The write lives at
+`PUT /api/platform/organizations/[organizationId]/storage`, gated by
+`platformApiRoute`'s `requirePlatformOwner`, and `setStorageQuota` takes an
+explicit `organizationId` rather than reading one off the caller's session — a
+platform owner browsing another tenant holds no membership in it. Same placement
+and same reasoning as `platform_model_defaults`.
+
+Organization → Storage shows the reading to **every member, read-only for every
+role including org admin**, and says who owns the number so nobody hunts for a
+control that is not there. A member whose upload was just refused is usually not
+an admin, and this page is the only thing that explains the refusal.
 
 **4. Drop `Admin` from the root S3 identity** and scope it to per-bucket object
 actions on the buckets this stack creates. Bucket creation runs over `weed
@@ -103,6 +111,8 @@ We do **not** claim SSE support on 3.80, because there is none.
   so, rather than an outage for everyone.
 - The blast radius of a leaked BFF S3 credential shrinks from "every bucket,
   every action" to "object CRUD on two known buckets".
+- A tenant cannot raise its own ceiling, so the quota is a real commercial
+  control rather than a suggestion.
 - The limits are written down where they are enforced, so nobody has to
   rediscover that `filer.backup` starts empty or that 3.80 ignores SSE headers.
 
@@ -165,6 +175,9 @@ We do **not** claim SSE support on 3.80, because there is none.
 - Provider-level encryption for the PVCs, which is the control that actually
   matches "encrypted at rest".
 - Per-org quota defaults per plan/tier, once there are plans.
+- A platform-tier UI for the quota. The API exists and is gated; the operator
+  currently sets it with an authenticated `PUT`, which is enough to run the
+  control but is not yet a screen.
 
 ## References
 

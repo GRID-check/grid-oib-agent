@@ -262,8 +262,6 @@ export const organization = {
     title: 'Document storage',
     description:
       'Every uploaded document is kept so it can be re-read, re-embedded and audited. The quota is what stops one organization filling the shared disk.',
-    memberDescription:
-      'Every uploaded document is kept so it can be re-read, re-embedded and audited. Ask an administrator if you need more room.',
     used: 'Used',
     ofQuota: '{used} of {quota}',
     noQuota: '{used} stored (no quota set)',
@@ -272,14 +270,7 @@ export const organization = {
     projectDocuments: 'Project documents',
     archivDocuments: 'Organization Archiv',
     documentCount: '{count} documents',
-    quotaLabel: 'Quota',
-    quotaHint: 'Leave empty for no limit.',
-    quotaUnit: 'GB',
-    save: 'Save quota',
-    saving: 'Saving…',
-    saved: 'Quota updated.',
-    saveError: 'Could not update the quota.',
-    belowUsage: 'That quota is below what the organization already stores.',
+    setByPlatform: 'Your storage quota is set by Piloti. Contact support if you need more room.',
     loadError: 'Could not load storage usage.',
   },
   budgets: {

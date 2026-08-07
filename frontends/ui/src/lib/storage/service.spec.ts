@@ -36,7 +36,7 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: (...args: unknown[]) => recordAuditEvent(...args),
 }))
 
-import type { AuthorizedSession } from '@/lib/auth/types'
+import type { GridSession } from '@/lib/auth/types'
 import {
   assertWithinStorageQuota,
   getStorageQuotaBytes,
@@ -46,7 +46,7 @@ import {
 
 const GB = 1e9
 
-const adminSession = (): AuthorizedSession => ({
+const platformSession = (): GridSession => ({
   userId: 'user-1',
   email: 'admin@example.com',
   name: 'Admin',
@@ -136,17 +136,17 @@ describe('storage quota', () => {
   describe('setStorageQuota', () => {
     it('refuses a quota below what is already stored', async () => {
       sumStorageBytes.mockResolvedValue(8 * GB)
-      await expect(setStorageQuota(adminSession(), 5 * GB)).rejects.toMatchObject({ status: 422 })
+      await expect(setStorageQuota(platformSession(), 'org-1', 5 * GB)).rejects.toMatchObject({ status: 422 })
       expect(updateOrgSettings).not.toHaveBeenCalled()
     })
 
     it('refuses a non-positive quota', async () => {
-      await expect(setStorageQuota(adminSession(), 0)).rejects.toMatchObject({ status: 422 })
+      await expect(setStorageQuota(platformSession(), 'org-1', 0)).rejects.toMatchObject({ status: 422 })
     })
 
     it('stores a valid quota and audits it', async () => {
       sumStorageBytes.mockResolvedValue(1 * GB)
-      await setStorageQuota(adminSession(), 10 * GB)
+      await setStorageQuota(platformSession(), 'org-1', 10 * GB)
 
       expect(updateOrgSettings).toHaveBeenCalledWith('org-1', {
         settings: { [STORAGE_QUOTA_SETTING]: 10 * GB },
@@ -161,7 +161,7 @@ describe('storage quota', () => {
     })
 
     it('clears the quota with null, and records it as unlimited', async () => {
-      await setStorageQuota(adminSession(), null)
+      await setStorageQuota(platformSession(), 'org-1', null)
 
       expect(updateOrgSettings).toHaveBeenCalledWith('org-1', {
         settings: { [STORAGE_QUOTA_SETTING]: null },
@@ -171,10 +171,20 @@ describe('storage quota', () => {
       )
     })
 
-    it('refuses a caller without org:settings:manage', async () => {
-      const member = { ...adminSession(), role: 'member', permissions: [] }
-      await expect(setStorageQuota(member, 10 * GB)).rejects.toMatchObject({ status: 403 })
-      expect(updateOrgSettings).not.toHaveBeenCalled()
+    it('writes to the organization it was given, not the caller session', async () => {
+      // The platform owner's own session may carry a different org (or none).
+      // Reading the target off the session instead of the argument would let a
+      // quota land on whichever tenant the operator happened to be browsing.
+      await setStorageQuota(platformSession(), 'org-other', 10 * GB)
+      expect(updateOrgSettings).toHaveBeenCalledWith('org-other', expect.anything())
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: 'org-other' })
+      )
     })
+
+    // NOTE: there is deliberately no "refuses a non-platform caller" case. The
+    // gate is `platformApiRoute`'s requirePlatformOwner, which runs before the
+    // handler; asserting a second check inside the service would test a belt
+    // that does not exist and would drift from the route that does.
   })
 })

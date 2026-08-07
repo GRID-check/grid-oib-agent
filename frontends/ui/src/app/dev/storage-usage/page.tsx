@@ -3,12 +3,15 @@
 /**
  * Dev preview for the organization storage panel.
  *
- * The fixture is deliberately adversarial: the org sits at 82% of its quota, so
- * the meter is visibly filling without being in the error state, and the two
- * scopes differ by an order of magnitude so the byte formatter is exercised at
- * both GB and MB. The admin variant renders the quota editor; the member
- * variant is the same reading with no way to change it, which is what most
- * people who land here actually see.
+ * Two fixtures, because the meter has two states and only one of them is
+ * reassuring. The first sits at 82% of quota — visibly filling, not yet an
+ * error. The second is over, which is what a tenant whose uploads just started
+ * failing actually sees: the critical fill, the limit tick, and the sentence
+ * that explains it. The scopes differ by an order of magnitude so the byte
+ * formatter is exercised at both GB and MB.
+ *
+ * There is no admin variant, because there is no editor for any role — the
+ * quota belongs to the platform operator (ADR-0042).
  */
 
 import { notFound } from 'next/navigation'
@@ -25,20 +28,35 @@ const STORAGE = {
     total: { bytes: 41 * GB, documents: 1380 },
   },
   quotaBytes: 50 * GB,
-  canManage: true,
+}
+
+const OVER_QUOTA = {
+  usage: {
+    project: { bytes: 49.2 * GB, documents: 1602 },
+    archiv: { bytes: 3.4 * GB, documents: 118 },
+    total: { bytes: 52.6 * GB, documents: 1720 },
+  },
+  quotaBytes: 50 * GB,
 }
 
 // Module scope, not a useEffect: a shim installed from an effect loses the race
 // with the child component's own mount-time fetch.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  const w = window as unknown as { __storageUsageShim?: boolean }
+  const w = window as unknown as { __storageUsageShim?: boolean; __storageCall?: number }
   if (!w.__storageUsageShim) {
     w.__storageUsageShim = true
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith('/api/organization/storage')) return Response.json(STORAGE)
+      // Both cards fetch the SAME url, so the shim varies by call order rather
+      // than by query string: first mount gets the within-quota fixture, second
+      // gets the over-quota one. A prop would have meant adding a preview-only
+      // parameter to the production component.
+      if (url.startsWith('/api/organization/storage')) {
+        w.__storageCall = (w.__storageCall ?? 0) + 1
+        return Response.json(w.__storageCall === 1 ? STORAGE : OVER_QUOTA)
+      }
       return real(input, init)
     }
   }
@@ -62,7 +80,7 @@ export default function StorageUsageDevPage(): JSX.Element {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HardDrive className="text-muted-foreground size-4" aria-hidden />
-            Document storage — admin
+            Document storage — within quota
           </CardTitle>
           <CardDescription>
             Every uploaded document is kept so it can be re-read, re-embedded and audited. The quota
@@ -70,7 +88,7 @@ export default function StorageUsageDevPage(): JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StorageUsageCard isAdmin />
+          <StorageUsageCard />
         </CardContent>
       </Card>
 
@@ -78,15 +96,15 @@ export default function StorageUsageDevPage(): JSX.Element {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HardDrive className="text-muted-foreground size-4" aria-hidden />
-            Document storage — member
+            Document storage — over quota
           </CardTitle>
           <CardDescription>
-            Every uploaded document is kept so it can be re-read, re-embedded and audited. Ask an
-            administrator if you need more room.
+            The same panel once the quota is reached: the fill steps to the critical colour, a tick
+            marks where the quota sat, and uploads are refused until space is freed.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StorageUsageCard isAdmin={false} />
+          <StorageUsageCard />
         </CardContent>
       </Card>
     </main>

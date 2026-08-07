@@ -38,19 +38,6 @@ export function canManageBudgets(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.budgetsManage)
 }
 
-/**
- * May set the organization's storage quota (ADR-0042).
- *
- * Reuses `org:settings:manage` rather than minting a storage-specific slug: a
- * quota is an org setting, and a new permission would mean a catalog entry, a
- * WorkOS provisioning run, and a role decision for every existing tenant — cost
- * with no separation gained, since anyone who can change org settings could
- * grant themselves the storage one anyway. NOT `isOrgAdmin`, which also admits
- * the users-table widget holder, who has no business sizing the disk.
- */
-export function canManageStorage(session: SessionSlice): boolean {
-  return hasPermission(session, ORG_PERMISSIONS.settingsManage)
-}
 
 /** May manage legal holds and the deletion queue. */
 export function canManageCompliance(session: SessionSlice): boolean {

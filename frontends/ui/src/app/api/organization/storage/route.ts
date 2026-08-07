@@ -1,33 +1,21 @@
 /**
- * Organization storage usage and quota (ADR-0042).
+ * Organization storage usage (ADR-0042). READ ONLY.
  *
- * GET is open to every member: a member who cannot upload needs to be able to
- * see why, and "how full is the shared drive" is not privileged. The quota
- * WRITE is gated on `org:settings:manage` by the factory, before the handler
- * runs.
+ * Every member may read this: a member whose upload was just refused is usually
+ * not an admin, and this is the only thing that explains the refusal.
+ *
+ * There is deliberately no PUT. The quota is a commercial constraint the
+ * platform operator imposes, so a tenant that could raise its own would not be
+ * constrained at all. The write lives at
+ * `/api/platform/organizations/[organizationId]/storage`.
  */
 
-import { z } from 'zod'
-import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
-import { getStorageOverview, setStorageQuota } from '@/lib/storage/service'
-
-const putSchema = z.object({
-  /** Bytes, or null to make the organization unlimited. */
-  quotaBytes: z.number().int().positive().nullable(),
-})
+import { apiRoute } from '@/lib/api/handler'
+import { getStorageOverview } from '@/lib/storage/service'
 
 export const GET = apiRoute(async ({ session }) => getStorageOverview(session), {
   authz: {
     sessionOnly: true,
-    why: "every member may read their own organization's storage usage; the read is keyed by session.organizationId and the quota write below requires org:settings:manage",
+    why: "every member may read their own organization's storage usage; the read is keyed by session.organizationId, and the quota is not writable from inside the tenant at all",
   },
 })
-
-export const PUT = apiRoute(
-  async ({ session, request }) => {
-    const { quotaBytes } = await parseJsonBody(request, putSchema)
-    return setStorageQuota(session, quotaBytes, request)
-  },
-  { authz: { permission: ORG_PERMISSIONS.settingsManage } }
-)

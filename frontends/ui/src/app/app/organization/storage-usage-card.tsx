@@ -13,17 +13,15 @@
  * redundant cue and never the only carrier of state — same rule the spend card
  * follows, for the same accessibility reason.
  *
- * The quota editor appears only for `org:settings:manage` holders, but the
- * READING is shown to everyone: a member whose upload was just refused lands
- * here to find out why, and an empty page would answer nothing.
+ * Read-only, for every role including org admin. The quota is set by the
+ * platform operator (ADR-0042), so there is no editor here — showing one to an
+ * org admin would imply a control they do not have. The READING is shown to
+ * everyone: a member whose upload was just refused lands here to find out why.
  */
 
-import { useCallback, useEffect, useState, type FC, type FormEvent } from 'react'
-import { AlertTriangle, HardDrive } from 'lucide-react'
+import { useCallback, useEffect, useState, type FC } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { formatBytes } from '@/lib/format'
 import { useLocale, useTranslations } from '@/i18n'
 
@@ -40,11 +38,7 @@ interface StorageResponse {
     total: StorageScopeUsage
   }
   quotaBytes: number | null
-  canManage: boolean
 }
-
-/** Quota is entered and displayed in GB — bytes are the wire unit, not a UI one. */
-const BYTES_PER_GB = 1e9
 
 /** Fraction of the quota at which "almost full" is worth saying out loud. */
 const NEAR_QUOTA_RATIO = 0.9
@@ -129,20 +123,16 @@ const ScopeRow: FC<{ label: string; usage: StorageScopeUsage }> = ({ label, usag
   )
 }
 
-export const StorageUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
+export const StorageUsageCard: FC = () => {
   const t = useTranslations('organization')
   const [data, setData] = useState<StorageResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [quotaGb, setQuotaGb] = useState('')
 
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/organization/storage')
       if (!res.ok) throw new Error('load failed')
-      const body = (await res.json()) as StorageResponse
-      setData(body)
-      setQuotaGb(body.quotaBytes === null ? '' : String(body.quotaBytes / BYTES_PER_GB))
+      setData((await res.json()) as StorageResponse)
     } catch {
       toast.error(t('storage.loadError'))
     } finally {
@@ -153,31 +143,6 @@ export const StorageUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   useEffect(() => {
     void load()
   }, [load])
-
-  const onSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault()
-    setSaving(true)
-    try {
-      const trimmed = quotaGb.trim()
-      const quotaBytes = trimmed === '' ? null : Math.round(Number(trimmed) * BYTES_PER_GB)
-      const res = await fetch('/api/organization/storage', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ quotaBytes }),
-      })
-      if (res.status === 422) {
-        toast.error(t('storage.belowUsage'))
-        return
-      }
-      if (!res.ok) throw new Error('save failed')
-      setData((await res.json()) as StorageResponse)
-      toast.success(t('storage.saved'))
-    } catch {
-      toast.error(t('storage.saveError'))
-    } finally {
-      setSaving(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -201,32 +166,10 @@ export const StorageUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         <ScopeRow label={t('storage.archivDocuments')} usage={data.usage.archiv} />
       </div>
 
-      {isAdmin && (
-        <form className="flex flex-col gap-2 border-t pt-4" onSubmit={onSubmit}>
-          <Label htmlFor="storage-quota">{t('storage.quotaLabel')}</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              id="storage-quota"
-              type="number"
-              min="0"
-              step="1"
-              inputMode="decimal"
-              className="max-w-32 tabular-nums"
-              value={quotaGb}
-              onChange={(event) => setQuotaGb(event.target.value)}
-              aria-describedby="storage-quota-hint"
-            />
-            <span className="text-muted-foreground text-sm">{t('storage.quotaUnit')}</span>
-            <Button type="submit" disabled={saving}>
-              <HardDrive className="size-4" aria-hidden />
-              {saving ? t('storage.saving') : t('storage.save')}
-            </Button>
-          </div>
-          <p id="storage-quota-hint" className="text-muted-foreground text-xs">
-            {t('storage.quotaHint')}
-          </p>
-        </form>
-      )}
+      {/* Says who owns the number, so nobody hunts for a control that is not
+          here. Shown even when unlimited — "no quota" is also a platform
+          decision, not an absence of one. */}
+      <p className="text-muted-foreground border-t pt-4 text-xs">{t('storage.setByPlatform')}</p>
     </div>
   )
 }
