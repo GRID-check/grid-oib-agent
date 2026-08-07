@@ -12,8 +12,9 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withTenant } from '@/lib/db/tenant-context'
 import { documents } from '@/lib/db/schema'
 
 /** DB statuses that mean "ingestion outcome not yet known". */
@@ -299,7 +300,8 @@ const extractMetadata = (files: CollectionFiles | null, filename: string): Docum
  * simply leaves statuses untouched and metadata absent until the next read.
  */
 export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
-  rows: T[]
+  rows: T[],
+  organizationId: string,
 ): Promise<Array<T & DocumentMetadata>> {
   if (rows.length === 0) return []
 
@@ -350,14 +352,16 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         }
         if (!resolution) return
 
-        await db
-          .update(documents)
-          .set({
-            status: resolution.status,
-            errorMessage: resolution.errorMessage,
-            updatedAt: new Date(),
-          })
-          .where(eq(documents.id, row.id))
+        await withTenant({ organizationId }, () =>
+          db
+            .update(documents)
+            .set({
+              status: resolution.status,
+              errorMessage: resolution.errorMessage,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(documents.id, row.id), eq(documents.organizationId, organizationId))),
+        )
         resolutions.set(row.id, resolution)
       })
     )

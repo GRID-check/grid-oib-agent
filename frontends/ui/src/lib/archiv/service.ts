@@ -53,7 +53,7 @@ export interface ArchivListResult {
  */
 export async function listArchiv(session: AuthorizedSession): Promise<ArchivListResult> {
   const rows = await listArchivDocumentRows(session.organizationId)
-  const reconciled = await reconcileDocumentStatuses(rows)
+  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
   return {
     documents: reconciled.map(({ metadata: _metadata, ...row }) => row),
     collectionName: archivCollectionName(session.organizationId),

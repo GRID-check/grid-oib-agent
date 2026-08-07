@@ -194,7 +194,7 @@ describe('uploadDocument ingest dispatch', () => {
 
     expect(result.status).toBe('pending')
     expect(result.jobId).toBe('job-42')
-    expect(setDocumentIngestJob).toHaveBeenCalledWith(result.documentId, 'job-42')
+    expect(setDocumentIngestJob).toHaveBeenCalledWith(result.documentId, 'org-1', 'job-42')
     expect(markDocumentIngestFailed).not.toHaveBeenCalled()
     // Document is first inserted as 'uploaded' before the job id lands.
     expect(insertDocument).toHaveBeenCalledWith(
@@ -211,6 +211,7 @@ describe('uploadDocument ingest dispatch', () => {
     expect(result.jobId).toBeNull()
     expect(markDocumentIngestFailed).toHaveBeenCalledWith(
       result.documentId,
+      'org-1',
       INGEST_DISPATCH_FAILED_MESSAGE,
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
@@ -229,6 +230,7 @@ describe('uploadDocument ingest dispatch', () => {
     expect(result.jobId).toBeNull()
     expect(markDocumentIngestFailed).toHaveBeenCalledWith(
       result.documentId,
+      'org-1',
       INGEST_DISPATCH_FAILED_MESSAGE,
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
@@ -263,7 +265,7 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
 
     expect(result.status).toBe('failed')
     expect(result.jobId).toBeNull()
-    expect(markDocumentIngestFailed).toHaveBeenCalledWith(result.documentId, INGEST_DISPATCH_FAILED_MESSAGE)
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith(result.documentId, 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 })
@@ -475,7 +477,7 @@ describe('reingestDocument', () => {
     const result = await reingestDocument(session, 'doc-99')
 
     expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-77' })
-    expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-99', 'job-77')
+    expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-99', 'org-1', 'job-77')
     expect(markDocumentIngestFailed).not.toHaveBeenCalled()
   })
 
@@ -495,7 +497,7 @@ describe('reingestDocument', () => {
 
     expect(result.status).toBe('failed')
     expect(result.jobId).toBeNull()
-    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', INGEST_DISPATCH_FAILED_MESSAGE)
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 })

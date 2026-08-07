@@ -223,13 +223,13 @@ export async function dispatchIngest(
   }
 
   if (ingestJobId) {
-    await setDocumentIngestJob(documentId, ingestJobId)
+    await setDocumentIngestJob(documentId, organizationId, ingestJobId)
     return { jobId: ingestJobId, status: 'pending' }
   }
   if (ingestFailed) {
     // Persist 'failed' so status reads stop rendering an unsearchable document
     // as a green "Ready" (it would otherwise sit at 'uploaded' forever).
-    await markDocumentIngestFailed(documentId, INGEST_DISPATCH_FAILED_MESSAGE)
+    await markDocumentIngestFailed(documentId, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
     return { jobId: null, status: 'failed' }
   }
   return { jobId: null, status: 'uploaded' }
@@ -252,7 +252,7 @@ export async function listDocuments(
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(rows)
+  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
 
   return reconciled.map(({ metadata: _metadata, ...row }) => row)
 }
@@ -480,7 +480,7 @@ export async function uploadDocument(
 
   let folderPath: string | null = null
   if (folderId) {
-    folderPath = await findFolderPathInProject(folderId, projectId)
+    folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
     if (folderPath === null) throw new NotFoundError('Folder not found in project')
   }
 
@@ -894,7 +894,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const [reconciled] = await reconcileDocumentStatuses([doc])
+  const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
 
   return {
     id: reconciled.id,
