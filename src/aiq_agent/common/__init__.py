@@ -51,11 +51,15 @@ from .llm_credentials import apply_org_credential
 from .llm_credentials import get_org_llm_credential_from_context
 from .llm_credentials import resolve_org_llm_credential
 from .llm_factory import apply_openrouter_structured_defaults
+from .llm_factory import enforce_chat_request_contract
 from .llm_factory import get_langchain_llm
 from .llm_factory import strict_json_response_format
 from .llm_factory import strict_response_format
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
+from .message_contract import CONTINUATION_TURN
+from .message_contract import ends_on_model_turn
+from .message_contract import normalize_chat_request
 from .message_utils import content_to_text
 from .message_utils import get_latest_user_query
 from .model_overrides import MODEL_OVERRIDES_HEADER
@@ -108,6 +112,7 @@ __all__ = [
     "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "CONTINUATION_TURN",
     "content_to_text",
     "create_budget_guard_callback",
     "apply_model_override",
@@ -145,7 +150,10 @@ __all__ = [
     "set_session_registry",
     "validate_tool_availability",
     "apply_openrouter_structured_defaults",
+    "ends_on_model_turn",
+    "enforce_chat_request_contract",
     "get_langchain_llm",
+    "normalize_chat_request",
     "strict_response_format",
     "strict_json_response_format",
     "verify_citations",

@@ -2,17 +2,24 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { eq } from 'drizzle-orm'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { getWorkOS } from '@/lib/workos/client'
-import { projects } from '@/lib/db/schema'
-import { recordAuditEvent } from '@/lib/audit/service'
+import { createProject as createProjectInOrg } from '@/lib/projects/service'
 
 export interface CreateProjectState {
   error?: string
 }
 
+/**
+ * Create a project from the projects-page form.
+ *
+ * Server actions are transport, exactly like route handlers: resolve the
+ * session, validate the input shape, call the service, redirect. This one used
+ * to re-implement the whole of `projects/service.ts#createProject` — the same
+ * insert, the same WorkOS resource, the same role assignment, the same audit
+ * event — which meant the two copies could (and did) drift: the service gained
+ * a tenant-scoped repository insert while this copy kept its own `getDb()` call
+ * and, once row-level security was enforced, no tenant context to run it in.
+ */
 export async function createProject(_prevState: CreateProjectState, formData: FormData): Promise<CreateProjectState> {
   const session = await requireAuthorizedPageSession()
 
@@ -21,52 +28,11 @@ export async function createProject(_prevState: CreateProjectState, formData: Fo
     return { error: 'Project name is required and must be 1-255 characters.' }
   }
 
-  const trimmed = name.trim()
-  const db = getDb()
-  const workos = getWorkOS()
-
   let projectId: string
 
   try {
-    const [project] = await db
-      .insert(projects)
-      .values({
-        organizationId: session.organizationId,
-        name: trimmed,
-        createdBy: session.userId,
-        collectionName: `proj_${crypto.randomUUID()}`,
-      })
-      .returning()
-
+    const project = await createProjectInOrg(session, { name: name.trim() })
     projectId = project.id
-
-    const resource = await workos.authorization.createResource({
-      resourceTypeSlug: 'project',
-      externalId: project.id,
-      organizationId: session.organizationId,
-      name: trimmed,
-    })
-
-    await db
-      .update(projects)
-      .set({ workosResourceId: resource.id })
-      .where(eq(projects.id, project.id))
-
-    await workos.authorization.assignRole({
-      organizationMembershipId: session.organizationMembershipId,
-      resourceExternalId: project.id,
-      resourceTypeSlug: 'project',
-      roleSlug: 'project-admin',
-    })
-
-    await recordAuditEvent({
-      organizationId: session.organizationId,
-      actor: { userId: session.userId, email: session.email },
-      action: 'project.created',
-      targetType: 'project',
-      targetId: project.id,
-      metadata: { name: trimmed },
-    })
   } catch (error) {
     console.error('[createProject] Failed to create project:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'

@@ -1,9 +1,7 @@
-import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
 import { canManageCompliance } from '@/lib/authz/organizations'
-import { getDb } from '@/lib/db'
-import { documents, projects } from '@/lib/db/schema'
+import { getProjectsGridData } from '@/lib/projects/service'
 import { ProjectsGrid } from '@/components/projects/projects-grid'
 import { ArchivEntryCard } from '@/components/projects/archiv-entry-card'
 import { OrgTopbar } from '@/components/shell'
@@ -21,28 +19,12 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
   const navFlags = await getNavFlags(session)
   const { new: newParam } = await searchParams
   const t = await getTranslations('projects')
-  const db = getDb()
 
-  const rows = await db
-    .select()
-    .from(projects)
-    .where(
-      and(
-        eq(projects.organizationId, session.organizationId),
-        isNull(projects.deletedAt),
-      ),
-    )
-    .orderBy(asc(projects.createdAt))
-
-  const docCounts = await db
-    .select({ projectId: documents.projectId, total: count() })
-    .from(documents)
-    .where(eq(documents.organizationId, session.organizationId))
-    .groupBy(documents.projectId)
-
-  const docCountByProject: Record<string, number> = Object.fromEntries(
-    docCounts.map((row) => [row.projectId, Number(row.total)]),
-  )
+  // The page is transport: it resolves the session, asks the service for the
+  // view, and renders. Tenancy scope, FGA filtering and the document counts all
+  // belong to the service/repository pair behind this call — see
+  // `getProjectsGridData`.
+  const { projects: rows, documentCounts: docCountByProject } = await getProjectsGridData(session, 'oldest')
 
   const autoOpenCreate = newParam === '1'
 

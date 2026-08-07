@@ -1,9 +1,7 @@
 import { type ReactNode } from 'react'
-import { eq } from 'drizzle-orm'
 import { getGridSession } from '@/lib/auth/session'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from '@/lib/authz/feature-flags'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import { ProjectChatClient } from './project-chat-client'
 
 interface ProjectChatPageProps {
@@ -37,9 +35,11 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
   // fail-open: it changes who can see a conversation, so a session-lookup
   // failure must leave it off (spec NF-7).
   let canCollaborate = false
+  let organizationId: string | null = null
   try {
     const session = await getGridSession()
     if (session) {
+      organizationId = session.organizationId
       showSourceBadges = isFeatureEnabled(session, FEATURE_FLAGS.sourceOriginBadges)
       showConfidenceChip = isFeatureEnabled(session, FEATURE_FLAGS.chatConfidenceChip)
       showResearchInHistory = isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)
@@ -58,12 +58,10 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
   let projectCollection: string | null = null
   let projectName: string | null = null
   try {
-    const db = getDb()
-    const [project] = await db
-      .select({ collectionName: projects.collectionName, name: projects.name })
-      .from(projects)
-      .where(eq(projects.id, id))
-      .limit(1)
+    // Scoped to the session's organization: the previous lookup matched on id
+    // alone, so it read across tenants and — once row-level security landed —
+    // ran with no tenant context at all. `findProjectInOrg` supplies both.
+    const project = organizationId ? await findProjectInOrg(id, organizationId) : null
     if (showResearchInHistory) {
       projectCollection = project?.collectionName ?? null
     }

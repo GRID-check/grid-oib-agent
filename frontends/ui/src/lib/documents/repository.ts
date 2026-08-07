@@ -11,8 +11,9 @@
  */
 
 import 'server-only'
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withTenant } from '@/lib/db/tenant-context'
 import { documents, projectFolders, type Document, type NewDocument } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
@@ -169,4 +170,31 @@ export async function findFolderPathInProject(folderId: string, projectId: strin
     .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId)))
     .limit(1)
   return row?.path ?? null
+}
+
+/**
+ * Document counts per project, for the projects grid.
+ *
+ * Takes the project ids the caller is allowed to see rather than counting
+ * org-wide: the grid is fed by `listProjects`, which filters to the projects
+ * this member can actually reach (ADR-0038), so counting across the whole
+ * organization would put a row count against projects the caller was never
+ * shown — and hand back the size of the tenant's estate to someone scoped to
+ * one project. Returns a plain id → count map; projects with no documents are
+ * simply absent.
+ */
+export async function countDocumentsByProject(
+  organizationId: string,
+  projectIds: string[],
+): Promise<Record<string, number>> {
+  if (projectIds.length === 0) return {}
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ projectId: documents.projectId, total: count() })
+      .from(documents)
+      .where(and(eq(documents.organizationId, organizationId), inArray(documents.projectId, projectIds)))
+      .groupBy(documents.projectId),
+  )
+  return Object.fromEntries(rows.map((row) => [row.projectId, Number(row.total)]))
 }

@@ -82,6 +82,66 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api
 # so every downstream call site (collections, queries, count/peek, heartbeat)
 # is identical.
 # ---------------------------------------------------------------------------
+#: The imports the retrieval/ingestion stack cannot run without. Probed rather
+#: than assumed, so the diagnostic describes the environment we are actually in.
+_REQUIRED_RETRIEVAL_MODULES = (
+    "llama_index.core",
+    "llama_index.embeddings.nvidia",
+    "llama_index.vector_stores.chroma",
+    "chromadb",
+)
+
+
+def retrieval_dependency_report() -> list[str]:
+    """Describe, per required module, what is actually wrong with it right now.
+
+    ``llama_index`` is a PEP-420 namespace package: the parent import succeeds
+    whenever *any* ``llama-index-*`` distribution is present, even when the
+    pieces we need are absent. A partial install therefore fails deep inside a
+    submodule with ``cannot import name 'core' from 'llama_index' (unknown
+    location)`` rather than at the obvious place, so "is it installed?" has to
+    be answered per module.
+    """
+    import importlib
+    import importlib.util
+
+    findings: list[str] = []
+    for name in _REQUIRED_RETRIEVAL_MODULES:
+        try:
+            if importlib.util.find_spec(name) is None:
+                findings.append(f"{name}: not installed")
+                continue
+            importlib.import_module(name)
+        except ModuleNotFoundError as exc:
+            findings.append(f"{name}: not installed ({exc})")
+        except Exception as exc:  # noqa: BLE001 - the point is to report, not to handle
+            findings.append(f"{name}: installed but broken ({type(exc).__name__}: {exc})")
+    return findings
+
+
+def _retrieval_dependency_error(cause: BaseException) -> RuntimeError:
+    """Build a truthful error for a failed LlamaIndex import.
+
+    The previous message claimed "LlamaIndex dependencies not installed" for
+    every ``ImportError``. In production the packages *were* installed and one
+    of them was broken (``llama-index-core`` missing under an otherwise
+    populated ``llama_index`` namespace), so the advice to reinstall them was
+    wrong and the real cause -- present in the chained exception all along --
+    went unread for days (issues #330, #331). A diagnostic that misdescribes the
+    fault costs more than no diagnostic at all, so this one reports what is
+    actually true of the running environment.
+    """
+    findings = retrieval_dependency_report() or ["no per-module fault found; see the chained exception"]
+    return RuntimeError(
+        "LlamaIndex retrieval stack is unusable in this environment.\n"
+        f"Triggering import error: {type(cause).__name__}: {cause}\n"
+        "Module status:\n  " + "\n  ".join(findings) + "\n"
+        "A module reported 'installed but broken' means the distribution is present but incomplete "
+        "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
+        "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
+    )
+
+
 def _make_chroma_client(persist_dir: str):
     """Return a ChromaDB client: shared HTTP server when configured, else embedded."""
     import chromadb
@@ -1425,10 +1485,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             logger.info(f"LlamaIndex components initialized with model: {self.embed_model_name}")
 
         except ImportError as e:
-            raise RuntimeError(
-                "LlamaIndex dependencies not installed. "
-                "Install with: pip install llama-index llama-index-embeddings-nvidia chromadb"
-            ) from e
+            raise _retrieval_dependency_error(e) from e
 
     def _get_chroma_client(self):
         """Get or create the shared ChromaDB client (thread-safe)."""
@@ -3193,10 +3250,7 @@ class LlamaIndexRetriever(BaseRetriever):
             logger.info("LlamaIndex retriever components initialized")
 
         except ImportError as e:
-            raise RuntimeError(
-                "LlamaIndex dependencies not installed. "
-                "Install with: pip install llama-index llama-index-embeddings-nvidia chromadb"
-            ) from e
+            raise _retrieval_dependency_error(e) from e
 
     def _get_index(self, collection_name: str):
         """Return a cached VectorStoreIndex for the collection, or None if missing."""
@@ -3348,13 +3402,21 @@ class LlamaIndexRetriever(BaseRetriever):
             return result
 
         except Exception as e:
-            logger.error(f"LlamaIndex retrieval failed: {e}")
+            # ``exception``, not ``error``: these failures are routinely chained
+            # (a RuntimeError raised *from* the ImportError that actually
+            # explains it), and the bare f-string dropped the chain. Combined
+            # with the 100-char cut below, issue #330 reached us as the string
+            # "LlamaIndex retrieval failed: LlamaIndex dependencies not instal"
+            # -- truncated mid-word, cause discarded, and the surviving half was
+            # a misdescription of the fault. The log now carries the whole chain;
+            # the caller-facing summary stays bounded.
+            logger.exception("LlamaIndex retrieval failed")
             return RetrievalResult(
                 chunks=[],
                 query=query,
                 backend=self.backend_name,
                 success=False,
-                error_message=f"Retrieval failed: {str(e)[:100]}",
+                error_message=f"Retrieval failed: {str(e)[:500]}",
             )
 
     def _hybrid_lexical_boost(

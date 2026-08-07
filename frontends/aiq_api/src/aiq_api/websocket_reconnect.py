@@ -965,7 +965,17 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             }
 
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
+                # ``message_type`` MUST be forwarded. Both `system_response_message`
+                # and `error_message` map to this one schema class, but the schema
+                # validates content against the discriminator: an `Error` body is
+                # only legal when `type` says `error_message`. Relying on the
+                # builder's `RESPONSE_MESSAGE` default made every workflow-error
+                # frame fail validation, and because the builder swallows that
+                # failure and returns None (see the guard below), the client was
+                # never told the turn had failed and its composer stayed locked
+                # forever -- the exact hang the error frame exists to prevent.
                 message = await self._message_validator.create_system_response_token_message(
+                    message_type=message_type,
                     message_id=message_id,
                     parent_id=self._message_parent_id,
                     conversation_id=self._conversation_id,
@@ -1039,6 +1049,19 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             elif message is None:
                 raise ValueError(
                     f"Message type could not be resolved by input data model: {data_model.model_dump_json()}"
+                )
+
+            # Every builder above reports failure by returning None rather than
+            # raising (it logs and swallows its own ValidationError). Without
+            # this guard that None falls straight through to ``finally``, which
+            # sends nothing at all -- so a frame we believed we had delivered
+            # silently vanishes and the client waits on a turn that will never
+            # be closed. Turning it into an exception routes it to the fallback
+            # below, which emits a real ERROR frame the client can act on.
+            if message is None:
+                raise ValueError(
+                    f"Websocket message could not be built for type {message_type!r} "
+                    f"from content {type(content).__name__}"
                 )
 
         except (ValidationError, ValueError, TypeError) as exc:

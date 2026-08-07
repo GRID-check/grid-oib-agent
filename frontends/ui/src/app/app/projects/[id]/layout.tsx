@@ -1,12 +1,11 @@
 import { type Metadata } from 'next'
-import { and, asc, eq, isNull } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
 import { isWorkflowsEnabled } from '@/lib/authz/feature-flags'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { findProjectInOrg } from '@/lib/projects/repository'
+import { listProjects } from '@/lib/projects/service'
 import { AppSidebar } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
@@ -30,12 +29,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   try {
     const session = await requireAuthorizedPageSession()
     const { id } = await params
-    const db = getDb()
-    const [project] = await db
-      .select({ name: projects.name })
-      .from(projects)
-      .where(and(eq(projects.id, id), eq(projects.organizationId, session.organizationId)))
-      .limit(1)
+    const project = await findProjectInOrg(id, session.organizationId)
 
     if (!project?.name) return {}
 
@@ -57,27 +51,20 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
   // View access is enough to enter the project shell; per-section controls
   // (danger zone, member management) are gated inside their own pages.
   await requireProjectAccess(session, id, 'project:view')
-  const db = getDb()
 
   // Soft-deleted projects are gone for everyone — including org admins, who
-  // bypass the per-project check inside requireProjectAccess.
-  const [current] = await db
-    .select({ deletedAt: projects.deletedAt })
-    .from(projects)
-    .where(eq(projects.id, id))
-    .limit(1)
-  if (!current || current.deletedAt) notFound()
+  // bypass the per-project check inside requireProjectAccess. `findProjectInOrg`
+  // excludes them by default, so a missing row IS the soft-deleted case.
+  const current = await findProjectInOrg(id, session.organizationId)
+  if (!current) notFound()
 
-  const orgProjects = await db
-    .select({ id: projects.id, name: projects.name })
-    .from(projects)
-    .where(
-      and(
-        eq(projects.organizationId, session.organizationId),
-        isNull(projects.deletedAt),
-      ),
-    )
-    .orderBy(asc(projects.name))
+  // The sidebar switcher goes through the service, not a raw org-wide select:
+  // it is a list of project names and ids, which is exactly what ADR-0038 says
+  // a member without `project:view` on a project must not be handed. Ordering
+  // by name stays a presentation concern, applied to the reachable set.
+  const orgProjects = (await listProjects(session))
+    .map((project) => ({ id: project.id, name: project.name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground md:flex-row">
