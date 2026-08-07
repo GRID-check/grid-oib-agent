@@ -1,7 +1,5 @@
-import { and, eq } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { projects, userPreferences } from '@/lib/db/schema'
+import { findProjectCollectionName } from '@/lib/projects/repository'
+import { findUserPreferencesForSession } from '@/lib/user-preferences/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
@@ -36,22 +34,10 @@ export async function resolveActiveProjectId(
     return undefined
   }
 
-  const db = getDb()
-  // `user_preferences` keys on the user, and a session may have no organization
-  // selected (anonymous deployments), which is what withOptionalTenant covers.
-  const [row] = await withOptionalTenant(
-    session.organizationId,
-    'active-project preference lookup for a session with no organization selected',
-    () =>
-      db
-        .select({ prefs: userPreferences.prefs })
-        .from(userPreferences)
-        .where(eq(userPreferences.workosUserId, session.userId))
-        .limit(1)
-  )
+  const prefs = await findUserPreferencesForSession(session.userId, session.organizationId)
 
-  if (row?.prefs && typeof row.prefs === 'object') {
-    const activeId = (row.prefs as Record<string, unknown>).active_project_id
+  if (prefs && typeof prefs === 'object') {
+    const activeId = prefs.active_project_id
     if (typeof activeId === 'string' && activeId) {
       return activeId
     }
@@ -101,16 +87,7 @@ async function resolveProjectCollectionName(
     return undefined
   }
 
-  const db = getDb()
-  const [project] = await withTenant({ organizationId }, () =>
-    db
-      .select({ collectionName: projects.collectionName })
-      .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
-      .limit(1)
-  )
-
-  return project?.collectionName
+  return (await findProjectCollectionName(projectId, organizationId)) ?? undefined
 }
 
 export async function buildCollectionScopeFromRequest(

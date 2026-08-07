@@ -18,7 +18,7 @@
 import 'server-only'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, projects, type Project } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated org-wide lists. */
@@ -319,4 +319,86 @@ export async function restoreProjectIfPending(projectId: string, organizationId:
       return true
     }),
   )
+}
+
+/**
+ * The stored prompt view for a project, for the agent's request context.
+ *
+ * `organizationId` is nullable because an anonymous single-tenant deployment
+ * (REQUIRE_AUTH=false) has no session to derive one from — that is what
+ * `withOptionalTenant` is for. When it IS present the predicate carries it too,
+ * so a wrong-organization id returns nothing whether or not row-level security
+ * is in the path.
+ */
+export async function findProjectPromptView(
+  projectId: string,
+  organizationId: string | null | undefined,
+): Promise<string | null> {
+  const db = getDb()
+  const conditions = [eq(projects.id, projectId)]
+  if (organizationId) conditions.push(eq(projects.organizationId, organizationId))
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'anonymous deployment: project prompt view requested without a session',
+    () =>
+      db
+        .select({ profilePromptView: projects.profilePromptView })
+        .from(projects)
+        .where(and(...conditions))
+        .limit(1),
+  )
+  return row?.profilePromptView ?? null
+}
+
+/** The stored structured profile for a project. Same nullable-org rules as above. */
+export async function findProjectProfile(
+  projectId: string,
+  organizationId: string | null | undefined,
+): Promise<Project['profile'] | null> {
+  const db = getDb()
+  const conditions = [eq(projects.id, projectId)]
+  if (organizationId) conditions.push(eq(projects.organizationId, organizationId))
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'anonymous deployment: project jurisdiction requested without a session',
+    () =>
+      db
+        .select({ profile: projects.profile })
+        .from(projects)
+        .where(and(...conditions))
+        .limit(1),
+  )
+  return row?.profile ?? null
+}
+
+/** A project's Qdrant/Chroma collection name, scoped to its organization. */
+export async function findProjectCollectionName(
+  projectId: string,
+  organizationId: string,
+): Promise<string | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ collectionName: projects.collectionName })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+      .limit(1),
+  )
+  return row?.collectionName ?? null
+}
+
+/** The project owning `collectionName` inside `organizationId`, or null. */
+export async function findProjectIdByCollectionName(
+  collectionName: string,
+  organizationId: string,
+): Promise<string | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, organizationId)))
+      .limit(1),
+  )
+  return row?.id ?? null
 }

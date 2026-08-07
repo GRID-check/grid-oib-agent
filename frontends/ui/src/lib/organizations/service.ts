@@ -7,12 +7,10 @@
  */
 
 import 'server-only'
-import { eq } from 'drizzle-orm'
+import { findOrganization, upsertOrganization } from './repository'
 import { getWorkOS } from '@/lib/workos/client'
-import { getDb } from '@/lib/db'
-import { withTenant } from '@/lib/db/tenant-context'
 import { getCached, invalidateCached } from '@/lib/cache'
-import { organizations, type Organization } from '@/lib/db/schema'
+import type { Organization } from '@/lib/db/schema'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { isOrgFeatureEnabled, WEB_SEARCH_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -173,15 +171,7 @@ function toSettings(row: Organization | undefined): OrgSettings {
 
 /** Read Grid settings for an org (defaults when no row exists yet). */
 export async function getOrgSettings(organizationId: string): Promise<OrgSettings> {
-  const db = getDb()
-  const [row] = await withTenant({ organizationId }, () =>
-    db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.workosOrganizationId, organizationId))
-      .limit(1)
-  )
-  return toSettings(row)
+  return toSettings((await findOrganization(organizationId)) ?? undefined)
 }
 
 export interface OrgSettingsPatch {
@@ -195,7 +185,6 @@ export async function updateOrgSettings(
   organizationId: string,
   patch: OrgSettingsPatch
 ): Promise<OrgSettings> {
-  const db = getDb()
   const current = await getOrgSettings(organizationId)
   const next: OrgSettings = {
     displayName: patch.displayName !== undefined ? patch.displayName : current.displayName,
@@ -203,26 +192,12 @@ export async function updateOrgSettings(
     settings: patch.settings ? { ...current.settings, ...patch.settings } : current.settings,
   }
 
-  await withTenant({ organizationId }, () =>
-    db
-      .insert(organizations)
-      .values({
-        workosOrganizationId: organizationId,
-        displayName: next.displayName,
-        defaultLocale: next.defaultLocale,
-        settings: next.settings,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: organizations.workosOrganizationId,
-        set: {
-          displayName: next.displayName,
-          defaultLocale: next.defaultLocale,
-          settings: next.settings,
-          updatedAt: new Date(),
-        },
-      })
-  )
+  await upsertOrganization({
+    organizationId,
+    displayName: next.displayName,
+    defaultLocale: next.defaultLocale,
+    settings: next.settings,
+  })
 
   return next
 }
