@@ -82,16 +82,6 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api
 # so every downstream call site (collections, queries, count/peek, heartbeat)
 # is identical.
 # ---------------------------------------------------------------------------
-#: The imports the retrieval/ingestion stack cannot run without. Probed rather
-#: than assumed, so the diagnostic describes the environment we are actually in.
-_REQUIRED_RETRIEVAL_MODULES = (
-    "llama_index.core",
-    "llama_index.embeddings.nvidia",
-    "llama_index.vector_stores.chroma",
-    "chromadb",
-)
-
-
 def retrieval_dependency_report() -> list[str]:
     """Describe, per required module, what is actually wrong with it right now.
 
@@ -101,21 +91,41 @@ def retrieval_dependency_report() -> list[str]:
     submodule with ``cannot import name 'core' from 'llama_index' (unknown
     location)`` rather than at the obvious place, so "is it installed?" has to
     be answered per module.
-    """
-    import importlib
-    import importlib.util
 
+    Each probe is a literal import rather than a loop over module names: the
+    four are known when this is written, so computing them bought nothing and
+    made the dependency graph invisible to both readers and static analysis.
+    The exception type carries the distinction the report needs —
+    ``ModuleNotFoundError`` means the module is genuinely absent, any other
+    import failure means it is present but cannot be loaded, which is the case
+    that was misreported as "not installed" for days.
+    """
     findings: list[str] = []
-    for name in _REQUIRED_RETRIEVAL_MODULES:
+
+    def _probe(distribution: str, load) -> None:
         try:
-            if importlib.util.find_spec(name) is None:
-                findings.append(f"{name}: not installed")
-                continue
-            importlib.import_module(name)
+            load()
         except ModuleNotFoundError as exc:
-            findings.append(f"{name}: not installed ({exc})")
+            findings.append(f"{distribution}: not installed ({exc})")
         except Exception as exc:  # noqa: BLE001 - the point is to report, not to handle
-            findings.append(f"{name}: installed but broken ({type(exc).__name__}: {exc})")
+            findings.append(f"{distribution}: installed but broken ({type(exc).__name__}: {exc})")
+
+    def _core() -> None:
+        import llama_index.core  # noqa: F401
+
+    def _embeddings() -> None:
+        from llama_index.embeddings.nvidia import NVIDIAEmbedding  # noqa: F401
+
+    def _vector_store() -> None:
+        from llama_index.vector_stores.chroma import ChromaVectorStore  # noqa: F401
+
+    def _chroma() -> None:
+        import chromadb  # noqa: F401
+
+    _probe("llama-index-core", _core)
+    _probe("llama-index-embeddings-nvidia", _embeddings)
+    _probe("llama-index-vector-stores-chroma", _vector_store)
+    _probe("chromadb", _chroma)
     return findings
 
 
