@@ -15,6 +15,9 @@
 #   esc env init matthiasbigl/grid-oib/dev
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgAppPassword         "$(openssl rand -base64 24)" --secret
+#   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
+#   # Required, no fallback — a stack without it fails at `pulumi preview`:
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridAdminToken        "$(openssl rand -hex 32)" --secret
