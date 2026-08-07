@@ -8,6 +8,9 @@
 #   pulumi stack init prod
 #   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
 #   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+#   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
+#   # Required, no fallback — a stack without it fails at `pulumi preview`:
+#   pulumi config set --secret grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)"
 #   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
 #   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
 #   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
