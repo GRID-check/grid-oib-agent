@@ -24,9 +24,29 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { asDb, makeDocument } from '@/test-utils/db-fixtures'
+
 /** The context in force when the document query resolved. */
 let observedScope: unknown
 
+/** A real `Document` row — a schema change must break this test, not slip past it. */
+const IMAGE_DOCUMENT = makeDocument({
+  id: 'doc-1',
+  organizationId: 'org-from-signature',
+  storageKey: 'org/proj/doc-1/plan.png',
+  contentType: 'image/png',
+  filename: 'plan.png',
+})
+
+/**
+ * A drizzle stand-in that records the tenant context when the query resolves.
+ *
+ * The row comes from `makeDocument`, so it is a real `Document` and a schema
+ * change breaks this test rather than sliding past it; `asDb` is the repo's one
+ * audited place where a hand-built query builder widens to the database handle.
+ * Awaiting is where a real query demands a context, so that is where the
+ * observation is taken.
+ */
 vi.mock('@/lib/db', () => ({
   getDb: () => {
     const chain: Record<string | symbol, unknown> = {}
@@ -35,21 +55,13 @@ vi.mock('@/lib/db', () => ({
         if (property === 'then') {
           return (resolve: (value: unknown) => unknown) => {
             observedScope = getTenantContext()
-            return Promise.resolve([
-              {
-                id: 'doc-1',
-                organizationId: 'org-from-signature',
-                storageKey: 'org/proj/doc-1/plan.png',
-                contentType: 'image/png',
-                filename: 'plan.png',
-              },
-            ]).then(resolve)
+            return Promise.resolve([IMAGE_DOCUMENT]).then(resolve)
           }
         }
         return () => proxy
       },
     })
-    return proxy
+    return asDb(proxy as Record<string, unknown>)
   },
 }))
 
@@ -92,12 +104,18 @@ describe('the signed image route runs in a scope without a session', () => {
     observedScope = 'not-observed'
   })
 
-  it('queries inside the organization the signature claims', async () => {
+  it('queries inside the organization the signature claims, and leaves no scope behind', async () => {
     // An EMPTY slot and no session — exactly the state the image optimizer's
     // headerless request arrives in.
-    const response = await runWithTenantSlot(() =>
-      streamDocumentImage('doc-1', new URLSearchParams({ org: 'org-from-signature', v: 'original' })),
-    )
+    const { response, scopeAfterStream } = await runWithTenantSlot(async () => {
+      const response = await streamDocumentImage(
+        'doc-1',
+        new URLSearchParams({ org: 'org-from-signature', v: 'original' }),
+      )
+      // Read INSIDE the slot: a check from another test would be outside every
+      // scope and could not see a context this call had left behind.
+      return { response, scopeAfterStream: getTenantContext() }
+    })
 
     expect(response.status).toBe(200)
     expect(observedScope).toEqual({
@@ -105,9 +123,8 @@ describe('the signed image route runs in a scope without a session', () => {
       organizationId: 'org-from-signature',
       userId: null,
     })
-  })
-
-  it('guards the guard: the recorder really would see an absent context', () => {
-    expect(getTenantContext()).toBeUndefined()
+    // The repository's scope covers its own query and no more — and the two
+    // readings differing is what shows the recorder can tell the states apart.
+    expect(scopeAfterStream).toBeUndefined()
   })
 })
