@@ -314,17 +314,35 @@ export interface GridConfig {
       metadataSchedule: string;
     };
     /**
-     * Encrypt chunk data written to volume servers (a FILER flag,
-     * `-encryptVolumeData`; the volume server has no concept of encryption).
+     * Encrypt chunk data written to volume servers. ON by default.
      *
-     * Read the trade-off before enabling: keys are generated per chunk and
-     * stored IN THE FILER METADATA, so the filer store becomes the key store for
-     * every object — lose it and the data is unrecoverable ciphertext. It also
-     * only protects against someone obtaining volume disks WITHOUT the filer
-     * store, which is not the usual failure in a single-namespace cluster.
-     * Provider-level disk encryption is the better control for "disks at rest
-     * are encrypted"; this is for the GDPR-erasure property (drop the metadata,
-     * the bytes become undecryptable). Applies to NEW writes only.
+     * A FILER flag (`-filer.encryptVolumeData`) — the volume server has no
+     * concept of encryption and stores the ciphertext as opaque bytes. Each
+     * chunk gets its own AES-256-GCM key, generated at write time from
+     * crypto/rand.
+     *
+     * TWO THINGS TO KNOW, both consequences rather than reasons not to:
+     *
+     * 1. **New writes only.** Objects already in the bucket stay plaintext and
+     *    keep working (each chunk carries its own key, or none). There is no
+     *    bulk-encrypt tool; encrypting the existing corpus means rewriting every
+     *    object. Turning the flag back OFF is safe for reads — already-encrypted
+     *    chunks keep their keys.
+     *
+     * 2. **The filer store becomes the key store for every object.** Lose or
+     *    corrupt it and the volume data is unrecoverable ciphertext — no master
+     *    key, no escrow, no recovery. That makes the metadata snapshot
+     *    (`seaweedfsBackupEnabled`, ADR-0042 Layer B) load-bearing rather than
+     *    nice to have, and it is why `loadConfig` warns below when encryption is
+     *    on without a backup.
+     *
+     * Scope of protection: someone who obtains volume disks WITHOUT the filer
+     * store. In the current single-node topology the filer's leveldb store sits
+     * on the SAME PVC as the volume data, so that separation does not exist yet
+     * and the real gain is the GDPR-erasure property (drop the metadata and the
+     * bytes become undecryptable). Moving the filer store to Postgres — the
+     * topology split ADR-0042 defers — is what turns this into disk-theft
+     * protection.
      */
     encryptVolumeData: boolean;
   };
@@ -697,6 +715,22 @@ export function loadConfig(): GridConfig {
     }
   }
 
+  // Encryption on + no metadata backup is the one combination that loses data
+  // PERMANENTLY rather than temporarily. Chunk keys live in the filer store, so
+  // without a snapshot of that store there is no path back from its corruption —
+  // the volume files survive as ciphertext nobody can open. Warn rather than
+  // refuse: an operator may be running encryption deliberately in dev, and a
+  // hard failure would make the safer default (encryption on) harder to adopt
+  // than the unsafe one.
+  if ((cfg.getBoolean("seaweedfsEncryptVolumeData") ?? true) && !seaweedBackupEnabled) {
+    pulumi.log.warn(
+      "SeaweedFS volume encryption is ON but seaweedfsBackupEnabled is false. Chunk keys live in " +
+        "the filer metadata store, so losing it makes every encrypted object unrecoverable — " +
+        "there is no master key and no escrow. Enable the backup (ADR-0042) before storing " +
+        "anything you cannot afford to lose, or set seaweedfsEncryptVolumeData=false.",
+    );
+  }
+
   const registryUsername = cfg.get("registryUsername");
   const registryPassword = cfg.getSecret("registryPassword");
   if ((registryUsername === undefined) !== (registryPassword === undefined)) {
@@ -948,7 +982,7 @@ export function loadConfig(): GridConfig {
         secretKey: cfg.getSecret("seaweedfsBackupSecretKey") ?? pulumi.secret(""),
         metadataSchedule: cfg.get("seaweedfsMetaSnapshotSchedule") ?? "0 3 * * *",
       },
-      encryptVolumeData: cfg.getBoolean("seaweedfsEncryptVolumeData") ?? false,
+      encryptVolumeData: cfg.getBoolean("seaweedfsEncryptVolumeData") ?? true,
     },
 
     backend: {

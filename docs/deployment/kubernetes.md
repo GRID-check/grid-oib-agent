@@ -406,6 +406,35 @@ schema.
 
   A restore that has never been executed is a hypothesis. Rehearse (1) on dev.
 
+- **Document encryption at rest — ON by default (ADR-0042).** SeaweedFS writes
+  each chunk with its own AES-256-GCM key
+  (`grid-oib:seaweedfsEncryptVolumeData`, default `true`). Two operational
+  consequences:
+
+  1. **New writes only.** Objects already in the bucket stay plaintext and keep
+     working — each chunk carries its own key, or none. There is no bulk-encrypt
+     tool; encrypting an existing corpus means rewriting every object (download
+     and re-upload through the document service). Turning the flag off again is
+     safe for reads: already-encrypted chunks keep their keys and still decrypt.
+  2. **The filer metadata store is now the key store for every object.** There
+     is no master key, no escrow and no recovery path. Losing or corrupting that
+     store turns the entire bucket into ciphertext nobody can open — including
+     the offsite mirror, which holds the same encrypted chunks.
+
+  Because of (2), the metadata snapshot in Layer B stops being a nicety and
+  becomes the thing standing between a filer-store failure and total loss.
+  `pulumi up` warns on every deploy where encryption is on and
+  `seaweedfsBackupEnabled` is false. Treat that warning as a to-do, not noise.
+
+  Note what this does and does not protect against **today**. It protects
+  against someone obtaining volume disks *without* the filer store. In the
+  current single-node topology the filer's leveldb store sits on the same PVC as
+  the volume data, so that separation does not exist yet — the real gain right
+  now is GDPR erasure (drop the metadata and the bytes become undecryptable).
+  Moving the filer store to Postgres, part of the deferred topology split, is
+  what turns this into disk-theft protection. Provider-level PVC encryption
+  remains the control that matches "the disks are encrypted".
+
 - **Volume snapshots — still worth adding.** A `VolumeSnapshotClass`
   (`lightbits`) exists but nothing schedules it. CSI snapshots are not consistent
   with the layers above, but they are the fastest way back from a bad in-place
