@@ -50,6 +50,12 @@ export interface ProjectSectionFlags {
   showKnowledge?: boolean
   /** Collaboration surfaces — `collaboration` flag / env opt-in (ADR-0032…0035). */
   canCollaborate?: boolean
+  /**
+   * Inbox page + rail entry. Deliberately separate from `canCollaborate` since
+   * ADR-0042: the inbox also carries operational alerts, which must reach a
+   * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
+   */
+  canAccessInbox?: boolean
 }
 
 export interface ProjectSection {
@@ -168,7 +174,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     icon: Inbox,
     i18nKey: 'inbox',
     label: { namespace: 'collaboration', key: 'inbox.navLabel' },
-    gate: 'canCollaborate',
+    gate: 'canAccessInbox',
     inRail: true,
     inPalette: false,
     shortcutKey: 'i',

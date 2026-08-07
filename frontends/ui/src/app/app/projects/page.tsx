@@ -37,7 +37,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
           canViewOrganization={navFlags.canViewOrganization}
           canManagePlatform={navFlags.canManagePlatform}
           canAccessArchiv={navFlags.canAccessArchiv}
-          canCollaborate={navFlags.canCollaborate}
+          canAccessInbox={navFlags.canAccessInbox}
         />
 
         <main id="main-content" className="flex-1 px-6 pt-[34px] pb-10 md:px-10">
