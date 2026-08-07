@@ -40,12 +40,45 @@ const SCOPE_OPENING = new Set([
   'withOptionalTenant',
 ])
 
-function calleeName(node) {
+/** Modules the real scope openers come from. */
+const SCOPE_MODULES = new Set(['@/lib/db/tenant-context', '@/lib/auth/require-auth'])
+
+/**
+ * The name a call is made through, when the callee is a bare identifier.
+ *
+ * Member calls (`something.withTenant(...)`) return null on purpose: only a
+ * direct call to an imported binding is trusted, and a property that merely
+ * shares the name is not that.
+ */
+function calleeIdentifier(node) {
   if (!node || node.type !== 'CallExpression') return null
-  const { callee } = node
-  if (callee.type === 'Identifier') return callee.name
-  if (callee.type === 'MemberExpression' && callee.property.type === 'Identifier') return callee.property.name
-  return null
+  return node.callee.type === 'Identifier' ? node.callee : null
+}
+
+/**
+ * True when `identifier` resolves to an import of a real scope opener.
+ *
+ * Matching on the NAME alone would accept a local `const withTenant = …` that
+ * does nothing, and a rule that can be satisfied by naming a variable well is
+ * not a rule. Resolving the binding also means an aliased import
+ * (`import { withTenant as scope }`) still counts, because what matters is
+ * where the function came from, not what this file calls it.
+ */
+function resolvesToScopeOpener(identifier, sourceCode) {
+  const scope = sourceCode.getScope ? sourceCode.getScope(identifier) : null
+  if (!scope) return false
+  let variable = null
+  for (let current = scope; current && !variable; current = current.upper) {
+    variable = current.variables.find((candidate) => candidate.name === identifier.name) ?? null
+  }
+  if (!variable) return false
+  return variable.defs.some((def) => {
+    if (def.type !== 'ImportBinding') return false
+    const source = def.parent?.source?.value
+    if (!SCOPE_MODULES.has(source)) return false
+    const imported = def.node.imported?.name ?? def.node.local?.name
+    return SCOPE_OPENING.has(imported)
+  })
 }
 
 /** True when `node` is lexically inside a callback passed to a scope opener. */
@@ -57,10 +90,10 @@ function insideScope(node, sourceCode) {
     if (
       (current.type === 'ArrowFunctionExpression' || current.type === 'FunctionExpression') &&
       parent.type === 'CallExpression' &&
-      parent.arguments.includes(current) &&
-      SCOPE_OPENING.has(calleeName(parent))
+      parent.arguments.includes(current)
     ) {
-      return true
+      const callee = calleeIdentifier(parent)
+      if (callee && resolvesToScopeOpener(callee, sourceCode)) return true
     }
     current = parent
   }
@@ -99,8 +132,8 @@ export default {
 
     return {
       CallExpression(node) {
-        const name = calleeName(node)
-        if (!name || !SESSION_ACCESSORS.has(name)) return
+        const callee = calleeIdentifier(node)
+        if (!callee || !SESSION_ACCESSORS.has(callee.name)) return
         // `withPageSession` resolves the session itself, inside its own slot.
         if (insideScope(node, sourceCode)) return
         context.report({ node, messageId: 'unscoped' })

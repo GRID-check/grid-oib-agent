@@ -12,10 +12,7 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
-import { and, eq } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import { withTenant } from '@/lib/db/tenant-context'
-import { documents } from '@/lib/db/schema'
+import { setDocumentReconciledStatus } from './repository'
 
 /** DB statuses that mean "ingestion outcome not yet known". */
 const IN_FLIGHT_STATUSES = new Set(['pending', 'processing', 'ingesting'])
@@ -305,7 +302,6 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 ): Promise<Array<T & DocumentMetadata>> {
   if (rows.length === 0) return []
 
-  const db = getDb()
   // Per-call dedup for FRESH fetches used by status reconciliation: multiple
   // in-flight rows in the same collection share one fetch. Each fresh fetch also
   // primes the module-level TTL cache (via loadCollectionFilesFresh), so the
@@ -352,16 +348,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         }
         if (!resolution) return
 
-        await withTenant({ organizationId }, () =>
-          db
-            .update(documents)
-            .set({
-              status: resolution.status,
-              errorMessage: resolution.errorMessage,
-              updatedAt: new Date(),
-            })
-            .where(and(eq(documents.id, row.id), eq(documents.organizationId, organizationId))),
-        )
+        await setDocumentReconciledStatus(row.id, organizationId, resolution)
         resolutions.set(row.id, resolution)
       })
     )

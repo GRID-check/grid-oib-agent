@@ -229,3 +229,24 @@ export async function countDocumentsByProject(
   )
   return Object.fromEntries(rows.map((row) => [row.projectId, Number(row.total)]))
 }
+
+/**
+ * Persist a reconciled ingestion status.
+ *
+ * Lives here rather than in `reconcile-status.ts` because a repository is the
+ * only module that queries for this domain — the reconciler decides WHAT the
+ * status should be, and this writes it.
+ */
+export async function setDocumentReconciledStatus(
+  documentId: string,
+  organizationId: string,
+  resolution: { status: string; errorMessage: string | null },
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ status: resolution.status, errorMessage: resolution.errorMessage, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  )
+}

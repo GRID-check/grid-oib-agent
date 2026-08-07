@@ -303,6 +303,7 @@ export async function restoreProjectIfPending(projectId: string, organizationId:
           and(
             eq(deletionQueue.entityType, 'project'),
             eq(deletionQueue.entityId, projectId),
+            eq(deletionQueue.organizationId, organizationId),
             eq(deletionQueue.status, 'pending'),
             isNull(deletionQueue.claimedAt),
           ),
@@ -311,7 +312,10 @@ export async function restoreProjectIfPending(projectId: string, organizationId:
 
       if (!entry) return false
 
-      await tx.update(projects).set({ deletedAt: null }).where(eq(projects.id, projectId))
+      await tx
+        .update(projects)
+        .set({ deletedAt: null })
+        .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
       return true
     }),
   )
