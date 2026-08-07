@@ -82,7 +82,7 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api
 # so every downstream call site (collections, queries, count/peek, heartbeat)
 # is identical.
 # ---------------------------------------------------------------------------
-def retrieval_dependency_report() -> list[str]:
+def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
     """Describe, per required module, what is actually wrong with it right now.
 
     ``llama_index`` is a PEP-420 namespace package: the parent import succeeds
@@ -100,7 +100,7 @@ def retrieval_dependency_report() -> list[str]:
     import failure means it is present but cannot be loaded, which is the case
     that was misreported as "not installed" for days.
     """
-    findings: list[str] = []
+    faults: list[tuple[str, BaseException]] = []
 
     def _probe(distribution: str, module: str, load) -> None:
         try:
@@ -115,11 +115,11 @@ def retrieval_dependency_report() -> list[str]:
             # old message got wrong.
             missing = exc.name or ""
             if missing and (module == missing or module.startswith(f"{missing}.")):
-                findings.append(f"{distribution}: not installed ({exc})")
+                faults.append((f"{distribution}: not installed ({exc})", exc))
             else:
-                findings.append(f"{distribution}: installed but broken (missing dependency {missing or exc!r})")
+                faults.append((f"{distribution}: installed but broken (missing dependency {missing or exc!r})", exc))
         except Exception as exc:  # noqa: BLE001 - the point is to report, not to handle
-            findings.append(f"{distribution}: installed but broken ({type(exc).__name__}: {exc})")
+            faults.append((f"{distribution}: installed but broken ({type(exc).__name__}: {exc})", exc))
 
     def _core() -> None:
         import llama_index.core  # noqa: F401
@@ -137,7 +137,12 @@ def retrieval_dependency_report() -> list[str]:
     _probe("llama-index-embeddings-nvidia", "llama_index.embeddings.nvidia", _embeddings)
     _probe("llama-index-vector-stores-chroma", "llama_index.vector_stores.chroma", _vector_store)
     _probe("chromadb", "chromadb", _chroma)
-    return findings
+    return faults
+
+
+def retrieval_dependency_report() -> list[str]:
+    """The human-readable half of :func:`retrieval_dependency_faults`."""
+    return [finding for finding, _ in retrieval_dependency_faults()]
 
 
 def ensure_retrieval_dependencies() -> None:
@@ -150,15 +155,21 @@ def ensure_retrieval_dependencies() -> None:
     good diagnostic, and after the component had already reported itself ready.
     Probing the full set up front means "initialized" means usable.
     """
-    findings = retrieval_dependency_report()
-    if findings:
-        raise RuntimeError(
-            "LlamaIndex retrieval stack is unusable in this environment.\nModule status:\n  "
-            + "\n  ".join(findings)
-            + "\nA module reported 'installed but broken' means the distribution is present but incomplete "
-            "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
-            "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
-        )
+    faults = retrieval_dependency_faults()
+    if not faults:
+        return
+    # Chained from the FIRST probe failure. Running before the try/except that
+    # `_retrieval_dependency_error` serves means this is now the raise most
+    # operators will actually see, so it has to carry the original traceback
+    # too -- a summary string alone would drop the one frame that says where
+    # the import broke.
+    raise RuntimeError(
+        "LlamaIndex retrieval stack is unusable in this environment.\nModule status:\n  "
+        + "\n  ".join(finding for finding, _ in faults)
+        + "\nA module reported 'installed but broken' means the distribution is present but incomplete "
+        "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
+        "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
+    ) from faults[0][1]
 
 
 def _retrieval_dependency_error(cause: BaseException) -> RuntimeError:

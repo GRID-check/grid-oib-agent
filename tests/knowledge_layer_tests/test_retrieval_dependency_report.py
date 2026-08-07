@@ -120,3 +120,43 @@ def test_the_error_is_still_useful_when_no_module_faults(break_import) -> None:
 
     assert "no per-module fault found" in message
     assert "something else entirely" in message
+
+
+def test_the_retriever_raise_site_chains_the_original_import_error(break_import) -> None:
+    """The chain has to survive at the place that actually raises.
+
+    Asserting on `_retrieval_dependency_error`'s formatting only proves the
+    helper builds a nice string. What an operator debugging a broken image gets
+    is whatever `_initialize_components` raises, so that is what this pins --
+    including `__cause__`, which is the frame naming the import that broke.
+    """
+    from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
+
+    break_import("llama_index.core", _BROKEN_CORE)
+
+    # __new__ bypasses the constructor: the preflight runs before any instance
+    # state is touched, which is the point of it running first.
+    retriever = LlamaIndexRetriever.__new__(LlamaIndexRetriever)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        retriever._initialize_components()
+
+    assert "llama-index-core: installed but broken" in str(exc_info.value)
+    assert "uv sync --extra llamaindex" in str(exc_info.value)
+    assert exc_info.value.__cause__ is _BROKEN_CORE
+
+
+def test_the_ingestor_raise_site_preflights_the_same_way(break_import) -> None:
+    """Both entry points, or the guarantee is only half true."""
+    from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
+
+    break_import("llama_index.vector_stores.chroma", _BROKEN_CORE)
+
+    ingestor = LlamaIndexIngestor.__new__(LlamaIndexIngestor)
+    ingestor._initialized = False
+
+    with pytest.raises(RuntimeError) as exc_info:
+        ingestor._ensure_initialized()
+
+    assert "llama-index-vector-stores-chroma: installed but broken" in str(exc_info.value)
+    assert exc_info.value.__cause__ is _BROKEN_CORE
