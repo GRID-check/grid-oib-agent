@@ -1,35 +1,45 @@
 /**
- * Every database handle must be used inside a declared tenant scope.
+ * Every entry point must open a tenant scope before it touches a session.
  *
  * Row-level security means a query with no scope fails closed at runtime with
- * `MissingTenantContextError`. Whether a scope exists depends on the CALLER's
- * transport — an API route gets one from its route factory, a server component
- * does not — so the same repository function is correct from one caller and
- * broken from another, and nothing in the code says which. That gap has now
- * caused two production outages (#342, #344), each found by a user rather than
- * by a test, and each "fixed" one function at a time.
+ * `MissingTenantContextError`. The scope is ambient — carried in
+ * AsyncLocalStorage so repository signatures do not each grow an
+ * `organizationId` parameter a caller could pass wrongly — which means exactly
+ * one thing has to be true for the whole codebase to work: **something opened a
+ * slot for this request.**
  *
- * This rule moves the invariant to where it can be checked before shipping: a
- * handle from `getDb()` may only be exercised inside a callback passed to
- * `withTenant`, `withPlatformAccess` or `withOptionalTenant`. It reports in the
- * editor, so the feedback arrives while the query is being written rather than
- * when a page 500s in production.
+ * Route handlers get that from the three factories in `lib/api/handler.ts`.
+ * Server components and server actions have no factory, so for them it is
+ * `withPageSession` (or `runWithTenantSlot` directly, when the session is
+ * nullable). Nothing was doing it, `enterTenantContext` fell back to
+ * `storage.enterWith`, and that binding does not survive the render — which is
+ * issues #342 and #344, the same bug twice.
  *
- * It is deliberately lexical. It does not try to prove that some caller
- * somewhere establishes a scope, because "somebody upstream probably does" is
- * exactly the assumption that failed twice.
+ * So this rule checks the ~25 places that can get it wrong rather than the ~190
+ * queries that merely inherit the consequences. An earlier version did the
+ * opposite: it demanded `withTenant` around every `getDb()` use, which would
+ * have forced the parameter-threading the tenant-context module was designed to
+ * avoid. Checking the entry points is both smaller and the actual invariant.
  */
 
-/** Functions that establish a scope for the duration of their callback. */
-const SCOPE_ESTABLISHING = new Set(['withTenant', 'withPlatformAccess', 'withOptionalTenant'])
+/** Session accessors that only mean anything inside a slot. */
+const SESSION_ACCESSORS = new Set([
+  'requireAuthorizedPageSession',
+  'requireAuthorizedSession',
+  'getGridSession',
+  'requireGridSession',
+])
 
-/** The accessor that hands out an unscoped handle. */
-const DB_ACCESSOR = 'getDb'
+/** Calls that open (or are given) a scope. */
+const SCOPE_OPENING = new Set([
+  'runWithTenantSlot',
+  'withPageSession',
+  'tenantSlotRoute',
+  'withTenant',
+  'withPlatformAccess',
+  'withOptionalTenant',
+])
 
-/** Handle members that actually reach the database. */
-const QUERY_MEMBERS = new Set(['select', 'insert', 'update', 'delete', 'transaction', 'execute', '$client'])
-
-/** The callee name of a call expression, for plain and member callees alike. */
 function calleeName(node) {
   if (!node || node.type !== 'CallExpression') return null
   const { callee } = node
@@ -38,24 +48,20 @@ function calleeName(node) {
   return null
 }
 
-/**
- * True when `node` sits inside a callback given to a scope-establishing call.
- *
- * Walks ancestors rather than inspecting the immediate parent, so the ordinary
- * shape — `withTenant({ organizationId }, () => db.select()...)`, and the same
- * with a `db.transaction` nested inside — is recognised at any depth.
- */
-function insideScopeCallback(node, sourceCode) {
+/** True when `node` is lexically inside a callback passed to a scope opener. */
+function insideScope(node, sourceCode) {
   let current = node
   while (current) {
     const parent = sourceCode.getParent ? sourceCode.getParent(current) : current.parent
     if (!parent) return false
-    const isCallback =
+    if (
       (current.type === 'ArrowFunctionExpression' || current.type === 'FunctionExpression') &&
       parent.type === 'CallExpression' &&
       parent.arguments.includes(current) &&
-      SCOPE_ESTABLISHING.has(calleeName(parent))
-    if (isCallback) return true
+      SCOPE_OPENING.has(calleeName(parent))
+    ) {
+      return true
+    }
     current = parent
   }
   return false
@@ -67,53 +73,37 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'Require every getDb() handle to be used inside withTenant / withPlatformAccess / withOptionalTenant',
+        'Require server components and server actions to resolve their session inside a tenant slot',
     },
     schema: [],
     messages: {
       unscoped:
-        'This query runs with no tenant context and will fail closed under row-level security ' +
-        '(MissingTenantContextError) whenever the caller has not established one — which server ' +
-        'components never do. Wrap it in withTenant({ organizationId }, () => …), or, if it ' +
-        'genuinely spans organizations, withPlatformAccess(reason, () => …).',
+        'This resolves a session outside a tenant slot. A server component gets no route factory, ' +
+        'so nothing opens one for it, and every query underneath will fail closed under row-level ' +
+        'security (MissingTenantContextError) — see issues #342 and #344. Wrap the body in ' +
+        'withPageSession(async (session) => …), or runWithTenantSlot(async () => …) when the ' +
+        'session is nullable.',
     },
   },
 
   create(context) {
     const sourceCode = context.sourceCode ?? context.getSourceCode()
+    const filename = context.filename ?? context.getFilename()
 
-    function report(node) {
-      if (!insideScopeCallback(node, sourceCode)) {
-        context.report({ node, messageId: 'unscoped' })
-      }
-    }
+    // Only entry points: pages, layouts, templates and server actions. Route
+    // handlers are covered by their factories, and library code inherits the
+    // caller's scope by design.
+    const isEntryPoint =
+      /[\\/]src[\\/]app[\\/]/.test(filename) && !/[\\/]route\.tsx?$/.test(filename) && !/\.spec\.tsx?$/.test(filename)
+    if (!isEntryPoint) return {}
 
     return {
-      // `const db = getDb()` — check every place the handle is later used.
-      VariableDeclarator(node) {
-        if (calleeName(node.init) !== DB_ACCESSOR) return
-        for (const variable of sourceCode.getDeclaredVariables(node)) {
-          for (const reference of variable.references) {
-            const identifier = reference.identifier
-            const parent = sourceCode.getParent ? sourceCode.getParent(identifier) : identifier.parent
-            // Only flag uses that actually issue a query; passing the handle
-            // around or reassigning it is not itself a database access.
-            if (
-              parent?.type === 'MemberExpression' &&
-              parent.property.type === 'Identifier' &&
-              QUERY_MEMBERS.has(parent.property.name)
-            ) {
-              report(identifier)
-            }
-          }
-        }
-      },
-
-      // `getDb().select()` — no intermediate variable to follow.
-      MemberExpression(node) {
-        if (calleeName(node.object) !== DB_ACCESSOR) return
-        if (node.property.type !== 'Identifier' || !QUERY_MEMBERS.has(node.property.name)) return
-        report(node)
+      CallExpression(node) {
+        const name = calleeName(node)
+        if (!name || !SESSION_ACCESSORS.has(name)) return
+        // `withPageSession` resolves the session itself, inside its own slot.
+        if (insideScope(node, sourceCode)) return
+        context.report({ node, messageId: 'unscoped' })
       },
     }
   },

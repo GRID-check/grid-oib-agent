@@ -18,6 +18,7 @@ import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { getGridSession } from '@/lib/auth/session'
+import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
@@ -72,9 +73,14 @@ export const metadata: Metadata = {
  */
 const isImageUploadEnabled = async (): Promise<boolean> => {
   try {
-    const session = await getGridSession()
-    if (!session) return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
-    return isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+    // Own slot, like every other entry point: the root layout gets no route
+    // factory either, and `getGridSession` publishes the tenant into whatever
+    // slot is open — with none, into an ambient binding that does not survive.
+    return await runWithTenantSlot(async () => {
+      const session = await getGridSession()
+      if (!session) return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
+      return isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+    })
   } catch {
     return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
   }
