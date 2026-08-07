@@ -41,6 +41,7 @@ import 'server-only'
 import { eq, and, ne, sql } from 'drizzle-orm'
 
 import { getDb } from '@/lib/db'
+import { withTenant } from '@/lib/db/tenant-context'
 import { conversations, messages, type ConversationEngagement } from '@/lib/db/schema'
 
 /**
@@ -55,21 +56,27 @@ export function suggestEngagement(distinctHumanAuthors: number): ConversationEng
 }
 
 /** How many distinct people have written a message in this thread. */
-export async function countDistinctHumanAuthors(conversationId: string): Promise<number> {
+export async function countDistinctHumanAuthors(
+  conversationId: string,
+  organizationId: string
+): Promise<number> {
   const db = getDb()
-  const [row] = await db
-    .select({ count: sql<number>`count(distinct ${messages.authorUserId})::int` })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, 'user'),
-        // Legacy rows carry no author (authorship arrived with migration 0027).
-        // Counting them as one anonymous person would flip a solo thread the
-        // first time its owner wrote again.
-        sql`${messages.authorUserId} is not null`
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ count: sql<number>`count(distinct ${messages.authorUserId})::int` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.organizationId, organizationId),
+          eq(messages.role, 'user'),
+          // Legacy rows carry no author (authorship arrived with migration 0027).
+          // Counting them as one anonymous person would flip a solo thread the
+          // first time its owner wrote again.
+          sql`${messages.authorUserId} is not null`
+        )
       )
-    )
+  )
   return row?.count ?? 0
 }
 
@@ -96,6 +103,7 @@ export interface EngagementState {
  */
 export async function resolveEngagement(
   conversationId: string,
+  organizationId: string,
   stored: ConversationEngagement | null,
   options: { withSuggestion?: boolean } = {}
 ): Promise<EngagementState> {
@@ -104,20 +112,25 @@ export async function resolveEngagement(
   // A thread that has chosen is not nagged about the alternative.
   const suggestion = stored
     ? null
-    : suggestEngagement(await countDistinctHumanAuthors(conversationId))
+    : suggestEngagement(await countDistinctHumanAuthors(conversationId, organizationId))
   return { mode, stored, suggestion }
 }
 
 /** The stored mode alone — a primary-key lookup, no derivation. */
 export async function findStoredEngagement(
-  conversationId: string
+  conversationId: string,
+  organizationId: string
 ): Promise<ConversationEngagement | null> {
   const db = getDb()
-  const [row] = await db
-    .select({ engagement: conversations.engagement })
-    .from(conversations)
-    .where(eq(conversations.id, conversationId))
-    .limit(1)
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ engagement: conversations.engagement })
+      .from(conversations)
+      .where(
+        and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))
+      )
+      .limit(1)
+  )
   return row?.engagement ?? null
 }
 
@@ -127,8 +140,15 @@ export async function findStoredEngagement(
  * Called only for a plain message in a shared thread that is not already waiting on
  * someone, so a solo thread (nearly all of them) pays nothing at all.
  */
-export async function resolveEngagementFor(conversationId: string): Promise<EngagementState> {
-  return resolveEngagement(conversationId, await findStoredEngagement(conversationId))
+export async function resolveEngagementFor(
+  conversationId: string,
+  organizationId: string
+): Promise<EngagementState> {
+  return resolveEngagement(
+    conversationId,
+    organizationId,
+    await findStoredEngagement(conversationId, organizationId)
+  )
 }
 
 /** Set the mode explicitly. Any participant may; it is not an owner-only setting. */
@@ -138,18 +158,20 @@ export async function setEngagement(
   mode: ConversationEngagement
 ): Promise<boolean> {
   const db = getDb()
-  const updated = await db
-    .update(conversations)
-    .set({ engagement: mode })
-    .where(
-      and(
-        eq(conversations.id, conversationId),
-        eq(conversations.organizationId, organizationId),
-        // Nothing to do when it already says that — keeps a double-click from
-        // counting as a change worth publishing.
-        ne(sql`coalesce(${conversations.engagement}, '')`, mode)
+  const updated = await withTenant({ organizationId }, () =>
+    db
+      .update(conversations)
+      .set({ engagement: mode })
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.organizationId, organizationId),
+          // Nothing to do when it already says that — keeps a double-click from
+          // counting as a change worth publishing.
+          ne(sql`coalesce(${conversations.engagement}, '')`, mode)
+        )
       )
-    )
-    .returning({ id: conversations.id })
+      .returning({ id: conversations.id })
+  )
   return updated.length > 0
 }

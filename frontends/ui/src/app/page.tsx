@@ -19,20 +19,23 @@ import { getSignInUrl } from '@workos-inc/authkit-nextjs'
 import { redirect } from 'next/navigation'
 import { isAuthRequired } from '@/lib/auth/auth-required'
 import { getGridSession } from '@/lib/auth/session'
+import { runWithTenantSlot } from '@/lib/db/tenant-context'
 
 interface HomePageProps {
   searchParams: Promise<{ 'sign-in'?: string | string[] }>
 }
 
 export default async function HomePage({ searchParams }: HomePageProps): Promise<never> {
-  if (isAuthRequired()) {
-    const session = await getGridSession()
-    if (!session) {
-      // Resolve before redirect() — it throws to unwind the render.
-      const wantsSignIn = 'sign-in' in (await searchParams)
-      const landingUrl = process.env.GRID_LANDING_URL
-      redirect(wantsSignIn || !landingUrl ? await getSignInUrl() : landingUrl)
+  return runWithTenantSlot(async () => {
+    if (isAuthRequired()) {
+      const session = await getGridSession()
+      if (!session) {
+        // Resolve before redirect() — it throws to unwind the render.
+        const wantsSignIn = 'sign-in' in (await searchParams)
+        const landingUrl = process.env.GRID_LANDING_URL
+        redirect(wantsSignIn || !landingUrl ? await getSignInUrl() : landingUrl)
+      }
     }
-  }
-  redirect('/app/projects')
+    redirect('/app/projects')
+  })
 }

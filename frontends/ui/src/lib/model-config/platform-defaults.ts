@@ -21,6 +21,7 @@
 import 'server-only'
 import { asc, inArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { platformModelDefaults, type PlatformModelDefault } from '@/lib/db/schema'
 import { AGENT_GROUP_IDS } from './agent-groups'
@@ -57,9 +58,16 @@ export interface PlatformModelDefaultInput {
 export async function getPlatformModelDefaults(): Promise<PlatformModelDefaults> {
   return getCached(DEFAULTS_CACHE_KEY, DEFAULTS_CACHE_TTL_MS, async () => {
     const db = getDb()
-    const rows = await db
-      .select({ agentGroup: platformModelDefaults.agentGroup, model: platformModelDefaults.model })
-      .from(platformModelDefaults)
+    const rows = await withPlatformAccess(
+      'platform model defaults are fleet-wide configuration, owned by no tenant',
+      () =>
+        db
+          .select({
+            agentGroup: platformModelDefaults.agentGroup,
+            model: platformModelDefaults.model,
+          })
+          .from(platformModelDefaults)
+    )
     const flat: PlatformModelDefaults = {}
     for (const row of rows) {
       // A group retired from the registry stays in the table until someone
@@ -73,7 +81,10 @@ export async function getPlatformModelDefaults(): Promise<PlatformModelDefaults>
 /** Full rows (model + who/when + snapshot) for the platform admin surface. */
 export async function listPlatformModelDefaults(): Promise<PlatformModelDefault[]> {
   const db = getDb()
-  return db.select().from(platformModelDefaults).orderBy(asc(platformModelDefaults.agentGroup))
+  return withPlatformAccess(
+    'platform model defaults are fleet-wide configuration, owned by no tenant',
+    () => db.select().from(platformModelDefaults).orderBy(asc(platformModelDefaults.agentGroup))
+  )
 }
 
 /**
@@ -95,54 +106,63 @@ export async function savePlatformModelDefaults(
    * would not cover the write. Passing the transaction makes drizzle open a
    * SAVEPOINT on the same connection instead.
    */
-  executor?: PlatformDefaultsExecutor,
+  executor?: PlatformDefaultsExecutor
 ): Promise<PlatformModelDefault[]> {
   const db = executor ?? getDb()
   const entries = Object.entries(input.defaults)
   const keep = entries.map(([agentGroup]) => agentGroup)
 
-  const rows = await db.transaction(async (tx) => {
-    // Clear the groups this save drops. `notInArray` with an empty list is not
-    // expressible, so the empty case is a plain full delete.
-    if (keep.length === 0) {
-      await tx.delete(platformModelDefaults)
-    } else {
-      const stale = await tx
-        .select({ agentGroup: platformModelDefaults.agentGroup })
-        .from(platformModelDefaults)
-      const drop = stale.map((row) => row.agentGroup).filter((group) => !keep.includes(group))
-      if (drop.length > 0) {
-        await tx.delete(platformModelDefaults).where(inArray(platformModelDefaults.agentGroup, drop))
-      }
-    }
+  const rows = await withPlatformAccess(
+    'platform model defaults are fleet-wide configuration, owned by no tenant',
+    () =>
+      db.transaction(async (tx) => {
+        // Clear the groups this save drops. `notInArray` with an empty list is not
+        // expressible, so the empty case is a plain full delete.
+        if (keep.length === 0) {
+          await tx.delete(platformModelDefaults)
+        } else {
+          const stale = await tx
+            .select({ agentGroup: platformModelDefaults.agentGroup })
+            .from(platformModelDefaults)
+          const drop = stale.map((row) => row.agentGroup).filter((group) => !keep.includes(group))
+          if (drop.length > 0) {
+            await tx
+              .delete(platformModelDefaults)
+              .where(inArray(platformModelDefaults.agentGroup, drop))
+          }
+        }
 
-    for (const [agentGroup, model] of entries) {
-      await tx
-        .insert(platformModelDefaults)
-        .values({
-          agentGroup,
-          model,
-          modelSnapshot: input.modelSnapshot[agentGroup] ?? null,
-          note: input.note,
-          updatedBy: input.actorUserId,
-          updatedByEmail: input.actorEmail,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: platformModelDefaults.agentGroup,
-          set: {
-            model,
-            modelSnapshot: input.modelSnapshot[agentGroup] ?? null,
-            note: input.note,
-            updatedBy: input.actorUserId,
-            updatedByEmail: input.actorEmail,
-            updatedAt: new Date(),
-          },
-        })
-    }
+        for (const [agentGroup, model] of entries) {
+          await tx
+            .insert(platformModelDefaults)
+            .values({
+              agentGroup,
+              model,
+              modelSnapshot: input.modelSnapshot[agentGroup] ?? null,
+              note: input.note,
+              updatedBy: input.actorUserId,
+              updatedByEmail: input.actorEmail,
+              updatedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: platformModelDefaults.agentGroup,
+              set: {
+                model,
+                modelSnapshot: input.modelSnapshot[agentGroup] ?? null,
+                note: input.note,
+                updatedBy: input.actorUserId,
+                updatedByEmail: input.actorEmail,
+                updatedAt: new Date(),
+              },
+            })
+        }
 
-    return tx.select().from(platformModelDefaults).orderBy(asc(platformModelDefaults.agentGroup))
-  })
+        return tx
+          .select()
+          .from(platformModelDefaults)
+          .orderBy(asc(platformModelDefaults.agentGroup))
+      })
+  )
 
   await invalidatePlatformModelDefaults()
   return rows

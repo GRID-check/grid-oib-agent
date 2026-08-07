@@ -15,9 +15,7 @@
  * decision logic is unit-testable without a database.
  */
 
-import { and, eq } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { archivCollectionName } from '@/lib/archiv/collection'
@@ -86,13 +84,7 @@ export interface CollectionAuthzDeps {
 
 const defaultDeps: CollectionAuthzDeps = {
   async findProjectIdByCollection(collectionName, organizationId) {
-    const db = getDb()
-    const [project] = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, organizationId)))
-      .limit(1)
-    return project?.id ?? null
+    return findProjectIdByCollectionName(collectionName, organizationId)
   },
   requireProjectAccess: (session, projectId, permission) => requireProjectAccess(session, projectId, permission),
 }

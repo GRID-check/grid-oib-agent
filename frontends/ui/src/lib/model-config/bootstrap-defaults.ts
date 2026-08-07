@@ -54,6 +54,7 @@
 import 'server-only'
 import { sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
 import { AGENT_GROUPS } from './agent-groups'
@@ -220,7 +221,10 @@ async function runBootstrap(): Promise<string[]> {
   // One transaction, one connection: take the lock, re-check that the table is
   // still empty, and write — so a second replica cannot slip between the check
   // and the write, and the lock is released by COMMIT/ROLLBACK either way.
-  const written = await getDb().transaction(async (tx) => {
+  const written = await withPlatformAccess(
+    'first-boot bootstrap of the platform-wide model defaults, which belong to no tenant',
+    () =>
+      getDb().transaction(async (tx) => {
     const lockRows = Array.from(
       await tx.execute<{ locked: boolean }>(
         sql`SELECT pg_try_advisory_xact_lock(${BOOTSTRAP_LOCK_KEY}) AS locked`
@@ -249,8 +253,9 @@ async function runBootstrap(): Promise<string[]> {
       },
       tx
     )
-    return eligible
-  })
+        return eligible
+      }),
+  )
 
   if (written.length === 0) return []
 

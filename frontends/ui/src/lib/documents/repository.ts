@@ -13,7 +13,7 @@
 import 'server-only'
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { withTenant } from '@/lib/db/tenant-context'
+import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documents, projectFolders, type Document, type NewDocument } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
@@ -39,35 +39,40 @@ export async function listProjectDocuments(
   organizationId: string,
   limit = DOCUMENT_LIST_LIMIT,
 ): Promise<DocumentListRow[]> {
+  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
   const db = getDb()
-  return db
-    .select({
-      id: documents.id,
-      filename: documents.filename,
-      fileSize: documents.fileSize,
-      contentType: documents.contentType,
-      status: documents.status,
-      collectionName: documents.collectionName,
-      folderId: documents.folderId,
-      createdAt: documents.createdAt,
-      updatedAt: documents.updatedAt,
-      errorMessage: documents.errorMessage,
-      metadata: documents.metadata,
-    })
-    .from(documents)
-    .where(and(eq(documents.projectId, projectId), eq(documents.organizationId, organizationId)))
-    .orderBy(desc(documents.createdAt))
-    .limit(limit)
+  return withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        filename: documents.filename,
+        fileSize: documents.fileSize,
+        contentType: documents.contentType,
+        status: documents.status,
+        collectionName: documents.collectionName,
+        folderId: documents.folderId,
+        createdAt: documents.createdAt,
+        updatedAt: documents.updatedAt,
+        errorMessage: documents.errorMessage,
+        metadata: documents.metadata,
+      })
+      .from(documents)
+      .where(and(eq(documents.projectId, projectId), eq(documents.organizationId, organizationId)))
+      .orderBy(desc(documents.createdAt))
+      .limit(boundedLimit),
+  )
 }
 
 /** Load a document by id scoped to an organization. */
 export async function findDocumentInOrg(documentId: string, organizationId: string): Promise<Document | null> {
   const db = getDb()
-  const [row] = await db
-    .select()
-    .from(documents)
-    .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
-    .limit(1)
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
+      .limit(1),
+  )
   return row ?? null
 }
 
@@ -88,25 +93,31 @@ export async function findStorageKeyByCollectionAndFilename(
   organizationId?: string,
 ): Promise<{ storageKey: string; contentType: string | null } | null> {
   const db = getDb()
-  const [row] = await db
-    .select({ storageKey: documents.storageKey, contentType: documents.contentType })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.collectionName, collectionName),
-        eq(documents.filename, filename),
-        isNull(documents.deletedAt),
-        ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
-      ),
-    )
-    .orderBy(desc(documents.createdAt))
-    .limit(1)
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'internal document-file lookup: the service-token caller identifies the row by its ' +
+      'unguessable collection name and carries no organization',
+    () =>
+      db
+        .select({ storageKey: documents.storageKey, contentType: documents.contentType })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.collectionName, collectionName),
+            eq(documents.filename, filename),
+            isNull(documents.deletedAt),
+            ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+          ),
+        )
+        .orderBy(desc(documents.createdAt))
+        .limit(1),
+  )
   return row ?? null
 }
 
 export async function insertDocument(values: NewDocument): Promise<void> {
   const db = getDb()
-  await db.insert(documents).values(values)
+  await withTenant({ organizationId: values.organizationId }, () => db.insert(documents).values(values))
 }
 
 /**
@@ -121,27 +132,35 @@ export async function deleteProjectDocument(
   projectId: string,
 ): Promise<void> {
   const db = getDb()
-  await db
-    .delete(documents)
-    .where(
-      and(
-        eq(documents.id, documentId),
-        eq(documents.organizationId, organizationId),
-        eq(documents.projectId, projectId),
+  await withTenant({ organizationId }, () =>
+    db
+      .delete(documents)
+      .where(
+        and(
+          eq(documents.id, documentId),
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+        ),
       ),
-    )
+  )
 }
 
 /**
  * Persist the backend ingest job id so status reads can reconcile the row
  * with the backend's ingestion state (see lib/documents/reconcile-status.ts).
  */
-export async function setDocumentIngestJob(documentId: string, ingestJobId: string): Promise<void> {
+export async function setDocumentIngestJob(
+  documentId: string,
+  organizationId: string,
+  ingestJobId: string,
+): Promise<void> {
   const db = getDb()
-  await db
-    .update(documents)
-    .set({ status: 'pending', metadata: { ingestJobId }, updatedAt: new Date() })
-    .where(eq(documents.id, documentId))
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ status: 'pending', metadata: { ingestJobId }, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  )
 }
 
 /**
@@ -150,25 +169,37 @@ export async function setDocumentIngestJob(documentId: string, ingestJobId: stri
  * the UI renders as a green "Ready" — forever (reconciliation only revisits
  * in-flight statuses, and there is no job id to reconcile against).
  */
-export async function markDocumentIngestFailed(documentId: string, errorMessage: string): Promise<void> {
+export async function markDocumentIngestFailed(
+  documentId: string,
+  organizationId: string,
+  errorMessage: string,
+): Promise<void> {
   const db = getDb()
-  await db
-    .update(documents)
-    .set({ status: 'failed', errorMessage, updatedAt: new Date() })
-    .where(eq(documents.id, documentId))
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ status: 'failed', errorMessage, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  )
 }
 
 /**
  * Resolve a folder's storage path, scoped to the project so a folder id from
  * another project can never redirect an upload.
  */
-export async function findFolderPathInProject(folderId: string, projectId: string): Promise<string | null> {
+export async function findFolderPathInProject(
+  folderId: string,
+  projectId: string,
+  organizationId: string,
+): Promise<string | null> {
   const db = getDb()
-  const [row] = await db
-    .select({ path: projectFolders.path })
-    .from(projectFolders)
-    .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId)))
-    .limit(1)
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ path: projectFolders.path })
+      .from(projectFolders)
+      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId)))
+      .limit(1),
+  )
   return row?.path ?? null
 }
 
@@ -197,4 +228,25 @@ export async function countDocumentsByProject(
       .groupBy(documents.projectId),
   )
   return Object.fromEntries(rows.map((row) => [row.projectId, Number(row.total)]))
+}
+
+/**
+ * Persist a reconciled ingestion status.
+ *
+ * Lives here rather than in `reconcile-status.ts` because a repository is the
+ * only module that queries for this domain — the reconciler decides WHAT the
+ * status should be, and this writes it.
+ */
+export async function setDocumentReconciledStatus(
+  documentId: string,
+  organizationId: string,
+  resolution: { status: string; errorMessage: string | null },
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ status: resolution.status, errorMessage: resolution.errorMessage, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  )
 }

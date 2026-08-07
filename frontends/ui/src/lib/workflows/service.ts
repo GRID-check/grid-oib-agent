@@ -265,13 +265,13 @@ export async function fireWorkflow(
       resolveBudgetSnapshot(organizationId, createdBy, projectId),
       getEffectiveModelOverrides(organizationId).catch(() => null),
       buildProjectCollectionScope(projectId, organizationId),
-      loadProjectPromptView(projectId).catch(() => null),
+      loadProjectPromptView(projectId, organizationId).catch(() => null),
       // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
       // user-mandated) — rides the envelope's `bundesland` field alongside
       // the unchanged `bundesland=<token>` line already inside
       // `projectContext` above. Best-effort: a lookup failure must not
       // block the scheduled run.
-      loadProjectBundesland(projectId).catch(() => null),
+      loadProjectBundesland(projectId, organizationId).catch(() => null),
     ])
     const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 

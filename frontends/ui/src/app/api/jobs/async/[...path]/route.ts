@@ -98,7 +98,7 @@ async function resolveGridContextHeaders(
     // a lookup failure must not block job submission; the backend falls back
     // to prompt-text parsing of `project_context` (unaffected either way).
     try {
-      const bundesland = await loadProjectBundesland(extra.projectId)
+      const bundesland = await loadProjectBundesland(extra.projectId, session?.organizationId)
       if (bundesland) {
         input.bundesland = bundesland
       }

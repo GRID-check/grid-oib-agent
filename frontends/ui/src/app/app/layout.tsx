@@ -14,6 +14,7 @@
 
 import { type ReactNode } from 'react'
 import { getGridSession } from '@/lib/auth/session'
+import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import {
   FEATURE_FLAGS,
   isFeatureEnabled,
@@ -30,38 +31,40 @@ interface AppLayoutProps {
 }
 
 export default async function AppLayout({ children }: AppLayoutProps): Promise<JSX.Element> {
-  let shortcuts: ReactNode = null
-  try {
-    const session = await getGridSession()
-    // Org-level (outer) gate: only sessions whose org has the feature flag
-    // get the shortcuts surface at all. Users without an org (onboarding)
-    // have nowhere for the palette to navigate — skip it for them too.
-    if (session?.organizationId && isFeatureEnabled(session, FEATURE_FLAGS.keyboardShortcuts)) {
-      // Same section flags the project rail receives, so ⌘K's current-project
-      // commands stay in lock-step with the rail (shared PROJECT_SECTIONS).
-      const navFlags = await getNavFlags(session)
-      shortcuts = (
-        <KeyboardShortcuts
-          authRequired={isAuthRequired()}
-          // Every authenticated org member may open the organization page
-          // (it serves capability subsets, see getNavFlags / UX-16).
-          canViewOrganization
-          showKnowledge={isProjectKnowledgePageEnabled(session)}
-          showWorkflows={isWorkflowsEnabled(session)}
-          canAccessArchiv={navFlags.canAccessArchiv}
-          canCollaborate={navFlags.canCollaborate}
-        />
-      )
+  return runWithTenantSlot(async () => {
+    let shortcuts: ReactNode = null
+    try {
+      const session = await getGridSession()
+      // Org-level (outer) gate: only sessions whose org has the feature flag
+      // get the shortcuts surface at all. Users without an org (onboarding)
+      // have nowhere for the palette to navigate — skip it for them too.
+      if (session?.organizationId && isFeatureEnabled(session, FEATURE_FLAGS.keyboardShortcuts)) {
+        // Same section flags the project rail receives, so ⌘K's current-project
+        // commands stay in lock-step with the rail (shared PROJECT_SECTIONS).
+        const navFlags = await getNavFlags(session)
+        shortcuts = (
+          <KeyboardShortcuts
+            authRequired={isAuthRequired()}
+            // Every authenticated org member may open the organization page
+            // (it serves capability subsets, see getNavFlags / UX-16).
+            canViewOrganization
+            showKnowledge={isProjectKnowledgePageEnabled(session)}
+            showWorkflows={isWorkflowsEnabled(session)}
+            canAccessArchiv={navFlags.canAccessArchiv}
+            canCollaborate={navFlags.canCollaborate}
+          />
+        )
+      }
+    } catch {
+      // Session lookup failed — pages handle auth themselves; just skip the
+      // shortcuts layer rather than breaking the whole /app subtree.
     }
-  } catch {
-    // Session lookup failed — pages handle auth themselves; just skip the
-    // shortcuts layer rather than breaking the whole /app subtree.
-  }
 
-  return (
-    <>
-      {children}
-      {shortcuts}
-    </>
-  )
+    return (
+      <>
+        {children}
+        {shortcuts}
+      </>
+    )
+  })
 }
