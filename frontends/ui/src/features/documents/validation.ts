@@ -17,6 +17,13 @@
 
 import type { FileUploadConfig } from '@/shared/context'
 import { IMAGE_EXTENSIONS } from '@/shared/config/file-upload'
+// The same formatter every file size in the UI renders through. These messages
+// name a size the user can also see on a file card, so a second implementation
+// meant one screen showing "1,5 MB" beside "1.5 MB" in German — this one is
+// locale-aware. No locale is threaded in: `validateFiles` is pure and has no
+// request context, which is the case `formatFileSize`'s optional locale (the
+// runtime default) exists for.
+import { formatFileSize } from '@/lib/utils/format-file-size'
 import {
   DEFAULT_MAX_FILE_SIZE,
   DEFAULT_MAX_TOTAL_SIZE,
@@ -139,17 +146,6 @@ export function isValidMimeType(
 }
 
 /**
- * Format bytes to human-readable string
- */
-export function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
-/**
  * Create default validation context (empty session)
  */
 export function createEmptyValidationContext(): ValidationContext {
@@ -244,7 +240,7 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'FILE_TOO_LARGE',
-        message: `"${file.name}" is ${formatBytes(file.size)}, exceeds ${formatBytes(config.maxFileSize)} limit`,
+        message: `"${file.name}" is ${formatFileSize(file.size)}, exceeds ${formatFileSize(config.maxFileSize)} limit`,
       })
       continue
     }
@@ -269,8 +265,8 @@ export function validateFileUpload(
       code: 'TOTAL_SIZE_EXCEEDED',
       message:
         context.existingTotalSize > 0
-          ? `Total size would be ${formatBytes(totalSize)}. Only ${formatBytes(availableSpace)} available (${formatBytes(config.maxTotalSize)} limit).`
-          : `Total size ${formatBytes(totalSize)} exceeds ${formatBytes(config.maxTotalSize)} limit.`,
+          ? `Total size would be ${formatFileSize(totalSize)}. Only ${formatFileSize(availableSpace)} available (${formatFileSize(config.maxTotalSize)} limit).`
+          : `Total size ${formatFileSize(totalSize)} exceeds ${formatFileSize(config.maxTotalSize)} limit.`,
     })
   }
 

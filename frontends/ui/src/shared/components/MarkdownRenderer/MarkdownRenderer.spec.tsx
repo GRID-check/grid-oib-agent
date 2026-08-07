@@ -169,6 +169,42 @@ Paragraph 2.`} />)
 
       vi.restoreAllMocks()
     })
+
+    /*
+      German headings are the normal case here, not an edge case: the answers and
+      OIB reports this renders are written in German. Stripping the umlaut
+      outright ("Gebäude" → "gebude") produced an id nothing links to, so every
+      in-page link into such a section silently did nothing — `scrollToAnchor`
+      returns quietly when `getElementById` misses.
+    */
+    test('gives a German heading an id that survives its umlauts', () => {
+      render(<MarkdownRenderer content={'## Brandschutz für Gebäude'} />)
+
+      expect(screen.getByRole('heading', { name: 'Brandschutz für Gebäude' })).toHaveAttribute(
+        'id',
+        'brandschutz-fuer-gebaeude'
+      )
+    })
+
+    test('gives a heading with ß an id that survives it', () => {
+      render(<MarkdownRenderer content={'## Außenwand'} />)
+
+      expect(screen.getByRole('heading', { name: 'Außenwand' })).toHaveAttribute(
+        'id',
+        'aussenwand'
+      )
+    })
+
+    test('leaves ASCII heading ids exactly as they were', () => {
+      // The transliteration must not disturb the ids already in use — including
+      // the punctuation-stripping shape (`1.2` → `12`, not `1-2`).
+      render(<MarkdownRenderer content={'## Section 1.2 Overview'} />)
+
+      expect(screen.getByRole('heading', { name: 'Section 1.2 Overview' })).toHaveAttribute(
+        'id',
+        'section-12-overview'
+      )
+    })
   })
 
   describe('code blocks', () => {
