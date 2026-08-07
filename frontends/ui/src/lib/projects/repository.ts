@@ -28,6 +28,9 @@ export async function listProjectsInOrg(
   organizationId: string,
   { limit = PROJECT_LIST_LIMIT, order = 'newest' }: { limit?: number; order?: 'newest' | 'oldest' } = {},
 ): Promise<Project[]> {
+  // The cap is the repository's guarantee, not the caller's suggestion — a
+  // default a caller can pass straight through is not a bound at all.
+  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), PROJECT_LIST_LIMIT)
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db
@@ -35,7 +38,7 @@ export async function listProjectsInOrg(
       .from(projects)
       .where(and(eq(projects.organizationId, organizationId), isNull(projects.deletedAt)))
       .orderBy(order === 'oldest' ? asc(projects.createdAt) : desc(projects.createdAt))
-      .limit(limit),
+      .limit(boundedLimit),
   )
 }
 

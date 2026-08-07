@@ -29,6 +29,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   try {
     const session = await requireAuthorizedPageSession()
     const { id } = await params
+    // Org tenancy is not enough to put a project's NAME in the browser tab.
+    // `generateMetadata` runs independently of the layout body, so without this
+    // a member who lacks `project:view` still learned the name of a project the
+    // page below is about to refuse them — the same read ADR-0038 draws the line
+    // at. A denial throws and is caught below, degrading to the root title.
+    await requireProjectAccess(session, id, 'project:view')
     const project = await findProjectInOrg(id, session.organizationId)
 
     if (!project?.name) return {}

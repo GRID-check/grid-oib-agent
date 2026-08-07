@@ -55,9 +55,47 @@ Repositories are the **only** modules that run queries for their domain:
   `projectId`) and scopes the WHERE clause in SQL. Tenancy filtering in JS
   after an unscoped SELECT is a bug.
 - List queries are always bounded — accept a `limit` with a domain default;
-  no unbounded `SELECT *`.
+  no unbounded `SELECT *`. **Clamp it**: a cap a caller can pass straight
+  through is not a bound.
+- Every tenant-data query also **runs** in that organization's tenant context,
+  via `withTenant({ organizationId })` (ADR-0041). The layer that receives the
+  `organizationId` is the layer that states it, so no caller can forget — see
+  "Server components" below for what forgetting cost.
 - Multi-statement invariants (soft-delete + queue insert, optimistic version
   bumps) run in `db.transaction`.
+
+### Server components and server actions are transport too
+
+The three layers above are usually described in terms of `app/api/**`, but the
+rule is about **transport**, not about HTTP. A React server component, a layout
+and a server action are all transport: they resolve the session, call exactly
+one service, and render. They contain **no `getDb()` and no drizzle imports**,
+exactly like a route handler.
+
+This was left implicit once, and every consequence the layering prevents arrived
+together. The pages under `app/projects` each ran their own queries, and so:
+
+- `projects/page.tsx` selected every non-deleted project in the organization
+  instead of calling `listProjects()`, bypassing the per-project FGA filtering
+  and showing every member every project in the tenant — the exact enumeration
+  ADR-0038 closed;
+- four project pages matched on `projects.id` alone, with no organization
+  predicate at all;
+- that same list was unbounded;
+- and none of them ran in a tenant context, so when row-level security began
+  being enforced they failed closed with `MissingTenantContextError`.
+
+A page cannot rely on the tenant context being *ambient*. `getGridSession()`
+publishes it, but for a server component that publish uses `enterWith`, which
+does not survive the way this Next version renders a page — the scope is gone by
+the time a query runs. Going through a repository is what makes it reliable,
+because the repository opens the scope itself with `withTenant`.
+
+`frontends/ui/src/lib/db/server-component-db-access.spec.ts` enforces this: it
+parses every file under `src/app` and fails the build when one imports values
+from `@/lib/db`. Route handlers that predate the rule are held in an explicit
+list in that spec so the count can only go down; server components and server
+actions have no allowlist.
 
 ## Error contract
 

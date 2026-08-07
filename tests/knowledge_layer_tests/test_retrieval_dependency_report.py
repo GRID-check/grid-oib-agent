@@ -17,6 +17,7 @@ import builtins
 
 import pytest
 from knowledge_layer.llamaindex.adapter import _retrieval_dependency_error
+from knowledge_layer.llamaindex.adapter import ensure_retrieval_dependencies
 from knowledge_layer.llamaindex.adapter import retrieval_dependency_report
 
 #: The exact failure production hit: the namespace package resolves, the piece
@@ -59,11 +60,44 @@ def test_a_broken_install_is_not_reported_as_missing(break_import) -> None:
 
 
 def test_a_genuinely_absent_module_is_reported_as_missing(break_import) -> None:
-    break_import("chromadb", ModuleNotFoundError("No module named 'chromadb'"))
+    break_import("chromadb", ModuleNotFoundError("No module named 'chromadb'", name="chromadb"))
 
     findings = retrieval_dependency_report()
 
     assert any(f.startswith("chromadb: not installed") for f in findings), findings
+
+
+def test_a_missing_transitive_dependency_is_not_reported_as_missing(break_import) -> None:
+    """The module is there; something it imports is not.
+
+    ``ModuleNotFoundError`` alone cannot be read as "this distribution is
+    absent" -- it fires just as readily when the package imports fine and one of
+    its own dependencies does not. Collapsing the two would put us back to
+    telling people to install a package that is already installed.
+    """
+    break_import(
+        "llama_index.core",
+        ModuleNotFoundError("No module named 'tenacity'", name="tenacity"),
+    )
+
+    findings = retrieval_dependency_report()
+
+    assert findings
+    assert "llama-index-core: installed but broken" in findings[0]
+    assert "tenacity" in findings[0]
+    assert "not installed" not in findings[0]
+
+
+def test_the_preflight_raises_when_any_module_is_unusable(break_import) -> None:
+    """`ensure_retrieval_dependencies` is what makes "initialized" mean usable."""
+    break_import("llama_index.vector_stores.chroma", _BROKEN_CORE)
+
+    with pytest.raises(RuntimeError, match="llama-index-vector-stores-chroma: installed but broken"):
+        ensure_retrieval_dependencies()
+
+
+def test_the_preflight_is_silent_in_a_healthy_environment() -> None:
+    ensure_retrieval_dependencies()
 
 
 def test_the_error_carries_the_triggering_cause_and_the_module_status(break_import) -> None:

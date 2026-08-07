@@ -102,11 +102,22 @@ def retrieval_dependency_report() -> list[str]:
     """
     findings: list[str] = []
 
-    def _probe(distribution: str, load) -> None:
+    def _probe(distribution: str, module: str, load) -> None:
         try:
             load()
         except ModuleNotFoundError as exc:
-            findings.append(f"{distribution}: not installed ({exc})")
+            # A ModuleNotFoundError does NOT automatically mean this
+            # distribution is absent: it also fires when the module imports
+            # fine but one of ITS dependencies is missing. Only a failure
+            # naming this module (or a parent of it) means "not installed";
+            # anything else is a present-but-unusable install, which is the
+            # case that has to stay distinguishable because it is the one the
+            # old message got wrong.
+            missing = exc.name or ""
+            if missing and (module == missing or module.startswith(f"{missing}.")):
+                findings.append(f"{distribution}: not installed ({exc})")
+            else:
+                findings.append(f"{distribution}: installed but broken (missing dependency {missing or exc!r})")
         except Exception as exc:  # noqa: BLE001 - the point is to report, not to handle
             findings.append(f"{distribution}: installed but broken ({type(exc).__name__}: {exc})")
 
@@ -122,11 +133,32 @@ def retrieval_dependency_report() -> list[str]:
     def _chroma() -> None:
         import chromadb  # noqa: F401
 
-    _probe("llama-index-core", _core)
-    _probe("llama-index-embeddings-nvidia", _embeddings)
-    _probe("llama-index-vector-stores-chroma", _vector_store)
-    _probe("chromadb", _chroma)
+    _probe("llama-index-core", "llama_index.core", _core)
+    _probe("llama-index-embeddings-nvidia", "llama_index.embeddings.nvidia", _embeddings)
+    _probe("llama-index-vector-stores-chroma", "llama_index.vector_stores.chroma", _vector_store)
+    _probe("chromadb", "chromadb", _chroma)
     return findings
+
+
+def ensure_retrieval_dependencies() -> None:
+    """Fail now, with the whole picture, rather than deep in a later call.
+
+    Both initialization paths import only the piece they need first
+    (``NVIDIAEmbedding``), so a missing ``llama-index-vector-stores-chroma``
+    used to sail through ``_ensure_initialized`` and surface much later inside
+    ``_get_index`` or ``_run_ingestion`` — outside the handler that produces the
+    good diagnostic, and after the component had already reported itself ready.
+    Probing the full set up front means "initialized" means usable.
+    """
+    findings = retrieval_dependency_report()
+    if findings:
+        raise RuntimeError(
+            "LlamaIndex retrieval stack is unusable in this environment.\nModule status:\n  "
+            + "\n  ".join(findings)
+            + "\nA module reported 'installed but broken' means the distribution is present but incomplete "
+            "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
+            "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
+        )
 
 
 def _retrieval_dependency_error(cause: BaseException) -> RuntimeError:
@@ -1470,6 +1502,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """Lazy initialization of LlamaIndex components."""
         if self._initialized:
             return
+
+        # The whole stack, not just the import this method happens to need --
+        # otherwise a missing vector-store package is only discovered later, in
+        # a call site with no dependency diagnostic around it.
+        ensure_retrieval_dependencies()
 
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
@@ -3234,6 +3271,10 @@ class LlamaIndexRetriever(BaseRetriever):
             self._initialize_components()
 
     def _initialize_components(self):
+        # Same complete preflight as the ingestion path: "initialized" has to
+        # mean usable, not "the first import worked".
+        ensure_retrieval_dependencies()
+
         try:
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding

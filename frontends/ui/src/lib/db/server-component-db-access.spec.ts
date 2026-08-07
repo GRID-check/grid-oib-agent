@@ -26,6 +26,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 const APP_DIR = join(process.cwd(), 'src', 'app')
@@ -69,33 +70,74 @@ function appFiles(dir = APP_DIR, found: string[] = []): string[] {
 const relative = (file: string) => file.slice(join(process.cwd(), 'src').length + 1)
 
 /**
- * True when `source` imports VALUES from `specifier`.
+ * Every module specifier a file imports VALUES from.
  *
- * `import type { Project } from '@/lib/db/schema'` is fine and common in
- * transport code — a type builds no query. The match is per import statement
- * (the brace bounds it) rather than a line-anchored scan, so one file's unrelated
- * multi-line import cannot be read as reaching the specifier on a later line.
+ * Parsed with the TypeScript compiler rather than matched with a regex. A regex
+ * gets this wrong in both directions, and both directions are bugs: it reads
+ * `import { type Project } from '@/lib/db/schema'` as a value import and fails a
+ * file that is doing nothing wrong, and it misses
+ * `import db, { projects } from '@/lib/db'` — a real value import that would
+ * walk straight through a guard whose whole job is to catch it. A guard with a
+ * known bypass is worse than no guard, because it is trusted.
+ *
+ * Type-only imports are excluded at two levels, matching TypeScript's own
+ * grammar: `import type { … }` on the clause, and `{ type X }` per specifier.
+ * A side-effect import (`import '@/lib/db'`) still counts — it runs the module.
  */
-function importsValuesFrom(source: string, specifier: string): boolean {
-  const pattern = new RegExp(
-    String.raw`import\s+(type\s+)?(\{[^}]*\}|[\w*\s,]+)\s*from\s*['"]${specifier}['"]`,
-    'g',
-  )
-  for (const match of source.matchAll(pattern)) {
-    if (!match[1]) return true
+function valueImportSpecifiers(source: string, filename: string): Set<string> {
+  const tree = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const found = new Set<string>()
+
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+
+    const clause = statement.importClause
+    // No clause at all is a side-effect import: the module is evaluated.
+    if (!clause) {
+      found.add(statement.moduleSpecifier.text)
+      continue
+    }
+    if (clause.isTypeOnly) continue
+
+    // A default binding (`import db, …`) is always a value.
+    let importsValue = clause.name !== undefined
+    const bindings = clause.namedBindings
+    if (bindings) {
+      if (ts.isNamespaceImport(bindings)) {
+        importsValue = true
+      } else {
+        importsValue ||= bindings.elements.some((element) => !element.isTypeOnly)
+      }
+    }
+    if (importsValue) found.add(statement.moduleSpecifier.text)
   }
-  return false
+  return found
 }
 
-const opensDatabase = (source: string) => importsValuesFrom(source, String.raw`@/lib/db`)
-const importsTableValues = (source: string) => importsValuesFrom(source, String.raw`@/lib/db/schema`)
+/**
+ * Everything under `@/lib/db` counts as reaching the database — by default, so
+ * that a module added there tomorrow is guarded without anyone remembering to
+ * extend this list.
+ *
+ * The exceptions are named rather than pattern-matched, because each one is a
+ * deliberate judgement. `tenant-context` is the scoping API itself: a route
+ * handler importing `tenantSlotRoute` is doing the thing this rule exists to
+ * encourage, and flagging it would push callers away from the correct helper.
+ */
+const DB_MODULE_PREFIX = '@/lib/db'
+const NOT_DATABASE_ACCESS = new Set(['@/lib/db/tenant-context'])
+
+const reachesDatabase = (specifiers: Set<string>) =>
+  [...specifiers].some(
+    (specifier) =>
+      !NOT_DATABASE_ACCESS.has(specifier) &&
+      (specifier === DB_MODULE_PREFIX || specifier.startsWith(`${DB_MODULE_PREFIX}/`)),
+  )
 
 describe('transport code does not query the database directly', () => {
   const offenders = appFiles()
-    .filter((file) => {
-      const source = readFileSync(file, 'utf8')
-      return opensDatabase(source) || importsTableValues(source)
-    })
+    .filter((file) => reachesDatabase(valueImportSpecifiers(readFileSync(file, 'utf8'), file)))
     .map(relative)
     .sort()
 
@@ -108,6 +150,37 @@ describe('transport code does not query the database directly', () => {
         'bypassed ADR-0038 FGA filtering and lost the tenant context: move the query ' +
         'into lib/<domain>/service.ts or lib/<domain>/repository.ts and call that.',
     ).toEqual([])
+  })
+
+  describe('the guard itself', () => {
+    // A guard is only worth its green tick if it cannot be walked past. These
+    // pin both directions: what must be caught, and what must not be flagged.
+    const detects = (source: string) => reachesDatabase(valueImportSpecifiers(source, 'probe.tsx'))
+
+    it.each([
+      ['plain named value', "import { getDb } from '@/lib/db'"],
+      ['default plus named', "import db, { projects } from '@/lib/db'"],
+      ['default only', "import db from '@/lib/db'"],
+      ['namespace', "import * as db from '@/lib/db'"],
+      ['side-effect (still evaluates the module)', "import '@/lib/db'"],
+      ['table values from schema', "import { projects } from '@/lib/db/schema'"],
+      ['a schema subpath', "import { projects } from '@/lib/db/schema/tables'"],
+      ['mixed type and value specifiers', "import { type Project, projects } from '@/lib/db/schema'"],
+      ['multi-line', "import db,\n  { projects } from '@/lib/db'"],
+    ])('catches %s', (_label, source) => {
+      expect(detects(source)).toBe(true)
+    })
+
+    it.each([
+      ['a type-only clause', "import type { Project } from '@/lib/db/schema'"],
+      ['an inline type specifier', "import { type Project } from '@/lib/db/schema'"],
+      ['several inline type specifiers', "import { type Project, type Document } from '@/lib/db/schema'"],
+      ['an unrelated module', "import { cn } from '@/lib/utils'"],
+      ['a module that merely starts with the same text', "import { x } from '@/lib/dbutils'"],
+      ['the tenant-scoping helper, which callers SHOULD use', "import { withTenant } from '@/lib/db/tenant-context'"],
+    ])('does not flag %s', (_label, source) => {
+      expect(detects(source)).toBe(false)
+    })
   })
 
   it('no NEW route handler opens the database', () => {
