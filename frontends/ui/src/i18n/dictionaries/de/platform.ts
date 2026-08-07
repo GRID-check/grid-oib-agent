@@ -6,6 +6,9 @@ export const platform: typeof en.platform = {
   subtitle: 'Organisationsübergreifende Übersicht für den Plattform-Inhaber.',
   loading: 'Plattform wird geladen…',
   loadError: 'Die Plattform-Übersicht konnte nicht geladen werden.',
+  empty: {
+    title: 'Hier gibt es noch nichts',
+  },
   loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
   retry: 'Erneut versuchen',
   /**
