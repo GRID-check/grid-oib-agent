@@ -24,6 +24,7 @@ import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
 import { getDictionary } from '@/i18n'
 import './globals.css'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
 const geistSans = Geist({
   subsets: ['latin'],
@@ -37,9 +38,6 @@ const geistMono = Geist_Mono({
   display: 'swap',
 })
 
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
 
 /**
  * Mobile-first viewport: edge-to-edge rendering on notched devices

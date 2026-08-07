@@ -35,7 +35,6 @@ export {
   checkDraggedFilesSupported,
   isValidFileExtension,
   isValidMimeType,
-  formatBytes,
   createEmptyValidationContext,
 } from './validation'
 

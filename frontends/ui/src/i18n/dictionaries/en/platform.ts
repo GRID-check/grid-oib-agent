@@ -4,6 +4,12 @@ export const platform = {
   subtitle: 'Cross-organization overview for the platform owner.',
   loading: 'Loading platform…',
   loadError: 'Could not load the platform overview.',
+  // Generic empty state for `SectionCard`, whose `emptyTitle` prop is optional.
+  // Every caller happens to pass one today, which is why the fallback pointing
+  // at a key that did not exist went unnoticed.
+  empty: {
+    title: 'Nothing here yet',
+  },
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
   /**

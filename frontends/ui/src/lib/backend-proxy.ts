@@ -10,15 +10,18 @@
 
 import { NextResponse } from 'next/server'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 import type { GridSession } from '@/lib/auth/types'
 
 /**
  * Whether the backend requires WorkOS-authenticated requests.
  * When false, routes must skip all auth info to keep requests anonymous.
+ *
+ * Re-exported, not re-implemented: `@/lib/auth/auth-required` owns the rule for
+ * pages, the AuthKit proxy and routes alike. The re-export keeps this module's
+ * existing consumers importing from where they already do.
  */
-export const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
+export { isAuthRequired }
 
 /**
  * Resolve the backend base URL, stripping any trailing slash.

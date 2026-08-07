@@ -21,8 +21,8 @@ import { OrgTopbar } from '@/components/shell'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getTranslations } from '@/i18n/server'
 import { PlatformNav } from '@/features/platform/components/platform-nav'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 export default async function PlatformLayout({
   children,

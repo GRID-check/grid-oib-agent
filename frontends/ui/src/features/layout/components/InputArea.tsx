@@ -61,8 +61,10 @@ import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
+import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activity'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
+import { researchSessionState } from '../lib/research-session-state'
 import type { SourcePresetId } from '../types'
 import type { DataSource } from '../data-sources'
 import { SourceSignalChip, SourceSignalChipToggle } from './SourceSignalChip'
@@ -563,63 +565,36 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (state) => state.deepResearchOwnerConversationId
   )
 
-  // Check for active deep research in conversation messages (persisted state)
-  // This handles the case where ephemeral state has been reset (page refresh, session switch)
-  const hasActiveDeepResearch = useChatStore((state) => {
-    if (!state.currentConversation?.messages) return false
-    return state.currentConversation.messages.some(
-      (m) =>
-        m.messageType === 'agent_response' &&
-        m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'submitted' || m.deepResearchJobStatus === 'running')
-    )
+  /*
+    The persisted half of the research state, so the lock survives a reload or a
+    session switch that clears the ephemeral fields above.
+
+    This is the LATEST research job's status, via the same scan the session
+    store, the busy hook and `MainLayout` use — not "did any message ever report
+    X". The composer used to run three of its own `.some()` scans here, which
+    disagreed with the rest of the codebase precisely when a session ran
+    research twice: a failure after an earlier success still matched the
+    "successful" scan and locked the composer over a session with no report.
+    See `lib/research-session-state`, which owns the rule and tests it.
+
+    Selecting a primitive rather than the message array also means the composer
+    re-renders when the outcome changes, not on every streamed token.
+  */
+  const latestResearchJobStatus = useChatStore((state) =>
+    latestDeepResearchJobStatus(state.currentConversation?.messages ?? [])
+  )
+
+  const {
+    isSuccessful: isResearchSessionSuccessful,
+    isFailed: isResearchSessionFailed,
+    isInProgress: isResearchSessionInProgress,
+  } = researchSessionState({
+    latestJobStatus: latestResearchJobStatus,
+    ephemeralStatus: deepResearchStatus,
+    isStreaming: isDeepResearchStreaming,
+    streamOwnerConversationId: deepResearchOwnerConversationId,
+    conversationId: currentConversation?.id,
   })
-
-  // Check for a SUCCESSFUL deep research in conversation messages (persisted state).
-  // This handles the case where ephemeral state has been reset (page refresh, session switch).
-  const hasSuccessfulDeepResearch = useChatStore((state) => {
-    if (!state.currentConversation?.messages) return false
-    return state.currentConversation.messages.some(
-      (m) =>
-        m.messageType === 'agent_response' &&
-        m.deepResearchJobId &&
-        m.deepResearchJobStatus === 'success'
-    )
-  })
-
-  // Check for a FAILED/INTERRUPTED deep research in conversation messages (persisted state).
-  const hasFailedDeepResearch = useChatStore((state) => {
-    if (!state.currentConversation?.messages) return false
-    return state.currentConversation.messages.some(
-      (m) =>
-        m.messageType === 'agent_response' &&
-        m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'failure' || m.deepResearchJobStatus === 'interrupted')
-    )
-  })
-
-  // The composer is locked ONLY after a SUCCESSFUL research run: the finished
-  // report defines the session's context, so follow-up questions belong in a
-  // fresh session (this is the product rationale behind the lock). A failed or
-  // interrupted run produced no report to protect, so the user must be able to
-  // retry or follow up in place — do NOT lock those (UX-12).
-  const isResearchSessionSuccessful =
-    (!isDeepResearchStreaming && deepResearchStatus === 'success') || hasSuccessfulDeepResearch
-
-  // A terminal failure/interruption that is NOT superseded by a later success.
-  // Drives contextual placeholder copy while keeping the composer unlocked.
-  const isResearchSessionFailed =
-    !isResearchSessionSuccessful &&
-    ((!isDeepResearchStreaming &&
-      (deepResearchStatus === 'failure' || deepResearchStatus === 'interrupted')) ||
-      hasFailedDeepResearch)
-
-  // Research session is in progress when:
-  // 1. Ephemeral state is streaming, OR
-  // 2. Persisted message has an active deep research job status
-  const isResearchSessionInProgress =
-    (isDeepResearchStreaming && deepResearchOwnerConversationId === currentConversation?.id) ||
-    hasActiveDeepResearch
 
   // File upload hook - provides session files and handles validation internally
   const {

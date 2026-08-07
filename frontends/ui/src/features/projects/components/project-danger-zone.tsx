@@ -89,7 +89,7 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
         confirmName={projectName}
         confirmLabel={t('dangerZone.confirmLabel')}
         typeToConfirmLabel={t('dangerZone.typeToConfirm')}
-        cancelLabel={tCommon('cancel')}
+        cancelLabel={tCommon('actions.cancel')}
         onConfirm={handleConfirm}
         pending={pending}
       />

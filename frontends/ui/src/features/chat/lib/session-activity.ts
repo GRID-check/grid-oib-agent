@@ -23,7 +23,15 @@ const ACTIVE_JOB_STATUSES: readonly DeepResearchJobStatus[] = ['submitted', 'run
 export const hasNoUserChatMessages = (messages: ChatMessage[]): boolean =>
   !messages.some((message) => message.messageType === 'user')
 
-const getLatestDeepResearchMessage = (messages: ChatMessage[]): ChatMessage | null => {
+/**
+ * The conversation's most recent deep research job message, or `null`.
+ *
+ * Scans in reverse, so it is O(1) in practice — job messages sit at the end.
+ * Exported because "the latest research job" is the unit nearly every consumer
+ * reasons about; `deep-research-store` kept a byte-identical private copy until
+ * the two were merged here.
+ */
+export const getLatestDeepResearchMessage = (messages: ChatMessage[]): ChatMessage | null => {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
     if (message.messageType === 'agent_response' && message.deepResearchJobId) {
@@ -32,6 +40,21 @@ const getLatestDeepResearchMessage = (messages: ChatMessage[]): ChatMessage | nu
   }
   return null
 }
+
+/**
+ * The status of the conversation's MOST RECENT deep research job, or `null` when
+ * it has never run one.
+ *
+ * The latest job is what describes the session: a run that failed after an
+ * earlier one succeeded leaves a session with no usable report, and an
+ * "any message ever succeeded" scan would report the opposite. Exported so
+ * consumers that need more than the active/complete booleans below (the
+ * composer's lock, `layout/lib/research-session-state`) share this one scan
+ * rather than re-deriving it from the message list.
+ */
+export const latestDeepResearchJobStatus = (
+  messages: ChatMessage[]
+): DeepResearchJobStatus | null => getLatestDeepResearchMessage(messages)?.deepResearchJobStatus ?? null
 
 /**
  * Check if a conversation has an in-progress deep research job in its message history.

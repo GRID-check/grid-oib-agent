@@ -20,8 +20,8 @@ import { getTranslations } from '@/i18n/server'
 import type { Translator } from '@/i18n'
 import { getOrgSettings, getOrganizationOverview } from '@/lib/organizations/service'
 import { ProfileControls } from './profile-controls'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 const KNOWN_ROLE_SLUGS = new Set(['org-platform-owner', 'admin', 'member'])
 
