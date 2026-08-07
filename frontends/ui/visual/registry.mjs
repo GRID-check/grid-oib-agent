@@ -343,6 +343,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="source-list-preview"]',
   },
   {
+    id: 'storage-usage',
+    mobile: true,
+    path: '/dev/storage-usage',
+    description:
+      'Organization storage panel (ADR-0042). One meter, because there is one question: how close is this tenant to being cut off. The track IS the quota, so the fill is literal rather than rescaled, and it carries STATE (within / at-or-over) rather than category — the two scopes below are a text breakdown, not a stacked bar, because project-vs-Archiv is not the decision anyone opens this page to make. The fixture sits at 82% so the meter is visibly filling without being in the error state, and the two scopes differ by an order of magnitude to exercise the byte formatter at both GB and MB. Rendered twice: the admin variant with the quota editor, and the member variant that most people actually see, which is the same reading with no way to change it.',
+    waitFor: '[data-testid="storage-usage"]',
+  },
+  {
     id: 'budget-usage',
     mobile: true,
     path: '/dev/budget-usage',

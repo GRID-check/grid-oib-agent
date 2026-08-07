@@ -174,6 +174,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 |----------|----------|---------|-------------|
 | `FILE_UPLOAD_ACCEPTED_TYPES` | No | `.pdf,.docx,.txt,.md` | Comma-separated list of accepted file extensions (include leading dots). Add `.pptx` for Foundational RAG backend. Governs **non-image** types only. **Image types (`.png,.jpg,.jpeg`) are derived, not env-listed**: they are offered automatically when the `image-upload` WorkOS flag allows AND the backend reports a configured VLM (`vlm_available`, derived from `AIQ_VLM_*`). Listing images here has no effect without a VLM — they are stripped from the client accept-list and rejected server-side (400) whenever the flag is off OR the VLM capability is absent (fail-closed), closing the old silent-failure hole where env-listed images without a VLM were accepted then failed ingestion. |
 | `FILE_UPLOAD_MAX_SIZE_MB` | No | `100` | Maximum total file size in MB. |
+| `GRID_DEFAULT_STORAGE_QUOTA_BYTES` | No | _(unset)_ | Fleet-wide default per-organization storage quota, in bytes (ADR-0042). Unset means unlimited, which is the pre-existing behaviour. An org-level value set in Organization → Storage always wins, and an explicit org-level "unlimited" beats this default. |
 | `FILE_UPLOAD_MAX_FILE_COUNT` | No | `10` | Maximum number of files per upload session. |
 | `FILE_EXPIRATION_CHECK_INTERVAL_HOURS` | No | `0` | Hours after upload before files may expire (0 = no expiry shown). Should match backend TTL (e.g., 12 hours). |
 

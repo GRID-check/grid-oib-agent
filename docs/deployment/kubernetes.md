@@ -343,12 +343,73 @@ schema.
   loss — the backup lives on the same `Delete`-reclaim CSI. For real offsite
   PITR, point `pgBackupEndpoint` (+ `pgBackupBucket`,
   `pgBackupAccessKey`/`pgBackupSecretKey`) at an external S3, or book the
-  provider's Velero addon. The `grid-documents` SeaweedFS bucket itself has no
-  automated backup yet — the provider's Velero addon or scheduled
-  VolumeSnapshots (needs a scheduler, e.g. snapscheduler) are the options.
+  provider's Velero addon.
   Tune with `pgBackupRetention` (default `30d`) and `pgBackupSchedule` (6-field
   cron, default `0 0 2 * * *`). Restore is `kubectl cnpg` / a bootstrap
   `recovery` from the same object store.
+
+- **Document backups (ADR-0042) — IMPLEMENTED, opt-in.** The `grid-documents`
+  bucket is backed up in two layers, both off `false` by default because both
+  need an **external** S3 target to mean anything:
+
+  ```
+  pulumi config set grid-oib:seaweedfsBackupEnabled true
+  pulumi config set grid-oib:seaweedfsBackupEndpoint https://s3.example.com
+  pulumi config set grid-oib:seaweedfsBackupBucket   grid-documents-backup
+  pulumi config set --secret grid-oib:seaweedfsBackupAccessKey "…"
+  pulumi config set --secret grid-oib:seaweedfsBackupSecretKey "…"
+  ```
+
+  `loadConfig` **refuses** an endpoint pointing at the in-cluster SeaweedFS —
+  that would put the backup on the volumes it exists to survive losing.
+
+  **Layer A — object mirror.** A `seaweedfs-backup` Deployment runs
+  `weed filer.backup` against `/buckets`, writing to the external bucket with
+  `is_incremental = true`, so files land under `YYYY-MM-DD/` and **deletions are
+  not propagated** (a plain mirror faithfully replicates `rm -rf`).
+
+  > ⚠️ **`filer.backup` has no initial full-copy phase.** It replays the filer's
+  > metadata change log, so it converges to a complete mirror only while that log
+  > is intact. `fs.log.purge`, or a filer-store migration via `fs.meta.load`
+  > (which does not regenerate the log), silently leaves the mirror with a
+  > partial baseline and reports nothing. **After the first sync settles, compare
+  > object counts against the source.** A running pod is not evidence.
+
+  **Layer B — metadata snapshot.** A `seaweedfs-meta-snapshot` CronJob
+  (`seaweedfsMetaSnapshotSchedule`, default `0 3 * * *`) runs `fs.meta.save` —
+  the only point-in-time primitive SeaweedFS has — and writes the dump back into
+  the documents bucket so Layer A carries it offsite. It asserts the file is
+  non-empty, because **`weed shell` exits 0 even when the command inside it
+  failed**.
+
+  **Neither layer is point-in-time consistent.** SeaweedFS keeps the namespace
+  (filer) and the bytes (volumes) in separate subsystems with no coordinated
+  snapshot; upstream guidance is to pause writes if you need the two halves to
+  agree.
+
+  **Restore — two procedures, do not mix them.**
+
+  1. *From the object mirror (the one to rehearse).* Stand up an empty cluster,
+     recreate the buckets (`s3.bucket.create`, then verify with
+     `s3.bucket.list`), then sync the backup bucket back **through the new
+     cluster's S3 API**, oldest date directory first so later versions win:
+     ```
+     aws s3 sync s3://grid-documents-backup/2026-08-06/buckets/grid-documents/ \
+                 s3://grid-documents/ --endpoint-url http://seaweedfs:8333
+     ```
+     Verify with `s3.bucket.list` (sizes and counts) and `volume.fsck`.
+  2. *From a metadata snapshot.* `fs.meta.load` is **only** correct when the
+     matching volume `.dat`/`.idx` files are restored alongside it. The dump
+     references chunk file-ids; loading it against volumes it does not match
+     produces a namespace where every GET 404s. Use this only for filer-store
+     recovery, never as a substitute for (1).
+
+  A restore that has never been executed is a hypothesis. Rehearse (1) on dev.
+
+- **Volume snapshots — still worth adding.** A `VolumeSnapshotClass`
+  (`lightbits`) exists but nothing schedules it. CSI snapshots are not consistent
+  with the layers above, but they are the fastest way back from a bad in-place
+  migration.
 
 ---
 
