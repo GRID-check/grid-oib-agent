@@ -13,8 +13,9 @@ import { getCached, invalidateCached } from '@/lib/cache'
 import { PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { requirePlatformOwner } from '@/lib/authz/platform'
 import { isOrgFeatureEnabled, WEB_SEARCH_FLAG } from '@/lib/workos/feature-flags'
-import type { AuthorizedSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { defaultLocale, isLocale, type Locale } from '@/i18n/config'
 
 export interface OrganizationOverview {
@@ -214,15 +215,27 @@ export async function updateOrgSettings(
 /**
  * Upsert Grid settings INCLUDING platform-owned keys. PLATFORM TIER ONLY.
  *
- * Carries no authorization of its own: the callers are reached through
- * `platformApiRoute`, whose `requirePlatformOwner` runs before the handler.
  * Named for what it permits so that the audit question — "what can write the
- * quota?" — is answerable by searching for one identifier.
+ * quota?" — is answerable by searching for one identifier, and it now ENFORCES
+ * what the name claims rather than describing a guard that lives elsewhere.
+ *
+ * It used to take no session and rely on the callers being routed through
+ * `platformApiRoute`. That is true of today's one caller and is not a property of
+ * this function: the bypass it opens is exactly the one `updateOrgSettings`
+ * closed, so "reachable only from an authorized route" was a fact about the call
+ * graph at a moment in time, defended by nothing. The session is required, the
+ * check runs here, and `PLATFORM_OWNED_SETTINGS` therefore has no unguarded
+ * writer anywhere.
+ *
+ * The route-level `requirePlatformOwner` stays where it is. Checking twice costs a
+ * cached predicate and means neither layer is load-bearing alone.
  */
 export async function updatePlatformOwnedOrgSettings(
+  session: GridSession | null,
   organizationId: string,
   patch: OrgSettingsPatch
 ): Promise<OrgSettings> {
+  await requirePlatformOwner(session)
   return writeOrgSettings(organizationId, patch)
 }
 

@@ -109,7 +109,11 @@ export const PlatformStorageTable: FC = () => {
     // turned a typo into "quota removed" and then reported success.
     const draft = parseQuotaDraft(draftGb)
     if (!draft.ok) {
-      toast.error(t('storage.invalidQuota'))
+      // Two messages, because the two rejections need different advice: one says
+      // "that is not a quota", the other says "that number is too big to carry".
+      // Telling an operator who typed `1e300` to "enter a value above zero" sends
+      // them looking for a mistake they did not make.
+      toast.error(draft.reason === 'tooLarge' ? t('storage.quotaTooLarge') : t('storage.invalidQuota'))
       return
     }
 

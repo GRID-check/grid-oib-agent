@@ -1042,6 +1042,8 @@ export const platform = {
     saveError: 'Could not update the quota.',
     belowUsage: 'That quota is below what the organization already stores. Free space first.',
     invalidQuota: 'Enter a quota in GB above zero, or leave the field empty for no limit.',
+    quotaTooLarge:
+      'That quota is larger than this system can represent. Enter at most 9,000,000 GB, or leave the field empty for no limit.',
     truncated: 'Showing the first 1000 organizations. Ask for a fleet report if you need the rest.',
     loadError: 'Could not load storage usage.',
     empty: 'No organization has stored anything yet.',

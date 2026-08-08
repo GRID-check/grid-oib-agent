@@ -898,13 +898,22 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
  *
  * Reporting ALL the missing keys rather than the first also matters: a plan that
  * fails once per missing key is three plans.
+ *
+ * Read with `cfg.get`, and an EMPTY value counts as missing. `getSecret("")`
+ * returns a defined output, so an unset-vs-set check would pass for
+ * `pulumi config set --secret grid-oib:… ""` — which is not a hypothetical
+ * either, it is what the failure this guard was written for actually looked
+ * like: a signing key that exists, is empty, and turns every request into
+ * `SignatureDoesNotMatch`. A credential that cannot sign is not a credential,
+ * so the guard measures usability rather than presence. `cfg.get` is safe here
+ * because nothing is returned — only the KEY NAMES reach the message.
  */
 function requireSecretsTogether(
   cfg: pulumi.Config,
   keys: string[],
   because: string,
 ): void {
-  const missing = keys.filter((key) => cfg.getSecret(key) === undefined);
+  const missing = keys.filter((key) => (cfg.get(key) ?? "").trim() === "");
   if (missing.length === 0) return;
   throw new Error(
     `${missing.map((k) => `grid-oib:${k}`).join(", ")} ${missing.length === 1 ? "is" : "are"} ` +

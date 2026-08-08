@@ -173,18 +173,58 @@ being so.** Two things carry that weight instead:
   Both were wrong: the correct figure for 48 bits is ≈1.8e-5, about 1 in 56,000 —
   the earlier number was this arithmetic missing its factor of two. Pessimistic,
   and still wrong in a note about a tenant boundary.)
-- **An ownership marker, so a collision is DETECTED rather than survived.** Every
-  tenant bucket carries a `.grid-bucket-owner` object naming the organization it
-  belongs to, written when the bucket is provisioned and verified before the
+- **An ownership claim, so a collision is DETECTED rather than survived.** Every
+  tenant bucket carries a key under `.grid-bucket-owner/` naming the organization
+  it belongs to, written when the bucket is provisioned and verified before the
   bucket is used. A name that resolves to two organizations — whether from a hash
   collision or from two deployments sharing one SeaweedFS with the same tenant
   prefix — fails the upload with both parties named, instead of quietly mixing
-  two tenants' documents in one container. An unmarked bucket is claimed only
+  two tenants' documents in one container. An unclaimed bucket is claimed only
   when it is empty, which is exactly the state a half-finished provision leaves
-  behind; a non-empty unmarked bucket is refused.
+  behind; a non-empty unclaimed bucket is refused.
 
-The marker is what makes the boundary verified rather than assumed, and it holds
+The claim is what makes the boundary verified rather than assumed, and it holds
 at any hash width. The 128 bits are so that it should never have to fire.
+
+### Why the claim is a prefix and not a single marker
+
+The first version of this was one mutable object holding the owner's id, and it
+detected nothing in the case it was written for. Two organizations resolving to
+one bucket both read "absent", both wrote their own id, and last-write-wins:
+each had already read back its own value, so both proceeded, and two tenants
+shared a container while the marker asserted the boundary was verified. Reading
+the marker back after writing it narrows the window without closing it — the two
+parties can still each see themselves.
+
+Neither mutual-exclusion primitive available here fits:
+
+- **A Postgres advisory lock** (as the quota admission in ADR-0042 uses)
+  serialises this deployment against itself, and does nothing about the other
+  half of the threat: two deployments sharing one SeaweedFS have two different
+  databases.
+- **A conditional `PutObject`** (`If-None-Match: *`) would be exactly right if
+  the store honoured it. SeaweedFS 3.80 does not reject a PUT carrying a
+  conditional header it does not implement, so this would silently be a no-op
+  against the only store we run — a fix that reads as safe and is not.
+
+So the claim is made **unforgeable rather than exclusive**. Each organization
+writes its own key, `.grid-bucket-owner/<sha256(orgId)>`, with its id as the
+body. No two organizations address the same key, so nothing ever overwrites
+anything, and a repeat claim writes identical bytes. The invariant moves from
+"the marker names me" to "there is exactly one claim, and it is mine" — which is
+a LIST, and which both parties to a race evaluate identically whatever the
+interleaving, because neither can erase the other's evidence.
+
+The write happens BEFORE the deciding list, which is what makes it hold: for two
+parties to both succeed, each one's list would have to precede the other's write,
+while each one's own write precedes its own list —
+`A.put < A.list < B.put < B.list < A.put`, a cycle. At most one proceeds; if the
+timing is unlucky, neither does, which is safe and diagnosable.
+
+The consequence is deliberate: a collision quarantines the bucket for **both**
+organizations rather than awarding it to whoever raced faster. Neither has the
+better claim, and resolving it (change the tenant prefix, or migrate the objects)
+is an operator decision. `bucket.spec.ts` pins the interleaving.
 
 **Nothing enumerates an organization's buckets by recomputing them.** An earlier
 draft of this design exported `bucketsForOrganization(orgId)` returning

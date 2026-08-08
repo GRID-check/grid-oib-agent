@@ -35,22 +35,39 @@ import { z } from 'zod'
 export const BYTES_PER_GB = 1e9
 
 /**
+ * The largest quota this system can carry, in bytes (~9 PB).
+ *
+ * Not a product limit — a representational one. Quotas travel as JSON numbers
+ * and are compared against a `sum(file_size)` that arrives as a bigint string,
+ * so past `Number.MAX_SAFE_INTEGER` the comparison stops being exact and
+ * `usedBytes + incoming > quotaBytes` starts answering questions about rounding
+ * rather than about storage. A limit no one can reach is still a limit; a limit
+ * that silently means a different number than it says is not.
+ */
+export const MAX_QUOTA_BYTES = Number.MAX_SAFE_INTEGER
+
+/**
  * The PUT body for a platform quota write.
  *
  * `null` means unlimited — an explicit decision, not an absent value, which is
- * why it is nullable rather than optional. `.int().positive()` makes every other
- * degenerate value (0, negative, fractional bytes, `Infinity`, `NaN`) a 400 at
- * the boundary, so a 422 from this endpoint has exactly one meaning left:
- * the quota is below what the organization already stores.
+ * why it is nullable rather than optional. The chain makes every other
+ * degenerate value (0, negative, fractional bytes, `Infinity`, `NaN`, and
+ * anything above {@link MAX_QUOTA_BYTES}) a 400 at the boundary, so a 422 from
+ * this endpoint has exactly one meaning left: the quota is below what the
+ * organization already stores.
+ *
+ * This schema is also what {@link parseQuotaDraft} judges its own output with,
+ * which is what keeps the browser's idea of "acceptable" from drifting from the
+ * route's — the drift that this module was created to remove.
  */
 export const storageQuotaPutSchema = z.object({
-  quotaBytes: z.number().int().positive().nullable(),
+  quotaBytes: z.number().int().positive().max(MAX_QUOTA_BYTES).nullable(),
 })
 
 export type StorageQuotaPut = z.infer<typeof storageQuotaPutSchema>
 
 /** Why a typed quota was refused, for the caller to turn into a message. */
-export type QuotaDraftRejection = 'notANumber' | 'notPositive'
+export type QuotaDraftRejection = 'notANumber' | 'notPositive' | 'tooLarge'
 
 export type QuotaDraft =
   | { ok: true; quotaBytes: number | null }
@@ -61,12 +78,19 @@ export type QuotaDraft =
  *
  * Empty means unlimited, and that is the one case where a blank field is a
  * decision rather than a mistake — clearing the box is how you lift a limit.
- * Everything else must be a finite, positive number, because the two ways of
- * being neither both end up serializing to `null`, which is indistinguishable
- * from the blank field:
+ * Every other value is judged **after** it has been scaled to bytes, and by the
+ * schema the route itself uses, for one reason: the number that has to survive
+ * `JSON.stringify` is the byte count, not what was typed. Checking the typed
+ * value instead is a live defect, not a stylistic preference —
  *
  * - `Number('12x')` → `NaN` → `JSON.stringify` → `null`
  * - `Number('1e999')` → `Infinity` → `JSON.stringify` → `null`
+ * - `Number('1e300')` is perfectly finite; `1e300 * 1e9` is `Infinity` → `null`
+ *
+ * — and `null` is how this API spells UNLIMITED, so each of those removes the
+ * tenant's quota while the UI reports success. The third one survived a guard
+ * that tested `Number.isFinite` on the input, which is exactly why the guard now
+ * sits on the output and is the route's own schema rather than a copy of it.
  *
  * A value small enough to round to zero bytes is refused for the same reason it
  * would be refused server-side: a zero-byte quota is not a quota, it is an
@@ -78,12 +102,17 @@ export function parseQuotaDraft(raw: string): QuotaDraft {
   if (trimmed === '') return { ok: true, quotaBytes: null }
 
   const gb = Number(trimmed)
-  if (!Number.isFinite(gb)) return { ok: false, reason: 'notANumber' }
+  if (Number.isNaN(gb)) return { ok: false, reason: 'notANumber' }
 
   const quotaBytes = Math.round(gb * BYTES_PER_GB)
-  if (quotaBytes <= 0) return { ok: false, reason: 'notPositive' }
+  if (storageQuotaPutSchema.safeParse({ quotaBytes }).success) {
+    return { ok: true, quotaBytes }
+  }
 
-  return { ok: true, quotaBytes }
+  // Rejected. The reason only selects a message, so it is chosen by which end of
+  // the range the operator fell off — the part they can act on. `Infinity` lands
+  // here as `tooLarge`, which is both true and the advice they need.
+  return { ok: false, reason: quotaBytes > 0 ? 'tooLarge' : 'notPositive' }
 }
 
 /**

@@ -28,6 +28,7 @@ import {
 import type { NewDocument } from '@/lib/db/schema'
 import { InsufficientStorageError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { requirePlatformOwner } from '@/lib/authz/platform'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
 /** Key under `organizations.settings` holding the quota, in bytes. */
@@ -187,11 +188,16 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
  * `platform_model_defaults` sits at the platform tier — the tenant sees the
  * number and plans around it, only the operator sets it.
  *
- * Authorization is `platformApiRoute`'s `requirePlatformOwner`, which runs
- * before the handler and so cannot be lost by editing it. Takes a `GridSession`
- * because a platform owner browsing another org holds no membership in it, and
- * does no check of its own — the route is the gate and names itself in its
- * `enforcedBy` posture.
+ * Authorization is checked HERE, first, before anything else in this function
+ * runs. `platformApiRoute`'s `requirePlatformOwner` also runs before the handler,
+ * and that is not a substitute: this function probes for the organization's
+ * existence, writes the setting, and records an audit event, so a caller reaching
+ * it another way would get an existence oracle over every organization id and a
+ * row in the record of who changed what. A guard one file away is a fact about
+ * today's call graph; this one is a property of the function.
+ *
+ * It takes a `GridSession` because a platform owner browsing another org holds no
+ * membership in it — `isPlatformOwner` covers that cross-org path.
  *
  * Refuses a quota below what the org already stores: accepting one strands the
  * tenant in a state no upload can fix while doing nothing about the bytes
@@ -203,6 +209,10 @@ export async function setStorageQuota(
   quotaBytes: number | null,
   request?: Request
 ): Promise<StorageOverview> {
+  // Before the existence probe, not after it: `NotFoundError` vs `Forbidden` on a
+  // guessed id is an enumeration oracle over every organization in the platform.
+  await requirePlatformOwner(session)
+
   // Refuse an organization Grid has never heard of. `updateOrgSettings` upserts,
   // so without this a mistyped id in the URL silently creates a settings row and
   // an audit event for a tenant that does not exist — a quota nobody will ever
@@ -237,7 +247,7 @@ export async function setStorageQuota(
   // The platform-tier write. `updateOrgSettings` REFUSES this key — that refusal
   // is what closed the hole where `PUT /api/organization/settings` let an
   // `org:settings:manage` holder raise its own quota.
-  await updatePlatformOwnedOrgSettings(organizationId, {
+  await updatePlatformOwnedOrgSettings(session, organizationId, {
     settings: { [STORAGE_QUOTA_SETTING]: quotaBytes === null ? null : Math.floor(quotaBytes) },
   })
 

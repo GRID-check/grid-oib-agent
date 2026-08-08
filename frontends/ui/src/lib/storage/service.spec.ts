@@ -41,6 +41,21 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: (...args: unknown[]) => recordAuditEvent(...args),
 }))
 
+// Mocked at the predicate, not at WorkOS: what this file is about is whether
+// `setStorageQuota` CONSULTS it, and in what order relative to everything else it
+// does. `isPlatformOwner` itself is covered in `authz/platform.spec.ts`.
+const isPlatformOwner = vi.fn()
+vi.mock('@/lib/authz/platform', async () => {
+  const actual = await import('@/lib/authz/platform')
+  return {
+    ...actual,
+    isPlatformOwner: (...args: unknown[]) => isPlatformOwner(...args),
+    requirePlatformOwner: async (session: unknown) => {
+      if (!(await isPlatformOwner(session))) throw new actual.PlatformAccessDeniedError()
+    },
+  }
+})
+
 import type { GridSession } from '@/lib/auth/types'
 import {
   assertWithinStorageQuota,
@@ -91,6 +106,8 @@ describe('storage quota', () => {
     })
     // Known to Grid by default; the "unknown organization" tests opt out.
     findOrganization.mockResolvedValue({ workosOrganizationId: 'org-1', settings: {} })
+    // The platform owner by default; the authorization tests opt out.
+    isPlatformOwner.mockResolvedValue(true)
   })
 
   describe('getStorageQuotaBytes', () => {
@@ -185,7 +202,11 @@ describe('storage quota', () => {
       findOrganization.mockResolvedValue(null)
       usedBytes(3 * GB, 12)
       await setStorageQuota(platformSession(), 'org-busy', 10 * GB)
-      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-busy', expect.anything())
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith(
+        platformSession(),
+        'org-busy',
+        expect.anything()
+      )
     })
 
     it('refuses a non-positive quota', async () => {
@@ -196,7 +217,7 @@ describe('storage quota', () => {
       usedBytes(1 * GB)
       await setStorageQuota(platformSession(), 'org-1', 10 * GB)
 
-      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-1', {
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith(platformSession(), 'org-1', {
         settings: { [STORAGE_QUOTA_SETTING]: 10 * GB },
       })
       expect(recordAuditEvent).toHaveBeenCalledWith(
@@ -211,7 +232,7 @@ describe('storage quota', () => {
     it('clears the quota with null, and records it as unlimited', async () => {
       await setStorageQuota(platformSession(), 'org-1', null)
 
-      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-1', {
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith(platformSession(), 'org-1', {
         settings: { [STORAGE_QUOTA_SETTING]: null },
       })
       expect(recordAuditEvent).toHaveBeenCalledWith(
@@ -224,15 +245,48 @@ describe('storage quota', () => {
       // Reading the target off the session instead of the argument would let a
       // quota land on whichever tenant the operator happened to be browsing.
       await setStorageQuota(platformSession(), 'org-other', 10 * GB)
-      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-other', expect.anything())
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith(
+        platformSession(),
+        'org-other',
+        expect.anything()
+      )
       expect(recordAuditEvent).toHaveBeenCalledWith(
         expect.objectContaining({ organizationId: 'org-other' })
       )
     })
 
-    // NOTE: there is deliberately no "refuses a non-platform caller" case. The
-    // gate is `platformApiRoute`'s requirePlatformOwner, which runs before the
-    // handler; asserting a second check inside the service would test a belt
-    // that does not exist and would drift from the route that does.
+    /**
+     * The authorization is the service's, not the route's.
+     *
+     * This file used to carry a note explaining why there was deliberately no
+     * such test: the gate was `platformApiRoute`'s `requirePlatformOwner`, and
+     * asserting a second check here "would test a belt that does not exist". The
+     * note was accurate and the design was wrong. This function probes whether an
+     * organization exists, writes a platform-owned setting, and records who
+     * changed it — so a caller reaching it any other way got an enumeration
+     * oracle over every organization id and a row in the audit log. A guard in
+     * another file is a fact about today's call graph, and call graphs change
+     * without anyone revisiting the comment that depended on them.
+     */
+    it('refuses a caller who is not the platform owner', async () => {
+      isPlatformOwner.mockResolvedValue(false)
+      await expect(setStorageQuota(platformSession(), 'org-1', 10 * GB)).rejects.toMatchObject({
+        status: 403,
+      })
+      expect(updatePlatformOwnedOrgSettings).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+    })
+
+    it('refuses before it can be used to probe which organizations exist', async () => {
+      // Ordering, not just presence: checking authorization AFTER the existence
+      // lookup would answer "does org-X exist?" with 404-vs-403 for anyone who
+      // could reach the function.
+      isPlatformOwner.mockResolvedValue(false)
+      await expect(setStorageQuota(platformSession(), 'org-typo', 10 * GB)).rejects.toMatchObject({
+        status: 403,
+      })
+      expect(findOrganization).not.toHaveBeenCalled()
+      expect(aggregateStorageUsage).not.toHaveBeenCalled()
+    })
   })
 })

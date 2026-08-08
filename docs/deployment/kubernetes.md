@@ -386,7 +386,7 @@ metadata dump and the object copy lands in neither.
    Compare current `(key, size)` pairs, newest date directory winning, and
    exclude the snapshot prefix:
 
-   ```
+   ```shell
    # Source: every bucket the ledger records, not just grid-documents.
    for b in $(psql -At -d grid_app -c \
      "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL"); do
@@ -426,7 +426,7 @@ metadata dump and the object copy lands in neither.
    `grid-documents` alone, and it is not derivable from the org id either — the
    ledger is what knows (ADR-0043):
 
-   ```
+   ```shell
    BUCKETS=$(psql -At -d grid_app -c \
      "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL")
 
@@ -488,7 +488,7 @@ metadata dump and the object copy lands in neither.
 
 7. **Compare the inventory** against step 4 — the file, not the number:
 
-   ```
+   ```shell
    for b in $BUCKETS; do
      aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
        --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
@@ -638,10 +638,26 @@ schema.
 
      Take it from the mirror itself rather than from a naming rule — the rule
      depends on the current prefix and hash width, and the mirror knows what is
-     actually there:
-     ```
-     # Every bucket that appears in the mirror, newest date first.
-     BUCKETS=$(aws --endpoint-url https://s3.example.com s3api list-objects-v2 \
+     actually there.
+
+     **Two endpoints means two commands.** `aws s3 sync` has ONE `--endpoint-url`
+     and it applies to both URIs, so `sync s3://mirror/... s3://bucket/` with the
+     new cluster's endpoint reads the mirror from the new cluster — where the
+     mirror bucket does not exist, or worse, where a same-named bucket does. Every
+     object therefore lands via a staging directory: one sync out of the mirror,
+     one sync into the cluster. The two also need different credentials, which the
+     single-endpoint form cannot express either; below they are two named
+     profiles.
+
+     ```shell
+     # ~/.aws/config: [profile mirror] → the offsite provider's keys
+     #                [profile cluster] → this cluster's admin S3 keys
+     MIRROR='aws --profile mirror --endpoint-url https://s3.example.com'
+     CLUSTER='aws --profile cluster --endpoint-url http://seaweedfs:8333'
+     STAGE=$(mktemp -d)   # sized for ONE bucket-slice, not the whole corpus
+
+     # Every bucket that appears in the mirror.
+     BUCKETS=$($MIRROR s3api list-objects-v2 \
        --bucket grid-documents-backup --query 'Contents[].Key' --output text \
        | tr '\t' '\n' | sed -nE 's|^[0-9-]{10}/buckets/([^/]+)/.*|\1|p' | sort -u)
 
@@ -652,20 +668,29 @@ schema.
 
      # Oldest date directory first, so a later version of a key overwrites an
      # earlier one rather than the reverse.
-     for d in $(aws --endpoint-url https://s3.example.com s3 ls s3://grid-documents-backup/ \
+     for d in $($MIRROR s3 ls s3://grid-documents-backup/ \
                   | awk '{print $2}' | tr -d / | sort); do
        for b in $BUCKETS; do
-         aws s3 sync "s3://grid-documents-backup/$d/buckets/$b/" "s3://$b/" \
-           --endpoint-url http://seaweedfs:8333
+         # Never --delete on either hop: the mirror is incremental, so a deletion
+         # was never propagated to it, and an older date directory legitimately
+         # holds keys a newer one does not.
+         $MIRROR s3 sync "s3://grid-documents-backup/$d/buckets/$b/" "$STAGE/$b/"
+         $CLUSTER s3 sync "$STAGE/$b/" "s3://$b/"
+         rm -rf "$STAGE/$b"   # keeps peak disk at one bucket-slice
        done
      done
+     rmdir "$STAGE"
      ```
+
+     The staging hop is also the only place to verify the bytes left the mirror
+     intact, so if a restore is being done under pressure this is where to spot a
+     truncated object rather than after it is already in the cluster.
 
      If the database survived, cross-check the restored set against the ledger —
      it is the record of which bucket each document's bytes are in, and a bucket
      present in the ledger but absent from the mirror is a gap you want to know
      about before declaring the restore done:
-     ```
+     ```shell
      psql -At -d grid_app -c \
        "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL" \
        | sort > /tmp/ledger.buckets

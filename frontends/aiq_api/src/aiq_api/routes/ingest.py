@@ -35,8 +35,14 @@ def add_ingest_routes(router: APIRouter):
             "Downloads a file from the given presigned URL, saves it to a"
             " temporary location, and submits it to the knowledge ingestor."
         ),
+        # Every status this handler actually raises. 502 was added when the
+        # download failure was split by cause — a network error reaching the
+        # object store is not the client's malformed request, and a caller that
+        # retries on 502 but not on 400 needs the schema to say which it will
+        # get.
         responses={
-            400: {"description": "Invalid request"},
+            400: {"description": "Invalid request, or the file could not be downloaded"},
+            502: {"description": "Network error reaching the object store"},
             500: {"description": "Ingestion failed"},
         },
     )

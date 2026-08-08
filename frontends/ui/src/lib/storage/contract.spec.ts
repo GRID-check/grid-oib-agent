@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   BYTES_PER_GB,
+  MAX_QUOTA_BYTES,
   formatQuotaDraft,
   parseQuotaDraft,
   storageQuotaPutSchema,
@@ -38,7 +39,6 @@ describe('parseQuotaDraft', () => {
     ['a typo', '12x'],
     ['letters', 'fifty'],
     ['a stray unit', '50 GB'],
-    ['an overflow that becomes Infinity', '1e999'],
     ['a lone minus sign', '-'],
   ])('refuses %s (%o) rather than reading it as unlimited', (_label, raw) => {
     expect(parseQuotaDraft(raw)).toEqual({ ok: false, reason: 'notANumber' })
@@ -50,6 +50,55 @@ describe('parseQuotaDraft', () => {
     ['a value too small to be one byte', '0.0000000001'],
   ])('refuses %s (%o)', (_label, raw) => {
     expect(parseQuotaDraft(raw)).toEqual({ ok: false, reason: 'notPositive' })
+  })
+
+  /**
+   * The overflow rows, and the reason the guard moved.
+   *
+   * `1e300` is the one that matters: it is a FINITE number, so a
+   * `Number.isFinite` check on what was typed waves it through — and then
+   * `1e300 * 1e9` is `Infinity`, which `JSON.stringify` writes as `null`, which
+   * is this API's spelling of unlimited. Same destination as the `'12x'` bug,
+   * reached by a route the first guard did not cover, which is why the check now
+   * sits on the scaled byte count instead of on the input.
+   *
+   * `1e10` GB is under the same rule for a quieter reason: 1e19 bytes is past
+   * `Number.MAX_SAFE_INTEGER`, so it survives JSON but stops comparing exactly
+   * against the bigint sum it is checked against.
+   */
+  it.each([
+    ['a finite input whose byte count is Infinity', '1e300'],
+    ['an input that is already Infinity', '1e999'],
+    ['a byte count past MAX_SAFE_INTEGER', '1e10'],
+  ])('refuses %s (%o) rather than reading it as unlimited', (_label, raw) => {
+    expect(parseQuotaDraft(raw)).toEqual({ ok: false, reason: 'tooLarge' })
+  })
+
+  it('accepts the largest quota that stays exact', () => {
+    const raw = formatQuotaDraft(MAX_QUOTA_BYTES - (MAX_QUOTA_BYTES % BYTES_PER_GB))
+    expect(parseQuotaDraft(raw)).toEqual({ ok: true, quotaBytes: expect.any(Number) })
+  })
+
+  /**
+   * The property behind all of the above: whatever this function calls `ok`, the
+   * route must accept. Stated as a test because the two used to be independent
+   * rules, and every finding in this file came from them disagreeing.
+   */
+  it.each([
+    '50',
+    '1.5',
+    '0.000000001',
+    '12x',
+    '1e300',
+    '1e999',
+    '1e10',
+    '0',
+    '-5',
+    '',
+  ])('never accepts (%o) unless the route schema would', (raw) => {
+    const draft = parseQuotaDraft(raw)
+    if (!draft.ok) return
+    expect(storageQuotaPutSchema.safeParse({ quotaBytes: draft.quotaBytes }).success).toBe(true)
   })
 
   // Whatever the editor prefills, the parser must accept — otherwise opening the
@@ -79,6 +128,7 @@ describe('storageQuotaPutSchema', () => {
     ['NaN', Number.NaN],
     ['Infinity', Number.POSITIVE_INFINITY],
     ['a string', '50'],
+    ['a byte count past MAX_SAFE_INTEGER', MAX_QUOTA_BYTES + 2],
   ])('rejects %s', (_label, quotaBytes) => {
     expect(storageQuotaPutSchema.safeParse({ quotaBytes }).success).toBe(false)
   })

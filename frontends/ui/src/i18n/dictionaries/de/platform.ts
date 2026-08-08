@@ -1050,6 +1050,8 @@ export const platform: typeof en.platform = {
       'Dieses Kontingent liegt unter dem bereits belegten Speicher. Geben Sie zuerst Platz frei.',
     invalidQuota:
       'Geben Sie ein Kontingent in GB über null ein oder lassen Sie das Feld leer für kein Limit.',
+    quotaTooLarge:
+      'Dieses Kontingent ist größer als das System darstellen kann. Geben Sie höchstens 9.000.000 GB ein oder lassen Sie das Feld leer für kein Limit.',
     truncated:
       'Es werden die ersten 1000 Organisationen angezeigt. Für den Rest bitte einen Flottenbericht anfordern.',
     loadError: 'Speichernutzung konnte nicht geladen werden.',

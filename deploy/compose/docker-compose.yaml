@@ -71,7 +71,7 @@ services:
       # overwrite or delete any tenant document. AGENTS.md already described this
       # tier as read-only; now it is.
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
-      - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:-seaweedreadonly}
+      - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
@@ -145,8 +145,34 @@ services:
       # `${SEAWEED_ACCESS_KEY:-seaweedadmin}` — so setting the variable changed
       # the clients and not the generated `s3.json`, and the first request failed
       # `InvalidAccessKeyId`. One variable per credential, both sides.
+      #
+      # ── Access keys default; SECRET keys are `:?` and have no default ────────
+      #
+      # The two halves are not the same kind of value. An access key is an
+      # IDENTITY NAME — it has to match a name in the `s3.json` generated below,
+      # so a default is how the two sides stay in agreement. A secret key is the
+      # credential itself, and a default there is a password shared by every
+      # install that never set one, on a service that publishes port 8333 and
+      # holds every tenant's documents. `deploy/.env.example` already told
+      # operators to generate this one; the compose file quietly supplied a
+      # literal when they did not, which is the same silent-weak-default failure
+      # in a place nobody looks.
+      #
+      # So they are required. `docker compose up` without them fails at
+      # interpolation with the message below, before anything starts — a
+      # setup step, not an incident. Generate all three in one line:
+      #
+      #   for v in SEAWEED_SECRET_KEY SEAWEED_READONLY_SECRET_KEY \
+      #            SEAWEED_TENANT_ADMIN_SECRET_KEY; do
+      #     echo "$v=$(openssl rand -hex 24)" >> deploy/.env
+      #   done
+      #
+      # The other dev credentials in this file (`aiq_dev`, `grid_app_rw_dev`)
+      # keep their defaults. Not an inconsistency worth hiding: they are named
+      # for what they are, and they are not the keys to an object store reachable
+      # from a browser.
       SEAWEED_ACCESS_KEY: ${SEAWEED_ACCESS_KEY:-seaweedadmin}
-      SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:-seaweedadmin}
+      SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       # The READ-ONLY identity the agent tier uses (ADR-0039). It was missing
       # from this file entirely, so `aiq-agent` and `agent-worker` ran on the
       # write-capable `grid` credential — able to overwrite or delete any
@@ -154,7 +180,7 @@ services:
       # get_object. That made the compose stack a weaker authorization model than
       # production, in the environment people develop against.
       SEAWEED_READONLY_ACCESS_KEY: ${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
-      SEAWEED_READONLY_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:-seaweedreadonly}
+      SEAWEED_READONLY_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       # A THIRD identity, and a DISTINCT credential, for bucket lifecycle.
       # SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket
       # together, so the two can only be separated by putting them on different
@@ -167,7 +193,7 @@ services:
       # InvalidAccessKeyId on the first tenant upload rather than anything at
       # boot.
       SEAWEED_TENANT_ADMIN_ACCESS_KEY: ${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
-      SEAWEED_TENANT_ADMIN_SECRET_KEY: ${SEAWEED_TENANT_ADMIN_SECRET_KEY:-seaweedtenantadmin} # pragma: allowlist secret (local dev only; overridden by deploy/.env)
+      SEAWEED_TENANT_ADMIN_SECRET_KEY: ${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
@@ -285,7 +311,7 @@ services:
       # localhost port for local dev; set to your public SeaweedFS/S3 URL in prod.
       - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
-      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=grid-documents
       # Per-organization buckets (ADR-0043). Off here: compose is the
       # single-node development stack, and the bucket a document lives in is
@@ -296,7 +322,7 @@ services:
       # and nothing else, because SeaweedFS cannot grant CreateBucket without
       # also granting DeleteBucket.
       - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
-      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SEAWEED_TENANT_ADMIN_SECRET_KEY:-seaweedtenantadmin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
@@ -376,7 +402,7 @@ services:
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
-      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=grid-documents
       # No per-organization bucket variables here on purpose: the purge reads
       # the buckets its documents recorded rather than deriving them, so it
@@ -426,7 +452,7 @@ services:
       # identity here; compose has one identity, so it uses that.
       - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
-      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # Deployment start gate: the scheduler refuses to run (clean exit 0) unless
       # workflows are enabled here or feature-flag enforcement is on.

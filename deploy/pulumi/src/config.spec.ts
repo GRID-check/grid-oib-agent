@@ -185,6 +185,27 @@ describe("documents backup credentials", () => {
     expect(error?.message).toMatch(/required when seaweedfsBackupEnabled is true/);
   });
 
+  /**
+   * A key that is SET TO EMPTY is missing.
+   *
+   * `pulumi config set --secret grid-oib:seaweedfsBackupSecretKey ""` is easy to
+   * do by accident — a shell variable that did not expand, a value pasted from an
+   * empty clipboard — and `cfg.getSecret` returns a defined output for it, so an
+   * unset-vs-set check waves it through. The result is not a configuration error
+   * an operator can see: it is `weed filer.backup` signing every request with an
+   * empty key, `SignatureDoesNotMatch`, and a mirror that reports nothing while
+   * copying nothing. That is precisely what this guard exists to prevent, so the
+   * condition is "can this credential sign?", not "does the key exist?".
+   */
+  it.each([
+    ["empty", ""],
+    ["whitespace", "   "],
+  ])("refuses a key set to %s, which cannot sign anything", (_label, value) => {
+    const error = loadWith({ ...enable, "grid-oib:seaweedfsBackupSecretKey": value });
+    expect(error?.message).toContain("grid-oib:seaweedfsBackupSecretKey");
+    expect(error?.message).toMatch(/required when seaweedfsBackupEnabled is true/);
+  })
+
   it("names every missing key at once, so one plan reports the whole gap", () => {
     const error = loadWith(enable, [
       "grid-oib:seaweedfsBackupAccessKey",

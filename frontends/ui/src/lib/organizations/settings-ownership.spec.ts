@@ -16,9 +16,29 @@ vi.mock('@/lib/workos/feature-flags', () => ({
   WEB_SEARCH_FLAG: 'web-search',
 }))
 
+// Mocked at the predicate rather than at WorkOS, because what these tests are
+// about is whether the platform write path CONSULTS it — the real
+// `isPlatformOwner` is covered in `authz/platform.spec.ts`.
+const isPlatformOwner = vi.fn()
+vi.mock('@/lib/authz/platform', async () => {
+  const actual = await import('@/lib/authz/platform')
+  return {
+    ...actual,
+    isPlatformOwner: (...args: unknown[]) => isPlatformOwner(...args),
+    requirePlatformOwner: async (session: unknown) => {
+      if (!(await isPlatformOwner(session))) throw new actual.PlatformAccessDeniedError()
+    },
+  }
+})
+
 import { ForbiddenError } from '@/lib/api/errors'
+import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { PLATFORM_OWNED_SETTINGS } from '@/lib/db/schema'
+import type { GridSession } from '@/lib/auth/types'
 import { updateOrgSettings, updatePlatformOwnedOrgSettings } from './service'
+
+const OWNER = { userId: 'user-1', email: 'ops@grid.example' } as GridSession
+const TENANT_ADMIN = { userId: 'user-2', email: 'admin@tenant.example' } as GridSession
 
 /**
  * Who owns which key in the `organizations.settings` bag.
@@ -44,6 +64,7 @@ describe('platform-owned settings keys', () => {
       settings: {},
     })
     upsertOrganization.mockResolvedValue(undefined)
+    isPlatformOwner.mockResolvedValue(true)
   })
 
   it.each([...PLATFORM_OWNED_SETTINGS])('refuses %s from the tenant write path', async (key) => {
@@ -77,10 +98,40 @@ describe('platform-owned settings keys', () => {
   // so `grep` finds every platform write and nothing reaches the bypass by
   // passing `true`.
   it('lets the platform path write the same key', async () => {
-    await updatePlatformOwnedOrgSettings('org-1', { settings: { storageQuotaBytes: 42 } })
+    await updatePlatformOwnedOrgSettings(OWNER, 'org-1', {
+      settings: { storageQuotaBytes: 42 },
+    })
     expect(upsertOrganization).toHaveBeenCalledWith(
       expect.objectContaining({ settings: { storageQuotaBytes: 42 } })
     )
+  })
+
+  /**
+   * The escape enforces what its name claims.
+   *
+   * It used to take no session and rely on its one caller being routed through
+   * `platformApiRoute`. That made the guard a property of the call graph rather
+   * than of the function — and the hole it would reopen is precisely the one
+   * `updateOrgSettings` was changed to close, so "there is only one caller today"
+   * is not a defence. This test is what makes the second caller impossible to get
+   * wrong.
+   */
+  it('refuses a caller who is not the platform owner', async () => {
+    isPlatformOwner.mockResolvedValue(false)
+    await expect(
+      updatePlatformOwnedOrgSettings(TENANT_ADMIN, 'org-1', {
+        settings: { storageQuotaBytes: 999_999_999_999 },
+      })
+    ).rejects.toBeInstanceOf(PlatformAccessDeniedError)
+    expect(upsertOrganization).not.toHaveBeenCalled()
+  })
+
+  it('refuses an absent session', async () => {
+    isPlatformOwner.mockResolvedValue(false)
+    await expect(
+      updatePlatformOwnedOrgSettings(null, 'org-1', { settings: { storageQuotaBytes: 1 } })
+    ).rejects.toBeInstanceOf(PlatformAccessDeniedError)
+    expect(upsertOrganization).not.toHaveBeenCalled()
   })
 
   it('merges rather than replaces, on both paths', async () => {
@@ -91,7 +142,9 @@ describe('platform-owned settings keys', () => {
       settings: { zdrOnly: true },
     })
 
-    await updatePlatformOwnedOrgSettings('org-1', { settings: { storageQuotaBytes: 42 } })
+    await updatePlatformOwnedOrgSettings(OWNER, 'org-1', {
+      settings: { storageQuotaBytes: 42 },
+    })
     expect(upsertOrganization).toHaveBeenCalledWith(
       expect.objectContaining({ settings: { zdrOnly: true, storageQuotaBytes: 42 } })
     )

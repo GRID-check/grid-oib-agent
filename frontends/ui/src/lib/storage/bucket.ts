@@ -91,9 +91,9 @@ export const DEFAULT_TENANT_BUCKET_PREFIX = 'grid-org-'
  *
  * It is still a probability, not a proof — a truncated hash cannot be injective.
  * What makes that acceptable is not the exponent but {@link ensureTenantBucket}:
- * every bucket carries an ownership marker that is verified before it is used,
- * so a collision (or two deployments sharing one SeaweedFS) fails closed and
- * loudly instead of silently sharing a tenant's objects.
+ * every bucket carries an ownership claim that is verified before it is used, so
+ * a collision (or two deployments sharing one SeaweedFS) fails closed and loudly
+ * instead of silently sharing a tenant's objects.
  */
 const HASH_CHARS = 32
 
@@ -167,7 +167,7 @@ export function assertValidBucketName(name: string): string {
  *    SHA-256 of the ORIGINAL id is appended unconditionally — unconditionally
  *    rather than only when the slug is lossy, because "is this id lossy?" is one
  *    more thing to get wrong. 128 bits makes a collision negligible (see
- *    {@link HASH_CHARS}); the ownership marker in {@link ensureTenantBucket}
+ *    {@link HASH_CHARS}); the ownership claim in {@link ensureTenantBucket}
  *    makes one DETECTABLE, which is the property that actually holds the
  *    boundary. A truncated hash can never be injective, so the design does not
  *    depend on it being so.
@@ -281,7 +281,7 @@ export function __resetBucketCache(): void {
 }
 
 /**
- * Object at the root of every tenant bucket naming the organization that owns it.
+ * Where a tenant bucket records who owns it.
  *
  * This is what turns the bucket boundary from ASSUMED into VERIFIED. The bucket
  * name is a slug plus a truncated hash, so no hash width makes the mapping
@@ -290,10 +290,50 @@ export function __resetBucketCache(): void {
  * ends with two organizations reading and writing one bucket and nothing
  * anywhere saying so.
  *
+ * ## Why this is a PREFIX and not one object
+ *
+ * The first version of this was a single mutable key holding the owner's id. It
+ * detected nothing in the case it was written for. Two organizations resolving to
+ * one bucket both find it absent, both `PutObject` the marker with their own id,
+ * and last-write-wins: the marker ends up naming one of them, and the other has
+ * already read its own value back and cached the bucket as its own. Two tenants
+ * then share a container, with a marker that says the boundary was verified. A
+ * re-read after writing narrows the window but cannot close it — interleave the
+ * two puts and reads and both parties still see themselves.
+ *
+ * A mutual-exclusion answer does not fit either. The obvious one, an advisory
+ * lock in Postgres (as `insertDocumentWithinQuota` uses), serialises this
+ * deployment against itself and does nothing about the other half of the threat:
+ * two deployments sharing one SeaweedFS have two different databases. The other,
+ * a conditional `PutObject` with `If-None-Match: *`, would be exactly right if
+ * the store honoured it — and SeaweedFS 3.80 does not reject a PUT on a
+ * conditional header it does not implement, so the fix would silently be a no-op
+ * against the only store we run.
+ *
+ * So the claim is made unforgeable instead of exclusive: each organization writes
+ * its OWN key, `<prefix><sha256(orgId)>`, whose body is its id. Nothing ever
+ * overwrites anything, because no two organizations address the same key, and a
+ * repeat claim by the same organization writes the identical bytes. The invariant
+ * moves from "the marker names me" to "there is exactly one claim, and it is
+ * mine" — which is a LIST, and which both parties to a race evaluate the same way
+ * whatever the interleaving, because neither can erase the other's evidence.
+ *
+ * The consequence is deliberate: a collision quarantines the bucket for BOTH
+ * organizations rather than handing it to whoever raced faster. Neither has a
+ * better claim, and only an operator can decide (change the tenant prefix, or
+ * migrate the objects). See {@link assertBucketOwnership}.
+ *
  * Leading dot so it sorts and reads as metadata, and so a prefix sweep over
- * `org/<id>/…` never touches it.
+ * `org/<id>/…` never touches it. The trailing slash matters: it keeps the claims
+ * in their own namespace, and it is why a claim can never collide with the flat
+ * key this replaced.
  */
-const OWNER_MARKER_KEY = '.grid-bucket-owner'
+const OWNER_CLAIM_PREFIX = '.grid-bucket-owner/'
+
+/** The key one organization claims a bucket with. Deterministic, and its own. */
+function ownerClaimKey(organizationId: string): string {
+  return `${OWNER_CLAIM_PREFIX}${createHash('sha256').update(organizationId).digest('hex')}`
+}
 
 /**
  * Make sure the organization's bucket exists AND belongs to it, then return it.
@@ -304,21 +344,26 @@ const OWNER_MARKER_KEY = '.grid-bucket-owner'
  *
  * ## The four states, and why each behaves as it does
  *
- * 1. **Absent** — create it, then write the marker. In that order: a marker in a
- *    bucket that does not exist is not a thing, and a bucket without a marker is
+ * 1. **Absent** — create it, then claim it. In that order: a claim in a bucket
+ *    that does not exist is not a thing, and a bucket without a claim is
  *    recoverable (state 4).
- * 2. **Present, marker names this organization** — the ordinary path.
- * 3. **Present, marker names a DIFFERENT organization** — refuse, loudly. This is
- *    the case the marker exists for: a hash collision, or two deployments
- *    sharing one SeaweedFS with the same tenant prefix. Writing here would mix
- *    two tenants' documents in one container, and reading would serve one
- *    tenant's bytes to the other. Failing the upload is the only safe answer,
+ * 2. **Present, claimed by this organization** — the ordinary path. Re-claiming
+ *    writes the same key with the same body, so it is a no-op with a round trip.
+ * 3. **Present, claimed by a DIFFERENT organization** — refuse, loudly, for both
+ *    parties. This is the case the marker exists for: a hash collision, or two
+ *    deployments sharing one SeaweedFS with the same tenant prefix. Writing here
+ *    would mix two tenants' documents in one container, and reading would serve
+ *    one tenant's bytes to the other. Failing the upload is the only safe answer,
  *    and it is a failure an operator can actually diagnose.
- * 4. **Present, no marker** — claim it only if it is EMPTY. An empty bucket
- *    cannot be holding another tenant's data, so claiming it is safe, and this
- *    is exactly the state left behind when a previous attempt created the bucket
- *    and failed before writing the marker. A NON-empty unmarked bucket is
- *    refused: it holds objects this deployment cannot account for.
+ * 4. **Present, unclaimed** — claim it if it is EMPTY. An empty bucket cannot be
+ *    holding another tenant's data, and this is exactly the state left behind when
+ *    a previous attempt created the bucket and died before claiming it. A
+ *    NON-empty unclaimed bucket is refused: it holds objects this deployment
+ *    cannot account for.
+ *
+ * State 3 is reached by a LIST rather than by reading one mutable object, which is
+ * what makes it hold under concurrency — see {@link OWNER_CLAIM_PREFIX} for the
+ * race that a single marker could not detect.
  *
  * `client` is the bucket-lifecycle credential, NOT the one the request path uses
  * for objects. SeaweedFS's `Admin:<bucket>` authorises CreateBucket and
@@ -350,8 +395,8 @@ export async function ensureTenantBucket(
       await client.send(new CreateBucketCommand({ Bucket: bucket }))
     } catch (error) {
       // Lost the race to a concurrent upload for the same new organization. The
-      // bucket exists, so fall through and verify the marker like any other
-      // existing bucket — the winner may not have written it yet.
+      // bucket exists, so fall through and verify ownership like any other
+      // existing bucket — the winner may not have claimed it yet.
       if (!isAlreadyExists(error)) throw error
       exists = true
     }
@@ -363,11 +408,27 @@ export async function ensureTenantBucket(
 }
 
 /**
- * Verify — or, where it is safe, establish — the bucket's ownership marker.
+ * Establish — or, when it is already there, simply confirm — this organization's
+ * sole claim on the bucket.
  *
- * `created` says this call just made the bucket, which means the marker is
- * expected to be absent and writing it is the completion of provisioning rather
- * than a claim over something pre-existing.
+ * Two paths, and the interesting one is the second.
+ *
+ * **Already claimed by us.** One LIST, no write, done. This is what every upload
+ * after the first sees on a cold cache, so it is the cost that matters.
+ *
+ * **Not yet claimed.** Write our claim, and only THEN judge the result. That order
+ * is the opposite of what reads naturally and it is the whole point: writing our
+ * own key cannot damage anyone (see {@link OWNER_CLAIM_PREFIX}), and doing it
+ * before the deciding LIST is what guarantees a racing claimant's list contains
+ * ours. Two parties therefore cannot both come away believing they verified sole
+ * ownership — for both to succeed, each one's LIST would have to precede the
+ * other's PUT, and each one's own PUT precedes its own LIST, which closes the
+ * cycle: `A.put < A.list < B.put < B.list < A.put`. At most one proceeds, and if
+ * the timing is unlucky, neither does. Both are safe; a shared container is not.
+ *
+ * `created` says this call just made the bucket, so it can hold neither a claim
+ * nor a stranger's objects and both checks are skipped — round trips, not
+ * semantics.
  */
 async function assertBucketOwnership(
   client: S3Client,
@@ -375,66 +436,128 @@ async function assertBucketOwnership(
   organizationId: string,
   { created }: { created: boolean },
 ): Promise<void> {
-  const owner = created ? null : await readOwnerMarker(client, bucket)
+  const ours = ownerClaimKey(organizationId)
 
-  if (owner === organizationId) return
+  if (!created) {
+    const existing = await listOwnerClaims(client, bucket)
+    // Conclusive at MaxKeys 2: a second claim would have come back in the same
+    // page, so one claim means one claim.
+    if (existing.length === 1 && existing[0] === ours) return
+    const foreign = existing.find((key) => key !== ours)
+    if (foreign !== undefined) await refuseForeignClaim(client, bucket, organizationId, foreign)
 
-  if (owner !== null) {
-    throw new Error(
-      `Bucket "${bucket}" is marked as belonging to organization "${owner}", not ` +
-        `"${organizationId}". Refusing to write: this is either a bucket-name collision or ` +
-        'two deployments sharing one object store with the same tenant prefix. Change ' +
-        'SEAWEED_TENANT_BUCKET_PREFIX for one of them, or migrate the objects.',
-    )
-  }
-
-  // No marker. Safe to claim only when nothing is stored yet — see state 4.
-  if (!created && !(await isBucketEmpty(client, bucket))) {
-    throw new Error(
-      `Bucket "${bucket}" already holds objects but carries no ownership marker. Refusing to ` +
-        `write on behalf of organization "${organizationId}": the existing objects cannot be ` +
-        'attributed. Inspect the bucket and either remove it or add ' +
-        `"${OWNER_MARKER_KEY}" naming its owner.`,
-    )
+    // Unclaimed. Checked before anything is written: objects nobody can attribute
+    // are what this marker exists to keep us away from, and leaving our claim in
+    // such a bucket would make the next attempt think they were accounted for.
+    await assertNotOccupiedByStrangers(client, bucket, organizationId)
   }
 
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
-      Key: OWNER_MARKER_KEY,
+      Key: ours,
       Body: organizationId,
       ContentType: 'text/plain',
     }),
   )
+
+  const foreign = (await listOwnerClaims(client, bucket)).find((key) => key !== ours)
+  if (foreign !== undefined) await refuseForeignClaim(client, bucket, organizationId, foreign)
 }
 
-/** The organization named by the bucket's marker, or null when there is none. */
-async function readOwnerMarker(client: S3Client, bucket: string): Promise<string | null> {
-  try {
-    const response = await client.send(
-      new GetObjectCommand({ Bucket: bucket, Key: OWNER_MARKER_KEY }),
+/**
+ * Refuse the bucket to BOTH organizations, naming them.
+ *
+ * Deliberately symmetric: whoever raced faster does not thereby acquire a better
+ * title to the container, and the objects already in it (if any) belong to
+ * whichever tenant wrote them. Only an operator can resolve that, so the message
+ * carries what they need to do it.
+ */
+async function refuseForeignClaim(
+  client: S3Client,
+  bucket: string,
+  organizationId: string,
+  foreignKey: string,
+): Promise<never> {
+  const other = await readClaimOwner(client, bucket, foreignKey)
+  throw new Error(
+    `Bucket "${bucket}" is already claimed by organization "${other ?? 'unknown'}", so it ` +
+      `cannot also hold organization "${organizationId}". Refusing to write, for BOTH ` +
+      'organizations: this is either a bucket-name collision or two deployments sharing one ' +
+      'object store with the same tenant prefix, and neither party has the better claim. ' +
+      'Change SEAWEED_TENANT_BUCKET_PREFIX for one deployment, or migrate the objects and ' +
+      `remove the stale key under "${OWNER_CLAIM_PREFIX}".`,
+  )
+}
+
+/**
+ * Refuse a pre-existing bucket that holds objects nobody has claimed.
+ *
+ * Split out from the claim so the two failure modes stay distinct: this one is
+ * "objects here are not accounted for", the other is "two organizations want the
+ * same container". An unclaimed EMPTY bucket is fine to claim — that is precisely
+ * the state a provision that died between CreateBucket and the claim leaves
+ * behind, and repairing it is why the emptiness test exists at all.
+ *
+ * The claim check is repeated here rather than trusted from the caller, because
+ * this is a fresh listing: a racing claimant may have appeared in between, and if
+ * it did, this is not the failure to report — the deciding LIST after our own
+ * claim will report the conflict instead, with both organizations named.
+ */
+async function assertNotOccupiedByStrangers(
+  client: S3Client,
+  bucket: string,
+  organizationId: string,
+): Promise<void> {
+  const listed = await client.send(
+    // Three keys: enough to see a claim, a stranger's object, and that there is
+    // more than one of them. A full listing would be a paginated sweep of a
+    // tenant's whole bucket on every cold upload.
+    new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 3 }),
+  )
+  const keys = (listed?.Contents ?? []).map((object) => object.Key ?? '')
+  const claimed = keys.some((key) => key.startsWith(OWNER_CLAIM_PREFIX))
+  const occupied = keys.some((key) => key !== '' && !key.startsWith(OWNER_CLAIM_PREFIX))
+
+  if (!claimed && occupied) {
+    throw new Error(
+      `Bucket "${bucket}" already holds objects but carries no ownership claim. Refusing to ` +
+        `write on behalf of organization "${organizationId}": the existing objects cannot be ` +
+        `attributed. Inspect the bucket and either remove it or add a key under ` +
+        `"${OWNER_CLAIM_PREFIX}" naming its owner.`,
     )
-    // A zero-byte marker, or a response the SDK gave no body, is
-    // indistinguishable from no marker for every decision that follows — and
-    // treating it as "unowned" is the safe reading, because the empty-bucket path
-    // can then repair it while a non-empty bucket is still refused.
+  }
+}
+
+/** Every ownership claim on the bucket. */
+async function listOwnerClaims(client: S3Client, bucket: string): Promise<string[]> {
+  const listed = await client.send(
+    // MaxKeys 2 is all any decision needs: ours, plus evidence of one other.
+    new ListObjectsV2Command({ Bucket: bucket, Prefix: OWNER_CLAIM_PREFIX, MaxKeys: 2 }),
+  )
+  return (listed?.Contents ?? []).map((object) => object.Key ?? '').filter((key) => key !== '')
+}
+
+/**
+ * The organization named by one claim, for the error message.
+ *
+ * Best-effort on purpose: the claim key is a hash, so the id is only recoverable
+ * from the body, and a claim we cannot read still proves the conflict. Returning
+ * null downgrades the message, never the decision.
+ */
+async function readClaimOwner(
+  client: S3Client,
+  bucket: string,
+  key: string,
+): Promise<string | null> {
+  try {
+    const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
     const body = await response?.Body?.transformToString()
     return body?.trim() || null
   } catch (error) {
     if (isNoSuchKey(error)) return null
     throw error
   }
-}
-
-/** Does the bucket hold anything other than the marker? */
-async function isBucketEmpty(client: S3Client, bucket: string): Promise<boolean> {
-  const listed = await client.send(
-    // MaxKeys 2, not 1: the marker itself may be the single key returned, and
-    // "holds only its own marker" is empty for this decision.
-    new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 2 }),
-  )
-  const keys = (listed?.Contents ?? []).map((object) => object.Key)
-  return keys.filter((key) => key !== OWNER_MARKER_KEY).length === 0
 }
 
 /**
@@ -460,12 +583,12 @@ function isAlreadyExists(error: unknown): boolean {
 }
 
 /**
- * Does this error mean the marker object is absent?
+ * Does this error mean the claim object is absent?
  *
- * Narrow on purpose, and narrower than {@link isNotFound}: a missing marker sends
- * this function down the "claim it if empty" path, so treating an AccessDenied or
- * a misrouted endpoint's bare 404 as "no marker" would overwrite the ownership
- * record of a bucket this deployment could not actually read.
+ * Narrow on purpose, and narrower than {@link isNotFound}: this only ever softens
+ * an ERROR MESSAGE (a conflicting claim that vanished between the list and the
+ * read), never a decision. Treating an AccessDenied or a misrouted endpoint's bare
+ * 404 as "gone" would hide a store this deployment cannot actually read.
  */
 function isNoSuchKey(error: unknown): boolean {
   return error instanceof S3ServiceException && error.name === 'NoSuchKey'

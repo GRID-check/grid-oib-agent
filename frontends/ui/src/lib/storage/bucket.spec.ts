@@ -182,58 +182,77 @@ describe('ensureTenantBucket', () => {
     })
 
   const BUCKET = tenantBucketName(ORG)
-  const MARKER = '.grid-bucket-owner'
+  const CLAIM_PREFIX = '.grid-bucket-owner/'
+  /** The key one organization claims with — mirrors `ownerClaimKey`. */
+  const claimKey = (org: string): string =>
+    `${CLAIM_PREFIX}${createHash('sha256').update(org).digest('hex')}`
 
   /**
-   * A fake S3 that answers by command name, so a test states the STATE of the
-   * bucket rather than a call sequence. Sequence-based mocks are what let the
-   * marker protocol be added without any of these tests noticing.
+   * A fake object STORE, not a fake call sequence.
+   *
+   * Deliberately a real little key-value bucket with real List/Get/Put semantics
+   * (prefix filtering, MaxKeys, NoSuchKey), because the protocol under test is
+   * about what the store contains and in what order things become visible. A
+   * mock that answered per call in a fixed sequence is exactly what let a
+   * last-write-wins ownership marker pass for a verified boundary.
+   *
+   * `objects` is shared across bucket names on purpose in the collision tests —
+   * one flat namespace IS the situation the claim exists for (two organization
+   * ids resolving to one container), and it is otherwise unreachable, since
+   * `tenantBucketName` will not hand out the same name twice.
    */
   function fakeS3(state: {
     bucketExists: boolean
-    /** Marker contents; null means the object is absent. */
-    marker?: string | null
-    /** Keys in the bucket, excluding the marker. */
-    keys?: string[]
+    /** Initial contents, key → body. */
+    objects?: Map<string, string>
     createFails?: S3ServiceException
     headFails?: unknown
+    /** Called after every command, so a test can interleave a second caller. */
+    onCommand?: (name: string) => Promise<void> | void
   }) {
+    const objects = state.objects ?? new Map<string, string>()
     const calls: Array<{ command: string; input: Record<string, unknown> }> = []
     const send = vi.fn(async (command: { constructor: { name: string }; input: Record<string, unknown> }) => {
       const name = command.constructor.name
-      calls.push({ command: name, input: command.input })
-      switch (name) {
-        case 'HeadBucketCommand':
-          if (state.headFails) throw state.headFails
-          if (!state.bucketExists) throw s3Error('NotFound', 404)
-          return {}
-        case 'CreateBucketCommand':
-          if (state.createFails) throw state.createFails
-          state.bucketExists = true
-          return {}
-        case 'GetObjectCommand': {
-          const marker = state.marker ?? null
-          if (marker === null) throw s3Error('NoSuchKey', 404)
-          return { Body: { transformToString: async () => marker } }
-        }
-        case 'ListObjectsV2Command':
-          return {
-            Contents: [
-              ...(state.marker != null ? [{ Key: MARKER }] : []),
-              ...(state.keys ?? []).map((Key) => ({ Key })),
-            ].slice(0, Number(command.input.MaxKeys ?? 1000)),
+      const input = command.input
+      calls.push({ command: name, input })
+      const answer = ((): unknown => {
+        switch (name) {
+          case 'HeadBucketCommand':
+            if (state.headFails) throw state.headFails
+            if (!state.bucketExists) throw s3Error('NotFound', 404)
+            return {}
+          case 'CreateBucketCommand':
+            if (state.createFails) throw state.createFails
+            state.bucketExists = true
+            return {}
+          case 'GetObjectCommand': {
+            const body = objects.get(String(input.Key))
+            if (body === undefined) throw s3Error('NoSuchKey', 404)
+            return { Body: { transformToString: async () => body } }
           }
-        case 'PutObjectCommand':
-          state.marker = String(command.input.Body)
-          return {}
-        default:
-          throw new Error(`unexpected command ${name}`)
-      }
+          case 'ListObjectsV2Command': {
+            const prefix = input.Prefix === undefined ? '' : String(input.Prefix)
+            const keys = [...objects.keys()].filter((key) => key.startsWith(prefix)).sort()
+            return { Contents: keys.slice(0, Number(input.MaxKeys ?? 1000)).map((Key) => ({ Key })) }
+          }
+          case 'PutObjectCommand':
+            objects.set(String(input.Key), String(input.Body))
+            return {}
+          default:
+            throw new Error(`unexpected command ${name}`)
+        }
+      })()
+      await state.onCommand?.(name)
+      return answer
     })
-    return { send, calls, state }
+    return { send, calls, objects, state }
   }
 
   const names = (calls: Array<{ command: string }>): string[] => calls.map((c) => c.command)
+  /** Who, if anyone, the store says owns the bucket. */
+  const owners = (objects: Map<string, string>): string[] =>
+    [...objects.entries()].filter(([key]) => key.startsWith(CLAIM_PREFIX)).map(([, body]) => body)
 
   beforeEach(() => {
     __resetBucketCache()
@@ -251,72 +270,95 @@ describe('ensureTenantBucket', () => {
   })
 
   // ── State 1: absent ────────────────────────────────────────────────────────
-  it('creates the bucket and marks it, in that order', async () => {
+  it('creates the bucket, claims it, and verifies the claim, in that order', async () => {
     const s3 = fakeS3({ bucketExists: false })
     expect(await ensureTenantBucket({ send: s3.send } as never, ORG)).toBe(BUCKET)
 
-    // No GetObject: a bucket this call just created cannot have a marker, and
-    // asking would cost a round trip on every new tenant's first upload.
+    // No listing BEFORE the create: a bucket this call just made can hold neither
+    // a claim nor a stranger's objects, and asking would cost two round trips on
+    // every new tenant's first upload. The listing AFTER the claim is not
+    // skippable — it is the whole concurrency argument (see the interleaving test
+    // below).
     expect(names(s3.calls)).toEqual([
       'HeadBucketCommand',
       'CreateBucketCommand',
       'PutObjectCommand',
+      'ListObjectsV2Command',
     ])
-    expect(s3.state.marker).toBe(ORG)
+    expect(owners(s3.objects)).toEqual([ORG])
   })
 
-  // ── State 2: present, marker matches ──────────────────────────────────────
-  it('accepts a bucket whose marker names this organization', async () => {
-    const s3 = fakeS3({ bucketExists: true, marker: ORG, keys: ['org/x/doc.pdf'] })
+  // ── State 2: present, claimed by us ───────────────────────────────────────
+  it('accepts a bucket already claimed by this organization, and writes nothing', async () => {
+    const s3 = fakeS3({
+      bucketExists: true,
+      objects: new Map([
+        [claimKey(ORG), ORG],
+        ['org/x/doc.pdf', 'x'],
+      ]),
+    })
     expect(await ensureTenantBucket({ send: s3.send } as never, ORG)).toBe(BUCKET)
-    expect(names(s3.calls)).toEqual(['HeadBucketCommand', 'GetObjectCommand'])
-    // Nothing rewritten: the marker is already correct.
+    // One listing and nothing else. This is the cost every cold-cache upload
+    // pays, so it is the number that has to stay small.
+    expect(names(s3.calls)).toEqual(['HeadBucketCommand', 'ListObjectsV2Command'])
     expect(names(s3.calls)).not.toContain('PutObjectCommand')
   })
 
-  // ── State 3: present, marker names someone else ───────────────────────────
+  // ── State 3: present, claimed by someone else ─────────────────────────────
   //
-  // The case the marker exists for. Two organizations whose names collide — or
-  // two deployments sharing one SeaweedFS with the same tenant prefix — would
+  // The case the claim exists for. Two organizations whose bucket names collide —
+  // or two deployments sharing one SeaweedFS with the same tenant prefix — would
   // otherwise read and write one bucket with nothing anywhere saying so.
   // Refusing the upload is the only safe answer, and it names both parties so an
   // operator can act on it.
-  it('refuses a bucket marked for a different organization', async () => {
-    const s3 = fakeS3({ bucketExists: true, marker: 'org_SOMEONE_ELSE' })
+  it('refuses a bucket claimed by a different organization', async () => {
+    const s3 = fakeS3({
+      bucketExists: true,
+      objects: new Map([[claimKey('org_SOMEONE_ELSE'), 'org_SOMEONE_ELSE']]),
+    })
     await expect(ensureTenantBucket({ send: s3.send } as never, ORG)).rejects.toThrow(
-      /belonging to organization "org_SOMEONE_ELSE"/,
+      /claimed by organization "org_SOMEONE_ELSE"/,
     )
-    // Critically: it did not write, and it did not overwrite the marker.
+    // Critically: it wrote nothing at all — not the object, and not a claim of
+    // its own alongside the other tenant's.
     expect(names(s3.calls)).not.toContain('PutObjectCommand')
-    expect(s3.state.marker).toBe('org_SOMEONE_ELSE')
+    expect(owners(s3.objects)).toEqual(['org_SOMEONE_ELSE'])
   })
 
   it('does not cache a bucket it refused', async () => {
-    const s3 = fakeS3({ bucketExists: true, marker: 'org_SOMEONE_ELSE' })
+    const s3 = fakeS3({
+      bucketExists: true,
+      objects: new Map([[claimKey('org_SOMEONE_ELSE'), 'org_SOMEONE_ELSE']]),
+    })
     await expect(ensureTenantBucket({ send: s3.send } as never, ORG)).rejects.toThrow()
     // A refusal that poisoned the cache as "seen" would make the SECOND upload
     // succeed into the wrong tenant's bucket.
     await expect(ensureTenantBucket({ send: s3.send } as never, ORG)).rejects.toThrow()
   })
 
-  // ── State 4: present, no marker ───────────────────────────────────────────
-  it('claims an empty unmarked bucket, which is a half-finished provision', async () => {
+  // ── State 4: present, unclaimed ───────────────────────────────────────────
+  it('claims an empty unclaimed bucket, which is a half-finished provision', async () => {
     // Exactly the state left behind when a previous attempt created the bucket
-    // and failed before writing the marker. Refusing here would make a transient
+    // and failed before claiming it. Refusing here would make a transient
     // failure permanent for that tenant.
-    const s3 = fakeS3({ bucketExists: true, marker: null, keys: [] })
+    const s3 = fakeS3({ bucketExists: true })
     expect(await ensureTenantBucket({ send: s3.send } as never, ORG)).toBe(BUCKET)
-    expect(s3.state.marker).toBe(ORG)
+    expect(owners(s3.objects)).toEqual([ORG])
   })
 
-  it('refuses a NON-empty unmarked bucket', async () => {
+  it('refuses a NON-empty unclaimed bucket', async () => {
     // Objects that cannot be attributed. Claiming it would silently adopt
     // whatever is in there as this organization's documents.
-    const s3 = fakeS3({ bucketExists: true, marker: null, keys: ['org/other/doc.pdf'] })
+    const s3 = fakeS3({
+      bucketExists: true,
+      objects: new Map([['org/other/doc.pdf', 'x']]),
+    })
     await expect(ensureTenantBucket({ send: s3.send } as never, ORG)).rejects.toThrow(
-      /holds objects but carries no ownership marker/,
+      /holds objects but carries no ownership claim/,
     )
-    expect(s3.state.marker).toBeNull()
+    // And left no claim behind, which would have made the next attempt believe
+    // those objects were accounted for.
+    expect(owners(s3.objects)).toEqual([])
   })
 
   // ── Races and failures ────────────────────────────────────────────────────
@@ -324,17 +366,76 @@ describe('ensureTenantBucket', () => {
   // Two concurrent first-uploads for a new organization both miss the cache,
   // both 404, and both create. Losing that race must be success, or one of the
   // two uploads fails for a reason the user cannot act on. The loser then has to
-  // verify the marker like any other existing bucket — the winner may not have
-  // written it yet, which is why the empty-bucket path exists.
+  // verify ownership like any other existing bucket — the winner may not have
+  // claimed it yet, which is why the empty-bucket path exists.
   it('treats losing the create race as success', async () => {
     const s3 = fakeS3({
       bucketExists: false,
-      marker: null,
-      keys: [],
       createFails: s3Error('BucketAlreadyOwnedByYou', 409),
     })
     expect(await ensureTenantBucket({ send: s3.send } as never, ORG)).toBe(BUCKET)
-    expect(s3.state.marker).toBe(ORG)
+    expect(owners(s3.objects)).toEqual([ORG])
+  })
+
+  /**
+   * The race a single mutable marker could not detect, and the reason the claim
+   * is a prefix.
+   *
+   * Two organizations resolving to ONE container — a hash collision, or two
+   * deployments sharing a SeaweedFS with the same tenant prefix. With one
+   * marker object they both read "absent", both wrote their own id, and
+   * last-write-wins: each had already read back its own value, so both proceeded
+   * and two tenants shared a bucket while the marker asserted the boundary was
+   * verified.
+   *
+   * Here the interleaving is forced to the worst case — BOTH parties look, see an
+   * unclaimed bucket, and only then write — by parking the first caller on its
+   * opening listing and running the second one all the way through. That is the
+   * exact window a read-then-write protocol leaves open, and the one the old
+   * marker fell into.
+   *
+   * The invariant is not "the first one wins". It is that AT MOST ONE proceeds,
+   * and that both claims survive so an operator can see the conflict. Which one
+   * is refused is timing; that one is, is the design.
+   */
+  it('cannot let two organizations both claim one bucket, whatever the interleaving', async () => {
+    const OTHER = 'org_01H8COLLIDESWITHTHEFIRSTONE' // pragma: allowlist secret (an org id)
+    // One flat namespace across both bucket names: the collision itself, which
+    // `tenantBucketName` deliberately will not otherwise produce.
+    const objects = new Map<string, string>()
+
+    let release: (() => void) | undefined
+    const parked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let lists = 0
+    const onCommand = async (name: string): Promise<void> => {
+      if (name !== 'ListObjectsV2Command') return
+      lists += 1
+      // Hold the first caller right after it has seen "unclaimed", before it
+      // writes anything.
+      if (lists === 1) await parked
+    }
+
+    const s3 = fakeS3({ bucketExists: true, objects, onCommand })
+    const first = ensureTenantBucket({ send: s3.send } as never, ORG)
+    await vi.waitFor(() => expect(lists).toBe(1))
+
+    // The second caller sees the same unclaimed bucket the first one did, and
+    // completes: claim, verify, done.
+    const second = await Promise.allSettled([ensureTenantBucket({ send: s3.send } as never, OTHER)])
+    release?.()
+    const firstResult = await Promise.allSettled([first])
+
+    const settled = [...firstResult, ...second]
+    expect(settled.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    // The one that came second in real time is the one that got there first, and
+    // the other is refused by name rather than silently joining it.
+    expect(second[0]!.status).toBe('fulfilled')
+    expect(firstResult[0]!.status).toBe('rejected')
+    // Both claims survive, which is what turns a silent overwrite into something
+    // an operator can see and resolve.
+    expect(owners(objects).sort()).toEqual([OTHER, ORG].sort())
   })
 
   it('propagates a HeadBucket failure that is not a 404', async () => {
@@ -374,12 +475,14 @@ describe('ensureTenantBucket', () => {
   })
 
   it('verifies once per bucket, then serves from the cache', async () => {
-    const s3 = fakeS3({ bucketExists: true, marker: ORG })
+    const s3 = fakeS3({ bucketExists: true, objects: new Map([[claimKey(ORG), ORG]]) })
     await ensureTenantBucket({ send: s3.send } as never, ORG)
     const after = s3.calls.length
     await ensureTenantBucket({ send: s3.send } as never, ORG)
-    // The marker check costs one extra round trip on a cold cache and nothing
-    // afterwards — which is what makes it affordable on the upload path.
+    // The ownership check costs one extra round trip on a cold cache and nothing
+    // afterwards — which is what makes it affordable on the upload path. Pinned as
+    // a number because "verified" is the sort of property that gets paid for again
+    // on every request once nobody is counting.
     expect(s3.calls.length).toBe(after)
     expect(after).toBe(2)
   })

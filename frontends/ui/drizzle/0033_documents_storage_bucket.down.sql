@@ -17,13 +17,20 @@
 -- The guard below refuses instead, so the precondition is enforced by the
 -- database rather than trusted to the reader.
 --
--- What it checks is that no row still NAMES a bucket other than the shared one.
--- Rows whose `storage_bucket` equals the deployment's shared bucket are fine —
--- they are what the NULL convention means, written explicitly — so they do not
--- block the rollback. What SQL cannot check is whether the objects have actually
--- been copied: bucket contents are not visible from here. That half stays a
--- documented step, and the external S3 inventory in
--- `docs/deployment/kubernetes.md` is how it gets verified.
+-- What it checks is that NO row still records a bucket at all — every
+-- `storage_bucket` must be NULL. That includes rows naming the deployment's own
+-- shared bucket, which are harmless in themselves; the guard cannot tell them
+-- apart, because the shared bucket's name lives in `SEAWEED_BUCKET` and a
+-- migration has no access to the application's environment. Hard-coding
+-- `'grid-documents'` here would be worse than counting everything: it would pass
+-- for a deployment that renamed its bucket, which is the one case where dropping
+-- the column loses data. So the precondition is the same `UPDATE` either way —
+-- clear the pointers, then roll back.
+--
+-- What SQL cannot check at all is whether the objects have actually been copied:
+-- bucket contents are not visible from here. That half stays a documented step,
+-- and the external S3 inventory in `docs/deployment/kubernetes.md` is how it gets
+-- verified.
 --
 -- To proceed after moving the objects, clear the pointers first:
 --   UPDATE documents SET storage_bucket = NULL WHERE storage_bucket IS NOT NULL;

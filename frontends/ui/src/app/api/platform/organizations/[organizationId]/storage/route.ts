@@ -7,7 +7,11 @@
  * `platform_model_defaults`.
  *
  * `platformApiRoute` runs `requirePlatformOwner` BEFORE the handler, so the gate
- * cannot be lost by editing the body.
+ * cannot be lost by editing the body. `setStorageQuota` checks again on its own
+ * account — deliberately, and not as ceremony: the service writes a
+ * platform-owned setting and an audit row, so its authorization has to be a
+ * property of the function rather than of whichever route happens to call it.
+ * Neither layer is load-bearing alone, and the predicate is cached.
  */
 
 import { parseJsonBody } from '@/lib/api/handler'

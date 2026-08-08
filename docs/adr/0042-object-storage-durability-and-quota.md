@@ -116,6 +116,18 @@ explicit `organizationId` rather than reading one off the caller's session — a
 platform owner browsing another tenant holds no membership in it. Same placement
 and same reasoning as `platform_model_defaults`.
 
+**The check is in the service too, not only on the route.** Both
+`setStorageQuota` and `updatePlatformOwnedOrgSettings` call
+`requirePlatformOwner` themselves. An earlier revision did not, on the grounds
+that every caller was reached through `platformApiRoute` — true at the time, and
+a fact about the call graph rather than a property of the functions. Both do
+things that must not happen unauthorized regardless of who calls them:
+`setStorageQuota` probes whether an organization exists (an enumeration oracle
+over every id, via 404-vs-403) and records an audit event, and
+`updatePlatformOwnedOrgSettings` is the sole writer of the keys
+`updateOrgSettings` refuses. The authorization runs FIRST in both, before the
+existence lookup. Checking twice costs a cached predicate.
+
 Organization → Storage shows the reading to **every member, read-only for every
 role including org admin**, and says who owns the number so nobody hunts for a
 control that is not there. A member whose upload was just refused is usually not
