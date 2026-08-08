@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools >= 64", "setuptools-scm>=10.2.1"]
+requires = ["setuptools>=83.0.0", "setuptools-scm>=10.2.1"]
 
 [tool.setuptools]
 packages = ["knowledge_layer", "knowledge_layer.llamaindex", "knowledge_layer.foundational_rag"]
