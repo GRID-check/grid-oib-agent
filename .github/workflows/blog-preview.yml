@@ -222,7 +222,7 @@ jobs:
       pull-requests: write # upsert the sticky comment
     steps:
       - name: Upsert the sticky PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PATHS: ${{ needs.detect.outputs.paths }}
           COUNT: ${{ needs.capture.outputs.count }}
