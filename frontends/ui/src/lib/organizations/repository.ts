@@ -28,21 +28,55 @@ export async function findOrganization(organizationId: string): Promise<Organiza
 }
 
 /**
- * Every organization's settings row — the platform-owner read (ADR-0042).
+ * How many organization rows one platform read may return.
+ *
+ * A cap rather than a cursor, and the number is the argument: the whole point of
+ * the platform storage page is to compare tenants against each other, ordered by
+ * consumption, and consumption is an aggregate over another table. A cursor over
+ * that ordering would have to move the sort into SQL and page a join — real work,
+ * for a fleet that is two orders of magnitude smaller than this bound. So the
+ * query is bounded (the repo rule), the caller is told when it truncated, and the
+ * day this cap is reached is the day the join is worth writing.
+ */
+export const ORGANIZATION_PAGE_MAX = 1000
+
+/** A bounded page of organization rows, and whether it left any behind. */
+export interface OrganizationPage {
+  organizations: Organization[]
+  truncated: boolean
+}
+
+/**
+ * Organization settings rows — the platform-owner read (ADR-0042). BOUNDED.
  *
  * The one query in this module that is NOT tenant-scoped, so it goes through
  * `withPlatformAccess` rather than `withTenant`: crossing the RLS boundary has
  * to be explicit and has to say why. Reachable only from platform-tier callers.
  *
+ * Reads `limit + 1` rows to answer "is there more?" without a second `count(*)`
+ * over the whole table, and returns at most `limit`.
+ *
  * Returns only organizations Grid has written a row for. WorkOS remains the
  * directory, so an org that has never changed a setting will be absent — callers
  * that need the full roster must merge with WorkOS themselves.
  */
-export async function findOrganizations(): Promise<Organization[]> {
+export async function findOrganizations(
+  limit: number = ORGANIZATION_PAGE_MAX,
+): Promise<OrganizationPage> {
   const db = getDb()
-  return withPlatformAccess('platform storage: settings rows for every organization', () =>
-    db.select().from(organizations),
+  const capped = Math.max(1, Math.min(limit, ORGANIZATION_PAGE_MAX))
+
+  const rows = await withPlatformAccess(
+    'platform storage: settings rows for every organization',
+    () =>
+      db
+        .select()
+        .from(organizations)
+        .orderBy(organizations.workosOrganizationId)
+        .limit(capped + 1),
   )
+
+  return { organizations: rows.slice(0, capped), truncated: rows.length > capped }
 }
 
 /** Insert or update the whole settings row. The service owns the merge. */

@@ -269,7 +269,8 @@ export const organization = {
     nearQuota: 'Almost full — new uploads will soon be refused',
     projectDocuments: 'Project documents',
     archivDocuments: 'Organization Archiv',
-    documentCount: '{count} documents',
+    /** Count-neutral: a scope with exactly one document renders this too. */
+    documentCount: 'Documents: {count}',
     setByPlatform: 'Your storage quota is set by Piloti. Contact support if you need more room.',
     loadError: 'Could not load storage usage.',
   },

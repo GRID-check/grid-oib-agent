@@ -267,7 +267,8 @@ export const organization: typeof en.organization = {
     nearQuota: 'Fast voll — neue Uploads werden bald abgelehnt',
     projectDocuments: 'Projektdokumente',
     archivDocuments: 'Organisations-Archiv',
-    documentCount: '{count} Dokumente',
+    /** Count-neutral: wird auch bei genau einem Dokument gerendert. */
+    documentCount: 'Dokumente: {count}',
     setByPlatform:
       'Ihr Speicherkontingent wird von Piloti festgelegt. Wenden Sie sich an den Support, wenn Sie mehr Platz benötigen.',
     loadError: 'Speichernutzung konnte nicht geladen werden.',

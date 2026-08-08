@@ -111,12 +111,17 @@ export function buildArchivStorageKey(
  * spec (`image-tenant-scope.spec.ts` used `${key}.thumb.jpg`, which production
  * has never produced). One definition, one place, one behaviour to test.
  *
- * A key with no `/` cannot have a filename segment to replace. Rather than
- * fabricate a bucket-root `_thumb.jpg` — a real write target — it returns null
- * and the callers treat that as "no thumbnail". Unreachable from
- * `buildStorageKey` output; reachable from a hand-edited or legacy row.
+ * A key with no filename segment to replace has no thumbnail, and there are two
+ * such shapes, not one: no `/` at all, and a TRAILING `/`. Both used to be
+ * handled differently — `a/b/` has its last slash at a positive index, so the
+ * old check passed it and produced `a/b/_thumb.jpg`, a real write target derived
+ * from a row that names no file. Rather than fabricate a key for a malformed
+ * row, both return null and the callers treat that as "no thumbnail".
+ * Unreachable from `buildStorageKey` output; reachable from a hand-edited or
+ * legacy row.
  */
 export function buildThumbnailStorageKey(storageKey: string): string | null {
   const idx = storageKey.lastIndexOf('/')
-  return idx > 0 ? `${storageKey.slice(0, idx)}/_thumb.jpg` : null
+  if (idx <= 0 || idx === storageKey.length - 1) return null
+  return `${storageKey.slice(0, idx)}/_thumb.jpg`
 }

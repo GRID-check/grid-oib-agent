@@ -1037,7 +1037,8 @@ export const platform: typeof en.platform = {
     columnQuota: 'Kontingent',
     unlimited: 'Unbegrenzt',
     inherited: 'Plattform-Standard',
-    rowDocuments: '{count} Dokumente',
+    /** Count-neutral: die Vorlage wird auch bei genau einem Dokument gerendert. */
+    rowDocuments: 'Dokumente: {count}',
     rowOver: 'Kontingent erreicht — Uploads abgelehnt',
     rowNear: 'Fast voll',
     edit: 'Kontingent für {org} bearbeiten',
@@ -1047,6 +1048,10 @@ export const platform: typeof en.platform = {
     saveError: 'Kontingent konnte nicht aktualisiert werden.',
     belowUsage:
       'Dieses Kontingent liegt unter dem bereits belegten Speicher. Geben Sie zuerst Platz frei.',
+    invalidQuota:
+      'Geben Sie ein Kontingent in GB über null ein oder lassen Sie das Feld leer für kein Limit.',
+    truncated:
+      'Es werden die ersten 1000 Organisationen angezeigt. Für den Rest bitte einen Flottenbericht anfordern.',
     loadError: 'Speichernutzung konnte nicht geladen werden.',
     empty: 'Noch keine Organisation hat Daten gespeichert.',
     hint: 'Feld leer lassen, um das Limit zu entfernen. Ein Kontingent unter der aktuellen Belegung wird abgelehnt — es würde den Mandanten handlungsunfähig machen.',

@@ -18,8 +18,9 @@
 
 import 'server-only'
 import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
+import { findOrganization } from '@/lib/organizations/repository'
 import { aggregateStorageUsage, sumStorageBytes, type StorageUsageByScope } from './repository'
-import { InsufficientStorageError, UnprocessableError } from '@/lib/api/errors'
+import { InsufficientStorageError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
@@ -41,9 +42,16 @@ function platformDefaultQuotaBytes(): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null
 }
 
-/** Read the effective quota: the org's own value, else the platform default. */
-export async function getStorageQuotaBytes(organizationId: string): Promise<number | null> {
-  const { settings } = await getOrgSettings(organizationId)
+/**
+ * The effective quota for a settings bag that has already been read.
+ *
+ * Pure, and separated from {@link getStorageQuotaBytes} because the platform
+ * overview holds every organization's settings row in memory already: resolving
+ * the quota there used to call `getStorageQuotaBytes` per row, which is a
+ * database round trip per tenant for a value the caller was holding. The rule
+ * lives here so both callers apply the same one.
+ */
+export function effectiveQuotaFromSettings(settings: Record<string, unknown>): number | null {
   const configured = settings[STORAGE_QUOTA_SETTING]
   if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
     return Math.floor(configured)
@@ -52,6 +60,12 @@ export async function getStorageQuotaBytes(organizationId: string): Promise<numb
   // fall through to the platform default.
   if (configured === null) return null
   return platformDefaultQuotaBytes()
+}
+
+/** Read the effective quota: the org's own value, else the platform default. */
+export async function getStorageQuotaBytes(organizationId: string): Promise<number | null> {
+  const { settings } = await getOrgSettings(organizationId)
+  return effectiveQuotaFromSettings(settings)
 }
 
 export interface StorageOverview {
@@ -144,15 +158,33 @@ export async function setStorageQuota(
   quotaBytes: number | null,
   request?: Request
 ): Promise<StorageOverview> {
+  // Refuse an organization Grid has never heard of. `updateOrgSettings` upserts,
+  // so without this a mistyped id in the URL silently creates a settings row and
+  // an audit event for a tenant that does not exist — a quota nobody will ever
+  // see, attached to nothing, in the record of who changed what.
+  //
+  // "Known" is deliberately the same set the platform console lists: a settings
+  // row OR at least one document. Requiring the settings row alone would reject
+  // exactly the tenants an operator most wants to bound — a busy organization
+  // that has never opened its own settings has no row.
+  const usage = await aggregateStorageUsage(organizationId)
+  if (usage.total.documents === 0 && (await findOrganization(organizationId)) === null) {
+    throw new NotFoundError('Organization not found')
+  }
+
   if (quotaBytes !== null) {
+    // Defence in depth, not the boundary check: the route's zod schema makes
+    // every non-positive value a 400 before this runs (see
+    // `@/lib/storage/contract`), which is what leaves 422 with exactly one
+    // meaning for the caller. This stays because the service is callable from
+    // elsewhere and the invariant is the service's, not the route's.
     if (!Number.isFinite(quotaBytes) || quotaBytes <= 0) {
       throw new UnprocessableError('Quota must be a positive number of bytes')
     }
-    const usedBytes = await sumStorageBytes(organizationId)
-    if (quotaBytes < usedBytes) {
+    if (quotaBytes < usage.total.bytes) {
       throw new UnprocessableError(
         'Quota is below the storage this organization already uses',
-        { usedBytes, requestedQuotaBytes: quotaBytes }
+        { usedBytes: usage.total.bytes, requestedQuotaBytes: quotaBytes }
       )
     }
   }
@@ -171,9 +203,9 @@ export async function setStorageQuota(
     request,
   })
 
-  const [usage, effective] = await Promise.all([
-    aggregateStorageUsage(organizationId),
-    getStorageQuotaBytes(organizationId),
-  ])
-  return { usage, quotaBytes: effective }
+  // `usage` is the reading taken above, deliberately not re-fetched: this write
+  // changed the quota, not the bytes, and a second aggregate here would only
+  // widen the window in which the number returned disagrees with the number
+  // validated against.
+  return { usage, quotaBytes: await getStorageQuotaBytes(organizationId) }
 }

@@ -89,7 +89,8 @@ export const files = {
     // on every page but the first. The pane has no page-tracking (the PDF renders
     // in a native iframe we cannot observe), so it states the count it actually
     // knows rather than a position it does not.
-    pageCountOnly: '{count} pages',
+    // Count-neutral: the pane renders this for a one-page document too.
+    pageCountOnly: 'Total pages: {count}',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

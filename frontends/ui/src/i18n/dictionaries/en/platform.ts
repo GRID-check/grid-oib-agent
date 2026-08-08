@@ -1031,7 +1031,8 @@ export const platform = {
     columnQuota: 'Quota',
     unlimited: 'Unlimited',
     inherited: 'Platform default',
-    rowDocuments: '{count} documents',
+    /** Count-neutral: the template also renders at a count of one. */
+    rowDocuments: 'Documents: {count}',
     rowOver: 'Quota reached — uploads refused',
     rowNear: 'Almost full',
     edit: 'Edit quota for {org}',
@@ -1040,6 +1041,8 @@ export const platform = {
     saved: 'Quota updated.',
     saveError: 'Could not update the quota.',
     belowUsage: 'That quota is below what the organization already stores. Free space first.',
+    invalidQuota: 'Enter a quota in GB above zero, or leave the field empty for no limit.',
+    truncated: 'Showing the first 1000 organizations. Ask for a fleet report if you need the rest.',
     loadError: 'Could not load storage usage.',
     empty: 'No organization has stored anything yet.',
     hint: 'Leave the field empty to remove the limit. A quota below current usage is refused — it would strand the tenant with no way to fix it.',

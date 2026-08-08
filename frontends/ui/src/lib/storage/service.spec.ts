@@ -21,10 +21,15 @@ const updateOrgSettings = vi.fn()
 const aggregateStorageUsage = vi.fn()
 const sumStorageBytes = vi.fn()
 const recordAuditEvent = vi.fn()
+const findOrganization = vi.fn()
 
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: (...args: unknown[]) => getOrgSettings(...args),
   updateOrgSettings: (...args: unknown[]) => updateOrgSettings(...args),
+}))
+
+vi.mock('@/lib/organizations/repository', () => ({
+  findOrganization: (...args: unknown[]) => findOrganization(...args),
 }))
 
 vi.mock('./repository', () => ({
@@ -63,6 +68,15 @@ const settingsWith = (value: unknown): { settings: Record<string, unknown> } => 
   settings: value === undefined ? {} : { [STORAGE_QUOTA_SETTING]: value },
 })
 
+/** Point the usage aggregate at a total, for the guard that reads it. */
+const usedBytes = (bytes: number, documents = 1): void => {
+  aggregateStorageUsage.mockResolvedValue({
+    project: { bytes, documents },
+    archiv: { bytes: 0, documents: 0 },
+    total: { bytes, documents },
+  })
+}
+
 describe('storage quota', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -75,6 +89,8 @@ describe('storage quota', () => {
       archiv: { bytes: 0, documents: 0 },
       total: { bytes: 0, documents: 0 },
     })
+    // Known to Grid by default; the "unknown organization" tests opt out.
+    findOrganization.mockResolvedValue({ workosOrganizationId: 'org-1', settings: {} })
   })
 
   describe('getStorageQuotaBytes', () => {
@@ -135,9 +151,41 @@ describe('storage quota', () => {
 
   describe('setStorageQuota', () => {
     it('refuses a quota below what is already stored', async () => {
-      sumStorageBytes.mockResolvedValue(8 * GB)
+      usedBytes(8 * GB)
       await expect(setStorageQuota(platformSession(), 'org-1', 5 * GB)).rejects.toMatchObject({ status: 422 })
       expect(updateOrgSettings).not.toHaveBeenCalled()
+    })
+
+    // The organization is looked up once and the reading reused, rather than
+    // summed for the guard and aggregated again for the response: two reads mean
+    // the number validated against and the number returned can disagree.
+    it('reads the organization\'s usage exactly once', async () => {
+      usedBytes(1 * GB)
+      await setStorageQuota(platformSession(), 'org-1', 10 * GB)
+      expect(aggregateStorageUsage).toHaveBeenCalledTimes(1)
+      expect(sumStorageBytes).not.toHaveBeenCalled()
+    })
+
+    // `updateOrgSettings` upserts, so without an existence check a mistyped id
+    // in the URL creates a settings row and an audit event for a tenant that
+    // does not exist.
+    it('refuses an organization Grid has never heard of', async () => {
+      findOrganization.mockResolvedValue(null)
+      await expect(setStorageQuota(platformSession(), 'org-typo', 10 * GB)).rejects.toMatchObject({
+        status: 404,
+      })
+      expect(updateOrgSettings).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+    })
+
+    // "Known" is the set the platform console lists: a settings row OR at least
+    // one document. Requiring the row alone would reject exactly the tenants an
+    // operator most wants to bound — a busy org that never opened its settings.
+    it('accepts an organization with documents but no settings row', async () => {
+      findOrganization.mockResolvedValue(null)
+      usedBytes(3 * GB, 12)
+      await setStorageQuota(platformSession(), 'org-busy', 10 * GB)
+      expect(updateOrgSettings).toHaveBeenCalledWith('org-busy', expect.anything())
     })
 
     it('refuses a non-positive quota', async () => {
@@ -145,7 +193,7 @@ describe('storage quota', () => {
     })
 
     it('stores a valid quota and audits it', async () => {
-      sumStorageBytes.mockResolvedValue(1 * GB)
+      usedBytes(1 * GB)
       await setStorageQuota(platformSession(), 'org-1', 10 * GB)
 
       expect(updateOrgSettings).toHaveBeenCalledWith('org-1', {

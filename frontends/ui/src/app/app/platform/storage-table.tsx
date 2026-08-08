@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatBytes } from '@/lib/format'
+import { formatQuotaDraft, parseQuotaDraft } from '@/lib/storage/contract'
 import { useLocale, useTranslations } from '@/i18n'
 
 interface OrganizationStorageRow {
@@ -37,10 +38,9 @@ interface OrganizationStorageRow {
 interface PlatformStorageResponse {
   organizations: OrganizationStorageRow[]
   totals: { usedBytes: number; documents: number; organizations: number }
+  truncated?: boolean
 }
 
-/** Quotas are entered in GB; bytes are the wire unit, never a UI one. */
-const BYTES_PER_GB = 1e9
 const NEAR_QUOTA_RATIO = 0.9
 
 const QuotaBar: FC<{ usedBytes: number; quotaBytes: number | null }> = ({
@@ -97,28 +97,40 @@ export const PlatformStorageTable: FC = () => {
     // An inherited quota starts blank rather than pre-filled with the default:
     // pre-filling would turn "opening the editor and pressing save" into
     // silently pinning the org to today's default forever.
-    setDraftGb(row.inherited || row.quotaBytes === null ? '' : String(row.quotaBytes / BYTES_PER_GB))
+    setDraftGb(row.inherited || row.quotaBytes === null ? '' : formatQuotaDraft(row.quotaBytes))
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>, organizationId: string): Promise<void> => {
     event.preventDefault()
+
+    // Parsed BEFORE anything is sent, and by the shared contract rather than by
+    // `Number()` here. `Number('12x')` is NaN, `JSON.stringify` writes NaN as
+    // `null`, and `null` is how this API spells UNLIMITED — so the old code
+    // turned a typo into "quota removed" and then reported success.
+    const draft = parseQuotaDraft(draftGb)
+    if (!draft.ok) {
+      toast.error(t('storage.invalidQuota'))
+      return
+    }
+
     setSaving(true)
     try {
-      const trimmed = draftGb.trim()
-      const quotaBytes = trimmed === '' ? null : Math.round(Number(trimmed) * BYTES_PER_GB)
       const res = await fetch(
         `/api/platform/organizations/${encodeURIComponent(organizationId)}/storage`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ quotaBytes }),
+          body: JSON.stringify({ quotaBytes: draft.quotaBytes }),
         },
       )
-      if (res.status === 422) {
-        toast.error(t('storage.belowUsage'))
+      if (!res.ok) {
+        // The server's own message, when it sent one. Every 422 used to be
+        // reported as "below current usage", which was a guess — and the wrong
+        // one whenever it was not that.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        toast.error(body?.error ?? (res.status === 422 ? t('storage.belowUsage') : t('storage.saveError')))
         return
       }
-      if (!res.ok) throw new Error('save failed')
       toast.success(t('storage.saved'))
       setEditing(null)
       await load()
@@ -207,8 +219,15 @@ export const PlatformStorageTable: FC = () => {
                         <Input
                           autoFocus
                           type="number"
-                          min="0"
-                          step="1"
+                          // `step="any"` because the editor prefills a decimal
+                          // whenever the stored quota is not a whole number of
+                          // GB, and `step="1"` marked that prefill invalid. No
+                          // `min`: HTML's is inclusive, so it cannot express
+                          // "greater than zero", and every value it could carry
+                          // would be a second rule competing with
+                          // `parseQuotaDraft` — which is the drift that produced
+                          // the bug above.
+                          step="any"
                           inputMode="decimal"
                           aria-label={t('storage.columnQuota')}
                           className="h-8 w-24 tabular-nums"
@@ -263,6 +282,10 @@ export const PlatformStorageTable: FC = () => {
           </tbody>
         </table>
       </div>
+
+      {data.truncated && (
+        <p className="text-muted-foreground text-xs">{t('storage.truncated')}</p>
+      )}
 
       <p className="text-muted-foreground text-xs">{t('storage.hint')}</p>
     </div>

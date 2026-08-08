@@ -10,8 +10,8 @@
 
 import 'server-only'
 import { aggregateStorageUsageByOrganization } from './repository'
-import { getStorageQuotaBytes } from './service'
-import { findOrganizations } from '@/lib/organizations/repository'
+import { STORAGE_QUOTA_SETTING, effectiveQuotaFromSettings } from './service'
+import { findOrganizations, ORGANIZATION_PAGE_MAX } from '@/lib/organizations/repository'
 
 export interface OrganizationStorageRow {
   organizationId: string
@@ -32,6 +32,14 @@ export interface PlatformStorageOverview {
     documents: number
     organizations: number
   }
+  /**
+   * True when more organizations exist than were returned.
+   *
+   * Surfaced rather than swallowed: a truncated list that does not say so reads
+   * as "this is every tenant", which is the one thing an operator uses this page
+   * to conclude.
+   */
+  truncated: boolean
 }
 
 /**
@@ -45,38 +53,41 @@ export interface PlatformStorageOverview {
  * make it look unset.
  */
 export async function getPlatformStorageOverview(): Promise<PlatformStorageOverview> {
-  const [usageByOrg, organizations] = await Promise.all([
+  // Exactly two queries, both grouped or bounded, regardless of fleet size.
+  // This used to be two queries plus one `getStorageQuotaBytes` per row — a
+  // settings read per tenant for a value `findOrganizations` had already
+  // returned. The quota rule is a pure function of the settings bag
+  // (`effectiveQuotaFromSettings`), so it is applied in memory here.
+  const [usageByOrg, page] = await Promise.all([
     aggregateStorageUsageByOrganization(),
-    findOrganizations(),
+    findOrganizations(ORGANIZATION_PAGE_MAX),
   ])
 
-  const ids = new Set<string>([
-    ...usageByOrg.keys(),
-    ...organizations.map((org) => org.workosOrganizationId),
-  ])
-
+  const settingsById = new Map(
+    page.organizations.map((org) => [
+      org.workosOrganizationId,
+      (org.settings as Record<string, unknown> | null) ?? {},
+    ]),
+  )
   const names = new Map(
-    organizations.map((org) => [org.workosOrganizationId, org.displayName ?? null]),
+    page.organizations.map((org) => [org.workosOrganizationId, org.displayName ?? null]),
   )
 
-  const rows = await Promise.all(
-    [...ids].map(async (organizationId): Promise<OrganizationStorageRow> => {
-      const usage = usageByOrg.get(organizationId)
-      const quotaBytes = await getStorageQuotaBytes(organizationId)
-      const own = organizations.find((org) => org.workosOrganizationId === organizationId)
-      const settings = (own?.settings as Record<string, unknown> | undefined) ?? {}
-      const hasOwnQuota = 'storageQuotaBytes' in settings
+  const ids = new Set<string>([...usageByOrg.keys(), ...settingsById.keys()])
 
-      return {
-        organizationId,
-        displayName: names.get(organizationId) ?? null,
-        usedBytes: usage?.bytes ?? 0,
-        documents: usage?.documents ?? 0,
-        quotaBytes,
-        inherited: !hasOwnQuota,
-      }
-    }),
-  )
+  const rows = [...ids].map((organizationId): OrganizationStorageRow => {
+    const usage = usageByOrg.get(organizationId)
+    const settings = settingsById.get(organizationId) ?? {}
+
+    return {
+      organizationId,
+      displayName: names.get(organizationId) ?? null,
+      usedBytes: usage?.bytes ?? 0,
+      documents: usage?.documents ?? 0,
+      quotaBytes: effectiveQuotaFromSettings(settings),
+      inherited: !(STORAGE_QUOTA_SETTING in settings),
+    }
+  })
 
   rows.sort((a, b) => b.usedBytes - a.usedBytes)
 
@@ -87,5 +98,6 @@ export async function getPlatformStorageOverview(): Promise<PlatformStorageOverv
       documents: rows.reduce((sum, row) => sum + row.documents, 0),
       organizations: rows.length,
     },
+    truncated: page.truncated,
   }
 }
