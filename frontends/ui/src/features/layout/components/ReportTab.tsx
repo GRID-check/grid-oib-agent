@@ -20,6 +20,7 @@
 
 import { type FC, type ReactNode, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import type { PluggableList } from 'unified'
 import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
@@ -30,11 +31,11 @@ import { GridCards } from '@/features/grid-cards'
 import { useTranslations } from '@/i18n'
 import {
   REPORT_SOURCE_ANCHOR_PREFIX,
-  linkifyCitationMarkers,
   splitReportSources,
   type ReportSourceEntry,
   type ReportSourceKind,
 } from '../lib/report-citations'
+import { remarkCitationMarkers } from '../lib/citation-markers'
 import { ExportFooter } from './ExportFooter'
 
 /**
@@ -146,21 +147,31 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
   //  - extract a markdown sources section (if any) and render it with
   //    per-entry anchors, linkifying inline [N] markers to those anchors;
   //  - otherwise fall back to the cited sources collected during the run.
-  const { body, sourceEntries, sourcesHeading } = useMemo(() => {
-    if (isResearchNotes || !reportContentStr.trim()) {
-      return { body: reportContentStr, sourceEntries: [], sourcesHeading: null as string | null }
+  const { body, sourceEntries, sourcesHeading, citationNumbers } = useMemo(() => {
+    const unsplit = {
+      body: reportContentStr,
+      sourceEntries: [] as ReportSourceEntry[],
+      sourcesHeading: null as string | null,
+      citationNumbers: new Set<number>(),
     }
+    if (isResearchNotes || !reportContentStr.trim()) return unsplit
     const split = splitReportSources(reportContentStr)
-    if (split.entries.length === 0) {
-      return { body: reportContentStr, sourceEntries: [], sourcesHeading: null as string | null }
-    }
-    const validNumbers = new Set(split.entries.map((entry) => entry.number))
+    if (split.entries.length === 0) return unsplit
     return {
-      body: linkifyCitationMarkers(split.body, validNumbers),
+      body: split.body,
       sourceEntries: split.entries,
       sourcesHeading: split.heading,
+      citationNumbers: new Set(split.entries.map((entry) => entry.number)),
     }
   }, [isResearchNotes, reportContentStr])
+
+  // The `[N]` markers are linked on the parsed body, so adjacent ones (`[1][2]`,
+  // a claim carried by two sources) resolve as two markers rather than being
+  // mistaken for reference-link syntax and left as text.
+  const markerPlugins = useMemo(
+    (): PluggableList => [[remarkCitationMarkers, { numbers: citationNumbers }]],
+    [citationNumbers]
+  )
 
   // Fallback sources list from run citations, only when the markdown itself
   // has no sources section and the run is complete enough to trust the list.
@@ -230,6 +241,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
               content={body}
               isStreaming={isGeneratingReport}
               className="max-w-none"
+              remarkPlugins={markerPlugins}
             />
             {sourceEntries.length > 0 && (
               <ReportSourcesList

@@ -315,7 +315,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/citation-interaction',
     description:
-      'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells.',
+      'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells. Includes a claim carried by two sources, written [2][3], as the two separate pills it must render as.',
     waitFor: '[data-testid="citation-interaction-preview"]',
   },
   {

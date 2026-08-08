@@ -190,6 +190,37 @@ describe('an inline citation marker', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
+  test('two sources behind one claim are two markers, not literal text', async () => {
+    // `[1][2]` is the shape the report writers are told to emit for a claim
+    // carried by two sources, and it used to reach the reader as the characters
+    // "[1][2]" — beside neighbours that got their pill — because the markers
+    // were linked by rewriting the markdown source, where an adjacent pair is
+    // indistinguishable from `[label][ref]` reference-link syntax.
+    const user = userEvent.setup()
+    render(
+      <AgentResponse
+        content={[
+          'Die Anforderungen an den Feuerwiderstand folgen der Klasse [1][2].',
+          '',
+          '## Quellen',
+          `- [1] [KB] ${OIB}, p.5`,
+          `- [2] [KB] ${OIB}, p.18`,
+        ].join('\n')}
+        messageId="m3"
+        citations={citations}
+        routingDecision="deep"
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Source 2: OIB-Richtlinie 2\.1/i })).toBeInTheDocument()
+    expect(screen.queryByText(/\[1\]\[2\]/)).toBeNull()
+
+    // And each still resolves to its OWN locus.
+    await user.click(screen.getByRole('button', { name: /Source 2: / }))
+    expect(within(await screen.findByRole('dialog')).getByText('p. 18')).toBeInTheDocument()
+  })
+
   test('an anchor that is not a citation stays an ordinary link', () => {
     render(
       <AgentResponse
