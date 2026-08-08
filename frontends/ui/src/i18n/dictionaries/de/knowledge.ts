@@ -58,6 +58,13 @@ export const knowledge: typeof en.knowledge = {
     view: 'PDF ansehen',
     description: 'Originales Quelldokument.',
     openInTab: 'In neuem Tab öffnen',
+    loading: 'Dokument wird geladen…',
+    pageCount: '{count} Seiten',
+    toPassage: 'Zur Fundstelle',
+    zoomIn: 'Vergrößern',
+    zoomOut: 'Verkleinern',
+    highlightUnavailable:
+      'Die Fundstelle kann in diesem Browser nicht markiert werden — das Dokument wird ohne Hervorhebung angezeigt.',
   },
   error: {
     title: 'Wissensbasis nicht verfügbar',

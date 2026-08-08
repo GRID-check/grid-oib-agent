@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "concurrently --kill-others --names \",next\" \"npm run dev:proxy\" \"npm run dev:next\"",
     "dev:proxy": "node server.js",
-    "dev:next": "next dev --turbopack -p 3001",
-    "build": "next build",
+    "dev:next": "node scripts/copy-pdfjs-assets.mjs && next dev --turbopack -p 3001",
+    "build": "node scripts/copy-pdfjs-assets.mjs && next build",
     "start": "NODE_ENV=production node server.js",
     "lint": "node scripts/check-static-utility-modifiers.mjs && eslint src tests",
     "lint:fix": "node scripts/check-static-utility-modifiers.mjs && eslint src tests --fix",
@@ -78,6 +78,7 @@
     "marked": "^18.0.7",
     "motion": "^12.42.2",
     "next": "^16.2.10",
+    "pdfjs-dist": "^6.2.108",
     "postgres": "^3.4.0",
     "rate-limiter-flexible": "^11.2.0",
     "react": "^18.2.0",
