@@ -1,6 +1,9 @@
 import {
   CreateBucketCommand,
+  GetObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
   S3ServiceException,
 } from '@aws-sdk/client-s3'
@@ -71,13 +74,28 @@ export const DEFAULT_TENANT_BUCKET_PREFIX = 'grid-org-'
 /**
  * Hex characters of SHA-256 kept as the uniqueness suffix.
  *
- * 12 hex = 48 bits. At 100,000 organizations the birthday bound puts a
- * collision at roughly 1 in 30,000 — and a collision here is not a cosmetic
- * problem, it is cross-tenant data access, so the number is chosen with that in
- * mind rather than for tidiness. 8 hex (32 bits) would be about even odds at
- * the same scale, which is why it is not 8.
+ * 32 hex = 128 bits. A collision here is not cosmetic — two organizations would
+ * resolve to the same bucket, which is cross-tenant read and write access — so
+ * the question is not "is this unlikely" but "is this the weakest link".
+ *
+ * At 48 bits (the previous 12 characters) it was. The birthday bound is
+ * `n²/(2·2^b)`: at 100,000 organizations that is ≈1.8e-5, about 1 in 56,000.
+ * The ADR previously said 1 in 30,000, which was this same arithmetic missing
+ * its factor of two — pessimistic, and wrong, in a note about a security
+ * boundary.
+ *
+ * At 128 bits the same 100,000 organizations give ≈1.5e-29, and a million give
+ * ≈1.5e-27. That is orders of magnitude below the probability of an undetected
+ * memory or disk error in the same operation, so the hash stops being the thing
+ * worth reasoning about.
+ *
+ * It is still a probability, not a proof — a truncated hash cannot be injective.
+ * What makes that acceptable is not the exponent but {@link ensureTenantBucket}:
+ * every bucket carries an ownership marker that is verified before it is used,
+ * so a collision (or two deployments sharing one SeaweedFS) fails closed and
+ * loudly instead of silently sharing a tenant's objects.
  */
-const HASH_CHARS = 12
+const HASH_CHARS = 32
 
 /** S3's hard ceiling on a bucket name. */
 const MAX_BUCKET_NAME = 63
@@ -144,14 +162,19 @@ export function assertValidBucketName(name: string): string {
  * Three properties, each load-bearing:
  *
  * 1. **Deterministic.** No lookup table, no state.
- * 2. **Injective.** Two organizations must never collide, or one tenant reads
- *    another's documents. Slugging into the S3 alphabet is lossy (`Org_1` and
- *    `org-1` both reduce to `org-1`), so a truncated SHA-256 of the ORIGINAL id
- *    is appended unconditionally — unconditionally rather than only when the
- *    slug is lossy, because "is this id lossy?" is one more thing to get wrong
- *    and 12 hex characters cost nothing.
- * 3. **Recognisable.** An operator looking at `grid-org-org-01h8…-3f9a12c4b7e0`
+ * 2. **Collision-resistant, and verified anyway.** Slugging into the S3 alphabet
+ *    is lossy (`Org_1` and `org-1` both reduce to `org-1`), so a truncated
+ *    SHA-256 of the ORIGINAL id is appended unconditionally — unconditionally
+ *    rather than only when the slug is lossy, because "is this id lossy?" is one
+ *    more thing to get wrong. 128 bits makes a collision negligible (see
+ *    {@link HASH_CHARS}); the ownership marker in {@link ensureTenantBucket}
+ *    makes one DETECTABLE, which is the property that actually holds the
+ *    boundary. A truncated hash can never be injective, so the design does not
+ *    depend on it being so.
+ * 3. **Recognisable.** An operator looking at `grid-org-org-01h8…-3f9a12c4…`
  *    can see which tenant it belongs to, which a bare hash would not give them.
+ *    The 128-bit suffix costs 20 characters of the slug budget, so long ids are
+ *    truncated further than before — the hash, not the slug, is what identifies.
  */
 export function tenantBucketName(
   organizationId: string,
@@ -216,25 +239,32 @@ export function resolveDocumentBucket(storageBucket: string | null | undefined):
 }
 
 /**
- * Every bucket an organization's objects could be in, for operations that must
- * not miss any — usage reconciliation, and any future organization-level
- * erasure.
+ * ## Enumerating an organization's buckets: read the ledger, never recompute
  *
- * Both, ALWAYS, and deliberately not gated on the feature flag. Three states
- * have to be correct and only one of them is "the flag is on": before it the
- * tenant bucket does not exist, and a sweep over a bucket that does not exist
- * is a no-op because it holds no objects; during, objects are in both; after it
- * is turned off again, objects are STILL in both — and that is the state where
- * gating would skip the tenant bucket and report success.
+ * There used to be a `bucketsForOrganization(orgId)` here that returned
+ * `[shared, tenantBucketName(orgId)]`, for "usage reconciliation and any future
+ * organization-level erasure". It is gone, and deleting it was the fix rather
+ * than a side effect of one.
  *
- * Note what does NOT use this: the deletion pipeline. `purge-project.js` reads
- * the buckets its documents actually recorded, which is both more complete
- * (it finds buckets written under a previous prefix) and impossible to get
- * wrong by disagreeing with this function.
+ * It had no caller outside its own test, and it was a trap with a plausible
+ * name. `tenantBucketName` depends on `SEAWEED_TENANT_BUCKET_PREFIX` and on the
+ * hash width, so anything that recomputes the set silently stops returning the
+ * bucket a tenant's objects are actually in the moment either changes — and it
+ * reports success while doing so, because a sweep over a bucket that does not
+ * exist looks exactly like a sweep over an empty one.
+ *
+ * The ledger is the only correct enumeration, and it already exists:
+ *
+ *     SELECT DISTINCT storage_bucket FROM documents WHERE organization_id = $1
+ *
+ * That is what `purger/purge-project.js` reads, and it is right for the reason
+ * this function was wrong: it finds buckets written under a previous prefix, and
+ * it cannot disagree with the code that did the writing. The restore procedure in
+ * `docs/deployment/kubernetes.md` derives its bucket list the same way.
+ *
+ * Anything that needs to visit every bucket an organization has ever used should
+ * query the ledger, not this module.
  */
-export function bucketsForOrganization(organizationId: string): string[] {
-  return [sharedBucketName, tenantBucketName(organizationId)]
-}
 
 /**
  * In-process memo of buckets known to exist.
@@ -251,42 +281,160 @@ export function __resetBucketCache(): void {
 }
 
 /**
- * Make sure the organization's bucket exists, and return it.
+ * Object at the root of every tenant bucket naming the organization that owns it.
  *
- * Idempotent, and safe to race: two uploads for a new organization can both
- * miss the cache, both HeadBucket 404, and both CreateBucket — the loser gets
+ * This is what turns the bucket boundary from ASSUMED into VERIFIED. The bucket
+ * name is a slug plus a truncated hash, so no hash width makes the mapping
+ * provably injective, and a shared SeaweedFS makes name reuse possible for
+ * reasons that have nothing to do with hashing. Without a marker, either case
+ * ends with two organizations reading and writing one bucket and nothing
+ * anywhere saying so.
+ *
+ * Leading dot so it sorts and reads as metadata, and so a prefix sweep over
+ * `org/<id>/…` never touches it.
+ */
+const OWNER_MARKER_KEY = '.grid-bucket-owner'
+
+/**
+ * Make sure the organization's bucket exists AND belongs to it, then return it.
+ *
+ * Idempotent, and safe to race: two uploads for a new organization can both miss
+ * the cache, both HeadBucket 404, and both CreateBucket — the loser gets
  * `BucketAlreadyExists` / `BucketAlreadyOwnedByYou`, which is success.
  *
- * `client` is the bucket-lifecycle credential, NOT the one the request path
- * uses for objects. SeaweedFS's `Admin:<bucket>` authorises CreateBucket and
+ * ## The four states, and why each behaves as it does
+ *
+ * 1. **Absent** — create it, then write the marker. In that order: a marker in a
+ *    bucket that does not exist is not a thing, and a bucket without a marker is
+ *    recoverable (state 4).
+ * 2. **Present, marker names this organization** — the ordinary path.
+ * 3. **Present, marker names a DIFFERENT organization** — refuse, loudly. This is
+ *    the case the marker exists for: a hash collision, or two deployments
+ *    sharing one SeaweedFS with the same tenant prefix. Writing here would mix
+ *    two tenants' documents in one container, and reading would serve one
+ *    tenant's bytes to the other. Failing the upload is the only safe answer,
+ *    and it is a failure an operator can actually diagnose.
+ * 4. **Present, no marker** — claim it only if it is EMPTY. An empty bucket
+ *    cannot be holding another tenant's data, so claiming it is safe, and this
+ *    is exactly the state left behind when a previous attempt created the bucket
+ *    and failed before writing the marker. A NON-empty unmarked bucket is
+ *    refused: it holds objects this deployment cannot account for.
+ *
+ * `client` is the bucket-lifecycle credential, NOT the one the request path uses
+ * for objects. SeaweedFS's `Admin:<bucket>` authorises CreateBucket and
  * DeleteBucket together — it cannot express one without the other — so the only
- * way to keep DeleteBucket off the upload path is to keep it on a different
- * credential (see `deploy/pulumi/src/data/seaweedfs-identities.ts`).
+ * way to keep DeleteBucket off the ordinary object path is to keep it on a
+ * different credential (see `deploy/pulumi/src/data/seaweedfs-identities.ts`).
+ * That credential does still live in this process; ADR-0043 records the residual
+ * risk rather than claiming otherwise.
  */
 export async function ensureTenantBucket(
   client: S3Client,
   organizationId: string,
 ): Promise<string> {
   const bucket = bucketForWrite(organizationId)
-  // The shared bucket is created by the deployment, not at runtime.
+  // The shared bucket is created by the deployment, not at runtime, and is
+  // deliberately unmarked — it belongs to every organization.
   if (bucket === sharedBucketName || known.has(bucket)) return bucket
 
+  let exists = true
   try {
     await client.send(new HeadBucketCommand({ Bucket: bucket }))
-    known.add(bucket)
-    return bucket
   } catch (error) {
     if (!isNotFound(error)) throw error
+    exists = false
   }
 
-  try {
-    await client.send(new CreateBucketCommand({ Bucket: bucket }))
-  } catch (error) {
-    // Lost the race. The bucket exists, which is all this function promised.
-    if (!isAlreadyExists(error)) throw error
+  if (!exists) {
+    try {
+      await client.send(new CreateBucketCommand({ Bucket: bucket }))
+    } catch (error) {
+      // Lost the race to a concurrent upload for the same new organization. The
+      // bucket exists, so fall through and verify the marker like any other
+      // existing bucket — the winner may not have written it yet.
+      if (!isAlreadyExists(error)) throw error
+      exists = true
+    }
   }
+
+  await assertBucketOwnership(client, bucket, organizationId, { created: !exists })
   known.add(bucket)
   return bucket
+}
+
+/**
+ * Verify — or, where it is safe, establish — the bucket's ownership marker.
+ *
+ * `created` says this call just made the bucket, which means the marker is
+ * expected to be absent and writing it is the completion of provisioning rather
+ * than a claim over something pre-existing.
+ */
+async function assertBucketOwnership(
+  client: S3Client,
+  bucket: string,
+  organizationId: string,
+  { created }: { created: boolean },
+): Promise<void> {
+  const owner = created ? null : await readOwnerMarker(client, bucket)
+
+  if (owner === organizationId) return
+
+  if (owner !== null) {
+    throw new Error(
+      `Bucket "${bucket}" is marked as belonging to organization "${owner}", not ` +
+        `"${organizationId}". Refusing to write: this is either a bucket-name collision or ` +
+        'two deployments sharing one object store with the same tenant prefix. Change ' +
+        'SEAWEED_TENANT_BUCKET_PREFIX for one of them, or migrate the objects.',
+    )
+  }
+
+  // No marker. Safe to claim only when nothing is stored yet — see state 4.
+  if (!created && !(await isBucketEmpty(client, bucket))) {
+    throw new Error(
+      `Bucket "${bucket}" already holds objects but carries no ownership marker. Refusing to ` +
+        `write on behalf of organization "${organizationId}": the existing objects cannot be ` +
+        'attributed. Inspect the bucket and either remove it or add ' +
+        `"${OWNER_MARKER_KEY}" naming its owner.`,
+    )
+  }
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: OWNER_MARKER_KEY,
+      Body: organizationId,
+      ContentType: 'text/plain',
+    }),
+  )
+}
+
+/** The organization named by the bucket's marker, or null when there is none. */
+async function readOwnerMarker(client: S3Client, bucket: string): Promise<string | null> {
+  try {
+    const response = await client.send(
+      new GetObjectCommand({ Bucket: bucket, Key: OWNER_MARKER_KEY }),
+    )
+    // A zero-byte marker, or a response the SDK gave no body, is
+    // indistinguishable from no marker for every decision that follows — and
+    // treating it as "unowned" is the safe reading, because the empty-bucket path
+    // can then repair it while a non-empty bucket is still refused.
+    const body = await response?.Body?.transformToString()
+    return body?.trim() || null
+  } catch (error) {
+    if (isNoSuchKey(error)) return null
+    throw error
+  }
+}
+
+/** Does the bucket hold anything other than the marker? */
+async function isBucketEmpty(client: S3Client, bucket: string): Promise<boolean> {
+  const listed = await client.send(
+    // MaxKeys 2, not 1: the marker itself may be the single key returned, and
+    // "holds only its own marker" is empty for this decision.
+    new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 2 }),
+  )
+  const keys = (listed?.Contents ?? []).map((object) => object.Key)
+  return keys.filter((key) => key !== OWNER_MARKER_KEY).length === 0
 }
 
 /**
@@ -309,4 +457,16 @@ function isAlreadyExists(error: unknown): boolean {
     error instanceof S3ServiceException &&
     (error.name === 'BucketAlreadyExists' || error.name === 'BucketAlreadyOwnedByYou')
   )
+}
+
+/**
+ * Does this error mean the marker object is absent?
+ *
+ * Narrow on purpose, and narrower than {@link isNotFound}: a missing marker sends
+ * this function down the "claim it if empty" path, so treating an AccessDenied or
+ * a misrouted endpoint's bare 404 as "no marker" would overwrite the ownership
+ * record of a bucket this deployment could not actually read.
+ */
+function isNoSuchKey(error: unknown): boolean {
+  return error instanceof S3ServiceException && error.name === 'NoSuchKey'
 }

@@ -154,15 +154,48 @@ to the split topology".
 ### 4. One bucket per organization, recorded on the row
 
 Bucket names are `<prefix><slug>-<hash>`, where the slug is the organization id
-reduced to the S3 alphabet and the hash is a 12-hex-character SHA-256 of the
-ORIGINAL id.
+reduced to the S3 alphabet and the hash is a 32-hex-character (128-bit) SHA-256
+of the ORIGINAL id.
 
 The hash is unconditional. Slugging is lossy — `Org_1` and `org-1` both reduce
 to `org-1` — and two organizations sharing a bucket is precisely the failure
-this decision exists to prevent, so uniqueness is restored by construction
-rather than by an argument about which ids are safe. 12 hex is 48 bits: at
-100,000 organizations the birthday bound puts a collision at roughly 1 in
-30,000, where 32 bits would be about even odds.
+this decision exists to prevent, so uniqueness cannot rest on an argument about
+which ids are safe.
+
+**A truncated hash is never injective, so the design does not depend on it
+being so.** Two things carry that weight instead:
+
+- **128 bits, so the probability stops being the thing worth reasoning about.**
+  The birthday bound is `n²/(2·2^b)`. At 100,000 organizations, 128 bits gives
+  ≈1.5e-29 and a million gives ≈1.5e-27 — orders of magnitude below the chance of
+  an undetected memory or disk error in the same operation. (This ADR previously
+  specified 48 bits and cited "roughly 1 in 30,000" at 100,000 organizations.
+  Both were wrong: the correct figure for 48 bits is ≈1.8e-5, about 1 in 56,000 —
+  the earlier number was this arithmetic missing its factor of two. Pessimistic,
+  and still wrong in a note about a tenant boundary.)
+- **An ownership marker, so a collision is DETECTED rather than survived.** Every
+  tenant bucket carries a `.grid-bucket-owner` object naming the organization it
+  belongs to, written when the bucket is provisioned and verified before the
+  bucket is used. A name that resolves to two organizations — whether from a hash
+  collision or from two deployments sharing one SeaweedFS with the same tenant
+  prefix — fails the upload with both parties named, instead of quietly mixing
+  two tenants' documents in one container. An unmarked bucket is claimed only
+  when it is empty, which is exactly the state a half-finished provision leaves
+  behind; a non-empty unmarked bucket is refused.
+
+The marker is what makes the boundary verified rather than assumed, and it holds
+at any hash width. The 128 bits are so that it should never have to fire.
+
+**Nothing enumerates an organization's buckets by recomputing them.** An earlier
+draft of this design exported `bucketsForOrganization(orgId)` returning
+`[shared, tenantBucketName(orgId)]`. It is gone. Any recomputation depends on the
+current prefix and hash width, so it silently stops returning the bucket a
+tenant's objects are actually in the moment either changes — and reports success
+while doing so, because sweeping a bucket that does not exist is
+indistinguishable from sweeping an empty one. The enumeration is the ledger:
+`SELECT DISTINCT storage_bucket FROM documents WHERE organization_id = $1`. That
+is what the purger reads, and what the restore procedure in
+`docs/deployment/kubernetes.md` derives its bucket list from.
 
 **The bucket is recorded on each document row (`documents.storage_bucket`), not
 derived from the organization id.** This is the load-bearing part of the design.
@@ -195,11 +228,15 @@ would fail the purge AFTER it had destroyed the Python-side stores, retry ten
 times destroying them again, and then abandon the queue row with the tenant's
 project and conversation rows intact.
 
-**The naming rule is ONE module**, CommonJS, shared by the BFF and the purger —
-the same pattern `lib/limits/rules.js` uses for the WebSocket proxy, and for the
-same reason: the purger is plain Node and cannot import TypeScript, but it is
-the process that ERASES a tenant. A second implementation there would sweep a
-bucket that does not exist, find nothing, and report success.
+**The naming rule is ONE module** — `frontends/ui/src/lib/storage/bucket.ts` —
+and the purger does not use it. An earlier draft of this decision kept the rule
+in a CommonJS twin so the purger could load it (the purger is plain Node and
+cannot import TypeScript). That twin is gone, and not because a way was found to
+load TypeScript from CommonJS: the purger stopped needing the rule. It reads the
+buckets its documents RECORDED, which is both more complete — it finds buckets
+written under a previous prefix — and impossible to get wrong by disagreeing with
+the module that did the writing. A naming rule shared between the writer and the
+eraser is still a rule that can be changed in one place and not the other.
 
 ### 5. Bucket lifecycle gets its own credential
 
@@ -212,12 +249,39 @@ Three static identities in `s3.json`:
 | `grid-tenant-admin` | bucket provisioning only | `Admin:<prefix>*` and nothing else. |
 
 The split between `grid` and `grid-tenant-admin` is forced by the SeaweedFS
-limitation above: since `Admin:<bucket>` authorises DeleteBucket as well as
-CreateBucket, the only way to keep "drop a tenant's entire bucket" out of reach
-of the upload path is to keep it on a credential the upload path does not hold.
-The purger is given the naming inputs but NOT that credential — it erases
-objects by prefix, and an unattended queue worker is the last thing that should
-be able to drop a bucket outright.
+limitation above: `Admin:<bucket>` authorises DeleteBucket as well as
+CreateBucket, so the two capabilities can only be separated by putting them on
+different credentials. The purger holds neither — it erases objects by prefix,
+and an unattended queue worker is the last thing that should be able to drop a
+bucket outright.
+
+**Residual risk, stated rather than argued away: the frontend process holds
+`grid-tenant-admin`, so a frontend compromise can delete tenant buckets.** Bucket
+creation is lazy — it happens on an organization's first upload, inside the
+request — so the credential lives in the process that serves uploads. An earlier
+draft of this ADR claimed DeleteBucket was "out of reach of the upload path";
+that was not true of the deployment, and the claim has been removed rather than
+the deployment quietly excused.
+
+What bounds the consequence:
+
+- **Nothing in the product deletes a tenant bucket.** The identity exists to
+  CREATE; DeleteBucket comes along because SeaweedFS 3.80 cannot express one
+  without the other. Organization-level erasure does not exist yet (ADR-0011
+  implements `project` only), so there is no legitimate caller to confuse with an
+  illegitimate one.
+- **A deleted bucket is recoverable, not gone.** The offsite mirror is
+  `is_incremental` (ADR-0042), so it does not propagate deletions — the objects
+  survive in the backup bucket and the restore procedure covers them.
+- **A misconfiguration fails closed.** With the tenant-admin variables unset the
+  client falls back to the ordinary object credential, which has no `Admin` grant
+  at all, so bucket creation fails rather than silently proceeding with wider
+  authority than intended.
+
+Removing the capability from the request path entirely means moving provisioning
+off it — a dedicated provisioning step with its own credential, at organization
+creation rather than first upload. That is the documented follow-up, not
+something this change delivers.
 
 **The tenant SCOPES are granted whether or not the feature is enabled; only the
 lifecycle identity is gated.** That asymmetry is the thing that makes turning
