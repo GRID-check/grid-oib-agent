@@ -199,7 +199,7 @@ jobs:
       # cache afterwards, so the CI web job is what writes the entry (one commit
       # behind, which `restore-keys` handles).
       - name: Restore the Astro asset cache into the build context
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: frontends/web/.astro-cache
           key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}

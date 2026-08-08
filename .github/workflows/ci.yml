@@ -123,7 +123,7 @@ jobs:
       # them. Note this cache deliberately contains no ruff env, since SKIP
       # suppresses installing those hooks — do not reuse this key from a job
       # that actually runs ruff.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -336,7 +336,7 @@ jobs:
       # makes that miss a partial hit (the unchanged images stay warm) instead of
       # a full reprocess. `cacheDir` puts it outside node_modules, where
       # `task web:install`'s `npm ci` would otherwise delete it.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: frontends/web/.astro-cache
           key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
