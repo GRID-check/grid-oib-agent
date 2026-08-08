@@ -101,6 +101,16 @@ def _build_run_agent_payload(
 
 logger = logging.getLogger(__name__)
 
+# Admission control for BACKGROUND work — the other half of ADR-0040 layer L3.
+#
+# This pool is deliberately SEPARATE from the interactive-turn pool
+# (`aiq_agent.common.turn_admission`, `GRID_MAX_ACTIVE_TURNS*`) rather than a
+# share of one total. That separation is the partition: a queue full of deep
+# research cannot consume the capacity interactive chat needs, and a busy chat
+# hour cannot block scheduled research. Sizing the two is therefore an explicit
+# choice about how much of the cluster each kind of work may hold — not a race
+# between them.
+
 # @environment_variable GRID_MAX_ACTIVE_JOBS
 # @category Server
 # @type int

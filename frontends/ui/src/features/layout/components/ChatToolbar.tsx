@@ -434,7 +434,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     disabled={!canRename}
                     aria-label={tChat('breadcrumb.renameAria')}
                     title={canRename ? tChat('breadcrumb.renameAria') : sessionTitle}
-                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 pointer-coarse:py-3 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     {sessionTitle}
                   </button>

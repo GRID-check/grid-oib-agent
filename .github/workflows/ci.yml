@@ -52,9 +52,19 @@ jobs:
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              # The BFF's model-config tests read the workflow config (the agent
+              # groups it seeds are derived from `llms:`), so a PR touching only
+              # `configs/` must still run them — otherwise a drift between the
+              # two lands green because no frontend job ran at all.
+              - 'configs/**'
               - 'Taskfile.yml'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
+              # `scripts/rls-test-db.sh` IS the tenant-isolation gate. Without
+              # this line a change to it leaves `frontend` false, the gate job
+              # is skipped, and `ci-ok` counts skipped as passed — so a broken
+              # row-level-security harness merges unverified.
+              - 'scripts/**'
             web:
               - 'frontends/web/**'
               - 'Taskfile.yml'
@@ -95,6 +105,32 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
+      # pre-commit builds an isolated env per hook repo on every run — four
+      # virtualenvs plus a node env — and they only change when a `rev:` in
+      # .pre-commit-config.yaml does. Measured locally: ~25s of env building
+      # collapses to ~0.3s warm, against a 113 MB dir that compresses to ~37 MB.
+      #
+      # `env.pythonLocation` is in the key because the cached envs are bound to
+      # an exact interpreter: pre-commit health-checks pyvenv.cfg against the
+      # live python and rebuilds on mismatch, and setup-python floats the patch
+      # version — without it the runner would periodically restore 37 MB and
+      # immediately discard it. That variable is exported by actions/setup-python
+      # inside setup-python-env, so this step MUST come after it, and after
+      # checkout so hashFiles can see the config.
+      #
+      # The whole directory is cached, not just the repo dirs: db.db is the
+      # url+rev -> dir index, and restoring one without the other desynchronises
+      # them. Note this cache deliberately contains no ruff env, since SKIP
+      # suppresses installing those hooks — do not reuse this key from a job
+      # that actually runs ruff.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
+      # `pytest` in SKIP is a no-op kept for clarity: that local hook is
+      # stages: [push], so it never runs at the default stage anyway.
       - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |
           . .venv/bin/activate
@@ -128,16 +164,26 @@ jobs:
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
 
+  # `task fe:verify` runs lint -> types -> tests -> build in series, which is
+  # right locally but wasteful here: on a 2-core runner the four steps measured
+  # 25s + 38s + 264s + 89s, so the tests alone were ~63% of the job and
+  # everything else waited on them. The work is split across jobs that run
+  # concurrently, and the suite itself is sharded. Each piece still runs through
+  # the root Taskfile, so a local `task fe:verify` executes the same commands.
   frontend:
-    name: Frontend (lint, types, test, build)
+    name: Frontend (lint, types, build)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontends/ui
     steps:
+      # These jobs run PR-controlled code — `bun install` executes dependency
+      # lifecycle scripts and the suite runs the app itself — so the checkout
+      # must not leave a repository credential in .git/config for them to find.
+      # Nothing here needs authenticated git: there are no git-URL dependencies
+      # in frontends/ui, and the artifact round-trip uses the Actions API.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # Node stays the RUNTIME (and Turbopack's PostCSS step spawns a real
       # `node`); Bun is only the installer and script runner.
       - uses: actions/setup-node@v7
@@ -146,12 +192,121 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-        working-directory: .
-      # lint + type-check + tests (with the json-summary/json reporters the
-      # coverage comment below consumes) + build. Same four steps as
-      # `task fe:verify` locally — defined once, in the root Taskfile.
-      - run: task fe:verify
-        working-directory: .
+      - run: task fe:lint
+      - run: task fe:types
+      - run: task fe:build
+
+  tenant-isolation:
+    # The ONLY check that proves tenant isolation actually holds. The unit suite
+    # cannot: `tenant-isolation.integration.spec.ts` self-skips without a
+    # database, so without this job CI is green whether the policies work or
+    # not. It also runs migrations as a non-superuser owner, which is what
+    # catches privilege mistakes that a superuser-run migration hides.
+    name: Tenant isolation (row-level security)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      # ubuntu-latest ships PostgreSQL server binaries but does not run a
+      # cluster; the script builds a throwaway one and tears it down.
+      - name: Tenant-isolation suite against a real Postgres
+        run: task db:test:rls
+        env:
+          # Turns "the suite skipped" into a failure for THIS job only. The
+          # suite self-skips without a database, and the unit shards legitimately
+          # have none — so the demand for one has to come from the job that is
+          # supposed to provide it, not from `CI` being set.
+          GRID_RLS_SUITE_REQUIRED: "1"
+
+  frontend-test:
+    name: Frontend tests (shard ${{ matrix.shard }}/6)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # One shard's failure should not hide the others' results.
+      fail-fast: false
+      # Six, not four. Measured per-shard wall clock locally at 2 workers (to
+      # match the 2-core runners), calibrated against the real N=4 CI run — the
+      # runners came out 1.68x slower, and the model then predicted N=4's slowest
+      # job at 194s against an actual 194s.
+      #
+      #   N=4   slowest 194s    N=6   152s    N=8   132s    N=10  ~116s
+      #
+      # So 4->6 buys 42s, 6->8 only 20s more, and each step adds ~14% runner
+      # time — this is where the curve flattens. Note the floor: vitest shards by
+      # FILE, and InputArea.spec.tsx alone is 45.9s of the suite's 209.6s of test
+      # execution, so it lands in whichever shard is slowest at every N. Raising N
+      # further cannot beat that file; splitting it can.
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      # These jobs run PR-controlled code — `bun install` executes dependency
+      # lifecycle scripts and the suite runs the app itself — so the checkout
+      # must not leave a repository credential in .git/config for them to find.
+      # Nothing here needs authenticated git: there are no git-URL dependencies
+      # in frontends/ui, and the artifact round-trip uses the Actions API.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      - run: task fe:test:shard SHARD=${{ matrix.shard }}/6
+      # Coverage is collected per shard and merged below: a shard only ever
+      # loads its own slice of the app, so its coverage is meaningless alone and
+      # cannot be recomputed afterwards from the others.
+      - uses: actions/upload-artifact@v4
+        # A failing shard still wrote its blob, and the merged report is where a
+        # reviewer will look — without this the upload is skipped on failure and
+        # the merge job silently reports on a subset.
+        if: always()
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: frontends/ui/.vitest-reports
+          include-hidden-files: true
+          retention-days: 1
+
+  frontend-coverage:
+    name: Frontend coverage
+    needs: [changes, frontend-test]
+    # Runs whenever the shards ran at all: a failing shard still produced a blob,
+    # and the merged report is the most useful thing to look at when one fails.
+    if: ${{ !cancelled() && needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      # These jobs run PR-controlled code — `bun install` executes dependency
+      # lifecycle scripts and the suite runs the app itself — so the checkout
+      # must not leave a repository credential in .git/config for them to find.
+      # Nothing here needs authenticated git: there are no git-URL dependencies
+      # in frontends/ui, and the artifact round-trip uses the Actions API.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vitest-blob-*
+          merge-multiple: true
+          path: frontends/ui/.vitest-reports
+      - run: task fe:test:merge
       - name: Coverage comment (frontend)
         if: github.event_name == 'pull_request'
         continue-on-error: true
@@ -175,6 +330,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontends/web/package-lock.json
       - uses: ./.github/actions/setup-task
+      # Astro reprocesses every blog image on a cold cache — the first CMS
+      # upload alone cost ~25s of the job. The cache is keyed on the image
+      # sources so it only misses when an image actually changed; `restore-keys`
+      # makes that miss a partial hit (the unchanged images stay warm) instead of
+      # a full reprocess. `cacheDir` puts it outside node_modules, where
+      # `task web:install`'s `npm ci` would otherwise delete it.
+      - uses: actions/cache@v6
+        with:
+          path: frontends/web/.astro-cache
+          key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
+          restore-keys: |
+            astro-cache-${{ runner.os }}-
       - run: task web:verify
         working-directory: .
 
@@ -207,11 +374,28 @@ jobs:
       # deploy.yml; this is the part that can run on an untrusted PR.
       - run: task infra:types
         working-directory: .
+      # Manifest assertions under `pulumi.runtime.setMocks` — no cluster, no
+      # stack credentials, so this is the part of the deeper gate that CAN run
+      # on an untrusted PR. It catches the class tsc cannot: a renamed weed
+      # flag, a Service missing the gRPC port `weed shell` needs, a liveness
+      # probe on an endpoint that answers 423.
+      - run: task infra:test
+        working-directory: .
 
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend, web, infra, repo-lint]
+    # `frontend-coverage` is deliberately NOT here. It is serialised after all
+    # four shards but produces only the coverage comment — correctness is
+    # already gated by the shards themselves, which do fail this gate. Requiring
+    # it added ~58s to every run (shards finished 18:57:57, CI OK landed
+    # 18:58:55) for a job whose real work is a 5s merge. It still reports its own
+    # red check if the merge breaks; it just no longer holds the gate open.
+    #
+    # `tenant-isolation` IS here, and must stay: it is the only check that proves
+    # the row-level-security boundary actually holds (ADR-0041). The unit shards
+    # cannot — the integration suite self-skips without a database.
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

@@ -28,3 +28,37 @@ def redact_db_url(url: str) -> str:
         return make_url(url).render_as_string(hide_password=True)
     except Exception:
         return _CREDENTIAL_RE.sub("://***@", url)
+
+
+def _translate_tls_param(url: str) -> str:
+    """Rename asyncpg's ``ssl`` query parameter to libpq's ``sslmode``.
+
+    DSN generators emit the TLS parameter under a driver-specific name
+    (``ssl`` for asyncpg, ``sslmode`` for libpq/psycopg), and the query string
+    survives a driver rewrite unchanged — psycopg3 then rejects the unknown
+    ``ssl`` connection option at connect time. asyncpg additionally accepts
+    ``true``/``false`` values, which libpq spells ``require``/``disable``.
+    Passwords are percent-encoded inside URLs, so the literal ``?ssl=`` /
+    ``&ssl=`` needles can only match in the query string.
+    """
+    out = url.replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
+    return out.replace("sslmode=true", "sslmode=require").replace("sslmode=false", "sslmode=disable")
+
+
+def normalize_db_url(db_url: str, async_mode: bool = True) -> str:
+    """Normalize a database URL to consistent drivers.
+
+    PostgreSQL uses psycopg (psycopg3) for both sync and async; any TLS query
+    parameter is translated alongside the driver (see :func:`_translate_tls_param`).
+    SQLite uses aiosqlite for async, the standard driver for sync. Anything else
+    passes through unchanged.
+    """
+    if db_url.startswith("postgresql") or db_url.startswith("postgres"):
+        base_url = db_url.replace("+asyncpg", "").replace("+psycopg2", "").replace("+psycopg", "")
+        if not base_url.startswith("postgresql://"):
+            base_url = base_url.replace("postgres://", "postgresql://")
+        return _translate_tls_param(base_url.replace("postgresql://", "postgresql+psycopg://"))
+    if db_url.startswith("sqlite"):
+        base_url = db_url.replace("+aiosqlite", "")
+        return base_url.replace("sqlite:///", "sqlite+aiosqlite:///") if async_mode else base_url
+    return db_url

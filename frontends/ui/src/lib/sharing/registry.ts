@@ -19,8 +19,10 @@
  */
 
 import 'server-only'
+import { BadRequestError } from '@/lib/api/errors'
 import {
   RESOURCE_ROLES,
+  SHAREABLE_RESOURCE_TYPES,
   type ResourceRole,
   type ResourceVisibility,
   type ShareableResourceType,
@@ -154,4 +156,30 @@ export function strongerRole(a: ResourceRole | null, b: ResourceRole | null): Re
 /** Whether `role` satisfies a minimum requirement. */
 export function roleSatisfies(role: ResourceRole | null, minimum: ResourceRole): boolean {
   return role !== null && roleRank(role) >= roleRank(minimum)
+}
+
+/**
+ * Validate an untrusted `[resourceType]` path segment against the registry's
+ * union.
+ *
+ * A 400 rather than a 404: an unregistered type is a malformed request, not a
+ * resource the caller may not see, and telling them so is not a disclosure —
+ * the set of shareable types is public API surface.
+ *
+ * This was deliberately duplicated across the four sharing routes, on the
+ * grounds that a Next.js route module may only export HTTP handlers so a shared
+ * helper "would need a module of its own for five lines". That module is this
+ * one: the check asks the registry's own question — is this a type I know? —
+ * against the registry's own union, alongside `describeResource` and the role
+ * ladder. Nothing new was needed, and the four copies were four places to
+ * update the day a type is added or the error contract changes.
+ */
+export function requireShareableType(raw: string): ShareableResourceType {
+  const resourceType = SHAREABLE_RESOURCE_TYPES.find((candidate) => candidate === raw)
+  if (!resourceType) {
+    throw new BadRequestError(`"${raw}" is not a shareable resource type`, {
+      allowed: SHAREABLE_RESOURCE_TYPES,
+    })
+  }
+  return resourceType
 }

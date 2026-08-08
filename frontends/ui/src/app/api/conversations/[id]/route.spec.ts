@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Deleting a conversation used to be gated by nothing but the org-scoped WHERE
  * clause. It now requires `owner` on the conversation itself (ADR-0032): a
  * project member who can merely READ a thread must not be able to destroy it.

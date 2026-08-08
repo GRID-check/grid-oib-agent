@@ -1,6 +1,5 @@
-import { and, eq } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import { projects, userPreferences } from '@/lib/db/schema'
+import { findProjectCollectionName } from '@/lib/projects/repository'
+import { findUserPreferencesForSession } from '@/lib/user-preferences/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
@@ -25,7 +24,7 @@ function isAuthRequired(): boolean {
 
 export async function resolveActiveProjectId(
   session: GridSession | null,
-  explicitProjectId?: string,
+  explicitProjectId?: string
 ): Promise<string | undefined> {
   if (explicitProjectId) {
     return explicitProjectId
@@ -35,15 +34,10 @@ export async function resolveActiveProjectId(
     return undefined
   }
 
-  const db = getDb()
-  const [row] = await db
-    .select({ prefs: userPreferences.prefs })
-    .from(userPreferences)
-    .where(eq(userPreferences.workosUserId, session.userId))
-    .limit(1)
+  const prefs = await findUserPreferencesForSession(session.userId, session.organizationId)
 
-  if (row?.prefs && typeof row.prefs === 'object') {
-    const activeId = (row.prefs as Record<string, unknown>).active_project_id
+  if (prefs && typeof prefs === 'object') {
+    const activeId = prefs.active_project_id
     if (typeof activeId === 'string' && activeId) {
       return activeId
     }
@@ -78,7 +72,7 @@ export async function resolveActiveProjectId(
  */
 async function authorizeConversationScope(
   session: AuthorizedSession,
-  conversationId: string,
+  conversationId: string
 ): Promise<void> {
   const tenancy = await findConversationTenancy(conversationId)
   if (!tenancy) return
@@ -87,25 +81,18 @@ async function authorizeConversationScope(
 
 async function resolveProjectCollectionName(
   projectId: string | undefined,
-  organizationId: string | undefined,
+  organizationId: string | undefined
 ): Promise<string | undefined> {
   if (!projectId || !organizationId) {
     return undefined
   }
 
-  const db = getDb()
-  const [project] = await db
-    .select({ collectionName: projects.collectionName })
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
-    .limit(1)
-
-  return project?.collectionName
+  return (await findProjectCollectionName(projectId, organizationId)) ?? undefined
 }
 
 export async function buildCollectionScopeFromRequest(
   session: GridSession | null,
-  context: RequestContext,
+  context: RequestContext
 ): Promise<{
   scope: string[]
   headerValue: string

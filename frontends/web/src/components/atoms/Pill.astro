@@ -8,18 +8,20 @@ interface Props {
 }
 const { href, variant = 'solid', size = 'md', external = false, class: className = '' } = Astro.props
 
-const base = 'inline-flex items-center justify-center rounded-full font-medium transition-colors'
+const base =
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition duration-200 active:translate-y-px'
 const sizes = {
-  sm: 'px-4 py-[7px] text-[13px]',
-  md: 'px-[18px] py-[9px] text-[13.5px]',
-  lg: 'px-[34px] py-4 text-[16.5px]',
+  sm: 'px-4 py-1.5 text-sm',
+  md: 'px-5 py-2.5 text-sm',
+  lg: 'px-7 py-3.5 text-base sm:px-8 sm:py-4',
 }
+// Every variant states its own text colour on rest *and* hover: the base
+// `a:hover` rule would otherwise repaint a light label on a dark fill.
 const variants = {
-  solid: 'bg-accent-800 text-[#f2f4ea] hover:bg-[#384529] hover:text-[#f2f4ea]',
-  outline:
-    'border border-panel/30 text-panel hover:border-panel hover:bg-panel/5 hover:text-panel',
+  solid: 'bg-accent-800 text-on-dark-strong shadow-card hover:bg-accent-700 hover:text-on-dark-strong hover:shadow-lift',
+  outline: 'border border-panel/30 text-panel hover:border-panel hover:bg-panel/5 hover:text-panel',
   'outline-dark':
-    'border border-accent-900/30 text-accent-900 hover:border-accent-900 hover:text-accent-900',
+    'border border-accent-900/30 text-accent-900 hover:border-accent-900 hover:bg-accent-900/5 hover:text-accent-900',
 }
 ---
 

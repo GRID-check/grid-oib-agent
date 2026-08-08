@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The bound on a human-in-the-loop prompt's stored shape (ADR-0037).
  *
  * Same reasoning as `sanitizeProvenance`: this is a client payload landing in a

@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The platform default-model endpoint. The contract worth pinning down: only
  * the platform owner may write it, the catalog validates every choice
  * server-side, and an omitted group is a *clear*, not a no-op — that is how a
@@ -79,6 +82,11 @@ vi.mock('@/lib/model-config/platform-defaults', () => ({
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { GET, PUT } from './route'
 
+// The route goes through `platformApiRoute`, which reads `request.method` for
+// its scope label, so GET takes a real Request like every other route factory.
+const get = (): Promise<Response> =>
+  GET(new Request('http://localhost/api/platform/model-defaults'))
+
 const put = (body: unknown): Promise<Response> =>
   PUT(
     new Request('http://localhost/api/platform/model-defaults', {
@@ -112,13 +120,13 @@ describe('/api/platform/model-defaults', () => {
 
   it('rejects a caller who is not the platform owner', async () => {
     requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
-    expect((await GET()).status).toBe(403)
+    expect((await get()).status).toBe(403)
     expect((await put({ defaults: {} })).status).toBe(403)
     expect(savePlatformModelDefaults).not.toHaveBeenCalled()
   })
 
   it('reports the group registry and the workflow model each group falls back to', async () => {
-    const body = (await (await GET()).json()) as {
+    const body = (await (await get()).json()) as {
       agentGroups: { id: string }[]
       workflowDefaults: Record<string, string>
     }

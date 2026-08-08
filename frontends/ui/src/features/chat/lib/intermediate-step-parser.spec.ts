@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { getDisplayName } from './intermediate-step-parser'
 

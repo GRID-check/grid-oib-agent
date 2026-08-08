@@ -18,6 +18,7 @@
 
 import 'server-only'
 import { getDb } from '@/lib/db'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { documents } from '@/lib/db/schema'
 import { getBackendUrl } from '@/lib/backend-proxy'
 
@@ -62,9 +63,10 @@ function safeDecode(name: string): string {
  */
 async function liveFilenamesByCollection(): Promise<Map<string, Set<string>>> {
   const db = getDb()
-  const rows = (await db
-    .select({ collectionName: documents.collectionName, filename: documents.filename })
-    .from(documents)) as { collectionName: string; filename: string }[]
+  const rows = (await withPlatformAccess(
+    'vector reconciliation sweep: every collection in the deployment, across organizations',
+    () => db.select({ collectionName: documents.collectionName, filename: documents.filename }).from(documents),
+  )) as { collectionName: string; filename: string }[]
 
   const byCollection = new Map<string, Set<string>>()
   for (const row of rows) {

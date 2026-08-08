@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect, beforeEach } from 'vitest'
 import {
   useDocumentsStore,

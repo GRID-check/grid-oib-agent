@@ -15,7 +15,7 @@
  */
 
 import { ShieldAlert } from 'lucide-react'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
@@ -23,38 +23,39 @@ import { getTranslations } from '@/i18n/server'
 import { OrgWidgets } from '../org-widgets'
 
 export default async function OrganizationEnterprisePage(): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
-  const t = await getTranslations('organization')
+  return withPageSession(async (session) => {
+    const t = await getTranslations('organization')
 
-  const admin = isOrgAdmin(session)
-  const perms = session.permissions
+    const admin = isOrgAdmin(session)
+    const perms = session.permissions
 
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title={t('sections.enterprise.title')}
-        subtitle={t('sections.enterprise.subtitle')}
-      />
-
-      {admin ? (
-        <OrgWidgets
-          canManageUsers={false}
-          canManageSso={perms.includes('widgets:sso:manage')}
-          canManageDirectory={perms.includes('widgets:dsync:manage')}
-          canManageDomains={perms.includes('widgets:domain-verification:manage')}
-          canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title={t('sections.enterprise.title')}
+          subtitle={t('sections.enterprise.subtitle')}
         />
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
-              {t('notAdmin.title')}
-            </CardTitle>
-            <CardDescription>{t('notAdmin.description')}</CardDescription>
-          </CardHeader>
-        </Card>
-      )}
-    </div>
-  )
+
+        {admin ? (
+          <OrgWidgets
+            canManageUsers={false}
+            canManageSso={perms.includes('widgets:sso:manage')}
+            canManageDirectory={perms.includes('widgets:dsync:manage')}
+            canManageDomains={perms.includes('widgets:domain-verification:manage')}
+            canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
+          />
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
+                {t('notAdmin.title')}
+              </CardTitle>
+              <CardDescription>{t('notAdmin.description')}</CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+      </div>
+    )
+  })
 }

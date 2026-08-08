@@ -12,8 +12,8 @@
 > `shallow_research`, `deep_research`, `deep_research_router`, `memory_reflection`)
 > at **any model in the OpenRouter public catalog at runtime** (ADR-0014). The
 > upstream vendor that processes an organization's prompts, RAG excerpts of uploaded
-> documents, project context and memory digests (e.g. DeepSeek — the reference
-> default — OpenAI, Anthropic, Google, Meta, Mistral, xAI, Moonshot, …) therefore
+> documents, project context and memory digests (e.g. OpenAI — the reference
+> default — DeepSeek, Anthropic, Google, Meta, Mistral, xAI, Moonshot, …) therefore
 > changes per organization, per admin action, without a release or operator
 > involvement, and may be hosted outside the EU/EEA.
 >

@@ -101,7 +101,7 @@ export function ProjectSettings({
           {showKnowledgeLink && (
             <Link
               href={`/app/projects/${data.id}/knowledge`}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground touch-target"
             >
               <BookOpenCheck className="size-4" aria-hidden />
               {t('project.knowledgeLink')}

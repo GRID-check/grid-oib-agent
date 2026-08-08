@@ -32,6 +32,7 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -43,7 +44,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from aiq_agent.common.credential_resolution import read_api_key_env
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
@@ -81,6 +81,119 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api
 # so every downstream call site (collections, queries, count/peek, heartbeat)
 # is identical.
 # ---------------------------------------------------------------------------
+def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
+    """Describe, per required module, what is actually wrong with it right now.
+
+    ``llama_index`` is a PEP-420 namespace package: the parent import succeeds
+    whenever *any* ``llama-index-*`` distribution is present, even when the
+    pieces we need are absent. A partial install therefore fails deep inside a
+    submodule with ``cannot import name 'core' from 'llama_index' (unknown
+    location)`` rather than at the obvious place, so "is it installed?" has to
+    be answered per module.
+
+    Each probe is a literal import rather than a loop over module names: the
+    four are known when this is written, so computing them bought nothing and
+    made the dependency graph invisible to both readers and static analysis.
+    The exception type carries the distinction the report needs —
+    ``ModuleNotFoundError`` means the module is genuinely absent, any other
+    import failure means it is present but cannot be loaded, which is the case
+    that was misreported as "not installed" for days.
+    """
+    faults: list[tuple[str, BaseException]] = []
+
+    def _probe(distribution: str, module: str, load) -> None:
+        try:
+            load()
+        except ModuleNotFoundError as exc:
+            # A ModuleNotFoundError does NOT automatically mean this
+            # distribution is absent: it also fires when the module imports
+            # fine but one of ITS dependencies is missing. Only a failure
+            # naming this module (or a parent of it) means "not installed";
+            # anything else is a present-but-unusable install, which is the
+            # case that has to stay distinguishable because it is the one the
+            # old message got wrong.
+            missing = exc.name or ""
+            if missing and (module == missing or module.startswith(f"{missing}.")):
+                faults.append((f"{distribution}: not installed ({exc})", exc))
+            else:
+                faults.append((f"{distribution}: installed but broken (missing dependency {missing or exc!r})", exc))
+        except Exception as exc:  # noqa: BLE001 - the point is to report, not to handle
+            faults.append((f"{distribution}: installed but broken ({type(exc).__name__}: {exc})", exc))
+
+    def _core() -> None:
+        import llama_index.core  # noqa: F401
+
+    def _embeddings() -> None:
+        from llama_index.embeddings.nvidia import NVIDIAEmbedding  # noqa: F401
+
+    def _vector_store() -> None:
+        from llama_index.vector_stores.chroma import ChromaVectorStore  # noqa: F401
+
+    def _chroma() -> None:
+        import chromadb  # noqa: F401
+
+    _probe("llama-index-core", "llama_index.core", _core)
+    _probe("llama-index-embeddings-nvidia", "llama_index.embeddings.nvidia", _embeddings)
+    _probe("llama-index-vector-stores-chroma", "llama_index.vector_stores.chroma", _vector_store)
+    _probe("chromadb", "chromadb", _chroma)
+    return faults
+
+
+def retrieval_dependency_report() -> list[str]:
+    """The human-readable half of :func:`retrieval_dependency_faults`."""
+    return [finding for finding, _ in retrieval_dependency_faults()]
+
+
+def ensure_retrieval_dependencies() -> None:
+    """Fail now, with the whole picture, rather than deep in a later call.
+
+    Both initialization paths import only the piece they need first
+    (``NVIDIAEmbedding``), so a missing ``llama-index-vector-stores-chroma``
+    used to sail through ``_ensure_initialized`` and surface much later inside
+    ``_get_index`` or ``_run_ingestion`` — outside the handler that produces the
+    good diagnostic, and after the component had already reported itself ready.
+    Probing the full set up front means "initialized" means usable.
+    """
+    faults = retrieval_dependency_faults()
+    if not faults:
+        return
+    # Chained from the FIRST probe failure. Running before the try/except that
+    # `_retrieval_dependency_error` serves means this is now the raise most
+    # operators will actually see, so it has to carry the original traceback
+    # too -- a summary string alone would drop the one frame that says where
+    # the import broke.
+    raise RuntimeError(
+        "LlamaIndex retrieval stack is unusable in this environment.\nModule status:\n  "
+        + "\n  ".join(finding for finding, _ in faults)
+        + "\nA module reported 'installed but broken' means the distribution is present but incomplete "
+        "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
+        "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
+    ) from faults[0][1]
+
+
+def _retrieval_dependency_error(cause: BaseException) -> RuntimeError:
+    """Build a truthful error for a failed LlamaIndex import.
+
+    The previous message claimed "LlamaIndex dependencies not installed" for
+    every ``ImportError``. In production the packages *were* installed and one
+    of them was broken (``llama-index-core`` missing under an otherwise
+    populated ``llama_index`` namespace), so the advice to reinstall them was
+    wrong and the real cause -- present in the chained exception all along --
+    went unread for days (issues #330, #331). A diagnostic that misdescribes the
+    fault costs more than no diagnostic at all, so this one reports what is
+    actually true of the running environment.
+    """
+    findings = retrieval_dependency_report() or ["no per-module fault found; see the chained exception"]
+    return RuntimeError(
+        "LlamaIndex retrieval stack is unusable in this environment.\n"
+        f"Triggering import error: {type(cause).__name__}: {cause}\n"
+        "Module status:\n  " + "\n  ".join(findings) + "\n"
+        "A module reported 'installed but broken' means the distribution is present but incomplete "
+        "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
+        "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
+    )
+
+
 def _make_chroma_client(persist_dir: str):
     """Return a ChromaDB client: shared HTTP server when configured, else embedded."""
     import chromadb
@@ -360,21 +473,6 @@ def _to_metadata_filters(filters: dict[str, Any] | None):
     return _translate_filter_node(filters)
 
 
-# ``read_api_key_env`` (the ${...}-placeholder guard) was promoted to the shared
-# resolver (aiq_agent.common.credential_resolution) so every credential path
-# applies it identically. Kept aliased under the historical private name for
-# back-compat with any caller that still imports ``_read_api_key_env``.
-_read_api_key_env = read_api_key_env
-
-
-def _get_nvidia_api_key() -> str:
-    """Get NVIDIA API key from environment."""
-    key = read_api_key_env("NVIDIA_API_KEY")
-    if not key:
-        logger.warning("NVIDIA_API_KEY not set - embeddings may fail")
-    return key
-
-
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
     """Resolve the embeddings API key through the shared credential resolver.
 
@@ -385,9 +483,12 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     base). With the default deployment (NVIDIA base, ``NVIDIA_API_KEY`` set) this
     is byte-identical to the old ``_get_nvidia_api_key()`` behaviour.
 
-    BYOK is intentionally NOT wired here: ingestion is org-agnostic today (no org
-    id crosses ``/v1/ingest``; the ingest thread pool loses request context), so
-    there is no org id to resolve. Known follow-up — see docs.
+    BYOK is intentionally NOT wired here, but no longer for want of an org id:
+    ``/v1/ingest`` forwards ``x-grid-organization-id`` into the ingest thread's
+    job config, which is what lets :func:`resolve_vlm_credential` reach BYOK on
+    the same pipeline. The blocker is the endpoint — a BYOK credential names a
+    chat-completions base URL, and embeddings need an embeddings-capable one, so
+    there is nothing to point this at yet. Known follow-up — see docs.
     """
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 
@@ -1400,6 +1501,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         if self._initialized:
             return
 
+        # The whole stack, not just the import this method happens to need --
+        # otherwise a missing vector-store package is only discovered later, in
+        # a call site with no dependency diagnostic around it.
+        ensure_retrieval_dependencies()
+
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
@@ -1424,10 +1530,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             logger.info(f"LlamaIndex components initialized with model: {self.embed_model_name}")
 
         except ImportError as e:
-            raise RuntimeError(
-                "LlamaIndex dependencies not installed. "
-                "Install with: pip install llama-index llama-index-embeddings-nvidia chromadb"
-            ) from e
+            raise _retrieval_dependency_error(e) from e
 
     def _get_chroma_client(self):
         """Get or create the shared ChromaDB client (thread-safe)."""
@@ -2415,7 +2518,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     headers={"Content-Type": "image/jpeg"},
                 )
                 resp.raise_for_status()
-            logger.info(f"Uploaded thumbnail ({len(thumbnail_bytes)} bytes) to {thumbnail_upload_url[:80]}...")
+            # NEVER log the upload URL, not even truncated. It is a presigned S3
+            # URL — a live bearer credential to that object with no user, org or
+            # IP binding. The `[:80]` prefix this used to print was not a
+            # control: the cut lands at a different place depending on how long
+            # the org/project/document ids in the key are, so whether the
+            # signature survived was luck, and the tenant path leaked in full for
+            # short keys. Same rule as the download side in
+            # frontends/aiq_api/src/aiq_api/routes/ingest.py.
+            logger.info("Uploaded thumbnail (%d bytes)", len(thumbnail_bytes))
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 
@@ -3049,12 +3160,14 @@ class LlamaIndexRetriever(BaseRetriever):
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
         embed_model: NVIDIA embedding model name (default from AIQ_EMBED_MODEL)
         top_k: Default number of results (default: 10)
+        hybrid_search: Enable lexical+vector hybrid retrieval (default from AIQ_HYBRID_RETRIEVAL)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
         AIQ_EMBED_MODEL: Default embedding model name
         AIQ_EMBED_BASE_URL: Default embedding model base URL
         AIQ_RETRIEVER_TOP_K: Default top_k value
+        AIQ_HYBRID_RETRIEVAL: Enable hybrid lexical+vector retrieval (default: true)
     """
 
     # Default configuration from environment variables
@@ -3068,6 +3181,19 @@ class LlamaIndexRetriever(BaseRetriever):
     # @required false
     # Default number of results returned by the LlamaIndex retriever.
     DEFAULT_TOP_K = int(os.environ.get("AIQ_RETRIEVER_TOP_K", "10"))
+    # @environment_variable AIQ_HYBRID_RETRIEVAL
+    # @category Knowledge Layer
+    # @type bool
+    # @default true
+    # @required false
+    # Enable the lexical+vector hybrid retrieval channel (exact-term Chroma
+    # `$contains` passes fused with the vector results via reciprocal rank fusion).
+    DEFAULT_HYBRID_SEARCH = os.environ.get("AIQ_HYBRID_RETRIEVAL", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
     backend_name = "llamaindex"
 
@@ -3078,6 +3204,8 @@ class LlamaIndexRetriever(BaseRetriever):
         self.embed_model_name = self.config.get("embed_model", self.DEFAULT_EMBED_MODEL)
         self.embed_base_url = self.config.get("embed_base_url", self.DEFAULT_EMBED_BASE_URL)
         self.default_top_k = self.config.get("top_k", self.DEFAULT_TOP_K)
+        # Explicit config wins; otherwise the environment default (on).
+        self.hybrid_search = bool(self.config.get("hybrid_search", self.DEFAULT_HYBRID_SEARCH))
 
         # Lazy-loaded components
         self._embed_model = None
@@ -3149,6 +3277,10 @@ class LlamaIndexRetriever(BaseRetriever):
             self._initialize_components()
 
     def _initialize_components(self):
+        # Same complete preflight as the ingestion path: "initialized" has to
+        # mean usable, not "the first import worked".
+        ensure_retrieval_dependencies()
+
         try:
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
@@ -3175,10 +3307,7 @@ class LlamaIndexRetriever(BaseRetriever):
             logger.info("LlamaIndex retriever components initialized")
 
         except ImportError as e:
-            raise RuntimeError(
-                "LlamaIndex dependencies not installed. "
-                "Install with: pip install llama-index llama-index-embeddings-nvidia chromadb"
-            ) from e
+            raise _retrieval_dependency_error(e) from e
 
     def _get_index(self, collection_name: str):
         """Return a cached VectorStoreIndex for the collection, or None if missing."""
@@ -3314,6 +3443,9 @@ class LlamaIndexRetriever(BaseRetriever):
             # Normalize results to Chunk schema
             chunks = [self.normalize(node) for node in nodes]
 
+            if self.hybrid_search:
+                chunks = self._hybrid_lexical_boost(query, collection_name, top_k, filters, chunks)
+
             logger.info(f"LlamaIndex retrieval returned {len(chunks)} chunks")
 
             result = RetrievalResult(
@@ -3327,14 +3459,91 @@ class LlamaIndexRetriever(BaseRetriever):
             return result
 
         except Exception as e:
-            logger.error(f"LlamaIndex retrieval failed: {e}")
+            # ``exception``, not ``error``: these failures are routinely chained
+            # (a RuntimeError raised *from* the ImportError that actually
+            # explains it), and the bare f-string dropped the chain. Combined
+            # with the 100-char cut below, issue #330 reached us as the string
+            # "LlamaIndex retrieval failed: LlamaIndex dependencies not instal"
+            # -- truncated mid-word, cause discarded, and the surviving half was
+            # a misdescription of the fault. The log now carries the whole chain;
+            # the caller-facing summary stays bounded.
+            logger.exception("LlamaIndex retrieval failed")
             return RetrievalResult(
                 chunks=[],
                 query=query,
                 backend=self.backend_name,
                 success=False,
-                error_message=f"Retrieval failed: {str(e)[:100]}",
+                error_message=f"Retrieval failed: {str(e)[:500]}",
             )
+
+    def _hybrid_lexical_boost(
+        self,
+        query: str,
+        collection_name: str,
+        top_k: int,
+        filters: dict[str, Any] | None,
+        chunks: list[Chunk],
+    ) -> list[Chunk]:
+        """Run one Chroma ``$contains`` pass per exact query term and RRF-fuse with the vector results.
+
+        The vector channel stays first so it wins ties. Any failure degrades to the plain
+        vector results (fail-open): the lexical channel is an enhancement, never a gate.
+        """
+        try:
+            from .hybrid import extract_exact_terms
+            from .hybrid import reciprocal_rank_fusion
+
+            terms = extract_exact_terms(query) if extract_exact_terms is not None else []
+            if not terms:
+                return chunks
+
+            embedding = self._embed_query_cached(query)
+            collection = self._chroma_client.get_collection(name=collection_name)
+            channels: list[list[Chunk]] = [chunks]
+            for term in terms:
+                raw = collection.query(
+                    query_embeddings=[embedding],
+                    n_results=top_k,
+                    where_document={"$contains": term},
+                    where=filters if filters else None,
+                )
+                channels.append(self._chunks_from_raw_query(raw))
+
+            fused = reciprocal_rank_fusion(channels, top_n=top_k)
+            if fused:
+                logger.info(
+                    f"Hybrid retrieval fused {len(chunks)} vector + {len(terms)} lexical channel(s) "
+                    f"into {len(fused)} chunks for collection {collection_name}"
+                )
+                return fused
+            return chunks
+        except Exception as e:
+            logger.warning(f"Hybrid lexical boost failed, falling back to vector-only retrieval: {e}")
+            return chunks
+
+    def _chunks_from_raw_query(self, raw: dict[str, Any]) -> list[Chunk]:
+        """Convert a raw Chroma ``collection.query`` result dict into normalized Chunks.
+
+        The raw query returns per-query-embedding lists; we always send exactly one
+        embedding, so each key's first list is the one we want. L2 distances map to a
+        display score monotonically; RRF only consumes ranks, so any monotone map works.
+        """
+        from llama_index.core.schema import NodeWithScore
+        from llama_index.core.schema import TextNode
+
+        ids = raw.get("ids", [[]])[0]
+        documents = raw.get("documents", [[]])[0]
+        metadatas = raw.get("metadatas", [[]])[0]
+        distances = raw.get("distances", [[]])[0]
+
+        nodes: list[NodeWithScore] = []
+        for index, chunk_id in enumerate(ids):
+            distance = distances[index] if index < len(distances) else 1.0
+            metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
+            text = documents[index] if index < len(documents) else ""
+            node = TextNode(text=text, node_id=chunk_id, metadata=metadata)
+            nodes.append(NodeWithScore(node=node, score=math.exp(-float(distance))))
+        return [self.normalize(node) for node in nodes]
 
     def normalize(self, raw_result: Any) -> Chunk:
         """Convert LlamaIndex NodeWithScore to universal Chunk."""

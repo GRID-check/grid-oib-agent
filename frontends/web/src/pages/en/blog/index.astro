@@ -1,32 +1,30 @@
 ---
-import { getCollection } from 'astro:content'
+import { getBlogPosts, postSlug } from '../../../lib/posts'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import SectionTag from '../../../components/atoms/SectionTag.astro'
 import BlogCard from '../../../components/molecules/BlogCard.astro'
 import { ui } from '../../../i18n/ui'
 
 const t = ui.en.blog
-const posts = (
-  await getCollection('blog', ({ id, data }) => !data.draft && id.startsWith('en/'))
-).sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+const posts = await getBlogPosts('en')
 ---
 
 <BaseLayout locale="en" title={t.metaTitle} description={t.metaDescription}>
   <section class="px-6 pb-28 pt-36 md:px-10">
-    <div class="mx-auto max-w-[1060px]">
+    <div class="mx-auto max-w-5xl">
       <SectionTag>{t.tag}</SectionTag>
       <h1
-        class="mt-6 max-w-[640px] font-display text-[clamp(34px,5vw,54px)] font-semibold leading-[1.08] tracking-[-0.02em] text-ink"
+        class="mt-6 max-w-2xl font-display text-h3 text-ink"
       >
         {t.heading}
       </h1>
-      <p class="mt-5 max-w-[560px] text-[16px] leading-[1.65] text-ink-soft">
+      <p class="mt-5 max-w-xl text-base leading-relaxed text-ink-soft">
         {t.intro}
       </p>
 
       {
         posts.length === 0 ? (
-          <p class="mt-16 rounded-[20px] bg-white p-10 text-center text-[15px] text-ink-soft">
+          <p class="mt-16 rounded-card bg-white p-10 text-center text-base text-ink-soft">
             {t.empty}
           </p>
         ) : (
@@ -36,7 +34,7 @@ const posts = (
                 title={post.data.title}
                 description={post.data.description}
                 pubDate={post.data.pubDate}
-                href={`/en/blog/${post.id.slice(3)}/`}
+                href={`/en/blog/${postSlug(post.id)}/`}
                 locale="en"
               />
             ))}

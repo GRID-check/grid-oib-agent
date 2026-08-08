@@ -11,8 +11,11 @@
  * cache key changes on every request and it would re-download and re-encode the
  * original each time.
  *
- * Serving the same bytes from a SAME-ORIGIN route fixes both — local paths need
- * no allow-list, and the optimizer resolves them in-process. But it introduces
+ * Serving the same bytes from a SAME-ORIGIN route fixes both — the optimizer
+ * resolves a local path in-process, and one allow-list entry covers the whole
+ * route rather than a per-environment host. (It does need that entry: a local
+ * `src` with a query string is refused unless `images.localPatterns` names its
+ * path — see `optimizable.ts`.) But it introduces
  * the problem this module solves: the optimizer's internal fetch is a MOCKED
  * request built from the URL and method alone (`headers = {}`, see
  * `next/dist/server/lib/mock-request`), so it carries no session cookie. A route

@@ -445,6 +445,23 @@ export async function createProjectMemoryItem(
  * endpoint used by the agent's `remember` tool). Returns null when the
  * project does not exist.
  */
+/**
+ * The organization a project belongs to, or null if there is no such project.
+ *
+ * Exists so a caller holding only a project id can ESTABLISH a tenant context
+ * rather than read without one. The lookup itself needs platform scope — that
+ * is the point: it reads exactly one column of one row, and everything after it
+ * runs inside the tenant that row names.
+ */
+export async function resolveProjectOrganization(projectId: string): Promise<string | null> {
+  const [project] = await getDb()
+    .select({ organizationId: projects.organizationId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+  return project?.organizationId ?? null
+}
+
 export async function createProjectMemoryItemForProject(
   projectId: string,
   values: Omit<NewProjectMemoryItem, 'projectId' | 'organizationId' | 'scope'>,

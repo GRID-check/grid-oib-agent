@@ -1,0 +1,21 @@
+---
+// Drafting-sheet marker in the page margin. The labels are already authored on
+// every section as `data-screen-label` ("05 Datengrundlage") — this renders
+// them, giving the page one architectural through-line and a sense of place.
+// Shown only when the margin actually affords it, measured rather than assumed.
+---
+
+<div
+  data-sheet-index
+  class="pointer-events-none fixed left-4 top-1/2 z-40 -translate-y-1/2 opacity-0 transition-opacity duration-500 select-none"
+  aria-hidden="true"
+>
+  <div class="flex flex-col items-center gap-3">
+    <span class="h-10 w-px bg-ink/20"></span>
+    <span
+      data-sheet-label
+      class="font-mono text-2xs uppercase tracking-widest whitespace-nowrap text-ink-ghost [writing-mode:vertical-rl]"
+    ></span>
+    <span class="h-10 w-px bg-ink/20"></span>
+  </div>
+</div>

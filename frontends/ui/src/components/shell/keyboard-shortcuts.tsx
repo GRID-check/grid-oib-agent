@@ -58,6 +58,8 @@ export interface KeyboardShortcutsProps {
   canAccessArchiv?: boolean
   /** Whether the collaboration surfaces are reachable (`collaboration`, ADR-0032…0035). */
   canCollaborate?: boolean
+  /** Inbox reachability — gates the `g i` jump (ADR-0042, see NavFlags). */
+  canAccessInbox?: boolean
 }
 
 export function KeyboardShortcuts({
@@ -67,6 +69,7 @@ export function KeyboardShortcuts({
   showWorkflows = false,
   canAccessArchiv = false,
   canCollaborate = false,
+  canAccessInbox = false,
 }: KeyboardShortcutsProps) {
   const { enabled } = useShortcutsPreference()
   const router = useRouter()
@@ -76,8 +79,8 @@ export function KeyboardShortcuts({
   const leaderArmedAtRef = React.useRef<number | null>(null)
 
   const flags: ShortcutFlags = React.useMemo(
-    () => ({ canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate }),
-    [canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate],
+    () => ({ canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate, canAccessInbox }),
+    [canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate, canAccessInbox],
   )
 
   // The handler reads the live path (a jump to "Files" means the project the
@@ -167,6 +170,7 @@ export function KeyboardShortcuts({
         showWorkflows={showWorkflows}
         canAccessArchiv={canAccessArchiv}
         canCollaborate={canCollaborate}
+        canAccessInbox={canAccessInbox}
       />
     </>
   )

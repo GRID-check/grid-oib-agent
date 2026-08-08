@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Opt-in integration test: the platform default-model set against a real
  * Postgres with migration 0026 applied. Skipped unless GRID_TEST_DATABASE_URL
  * is set (CI has no database).

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 import { compileWorkflowPrompt } from './compiler'
 import { MAX_COMPILED_PROMPT_LENGTH, type WorkflowDefinition } from './types'

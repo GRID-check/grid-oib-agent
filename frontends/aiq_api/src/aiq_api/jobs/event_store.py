@@ -12,6 +12,7 @@ import threading
 import time
 from typing import Any
 
+from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 
 logger = logging.getLogger(__name__)
@@ -43,28 +44,6 @@ configure_sqlalchemy_logging()
 
 ENGINE_CACHE_TTL_SECONDS = 3600
 ENGINE_CACHE_MAX_SIZE = 10
-
-
-def _normalize_db_url(db_url: str, async_mode: bool = True) -> str:
-    """
-    Normalize database URL to use consistent drivers.
-
-    For PostgreSQL: Uses psycopg (psycopg3) for both sync and async
-    For SQLite: Uses aiosqlite for async, standard sqlite for sync
-    """
-    if db_url.startswith("postgresql") or db_url.startswith("postgres"):
-        base_url = db_url.replace("+asyncpg", "").replace("+psycopg2", "").replace("+psycopg", "")
-        if not base_url.startswith("postgresql://"):
-            base_url = base_url.replace("postgres://", "postgresql://")
-        return (
-            f"{base_url.replace('postgresql://', 'postgresql+psycopg://')}"
-            if async_mode
-            else base_url.replace("postgresql://", "postgresql+psycopg://")
-        )
-    elif db_url.startswith("sqlite"):
-        base_url = db_url.replace("+aiosqlite", "")
-        return base_url.replace("sqlite:///", "sqlite+aiosqlite:///") if async_mode else base_url
-    return db_url
 
 
 class EventStore:

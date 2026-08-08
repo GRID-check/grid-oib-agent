@@ -181,7 +181,7 @@ export const useSourcePreviewIndex = (
 // families cannot drift between the chip and the preview.)
 
 const chipButtonClasses =
-  'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap ' +
+  'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap pointer-coarse:h-11 ' +
   'rounded-md border px-2.5 text-xs font-medium transition-[color,background-color,box-shadow] ' +
   '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +

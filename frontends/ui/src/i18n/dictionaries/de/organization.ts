@@ -13,6 +13,7 @@ export const organization: typeof en.organization = {
     access: 'Personen & Zugriff',
     models: 'Modelle',
     budgets: 'Nutzung & Budgets',
+    storage: 'Speicher',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -37,6 +38,11 @@ export const organization: typeof en.organization = {
       title: 'Nutzung & Budgets',
       subtitle:
         'LLM-Ausgaben im Verhältnis zu den Limits, gegen die sie geprüft werden. Administratoren sehen die gesamte Organisation, alle anderen ihren eigenen Verbrauch.',
+    },
+    storage: {
+      title: 'Speicher',
+      subtitle:
+        'Wie viel Dokumentenspeicher diese Organisation belegt und welches Kontingent ihn begrenzt.',
     },
     compliance: {
       title: 'Compliance',
@@ -248,6 +254,24 @@ export const organization: typeof en.organization = {
     revokeError: 'Der Schlüssel konnte nicht widerrufen werden.',
     history: 'Schlüsselverlauf',
     revokedOn: 'erstellt {date}',
+  },
+  /** Speicher: belegte Bytes im Verhältnis zum Kontingent, das Uploads stoppt. */
+  storage: {
+    title: 'Dokumentenspeicher',
+    description:
+      'Jedes hochgeladene Dokument wird aufbewahrt, damit es erneut gelesen, neu eingebettet und geprüft werden kann. Das Kontingent verhindert, dass eine Organisation den gemeinsamen Speicher füllt.',
+    used: 'Belegt',
+    ofQuota: '{used} von {quota}',
+    noQuota: '{used} belegt (kein Kontingent)',
+    overQuota: 'Kontingent erreicht — neue Uploads werden abgelehnt, bis Platz frei wird',
+    nearQuota: 'Fast voll — neue Uploads werden bald abgelehnt',
+    projectDocuments: 'Projektdokumente',
+    archivDocuments: 'Organisations-Archiv',
+    /** Count-neutral: wird auch bei genau einem Dokument gerendert. */
+    documentCount: 'Dokumente: {count}',
+    setByPlatform:
+      'Ihr Speicherkontingent wird von Piloti festgelegt. Wenden Sie sich an den Support, wenn Sie mehr Platz benötigen.',
+    loadError: 'Speichernutzung konnte nicht geladen werden.',
   },
   budgets: {
     title: 'Verbrauch & Budgets',

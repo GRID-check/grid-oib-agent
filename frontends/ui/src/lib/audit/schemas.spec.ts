@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The coverage gate for issues #255/#256: an action the app emits without a
  * registered WorkOS schema is a runtime 400 on every privileged mutation
  * ("event 'resource.shared', version '1' has not been configured in this

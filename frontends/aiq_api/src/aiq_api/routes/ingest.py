@@ -35,8 +35,14 @@ def add_ingest_routes(router: APIRouter):
             "Downloads a file from the given presigned URL, saves it to a"
             " temporary location, and submits it to the knowledge ingestor."
         ),
+        # Every status this handler actually raises. 502 was added when the
+        # download failure was split by cause — a network error reaching the
+        # object store is not the client's malformed request, and a caller that
+        # retries on 502 but not on 400 needs the schema to say which it will
+        # get.
         responses={
-            400: {"description": "Invalid request"},
+            400: {"description": "Invalid request, or the file could not be downloaded"},
+            502: {"description": "Network error reaching the object store"},
             500: {"description": "Ingestion failed"},
         },
     )
@@ -76,7 +82,14 @@ def add_ingest_routes(router: APIRouter):
                 tmp.write(response.content)
                 temp_path = tmp.name
 
-            logger.info(f"Downloaded {len(response.content)} bytes from {file_ref[:80]}...")
+            # NEVER log `file_ref`: it is a presigned S3 URL, i.e. a live bearer
+            # credential to the object with no user, org or IP binding — anyone
+            # holding the string can fetch the bytes until it expires. The old
+            # `file_ref[:80]` truncation was not a control: the prefix length
+            # varies with the org/project/document ids in the key, so whether the
+            # signature survived the cut was luck, and the tenant path leaked in
+            # full for short keys. Log the size and the document, never the URL.
+            logger.info("Downloaded %d bytes for ingestion", len(response.content))
 
             config: dict = {
                 "cleanup_files": True,
@@ -104,8 +117,15 @@ def add_ingest_routes(router: APIRouter):
                     # failure the flag stays unset and the fallback still runs.
                     if pregenerated:
                         config["thumbnail_pregenerated"] = True
-                except Exception:
-                    logger.warning("Pre-ingest thumbnail failed (swallowed)", exc_info=True)
+                except Exception as thumb_error:
+                    # No `exc_info`: the traceback of a thumbnail PUT failure
+                    # renders the presigned upload URL. The class name is what
+                    # this line is actually for — a thumbnail is decorative and
+                    # the failure is swallowed either way.
+                    logger.warning(
+                        "Pre-ingest thumbnail failed (swallowed): %s",
+                        type(thumb_error).__name__,
+                    )
 
             job_id = ingestor.submit_job(
                 [temp_path],
@@ -122,17 +142,26 @@ def add_ingest_routes(router: APIRouter):
                 "document_id": request.document_id,
             }
 
+        # `str(e)` on either httpx error embeds the REQUEST URL, which for
+        # `file_ref` is a presigned S3 URL — a live bearer credential to the
+        # object plus the tenant path. So these handlers log the status code and
+        # the error CLASS, never the exception's own text, and the client gets a
+        # fixed message rather than one built from it. The sink filter
+        # (aiq_agent.common.log_redaction) would catch a slip here, but a leak
+        # avoided at the call site never has to be caught.
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to download file from URL: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to download file: {e}")
+            logger.error("Failed to download file for ingestion: HTTP %d", e.response.status_code)
+            raise HTTPException(status_code=400, detail="Failed to download the file to ingest")
         except httpx.RequestError as e:
-            logger.error(f"Network error downloading file: {e}")
-            raise HTTPException(status_code=502, detail=f"Network error downloading file: {e}")
+            logger.error("Network error downloading file for ingestion: %s", type(e).__name__)
+            raise HTTPException(status_code=502, detail="Network error downloading the file to ingest")
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Ingestion failed: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            # Class name, not `str(e)`: an arbitrary internal message is exactly
+            # where a path, a DSN or a URL rides out to the client.
+            logger.exception("Ingestion failed: %s", type(e).__name__)
+            raise HTTPException(status_code=500, detail="Ingestion failed")
         finally:
             # Once submit_job succeeds the ingestion job owns cleanup
             # (cleanup_files=True); until then the downloaded temp file is
@@ -225,6 +254,11 @@ def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str) -> bool:
             resp.raise_for_status()
             logger.info("Pre-ingest thumbnail uploaded (%d bytes)", len(thumbnail_bytes))
             return True
-    except Exception:
-        logger.warning("Pre-ingest thumbnail generation failed (swallowed)", exc_info=True)
+    except Exception as thumb_error:
+        # See the sibling handler above: the traceback carries the presigned
+        # upload URL, so this logs what failed and not how.
+        logger.warning(
+            "Pre-ingest thumbnail generation failed (swallowed): %s",
+            type(thumb_error).__name__,
+        )
     return False

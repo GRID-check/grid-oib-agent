@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Tests for session-activity utility functions
  */
 

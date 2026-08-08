@@ -7,6 +7,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
@@ -18,7 +19,7 @@ import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
 
-export async function GET(req: Request): Promise<Response> {
+export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Response> {
   try {
     const { searchParams } = new URL(req.url)
     const projectId = searchParams.get('projectId') || undefined
@@ -122,7 +123,7 @@ export async function GET(req: Request): Promise<Response> {
       // session exists (defense-in-depth); fully gating anonymous mode is a
       // product decision.
       response.projectId = projectId
-      const projectContext = await loadProjectPromptView(projectId)
+      const projectContext = await loadProjectPromptView(projectId, session?.organizationId)
       if (projectContext) {
         response.projectContext = projectContext
       }
@@ -134,7 +135,7 @@ export async function GET(req: Request): Promise<Response> {
       // Best-effort: a lookup failure must not block the chat handshake, it
       // just means the backend falls back to prompt-text parsing.
       try {
-        const bundesland = await loadProjectBundesland(projectId)
+        const bundesland = await loadProjectBundesland(projectId, session?.organizationId)
         if (bundesland) {
           response.bundesland = bundesland
         }
@@ -169,4 +170,4 @@ export async function GET(req: Request): Promise<Response> {
 
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
-}
+})

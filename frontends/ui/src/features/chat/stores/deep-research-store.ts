@@ -22,6 +22,7 @@ import {
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { isUnavailableDeepResearchJobError } from '../lib/deep-research-errors'
+import { getLatestDeepResearchMessage } from '../lib/session-activity'
 import { patchConversationMessageById } from './sessions-store'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 
@@ -149,16 +150,6 @@ const updateConversationInList = (
   updatedConversation: (ChatStore['conversations'])[number]
 ): ChatStore['conversations'] => {
   return conversations.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
-}
-
-const getLatestDeepResearchMessage = (conversation: ChatStore['conversations'][number]): ChatMessage | null => {
-  for (let i = conversation.messages.length - 1; i >= 0; i--) {
-    const message = conversation.messages[i]
-    if (message.messageType === 'agent_response' && message.deepResearchJobId) {
-      return message
-    }
-  }
-  return null
 }
 
 const isCompletedDeepResearchReportMessage = (message: ChatMessage): boolean =>
@@ -898,7 +889,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       .filter((conversation) => conversation.userId === currentUserId)
       .map((conversation) => ({
         conversation,
-        message: getLatestDeepResearchMessage(conversation),
+        message: getLatestDeepResearchMessage(conversation.messages),
       }))
       .filter(
         (candidate): candidate is { conversation: ChatStore['conversations'][number]; message: ChatMessage } =>
@@ -954,7 +945,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const updatedConversations = latestState.conversations.map((conversation) => {
       if (conversation.userId !== currentUserId) return conversation
 
-      const message = getLatestDeepResearchMessage(conversation)
+      const message = getLatestDeepResearchMessage(conversation.messages)
       const jobId = message?.deepResearchJobId
       if (!message || !jobId) return conversation
 

@@ -275,7 +275,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/platform-models',
     description:
-      'Platform default models — the model each agent group runs on for every organization that has not chosen its own. Shows all three per-group states: pinned to a platform default, still on the workflow config, and pinned to a model with no zero-data-retention endpoint (flagged, because ZDR tenants cannot inherit it).',
+      'Platform default models and thinking levels — the model each agent group runs on and how hard it thinks, for every organization that has not chosen its own. Shows all three per-group model states (pinned, still on the workflow config, and pinned to a model with no zero-data-retention endpoint, which is flagged because ZDR tenants cannot inherit it) plus the thinking level on the same row, pinned at both ends of the scale and inheriting the concrete workflow level elsewhere.',
     waitFor: '[data-testid="platform-models-preview"]',
   },
   {
@@ -341,6 +341,21 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The research panel\u2019s citation list — every document source kind in one place (OIB corpus, RIS, B\u00fcroarchiv, project upload, web page), each with its provenance tint, authority badge and cited marker. Evidence that a source renders and behaves identically here and in the answer\u2019s provenance chips.',
     waitFor: '[data-testid="source-list-preview"]',
+  },
+  {
+    id: 'platform-storage',
+    path: '/dev/platform-storage',
+    description:
+      'Platform storage table (ADR-0042) — the operator side of the quota. A table rather than meters, because the question here is comparative ("who is about to cause a problem") rather than personal, and rows are ordered by consumption so the answer is at the top. The fixture covers every row state that has to be distinguishable at a glance: over quota, near quota, comfortably within, explicitly unlimited, and inheriting the platform default. One org has no display name so the id fallback is visible, and sizes span GB to MB to exercise the byte formatter across units. Editing is inline and one row at a time — a quota is a per-tenant commercial commitment, so there is no bulk path.',
+    waitFor: '[data-testid="platform-storage"]',
+  },
+  {
+    id: 'storage-usage',
+    mobile: true,
+    path: '/dev/storage-usage',
+    description:
+      'Organization storage panel (ADR-0042). One meter, because there is one question: how close is this tenant to being cut off. The track IS the quota, so the fill is literal rather than rescaled, and it carries STATE (within / at-or-over) rather than category — the two scopes below are a text breakdown, not a stacked bar, because project-vs-Archiv is not the decision anyone opens this page to make. Rendered twice, from two named fixtures rather than by call order: the within-quota card at 82%, so the meter is visibly filling without being in the error state, and the over-quota card with the critical fill and the limit tick. The two scopes differ by an order of magnitude to exercise the byte formatter at both GB and MB. The panel is read-only for EVERY role including org admin — the quota belongs to the platform operator, and the editor lives in Platform → Storage.',
+    waitFor: '[data-testid="storage-usage"]',
   },
   {
     id: 'budget-usage',

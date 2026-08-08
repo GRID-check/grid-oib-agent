@@ -216,8 +216,13 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText('Pages')).toBeNull()
       expect(screen.queryByText('Passages')).toBeNull()
       expect(screen.queryByText('Contents')).toBeNull()
-      // …but the pre-existing status/type/size rows stay (never gated).
-      expect(screen.getByText('Status')).toBeDefined()
+      // …but the ungated rows stay. Status is no longer one of them: it moved
+      // to the header beside the filename, because "is this actually indexed"
+      // is the first question on opening a file and it used to sit below the
+      // fold in a column the flag can hide entirely. Assert it is still
+      // ANSWERED, just not from a row.
+      expect(screen.getByText('Citable')).toBeDefined()
+      expect(screen.queryByText('Status')).toBeNull()
       expect(screen.getByText('Type')).toBeDefined()
       expect(screen.getByText('Size')).toBeDefined()
       expect(screen.getByText(/1\.0 MB/i)).toBeDefined()

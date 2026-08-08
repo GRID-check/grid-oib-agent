@@ -36,8 +36,12 @@ export interface OrgTopbarProps {
    * Without it the inbox existed only inside a project's sidebar, so being tagged
    * had no observable effect anywhere above a project — for a monthly user, no
    * effect at all.
+   *
+   * Named for the INBOX rather than for collaboration since ADR-0042: the inbox
+   * also carries operational alerts, which must reach a tenant that has no
+   * collaboration flag. `getNavFlags().canAccessInbox` is the value to pass.
    */
-  canCollaborate?: boolean
+  canAccessInbox?: boolean
 }
 
 export async function OrgTopbar({
@@ -47,7 +51,7 @@ export async function OrgTopbar({
   canViewOrganization,
   canManagePlatform,
   canAccessArchiv,
-  canCollaborate,
+  canAccessInbox,
 }: OrgTopbarProps) {
   const t = await getTranslations('nav')
   const showOrganization = Boolean(canViewOrganization || canManageOrganization)
@@ -63,7 +67,7 @@ export async function OrgTopbar({
       <div className="ml-auto flex items-center gap-2">
         {/* Before the Organisation button: a request for your input outranks a
             settings entry. */}
-        <TopbarInboxLink canCollaborate={canCollaborate} />
+        <TopbarInboxLink canAccessInbox={canAccessInbox} />
         {showOrganization && (
           <Link
             href="/app/organization"

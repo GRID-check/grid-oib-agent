@@ -279,7 +279,7 @@ frontend renders them in `frontends/ui/src/features/grid-cards/`.
 
 Card generation is a **second LLM call** (`ChatResearcherAgent._generate_cards`,
 `agent.py`) run in `run()` after the graph produces an answer, using the
-`card_generator_llm` (config: `deepseek_super_llm`). Post-fix behaviour:
+`card_generator_llm` (config: `card_llm`). Post-fix behaviour:
 
 - Cards are generated whenever a turn produced a real answer (`query` + `context`).
   The old code hard-gated on `intent == "research"` and was inconsistent between
@@ -730,6 +730,86 @@ Thumbnails are ephemeral: there is no separate DB column — the key is derived
 deterministically from `storageKey`, and a missing/expired SeaweedFS object falls
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
+
+### Agentic retrieval quality package (ADR-0039)
+
+Five retrieval-quality improvements sit in the knowledge layer's `register.py`
+(`knowledge_search` / `knowledge_retrieval`) and `llamaindex` package, all
+**fail-open** (any error degrades to the previous plain behavior, never raises):
+
+1. **Agentic filters** — `knowledge_search` accepts optional `doc_class`
+   (`oib_richtlinie` / `oib_leitfaden` / `norm` / `gesetz` / `sonstiges`) and
+   `title_contains` (case-insensitive substring) arguments. `_apply_agent_filters`
+   applies them post-merge with an over-fetch factor of 3
+   (`_AGENT_FILTER_OVERFETCH`): retrieval asks for 3× `top_k` candidates so the
+   filters still leave ≥ `top_k` results. Both filters are **store-authoritative**:
+   `_resolve_doc_classes` / `_resolve_display_titles` build `(collection,
+   file_name) → value` maps via `aiq_agent.knowledge.factory`
+   (`get_document_doc_classes` / `get_document_display_titles`), so an admin
+   reclassification in the base-knowledge panel takes effect immediately with no
+   re-ingest; chunk metadata is only the fallback. An invalid `doc_class` value
+   returns the allowed vocabulary in the message instead of an empty result.
+
+2. **Hybrid lexical + vector retrieval (RRF)** — gated on `AIQ_HYBRID_RETRIEVAL`
+   (default on, config key `hybrid_search` in the knowledge layer YAML block).
+   When enabled, `LlamaIndexRetriever` issues an additional exact-term lexical
+   query per collection: `extract_exact_terms` (token-based, shared utility in
+   `src/aiq_agent/common/legal_terms.py` — deliberately **no regex**) pulls up to
+   three technical tokens from the query, matched via Chroma's
+   `where_document: {"$contains": term}`. The lexical channel is fused with the
+   vector channel using **reciprocal rank fusion** (`reciprocal_rank_fusion` in
+   `llamaindex/hybrid.py`, Cormack `k=60`, vector channel wins ties). This fixes
+   exact-keyword misses (e.g. a norm number or a precise term that the embedding
+   model did not weight) without an embedding re-index.
+
+3. **LLM-judge reranker** — optional config keys `rerank_llm` (an LLM alias from
+   the config's `llms:` block; `config_oib_openrouter.yml` points it at
+   `summary_llm`) and `rerank_candidates` (default 15; must exceed `top_k` — the
+   judge call trims to `rerank_candidates`, so the reference config pairs
+   `top_k: 16` with `rerank_candidates: 20`). When `rerank_llm` is set,
+   the merged+filtered candidates are rescored once by an LLM judge
+   (`rerank_chunks` in `llamaindex/rerank.py`, 30s timeout, fail-open to the
+   original order) before trimming to `top_k`. No separate reranker API exists on
+   OpenRouter/OpenAI-compatible endpoints, so the judge is a cheap single LLM
+   call scoring 1–10 with an excerpt-windowed prompt (`_CHUNK_EXCERPT_CHARS=400`).
+
+4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
+   the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
+   `build_turn_events` now compares the *retrieved* source labels against the
+   *cited* ones per turn and emits an info-severity event when retrieval
+   surfaced documents the answer did not use (`retrieved` / `cited` / `uncited`
+   counts + the first 10 uncited labels). This closes the retrieval-quality loop
+   on the existing `GRID_CITATION_EVENTS_ENABLED` dashboard surface (frontend:
+   `CITATION_PRECISION_KIND` in `lib/db/schema/citation-events.ts`; the defect
+   queries and glossary in `lib/citations/{service,repository}.ts` exclude the
+   new kind so "precision" is shown as its own diagnostic, not a citation
+   defect).
+
+5. **Multimodal answer-time page/image viewing** — a new NAT tool
+   `view_knowledge_image` (`llamaindex/view_image.py`, gated on
+   `AIQ_VIEW_IMAGES_ENABLED`, default on, plus a resolvable VLM key) hands a
+   knowledge image to the VLM **as an image block during a research turn** —
+   not just at ingestion. Two source shapes: **PDF pages** are re-rendered on
+   demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
+   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   PDFs from SeaweedFS bytes — and **standalone image uploads** (PNG/JPG
+   project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
+   directly. Because the SeaweedFS `storage_key` lives only in the frontend's
+   `documents` table, the tool resolves `(collection, filename)` through a new
+   token-guarded BFF route `GET /api/internal/document-file`
+   (`lib/documents/{service,repository}.ts`, ADR-0017 layering) and fetches the
+   bytes itself via boto3 (S3, path-style, read-only `get_object`) — which is
+   why the aiq-agent tier now carries the `SEAWEED_*` credential set
+   (deliberate override of the previous presign-only separation; ADR-0039).
+   Every failure path (missing file, lookup/fetch/render error, invalid page
+   number, disabled flag, no VLM key) degrades to a text-only explanation
+   block.
+
+All five changes are covered by tests under `tests/knowledge_layer_tests/`
+(`test_agent_filters.py`, `test_hybrid.py`, `test_rerank.py`,
+`test_view_image.py`) and `src/app/api/internal/document-file/route.spec.ts`.
+Design rationale and rejected alternatives (native reranker API, embedding
+re-index, regex term extraction, presign-based reads): **ADR-0039**.
 
 ## 6b. Norm catalog (Normenregister — flat curated pointers + prose legal notes)
 

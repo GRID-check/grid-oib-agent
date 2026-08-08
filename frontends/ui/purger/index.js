@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * GRID purger service.
  *
@@ -28,6 +29,9 @@ const {
 const { createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 const { initOtelLogs } = require('../observability/otel-logs')
+// The deletion queue spans every organization, so the purger's transactions
+// step up to the BYPASSRLS role (ADR-0041).
+const { withPlatformScope } = require('../workers/platform-scope')
 
 // No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
 initOtelLogs()
@@ -38,12 +42,19 @@ const sql = createSql()
 const s3 = createS3Client()
 const workos = new WorkOS(process.env.WORKOS_API_KEY)
 
+const sharedBucket = process.env.SEAWEED_BUCKET || 'grid-documents'
+
 const deps = {
   backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
   internalToken: process.env.GRID_INTERNAL_API_TOKEN || '',
-  bucket: process.env.SEAWEED_BUCKET || 'grid-documents',
+  // The deployment's shared bucket. Every OTHER bucket a purge has to sweep is
+  // read from the document rows themselves (ADR-0043) rather than derived from
+  // the organization id — see the note in `purge-project.js` step 2. That is
+  // why this process needs no bucket-naming rule and no feature flag.
+  bucket: sharedBucket,
   workos,
-  deleteStoragePrefix: (bucket, prefix) => deleteStoragePrefix(s3, bucket, prefix),
+  deleteStoragePrefix: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
+    deleteStoragePrefix(s3, bucket, prefix),
 }
 
 const purgers = {
@@ -53,7 +64,7 @@ const purgers = {
 
 async function processOne() {
   // Phase A: claim (own transaction so the claim + attempts survive failures).
-  const claimed = await sql.begin(async (tx) => claimNext(tx))
+  const claimed = await withPlatformScope(sql, (tx) => claimNext(tx))
   if (!claimed) return false
 
   // Phase B: purge. grid_app row deletes are atomic within this transaction;
@@ -61,7 +72,9 @@ async function processOne() {
   // the 15-minute stale-claim window.
   // Unsupported entity types are a config/programming error, not a transient
   // failure: fail the row permanently instead of burning MAX_ATTEMPTS retries.
-  const purge = purgers[claimed.entity_type]
+  const purge = /** @type {Record<string, typeof purgeProject | undefined>} */ (purgers)[
+    claimed.entity_type
+  ]
   if (!purge) {
     const reason = `no purger registered for entity_type '${claimed.entity_type}'`
     console.error(`[purger] ${reason} (queue row ${claimed.id}) — marking failed, no retry`)
@@ -72,12 +85,15 @@ async function processOne() {
   }
 
   try {
-    await sql.begin(async (tx) => purge(tx, claimed, deps))
+    await withPlatformScope(sql, (tx) => purge(tx, claimed, deps))
     await markPurged(sql, claimed.id)
     console.log(`[purger] purged ${claimed.entity_type} ${claimed.entity_id} ("${claimed.display_name}")`)
     return true
   } catch (error) {
-    if (error && error.code === LEGAL_HOLD_CODE) {
+    const failure = /** @type {import('./types').LegalHoldError | undefined} */ (
+      error instanceof Error ? error : undefined
+    )
+    if (failure?.code === LEGAL_HOLD_CODE) {
       // A hold appeared between claim and purge: not a failure. Release the
       // row back to 'pending'; claimNext skips it while the hold is active.
       console.warn(
@@ -89,7 +105,7 @@ async function processOne() {
       return true
     }
     console.error('[purger] purge failed:', error)
-    await markFailed(sql, claimed.id, error.message || error).catch((e) =>
+    await markFailed(sql, claimed.id, failure?.message ?? error).catch((e) =>
       console.error('[purger] failed to record error:', e),
     )
     return false

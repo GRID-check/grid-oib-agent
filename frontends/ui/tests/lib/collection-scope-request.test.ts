@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   buildCollectionScopeFromRequest,
@@ -84,7 +87,7 @@ describe('buildCollectionScopeFromRequest', () => {
 
   it('builds base-only scope for anonymous mode', async () => {
     process.env.REQUIRE_AUTH = 'false'
-    const { scope, headerValue } = await buildCollectionScopeFromRequest(null, {})
+    const { scope } = await buildCollectionScopeFromRequest(null, {})
     expect(scope).toEqual(['oib_knowledge'])
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     delete process.env.REQUIRE_AUTH

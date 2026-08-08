@@ -38,6 +38,7 @@ export function canManageBudgets(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.budgetsManage)
 }
 
+
 /** May manage legal holds and the deletion queue. */
 export function canManageCompliance(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.complianceManage)

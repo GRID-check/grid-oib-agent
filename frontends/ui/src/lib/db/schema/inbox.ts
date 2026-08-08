@@ -1,5 +1,5 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import type { ShareableResourceType } from './resource-shares'
+import { SHAREABLE_RESOURCE_TYPES } from './resource-shares'
 
 /**
  * `inbox_items` — every user's per-organization "what needs me?" list (ADR-0035).
@@ -41,8 +41,34 @@ export const INBOX_ITEM_TYPES = [
   'conversation.shared_with_you',
   /** Informational, grouped: new messages in a thread you participate in. */
   'conversation.activity',
+  /**
+   * Operational: the organization's stored bytes crossed a share of its quota
+   * (ADR-0042). Not a collaboration event — it is addressed to whoever can act
+   * on it, and it must reach them whether or not the tenant has collaboration
+   * (see `gate` in `@/lib/inbox/registry`).
+   */
+  'storage.quota_warning',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
+
+/**
+ * What an inbox item may POINT AT.
+ *
+ * A superset of `ShareableResourceType`, and that is the point. The column used
+ * to be typed as the shareable union, which silently assumed every notification
+ * concerns something one person can be granted access to. Operational items are
+ * not like that: "this organization is nearly out of storage" is about the
+ * TENANT, and `organization` is not — and must not become — shareable, because
+ * adding it to `SHAREABLE_RESOURCE_TYPES` would make an org a thing you can hand
+ * someone a grant on.
+ *
+ * Every member of this union needs a descriptor in `@/lib/inbox/targets`, which
+ * is exhaustive over it, so a new target kind cannot ship without a deep link
+ * and an access resolver. That registry — not a cast, and not a branch inside
+ * the read path — is what lets an org-scoped item exist.
+ */
+export const INBOX_TARGET_TYPES = [...SHAREABLE_RESOURCE_TYPES, 'organization'] as const
+export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]
 
 export const inboxItems = pgTable(
   'inbox_items',
@@ -53,8 +79,8 @@ export const inboxItems = pgTable(
     /** WorkOS user id this item is FOR. */
     recipientUserId: text('recipient_user_id').notNull(),
     type: text('type').$type<InboxItemType>().notNull(),
-    /** What the item points AT — resolved through the sharing registry. */
-    resourceType: text('resource_type').$type<ShareableResourceType>().notNull(),
+    /** What the item points AT — resolved through `@/lib/inbox/targets`. */
+    resourceType: text('resource_type').$type<InboxTargetType>().notNull(),
     resourceId: text('resource_id').notNull(),
     /**
      * Opaque id of the exact spot inside the resource (a message id, for a

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PlatformWorkflowTemplate } from '@/lib/db/schema'
 import type { PlatformTemplateContent } from './types'

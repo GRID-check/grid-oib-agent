@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { buildGraph, planFan, type ReasoningFlowProps } from './ReasoningFlow'
 import type { CitedDocument } from '../../lib/citations'

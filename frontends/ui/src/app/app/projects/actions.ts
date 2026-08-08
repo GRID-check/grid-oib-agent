@@ -2,79 +2,51 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { eq } from 'drizzle-orm'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { getWorkOS } from '@/lib/workos/client'
-import { projects } from '@/lib/db/schema'
-import { recordAuditEvent } from '@/lib/audit/service'
+import { withPageSession } from '@/lib/auth/require-auth'
+import { createProject as createProjectInOrg } from '@/lib/projects/service'
 
 export interface CreateProjectState {
   error?: string
 }
 
-export async function createProject(_prevState: CreateProjectState, formData: FormData): Promise<CreateProjectState> {
-  const session = await requireAuthorizedPageSession()
+/**
+ * Create a project from the projects-page form.
+ *
+ * Server actions are transport, exactly like route handlers: open a scope,
+ * resolve the session, validate the input shape, call the service, redirect.
+ * This one used to re-implement the whole of `projects/service.ts#createProject`
+ * — the same insert, the same WorkOS resource, the same role assignment, the
+ * same audit event — which meant the two copies could (and did) drift.
+ *
+ * A server action gets no route factory, so like a page it opens its own tenant
+ * slot; without one every query underneath runs with no context and fails
+ * closed under row-level security.
+ */
+export async function createProject(
+  _prevState: CreateProjectState,
+  formData: FormData
+): Promise<CreateProjectState> {
+  const projectId = await withPageSession(async (session) => {
+    const name = formData.get('name')
+    if (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 255) {
+      return { error: 'Project name is required and must be 1-255 characters.' } as const
+    }
 
-  const name = formData.get('name')
-  if (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 255) {
-    return { error: 'Project name is required and must be 1-255 characters.' }
-  }
+    try {
+      const project = await createProjectInOrg(session, { name: name.trim() })
+      return { id: project.id } as const
+    } catch (error) {
+      console.error('[createProject] Failed to create project:', error)
+      return { error: error instanceof Error ? error.message : 'Unknown error' } as const
+    }
+  })
 
-  const trimmed = name.trim()
-  const db = getDb()
-  const workos = getWorkOS()
-
-  let projectId: string
-
-  try {
-    const [project] = await db
-      .insert(projects)
-      .values({
-        organizationId: session.organizationId,
-        name: trimmed,
-        createdBy: session.userId,
-        collectionName: `proj_${crypto.randomUUID()}`,
-      })
-      .returning()
-
-    projectId = project.id
-
-    const resource = await workos.authorization.createResource({
-      resourceTypeSlug: 'project',
-      externalId: project.id,
-      organizationId: session.organizationId,
-      name: trimmed,
-    })
-
-    await db
-      .update(projects)
-      .set({ workosResourceId: resource.id })
-      .where(eq(projects.id, project.id))
-
-    await workos.authorization.assignRole({
-      organizationMembershipId: session.organizationMembershipId,
-      resourceExternalId: project.id,
-      resourceTypeSlug: 'project',
-      roleSlug: 'project-admin',
-    })
-
-    await recordAuditEvent({
-      organizationId: session.organizationId,
-      actor: { userId: session.userId, email: session.email },
-      action: 'project.created',
-      targetType: 'project',
-      targetId: project.id,
-      metadata: { name: trimmed },
-    })
-  } catch (error) {
-    console.error('[createProject] Failed to create project:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return { error: message }
-  }
+  if ('error' in projectId) return { error: projectId.error }
 
   revalidatePath('/app/projects')
   // Land new projects directly in intake: the brief is what makes Piloti's answers
   // (and the applicable-standards panel) useful, so setup flows straight into it.
-  redirect(`/app/projects/${projectId}/intake`)
+  // Outside the scope on purpose: `redirect()` reports itself by throwing, and a
+  // throw is not something the tenant slot should be unwinding through.
+  redirect(`/app/projects/${projectId.id}/intake`)
 }

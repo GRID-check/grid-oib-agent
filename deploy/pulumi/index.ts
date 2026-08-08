@@ -24,9 +24,10 @@ import { installCertManager } from "./src/platform/cert-manager";
 import { installGatewayController, installGatewayResources } from "./src/platform/gateway";
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installNetworkPolicies } from "./src/platform/network-policies";
-import { installPostgres } from "./src/data/postgres";
-import { installDragonfly } from "./src/data/dragonfly";
-import { installSeaweedFS } from "./src/data/seaweedfs";
+import { installPostgres, installScheduledBackup, type Postgres } from "./src/data/postgres";
+import { installDragonfly, installRateLimitStore } from "./src/data/dragonfly";
+import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
+import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
 import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
@@ -55,27 +56,92 @@ if (cfg.networkPolicies) {
 
 // Gateway API edge: install the Envoy Gateway controller (+ Gateway API CRDs)
 // FIRST so cert-manager can enable its Gateway integration at startup.
-const gatewayController = installGatewayController(provider);
+const gatewayController = installGatewayController(cfg, provider);
 const certManager = installCertManager(cfg, provider, namespace, [gatewayController]);
 if (cfg.ingress.installMetricsServer) {
   installMetricsServer(provider);
 }
 
 // ── Data tier ─────────────────────────────────────────────────────────────
-// SeaweedFS first so Postgres can gate its PITR backups on the backup bucket.
-const seaweed = installSeaweedFS(
+//
+// The two data stores depend on each other, and which way round depends on the
+// SeaweedFS topology:
+//
+//   - Postgres archives its WAL into a SeaweedFS bucket, so it wants the bucket
+//     to exist before the cluster boots.
+//   - The SPLIT topology's filer keeps its namespace in a Postgres database, so
+//     it cannot start until that database exists.
+//
+// Run both at once and it is a cycle. It is only a real cycle in one
+// configuration, though — split topology with the Postgres filer store — so
+// rather than degrade every deployment to the weaker ordering, each branch
+// takes the ordering that is actually correct for it.
+const extraBuckets = cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [];
+const filerNeedsPostgres =
+  cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres";
+
+let seaweed: SeaweedFS;
+let postgres: Postgres;
+
+if (filerNeedsPostgres) {
+  // Postgres first: the filer cannot open its store otherwise, and Pulumi would
+  // sit waiting for a StatefulSet that is crash-looping on a database this same
+  // `up` has not created yet.
+  //
+  // The cost, and it is a real one: with `pgBackupsEnabled` the cluster now
+  // boots BEFORE its WAL archive bucket exists, so the first minutes of a fresh
+  // deploy report `ContinuousArchiving: false` with NoSuchBucket. That
+  // resolves itself — Postgres retries `archive_command` indefinitely and picks
+  // up the moment bucket-init lands, holding the segments in pg_wal until then
+  // — but it is visible in `kubectl cnpg status` and should not be mistaken for
+  // a broken backup. Gating the cluster on the bucket is exactly what would
+  // close the cycle back up.
+  postgres = installPostgres(cfg, provider, namespace, []);
+  seaweed = installSeaweedFS(
+    cfg,
+    provider,
+    namespace,
+    extraBuckets,
+    postgres.rwHost,
+    postgres.filerStoreDeps,
+  );
+} else {
+  // No cycle: SeaweedFS first, so the cluster only boots once its archive
+  // bucket is there.
+  seaweed = installSeaweedFS(cfg, provider, namespace, extraBuckets);
+  postgres = installPostgres(
+    cfg,
+    provider,
+    namespace,
+    cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
+  );
+}
+
+// The nightly Postgres base backup, created AFTER the archive bucket exists in
+// both branches. `immediate: true` fires one Backup on creation and CNPG does
+// not retry a failed one — so a schedule created before bucket-init leaves the
+// stack with archived WAL, no base backup, and a status page that says
+// archiving is healthy. That is not a recoverable PITR.
+installScheduledBackup(cfg, provider, namespace, [postgres.cluster, seaweed.bucketInitJob]);
+
+// Offsite backup for the documents bucket (ADR-0042). Gated on an EXTERNAL S3
+// target; `loadConfig` refuses an in-cluster endpoint, which would put the
+// backup on the very volumes it exists to survive.
+installSeaweedFSBackup(
   cfg,
   provider,
   namespace,
-  cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [],
-);
-const postgres = installPostgres(
-  cfg,
-  provider,
-  namespace,
-  cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
+  [seaweed.service, seaweed.bucketInitJob],
+  { master: seaweed.masterAddress, filer: seaweed.filerAddress },
 );
 const dragonfly = installDragonfly(cfg, provider, namespace);
+// Counter store for edge rate limiting (ADR-0040 L1) — deliberately a SECOND
+// instance, never the cache above; `data/dragonfly.ts` explains why. Only the
+// rate limit service in `envoy-gateway-system` talks to it, over the allow in
+// `platform/network-policies.ts`.
+const rateLimitStore = cfg.rateLimit.enabled
+  ? installRateLimitStore(cfg, provider, namespace)
+  : undefined;
 const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
@@ -151,6 +217,10 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
   frontend.service,
   seaweed.service,
   web.service,
+  // Don't program rate limit rules before their counter store exists: the
+  // window in between is fail-open, so the limits would read as configured
+  // while enforcing nothing.
+  ...(rateLimitStore ? [rateLimitStore.service] : []),
 ]);
 
 // ── Observability (OTel Collector + Aspire dashboard, ADR-0029) ──────────────

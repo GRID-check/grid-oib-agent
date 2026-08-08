@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * What an observer is allowed to see, and what they must never be shown.
  *
  * The valuable cases here are the two that would be invisible in a demo and

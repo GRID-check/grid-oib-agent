@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The wire contract with the Python tier's conversation bus.
  *
  * This decoder is the entire seam between two services written in two languages,

@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, frontendImage } from "../config";
+import { GridConfig, appPullPolicy, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { JOB_DEFAULTS, LIGHT_WORKER_RESOURCES, UID } from "../constants";
@@ -51,7 +51,7 @@ export function reconcileAuditSchemas(
               {
                 name: "audit-schemas",
                 image: frontendImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
+                imagePullPolicy: appPullPolicy(cfg, frontendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 // Bare `node`: the runtime image drops npm/npx and every
                 // devDependency, so the script must be plain ESM with no loader.

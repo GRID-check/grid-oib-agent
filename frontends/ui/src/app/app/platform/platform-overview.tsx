@@ -136,7 +136,9 @@ const SortableHead: FC<{
         onClick={onSort}
         aria-label={ariaLabel}
         className={cn(
-          'inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+          // A column header is text-height by design; `touch-target` makes it
+          // tappable without turning the header row into a row of buttons.
+          'inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target',
           active && 'text-foreground',
         )}
       >

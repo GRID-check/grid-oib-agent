@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * DRY-RUN NOTE: OpenRouter is not reachable from CI; these fixtures replay
  * the catalog shape documented at openrouter.ai/docs (GET /api/v1/models:
  * `context_length`, `supported_parameters`, `architecture.input_modalities`,

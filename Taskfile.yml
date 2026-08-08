@@ -62,6 +62,7 @@ tasks:
       - task: fe:verify
       - task: web:verify
       - task: infra:types
+      - task: infra:test
 
   verify:fast:
     desc: Everything CI runs except the production builds (the slow step)
@@ -76,6 +77,7 @@ tasks:
       - task: web:install
       - task: web:check
       - task: infra:types
+      - task: infra:test
 
   setup:
     desc: Install every toolchain this repo needs (backend venv + UI + web + infra)
@@ -122,6 +124,32 @@ tasks:
     dir: '{{.UI}}'
     cmds:
       - bun run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
+
+  db:test:rls:
+    desc: >-
+      Tenant-isolation suite against a throwaway Postgres, connected as the
+      restricted runtime role (ADR-0041). Needs PostgreSQL server binaries.
+    cmds:
+      - bash scripts/rls-test-db.sh
+
+  fe:test:shard:
+    desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
+    dir: '{{.UI}}'
+    cmds:
+      # `--reporter=blob` writes .vitest-reports/ instead of printing a summary;
+      # fe:test:merge stitches the shards back into one run + one coverage set.
+      # Coverage must be collected per shard — it cannot be recomputed at merge
+      # time, because each shard only ever loaded its own slice of the app.
+      - bun run test:shard -- --shard={{.SHARD}}
+
+  fe:test:merge:
+    desc: Merge sharded blob reports into one result + the coverage CI comments on
+    dir: '{{.UI}}'
+    cmds:
+      - >-
+        bun run test:merge --
+        --coverage.reporter=json-summary --coverage.reporter=json
+        --coverage.reporter=text-summary
 
   fe:build:
     desc: Production build of the UI
@@ -176,6 +204,18 @@ tasks:
       - task: web:install
       - task: web:check
       - task: web:build
+
+  web:preview:
+    desc: Build the web service with drafts rendered (blog preview only — never ship this)
+    dir: '{{.WEB}}'
+    env:
+      # Preview-only. `astro build` bakes the result into the image, so a release
+      # build with this set would publish every unfinished draft to the live site.
+      PUBLIC_INCLUDE_DRAFTS: '1'
+      PUBLIC_SITE_URL: '{{.PREVIEW_SITE_URL | default "http://localhost:4321"}}'
+    cmds:
+      - npm ci
+      - npm run build
 
   # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
 
@@ -233,6 +273,17 @@ tasks:
     cmds:
       - npm --prefix deploy/pulumi run typecheck
       - npm --prefix deploy/pulumi/policy run typecheck
+
+  infra:test:
+    desc: Manifest tests for the Pulumi program (no cluster, no stack credentials)
+    # `typecheck` proves the program is well-typed; it proves nothing about the
+    # manifests, which is where every SeaweedFS bug in this repo's history has
+    # lived — a renamed flag, a Service missing the gRPC port `weed shell`
+    # needs, a liveness probe pointed at an endpoint that answers 423. All
+    # string-valued, all invisible to tsc. These run the program under
+    # `pulumi.runtime.setMocks` and assert the resource inputs directly.
+    cmds:
+      - npm --prefix deploy/pulumi test
 
   infra:preview:
     desc: 'Pulumi preview (needs stack credentials)'
