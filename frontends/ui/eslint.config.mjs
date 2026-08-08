@@ -1,4 +1,5 @@
 import { FlatCompat } from '@eslint/eslintrc'
+import requireTenantScope from './eslint-rules/require-tenant-scope.mjs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -12,6 +13,16 @@ const compat = new FlatCompat({
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
+  {
+    // Row-level security is enforced by Postgres at request time, which means a
+    // missing tenant scope is invisible until a user actually hits it. Twice now
+    // that user has been a customer (#342, #344). This moves the check into the
+    // editor and CI. See eslint-rules/require-tenant-scope.mjs.
+    files: ['src/app/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.spec.{ts,tsx}'],
+    plugins: { grid: { rules: { 'require-tenant-scope': requireTenantScope } } },
+    rules: { 'grid/require-tenant-scope': 'error' },
+  },
   {
     files: ['src/**/*.{ts,tsx}'],
     rules: {

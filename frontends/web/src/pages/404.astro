@@ -9,14 +9,14 @@ const en = ui.en.notFound
 
 <BaseLayout locale="de" title={de.metaTitle} description={de.metaDescription} alternates={false}>
   <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-36 text-center">
-    <p class="font-mono text-[12px] uppercase tracking-[0.14em] text-accent-600">404</p>
+    <p class="font-mono text-xs uppercase tracking-label text-accent-600">404</p>
     <div data-404-de>
       <h1
-        class="mt-5 max-w-[560px] font-display text-[clamp(30px,4.6vw,48px)] font-semibold leading-[1.12] tracking-[-0.02em] text-ink"
+        class="mt-5 max-w-xl font-display text-h2 text-ink"
       >
         {de.heading}
       </h1>
-      <p class="mt-5 max-w-[440px] text-[15.5px] leading-[1.65] text-ink-soft">
+      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
         {de.body}
       </p>
       <div class="mt-9">
@@ -25,11 +25,11 @@ const en = ui.en.notFound
     </div>
     <div data-404-en hidden>
       <h1
-        class="mt-5 max-w-[560px] font-display text-[clamp(30px,4.6vw,48px)] font-semibold leading-[1.12] tracking-[-0.02em] text-ink"
+        class="mt-5 max-w-xl font-display text-h2 text-ink"
       >
         {en.heading}
       </h1>
-      <p class="mt-5 max-w-[440px] text-[15.5px] leading-[1.65] text-ink-soft">
+      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
         {en.body}
       </p>
       <div class="mt-9">

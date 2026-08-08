@@ -1,10 +1,15 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 import { INBOX_ITEM_TYPES } from '@/lib/db/schema/inbox'
 import {
   INBOX_TYPE_DEFINITIONS,
   inboxGroupKey,
+  inboxIsReachable,
   inboxItemIsActionable,
   inboxRetentionCutoff,
+  visibleInboxTypes,
 } from './registry'
 
 /**
@@ -72,5 +77,68 @@ describe('the registry itself', () => {
     expect(inboxRetentionCutoff('conversation.activity', now).getTime()).toBeGreaterThan(
       inboxRetentionCutoff('mention.requested', now).getTime(),
     )
+  })
+})
+
+/**
+ * The per-type feature gate (ADR-0042).
+ *
+ * The requirement is not merely "the storage alert is visible without
+ * collaboration" — it is that the gate is a PROPERTY OF THE REGISTRY ENTRY, so
+ * registering a second operational type needs no second edit anywhere. These
+ * tests are therefore written against the registry's own `gate` fields rather
+ * than against a literal list of type names: a hardcoded exemption list in
+ * `visibleInboxTypes` would pass a name-based test and fail these.
+ */
+describe('visibleInboxTypes — the gate is registry-driven, not a hardcoded list', () => {
+  it('shows every registered type when collaboration is on', () => {
+    expect(visibleInboxTypes(true)).toEqual([...INBOX_ITEM_TYPES])
+  })
+
+  it('shows exactly the types the REGISTRY marks operational when collaboration is off', () => {
+    // Derived from the registry on both sides. If someone re-implemented the
+    // gate as `['storage.quota_warning']` at a call site, adding a second
+    // operational type would break this without touching the test.
+    const expected = INBOX_ITEM_TYPES.filter(
+      (type) => INBOX_TYPE_DEFINITIONS[type].gate === 'operational',
+    )
+
+    expect(visibleInboxTypes(false)).toEqual(expected)
+    expect(expected.length).toBeGreaterThan(0)
+  })
+
+  it('hides every collaboration type when collaboration is off', () => {
+    const visible = new Set(visibleInboxTypes(false))
+    for (const type of INBOX_ITEM_TYPES) {
+      if (INBOX_TYPE_DEFINITIONS[type].gate === 'collaboration') {
+        expect(visible.has(type), `${type} is gated on collaboration and must be hidden`).toBe(false)
+      }
+    }
+  })
+
+  it('gives every registered type a gate — a new type cannot ship ungated', () => {
+    // The registry is exhaustive over `InboxItemType` by construction, so this
+    // asserts the FIELD is populated with a meaningful value rather than that
+    // the key exists.
+    for (const type of INBOX_ITEM_TYPES) {
+      expect(['collaboration', 'operational'], type).toContain(INBOX_TYPE_DEFINITIONS[type].gate)
+    }
+  })
+})
+
+describe('inboxIsReachable', () => {
+  it('is true without collaboration, because an operational type is registered', () => {
+    // This is what un-gates the inbox nav entry, page and badge for a tenant
+    // that never bought a chat feature but can still fill its disk.
+    expect(inboxIsReachable(false)).toBe(true)
+    expect(inboxIsReachable(true)).toBe(true)
+  })
+
+  it('is a derivation of the registry, not a constant', () => {
+    // Written as `visibleInboxTypes(x).length > 0` so that removing the last
+    // operational type puts the inbox back behind the collaboration flag by
+    // itself, instead of leaving a page that renders a permanently empty list.
+    expect(inboxIsReachable(false)).toBe(visibleInboxTypes(false).length > 0)
+    expect(inboxIsReachable(true)).toBe(visibleInboxTypes(true).length > 0)
   })
 })

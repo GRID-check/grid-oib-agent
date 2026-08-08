@@ -10,14 +10,10 @@
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { BadRequestError } from '@/lib/api/errors'
 import { requireCollaborationEnabled } from '@/lib/authz/feature-flags'
-import {
-  RESOURCE_ROLES,
-  SHAREABLE_RESOURCE_TYPES,
-  type ShareableResourceType,
-} from '@/lib/db/schema'
+import { RESOURCE_ROLES } from '@/lib/db/schema'
 import { changeResourceRole, escalateToOwner, grantResourceAccess } from '@/lib/sharing/service'
+import { requireShareableType } from '@/lib/sharing/registry'
 
 type Params = { resourceType: string; resourceId: string }
 
@@ -44,16 +40,6 @@ const roleChangeSchema = z.object({
   role: z.enum(RESOURCE_ROLES),
 })
 
-/** See the note in `../route.ts` on why this guard is local to each route. */
-function requireShareableType(raw: string): ShareableResourceType {
-  const resourceType = SHAREABLE_RESOURCE_TYPES.find((candidate) => candidate === raw)
-  if (!resourceType) {
-    throw new BadRequestError(`"${raw}" is not a shareable resource type`, {
-      allowed: SHAREABLE_RESOURCE_TYPES,
-    })
-  }
-  return resourceType
-}
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {

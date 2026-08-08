@@ -20,9 +20,34 @@ function getTextFromChildren(node: ReactNode): string {
   return ''
 }
 
+/**
+ * German letters, spelled out rather than dropped.
+ *
+ * `[^\w\s-]` below treats every one of these as punctuation, so "Gebäude"
+ * slugified to "gebude" and "Außenwand" to "auenwand" — ids no in-page link
+ * ever names. The content this renders is German (chat answers, OIB reports),
+ * so that is the common heading, not an edge case, and a missed anchor is
+ * silent: `scrollToAnchor` returns when `getElementById` finds nothing.
+ *
+ * Transliteration (ä→ae) rather than diacritic-stripping (ä→a) because it is
+ * how German spells these out when it cannot print them, and it matches the
+ * slug the catalog editor derives from a norm's short name.
+ */
+const GERMAN_TRANSLITERATIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/ä/g, 'ae'],
+  [/ö/g, 'oe'],
+  [/ü/g, 'ue'],
+  [/ß/g, 'ss'],
+]
+
 function slugify(text: string): string {
-  return text
-    .toLowerCase()
+  const transliterated = GERMAN_TRANSLITERATIONS.reduce(
+    (value, [pattern, replacement]) => value.replace(pattern, replacement),
+    text.toLowerCase()
+  )
+  // Everything from here down is unchanged, so every ASCII id already in use
+  // (and the `1.2` → `12` punctuation shape) stays byte-identical.
+  return transliterated
     .trim()
     .replace(/[^\w\s-]/g, '')
     .replace(/[\s_]+/g, '-')

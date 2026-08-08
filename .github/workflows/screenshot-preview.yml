@@ -117,7 +117,7 @@ jobs:
           # they must never find a repository credential in the workspace.
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - uses: ./.github/actions/setup-bun
@@ -127,7 +127,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Cache the Playwright Chromium download
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontends/ui/bun.lock') }}
@@ -148,7 +148,7 @@ jobs:
         # its work here, so restoring it turns most of that compile into a cache hit.
         # `restore-keys` makes a near-miss (a source change since the last run) still
         # useful: Turbopack revalidates what changed instead of rebuilding everything.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: frontends/ui/.next/dev/cache
           key: turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/bun.lock') }}-${{ github.sha }}
@@ -206,7 +206,7 @@ jobs:
       pull-requests: write # upsert the sticky comment
     steps:
       - name: Upsert the sticky PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           IDS: ${{ needs.detect.outputs.ids }}
           COUNT: ${{ needs.capture.outputs.count }}

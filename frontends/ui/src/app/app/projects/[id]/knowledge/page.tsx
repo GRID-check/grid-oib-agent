@@ -1,6 +1,6 @@
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getTranslations } from '@/i18n/server'
@@ -16,14 +16,15 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function KnowledgePage({ params }: KnowledgePageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
-  // Feature-flagged rollout (default off): the page 404s like it doesn't
-  // exist rather than teasing a locked section.
-  if (!isProjectKnowledgePageEnabled(session)) {
-    notFound()
-  }
-  const { id } = await params
-  await requireProjectAccess(session, id, 'project:view')
+  return withPageSession(async (session) => {
+    // Feature-flagged rollout (default off): the page 404s like it doesn't
+    // exist rather than teasing a locked section.
+    if (!isProjectKnowledgePageEnabled(session)) {
+      notFound()
+    }
+    const { id } = await params
+    await requireProjectAccess(session, id, 'project:view')
 
-  return <KnowledgeBasePanel projectId={id} />
+    return <KnowledgeBasePanel projectId={id} />
+  })
 }

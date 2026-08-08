@@ -1,7 +1,7 @@
 ---
 import Logo from '../atoms/Logo.astro'
 import Pill from '../atoms/Pill.astro'
-import { APP_URL } from '../../consts'
+import { SIGN_IN_URL } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -15,23 +15,65 @@ const translatePath = useTranslatedPath(locale)
 const home = translatePath('/')
 ---
 
-<header data-nav class="fixed inset-x-0 top-0 z-50 px-[18px] pt-4">
+<header data-nav class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-4 sm:pt-4">
   <nav
     data-nav-bar
-    class="mx-auto grid max-w-[1340px] grid-cols-[1fr_auto_1fr] items-center rounded-[18px] px-4 py-2 transition-colors duration-500"
+    class="mx-auto flex max-w-[84rem] items-center justify-between gap-3 rounded-card px-3 py-2 transition-colors duration-500 sm:px-4 md:grid md:grid-cols-[1fr_auto_1fr]"
     aria-label={t.nav.ariaLabel}
   >
-    <div></div>
-    <Logo href={`${home}#top`} label={t.nav.logoLabel} />
-    <div class="flex items-center justify-end gap-[14px] text-[13px] font-medium">
-      <a href={APP_URL} class="text-ink hover:text-accent-600">{t.nav.signIn}</a>
+    <div class="hidden md:block"></div>
+    <Logo href={`${home}#top`} label={t.nav.logoLabel} class="shrink-0" />
+    <div
+      class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
+    >
+      <a
+        href={SIGN_IN_URL}
+        data-sign-in
+        data-sign-in-pending={t.nav.signInPending}
+        class="inline-flex items-center gap-1.5 whitespace-nowrap text-ink hover:text-accent-600"
+      >
+        <svg
+          data-sign-in-spinner
+          class="hidden size-3.5 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          style="animation: chain-spin 0.9s linear infinite"
+          aria-hidden="true"
+        >
+          <path d="M12 3a9 9 0 1 0 9 9" />
+        </svg>
+        {/* Below sm the label has no room (the row already runs to the edge at
+        320px), so the icon carries it there and the label stays for screen
+        readers. Without one of the two, phones have no sign-in affordance. */}
+        <svg
+          data-sign-in-icon
+          class="size-4 shrink-0 sm:hidden"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+          <path d="m10 17 5-5-5-5" />
+          <path d="M15 12H3" />
+        </svg>
+        <span data-sign-in-label class="sr-only sm:not-sr-only" aria-live="polite"
+          >{t.nav.signIn}</span
+        >
+      </a>
       <Pill href={`${home}#kontakt`} variant="outline" size="sm">
         {t.nav.cta}
       </Pill>
       {
         switchTo && (
           <span
-            class="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-ghost"
+            class="whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-ink-ghost"
             aria-label={t.nav.langLabel}
           >
             {locale === 'de' ? (

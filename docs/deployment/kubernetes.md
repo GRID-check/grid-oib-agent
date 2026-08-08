@@ -24,7 +24,9 @@ their own namespaces.
 | `workflow-scheduler` | Deployment (only when `workflowsEnabled`) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
-| `seaweedfs` (S3) | StatefulSet | 1 | RWO PVC `/data` | See §4 |
+| `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
+| `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
+| `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
 
 Platform add-ons installed by Pulumi: **cert-manager** (+ Let's Encrypt issuer,
 Gateway-API-enabled), **Envoy Gateway** (Gateway API controller), and the
@@ -52,15 +54,57 @@ Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──
 
 ---
 
+## Row-level security roles (ADR-0041)
+
+The `grid_app` database enforces tenant isolation in Postgres, and the app tier
+connects as `grid_app_rw` — DML only, no DDL, and subject to every policy.
+
+Two credentials, and they are not interchangeable:
+
+| Role | Used by | Can do |
+|------|---------|--------|
+| `aiq` (the application user, `pgAppUser`) | the migration Job only | owns the schema; DDL and backfills. Row-level security does **not** apply to a table's owner — that is what makes a backfill touch rows instead of silently touching none. |
+| `grid_app_rw` | every serving container: frontend, purger, scheduler | DML only. No DDL, no `CREATEROLE`, no `BYPASSRLS`, and subject to every policy. |
+
+The three roles are declared on the CloudNativePG `Cluster` under
+`spec.managed.roles`, not created by a migration. That is not a preference:
+creating `grid_app_platform` requires the creator to hold `BYPASSRLS`, which
+neither credential above has. The operator reconciles them as superuser on every
+pass, including `grid_app_rw`'s password from the `pg-runtime-credentials`
+Secret.
+
+That password comes from Pulumi config `pgRuntimePassword`, which is **required
+and has no fallback**. It used to default to `pgAppPassword`; that was wrong,
+because Postgres authenticates by (role, password), so a shared password let
+anyone holding the runtime DSN log in as the schema owner instead — and the
+owner is exempt from every policy. Set it per stack:
+
+```bash
+pulumi config set --secret pgRuntimePassword "$(openssl rand -base64 32)"
+```
+
+Migration `0030` therefore only *asserts* the roles, failing with a hint rather
+than half-applying the boundary. `GRID_APP_MIGRATION_DATABASE_URL` carries the
+`aiq` owner credential and is set only on the migration Job — never on a
+long-lived Pod.
+
+Runbook: [row-level security](../database/row-level-security.md).
+
 ## 2. Prerequisites
 
 - A kubeconfig for the cluster (the provider gives you this).
 - The provider's **StorageClass** name for block volumes — this is your
   **Lightbits** (NVMe/TCP) class. Find it: `kubectl get storageclass`.
 - Container images in a registry. The [`publish-images`](../../.github/workflows/publish-images.yml)
-  workflow builds and pushes `grid-oib-backend` and `grid-oib-frontend` to GHCR
-  on merge to `develop`. Pin `imageTag` to a commit SHA for reproducible deploys.
-  The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
+  workflow builds and pushes `grid-oib-backend`, `grid-oib-frontend` and
+  `grid-oib-web` to GHCR on merge to `develop` — on `develop` only the images
+  whose files changed are rebuilt (per-service change detection; a blog-post
+  commit rebuilds just `grid-web`), while `release/**` pushes, version tags and
+  manual runs build all three. Deploys pin each rebuilt service to its commit-SHA
+  tag; services that were not rebuilt keep the image reference already stored in
+  the stack config (`grid-oib:backendImage` / `grid-oib:frontendImage` /
+  `grid-oib:webImage`, falling back to `grid-oib:imageTag`, then `latest`) — see
+  [cd.md](cd.md). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
   `registryUsername` + `registryPassword` (a token with `read:packages`) so the
   program creates the `grid-registry-pull` imagePullSecret — otherwise every app
   pod lands in ImagePullBackOff.
@@ -131,8 +175,16 @@ Both shipped stack templates use `db` mode, which drains one replica at a time.
 redeploy after publishing new images changes no pod spec, so nothing rolls and
 the migration Job does not re-fire — but a later pod restart (e.g. a node
 drain) silently pulls the new code, possibly against an un-migrated schema.
-The CI workflow avoids this by pinning `sha-<commit>` per deploy; for manual
-deploys either pin `imageTag` to a SHA or run `pulumi up --refresh`.
+The CI workflow avoids this by pinning rebuilt services to `sha-<commit>` per
+deploy; for manual deploys, pin `imageTag` to a commit SHA the same way.
+`pulumi up --refresh` does **not** help: Pulumi only asserts desired state,
+and a moving tag never changes the Deployment spec, so a refresh neither rolls
+the pods nor re-fires the migration Job. If you must pull a moving tag in an
+emergency, do it as an explicit rollout operation — remove the per-service
+pins and point the stack at the moving tag (`pulumi config rm
+grid-oib:backendImage grid-oib:frontendImage grid-oib:webImage`, `pulumi
+config set grid-oib:imageTag latest`, then `pulumi up`, which changes the pod
+specs and flips pullPolicy to `Always`) — never a bare `pulumi up --refresh`.
 
 **Size worker groups against the HPA ceilings.** The autoscaler only adds
 nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
@@ -244,27 +296,287 @@ fly.
 
 ---
 
-## 4. SeaweedFS — decision and scale-out path
+## 4. SeaweedFS — two topologies, and the migration between them
 
-**What we run:** the exact single-node topology proven in Docker Compose — one
-`weed server -s3` process running master + volume + filer + the S3 gateway — as
-a 1-replica StatefulSet, but with its data on a durable Lightbits PVC instead of
-an ephemeral local volume. S3 identities come from a Kubernetes Secret (mounted
-as `s3.json`); a one-shot Job pre-creates the `grid-documents` bucket.
+`grid-oib:seaweedfsTopology` selects one of two layouts (ADR-0043). New stacks
+default to `split`; both existing stacks pin `single` in their own
+`Pulumi.<stack>.yaml`, because switching is a data migration.
 
-**Why:** it is the lowest-risk, faithful migration of a battle-tested setup, and
-the app's object load (PDFs, presigned preview/download) is modest. Fewer moving
-parts than a modular cluster.
+### `single` — one process, one PVC
 
-**When to scale out** (any of: volume-server disk pressure, throughput ceiling,
-you want HA object storage): migrate to the upstream **SeaweedFS Helm chart**
-(or operator), which splits master / volume / filer into separate StatefulSets
-and lets you run N volume servers and move the filer metadata store onto
-Postgres. Because the bucket name (`grid-documents`) and object-key layout are
-unchanged, this is a data-preserving migration (an `rclone sync` or the existing
-`scripts/migrate-storage.mjs` between the old and new S3 endpoints — the same
-pattern used for the MinIO→SeaweedFS cutover in
-[`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md)).
+One `weed server -s3` running master + volume + filer + gateway as a 1-replica
+StatefulSet on a durable Lightbits PVC. This is the layout every deployment ran
+before ADR-0043 and it remains the right choice for a small one: fewer moving
+parts, nothing to coordinate, no Postgres on the storage path.
+
+What it cannot do: grow by adding replicas, and put the chunk encryption keys
+anywhere other than the disk holding the chunks they open. The filer's embedded
+leveldb store lives at `/data`, beside the volume files, so
+`seaweedfsEncryptVolumeData` buys crypto-erasure there and not at-rest
+protection. See § Encryption posture.
+
+### `split` — master, volume and filer as separate workloads
+
+```
+  app tier ──S3:8333──►  seaweedfs (filer + gateway)  ──gRPC:19333──►  seaweedfs-master
+                              │      │                                       ▲
+                              │      └──filer.toml──► grid-pg (seaweedfs_filer DB)
+                              └──HTTP:8080──► seaweedfs-volume ────heartbeat──┘
+```
+
+- **`seaweedfs-master`** — Raft topology and the volume-id sequence, on a small
+  PVC (`seaweedfsMasterStorageSize`, default 1Gi). `seaweedfsMasterReplicas`
+  must be odd; 1 means no HA, 3 is the HA value and **has not been exercised on
+  a live cluster** — treat it as untested.
+- **`seaweedfs-volume`** — the bytes. `seaweedfsVolumeReplicas` is the capacity
+  knob. Each replica gets its own `seaweedfsStorageSize` PVC and reports its
+  Kubernetes node as its SeaweedFS *rack*, which is what lets
+  `seaweedfsDefaultReplication: "010"` mean "two copies on two machines" rather
+  than "two copies on two pods".
+- **`seaweedfs`** — the filer, carrying the S3 gateway in-process. Keeps the
+  bare name so `SEAWEED_ENDPOINT=http://seaweedfs:8333` and the edge
+  NetworkPolicy are unchanged.
+
+**Volume sizing.** `seaweedfsVolumeSizeLimitMB` defaults to 1024, not
+SeaweedFS's own 30000. The volume server derives its writable-slot count from
+`free / volumeSizeLimit`, so a 30 GB limit on a 20 Gi PVC computes ONE slot and
+on a 10 Gi PVC computed zero — which showed up live as "No writable volumes and
+no free volumes left" on every upload. `seaweedfsVolumeMinFreeSpace` must exceed
+one volume, or the disk can hit ENOSPC mid-growth before the read-only brake
+engages; `loadConfig` refuses the combination.
+
+**Filer store.** `seaweedfsFilerStore: postgres` (the default) puts the
+namespace in a dedicated `seaweedfs_filer` database on the existing CNPG
+cluster, owned by its own role with `CONNECT` revoked from `PUBLIC`. That
+database holds an AES key for every chunk in the object store, which is why it
+is neither one of the three application databases nor reachable with the
+application login. `leveldb` keeps the embedded store on the filer's own PVC and
+is single-replica only — each replica would keep a private namespace and the
+same object would exist or not depending on which pod answered.
+
+**Health probes.** The master's `/cluster/healthz` and the volume server's
+`/healthz` are readiness ONLY. The master answers `423 Locked` while the leader
+holds a topology child lock, and the volume server answers 503 when a *peer*
+holding a replica is unreachable — as liveness probes, the second would turn one
+node going away into a restart cascade across every surviving replica holder.
+TCP liveness sits underneath both. The filer's `/healthz` round-trips its own
+store and does both jobs.
+
+### Migrating SeaweedFS to the split topology
+
+**Read this before flipping the knob.** The two topologies use different PVCs.
+A stack that switches without migrating comes up with an EMPTY object store
+while every existing object sits on a PersistentVolumeClaim nothing mounts —
+and nothing errors. The endpoint answers, the probes pass, and the app reports
+that the tenant has no files. That is why both existing stacks pin `single`.
+
+Rehearse the whole thing on dev first. Budget a maintenance window: step 3
+requires writes to be stopped, because SeaweedFS cannot take a consistent
+point-in-time copy of a bucket (ADR-0042) and a document written between the
+metadata dump and the object copy lands in neither.
+
+1. **Verify the backup is real.** `seaweedfsBackupEnabled: true`, and a LOGICAL
+   inventory of the offsite bucket accounts for every current object. "The pod is
+   running" is not evidence — `filer.backup` has no initial full-copy phase.
+
+   Not an object count. The sink is `is_incremental`, so it keeps historical
+   copies and never propagates deletions, and the nightly `fs.meta.save` dump
+   lands in the same bucket — so the offsite count is EXPECTED to exceed the
+   source, and can match it by coincidence while current keys are missing.
+   Compare current `(key, size)` pairs, newest date directory winning, and
+   exclude the snapshot prefix:
+
+   ```shell
+   # Source: every bucket the ledger records, not just grid-documents.
+   for b in $(psql -At -d grid_app -c \
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL"); do
+     aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
+       --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
+   done | sort > /tmp/source.inventory
+
+   # Offsite: the mirror lays objects out as <date>/buckets/<bucket>/<key>.
+   # Strip the date so the newest copy of each key wins, and drop the snapshots.
+   aws --endpoint-url https://s3.example.com s3api list-objects-v2 \
+     --bucket grid-documents-backup --query 'Contents[].[Key,Size]' --output text \
+     | grep -v '\.meta$' \
+     | sed -E 's|^[0-9]{4}-[0-9]{2}-[0-9]{2}/buckets/||' \
+     | sort -u > /tmp/offsite.inventory
+
+   # Anything present in the source and absent offsite is a gap.
+   comm -23 /tmp/source.inventory /tmp/offsite.inventory
+   ```
+
+   Empty output is the pass condition. Anything listed is an object the mirror
+   does not have, which means the change log was incomplete when the mirror
+   started — see ADR-0042's risk note.
+
+   **If no offsite mirror is configured yet.** This is the ordinary situation for
+   a first migration: `filer.backup` has no initial full-copy phase, so a mirror
+   turned on today does not contain yesterday's objects and cannot be verified
+   against them however long you wait. Enabling it first does not solve step 1;
+   it only moves the unverified window. So the migration can proceed without it,
+   with the safety net named explicitly rather than assumed:
+
+   - **The old PVC is the backup.** The `single` topology's claim is not deleted
+     by the switch — it is left unmounted. Confirm that before starting, and
+     confirm nothing will reclaim it:
+
+     ```shell
+     kubectl -n grid get pvc -o custom-columns=\
+     'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,SC:.spec.storageClassName'
+     kubectl -n grid get pv -o custom-columns=\
+     'NAME:.metadata.name,CLAIM:.spec.claimRef.name,POLICY:.spec.persistentVolumeReclaimPolicy'
+     ```
+
+     Any volume backing the SeaweedFS claim must read `Retain`, not `Delete`. If
+     it reads `Delete`, patch it before touching the topology — a `Delete` policy
+     turns the rollback path into permanent loss the moment the claim is
+     released:
+
+     ```shell
+     kubectl patch pv <name> -p \
+       '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+     ```
+
+     Keep `grid-oib:protectDataResources: true` set for the same reason.
+
+   - **Rollback is the flip back.** Because the claim survives, returning
+     `seaweedfsTopology` to `single` and re-applying restores the previous object
+     store. That is the whole recovery plan, and it is only true while the claim
+     exists — which is why the check above is not optional.
+
+   - **Copy the metadata dump off-cluster anyway.** Step 2's `fs.meta.save`
+     output is small and is the only thing that makes the namespace
+     reconstructible if both claims are lost. `kubectl cp` it somewhere that is
+     not this cluster before step 3, even without a mirror to put it in.
+
+   - **Take the local inventory regardless.** Run the source half of the
+     comparison above and keep `/tmp/source.inventory`. Without an offsite side
+     to compare against it is not a pass condition, but after step 5 it is the
+     only way to answer "did everything arrive?" with something other than a
+     count.
+
+   Enable the mirror after the migration, once there is a stable topology for it
+   to run against, and treat its first verification as a separate exercise.
+
+2. **Take a metadata snapshot and keep it off-cluster.**
+   ```
+   kubectl -n grid exec deploy/seaweedfs-backup -- \
+     sh -c 'echo "fs.meta.save -o /tmp/pre-split.meta /" | weed shell -master=seaweedfs:9333'
+   kubectl -n grid cp seaweedfs-backup-<pod>:/tmp/pre-split.meta ./pre-split.meta
+   ```
+   This is the only artefact that makes a botched migration reversible. Check it
+   is non-empty; `weed shell` exits 0 even when the command inside it failed.
+
+3. **Stop writes.** Scale the frontend, purger and agent-worker to zero.
+
+4. **Record the object inventory of EVERY bucket**, so step 7 has something to
+   check against. With per-organization buckets enabled the set is not
+   `grid-documents` alone, and it is not derivable from the org id either — the
+   ledger is what knows (ADR-0043):
+
+   ```shell
+   BUCKETS=$(psql -At -d grid_app -c \
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL")
+
+   for b in $BUCKETS; do
+     aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
+       --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
+   done | sort > /tmp/pre-split.inventory
+
+   wc -l /tmp/pre-split.inventory
+   ```
+
+   Keep the file, not just the number: step 7 compares contents, because a count
+   can match while the contents differ.
+
+5. **Set the filer store credential and the topology**, then apply:
+   ```
+   pulumi config set --secret grid-oib:seaweedfsFilerDbPassword "$(openssl rand -base64 24)"
+   pulumi config set grid-oib:seaweedfsTopology split
+   pulumi up
+   ```
+   The three new workloads come up empty. The old `seaweedfs` StatefulSet is
+   replaced by the filer of the same name, but **its PVC is not adopted**: the
+   single-node claim is `data-seaweedfs-0` and the split filer's is
+   `filer-data-seaweedfs-0`, deliberately (see the note on the
+   `volumeClaimTemplate` in `src/data/seaweedfs-split.ts`). Retained by policy
+   and unclaimed by anything, `data-seaweedfs-0` is what step 6 reads from.
+
+6. **Move the data.** Two ways, and the right one depends on how much there
+   is. Whichever you pick, the bucket name and the object-key layout are
+   unchanged, so nothing about the application has to know a migration
+   happened.
+
+   **6a — S3-to-S3 sync (default).** Run a throwaway single-node `weed server`
+   with `data-seaweedfs-0` mounted read-write at `/data` and its S3 port under
+   a different Service name (`seaweedfs-legacy`), then `rclone sync` or
+   `scripts/migrate-storage.mjs` from that endpoint to `seaweedfs:8333` — the
+   same pattern as the MinIO→SeaweedFS cutover in
+   [`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md). It
+   needs its own `s3.json`; the simplest source is the existing
+   `seaweedfs-s3-config` Secret.
+
+   Simple, verifiable object by object, and it re-encrypts every chunk under
+   the new store's keys as a side effect. Cost: it reads and rewrites every
+   byte, so it scales with corpus size.
+
+   **6b — metadata load, keeping the volume files (large corpora).** SeaweedFS's
+   own store-migration path: `fs.meta.save` from the old filer,
+   `fs.meta.load` into the new one, with the volume `.dat`/`.idx` files moved
+   across (rebind the retained PV to `seaweedfs-volume-0`'s claim, or copy the
+   files into it). O(metadata) rather than O(bytes).
+
+   **The two are not interchangeable under encryption.** With
+   `seaweedfsEncryptVolumeData` on, each chunk's AES key lives in the FILER
+   metadata, not with the chunk. So 6b is only correct if the metadata load
+   actually happens — volume files moved WITHOUT their metadata are ciphertext
+   nobody can open, and there is no master key and no escrow. If you take 6b,
+   verify the load before you delete anything: open a document written before
+   the migration, not just one written after.
+
+7. **Compare the inventory** against step 4 — the file, not the number:
+
+   ```shell
+   for b in $BUCKETS; do
+     aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
+       --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
+   done | sort > /tmp/post-split.inventory
+
+   diff /tmp/pre-split.inventory /tmp/post-split.inventory
+   ```
+
+   No output is the pass condition. Not "the sync finished", and not a matching
+   count: two inventories of the same length can differ in which keys they hold.
+
+8. **Bring the app back up**, upload one document, preview it, download it, and
+   delete it. Then confirm the offsite mirror picked up all four events.
+
+**Rolling back** is step 5 with `single`, plus an S3 sync in the other
+direction. The old PVC is still there; nothing in this procedure deletes it.
+Delete it deliberately, later, once you are sure.
+
+### Per-organization buckets
+
+Off by default (`seaweedfsPerOrgBuckets`). Independent of the topology knob —
+either layout can run either way — but they land together because they are the
+same subsystem.
+
+Turning it on is NOT a cutover and NOT a migration. The bucket each document
+lives in is recorded on its row (`documents.storage_bucket`, migration 0033);
+NULL means the shared bucket. Enabling the flag changes where the NEXT object is
+written and nothing else, and disabling it again is equally uneventful — which
+holds only because two things are deliberately NOT gated on the flag: the S3
+grants (`Read:grid-org-*` and friends are always issued, so a rollback does not
+revoke access to what was written while it was on) and the erasure sweep (which
+always visits both buckets, so a rollback cannot silently leave a tenant's
+objects behind). An organization keeps objects in both buckets indefinitely;
+that is the design, not a loose end.
+
+Requires `seaweedfsTenantAdminSecretKey`: bucket creation and deletion are a
+single `Admin` action in SeaweedFS and cannot be granted separately, so they get
+an identity of their own rather than living on the credential the upload path
+carries.
 
 ---
 
@@ -293,12 +605,192 @@ schema.
   loss — the backup lives on the same `Delete`-reclaim CSI. For real offsite
   PITR, point `pgBackupEndpoint` (+ `pgBackupBucket`,
   `pgBackupAccessKey`/`pgBackupSecretKey`) at an external S3, or book the
-  provider's Velero addon. The `grid-documents` SeaweedFS bucket itself has no
-  automated backup yet — the provider's Velero addon or scheduled
-  VolumeSnapshots (needs a scheduler, e.g. snapscheduler) are the options.
+  provider's Velero addon.
   Tune with `pgBackupRetention` (default `30d`) and `pgBackupSchedule` (6-field
   cron, default `0 0 2 * * *`). Restore is `kubectl cnpg` / a bootstrap
   `recovery` from the same object store.
+
+  **The archive is not encrypted by default, and on the in-cluster destination
+  it cannot be.** It is a byte-for-byte copy of all three databases — every
+  conversation, every LangGraph checkpoint, WAL included — so this is the
+  largest single at-rest exposure in the stack when backups are on.
+  `grid-oib:pgBackupEncryption` (`AES256` or `aws:kms`, unset by default) sets
+  CloudNativePG's `barmanObjectStore.{wal,data}.encryption` — note it lives on
+  `wal`/`data`, not at the top level, and its CRD enum has no empty member, so
+  "off" is the key being absent. barman-cloud turns it into an
+  `x-amz-server-side-encryption` header, which encrypts nothing unless the
+  destination implements SSE; SeaweedFS 3.80 does not (SSE-S3/KMS/C arrive in
+  3.97, and no KMS is configured here on any image) and would answer `200` while
+  storing plaintext. `loadConfig` therefore **refuses** the setting against an
+  in-cluster endpoint rather than let the spec claim an encryption that is not
+  happening, and warns on every deploy where backups are on without it. Set it
+  only alongside an external S3 destination that documents SSE support. Full
+  picture in §7e.
+
+- **Document backups (ADR-0042) — IMPLEMENTED, opt-in.** Every bucket under
+  `/buckets` is backed up in two layers — `grid-documents` and, when
+  per-organization buckets are on, each `grid-org-*` — because `filer.backup`
+  runs with `-filerPath=/buckets` and mirrors the whole subtree. Both layers
+  default to `false`, because both need an **external** S3 target to mean
+  anything:
+
+  ```
+  pulumi config set grid-oib:seaweedfsBackupEnabled true
+  pulumi config set grid-oib:seaweedfsBackupEndpoint https://s3.example.com
+  pulumi config set grid-oib:seaweedfsBackupBucket   grid-documents-backup
+  pulumi config set --secret grid-oib:seaweedfsBackupAccessKey "…"
+  pulumi config set --secret grid-oib:seaweedfsBackupSecretKey "…"
+  ```
+
+  `loadConfig` **refuses** an endpoint pointing at the in-cluster SeaweedFS —
+  that would put the backup on the volumes it exists to survive losing.
+
+  **Layer A — object mirror.** A `seaweedfs-backup` Deployment runs
+  `weed filer.backup` against `/buckets`, writing to the external bucket with
+  `is_incremental = true`, so files land under `YYYY-MM-DD/` and **deletions are
+  not propagated** (a plain mirror faithfully replicates `rm -rf`).
+
+  > ⚠️ **`filer.backup` has no initial full-copy phase.** It replays the filer's
+  > metadata change log, so it converges to a complete mirror only while that log
+  > is intact. `fs.log.purge`, or a filer-store migration via `fs.meta.load`
+  > (which does not regenerate the log), silently leaves the mirror with a
+  > partial baseline and reports nothing. **After the first sync settles, compare
+  > a LOGICAL inventory against the source** — see § 4 step 1 for the commands. A
+  > raw object count will not do it: the sink is `is_incremental` and the nightly
+  > metadata dump lands in the same bucket, so the offsite count is expected to
+  > exceed the source and can match it by coincidence while current keys are
+  > missing. A running pod is not evidence either.
+
+  **Layer B — metadata snapshot.** A `seaweedfs-meta-snapshot` CronJob
+  (`seaweedfsMetaSnapshotSchedule`, default `0 3 * * *`) runs `fs.meta.save` —
+  the only point-in-time primitive SeaweedFS has — and writes the dump back into
+  the documents bucket so Layer A carries it offsite. It asserts the file is
+  non-empty, because **`weed shell` exits 0 even when the command inside it
+  failed**.
+
+  **Neither layer is point-in-time consistent.** SeaweedFS keeps the namespace
+  (filer) and the bytes (volumes) in separate subsystems with no coordinated
+  snapshot; upstream guidance is to pause writes if you need the two halves to
+  agree.
+
+  **Restore — two procedures, do not mix them.**
+
+  1. *From the object mirror (the one to rehearse).* Stand up an empty cluster,
+     recreate **every** bucket, then sync each one back **through the new
+     cluster's S3 API**, oldest date directory first so later versions win.
+
+     Every bucket, not `grid-documents`: with per-organization buckets enabled
+     the tenant objects live in `grid-org-*` buckets, and the mirror already
+     covers them (`filer.backup` runs with `-filerPath=/buckets`, so it mirrors
+     the whole subtree and the layout is `<date>/buckets/<bucket>/…`). What is
+     easy to miss is the RESTORE, because the bucket set is not a constant.
+
+     Take it from the mirror itself rather than from a naming rule — the rule
+     depends on the current prefix and hash width, and the mirror knows what is
+     actually there.
+
+     **Two endpoints means two commands.** `aws s3 sync` has ONE `--endpoint-url`
+     and it applies to both URIs, so `sync s3://mirror/... s3://bucket/` with the
+     new cluster's endpoint reads the mirror from the new cluster — where the
+     mirror bucket does not exist, or worse, where a same-named bucket does. Every
+     object therefore lands via a staging directory: one sync out of the mirror,
+     one sync into the cluster. The two also need different credentials, which the
+     single-endpoint form cannot express either; below they are two named
+     profiles.
+
+     ```shell
+     # ~/.aws/config: [profile mirror] → the offsite provider's keys
+     #                [profile cluster] → this cluster's admin S3 keys
+     MIRROR='aws --profile mirror --endpoint-url https://s3.example.com'
+     CLUSTER='aws --profile cluster --endpoint-url http://seaweedfs:8333'
+     STAGE=$(mktemp -d)   # sized for ONE bucket-slice, not the whole corpus
+
+     # Every bucket that appears in the mirror.
+     BUCKETS=$($MIRROR s3api list-objects-v2 \
+       --bucket grid-documents-backup --query 'Contents[].Key' --output text \
+       | tr '\t' '\n' | sed -nE 's|^[0-9-]{10}/buckets/([^/]+)/.*|\1|p' | sort -u)
+
+     for b in $BUCKETS; do
+       echo "s3.bucket.create -name $b" | weed shell -master=seaweedfs-master:9333
+     done
+     echo 's3.bucket.list' | weed shell -master=seaweedfs-master:9333   # verify
+
+     # Oldest date directory first, so a later version of a key overwrites an
+     # earlier one rather than the reverse.
+     for d in $($MIRROR s3 ls s3://grid-documents-backup/ \
+                  | awk '{print $2}' | tr -d / | sort); do
+       for b in $BUCKETS; do
+         # Never --delete on either hop: the mirror is incremental, so a deletion
+         # was never propagated to it, and an older date directory legitimately
+         # holds keys a newer one does not.
+         $MIRROR s3 sync "s3://grid-documents-backup/$d/buckets/$b/" "$STAGE/$b/"
+         $CLUSTER s3 sync "$STAGE/$b/" "s3://$b/"
+         rm -rf "$STAGE/$b"   # keeps peak disk at one bucket-slice
+       done
+     done
+     rmdir "$STAGE"
+     ```
+
+     The staging hop is also the only place to verify the bytes left the mirror
+     intact, so if a restore is being done under pressure this is where to spot a
+     truncated object rather than after it is already in the cluster.
+
+     If the database survived, cross-check the restored set against the ledger —
+     it is the record of which bucket each document's bytes are in, and a bucket
+     present in the ledger but absent from the mirror is a gap you want to know
+     about before declaring the restore done:
+     ```shell
+     psql -At -d grid_app -c \
+       "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL" \
+       | sort > /tmp/ledger.buckets
+     comm -23 /tmp/ledger.buckets <(echo "$BUCKETS")
+     ```
+
+     Verify with `s3.bucket.list` (sizes and counts) and `volume.fsck`.
+  2. *From a metadata snapshot.* `fs.meta.load` is **only** correct when the
+     matching volume `.dat`/`.idx` files are restored alongside it. The dump
+     references chunk file-ids; loading it against volumes it does not match
+     produces a namespace where every GET 404s. Use this only for filer-store
+     recovery, never as a substitute for (1).
+
+  A restore that has never been executed is a hypothesis. Rehearse (1) on dev.
+
+- **Document encryption at rest — ON by default (ADR-0042).** SeaweedFS writes
+  each chunk with its own AES-256-GCM key
+  (`grid-oib:seaweedfsEncryptVolumeData`, default `true`). Two operational
+  consequences:
+
+  1. **New writes only.** Objects already in the bucket stay plaintext and keep
+     working — each chunk carries its own key, or none. There is no bulk-encrypt
+     tool; encrypting an existing corpus means rewriting every object (download
+     and re-upload through the document service). Turning the flag off again is
+     safe for reads: already-encrypted chunks keep their keys and still decrypt.
+  2. **The filer metadata store is now the key store for every object.** There
+     is no master key, no escrow and no recovery path. Losing or corrupting that
+     store turns the entire bucket into ciphertext nobody can open — including
+     the offsite mirror, which holds the same encrypted chunks.
+
+  Because of (2), the metadata snapshot in Layer B stops being a nicety and
+  becomes the thing standing between a filer-store failure and total loss.
+  `pulumi up` warns on every deploy where encryption is on and
+  `seaweedfsBackupEnabled` is false. Treat that warning as a to-do, not noise.
+
+  Note what this protects against, which depends on where the filer store is.
+  It protects against someone obtaining volume disks *without* the filer store.
+  Under `seaweedfsTopology: single` — and under `split` with
+  `seaweedfsFilerStore: leveldb` — that separation does not exist: on `single`
+  the filer's leveldb sits on the SAME PVC as the volume data, so the gain is
+  GDPR erasure (drop the metadata and the bytes become undecryptable) and not
+  disk theft. Under `split` with the Postgres store the keys move to a separate
+  database on separate disks behind a different credential, which is what turns
+  it into at-rest protection (ADR-0043, § 4). `pulumi up` warns on every deploy
+  in the configurations where it is the weaker property. Provider-level PVC
+  encryption remains the control that matches "the disks are encrypted".
+
+- **Volume snapshots — still worth adding.** A `VolumeSnapshotClass`
+  (`lightbits`) exists but nothing schedules it. CSI snapshots are not consistent
+  with the layers above, but they are the fastest way back from a bad in-place
+  migration.
 
 ---
 
@@ -454,10 +946,36 @@ see §10.
   edge (Envoy) to `frontend`/`seaweedfs`, and the CNPG operator to its pods.
   Egress is deliberately open (the agent calls many external LLM/search APIs);
   tightening it is the one item that needs a live-cluster validation pass first.
+- **Dragonfly authentication** (`grid-oib:dragonflyPassword` and
+  `grid-oib:rateLimitStorePassword`, both **required**): `requirepass` on both
+  instances, delivered as `DFLY_requirepass` from a Kubernetes Secret rather
+  than a container arg (a pod spec is readable by anything with `get pod`).
+  Consumers get the password inside `REDIS_URL`, which for that reason moved
+  into the `grid-secrets` Secret. The two passwords must differ — see §7e for
+  why, and for what stays plaintext on the wire. `allowUnauthenticatedRedis`
+  is the explicit, warned opt-out; there is no silent one.
 - **Image pull policy** resolves to `Always` for the moving `latest` tag (so a
   rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the
-  deploy workflow already does this for staging.
+  deploy workflow already pins staging services to SHA tags.
+- **Edge rate limiting** (`grid-oib:rateLimitEnabled`, default **on**;
+  ADR-0040 L1): Envoy Gateway's global rate limit service, backed by a
+  **dedicated** Dragonfly (`dragonfly-ratelimit`) that is deliberately not the
+  ADR-0020 cache — that one runs `--cache_mode=true`, so ordinary cache pressure
+  would evict rate-limit counters and silently lift the limits. Per-route,
+  per-client-IP budgets attach to the existing `BackendTrafficPolicy` objects
+  (`src/app/httproutes.ts`); the `envoy-gateway-system → dragonfly-ratelimit`
+  allow is NetworkPolicy rule 5c, and without it every lookup fails and — fail-open
+  — nothing is enforced while the config reads as correct.
+
+  **It ships in shadow mode** (`rateLimitShadowMode`, default `true`): rules
+  evaluate and emit telemetry, nothing is refused. Read the would-have-blocked
+  counts off the Aspire pane (§9), pick real numbers, then set it false.
+
+  **Verify client-IP preservation before trusting any per-IP number.**
+  `xffNumTrustedHops` defaults to 0 — correct only if the managed LoadBalancer
+  preserves the source IP. If it SNATs instead, every caller is bucketed as the
+  LB and a per-client limit silently becomes a per-product one.
 
 ## 7b. Rolling updates — how a deploy actually lands
 
@@ -588,7 +1106,10 @@ kubectl -n grid rollout undo deploy/frontend
 
 The supported rollback is a deploy of an older image: run the **Deploy
 (staging)** workflow with the `imageTag` input set to a previous
-`sha-<40-hex>`. It goes through the same gates as a forward deploy.
+`sha-<40-hex>` (pinning all three services to it). The workflow verifies the
+tag is published for **all three** images before deploying, so a rollback to a
+commit that only built some images fails fast instead of rolling the others
+into ImagePullBackOff. It goes through the same gates as a forward deploy.
 
 ## 7c. Guardrails — CrossGuard policy pack
 
@@ -640,26 +1161,91 @@ resource still standing. Lifting it is deliberate and auditable:
 pulumi state unprotect 'urn:pulumi:prod::grid-oib::kubernetes:apiextensions.k8s.io/v1:CustomResource::grid-pg'
 ```
 
+## 7e. Encryption posture
+
+What is and is not encrypted, per store and per channel. Written to be cited in
+a security review, so it errs toward saying "no" — a control that only *looks*
+like encryption is listed as absent, with the reason.
+
+Three things are true of this whole table and are easy to miss:
+
+- **"Server-side encryption" is a request, not a guarantee.** An S3 client that
+  sends `x-amz-server-side-encryption` gets a `200` from a store that ignores
+  it, and the object is plaintext. The header is only worth what the
+  *destination* implements.
+- **Encryption at rest and encryption in transit are different questions.** A
+  store can be authenticated and still speak cleartext on the wire.
+- **The PVCs underneath everything are the base layer.** If they are not
+  encrypted (see below), then "at rest" for Postgres, SeaweedFS, Chroma and the
+  agent's `/app/data` all bottom out at the same unencrypted disk.
+
+### At rest
+
+| Store | Encrypted? | Detail |
+|---|---|---|
+| BYOK LLM credentials | **Yes** | WorkOS Vault (`byokSecretBackend`), or AES-256-GCM under `GRID_BYOK_LOCAL_KEK` in the local backend. ADR-0022. |
+| DB-claimed job payloads | **Yes** | AES-256-GCM under `GRID_JOB_PAYLOAD_KEK`; they carry the user auth token. `jobExecution=db` refuses to deploy without the KEK unless `allowPlaintextJobPayloads` opts out. |
+| SeaweedFS chunk data | **Yes — and what it protects depends on the topology** | `-filer.encryptVolumeData` (`seaweedfsEncryptVolumeData`, default **on**). Per-chunk AES-256-GCM, **new writes only** — objects written before it was enabled stay plaintext, and there is no bulk-encrypt tool. The per-chunk keys live in the **filer metadata store**, so where that store is decides what the feature is worth. Under `seaweedfsTopology: single` (and under `split` with `seaweedfsFilerStore: leveldb`) the store sits on a PVC in the same cluster — on `single`, the *same* PVC as the volume data — so anyone who obtains the volume obtains the keys beside it: this is crypto-erasure, not disk-theft protection. Under `split` with the Postgres store the keys move to a separate database on separate disks reachable with a different credential, which is what makes it at-rest protection. `pulumi up` warns in the configurations where it is not. ADR-0042, ADR-0043. |
+| Postgres data files (tables, indexes, WAL on disk) | **No** | Postgres has no native TDE. Confidentiality at rest here is entirely the PVC's (see below). |
+| **Postgres PITR archive** (`pgBackupsEnabled`) | **No by default** | The archive is a byte-for-byte copy of all three databases — every conversation, every LangGraph checkpoint, the whole `grid_app` schema, WAL included. `pgBackupEncryption` (`AES256` \| `aws:kms`) sets CloudNativePG's `barmanObjectStore.{wal,data}.encryption`, which becomes an SSE request header. **It is refused when the destination is the in-cluster SeaweedFS**, because SeaweedFS has no SSE at all on the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this program configures no KMS for them on any image): it would answer `200` and store plaintext while the Cluster spec read `encryption: AES256`. So the archive is encrypted **only** when it goes to an external S3 destination that documents SSE support *and* `pgBackupEncryption` is set. With the default in-cluster destination it is as protected as the SeaweedFS volumes under it, and no more. `pulumi up` warns on every deploy in that state. |
+| SeaweedFS offsite documents backup (`seaweedfsBackupEnabled`) | **Destination's problem** | The mirror is pushed over `https://` (enforced at config load), so it is encrypted in transit. Whether the target bucket encrypts at rest is a property of that bucket, which this program does not configure. |
+| **SeaweedFS filer namespace** (`split` + `seaweedfsFilerStore: postgres`) | **No — and it is the key store** | The `seaweedfs_filer` database holds a decryption key for every encrypted chunk in the object store, in ordinary Postgres rows with no application-level encryption. Confidentiality at rest is the PVC's, exactly as for the three application databases. It is separated by *credential* rather than by encryption: its own role, its own database, `CONNECT` revoked from `PUBLIC`, so the application logins cannot reach it and it cannot reach `grid_app`. Its inclusion in the PITR archive is the reason the `pgBackupEncryption` row above matters more than it used to. ADR-0043. |
+| Chroma vector store | **No** | Persisted on a PVC, no application-level encryption. Embeddings are derived from document text and should be treated as sensitive. |
+| Kubernetes Secrets in etcd | **Unknown to this repo — operator action** | Every credential above (DSNs, S3 keys, the KEKs themselves, the Dragonfly passwords) is a Kubernetes Secret, which is **base64, not encryption**. Encrypting them at rest needs an `EncryptionConfiguration` on the API server, which is a control-plane file on a managed cluster and is not reachable from this program. **Ask the provider whether etcd encryption-at-rest is enabled**, and treat the answer as the ceiling on every "encrypted" row in this table — the KEKs are stored there. |
+| **PVCs (all of them)** | **Unknown to this repo — operator action** | The StorageClass is provider-supplied (`grid-oib:storageClass`, e.g. `premium` / `single-replica`, Lightbits NVMe/TCP) and **nothing in this repo creates a StorageClass**. Kubernetes has no per-PVC encryption field: whether volumes are encrypted is decided by the StorageClass's `parameters`, which are fixed when the class is created. There is therefore no config key here that could enable it, and adding one would be a setting that does nothing. **Operator action:** obtain (or have the provider create) an encrypted StorageClass and point `grid-oib:storageClass` at it; `kubectl get storageclass <name> -o yaml` shows the parameters actually in force. This remains the control that actually matches "encrypted at rest", and it is the one ADR-0042 named as the better answer than volume-chunk encryption. |
+
+### In transit
+
+| Channel | Encrypted? | Detail |
+|---|---|---|
+| Browser → edge (app, S3, landing site, Aspire) | **Yes** | TLS terminated at the Gateway, certs from Let's Encrypt via cert-manager. |
+| App → Postgres | **Yes** | Every DSN carries `sslmode=require`; CloudNativePG serves TLS on 5432 with a cert it manages. `require` encrypts but does **not** verify the CA — it closes passive sniffing, not active MITM. `verify-full` is the documented follow-up and needs the CNPG internal CA distributed to five clients (node, asyncpg, psycopg, psql, barman). |
+| App → SeaweedFS S3 | **No** | `http://seaweedfs:8333` inside the pod network. |
+| App → Dragonfly (cache / conversation bus) | **No — but authenticated** | Plaintext RESP on 6379. Dragonfly is not configured with TLS here. What *did* change: `requirepass` is now **required** (`dragonflyPassword`, or an explicit `allowUnauthenticatedRedis` opt-out), so a pod that can open the socket can no longer read the ADR-0028 conversation bus (every WebSocket frame of every chat, with a replayable 500-event backlog), the cached WorkOS directory (`directory:<orgId>` — email, name, avatar), authorization decisions or budget state. The password reaches consumers inside `REDIS_URL`, which for that reason now lives in the `grid-secrets` Secret rather than inline on each pod spec. |
+| Envoy rate limit service → counter store | **No — but authenticated** | Same plaintext RESP. `rateLimitStorePassword` is a **separate** credential from `dragonflyPassword` and is enforced distinct: every app pod holds the cache password in its `REDIS_URL`, and sharing it would let the app tier authenticate to the counter store and flush its own rate limits. It reaches the rate limit service as `REDIS_AUTH` (Envoy Gateway's `RateLimitRedisSettings` has no password field — only `url`, `urlRef`, `tls` — so it is injected via `provider.kubernetes.rateLimitDeployment.container.env`). An auth failure here is **fail-open**: limits stop enforcing, traffic keeps flowing. |
+| Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
+| Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
+| Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
+| App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
+| Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
+
+Everything in the "No" rows above is confined to the pod network of a
+single-tenant namespace, and the intra-namespace NetworkPolicy is what bounds
+it. That is a real control, but it is **one** control: it stops traffic from
+outside `grid`, not a compromised pod inside it. Closing the in-namespace rows
+properly means mTLS between services — i.e. a service mesh — which is a
+deliberate non-goal here (§10), not an oversight.
+
 ## 8. CI/CD
 
 `.github/workflows/deploy.yml` deploys the **dev** stack automatically after
-`Publish Images` succeeds on `develop`. Before `pulumi up` it enforces four
-gates: the commit's **CI and Security workflows must be green** (Publish Images
-runs in parallel with them, so the chain alone would deploy untested code — a
-polling gate closes that race), a **preflight** that the committed stack file
-is configured (see below), `tsc --noEmit` (typed manifests), and two checks on
-the *same commit* the apply runs — `scripts/validate-crs.mjs`
-(schema-validates every CustomResource against the real upstream CRD schemas)
-and the **CrossGuard policy pack** (§7c). The plan is previewed with the same
-imageTag the deploy applies; the apply then runs on the same runner
-(`pulumi up --yes`) — the policy pack does not re-run on the apply (accepted
-residual, see `docs/deployment/pulumi-cloud-feature-audit.md`). Because the
+`Publish Images` succeeds on `develop` — which on `develop` rebuilds only the
+images whose files changed (a paths-filter gate per service; blog content under
+`frontends/web/src/content/**` rebuilds only `grid-web`; `release/**` pushes,
+version tags and manual dispatch always build all three). Before `pulumi up`
+it enforces four gates: the commit's **CI and Security workflows must be
+green** (Publish Images runs in parallel with them, so the chain alone would
+deploy untested code — a polling gate closes that race), a **preflight** that
+the committed stack file is configured (see below), `tsc --noEmit` (typed
+manifests), and two checks on the *same commit* the apply runs —
+`scripts/validate-crs.mjs` (schema-validates every CustomResource against the
+real upstream CRD schemas) and the **CrossGuard policy pack** (§7c). The plan
+is previewed with the same image pins the apply deploys: the deploy asks the
+triggering Publish Images run which jobs it actually built (GitHub API, by job
+name) and pins **per service** — rebuilt services to the commit's
+`sha-<40-hex>` tag, the rest to the image reference already in the stack config
+(`grid-oib:backendImage` / `grid-oib:frontendImage` / `grid-oib:webImage`,
+falling back to the previously set `grid-oib:imageTag`, then `latest`). The
+apply then runs on the same runner (`pulumi up --yes`) — the policy pack does
+not re-run on the apply (accepted residual, see
+`docs/deployment/pulumi-cloud-feature-audit.md`). Because the
 state backend is Pulumi Cloud, the update lands in the console's **Activity**
 tab with full logs and diffs regardless of where the CLI ran. Manual
 `workflow_dispatch` is refused outside `develop`
 (no images exist for other branches) and accepts an optional **`imageTag`
-input** — the supported rollback path, deploying a previous `sha-<40-hex>`
-build through the identical gates. Prod is promoted manually.
+input** — the supported rollback path, which pins **all three** services to
+the supplied tag through the identical gates, after verifying the tag is
+published for all three images. Prod is promoted manually.
 
 **Pulumi stack config is file-based for plaintext, ESC-based for secrets — the
 configured stack file must be committed.** `Pulumi.dev.yaml` holds the
@@ -878,9 +1464,33 @@ required on the Python tiers.
 
 ## 10. Out of scope (deliberate follow-ups)
 
-- SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
-  loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
+- **A rehearsed SeaweedFS split-topology cutover.** The `split` layout exists
+  and is the default for new stacks (§4, ADR-0043), but no `pulumi up` has
+  applied it and both existing stacks pin `single`. Multi-master Raft
+  (`seaweedfsMasterReplicas: 3`) is likewise wired and unexercised. Until dev
+  has been migrated and a restore rehearsed, treat both as untested. Under
+  `single`, the PVC survives node loss (NVMe/TCP re-attach), so a node drain is
+  a brief reschedule, not data loss.
+- **Per-ORGANIZATION S3 credentials.** Per-organization *buckets* ship here;
+  the credential reaching them is still one wildcard-scoped identity. The
+  blocker is that SeaweedFS's runtime IAM store lives under `/etc` in the
+  filer, which the offsite mirror deliberately excludes — see ADR-0043
+  § Alternatives.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
+- **In-namespace mTLS (a service mesh).** The plaintext channels in §7e —
+  `ws://` chat, `http://aiq-agent`, `http://chroma`, plaintext RESP to
+  Dragonfly, OTLP — are bounded by the NetworkPolicy set, which stops traffic
+  from outside `grid` but not a compromised pod inside it. Closing them
+  properly means mTLS between every pair of services; that is a mesh (Cilium,
+  Linkerd, Istio) with its own control plane, upgrade cadence and failure
+  modes, and it is not a per-service TLS flag anyone can just switch on. A
+  deliberate non-goal for a single-tenant namespace, listed here so the gap is
+  a decision on record rather than an omission.
+- **`EncryptionConfiguration` for Kubernetes Secrets in etcd**, and an
+  **encrypted StorageClass for the PVCs** (§7e). Both are control-plane /
+  provider-side; neither is reachable from this program, and inventing config
+  for them would produce settings that do nothing. Confirm both with the
+  provider — they are the ceiling on every at-rest claim in this document.
 - A metrics/alerting stack (Prometheus/Grafana/Loki) — the Aspire dashboard
   (§9) covers live traces only. Envoy Gateway, cert-manager, CNPG, and
   SeaweedFS all expose Prometheus metrics, so this is a natural next layer —

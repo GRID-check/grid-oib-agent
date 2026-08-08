@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 
 import { applyProjectProfilePatch, buildProjectProfileDisplay, buildProjectPromptView } from './prompt-view'

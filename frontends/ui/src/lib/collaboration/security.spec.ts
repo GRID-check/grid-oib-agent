@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Security probes for the collaboration feature (spec SH-5, SH-6, IB-1, IB-13,
  * IB-14, NF-8).
  *
@@ -102,9 +105,9 @@ vi.mock('@/lib/sharing/directory', async (importActual) => ({
   resolvePeople: vi.fn(),
 }))
 
-vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/sharing/rate-limit')>()),
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 import { drizzle as proxyDrizzle } from 'drizzle-orm/pg-proxy'
@@ -166,7 +169,8 @@ import {
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory, resolvePeople } from '@/lib/sharing/directory'
 import { SHAREABLE_REGISTRY, describeResource } from '@/lib/sharing/registry'
-import { consumeRateLimit } from '@/lib/sharing/rate-limit'
+import { MENTION_LIMIT, consumeLimit } from '@/lib/limits'
+import { allowedDecision } from '@/test-utils/limit-fixtures'
 import {
   countGrantsForResource,
   findGrantForSubject,
@@ -322,7 +326,7 @@ beforeEach(() => {
   vi.mocked(listOpenRequestsForSubject).mockResolvedValue([])
   vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
   vi.mocked(resolvePeople).mockResolvedValue(new Map())
-  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 100 })
+  vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(MENTION_LIMIT))
   vi.mocked(insertMessages).mockImplementation(async (rows) => rows as Message[])
   vi.mocked(insertConversation).mockResolvedValue(null)
   vi.mocked(listMessagesForConversation).mockResolvedValue([])
@@ -406,7 +410,7 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
     const queries = captureSql()
     const inbox = await vi.importActual<typeof import('@/lib/inbox/repository')>('@/lib/inbox/repository')
 
-    await inbox.markInboxItemsRead('org_1', session.userId, ['item_of_another_user'])
+    await inbox.markInboxItemsRead('org_1', session.userId, ['item_of_another_user'], inbox.EVERY_INBOX_TYPE)
 
     expect(queries).toHaveLength(1)
     expect(queries[0]!.sql).toContain('"inbox_items"."organization_id" = ')
@@ -419,7 +423,7 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
     const queries = captureSql()
     const inbox = await vi.importActual<typeof import('@/lib/inbox/repository')>('@/lib/inbox/repository')
 
-    await inbox.archiveInboxItem('org_1', session.userId, 'item_of_another_user')
+    await inbox.archiveInboxItem('org_1', session.userId, 'item_of_another_user', inbox.EVERY_INBOX_TYPE)
 
     expect(queries[0]!.sql).toContain('"inbox_items"."recipient_user_id" = ')
     expect(queries[0]!.params).toEqual(expect.arrayContaining(['org_1', session.userId, 'item_of_another_user']))
@@ -431,7 +435,14 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
     const result = await markRead(session, ['item_of_another_user'])
 
     // Reporting "that item is not yours" would confirm the item exists.
-    expect(markInboxItemsRead).toHaveBeenCalledWith('org_1', session.userId, ['item_of_another_user'])
+    expect(markInboxItemsRead).toHaveBeenCalledWith(
+      'org_1',
+      session.userId,
+      ['item_of_another_user'],
+      // The type gate travels with the mutation now: recipient scoping alone let
+      // an id kept from before collaboration was disabled still be marked read.
+      expect.any(Array),
+    )
     expect(result.affected).toBe(0)
   })
 

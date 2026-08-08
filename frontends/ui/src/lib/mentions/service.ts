@@ -38,7 +38,7 @@ import {
 import { requireResourceAccess, type ResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory, unknownPerson } from '@/lib/sharing/directory'
 import { roleSatisfies } from '@/lib/sharing/registry'
-import { consumeRateLimit, MAX_MENTIONS_PER_MESSAGE, MENTION_RATE_LIMIT } from '@/lib/sharing/rate-limit'
+import { consumeLimit, MAX_MENTIONS_PER_MESSAGE, memberSubject, MENTION_LIMIT } from '@/lib/limits'
 import { grantResourceAccess, resolveParticipants } from '@/lib/sharing/service'
 import type { DirectoryPerson, ShareCandidate } from '@/lib/sharing/types'
 import {
@@ -335,7 +335,7 @@ async function enforceMentionBounds(session: AuthorizedSession, count: number): 
     )
   }
 
-  const limit = await consumeRateLimit(MENTION_RATE_LIMIT, session.userId, count)
+  const limit = await consumeLimit(MENTION_LIMIT, memberSubject(session), count)
   if (!limit.allowed) {
     throw new MentionRateLimitedError('Too many mentions. Please wait a while before mentioning more people.')
   }

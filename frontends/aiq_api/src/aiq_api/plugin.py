@@ -30,6 +30,7 @@ from fastapi import FastAPI
 from pydantic import Field
 from typing_extensions import override
 
+from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
 from aiq_api.auth.middleware import AuthMiddleware
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
@@ -253,6 +254,15 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
     @override
     async def add_routes(self, app: FastAPI, builder: WorkflowBuilder):
         await super().add_routes(app, builder)
+
+        # Presigned URLs are live bearer credentials to a tenant's objects, and
+        # this tier handles them on every ingest. Scrubbing is installed on the
+        # HANDLERS, once, rather than relied on at each call site: the leaks that
+        # actually happened came through exception strings
+        # (`str(httpx.HTTPStatusError)` embeds the request URL) and tracebacks,
+        # i.e. from code that never mentioned a URL. Installed after
+        # `super().add_routes` so the host's own handlers are in place first.
+        install_presigned_url_scrubbing()
 
         # =====================================================================
         # Async Job API routes

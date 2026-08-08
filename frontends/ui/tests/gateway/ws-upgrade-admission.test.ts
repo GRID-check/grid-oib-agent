@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Gateway WS-upgrade admission + scope memoisation.
  *
  * `server.js` had no test harness in this repo (see the note at the top of that

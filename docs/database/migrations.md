@@ -12,7 +12,12 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.GRID_APP_DATABASE_URL,
+    // The OWNER credential — migrations run DDL and backfills, and `grid_app_rw`
+    // can do neither (ADR-0041). The fallback exists only so a local checkout
+    // pointed at a single-credential throwaway database still works; it is not a
+    // supported way to migrate a deployment.
+    url:
+      process.env.GRID_APP_MIGRATION_DATABASE_URL ?? process.env.GRID_APP_DATABASE_URL,
   },
 })
 ```
@@ -20,7 +25,7 @@ export default defineConfig({
 - **Schema source:** `./src/lib/db/schema/*.ts` (6 files, barrel-exported)
 - **Output directory:** `./drizzle/`
 - **Dialect:** PostgreSQL
-- **Connection:** via `GRID_APP_DATABASE_URL` environment variable — must point to the `grid_app` database.
+- **Connection:** via `GRID_APP_MIGRATION_DATABASE_URL` — the schema OWNER, and what every deployment must use. `GRID_APP_DATABASE_URL` is only a fallback for a local single-credential database; it is the DML-only runtime role, which cannot run DDL and whose backfills would touch zero rows under row-level security (ADR-0041). Either way it must point at the `grid_app` database.
 
 ---
 
@@ -40,6 +45,18 @@ npx drizzle-kit generate
 This reads the current schema, diffs against the last snapshot in `drizzle/meta/`, and produces a new `.sql` file in `drizzle/` (e.g., `0004_next_migration.sql`) plus a snapshot JSON.
 
 ### 3. Apply Migration
+
+> **Migrations connect as the schema OWNER.** `GRID_APP_DATABASE_URL` now points
+> at `grid_app_rw`, which holds DML only and is subject to row-level security —
+> correct for serving requests, useless for DDL, and actively dangerous for a
+> data backfill, which would silently touch zero rows. Set
+> `GRID_APP_MIGRATION_DATABASE_URL` to the owner credential; `drizzle.config.ts`
+> prefers it and falls back to `GRID_APP_DATABASE_URL` for a throwaway local
+> database. See [row-level-security.md](row-level-security.md) and ADR-0041.
+>
+> **A new table must join the tenant boundary in the same migration that creates
+> it** — one `SELECT grid_secure_table('<table>', '<predicate>');` line.
+> `src/lib/db/rls-coverage.spec.ts` fails by name until it does.
 
 ```bash
 # Locally

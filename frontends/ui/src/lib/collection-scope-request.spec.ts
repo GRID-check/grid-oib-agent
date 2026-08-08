@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The WebSocket upgrade's scope resolution authorizes BOTH caller-supplied
  * identifiers (ADR-0032, spec SH-4/SH-6).
  *

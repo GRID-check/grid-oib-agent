@@ -1,5 +1,6 @@
 /**
- * Platform → models. The fleet-wide default model per agent group.
+ * Platform → models. The fleet-wide default model AND thinking level per agent
+ * group — one card, because they are two settings of the same decision.
  *
  * Owner gate, shell chrome and section nav live in the shared `layout.tsx`;
  * this page only names its section and renders it.

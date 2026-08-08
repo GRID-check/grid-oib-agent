@@ -17,6 +17,10 @@
 
 import type { FileUploadConfig } from '@/shared/context'
 import { IMAGE_EXTENSIONS } from '@/shared/config/file-upload'
+// The same formatter every file size in the UI renders through. These messages
+// name a size the user can also see on a file card, so a second implementation
+// meant one screen showing "1,5 MB" beside "1.5 MB" in German.
+import { formatFileSize } from '@/lib/utils/format-file-size'
 import {
   DEFAULT_MAX_FILE_SIZE,
   DEFAULT_MAX_TOTAL_SIZE,
@@ -139,17 +143,6 @@ export function isValidMimeType(
 }
 
 /**
- * Format bytes to human-readable string
- */
-export function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
-/**
  * Create default validation context (empty session)
  */
 export function createEmptyValidationContext(): ValidationContext {
@@ -186,7 +179,15 @@ export function createEmptyValidationContext(): ValidationContext {
 export function validateFileUpload(
   files: File[],
   context: ValidationContext = createEmptyValidationContext(),
-  config: FileUploadConfig = DEFAULT_CONFIG
+  config: FileUploadConfig = DEFAULT_CONFIG,
+  /**
+   * The APP's active locale, so a size in an error message is punctuated the
+   * same as the one on the file card beside it. Optional because the specs and
+   * any non-React caller have no locale to give; omitting it falls back to the
+   * runtime default, which is right for them and wrong for a user whose app
+   * language differs from their browser's.
+   */
+  locale?: string
 ): BatchValidationResult {
   const fileErrors: FileValidationError[] = []
   const batchErrors: BatchValidationError[] = []
@@ -244,7 +245,7 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'FILE_TOO_LARGE',
-        message: `"${file.name}" is ${formatBytes(file.size)}, exceeds ${formatBytes(config.maxFileSize)} limit`,
+        message: `"${file.name}" is ${formatFileSize(file.size, locale)}, exceeds ${formatFileSize(config.maxFileSize, locale)} limit`,
       })
       continue
     }
@@ -269,8 +270,8 @@ export function validateFileUpload(
       code: 'TOTAL_SIZE_EXCEEDED',
       message:
         context.existingTotalSize > 0
-          ? `Total size would be ${formatBytes(totalSize)}. Only ${formatBytes(availableSpace)} available (${formatBytes(config.maxTotalSize)} limit).`
-          : `Total size ${formatBytes(totalSize)} exceeds ${formatBytes(config.maxTotalSize)} limit.`,
+          ? `Total size would be ${formatFileSize(totalSize, locale)}. Only ${formatFileSize(availableSpace, locale)} available (${formatFileSize(config.maxTotalSize, locale)} limit).`
+          : `Total size ${formatFileSize(totalSize, locale)} exceeds ${formatFileSize(config.maxTotalSize, locale)} limit.`,
     })
   }
 

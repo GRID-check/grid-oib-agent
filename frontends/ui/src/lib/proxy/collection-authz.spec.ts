@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // `@/lib/backend-proxy` statically imports the session guard, which pulls in

@@ -18,7 +18,10 @@ from pathlib import Path
 import pytest
 
 from aiq_agent.common.source_kinds import _COLLECTION_SCOPE_PREFIXES
+from aiq_agent.common.source_kinds import _LANE_KIND_PREFIXES
+from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
 from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
+from aiq_agent.common.source_kinds import SOURCE_KINDS
 
 _MIRROR = Path("frontends/ui/src/features/chat/lib/source-kinds.ts")
 
@@ -50,3 +53,50 @@ def test_the_collection_prefixes_match(mirror_source: str):
     assert block, "COLLECTION_SCOPE_PREFIXES not found in the frontend mirror"
     mirrored = tuple(re.findall(r"\['([^']*)',\s*'([^']*)'\]", block.group(1)))
     assert mirrored == _COLLECTION_SCOPE_PREFIXES
+
+
+# ---------------------------------------------------------------------------
+# The taxonomy itself
+# ---------------------------------------------------------------------------
+#
+# The two tests above guard the strings DERIVED from the source-kind model. The
+# model itself — the set of kinds, and the lane→kind table that assigns one to
+# every retrieval hit — was mirrored in the same file with nothing checking it,
+# even though ADR-0026 makes it the taxonomy that drives ALL rendering (chips,
+# Herleitung fan-out, report sources). Adding a fifth kind, or a lane family, on
+# one side alone would leave the other silently falling open to `web`: sources
+# keep rendering, in the wrong family, with no error anywhere.
+
+
+def test_the_source_kinds_match(mirror_source: str):
+    block = re.search(r"export type SourceKind =([^\n]*)", mirror_source)
+    assert block, "the SourceKind union was not found in the frontend mirror"
+    assert set(re.findall(r"'([^']+)'", block.group(1))) == set(SOURCE_KINDS)
+
+
+def test_the_narrowing_set_lists_every_kind(mirror_source: str):
+    """`asSourceKind` rejects anything absent from this set, so a kind missing
+    here is dropped off the wire even when the union above admits it."""
+    block = re.search(r"SOURCE_KINDS:\s*ReadonlySet<SourceKind>\s*=\s*new Set\(\[(.*?)\]\)", mirror_source, re.DOTALL)
+    assert block, "the SOURCE_KINDS narrowing set was not found in the frontend mirror"
+    assert set(re.findall(r"'([^']+)'", block.group(1))) == set(SOURCE_KINDS)
+
+
+def test_the_lane_kind_prefixes_match(mirror_source: str):
+    block = re.search(
+        r"LANE_KIND_PREFIXES:[^=]*=\s*\[(.*?)\]\n",
+        mirror_source,
+        re.DOTALL,
+    )
+    assert block, "LANE_KIND_PREFIXES not found in the frontend mirror"
+    mirrored = tuple(re.findall(r"\['([^']*)',\s*'([^']*)'\]", block.group(1)))
+    assert mirrored == _LANE_KIND_PREFIXES
+
+
+def test_the_lane_fallback_kinds_match(mirror_source: str):
+    """Both classifiers fail open, so they must fail open to the SAME kind."""
+    block = re.search(r"export const kindForLane =(.*?)\n\}", mirror_source, re.DOTALL)
+    assert block, "kindForLane not found in the frontend mirror"
+    fallback = re.search(r"return '([^']+)'\s*$", block.group(1).strip())
+    assert fallback, "kindForLane's fail-open return was not found"
+    assert fallback.group(1) == DEFAULT_SOURCE_KIND

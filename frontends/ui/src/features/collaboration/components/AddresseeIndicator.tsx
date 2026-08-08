@@ -165,7 +165,7 @@ export function AddresseeIndicator({
           data-testid="composer-mention-offer"
           onClick={onMentionSomeone}
           className={cn(
-            'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px]',
+            'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px] touch-target',
             'text-muted-foreground/80 transition-colors duration-200 ease-out',
             'underline decoration-dotted decoration-from-font underline-offset-[3px]',
             'hover:text-foreground hover:decoration-solid',

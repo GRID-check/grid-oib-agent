@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * `mergeMessageMetadata` is what keeps two clients from erasing each other's
  * card decisions. Each client PATCHes the whole `cardInteractions` map IT knows
  * about, so a plain top-level merge lets the second overwrite the first — which

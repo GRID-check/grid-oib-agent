@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect, vi } from 'vitest'
 import { getByPath, interpolate, createTranslator } from './translate'
 

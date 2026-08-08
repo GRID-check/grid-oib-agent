@@ -136,6 +136,20 @@ Deep research submits a job to the backend and receives progress via SSE events 
 - **Files tab**: Generated files
 - **Tasks tab**: Progress checklist
 
+**After a run finishes, the composer follows the LATEST run.** A run that
+delivered a report locks the composer — the report defines the session's
+context, so the composer offers *Neue Sitzung starten* and follow-up questions
+belong in a fresh session. A run that failed or was interrupted produced no
+report to protect, so the composer stays usable and invites a follow-up or a
+retry in place.
+
+Only the most recent run counts, in both directions. Retrying after a failure
+and succeeding locks the chat, as a completed session should. Running research
+again after a successful one and having it fail leaves the chat usable, so the
+retry is possible — previously an earlier success kept the composer locked for
+good, telling the user research had completed over a session whose report never
+arrived.
+
 ## Answer sources ("Belegt durch")
 
 Answers that already carry source data show a provenance block: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`/`number`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Sources are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS sources link out. Answers without source data show no block — sources are never fabricated.

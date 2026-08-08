@@ -149,12 +149,33 @@ COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 COPY --from=builder --chown=nextjs:nodejs /app/purger ./purger
 COPY --from=builder --chown=nextjs:nodejs /app/scheduler ./scheduler
 COPY --from=builder --chown=nextjs:nodejs /app/observability ./observability
+# Shared by purger/ and scheduler/ — both require ../workers/platform-scope to
+# step up to the BYPASSRLS role (ADR-0041). Without it neither worker starts.
+COPY --from=builder --chown=nextjs:nodejs /app/workers ./workers
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # The only `src/` file the runtime needs: the audit action+schema registry the
 # deploy-time provisioning script reconciles into WorkOS. It is shared with the
 # app (which reaches it through the bundle, not from disk), so it lives in
 # lib/audit rather than being duplicated into scripts/.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/lib/audit/schemas.mjs
+# `next.config.ts` imports these at server start (AVATAR_IMAGE_PATTERNS,
+# LOCAL_IMAGE_PATTERNS); Next transpiles the config to
+# `next.config.compiled.js`, which then requires the files from disk — missing
+# from the image, `server.js` dies with MODULE_NOT_FOUND before ever listening
+# (avatar-hosts: update 67 CrashLoopBackOff; optimizable: update 83).
+# Both modules must stay import-free (see their file headers) — anything they
+# import needs a copy here too.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./src/lib/images/avatar-hosts.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/optimizable.ts ./src/lib/images/optimizable.ts
+# `server.js` requires these three at startup for WebSocket rate limiting
+# (ADR-0040 L2b). They are CommonJS precisely so the proxy can load them — the
+# same shared catalog the TypeScript side imports — which means they must be on
+# disk in the runtime image, not merely inside the Next bundle. Missing, the
+# gateway dies with MODULE_NOT_FOUND before it ever listens (the failure mode
+# that took the avatar-hosts copy above to learn).
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/rules.js ./src/lib/limits/rules.js
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/factory.js ./src/lib/limits/factory.js
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src/lib/limits/ws-frames.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
@@ -169,4 +190,9 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -f http://localhost:3000/api/healthz || exit 1
 
-CMD ["sh", "-c", "node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]
+# Provision the row-level-security roles, THEN migrate, then serve (ADR-0041).
+# The order is load-bearing: migration 0030 asserts the roles exist and aborts
+# if they do not, and `init-db.sql` only runs when Postgres initialises a FRESH
+# data directory — so on an upgraded stack nothing else would ever create them
+# and the container would never start. The step is idempotent and fail-soft.
+CMD ["sh", "-c", "node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]

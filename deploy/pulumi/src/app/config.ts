@@ -15,7 +15,11 @@ export interface AppWiring {
   seaweedPublicEndpoint: pulumi.Output<string>;
   /** Shared Chroma server URL (set when cfg.chroma.enabled). */
   chromaUrl?: pulumi.Output<string>;
-  dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
+  dsn: (opts: {
+    db: string;
+    driver?: string;
+    as?: { user: string; password: pulumi.Output<string> };
+  }) => pulumi.Output<string>;
   /**
    * imagePullSecrets for every app pod spec — references the registry pull
    * Secret when the app images are private, empty when they are public.
@@ -101,13 +105,34 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
     GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
     SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
+    // Dedicated READ-ONLY bucket-scoped identity for the aiq-agent tier — the
+    // backend must never hold the root `grid` Admin credential (ADR-0039).
+    SEAWEED_BACKEND_READ_SECRET_KEY: cfg.seaweedfs.backendReadSecretKey,
+    // Bucket LIFECYCLE credential (ADR-0043) — creates a tenant's bucket on its
+    // first upload, and drops it on erasure. Separate from the object
+    // credential above because SeaweedFS's `Admin:<bucket>` authorises
+    // CreateBucket and DeleteBucket together and cannot express one without the
+    // other, so the only way to keep "drop a tenant" off the request path is to
+    // keep it on a key the request path does not carry.
+    SEAWEED_TENANT_ADMIN_SECRET_KEY: cfg.seaweedfs.tenantAdminSecretKey,
+    // Embeds the Dragonfly password in its userinfo → secret, exactly like the
+    // DSNs below. Inlining it on each pod spec would publish the cache
+    // credential to anything with `get pod` in the namespace.
+    REDIS_URL: w.redisUrl,
     // DSNs (embed the PG password → secret).
     NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-    GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
+    // The app tier connects as the least-privilege role, so row-level security
+    // applies to it (ADR-0041). Migrations get the owner credential below —
+    // RLS does not apply to a table's owner, so DDL and backfills still work.
+    GRID_APP_DATABASE_URL: w.dsn({
+      db: "grid_app",
+      as: { user: "grid_app_rw", password: cfg.postgres.runtimePassword },
+    }),
+    GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app" }),
   };
 
   const secret = new k8s.core.v1.Secret(
@@ -122,8 +147,15 @@ export function buildSecrets(w: AppWiring): AppSecrets {
   return { secret, checksum: secretChecksum(values) };
 }
 
-/** EnvVar sourced from the shared Secret. */
-function sref(key: string): EnvVar {
+/**
+ * EnvVar sourced from the shared Secret.
+ *
+ * Exported so a pod spec built outside this module (the storage-alert CronJob)
+ * references the Secret by the same constant rather than re-typing its name — a
+ * literal that drifted would surface as a pod stuck in CreateContainerConfigError
+ * at deploy time, not here.
+ */
+export function sref(key: string): EnvVar {
   return { name: key, valueFrom: { secretKeyRef: { name: SECRET_NAME, key } } };
 }
 
@@ -162,8 +194,8 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     sref("AIQ_LISTEN_DB_URL"),
     // Durable per-job LangGraph checkpointing for async deep-research runs.
     sref("AIQ_DEEP_CHECKPOINT_DB"),
-    // Shared cache.
-    { name: "REDIS_URL", value: w.redisUrl },
+    // Shared cache (authenticated: the URL carries the password).
+    sref("REDIS_URL"),
     // Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
     // ON by default — the intended architecture; uses REDIS_URL, fails open to
     // local delivery. Set conversationBus=false to fall back to affinity.
@@ -204,11 +236,20 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
-    // NOTE: no SEAWEED_* here on purpose — the backend Python tree has zero
-    // consumers (verified by grep across src/, frontends/aiq_api/, sources/,
-    // shared/; compose gives them only to frontend + purger). Injecting the S3
-    // root credential into tiers that never use it just widens the attack
-    // surface.
+    // Object storage for the `view_knowledge_image` tool (ADR-0039): the backend
+    // fetches project/Archiv document bytes directly from SeaweedFS (it resolves
+    // the storage key via the internal BFF lookup first). This OVERRIDES the
+    // earlier "no SEAWEED_* on the backend" separation — that held while the
+    // Python tree had zero S3 consumers (thumbnails went through presigned PUT
+    // URLs). The fetch is read-only (get_object only), so the credential is the
+    // DEDICATED read-only identity `grid-backend-read` (Read on the documents
+    // bucket only, distinct key material) — never the root `grid` Admin
+    // credential. The identity is provisioned in the SeaweedFS s3.json by
+    // deploy/pulumi/src/data/seaweedfs.ts.
+    { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
+    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.backendReadAccessKey },
+    srefAs("SEAWEED_SECRET_KEY", "SEAWEED_BACKEND_READ_SECRET_KEY"),
+    { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
   ];
   // Shared Chroma server (horizontal scaling): when set, the adapter uses an
   // HttpClient instead of the embedded per-pod store.
@@ -276,6 +317,13 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
+    // Per-organization buckets (ADR-0043). Off by default; the bucket each
+    // document actually lives in is recorded on its row, so flipping this
+    // changes where the NEXT object goes and nothing else.
+    { name: "SEAWEED_PER_ORG_BUCKETS", value: String(cfg.seaweedfs.perOrgBuckets) },
+    { name: "SEAWEED_TENANT_BUCKET_PREFIX", value: cfg.seaweedfs.tenantBucketPrefix },
+    { name: "SEAWEED_TENANT_ADMIN_ACCESS_KEY", value: cfg.seaweedfs.tenantAdminAccessKey },
+    sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
     // Model catalog + budgets.
@@ -287,7 +335,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_DISABLE_SELF_SERVE_ORGS", value: String(cfg.auth.disableSelfServeOrgs) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
-    { name: "REDIS_URL", value: w.redisUrl },
+    // Authenticated: the URL carries the password, so it comes from the Secret.
+    sref("REDIS_URL"),
     { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: String(APP_DEFAULTS.wsUpgradeRateLimit) },
     // Graceful shutdown: how long server.js keeps serving after SIGTERM before
     // forcing exit. Chat WebSockets are long-lived, so the 2s dev default would
@@ -302,6 +351,14 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // backend needs this. Without it the feature is invisible even on a
     // deployment carrying its code — which is exactly the dark-launch contract.
     { name: "GRID_COLLABORATION_ENABLED", value: String(cfg.collaboration.enabled) },
+    // Storage-quota alerting (ADR-0042). Read by the sweep behind
+    // /api/internal/storage/alerts, which the storage-alerts CronJob calls — so
+    // it belongs to the frontend even though nothing renders it. Escalation to
+    // 90% and 100% above this value is automatic.
+    {
+      name: "GRID_STORAGE_ALERT_THRESHOLD_PERCENT",
+      value: String(cfg.storageAlerts.thresholdPercent),
+    },
     // Memory reflection (project-memory-design.md §3.5). Frontend-only: the BFF
     // consults it at the WS upgrade and forwards the decision to the backend as
     // a header. Default-on like the feature itself — consulted only while
@@ -334,6 +391,11 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
+    // Deliberately no per-organization bucket variables. The purge reads which
+    // buckets a project's documents recorded rather than deriving them from the
+    // organization id (ADR-0043), so it needs neither the naming rule, the
+    // feature flag, nor the bucket-admin credential — and an unattended queue
+    // worker is the last process that should be able to drop a bucket.
     sref("WORKOS_API_KEY"),
     { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
     // OTLP logs via the cluster collector (see frontendEnv for the gating
@@ -372,7 +434,10 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
 
 /** Minimal env for the drizzle migration Job. */
 export function migrationEnv(): EnvVar[] {
-  return [sref("GRID_APP_DATABASE_URL")];
+  // drizzle.config.ts prefers this over GRID_APP_DATABASE_URL: DDL needs the
+  // schema owner, and a backfill run as the RLS-bound runtime role would
+  // silently update zero rows (ADR-0041).
+  return [sref("GRID_APP_MIGRATION_DATABASE_URL")];
 }
 
 /**

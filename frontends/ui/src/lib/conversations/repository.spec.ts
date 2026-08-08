@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * `listVisibleConversations` is the only place the visibility rule is expressed in
  * SQL, and getting it wrong is a data leak (ADR-0032, spec SH-4). So these tests
  * assert the **generated statement**, not a mock's arguments: the point is which
@@ -50,8 +53,10 @@ function onlyQuery(): CapturedQuery {
 }
 
 /** One `messages` row as the driver hands it over: column values in declaration order. */
+// Positional, in schema declaration order — `organization_id` sits right after
+// `conversation_id` since migration 0031 gave `messages` its own tenant column.
 function messageRow(id: string, createdAt: string): unknown[] {
-  return [id, 'conv_1', 'user', 'user_me', 'text', null, createdAt]
+  return [id, 'conv_1', 'org_1', 'user', 'user_me', 'text', null, createdAt]
 }
 
 beforeEach(() => {

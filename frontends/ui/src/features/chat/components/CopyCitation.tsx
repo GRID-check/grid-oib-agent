@@ -104,7 +104,7 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target"
         >
           {copied ? (
             <Check aria-hidden="true" className="size-3" />

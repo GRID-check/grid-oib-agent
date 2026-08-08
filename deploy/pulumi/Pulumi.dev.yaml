@@ -15,6 +15,9 @@
 #   esc env init matthiasbigl/grid-oib/dev
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgAppPassword         "$(openssl rand -base64 24)" --secret
+#   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
+#   # Required, no fallback — a stack without it fails at `pulumi preview`:
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridAdminToken        "$(openssl rand -hex 32)" --secret
@@ -23,6 +26,10 @@
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosApiKey          "sk_test_..." --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosCookiePassword  "$(openssl rand -hex 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:jobPayloadKek         "$(openssl rand -base64 32)" --secret
+#   # Dragonfly `requirepass`, cache + edge counter store. REQUIRED (fail-closed;
+#   # grid-oib:allowUnauthenticatedRedis=true opts out) and enforced DISTINCT.
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:dragonflyPassword      "$(openssl rand -base64 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:registryPassword      "<token w/ read:packages>" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelPrimaryApiKey     "$(openssl rand -hex 32)" --secret
 #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelOidcClientSecret  "<WorkOS Connect secret>" --secret
@@ -51,10 +58,61 @@ config:
   # ── Postgres ──
   grid-oib:pgInstances: "1"
   grid-oib:pgStorageSize: 10Gi
+  # Password for `grid_app_rw`, the least-privilege RLS role (ADR-0041).
+  # Distinct from pgAppPassword — see src/config.ts. Set per config.ts:191.
+  grid-oib:pgRuntimePassword:
+    secure: AAABAP+0FzCMfjSbTI4yV5tfwQm7hUmPVKhdCgc0z5GaOc37WV51A2FHivbTrBWNpLHmMg4AsX4=
   # ── SeaweedFS ──
+  # STILL PINNED to the pre-ADR-0043 layout, because this stack already holds
+  # objects. The split topology uses different PVCs, so flipping this on its own
+  # brings up an EMPTY object store while the data sits on a claim nothing
+  # mounts — no error, no alert, just an app that reports every tenant has no
+  # files. New stacks default to "split".
+  #
+  # This stack is going to split, deliberately: the flip is a STEP INSIDE
+  # `docs/deployment/kubernetes.md` § "Migrating SeaweedFS to the split
+  # topology", not a config change to be made ahead of it. It is left at
+  # `single` here so that a routine `pulumi up` cannot perform the migration by
+  # accident — the value changes in the same window as the data copy, and
+  # `seaweedfsFilerStore` / `seaweedfsFilerStorageSize` below are already set so
+  # that flipping one line is all the window needs.
+  grid-oib:seaweedfsTopology: single
   grid-oib:seaweedfsStorageSize: 10Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid
+  # Read-only identity for the aiq-agent tier (view_knowledge_image, ADR-0039).
+  grid-oib:seaweedfsBackendReadSecretKey:
+    secure: AAABAMgLCSPRIGVbS+2Qqu/PaTFNt6j3hrxVVJ5q4noYPVAHqbOErFG7vBMa8KN/e+wmVSy5uybmUvk0FgSeE0TNvRELoEnJLMf+Az7WREs=
+  # Set NOW rather than during the migration window. Both are inert while the
+  # topology is `single` (the guard that requires `seaweedfsFilerDbPassword`
+  # only fires under `split`), and the disk size in particular has to be right
+  # BEFORE the first split deployment: changing a StatefulSet's claim size
+  # afterwards is a replace, which is the one thing a migration window cannot
+  # absorb. 10Gi rather than the master's 1Gi because under `leveldb` this disk
+  # holds the metadata entry and the per-chunk AES key for every object in the
+  # deployment; under `postgres` it holds only the filer's working files, and
+  # 10Gi is cheap insurance against the store being switched back.
+  grid-oib:seaweedfsFilerStore: postgres
+  grid-oib:seaweedfsFilerStorageSize: 10Gi
+  # Per-organization buckets (ADR-0043). Safe to turn on independently of the
+  # topology, and reversible: every document row records the bucket it was
+  # written to, so existing objects stay readable where they are and only new
+  # writes move. Buckets are created lazily on an organization's first upload.
+  #
+  # Requires `seaweedfsTenantAdminSecretKey` (ESC) — `pulumi preview` refuses
+  # while the flag is on and the secret is missing, rather than falling back to
+  # the ordinary credential, which carries no Admin grant and would fail on the
+  # first tenant upload instead.
+  grid-oib:seaweedfsPerOrgBuckets: "true"
+  # Chunk encryption. Already the default; stated explicitly because it is a
+  # deliberate posture for this stack rather than something to inherit silently.
+  #
+  # Read this with `seaweedfsBackupEnabled` deliberately UNSET below: the
+  # per-chunk keys live only in the filer metadata store, with no master key and
+  # no escrow, so until an offsite mirror exists this buys crypto-erasure and
+  # NOT protection against losing that store. `pulumi preview` warns about
+  # exactly this combination on every run, and the warning is correct.
+  grid-oib:seaweedfsEncryptVolumeData: "true"
   # ── Shared Chroma ──
   grid-oib:chromaEnabled: "true"
   grid-oib:chromaStorageSize: 10Gi

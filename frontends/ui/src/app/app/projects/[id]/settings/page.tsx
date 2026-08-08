@@ -1,6 +1,6 @@
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
@@ -27,27 +27,28 @@ export async function generateMetadata(): Promise<Metadata> {
  * derived role, matching the old pages exactly.
  */
 export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
-  const { id } = await params
+  return withPageSession(async (session) => {
+    const { id } = await params
 
-  const { role } = await requireProjectAccess(session, id, 'project:view')
+    const { role } = await requireProjectAccess(session, id, 'project:view')
 
-  const data = await getProjectOverviewData(id, session.organizationId)
-  if (!data) {
-    notFound()
-  }
+    const data = await getProjectOverviewData(id, session.organizationId)
+    if (!data) {
+      notFound()
+    }
 
-  return (
-    <ProjectSettings
-      data={data}
-      canManageProject={role === 'project-admin'}
-      // Knowledge left the top-level nav (spec §5) but stays reachable from
-      // Settings while its feature flag is on.
-      showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
-      // Same id space as the roster's `organizationMembershipId` (see
-      // GridSession/AuthorizedSession) — lets the members form recognize the
-      // signed-in user's own row and guard against self-lockout.
-      currentMembershipId={session.organizationMembershipId}
-    />
-  )
+    return (
+      <ProjectSettings
+        data={data}
+        canManageProject={role === 'project-admin'}
+        // Knowledge left the top-level nav (spec §5) but stays reachable from
+        // Settings while its feature flag is on.
+        showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
+        // Same id space as the roster's `organizationMembershipId` (see
+        // GridSession/AuthorizedSession) — lets the members form recognize the
+        // signed-in user's own row and guard against self-lockout.
+        currentMembershipId={session.organizationMembershipId}
+      />
+    )
+  })
 }

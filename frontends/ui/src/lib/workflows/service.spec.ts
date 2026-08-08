@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/authz/projects', () => ({
@@ -428,7 +431,7 @@ describe('fireWorkflow (single submission path)', () => {
 
     await fireWorkflow(workflow, 'schedule', 'scheduler')
 
-    expect(mockLoadBundesland).toHaveBeenCalledWith(PROJECT_ID)
+    expect(mockLoadBundesland).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
     const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
     const decodedEnvelope = JSON.parse(Buffer.from(contextHeaders['X-Grid-Request-Context'], 'base64url').toString())
     expect(decodedEnvelope.bundesland).toBe('tirol')

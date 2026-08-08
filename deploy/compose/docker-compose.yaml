@@ -57,6 +57,22 @@ services:
       # API (single-writer separation — the backend never touches grid_app).
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
+      # BFF where a document is and then reads the bytes from SeaweedFS itself.
+      # These were only ever wired in the Kubernetes deployment, so in compose
+      # the tool failed its credential guard and silently degraded every
+      # project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at. The Kubernetes tier holds a dedicated read-only
+      # identity here; compose has one identity, so it uses that.
+      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object,
+      # and this tier used to carry the `grid` credential — which holds
+      # Write and Tagging on every document bucket, so a compromise here could
+      # overwrite or delete any tenant document. AGENTS.md already described this
+      # tier as read-only; now it is.
+      - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
@@ -124,13 +140,65 @@ services:
       - "8888:8888" # Filer (browse/debug)
       - "9333:9333" # Master (admin/status)
     environment:
-      SEAWEED_ACCESS_KEY: seaweedadmin
-      SEAWEED_SECRET_KEY: seaweedadmin
+      # Interpolated from `deploy/.env`, exactly as the CLIENTS read them. These
+      # used to be literals here while the frontend and agent read
+      # `${SEAWEED_ACCESS_KEY:-seaweedadmin}` — so setting the variable changed
+      # the clients and not the generated `s3.json`, and the first request failed
+      # `InvalidAccessKeyId`. One variable per credential, both sides.
+      #
+      # ── Access keys default; SECRET keys are `:?` and have no default ────────
+      #
+      # The two halves are not the same kind of value. An access key is an
+      # IDENTITY NAME — it has to match a name in the `s3.json` generated below,
+      # so a default is how the two sides stay in agreement. A secret key is the
+      # credential itself, and a default there is a password shared by every
+      # install that never set one, on a service that publishes port 8333 and
+      # holds every tenant's documents. `deploy/.env.example` already told
+      # operators to generate this one; the compose file quietly supplied a
+      # literal when they did not, which is the same silent-weak-default failure
+      # in a place nobody looks.
+      #
+      # So they are required. `docker compose up` without them fails at
+      # interpolation with the message below, before anything starts — a
+      # setup step, not an incident. Generate all three in one line:
+      #
+      #   for v in SEAWEED_SECRET_KEY SEAWEED_READONLY_SECRET_KEY \
+      #            SEAWEED_TENANT_ADMIN_SECRET_KEY; do
+      #     echo "$v=$(openssl rand -hex 24)" >> deploy/.env
+      #   done
+      #
+      # The other dev credentials in this file (`aiq_dev`, `grid_app_rw_dev`)
+      # keep their defaults. Not an inconsistency worth hiding: they are named
+      # for what they are, and they are not the keys to an object store reachable
+      # from a browser.
+      SEAWEED_ACCESS_KEY: ${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      # The READ-ONLY identity the agent tier uses (ADR-0039). It was missing
+      # from this file entirely, so `aiq-agent` and `agent-worker` ran on the
+      # write-capable `grid` credential — able to overwrite or delete any
+      # document object in any bucket, for a tool that only ever calls
+      # get_object. That made the compose stack a weaker authorization model than
+      # production, in the environment people develop against.
+      SEAWEED_READONLY_ACCESS_KEY: ${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      SEAWEED_READONLY_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      # A THIRD identity, and a DISTINCT credential, for bucket lifecycle.
+      # SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket
+      # together, so the two can only be separated by putting them on different
+      # credentials.
+      #
+      # These must be on THIS service, not only on the frontend: the printf
+      # below runs inside this container, and an undefined variable there
+      # expands to an empty string. SeaweedFS accepts an identity with an empty
+      # access key without complaint, so the failure is a silent
+      # InvalidAccessKeyId on the first tenant upload rather than anything at
+      # boot.
+      SEAWEED_TENANT_ADMIN_ACCESS_KEY: ${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      SEAWEED_TENANT_ADMIN_SECRET_KEY: ${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
         mkdir -p /etc/seaweedfs &&
-        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*","Write:grid-documents","Write:grid-org-*","List:grid-documents","List:grid-org-*","Tagging:grid-documents","Tagging:grid-org-*"]},{"name":"grid-backend-read","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_READONLY_ACCESS_KEY" "$$SEAWEED_READONLY_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" > /etc/seaweedfs/s3.json &&
         exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
       - seaweedfs-data:/data
@@ -164,12 +232,44 @@ services:
       - aiq-network
     restart: "no"
 
+  # One-shot migrator. Separate from `frontend` so the long-lived container that
+  # serves requests never holds the schema-owner credential — otherwise any bug
+  # that opens a second connection gets a full row-level-security bypass in the
+  # very process RLS exists to constrain (ADR-0041). Kubernetes already worked
+  # this way; compose now matches it.
+  grid-migrate:
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: aiq-blueprint-migrate
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate
+    environment:
+      # Schema owner: DDL and data backfills. RLS does not apply to a table's
+      # owner, which is what keeps backfills working.
+      - GRID_APP_MIGRATION_DATABASE_URL=${GRID_APP_MIGRATION_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Read only so `ensure-rls-roles` can keep grid_app_rw's login in step
+      # with the credential the app actually uses.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aiq-network
+
   frontend:
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
       context: ../../frontends/ui
       dockerfile: deploy/Dockerfile
     container_name: aiq-blueprint-ui
+    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # so this container only serves.
+    command: ["node", "server.js"]
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       # APP_ENV lets the internal memory route distinguish dev from prod: the
@@ -178,7 +278,10 @@ services:
       # the built image, so it cannot be used for this).
       - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Runtime connection: the least-privilege role, subject to row-level
+      # security (ADR-0041). A repository that forgets its organization
+      # predicate returns no rows instead of another tenant's.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly
@@ -207,9 +310,19 @@ services:
       # the internal `seaweedfs` hostname above is not. Defaults to the published
       # localhost port for local dev; set to your public SeaweedFS/S3 URL in prod.
       - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
-      - SEAWEED_ACCESS_KEY=seaweedadmin
-      - SEAWEED_SECRET_KEY=seaweedadmin
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=grid-documents
+      # Per-organization buckets (ADR-0043). Off here: compose is the
+      # single-node development stack, and the bucket a document lives in is
+      # recorded on its row, so this can be flipped later without a migration.
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      # Bucket LIFECYCLE credential — its own identity, scoped `Admin:grid-org-*`
+      # and nothing else, because SeaweedFS cannot grant CreateBucket without
+      # also granting DeleteBucket.
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
@@ -242,6 +355,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
       seaweedfs:
@@ -279,18 +394,26 @@ services:
     container_name: grid-purger
     command: ["node", "purger/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Least-privilege runtime role (ADR-0041). This worker sweeps every
+      # organization, so it steps up to grid_app_platform per transaction
+      # — see frontends/ui/workers/platform-scope.js.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
-      - SEAWEED_ACCESS_KEY=seaweedadmin
-      - SEAWEED_SECRET_KEY=seaweedadmin
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=grid-documents
+      # No per-organization bucket variables here on purpose: the purge reads
+      # the buckets its documents recorded rather than deriving them, so it
+      # needs neither the naming rule nor the feature flag (ADR-0043).
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       seaweedfs:
@@ -314,9 +437,23 @@ services:
     container_name: grid-workflow-scheduler
     command: ["node", "scheduler/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Least-privilege runtime role (ADR-0041). This worker sweeps every
+      # organization, so it steps up to grid_app_platform per transaction
+      # — see frontends/ui/workers/platform-scope.js.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
+      # BFF where a document is and then reads the bytes from SeaweedFS itself.
+      # These were only ever wired in the Kubernetes deployment, so in compose
+      # the tool failed its credential guard and silently degraded every
+      # project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at. The Kubernetes tier holds a dedicated read-only
+      # identity here; compose has one identity, so it uses that.
+      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # Deployment start gate: the scheduler refuses to run (clean exit 0) unless
       # workflows are enabled here or feature-flag enforcement is on.
       - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
@@ -327,6 +464,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       frontend:

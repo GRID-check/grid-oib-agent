@@ -77,9 +77,6 @@ function getHeader(init: RequestInit | undefined, name: string): string | undefi
   return headers[name]
 }
 
-function getUrl(fetchMock: ReturnType<typeof vi.fn>): string {
-  return fetchMock.mock.calls[0][0] as string
-}
 
 describe('/api/v1/[...path]', () => {
   beforeEach(() => {

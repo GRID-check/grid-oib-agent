@@ -498,7 +498,7 @@ function NormRow({
           type="button"
           onClick={onOpen}
           aria-label={t('norms.row.open', { title: entry.title })}
-          className="flex w-full flex-col items-start gap-0.5 text-left hover:underline focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+          className="flex w-full flex-col items-start gap-0.5 text-left hover:underline focus-visible:ring-2 pointer-coarse:min-h-11 focus-visible:ring-ring/60 focus-visible:outline-none"
         >
           <span className="flex items-center gap-2">
             <Badge variant="secondary" className="shrink-0">

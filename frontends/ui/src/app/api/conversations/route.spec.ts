@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The conversation list is where the accidental org-wide readability of chats was
  * visible from the outside: it used to return EVERY conversation in the
  * organization (spec §3 fact 1, ADR-0032). It now returns what the caller may

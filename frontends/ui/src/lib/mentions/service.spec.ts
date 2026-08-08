@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The mention hand-off (ADR-0034, spec MN-1…MN-16).
  *
  * The behaviour under test is *the agent deliberately not answering*, which is
@@ -26,9 +29,9 @@ vi.mock('@/lib/sharing/directory', () => ({
 
 // The real bounds (10 per message, 100 per hour) are part of the rule under test;
 // only the counter itself is stubbed.
-vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/sharing/rate-limit')>()),
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 vi.mock('@/lib/authz/project-membership', () => ({
@@ -68,7 +71,8 @@ import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import { consumeRateLimit } from '@/lib/sharing/rate-limit'
+import { MENTION_LIMIT, consumeLimit, memberSubject } from '@/lib/limits'
+import { allowedDecision, refusedDecision } from '@/test-utils/limit-fixtures'
 import { grantResourceAccess, resolveParticipants } from '@/lib/sharing/service'
 import {
   findRequestById,
@@ -153,7 +157,7 @@ beforeEach(() => {
       [CAROL, person(CAROL, 'Carol')],
     ]),
   )
-  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 100 })
+  vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(MENTION_LIMIT))
   vi.mocked(insertMentionRequests).mockImplementation(async (values) =>
     values.map((value, index) => requestRow({ ...(value as Partial<MentionRequest>), id: `req_${index + 1}` })),
   )
@@ -177,7 +181,7 @@ describe('applyMessageMentions — addressing (spec MN-1)', () => {
     // The hot path: an ordinary question to the agent must cost no probe, no
     // rate-limit write and no query.
     expect(requireResourceAccess).not.toHaveBeenCalled()
-    expect(consumeRateLimit).not.toHaveBeenCalled()
+    expect(consumeLimit).not.toHaveBeenCalled()
     expect(insertMentionRequests).not.toHaveBeenCalled()
   })
 
@@ -215,7 +219,7 @@ describe('applyMessageMentions — addressing (spec MN-1)', () => {
     await send([ANNA, ANNA])
 
     expect(vi.mocked(insertMentionRequests).mock.calls[0][0]).toHaveLength(1)
-    expect(consumeRateLimit).toHaveBeenCalledWith(expect.anything(), session.userId, 1)
+    expect(consumeLimit).toHaveBeenCalledWith(MENTION_LIMIT, memberSubject(session), 1)
   })
 })
 
@@ -330,7 +334,7 @@ describe('applyMessageMentions — bounds (spec MN-13)', () => {
   })
 
   it('refuses when the actor has exhausted their hourly mention budget', async () => {
-    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: false, current: 101, limit: 100 })
+    vi.mocked(consumeLimit).mockResolvedValue(refusedDecision(MENTION_LIMIT))
 
     const failure = await send([ANNA]).catch((error: unknown) => error)
 

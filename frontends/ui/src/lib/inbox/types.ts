@@ -13,9 +13,9 @@
  * `tsc` fails until step 2 is done.
  */
 
-import type { InboxItemType, ShareableResourceType } from '@/lib/db/schema'
+import type { InboxItemType, InboxTargetType, ShareableResourceType } from '@/lib/db/schema'
 
-export type { InboxItemType, ShareableResourceType }
+export type { InboxItemType, InboxTargetType, ShareableResourceType }
 
 /** Lifecycle state, derived from the row's timestamps. */
 export type InboxItemState = 'unread' | 'read' | 'resolved' | 'archived' | 'inert'
@@ -27,7 +27,7 @@ export interface InboxItemView {
   state: InboxItemState
   /** True for items representing an outstanding request against the recipient. */
   actionable: boolean
-  resourceType: ShareableResourceType
+  resourceType: InboxTargetType
   resourceId: string
   anchorId: string | null
   /** Resolved display name of whoever caused it; null for system items. */
@@ -70,11 +70,16 @@ export interface InboxSummaryResponse {
 /** Presentation metadata for one item type. */
 export interface InboxTypePresentation {
   /** Lucide icon name, resolved by the renderer's icon map. */
-  readonly icon: 'at-sign' | 'message-square' | 'user-plus' | 'check-circle'
+  readonly icon: 'at-sign' | 'message-square' | 'user-plus' | 'check-circle' | 'hard-drive'
   /** i18n key under `inbox.types.<key>.title` / `.body`. */
   readonly i18nKey: string
-  /** Tone hint, so an actionable request reads differently from an FYI. */
-  readonly tone: 'request' | 'info'
+  /**
+   * Tone hint, so an actionable request reads differently from an FYI.
+   *
+   * `warning` is for an operational condition: nobody is waiting on the reader,
+   * but it is not an FYI either — something in their account needs attention.
+   */
+  readonly tone: 'request' | 'info' | 'warning'
 }
 
 /**
@@ -90,6 +95,7 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'mention.answered': { icon: 'check-circle', i18nKey: 'mentionAnswered', tone: 'info' },
   'conversation.shared_with_you': { icon: 'user-plus', i18nKey: 'conversationShared', tone: 'info' },
   'conversation.activity': { icon: 'message-square', i18nKey: 'conversationActivity', tone: 'info' },
+  'storage.quota_warning': { icon: 'hard-drive', i18nKey: 'storageQuotaWarning', tone: 'warning' },
 }
 
 /**

@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Tests for chat store session busy selectors
  */
 

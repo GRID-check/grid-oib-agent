@@ -11,6 +11,27 @@ import * as pulumi from "@pulumi/pulumi";
  * Secret values are typed as `pulumi.Output<string>` — they stay encrypted in
  * the stack state and are only ever materialised inside k8s Secrets.
  */
+/**
+ * Server-side-encryption modes CloudNativePG accepts on `barmanObjectStore`'s
+ * `wal.encryption` / `data.encryption`. Mirrors the CRD enum exactly
+ * (`Enum=AES256;"aws:kms"`) — "off" is the absence of the key, not `""`, so it
+ * has no member here.
+ */
+export type BarmanEncryption = "AES256" | "aws:kms";
+
+/**
+ * Postgres database AND role name for the SeaweedFS filer namespace.
+ *
+ * Not a knob. It is referenced from four places that must agree exactly — the
+ * CNPG `managed.roles` entry, the CNPG `Database` CR, the `filer.toml` the
+ * filer mounts, and the `REVOKE CONNECT` in the init Job — and a name is not
+ * something an operator gains anything by choosing. It is deliberately NOT one
+ * of the three application databases: the filer store holds a decryption key
+ * for every chunk in the object store, so it gets its own database, owned by
+ * its own login, with `CONNECT` revoked from `PUBLIC`.
+ */
+const SEAWEED_FILER_DB = "seaweedfs_filer";
+
 export interface GridConfig {
   namespace: string;
   /** Raw kubeconfig for the target cluster (from the provider). Secret. */
@@ -27,7 +48,15 @@ export interface GridConfig {
     frontend?: string;
     /** Full override for the landing-site (web) image ref. */
     web?: string;
-    pullPolicy: string;
+    /**
+     * Explicit imagePullPolicy override for the app images. When unset the
+     * policy is derived PER IMAGE REF (`appPullPolicy`): a moving tag must
+     * re-pull, an immutable one must not — deriving one value from `tag`
+     * alone is wrong whenever a per-service override points at a different
+     * kind of reference (e.g. imageTag is a SHA while `frontendImage` is a
+     * `:latest` fallback).
+     */
+    pullPolicyOverride?: string;
     /**
      * Registry credentials for pulling the app images when they are PRIVATE
      * (e.g. a private GHCR package — the kubelet pulls anonymously, so a
@@ -47,6 +76,19 @@ export interface GridConfig {
      * provider's Lightbits (NVMe/TCP) class — discover it with
      * `kubectl get storageclass`. The CSI driver is provider-installed; we only
      * reference the class by name.
+     *
+     * **Encryption at rest is NOT something this program can request.**
+     * Kubernetes has no per-PVC encryption field: whether a volume is encrypted
+     * is decided entirely by the StorageClass's `parameters`, which are fixed
+     * when the class is created — and nothing in this repo creates a
+     * StorageClass. So there is no config key here that could turn PVC
+     * encryption on; inventing one would be a setting that does nothing.
+     *
+     * It is an OPERATOR action against the provider: obtain (or have the
+     * provider create) a StorageClass whose backing volumes are encrypted, then
+     * point this key at it. `kubectl get storageclass <name> -o yaml` shows the
+     * parameters actually in force. See docs/deployment/kubernetes.md
+     * § Encryption posture.
      */
     className: string;
   };
@@ -77,6 +119,104 @@ export interface GridConfig {
      * across a Gateway/service re-creation. Empty = let the provider assign one.
      */
     loadBalancerIp?: string;
+    /**
+     * Trusted hops when deriving the client IP from `X-Forwarded-For` (ADR-0040
+     * layer L0). This is the setting every per-IP limit depends on, and getting
+     * it wrong is silent in both directions: too low and every client is
+     * bucketed as the load balancer (one shared limit for the whole product),
+     * too high and a client can forge its own address by sending an XFF header.
+     *
+     * 0 = trust Envoy's own downstream connection address, correct when the
+     * LoadBalancer preserves the source IP (the common case with
+     * `externalTrafficPolicy: Local` or a DSR/L2 load balancer). Raise to 1 when
+     * a SNATing proxy sits in front and appends exactly one hop.
+     *
+     * VERIFY THIS ON A LIVE CLUSTER before trusting any per-IP number: compare
+     * the edge access-log client address against a known external IP.
+     */
+    xffNumTrustedHops: number;
+    /**
+     * Maximum concurrent downstream connections per Envoy proxy replica, or 0
+     * to leave it unbounded. A blunt backstop underneath the request-rate
+     * limits: it bounds file descriptors and memory when something opens
+     * connections without ever completing a request.
+     */
+    maxConnectionsPerProxy: number;
+  };
+
+  /**
+   * Edge rate limiting — ADR-0040 layer L1. Enforced by Envoy Gateway's global
+   * rate limit service against a dedicated counter store, so no application
+   * implements it.
+   *
+   * Everything here is an ABUSE BOUND: fail-open by default, per client IP, per
+   * route. Cost and quota live in other layers (ADR-0015 budgets, job
+   * admission) and are deliberately not expressible here.
+   */
+  rateLimit: {
+    /**
+     * Install the rate limit service + counter store and attach the per-route
+     * rules. When false, nothing edge-side is created and the app-layer limiters
+     * remain the only ones — which is the pre-ADR-0040 behaviour.
+     */
+    enabled: boolean;
+    /**
+     * Evaluate every rule and emit its telemetry, but never actually refuse a
+     * request (`shadowMode` on each rule).
+     *
+     * This is how the feature is meant to be introduced: run it here, read the
+     * would-have-blocked counts off the ADR-0029 pane, and only then pick real
+     * numbers. Enforcing limits chosen from intuition is how a rate limiter
+     * becomes an outage. Defaults to TRUE for exactly that reason.
+     */
+    shadowMode: boolean;
+    /**
+     * Refuse traffic when the rate limit service cannot be reached.
+     *
+     * FALSE (the default, and Envoy Gateway's) is the right answer for abuse
+     * bounds: a counter-store blip must not read as an outage. Set true only if
+     * an unlimited flood is genuinely worse than a refused one.
+     */
+    failClosed: boolean;
+    /** Per-client-IP request budgets, per minute. See `EDGE_RATE_LIMIT`. */
+    limits: {
+      /** Everything on the app host that no more specific rule claims. */
+      app: number;
+      /** `/api/auth/*` — the credential-stuffing surface. */
+      appAuth: number;
+      /** `/websocket` upgrades. Mirrors `GRID_WS_UPGRADE_RATE_LIMIT`. */
+      appWsUpgrade: number;
+      /** Presigned S3 preview/download URLs. */
+      s3: number;
+      /** The public landing site + blog. */
+      web: number;
+    };
+    /** Counter-store dataset cap. Counters are tiny and expire on their own. */
+    /**
+     * Counter-store `--maxmemory`. Floor: 256mb — Dragonfly refuses to boot
+     * below 256MiB per proactor thread, and we pin `--proactor_threads=1`
+     * (enforced in `data/dragonfly.ts`).
+     */
+    storeMaxmemory: string;
+    /** Counter-store pod memory limit; must sit above `storeMaxmemory`. */
+    storeMemoryLimit: string;
+    /**
+     * `requirepass` for the counter store. Required (with the same
+     * `allowUnauthenticatedRedis` opt-out) whenever rate limiting is enabled,
+     * and deliberately a SEPARATE key from `dragonflyPassword`.
+     *
+     * The distinctness is the point, for the same reason `pgRuntimePassword`
+     * stopped defaulting to `pgAppPassword`: every app pod holds the cache
+     * credential in its own `REDIS_URL`. Share one password and any app pod —
+     * or anything that reads one app pod's env — can also authenticate to the
+     * counter store and `FLUSHALL` the edge rate limits, which is precisely the
+     * control the app tier is not supposed to be able to lift.
+     *
+     * Consumed by Envoy Gateway's rate limit service (`REDIS_AUTH`), which runs
+     * in `envoy-gateway-system`, so it is materialised into a Secret there
+     * rather than in the app namespace.
+     */
+    storePassword?: pulumi.Output<string>;
   };
 
   postgres: {
@@ -87,6 +227,22 @@ export interface GridConfig {
     appUser: string;
     /** App role password. Secret. Drives every DSN. */
     appPassword: pulumi.Output<string>;
+    /**
+     * Password for `grid_app_rw`, the least-privilege role the app tier
+     * connects as under row-level security (ADR-0041). REQUIRED, and
+     * deliberately without a fallback to `pgAppPassword`.
+     *
+     * It used to default to the app password, on the reasoning that what bounds
+     * this role is its PRIVILEGES — DML only, RLS enforced, no DDL — rather than
+     * password distinctness. That reasoning is wrong: Postgres authenticates by
+     * (role, password), so anyone holding the runtime DSN could present the same
+     * password as `appUser`, the schema owner, who is exempt from every policy.
+     * The privilege split is only worth what the credential split is worth.
+     *
+     * `pulumi config set --secret pgRuntimePassword <value>` on each stack; an
+     * existing stack must set it (and rotate) before the next deploy.
+     */
+    runtimePassword: pulumi.Output<string>;
     /**
      * How CNPG rolls the primary during an operator/image update.
      * "unsupervised" = automatic switchover + restart (no human), which is what
@@ -118,6 +274,44 @@ export interface GridConfig {
       retention: string;
       /** 6-field cron (CNPG uses seconds-first): default nightly 02:00. */
       schedule: string;
+      /**
+       * **Server-side** encryption barman-cloud asks the destination for, on
+       * both the WAL stream and the base backups. Undefined (the default) means
+       * the key is omitted entirely and the bucket's own policy decides — which,
+       * on a bucket with no policy, means the archive is written in the clear.
+       *
+       * This matters more than any other encryption knob in the program: the
+       * PITR archive is a byte-for-byte copy of every database — every
+       * conversation, every LangGraph checkpoint, every WAL record — sitting in
+       * object storage.
+       *
+       * The accepted values are CloudNativePG's, not ours. The field lives on
+       * `wal` and `data` inside `barmanObjectStore` (NOT at its top level) and
+       * the CRD pins it to an enum:
+       *
+       *   `+kubebuilder:validation:Enum=AES256;"aws:kms"`
+       *   "Whenever to force the encryption of files (if the bucket is not
+       *    already configured for that). Allowed options are empty string (use
+       *    the bucket policy, default), `AES256` and `aws:kms`."
+       *   — barman-cloud `pkg/api`, {Wal,Data}BackupConfiguration.Encryption
+       *
+       * Because the enum has no empty member, an explicit `encryption: ""` is
+       * REJECTED by the webhook; "off" must be the key being absent, which is
+       * why this is `undefined` rather than `""`.
+       *
+       * **SSE only encrypts if the DESTINATION implements it.** barman-cloud
+       * turns this into an `x-amz-server-side-encryption` header; a store that
+       * does not implement SSE answers 200 and writes plaintext. The default
+       * destination here is the in-cluster SeaweedFS, which has NO SSE at all on
+       * the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this
+       * program configures no KMS for them even on a newer image). Setting this
+       * against that endpoint would be a setting that reads as encryption and
+       * is not — so `loadConfig` REFUSES the combination outright rather than
+       * letting it ship. Use it with an external S3 destination
+       * (`pgBackupEndpoint` + `pgBackupAccessKey`/`pgBackupSecretKey`) that
+       * documents SSE support.
+       */
+      encryption?: BarmanEncryption;
     };
   };
 
@@ -129,6 +323,25 @@ export interface GridConfig {
      * higher, so limit == maxmemory guarantees OOMKills under load.
      */
     memoryLimit: string;
+    /**
+     * `requirepass` for the ADR-0020 shared cache. REQUIRED unless
+     * `allowUnauthenticatedRedis` is set — see the check in `loadConfig`.
+     *
+     * Undefined ONLY in the explicit opt-out case, where the instance keeps its
+     * historical behaviour: no password, no TLS, reachable at
+     * `redis://dragonfly:6379/0` by any pod in the namespace (the
+     * intra-namespace NetworkPolicy allows it).
+     *
+     * That default was not a small hole. This instance carries the ADR-0028
+     * conversation bus — every WebSocket frame of every chat, with a replayable
+     * 500-event backlog per conversation — plus the cached WorkOS directory
+     * (`directory:<orgId>`: email, display name, avatar), authorization
+     * decisions and budget state. A password does not make it confidential on
+     * the wire (Dragonfly here still speaks plaintext RESP; see
+     * docs/deployment/kubernetes.md § Encryption posture), but it does stop any
+     * pod that can open a TCP connection from reading and rewriting all of it.
+     */
+    password?: pulumi.Output<string>;
   };
 
   /**
@@ -179,6 +392,192 @@ export interface GridConfig {
     bucket: string;
     accessKey: string;
     secretKey: pulumi.Output<string>;
+    /**
+     * How SeaweedFS is laid out (ADR-0043).
+     *
+     * `single` — one `weed server -s3` process running master + volume + filer
+     * + gateway against one PVC. What every deployment ran before ADR-0043.
+     *
+     * `split` — three workloads: a master StatefulSet, a horizontally scalable
+     * volume StatefulSet, and a filer StatefulSet carrying the S3 gateway. This
+     * is what makes volume capacity a replica count instead of a PVC resize,
+     * and what lets the filer store (which holds every chunk's AES key) live
+     * somewhere other than the disk holding the ciphertext.
+     *
+     * **Switching is a data migration, not a config change.** The two
+     * topologies use different PVCs, so flipping this on a stack that already
+     * holds objects starts an EMPTY cluster while the old volumes sit
+     * untouched on a PVC nothing mounts. `docs/deployment/kubernetes.md`
+     * § "Migrating SeaweedFS to the split topology" is the runbook; existing
+     * stacks pin `single` in their own `Pulumi.<stack>.yaml` until they have
+     * run it.
+     */
+    topology: "single" | "split";
+    /** Master replicas (split only). Raft — must be odd. 1 = no HA. */
+    masterReplicas: number;
+    /** Volume-server replicas (split only). This is the capacity knob. */
+    volumeReplicas: number;
+    /** Filer+gateway replicas (split only). See `filerStore` before raising. */
+    filerReplicas: number;
+    /** PVC size for the master's `-mdir` (raft log + volume-id sequence). */
+    masterStorageSize: string;
+    /**
+     * PVC size for the filer's `-defaultStoreDir` (split only).
+     *
+     * Its own knob rather than the master's, which it used to borrow. The two
+     * disks hold nothing alike: the master's is a raft log and a volume-id
+     * sequence and is genuinely tiny, while under `filerStore: "leveldb"` the
+     * filer's holds the metadata entry AND the per-chunk AES key for every
+     * object in the deployment. Sharing the knob meant an operator whose filer
+     * store was filling had nothing to raise but the master's claim, and a full
+     * filer store stops every write.
+     *
+     * The default is deliberately larger than the master's for that reason. Under
+     * `filerStore: "postgres"` the namespace lives in Postgres and this claim
+     * holds almost nothing — but it is still mounted, so it still needs a size.
+     */
+    filerStorageSize: string;
+    /**
+     * Size cap for a single volume file, in MB (master `-volumeSizeLimitMB`).
+     *
+     * SeaweedFS's own default is 30000 (≈30 GB), which is sized for bare-metal
+     * disks and is a trap on a PVC: the volume server derives its writable-slot
+     * count from `free / volumeSizeLimit`, so a 20 Gi PVC with a 30 GB limit
+     * computes ONE slot, and a 10 Gi PVC computed zero — which surfaced live as
+     * "No writable volumes and no free volumes left" on every upload. 1 GiB
+     * volumes keep that arithmetic sane at PVC sizes and cost nothing:
+     * SeaweedFS grows volumes lazily, so slots are not preallocated.
+     */
+    volumeSizeLimitMB: number;
+    /** Writable volume slots per volume server (`-max`). */
+    volumeMaxCount: number;
+    /**
+     * Free space below which a volume server marks ALL its volumes read-only
+     * (`-minFreeSpace`). Must exceed one `volumeSizeLimitMB`, or the disk can
+     * hit ENOSPC in the middle of growing a volume before the brake engages.
+     */
+    volumeMinFreeSpace: string;
+    /**
+     * SeaweedFS replica placement, `<diffDC><diffRack><sameRack>` (master
+     * `-defaultReplication`). `000` = one copy. `010` = two copies in
+     * different racks — and each volume pod reports its Kubernetes NODE as its
+     * rack, so `010` is what actually puts the two copies on two machines.
+     * `loadConfig` refuses a placement that needs more volume servers than the
+     * deployment runs.
+     */
+    defaultReplication: string;
+    /**
+     * Where the filer keeps the namespace (split only).
+     *
+     * `postgres` — a dedicated database and role on the existing CNPG cluster,
+     * via SeaweedFS's `[postgres2]` store. The filer's PVC goes unused, the
+     * metadata inherits Postgres' backups and replication, and — the reason
+     * this exists — the per-chunk encryption keys stop living on the same disk
+     * as the chunks they open.
+     *
+     * `leveldb` — an embedded store on the filer's own PVC. No extra moving
+     * parts, but single-replica only, and it puts the keys back beside the
+     * ciphertext (one disk, both halves).
+     */
+    filerStore: "postgres" | "leveldb";
+    /** Postgres role/database name for the `postgres` filer store. */
+    filerDatabase: string;
+    filerDatabaseUser: string;
+    filerDatabasePassword: pulumi.Output<string>;
+    /**
+     * Dedicated READ-ONLY, bucket-scoped S3 identity for the aiq-agent tier
+     * (ADR-0039 `view_knowledge_image`): its SeaweedFS s3.json entry grants
+     * `Read` on the documents bucket only — no Write/Admin — and the backend
+     * never receives the root `grid` access key. The secret key MUST be
+     * distinct from `seaweedfsSecretKey`: shared key material would let the
+     * backend pod authenticate as the root Admin identity.
+     */
+    backendReadAccessKey: string;
+    backendReadSecretKey: pulumi.Output<string>;
+    /**
+     * Give every organization its own S3 bucket instead of a key prefix inside
+     * one shared bucket (ADR-0043).
+     *
+     * What it buys, concretely: tenant erasure becomes `DeleteBucket` instead
+     * of a paginated list-and-delete that can half-finish; a prefix bug can no
+     * longer read across tenants because the bucket, not the key, is the
+     * boundary; and usage becomes measurable per tenant at the storage layer
+     * rather than only in the application's own ledger.
+     *
+     * Objects written before this was switched on stay exactly where they are.
+     * The bucket is persisted on each document row (`documents.storage_bucket`,
+     * NULL meaning "the shared bucket"), so old and new coexist indefinitely
+     * and there is no cutover moment.
+     */
+    perOrgBuckets: boolean;
+    /**
+     * Bucket-name prefix for per-organization buckets. Load-bearing for
+     * authorization: the S3 identities are scoped with `<Action>:<prefix>*`,
+     * so this prefix is what separates "every tenant bucket" from "also the
+     * Postgres backup archive". `loadConfig` refuses a prefix that overlaps
+     * any platform bucket name.
+     */
+    tenantBucketPrefix: string;
+    /**
+     * Credential for the ONLY identity allowed to create and drop tenant
+     * buckets. Held by the provisioning and purge paths, never by the ordinary
+     * object-CRUD path — SeaweedFS's `Admin:<bucket>` authorises DeleteBucket
+     * as well as CreateBucket, so separating the credential is the only way to
+     * keep bucket lifecycle off the request path.
+     */
+    tenantAdminAccessKey: string;
+    tenantAdminSecretKey: pulumi.Output<string>;
+    /**
+     * Offsite backup for the documents bucket (ADR-0042).
+     *
+     * Disabled by default because it needs an EXTERNAL S3 target to mean
+     * anything: pointing it back at this cluster's own SeaweedFS reproduces the
+     * exact hole it exists to close. Enabling it without `endpoint`/keys is
+     * refused at load time rather than silently running a backup to nowhere.
+     */
+    backup: {
+      enabled: boolean;
+      /** External S3 endpoint. MUST NOT be the in-cluster SeaweedFS. */
+      endpoint: string;
+      bucket: string;
+      region: string;
+      accessKey: pulumi.Output<string>;
+      secretKey: pulumi.Output<string>;
+      /** 5-field cron for the `fs.meta.save` snapshot. Default: nightly 03:00. */
+      metadataSchedule: string;
+    };
+    /**
+     * Encrypt chunk data written to volume servers. ON by default.
+     *
+     * A FILER flag (`-filer.encryptVolumeData`) — the volume server has no
+     * concept of encryption and stores the ciphertext as opaque bytes. Each
+     * chunk gets its own AES-256-GCM key, generated at write time from
+     * crypto/rand.
+     *
+     * TWO THINGS TO KNOW, both consequences rather than reasons not to:
+     *
+     * 1. **New writes only.** Objects already in the bucket stay plaintext and
+     *    keep working (each chunk carries its own key, or none). There is no
+     *    bulk-encrypt tool; encrypting the existing corpus means rewriting every
+     *    object. Turning the flag back OFF is safe for reads — already-encrypted
+     *    chunks keep their keys.
+     *
+     * 2. **The filer store becomes the key store for every object.** Lose or
+     *    corrupt it and the volume data is unrecoverable ciphertext — no master
+     *    key, no escrow, no recovery. That makes the metadata snapshot
+     *    (`seaweedfsBackupEnabled`, ADR-0042 Layer B) load-bearing rather than
+     *    nice to have, and it is why `loadConfig` warns below when encryption is
+     *    on without a backup.
+     *
+     * Scope of protection: someone who obtains volume disks WITHOUT the filer
+     * store. In the current single-node topology the filer's leveldb store sits
+     * on the SAME PVC as the volume data, so that separation does not exist yet
+     * and the real gain is the GDPR-erasure property (drop the metadata and the
+     * bytes become undecryptable). Moving the filer store to Postgres — the
+     * topology split ADR-0042 defers — is what turns this into disk-theft
+     * protection.
+     */
+    encryptVolumeData: boolean;
   };
 
   /**
@@ -312,6 +711,34 @@ export interface GridConfig {
   workflows: {
     enabled: boolean;
     minIntervalMinutes: number;
+  };
+
+  storageAlerts: {
+    /**
+     * The storage-quota warning sweep (ADR-0042).
+     *
+     * Enabled by default, unlike most gates here: the quota already REFUSES the
+     * upload that would cross it, so with no alert the first person to learn
+     * about the limit is whoever happens to break mid-task. A deployment that
+     * sets no quota at all is unaffected — an org with no quota is skipped, so
+     * the sweep costs one grouped aggregate per tick and emits nothing.
+     */
+    enabled: boolean;
+    /**
+     * Share of the quota at which the first warning goes out, as a percentage.
+     * Reaches the frontend as `GRID_STORAGE_ALERT_THRESHOLD_PERCENT`. Escalation
+     * to 90% and 100% is automatic and not configurable — "you have run out" is
+     * a different message from "you are nearly out", and a computed step can
+     * straddle 100%.
+     */
+    thresholdPercent: number;
+    /**
+     * 5-field cron for the sweep. Hourly by default: the condition it reports
+     * changes on the timescale of an ingest, and the alert is suppressed while
+     * it is already live, so a shorter period costs queries without telling
+     * anybody anything new.
+     */
+    schedule: string;
   };
 
   collaboration: {
@@ -458,6 +885,43 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
   return v === undefined ? fallback : v;
 }
 
+/**
+ * Require a SET of secrets together, naming the ones that are missing.
+ *
+ * Credentials arrive in pairs — an access key and a secret key — and a guard
+ * written from the error message rather than from the requirement tests one of
+ * them. That is not a hypothetical: the documents-backup guard named both keys
+ * and checked only the access key, so a stack that set one and omitted the other
+ * planned clean, substituted `pulumi.secret("")`, and `weed filer.backup` signed
+ * every request with an empty secret — `SignatureDoesNotMatch`, i.e. exactly the
+ * silent backup-to-nowhere the guard existed to refuse.
+ *
+ * Reporting ALL the missing keys rather than the first also matters: a plan that
+ * fails once per missing key is three plans.
+ *
+ * Read with `cfg.get`, and an EMPTY value counts as missing. `getSecret("")`
+ * returns a defined output, so an unset-vs-set check would pass for
+ * `pulumi config set --secret grid-oib:… ""` — which is not a hypothetical
+ * either, it is what the failure this guard was written for actually looked
+ * like: a signing key that exists, is empty, and turns every request into
+ * `SignatureDoesNotMatch`. A credential that cannot sign is not a credential,
+ * so the guard measures usability rather than presence. `cfg.get` is safe here
+ * because nothing is returned — only the KEY NAMES reach the message.
+ */
+function requireSecretsTogether(
+  cfg: pulumi.Config,
+  keys: string[],
+  because: string,
+): void {
+  const missing = keys.filter((key) => (cfg.get(key) ?? "").trim() === "");
+  if (missing.length === 0) return;
+  throw new Error(
+    `${missing.map((k) => `grid-oib:${k}`).join(", ")} ${missing.length === 1 ? "is" : "are"} ` +
+      `required ${because}. Set ${missing.length === 1 ? "it" : "them"} with ` +
+      `\`pulumi config set --secret\`.`,
+  );
+}
+
 export function loadConfig(): GridConfig {
   const cfg = new pulumi.Config();
 
@@ -494,6 +958,23 @@ export function loadConfig(): GridConfig {
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
   rejectPlaceholder("otelDomain", ["example.com"]);
 
+  // The BFF clamps a nonsense threshold back to 80 rather than switching the
+  // warning off, which is the right runtime behaviour and a terrible deploy-time
+  // one: an operator who set 800 meaning 80 would get the default forever and no
+  // sign of it. Caught here, where there is somebody to read the message.
+  const storageAlertThresholdPercent = num(cfg, "storageAlertThresholdPercent", 80);
+  if (
+    !Number.isFinite(storageAlertThresholdPercent) ||
+    storageAlertThresholdPercent <= 0 ||
+    storageAlertThresholdPercent > 100
+  ) {
+    throw new Error(
+      `grid-oib:storageAlertThresholdPercent must be a percentage in (0, 100]; got ` +
+        `"${storageAlertThresholdPercent}". This is the share of its storage quota at which an ` +
+        "organization is warned (ADR-0042); escalation to 90% and 100% is automatic.",
+    );
+  }
+
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
   const imageTag = cfg.get("imageTag") ?? "latest";
@@ -507,6 +988,396 @@ export function loadConfig(): GridConfig {
       `grid-oib:webMinReplicas must be >= 2 (got ${webMinReplicas}). The web PodDisruptionBudget ` +
         "allows maxUnavailable 1, so a single replica means a full landing-site outage during " +
         "any voluntary disruption.",
+    );
+  }
+
+  // ── SeaweedFS topology (ADR-0043) ─────────────────────────────────────────
+  // Every check here is about one thing: the two topologies do not share PVCs,
+  // and the two filer stores do not share a namespace. Getting either wrong
+  // produces a cluster that starts cleanly, reports healthy, and cannot see a
+  // single existing object — the worst possible failure shape, because nothing
+  // is broken enough to page anyone.
+  const seaweedTopologyRaw = (cfg.get("seaweedfsTopology") ?? "split").trim();
+  if (seaweedTopologyRaw !== "single" && seaweedTopologyRaw !== "split") {
+    throw new Error(
+      `grid-oib:seaweedfsTopology must be "single" or "split" (got "${seaweedTopologyRaw}").`,
+    );
+  }
+  const seaweedTopology: "single" | "split" = seaweedTopologyRaw;
+
+  const seaweedFilerStoreRaw = (cfg.get("seaweedfsFilerStore") ?? "postgres").trim();
+  if (seaweedFilerStoreRaw !== "postgres" && seaweedFilerStoreRaw !== "leveldb") {
+    throw new Error(
+      `grid-oib:seaweedfsFilerStore must be "postgres" or "leveldb" (got "${seaweedFilerStoreRaw}").`,
+    );
+  }
+  const seaweedFilerStore: "postgres" | "leveldb" = seaweedFilerStoreRaw;
+
+  const seaweedMasterReplicas = num(cfg, "seaweedfsMasterReplicas", 1);
+  const seaweedFilerReplicas = num(cfg, "seaweedfsFilerReplicas", 1);
+  if (seaweedTopology === "split") {
+    // Raft cannot form a majority from an even number of voters: 2 masters
+    // tolerate zero failures and deadlock on a split, which is strictly worse
+    // than 1. Refuse rather than let someone "add HA" and reduce availability.
+    if (seaweedMasterReplicas < 1 || seaweedMasterReplicas % 2 === 0) {
+      throw new Error(
+        `grid-oib:seaweedfsMasterReplicas must be an odd number >= 1 (got ${seaweedMasterReplicas}). ` +
+          "The masters form a Raft quorum, and an even count tolerates no more failures than " +
+          "the odd number below it while adding a way to deadlock.",
+      );
+    }
+    if (num(cfg, "seaweedfsVolumeReplicas", 1) < 1) {
+      throw new Error("grid-oib:seaweedfsVolumeReplicas must be >= 1.");
+    }
+    // An embedded leveldb lives on the pod's own PVC, so a second replica gets
+    // a second, DIFFERENT namespace. Both would answer S3 requests and each
+    // would see roughly half the objects, depending on which pod the Service
+    // picked. Nothing would error.
+    if (seaweedFilerStore === "leveldb" && seaweedFilerReplicas > 1) {
+      throw new Error(
+        `grid-oib:seaweedfsFilerReplicas is ${seaweedFilerReplicas} with the embedded leveldb ` +
+          "filer store. Each replica would keep its own private namespace on its own PVC, so " +
+          "the same object would exist or not depending on which pod answered. Use " +
+          'seaweedfsFilerStore="postgres" to run more than one filer.',
+      );
+    }
+    if (seaweedFilerReplicas < 1) {
+      throw new Error("grid-oib:seaweedfsFilerReplicas must be >= 1.");
+    }
+    if (seaweedFilerStore === "postgres" && cfg.getSecret("seaweedfsFilerDbPassword") === undefined) {
+      throw new Error(
+        "grid-oib:seaweedfsFilerDbPassword is required when seaweedfsFilerStore is \"postgres\". " +
+          "It is the login for the dedicated Postgres role that owns the filer namespace — " +
+          'set it with `pulumi config set --secret grid-oib:seaweedfsFilerDbPassword "$(openssl rand -base64 24)"`.',
+      );
+    }
+  } else {
+    // Non-default replica counts on the single-node topology are a silent
+    // no-op: there is exactly one process and one PVC. Say so at plan time
+    // rather than let someone believe they scaled something.
+    if (seaweedMasterReplicas !== 1 || num(cfg, "seaweedfsVolumeReplicas", 1) !== 1 || seaweedFilerReplicas !== 1) {
+      pulumi.log.warn(
+        'grid-oib:seaweedfsTopology is "single", so seaweedfsMasterReplicas / ' +
+          "seaweedfsVolumeReplicas / seaweedfsFilerReplicas are ignored — the single-node " +
+          'topology is one process on one PVC. Set seaweedfsTopology="split" to scale it.',
+      );
+    }
+  }
+
+  // Volume sizing. Both numbers are only meaningful relative to each other and
+  // to the PVC, which is why they are checked together rather than clamped
+  // individually.
+  const seaweedVolumeSizeLimitMB = num(cfg, "seaweedfsVolumeSizeLimitMB", 1024);
+  if (seaweedVolumeSizeLimitMB < 1 || seaweedVolumeSizeLimitMB > 30000) {
+    // 30000 is SeaweedFS's own hard ceiling — `weed master` fatals above it.
+    throw new Error(
+      `grid-oib:seaweedfsVolumeSizeLimitMB must be between 1 and 30000 (got ${seaweedVolumeSizeLimitMB}).`,
+    );
+  }
+  {
+    // A volume server marks every volume read-only once free space drops below
+    // `-minFreeSpace`. If that threshold is smaller than one volume, the disk
+    // can run out WHILE a volume is growing into it — the brake engages after
+    // the crash it exists to prevent.
+    const minFree = cfg.get("seaweedfsVolumeMinFreeSpace") ?? "2GiB";
+    const match = /^(\d+(?:\.\d+)?)\s*(GiB|GB|MiB|MB)$/i.exec(minFree.trim());
+    if (match) {
+      const value = Number(match[1]);
+      const unit = match[2].toUpperCase();
+      const mib = unit.startsWith("G") ? value * 1024 : value;
+      if (mib < seaweedVolumeSizeLimitMB) {
+        throw new Error(
+          `grid-oib:seaweedfsVolumeMinFreeSpace (${minFree}) is smaller than one volume ` +
+            `(seaweedfsVolumeSizeLimitMB=${seaweedVolumeSizeLimitMB}MB). The read-only brake would ` +
+            "engage only after a volume had already run the disk out mid-write.",
+        );
+      }
+    }
+    // A bare number means "percent" to SeaweedFS, which we cannot check against
+    // a PVC size here — leave it to the operator.
+  }
+
+  const seaweedReplication = (cfg.get("seaweedfsDefaultReplication") ?? "000").trim();
+  if (!/^[0-9]{3}$/.test(seaweedReplication)) {
+    throw new Error(
+      `grid-oib:seaweedfsDefaultReplication must be three digits, ` +
+        `<diffDataCenter><diffRack><sameRack> (got "${seaweedReplication}").`,
+    );
+  }
+  {
+    // Copies = the three digits plus the original. SeaweedFS does not fail the
+    // deployment when it cannot place them; it fails each volume-grow attempt
+    // with "Only has N racks, not enough for M", which surfaces as uploads that
+    // stop working once the first volume fills. Catch it at plan time.
+    const copies =
+      Number(seaweedReplication[0]) + Number(seaweedReplication[1]) + Number(seaweedReplication[2]) + 1;
+    const volumeReplicas = num(cfg, "seaweedfsVolumeReplicas", 1);
+    if (seaweedTopology === "split" && copies > volumeReplicas) {
+      throw new Error(
+        `grid-oib:seaweedfsDefaultReplication "${seaweedReplication}" asks for ${copies} copies but ` +
+          `seaweedfsVolumeReplicas is ${volumeReplicas}. Volume growth would fail once the first ` +
+          "volume fills, which looks like uploads spontaneously breaking rather than a config error.",
+      );
+    }
+    if (seaweedTopology === "single" && copies > 1) {
+      throw new Error(
+        `grid-oib:seaweedfsDefaultReplication "${seaweedReplication}" asks for ${copies} copies, but ` +
+          'seaweedfsTopology="single" runs exactly one volume server. Use "000".',
+      );
+    }
+  }
+
+  // ── Per-organization buckets (ADR-0043) ───────────────────────────────────
+  const seaweedPerOrgBuckets = bool(cfg, "seaweedfsPerOrgBuckets", false);
+  const seaweedTenantPrefix = (cfg.get("seaweedfsTenantBucketPrefix") ?? "grid-org-").trim();
+
+  // Validated UNCONDITIONALLY, not only when the feature is on, because the
+  // grants are issued unconditionally. `Read:<prefix>*` is emitted whether or
+  // not per-organization buckets are enabled — that is what keeps a rollback
+  // from revoking access to everything written while they were — so the prefix
+  // is load-bearing even in a deployment that has never created a tenant
+  // bucket. Gating these checks on the flag would let
+  // `seaweedfsTenantBucketPrefix: grid-` sail through with the feature off and
+  // hand `grid-documents` AND `grid-pg-backups` to every identity holding a
+  // tenant scope, including the read-only agent credential. That is the exact
+  // bug ADR-0043 exists to fix, re-entered through a side door.
+  //
+  // S3 bucket names: 3–63 chars, lowercase alphanumeric and hyphens, must start
+  // with a letter or digit. The prefix is only part of a name, so the length
+  // floor does not apply to it — but every other rule does, and the trailing
+  // hyphen is what keeps `grid-org-*` from also matching a hypothetical
+  // `grid-organizations` bucket.
+  if (!/^[a-z0-9][a-z0-9-]*-$/.test(seaweedTenantPrefix)) {
+    throw new Error(
+      `grid-oib:seaweedfsTenantBucketPrefix must be lowercase alphanumeric/hyphen, start with a ` +
+        `letter or digit, and end with "-" (got "${seaweedTenantPrefix}").`,
+    );
+  }
+  if (seaweedTenantPrefix.length > 32) {
+    throw new Error(
+      `grid-oib:seaweedfsTenantBucketPrefix is ${seaweedTenantPrefix.length} chars. S3 caps a ` +
+        "bucket name at 63, and the organization id plus a collision-proof hash needs the rest.",
+    );
+  }
+  // Reserved by S3 and rejected by SeaweedFS's own `VerifyS3BucketName`, so a
+  // prefix starting with it produces names that fail at CreateBucket time for
+  // every tenant.
+  if (seaweedTenantPrefix.startsWith("xn--")) {
+    throw new Error(
+      `grid-oib:seaweedfsTenantBucketPrefix must not start with "xn--" (got "${seaweedTenantPrefix}") — ` +
+        "S3 reserves that prefix and SeaweedFS rejects such a bucket name outright.",
+    );
+  }
+  // THE load-bearing check. The S3 identities are scoped with
+  // `<Action>:<prefix>*`, matched by string prefix — so a prefix that is itself
+  // a prefix of a platform bucket name silently re-grants that bucket to every
+  // identity holding a tenant scope, including the read-only agent credential.
+  // `grid-` as a prefix would hand out `grid-documents` AND `grid-pg-backups`,
+  // i.e. the entire Postgres PITR archive.
+  {
+    const platformBuckets = [
+      cfg.get("seaweedfsBucket") ?? "grid-documents",
+      cfg.get("pgBackupBucket") ?? "grid-pg-backups",
+      cfg.get("seaweedfsBackupBucket") ?? "grid-documents-backup",
+    ];
+    for (const bucket of platformBuckets) {
+      if (bucket.startsWith(seaweedTenantPrefix)) {
+        throw new Error(
+          `grid-oib:seaweedfsTenantBucketPrefix "${seaweedTenantPrefix}" is a prefix of the platform ` +
+            `bucket "${bucket}". Tenant grants are wildcard-scoped (\`Read:${seaweedTenantPrefix}*\`) and ` +
+            "match by string prefix, so this would hand that bucket to every identity holding a " +
+            "tenant scope — including the read-only agent credential.",
+        );
+      }
+    }
+  }
+  // Only the CREDENTIAL is gated, because creating buckets is the one thing
+  // that genuinely stops when the feature is off.
+  if (seaweedPerOrgBuckets && cfg.getSecret("seaweedfsTenantAdminSecretKey") === undefined) {
+    throw new Error(
+      "grid-oib:seaweedfsTenantAdminSecretKey is required when seaweedfsPerOrgBuckets is true. " +
+        "It is the credential for the only identity allowed to create and drop tenant buckets — " +
+        'set it with `pulumi config set --secret grid-oib:seaweedfsTenantAdminSecretKey "$(openssl rand -base64 24)"`.',
+    );
+  }
+
+  // Fail fast: a documents backup that writes back into this cluster's own
+  // SeaweedFS is not a backup — it is a second copy on the disk you are trying
+  // to survive losing. Refuse the two ways that happens: no endpoint at all, and
+  // an endpoint pointing at the in-cluster service.
+  const seaweedBackupEnabled = cfg.getBoolean("seaweedfsBackupEnabled") ?? false;
+  if (seaweedBackupEnabled) {
+    const backupEndpoint = cfg.get("seaweedfsBackupEndpoint") ?? "";
+    if (!backupEndpoint) {
+      throw new Error(
+        "grid-oib:seaweedfsBackupEndpoint is required when seaweedfsBackupEnabled is true. " +
+          "Point it at an EXTERNAL S3 endpoint — an in-cluster target does not survive the " +
+          "cluster loss the backup exists to cover.",
+      );
+    }
+    // Plaintext offsite is worse than no offsite: every document, and the
+    // long-lived S3 secret key that signs for them, would cross the open
+    // internet in the clear. The previous check only refused an in-CLUSTER
+    // endpoint, so `http://backup.example.com` sailed through.
+    if (!backupEndpoint.startsWith("https://")) {
+      throw new Error(
+        `grid-oib:seaweedfsBackupEndpoint must be https:// (got ${backupEndpoint}). ` +
+          "The mirror ships every document plus a long-lived S3 credential; over plaintext " +
+          "HTTP both are readable by anyone on the path.",
+      );
+    }
+    if (backupEndpoint.includes("seaweedfs:8333") || backupEndpoint.includes("//seaweedfs")) {
+      throw new Error(
+        `grid-oib:seaweedfsBackupEndpoint points at the in-cluster SeaweedFS (${backupEndpoint}). ` +
+          "That stores the backup on the same volumes as the data. Use an external S3 endpoint.",
+      );
+    }
+    // BOTH keys. Half a credential is worse than none: the plan succeeds, the
+    // sidecar starts, and every request fails `SignatureDoesNotMatch` against a
+    // mirror the operator believes is running.
+    requireSecretsTogether(
+      cfg,
+      ["seaweedfsBackupAccessKey", "seaweedfsBackupSecretKey"],
+      "when seaweedfsBackupEnabled is true",
+    );
+  }
+
+  // Encryption on + no metadata backup is the one combination that loses data
+  // PERMANENTLY rather than temporarily. Chunk keys live in the filer store, so
+  // without a snapshot of that store there is no path back from its corruption —
+  // the volume files survive as ciphertext nobody can open. Warn rather than
+  // refuse: an operator may be running encryption deliberately in dev, and a
+  // hard failure would make the safer default (encryption on) harder to adopt
+  // than the unsafe one.
+  const seaweedEncrypt = cfg.getBoolean("seaweedfsEncryptVolumeData") ?? true;
+  if (seaweedEncrypt && !seaweedBackupEnabled) {
+    pulumi.log.warn(
+      "SeaweedFS volume encryption is ON but seaweedfsBackupEnabled is false. Chunk keys live in " +
+        "the filer metadata store, so losing it makes every encrypted object unrecoverable — " +
+        "there is no master key and no escrow. Enable the backup (ADR-0042) before storing " +
+        "anything you cannot afford to lose, or set seaweedfsEncryptVolumeData=false.",
+    );
+  }
+  // Chunk encryption only protects against someone who gets the CIPHERTEXT
+  // without the KEYS. On the single-node topology, and on the split topology
+  // with the embedded store, both halves sit on disks in the same cluster —
+  // and under `single` they sit on the SAME PVC. The feature is still worth
+  // having there (dropping the metadata makes the bytes undecryptable, which is
+  // the GDPR-erasure property), but calling it at-rest protection would be a
+  // lie, so say what it is.
+  if (
+    seaweedEncrypt &&
+    (seaweedTopology === "single" || seaweedFilerStore === "leveldb")
+  ) {
+    pulumi.log.warn(
+      "SeaweedFS volume encryption is ON, but the filer store shares a cluster (and under " +
+        'seaweedfsTopology="single", the same PVC) with the volume data it encrypts. Anyone who ' +
+        "can read the volume files can read the keys beside them, so this is not disk-theft " +
+        'protection yet — it buys crypto-erasure only. seaweedfsTopology="split" with ' +
+        'seaweedfsFilerStore="postgres" is what separates the two (ADR-0043).',
+    );
+  }
+
+  // ── Postgres PITR archive encryption ──────────────────────────────────────
+  // The archive is the single largest plaintext surface in the stack when it is
+  // on: WAL + base backups are a byte-for-byte copy of all three databases.
+  // `pgBackupEncryption` asks the DESTINATION for server-side encryption, so it
+  // is only ever as real as the destination — hence the two checks below and
+  // the warning that names the exposure when there is none.
+  const pgBackupsEnabled = bool(cfg, "pgBackupsEnabled", false);
+  const pgBackupEndpoint = cfg.get("pgBackupEndpoint") ?? "http://seaweedfs:8333";
+  const pgBackupEncryptionRaw = (cfg.get("pgBackupEncryption") ?? "").trim();
+  const pgBackupEncryption: BarmanEncryption | undefined =
+    pgBackupEncryptionRaw === "" ? undefined : (pgBackupEncryptionRaw as BarmanEncryption);
+  if (pgBackupEncryption !== undefined && !["AES256", "aws:kms"].includes(pgBackupEncryption)) {
+    // The CNPG webhook would reject this too, but only ~20 min into a `pulumi
+    // up` that has already started mutating the cluster.
+    throw new Error(
+      `grid-oib:pgBackupEncryption must be "AES256" or "aws:kms" (got "${pgBackupEncryptionRaw}"). ` +
+        "Leave it unset to inherit the bucket policy — CloudNativePG's enum has no empty member, " +
+        "so \"off\" is the key being absent, not an empty string.",
+    );
+  }
+  // `//seaweedfs` also catches `http://seaweedfs.grid.svc.cluster.local:8333`.
+  const pgBackupIsInCluster =
+    pgBackupEndpoint.includes("//seaweedfs") || pgBackupEndpoint.includes("seaweedfs:8333");
+  if (pgBackupEncryption !== undefined && pgBackupIsInCluster) {
+    // Refuse rather than warn. barman-cloud turns this into an
+    // `x-amz-server-side-encryption` request header; SeaweedFS 3.80 (the pinned
+    // production image) implements no SSE at all, answers 200, and stores the
+    // object unencrypted. Accepting the setting here would put "encryption:
+    // AES256" in the Cluster spec, in the plan, and in any audit of it — while
+    // the bytes on disk are plaintext. That is worse than no setting.
+    throw new Error(
+      `grid-oib:pgBackupEncryption is set ("${pgBackupEncryptionRaw}") but pgBackupEndpoint points at ` +
+        `the in-cluster SeaweedFS (${pgBackupEndpoint}), which implements no server-side encryption ` +
+        "(SSE-S3/KMS/C first appear in 3.97; prod pins 3.80, and this program configures no KMS for " +
+        "them on any image). SeaweedFS answers such a request 200 and stores the object in the clear, " +
+        "so the setting would claim an encryption that does not exist. Point pgBackupEndpoint at an " +
+        "external S3 destination that documents SSE support, or leave pgBackupEncryption unset.",
+    );
+  }
+  if (pgBackupsEnabled && pgBackupEncryption === undefined) {
+    pulumi.log.warn(
+      "Postgres PITR archive is UNENCRYPTED at rest. WAL and base backups are a byte-for-byte copy " +
+        "of all three databases (conversations, LangGraph checkpoints, the whole grid_app schema) " +
+        `and go to ${pgBackupEndpoint} with no encryption requested. On the in-cluster SeaweedFS ` +
+        "there is no fix available in this program — SeaweedFS 3.80 has no SSE, and volume-chunk " +
+        "encryption (seaweedfsEncryptVolumeData) is the only at-rest control that applies. For a " +
+        "real guarantee use an external S3 destination and set grid-oib:pgBackupEncryption=AES256. " +
+        "See docs/deployment/kubernetes.md § Encryption posture.",
+    );
+  }
+
+  // ── Dragonfly authentication ──────────────────────────────────────────────
+  // Both instances shipped with NO password and NO TLS while the intra-namespace
+  // NetworkPolicy lets any pod open 6379. The cache is the serious one: it
+  // carries the ADR-0028 conversation bus (every chat frame, replayable), the
+  // cached WorkOS directory (email/name/avatar), authz decisions and budget
+  // state. Fail closed like `jobPayloadKek` does — a password must be a
+  // decision, in one direction or the other, never a default nobody noticed.
+  const rateLimitEnabled = bool(cfg, "rateLimitEnabled", true);
+  const allowUnauthenticatedRedis = bool(cfg, "allowUnauthenticatedRedis", false);
+  const dragonflyPassword = cfg.getSecret("dragonflyPassword");
+  const rateLimitStorePassword = cfg.getSecret("rateLimitStorePassword");
+  const missingRedisPasswords = [
+    dragonflyPassword === undefined ? "dragonflyPassword" : undefined,
+    rateLimitEnabled && rateLimitStorePassword === undefined ? "rateLimitStorePassword" : undefined,
+  ].filter((k): k is string => k !== undefined);
+  if (missingRedisPasswords.length > 0 && !allowUnauthenticatedRedis) {
+    throw new Error(
+      `Dragonfly would run with no authentication: ${missingRedisPasswords
+        .map((k) => `grid-oib:${k}`)
+        .join(", ")} unset. Any pod in the namespace could then read the conversation bus (every ` +
+        "chat frame), the cached user directory, authorization decisions and budget state — or reset " +
+        "the edge rate-limit counters. Set them:\n" +
+        "  pulumi config set --secret grid-oib:dragonflyPassword $(openssl rand -base64 32)\n" +
+        "  pulumi config set --secret grid-oib:rateLimitStorePassword $(openssl rand -base64 32)\n" +
+        "To deliberately run WITHOUT authentication (dev/single-node only), set:\n" +
+        "  pulumi config set grid-oib:allowUnauthenticatedRedis true",
+    );
+  }
+  // Distinctness, for the same reason pgRuntimePassword stopped falling back to
+  // pgAppPassword: every app pod holds the cache credential in its own
+  // REDIS_URL, so reusing it for the counter store hands the app tier the
+  // ability to flush the edge rate limits. Compared, never printed.
+  if (
+    dragonflyPassword !== undefined &&
+    rateLimitStorePassword !== undefined &&
+    cfg.get("dragonflyPassword") === cfg.get("rateLimitStorePassword")
+  ) {
+    throw new Error(
+      "grid-oib:rateLimitStorePassword must differ from grid-oib:dragonflyPassword. Every app pod " +
+        "carries the cache password in REDIS_URL; sharing it would let the app tier authenticate to " +
+        "the edge counter store and lift its own rate limits.",
+    );
+  }
+  if (allowUnauthenticatedRedis && missingRedisPasswords.length > 0) {
+    pulumi.log.warn(
+      "Dragonfly is running WITHOUT authentication (allowUnauthenticatedRedis=true): " +
+        missingRedisPasswords.map((k) => `grid-oib:${k}`).join(", ") +
+        " unset. Any pod in the namespace can read and rewrite the conversation bus, the cached " +
+        "user directory, authorization decisions and budget state.",
     );
   }
 
@@ -647,12 +1518,9 @@ export function loadConfig(): GridConfig {
       backend: cfg.get("backendImage"),
       frontend: cfg.get("frontendImage"),
       web: cfg.get("webImage"),
-      // A MOVING tag (`latest`) must re-pull on every pod start, or a rescheduled
-      // pod silently keeps a stale cached image and a deploy "succeeds" without
-      // shipping the new code. Only a pinned/immutable tag (a SHA) is safe as
-      // IfNotPresent. Explicit `imagePullPolicy` always wins.
-      pullPolicy:
-        cfg.get("imagePullPolicy") ?? (imageTag === "latest" ? "Always" : "IfNotPresent"),
+      // Explicit escape hatch only; the default is derived per image ref —
+      // see `appPullPolicy` and the field's doc comment.
+      pullPolicyOverride: cfg.get("imagePullPolicy"),
       pullCredentials:
         registryUsername && registryPassword
           ? { username: registryUsername, password: registryPassword }
@@ -676,6 +1544,11 @@ export function loadConfig(): GridConfig {
       // Default FALSE: the managed provider ships an unremovable metrics stack.
       installMetricsServer: bool(cfg, "installMetricsServer", false),
       loadBalancerIp: cfg.get("loadBalancerIp"),
+      // 0 = trust Envoy's own downstream address. See the interface comment:
+      // this is the one setting every per-IP limit rests on, and it must be
+      // confirmed against a live cluster rather than assumed.
+      xffNumTrustedHops: num(cfg, "xffNumTrustedHops", 0),
+      maxConnectionsPerProxy: num(cfg, "maxConnectionsPerProxy", 10000),
     },
 
     postgres: {
@@ -683,22 +1556,48 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("pgStorageSize") ?? "20Gi",
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
+      runtimePassword: cfg.requireSecret("pgRuntimePassword"),
       primaryUpdateStrategy:
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {
-        enabled: bool(cfg, "pgBackupsEnabled", false),
-        endpoint: cfg.get("pgBackupEndpoint") ?? "http://seaweedfs:8333",
+        enabled: pgBackupsEnabled,
+        endpoint: pgBackupEndpoint,
         accessKey: cfg.get("pgBackupAccessKey"),
         secretKey: cfg.getSecret("pgBackupSecretKey"),
         bucket: cfg.get("pgBackupBucket") ?? "grid-pg-backups",
         retention: cfg.get("pgBackupRetention") ?? "30d",
         schedule: cfg.get("pgBackupSchedule") ?? "0 0 2 * * *",
+        encryption: pgBackupEncryption,
       },
     },
 
     dragonfly: {
       maxmemory: cfg.get("dragonflyMaxmemory") ?? "512mb",
       memoryLimit: cfg.get("dragonflyMemoryLimit") ?? "768Mi",
+      password: dragonflyPassword,
+    },
+
+    rateLimit: {
+      enabled: rateLimitEnabled,
+      // Ships observing, not enforcing. Flip this to false only with the
+      // would-have-blocked counts in front of you.
+      shadowMode: bool(cfg, "rateLimitShadowMode", true),
+      failClosed: bool(cfg, "rateLimitFailClosed", false),
+      limits: {
+        // Starting points, not measurements. A chat session is chatty (polling
+        // the inbox, presence, conversation reads), so the catch-all is
+        // deliberately loose — it is there to stop a runaway loop, not to shape
+        // traffic. The two narrow rules are the ones with a real threat behind
+        // them.
+        app: num(cfg, "rateLimitApp", 600),
+        appAuth: num(cfg, "rateLimitAppAuth", 20),
+        appWsUpgrade: num(cfg, "rateLimitAppWsUpgrade", 30),
+        s3: num(cfg, "rateLimitS3", 300),
+        web: num(cfg, "rateLimitWeb", 120),
+      },
+      storeMaxmemory: cfg.get("rateLimitStoreMaxmemory") ?? "256mb",
+      storeMemoryLimit: cfg.get("rateLimitStoreMemoryLimit") ?? "384Mi",
+      storePassword: rateLimitStorePassword,
     },
 
     networkPolicies: bool(cfg, "networkPolicies", true),
@@ -722,6 +1621,46 @@ export function loadConfig(): GridConfig {
       bucket: cfg.get("seaweedfsBucket") ?? "grid-documents",
       accessKey: cfg.get("seaweedfsAccessKey") ?? "grid",
       secretKey: cfg.requireSecret("seaweedfsSecretKey"),
+      // Read-only, bucket-scoped identity for the aiq-agent tier (see the type
+      // doc above). The secret key must be its own value, set like the root:
+      // `pulumi config set --secret grid-oib:seaweedfsBackendReadSecretKey "…"`.
+      backendReadAccessKey: cfg.get("seaweedfsBackendReadAccessKey") ?? "grid-backend-read",
+      backendReadSecretKey: cfg.requireSecret("seaweedfsBackendReadSecretKey"),
+      perOrgBuckets: seaweedPerOrgBuckets,
+      tenantBucketPrefix: seaweedTenantPrefix,
+      tenantAdminAccessKey: cfg.get("seaweedfsTenantAdminAccessKey") ?? "grid-tenant-admin",
+      tenantAdminSecretKey: cfg.getSecret("seaweedfsTenantAdminSecretKey") ?? pulumi.secret(""),
+      topology: seaweedTopology,
+      masterReplicas: seaweedMasterReplicas,
+      volumeReplicas: num(cfg, "seaweedfsVolumeReplicas", 1),
+      filerReplicas: seaweedFilerReplicas,
+      masterStorageSize: cfg.get("seaweedfsMasterStorageSize") ?? "1Gi",
+      // 10Gi, not the master's 1Gi: under the leveldb store this claim is the
+      // key store for every object in the deployment, and it is the one PVC
+      // whose exhaustion stops all writes.
+      filerStorageSize: cfg.get("seaweedfsFilerStorageSize") ?? "10Gi",
+      volumeSizeLimitMB: seaweedVolumeSizeLimitMB,
+      volumeMaxCount: num(cfg, "seaweedfsVolumeMaxCount", 64),
+      volumeMinFreeSpace: cfg.get("seaweedfsVolumeMinFreeSpace") ?? "2GiB",
+      defaultReplication: seaweedReplication,
+      filerStore: seaweedFilerStore,
+      filerDatabase: SEAWEED_FILER_DB,
+      filerDatabaseUser: SEAWEED_FILER_DB,
+      // Only read when the split topology uses the Postgres store — see the
+      // validation above, which is what turns a missing value into a clear
+      // error instead of a filer that boots and cannot reach its store.
+      filerDatabasePassword:
+        cfg.getSecret("seaweedfsFilerDbPassword") ?? pulumi.secret(""),
+      backup: {
+        enabled: cfg.getBoolean("seaweedfsBackupEnabled") ?? false,
+        endpoint: cfg.get("seaweedfsBackupEndpoint") ?? "",
+        bucket: cfg.get("seaweedfsBackupBucket") ?? "grid-documents-backup",
+        region: cfg.get("seaweedfsBackupRegion") ?? "us-east-1",
+        accessKey: cfg.getSecret("seaweedfsBackupAccessKey") ?? pulumi.secret(""),
+        secretKey: cfg.getSecret("seaweedfsBackupSecretKey") ?? pulumi.secret(""),
+        metadataSchedule: cfg.get("seaweedfsMetaSnapshotSchedule") ?? "0 3 * * *",
+      },
+      encryptVolumeData: cfg.getBoolean("seaweedfsEncryptVolumeData") ?? true,
     },
 
     backend: {
@@ -781,9 +1720,12 @@ export function loadConfig(): GridConfig {
 
     web: {
       // Static-first site: requests are a floor for the HPA and the scheduler,
-      // limits only a burst ceiling. The Astro server barely idles above zero.
+      // limits only a burst ceiling. The Astro server barely idles above zero,
+      // but the request must stay proportional to the HPA: at 70% target the
+      // trigger (70m at 100m requests) must clear ~15% of the 250m limit or
+      // assertHpaTargetIsProportional fails the deploy (see frontend tier).
       resources: {
-        requestsCpu: cfg.get("webRequestsCpu") ?? "50m",
+        requestsCpu: cfg.get("webRequestsCpu") ?? "100m",
         requestsMemory: cfg.get("webRequestsMemory") ?? "128Mi",
         limitsCpu: cfg.get("webLimitsCpu") ?? "250m",
         limitsMemory: cfg.get("webLimitsMemory") ?? "256Mi",
@@ -846,6 +1788,12 @@ export function loadConfig(): GridConfig {
     workflows: {
       enabled: bool(cfg, "workflowsEnabled", false),
       minIntervalMinutes: num(cfg, "workflowMinIntervalMinutes", 15),
+    },
+
+    storageAlerts: {
+      enabled: bool(cfg, "storageAlertsEnabled", true),
+      thresholdPercent: storageAlertThresholdPercent,
+      schedule: cfg.get("storageAlertSchedule") ?? "0 * * * *",
     },
 
     collaboration: {
@@ -917,9 +1865,22 @@ export function webImage(c: GridConfig): string {
 }
 
 /**
+ * Pull policy for an app-tier image: the explicit `imagePullPolicy` override
+ * when set, otherwise derived from the resolved reference (`pullPolicyFor`).
+ * Every app workload must use this rather than a single stack-wide value:
+ * CI deploys routinely mix reference kinds (a SHA `imageTag` for rebuilt
+ * services, `:latest` fallbacks for the rest), and only the per-image rule
+ * keeps a moving tag on `Always` — which the `moving-tag-must-repull`
+ * policy-pack rule enforces.
+ */
+export function appPullPolicy(c: GridConfig, image: string): string {
+  return c.images.pullPolicyOverride ?? pullPolicyFor(image);
+}
+
+/**
  * The only correct `imagePullPolicy` for a given image reference.
  *
- * Same rule the app images follow (see `images.pullPolicy` above), applied to
+ * Same rule the app images follow (see `appPullPolicy`), applied to
  * the upstream data-tier images too: a MOVING tag (`latest`, or no tag at all)
  * must re-pull on every pod start or a rescheduled pod silently keeps a stale
  * cached layer; a digest-pinned or version-pinned reference is immutable, so

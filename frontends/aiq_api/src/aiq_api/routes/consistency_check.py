@@ -65,10 +65,20 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     fallback; the resolver adds BYOK (org key + base, model unchanged) and
     provider inference on top. Fail-open: a BYOK miss falls back to the env chain.
     """
+    from aiq_agent.common.credential_resolution import read_api_key_env
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-    default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
+    # `read_api_key_env`, not `os.getenv`: docker compose `env_file` does not
+    # interpolate `${VAR}` references, so `OPENROUTER_API_KEY=${OPENROUTER_API_KEY}`
+    # arrives as a literal placeholder — truthy, but not a key. Reading it raw
+    # selected the OpenRouter endpoint below while the resolver (which normalizes
+    # the same way) treated the key as unset and fell back to `LLM_API_KEY`,
+    # sending another provider's key to openrouter.ai.
+    openrouter_key = read_api_key_env("OPENROUTER_API_KEY")
+    # Mirrors the boot floor in config_oib_openrouter.yml. NOTE: this route is
+    # not an AgentGroup, so it resolves outside `platform_model_defaults` — the
+    # platform default set under Platform → Models does not reach it.
+    default_model = "openai/gpt-5.6-luna" if openrouter_key else "gpt-4o-mini"
     default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
 
     model = os.getenv("CONSISTENCY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))

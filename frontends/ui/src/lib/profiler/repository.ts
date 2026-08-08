@@ -8,12 +8,25 @@
 import 'server-only'
 import { and, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { agentProfilerSpans, conversations, type AgentProfilerSpan, type NewAgentProfilerSpan } from '@/lib/db/schema'
+import { withOptionalTenant, withPlatformAccess } from '@/lib/db/tenant-context'
+import {
+  agentProfilerSpans,
+  conversations,
+  type AgentProfilerSpan,
+  type NewAgentProfilerSpan,
+} from '@/lib/db/schema'
 
 export async function insertSpans(spans: NewAgentProfilerSpan[]): Promise<number> {
   if (spans.length === 0) return 0
   const db = getDb()
-  const inserted = await db.insert(agentProfilerSpans).values(spans).returning({ id: agentProfilerSpans.id })
+  // Every span in a batch comes from one turn and carries that turn's
+  // organization, which is nullable: a turn from a session with no organization
+  // selected belongs to no tenant and stays visible only to the platform tier.
+  const inserted = await withOptionalTenant(
+    spans[0].organizationId ?? null,
+    'profiler spans from a turn with no organization selected belong to no tenant',
+    () => db.insert(agentProfilerSpans).values(spans).returning({ id: agentProfilerSpans.id })
+  )
   return inserted.length
 }
 
@@ -40,30 +53,39 @@ export async function listProfiledConversations(query?: string): Promise<{
 }> {
   const db = getDb()
   const searchCondition = query
-    ? or(ilike(agentProfilerSpans.conversationId, `%${query}%`), ilike(conversations.title, `%${query}%`))
+    ? or(
+        ilike(agentProfilerSpans.conversationId, `%${query}%`),
+        ilike(conversations.title, `%${query}%`)
+      )
     : undefined
 
-  const rows = await db
-    .select({
-      conversationId: agentProfilerSpans.conversationId,
-      organizationId: sql<string | null>`max(coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId}))`,
-      title: sql<string | null>`max(${conversations.title})`,
-      turnCount: sql<number>`count(*)::int`,
-      totalDurationMsRaw: sql<string>`coalesce(sum(${agentProfilerSpans.durationMs}), 0)::bigint`,
-      lastActiveAt: sql<Date>`max(${agentProfilerSpans.startedAt})`,
-    })
-    .from(agentProfilerSpans)
-    .leftJoin(conversations, eq(conversations.id, agentProfilerSpans.conversationId))
-    .where(
-      and(
-        eq(agentProfilerSpans.kind, 'turn'),
-        isNotNull(agentProfilerSpans.conversationId),
-        ...(searchCondition ? [searchCondition] : []),
-      ),
-    )
-    .groupBy(agentProfilerSpans.conversationId)
-    .orderBy(desc(sql`max(${agentProfilerSpans.startedAt})`))
-    .limit(CONVERSATION_LIST_CAP + 1)
+  const rows = await withPlatformAccess(
+    'platform profiler: a deliberately cross-organization operations directory',
+    () =>
+      db
+        .select({
+          conversationId: agentProfilerSpans.conversationId,
+          organizationId: sql<
+            string | null
+          >`max(coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId}))`,
+          title: sql<string | null>`max(${conversations.title})`,
+          turnCount: sql<number>`count(*)::int`,
+          totalDurationMsRaw: sql<string>`coalesce(sum(${agentProfilerSpans.durationMs}), 0)::bigint`,
+          lastActiveAt: sql<Date>`max(${agentProfilerSpans.startedAt})`,
+        })
+        .from(agentProfilerSpans)
+        .leftJoin(conversations, eq(conversations.id, agentProfilerSpans.conversationId))
+        .where(
+          and(
+            eq(agentProfilerSpans.kind, 'turn'),
+            isNotNull(agentProfilerSpans.conversationId),
+            ...(searchCondition ? [searchCondition] : [])
+          )
+        )
+        .groupBy(agentProfilerSpans.conversationId)
+        .orderBy(desc(sql`max(${agentProfilerSpans.startedAt})`))
+        .limit(CONVERSATION_LIST_CAP + 1)
+  )
 
   const capped = rows.length > CONVERSATION_LIST_CAP
   return {
@@ -83,11 +105,17 @@ export async function listProfiledConversations(query?: string): Promise<{
   }
 }
 
-export async function getSpansForConversation(conversationId: string): Promise<AgentProfilerSpan[]> {
+export async function getSpansForConversation(
+  conversationId: string
+): Promise<AgentProfilerSpan[]> {
   const db = getDb()
-  return db
-    .select()
-    .from(agentProfilerSpans)
-    .where(eq(agentProfilerSpans.conversationId, conversationId))
-    .orderBy(agentProfilerSpans.startedAt)
+  return withPlatformAccess(
+    'platform profiler: a deliberately cross-organization operations directory',
+    () =>
+      db
+        .select()
+        .from(agentProfilerSpans)
+        .where(eq(agentProfilerSpans.conversationId, conversationId))
+        .orderBy(agentProfilerSpans.startedAt)
+  )
 }

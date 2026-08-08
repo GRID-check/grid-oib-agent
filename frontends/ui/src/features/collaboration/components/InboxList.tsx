@@ -100,7 +100,9 @@ export function InboxList({
                 onClick={() => setFilter(key)}
                 aria-pressed={active}
                 className={cn(
-                  'inline-flex h-7 items-center gap-1.5 rounded-md border-[0.5px] px-3 text-[12.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                  // 28px filter pills — small on purpose, so widen the catchment
+                  // rather than the pill.
+                  'inline-flex h-7 items-center gap-1.5 rounded-md border-[0.5px] px-3 text-[12.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 touch-target',
                   active
                     ? 'border-border bg-card font-medium text-foreground shadow-xs'
                     : 'border-transparent text-muted-foreground hover:bg-accent',

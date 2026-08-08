@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Composing presence: who may claim it, and who hears about it.
  *
  * Four properties are worth a test each, because each one is a way this feature
@@ -23,16 +26,17 @@ vi.mock('@/lib/sharing/access', () => ({
 vi.mock('@/lib/sharing/repository', () => ({ countGrantsForResource: vi.fn() }))
 vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
 vi.mock('@/lib/authz/feature-flags', () => ({ isCollaborationEnabled: vi.fn(() => true) }))
-vi.mock('@/lib/sharing/rate-limit', () => ({
-  TYPING_RATE_LIMIT: { action: 'typing', limit: 120, windowMs: 60_000 },
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { publishToUsers } from '@/lib/events/bus'
 import { requireResourceAccess } from '@/lib/sharing/access'
-import { consumeRateLimit, TYPING_RATE_LIMIT } from '@/lib/sharing/rate-limit'
+import { consumeLimit, memberSubject, TYPING_LIMIT } from '@/lib/limits'
+import { allowedDecision, refusedDecision } from '@/test-utils/limit-fixtures'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 import { NotFoundError } from '@/lib/api/errors'
@@ -61,7 +65,7 @@ describe('publishTypingPresence', () => {
     vi.mocked(resolveParticipants).mockResolvedValue([ME, ANNA])
     // Within budget by default, so every other test here exercises the behaviour
     // it is actually about.
-    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 120 })
+    vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(TYPING_LIMIT))
   })
 
   it('publishes to the other participants, naming the session user', async () => {
@@ -116,14 +120,14 @@ describe('publishTypingPresence', () => {
     // that reaches anyone — shedding presence is free, it is worthless a second
     // later anyway.
     allowAccess('organization')
-    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: false, current: 121, limit: 120 })
+    vi.mocked(consumeLimit).mockResolvedValue(refusedDecision(TYPING_LIMIT))
 
     await publishTypingPresence(session, CONVERSATION_ID, true)
 
     expect(publishToUsers).not.toHaveBeenCalled()
     // Charged to the person, not the thread — otherwise a flood spread over many
     // conversations would never meet a ceiling.
-    expect(consumeRateLimit).toHaveBeenCalledWith(TYPING_RATE_LIMIT, ME)
+    expect(consumeLimit).toHaveBeenCalledWith(TYPING_LIMIT, memberSubject(session))
   })
 
   it('never spends the budget on a private thread, which publishes nothing anyway', async () => {
@@ -136,7 +140,7 @@ describe('publishTypingPresence', () => {
 
     await publishTypingPresence(session, CONVERSATION_ID, true)
 
-    expect(consumeRateLimit).not.toHaveBeenCalled()
+    expect(consumeLimit).not.toHaveBeenCalled()
     expect(publishToUsers).not.toHaveBeenCalled()
   })
 

@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
 
@@ -23,11 +24,15 @@ interface ChatRedirectPageProps {
  */
 async function resolveChatTarget(conversationId: string): Promise<string | null> {
   try {
-    const session = await requireAuthorizedSession()
-    const tenancy = await findConversationTenancy(conversationId)
-    if (!tenancy?.projectId) return null
-    await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
-    return `/app/projects/${encodeURIComponent(tenancy.projectId)}/chat?session=${encodeURIComponent(conversationId)}`
+    // Own tenant slot: a server component gets none from a route factory, and
+    // the session publish alone does not survive the render (#342, #344).
+    return await runWithTenantSlot(async () => {
+      const session = await requireAuthorizedSession()
+      const tenancy = await findConversationTenancy(conversationId)
+      if (!tenancy?.projectId) return null
+      await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
+      return `/app/projects/${encodeURIComponent(tenancy.projectId)}/chat?session=${encodeURIComponent(conversationId)}`
+    })
   } catch {
     return null
   }
