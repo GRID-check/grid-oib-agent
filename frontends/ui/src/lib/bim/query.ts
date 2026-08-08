@@ -29,6 +29,7 @@ import {
   findBimModelById,
   listBimElements,
   loadBimElementsForComparison,
+  loadBimElementsForSchedule,
   listBimPropertyCatalog,
   type BimElementListRow,
   type BimGroupedCount,
@@ -36,6 +37,13 @@ import {
   type BimPropertyCatalogEntry,
 } from './repository'
 import { compareModels, renderComparison, type BimComparison } from './compare'
+import { deriveProfileSuggestions, renderProfileSuggestions, type BimProfileSuggestion } from './profile'
+import {
+  buildQuantityTakeoff,
+  buildRoomSchedule,
+  type BimQuantityRow,
+  type BimRoomSchedule,
+} from './schedule'
 import { healthCaveat, type BimHealth } from './validate'
 import type { BimModelSummary } from './types'
 
@@ -122,6 +130,14 @@ const aggregateSchema = z.object({
 export const bimQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('overview') }),
   z.object({ op: z.literal('health') }),
+  z.object({ op: z.literal('schedule') }),
+  z.object({ op: z.literal('profile') }),
+  z.object({
+    op: z.literal('takeoff'),
+    quantity: z.string().trim().min(1).max(120).default('NetSideArea'),
+    byMaterial: z.boolean().default(false),
+    filter: bimFilterSchema.default({}),
+  }),
   z.object({
     op: z.literal('compare'),
     /**
@@ -175,6 +191,9 @@ export interface BimQueryResult {
    */
   caveat?: string | null
   comparison?: BimComparison
+  schedule?: BimRoomSchedule
+  takeoff?: BimQuantityRow[]
+  profileSuggestions?: BimProfileSuggestion[]
   types?: Array<{ ifcType: string; elements: number }>
   elements?: BimElementListRow[]
   element?: Awaited<ReturnType<typeof findBimElement>>
@@ -270,8 +289,18 @@ function propertyPredicate(filter: BimPropertyFilter): SQL {
   return filter.operator === 'missing' ? sql`NOT EXISTS (${body})` : sql`EXISTS (${body})`
 }
 
-/** Translate a validated filter into a drizzle predicate. */
-export function buildBimPredicate(filter: BimFilter): SQL | undefined {
+/**
+ * Translate a validated filter into a drizzle predicate.
+ *
+ * An absent filter means "every element", not a crash. The zod schema defaults
+ * `filter` to `{}` so a request through the API always carries one — but the
+ * ops that make it optional are reached by other callers too (the internal
+ * route composes a query, tests call `runBimQuery` directly), and a
+ * `TypeError` deep in predicate building surfaces as a 500 on a request that
+ * was perfectly answerable.
+ */
+export function buildBimPredicate(filter: BimFilter | undefined): SQL | undefined {
+  if (!filter) return undefined
   const conditions: Array<SQL | undefined> = []
 
   if (filter.ifcTypes?.length) {
@@ -414,6 +443,31 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
         .join('; ')
       return `Modellprüfung ${health.score}/100 — ${rendered}.`
     }
+    case 'schedule': {
+      const schedule = result.schedule
+      if (!schedule) return 'Für dieses Modell liegt kein Raumbuch vor.'
+      const missing =
+        schedule.totals.roomsWithoutArea > 0
+          ? ` ${schedule.totals.roomsWithoutArea} Räume ohne Flächenangabe sind darin NICHT enthalten.`
+          : ''
+      return (
+        `Raumbuch: ${schedule.totals.rooms} Räume in ${schedule.storeys.length} Geschossen, ` +
+        `Netto-Grundfläche ${schedule.totals.netFloorArea ?? '—'} ${schedule.units.area}.${missing}`
+      )
+    }
+    case 'takeoff': {
+      const rows = result.takeoff ?? []
+      if (rows.length === 0) return 'Keine Bauteile für diese Massenermittlung.'
+      return `Massenermittlung (${request.quantity}): ${rows
+        .slice(0, 20)
+        .map(
+          (row) =>
+            `${row.group}: ${row.value ?? '—'} (${row.elements} Bauteile${row.missing > 0 ? `, ${row.missing} ohne Wert` : ''})`
+        )
+        .join('; ')}.`
+    }
+    case 'profile':
+      return renderProfileSuggestions(result.profileSuggestions ?? [])
     case 'compare':
       return result.comparison
         ? renderComparison(result.comparison)
@@ -549,6 +603,42 @@ export async function runBimQuery(
         }),
       })
 
+    case 'schedule': {
+      if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
+      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
+      return finish({ ...modelBase, schedule: buildRoomSchedule(model.summary, elements) })
+    }
+
+    case 'takeoff': {
+      const { elements } = await loadBimElementsForSchedule(
+        context.modelId,
+        context.organizationId,
+        buildBimPredicate(request.filter)
+      )
+      return finish({
+        ...modelBase,
+        takeoff: buildQuantityTakeoff(elements, {
+          quantity: request.quantity,
+          byMaterial: request.byMaterial,
+        }),
+      })
+    }
+
+    case 'profile': {
+      if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
+      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
+      return finish({
+        ...modelBase,
+        profileSuggestions: deriveProfileSuggestions({
+          summary: model.summary,
+          spaceNames: elements
+            .filter((element) => element.ifcType === 'IfcSpace')
+            .map((element) => element.name ?? '')
+            .filter(Boolean),
+        }),
+      })
+    }
+
     case 'compare': {
       if (!request.baseModelId) {
         throw new BimModelNotReadyError('failed', 'No model to compare against was resolved')
@@ -588,4 +678,12 @@ export async function runBimQuery(
   }
 }
 
-export type { BimElementListRow, BimGroupedCount, BimPropertyCatalogEntry }
+export type {
+  BimElementListRow,
+  BimGroupedCount,
+  BimPropertyCatalogEntry,
+  BimComparison,
+  BimRoomSchedule,
+  BimQuantityRow,
+  BimProfileSuggestion,
+}

@@ -559,4 +559,12 @@ export const SCREENSHOT_TARGETS = [
       'The IFC/BIM model page (ADR-0044): overview stats read from the model itself, the spatial tree with signed storey elevations, the element table filtered to the selected storey, the property panel for the selected wall (occurrence + type-inherited Pset merged), and — in place of the 3D viewport — the no-WebGPU fallback. Headless Chromium has no WebGPU adapter, so the fallback IS what this route captures, which is the right thing to pin: it is what a Safari or Firefox user sees, and it has to read as "the picture is missing", never as "the feature is broken".',
     waitFor: '[data-testid="bim-model-preview"]',
   },
+  {
+    id: 'bim-tables',
+    mobile: true,
+    path: '/dev/bim-tables',
+    description:
+      'The model surfaces that produce work products rather than views: the Raumbuch with a room that publishes no area (shown as missing, counted against the storey total, and named in the banner), the Massenermittlung split by material with a group that publishes nothing, the revision timeline with signed per-step deltas, the derived project facts with the evidence behind each one, and an element chip as it renders inside a chat answer. Every fixture here includes the awkward case on purpose — a total that quietly excludes rooms is the failure this whole subsystem exists to prevent, and only the incomplete fixtures can show that it does not.',
+    waitFor: '[data-testid="bim-tables-preview"]',
+  },
 ]

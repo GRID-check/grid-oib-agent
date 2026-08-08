@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from pydantic import Field
 
@@ -33,6 +34,9 @@ logger = logging.getLogger(__name__)
 VALID_OPERATIONS = {
     "overview",
     "health",
+    "schedule",
+    "takeoff",
+    "profile",
     "types",
     "elements",
     "element",
@@ -62,6 +66,15 @@ _TOOL_DESCRIPTION = (
     "property name returns zero rows, which reads like 'the building has none'.\n"
     "  'elements'   — list matching elements (name, type, storey, tag).\n"
     "  'element'    — everything about ONE element, addressed by its IFC GlobalId.\n"
+    "  'schedule'   — the Raumbuch: every room with its storey, area and volume, plus the "
+    "per-storey and building totals. Use for 'Flächenaufstellung', 'welche Räume', 'wie groß ist'. "
+    "The totals already say how many rooms publish no area — report that too.\n"
+    "  'takeoff'    — Massenermittlung: one quantity summed per element type, optionally split "
+    "by material. Set 'quantity' (NetSideArea, NetVolume, …) and by_material=true for a "
+    "cost-estimate breakdown.\n"
+    "  'profile'    — project facts the MODEL implies: storeys above/below ground, the "
+    "Fluchtniveau band, the main use. These are PROPOSALS with their evidence — offer them "
+    "through a project_profile_patch card for the user to confirm, never state them as settled.\n"
     "  'compare'    — what changed between TWO revisions of the same building. Set "
     "'compare_with' to a substring of the OLDER file's name; this model is the newer one. "
     "Matched by IFC GlobalId, so a re-export that renumbers everything still reports zero "
@@ -71,12 +84,12 @@ _TOOL_DESCRIPTION = (
     "ifcType, storey, predefinedType, typeName, material or property. This is how you answer "
     "'how many' and 'how much' — never add up an element list yourself.\n"
     "\n"
-    "filters (JSON object, all optional): {\"ifcTypes\": [\"IfcWall\"], \"storeys\": "
-    "[\"Erdgeschoss\"], \"nameContains\": \"Flucht\", \"material\": \"Beton\", \"classification\": "
-    "\"B.1.2\", \"properties\": [{\"set\": \"Pset_WallCommon\", \"name\": \"IsExternal\", "
-    "\"operator\": \"eq\", \"value\": true}]}. Property operators: eq, neq, contains, gt, gte, lt, "
+    'filters (JSON object, all optional): {"ifcTypes": ["IfcWall"], "storeys": '
+    '["Erdgeschoss"], "nameContains": "Flucht", "material": "Beton", "classification": '
+    '"B.1.2", "properties": [{"set": "Pset_WallCommon", "name": "IsExternal", '
+    '"operator": "eq", "value": true}]}. Property operators: eq, neq, contains, gt, gte, lt, '
     "lte, exists, missing. 'set' may be omitted to search every property set. Use "
-    "\"source\": \"quantity\" inside a property filter to match a quantity instead.\n"
+    '"source": "quantity" inside a property filter to match a quantity instead.\n'
     "\n"
     "For aggregate: metric is count (default), sum, avg, min or max; sum/avg/min/max need "
     "'quantity' (e.g. NetFloorArea, NetSideArea, NetVolume). groupBy is optional.\n"
@@ -84,10 +97,35 @@ _TOOL_DESCRIPTION = (
     "Report the caveat line verbatim whenever one comes back — it says which parts of the "
     "building the numbers do NOT cover, and an answer that drops it is wrong.\n"
     "\n"
+    "Whenever a row comes back with a 'Link:' value, LINK the element when you name it: write "
+    "[Aussenwand AW 38](/app/projects/…/model?…) using that exact path. The link opens the 3D "
+    "model with that element selected and highlighted, which is the difference between telling "
+    "someone about a wall and showing it to them. Copy the path verbatim — never invent one.\n"
+    "\n"
     "model_name selects one model when the project has several (a substring of the file name); "
     "leave it empty when there is only one. Report the numbers this tool returns as they are — "
     "do not recompute, round differently, or extrapolate them."
 )
+
+
+def _element_link(project_id: str | None, filename: str | None, global_id: str | None) -> str:
+    """The in-app path that opens the model on one element.
+
+    Mirrors `buildModelHref` in the frontend (`features/bim/lib/model-link.ts`);
+    the parameter names are the contract between the two. Returns an empty
+    string when anything needed is missing, so a caller can append it
+    unconditionally and get nothing rather than a broken link.
+
+    Emitted per row rather than described as a template: a model asked to
+    compose a URL from a pattern will eventually compose a wrong one, and a
+    link to the wrong wall is worse than no link.
+    """
+    if not project_id or not global_id:
+        return ""
+    query = f"element={quote(global_id, safe='')}&hl=info%3A{quote(global_id, safe='')}"
+    if filename:
+        query = f"model={quote(filename, safe='')}&{query}"
+    return f"/app/projects/{quote(project_id, safe='')}/model?{query}"
 
 
 def _build_query(
@@ -115,7 +153,7 @@ def _build_query(
         try:
             candidate = json.loads(filters)
         except json.JSONDecodeError:
-            return "Error: 'filters' must be a JSON object, e.g. {\"ifcTypes\": [\"IfcWall\"]}."
+            return 'Error: \'filters\' must be a JSON object, e.g. {"ifcTypes": ["IfcWall"]}.'
         if not isinstance(candidate, dict):
             return "Error: 'filters' must be a JSON object, not a list or scalar."
         parsed_filters = candidate
@@ -126,6 +164,17 @@ def _build_query(
         return {"op": "types"}
     if operation == "health":
         return {"op": "health"}
+    if operation == "schedule":
+        return {"op": "schedule"}
+    if operation == "profile":
+        return {"op": "profile"}
+    if operation == "takeoff":
+        return {
+            "op": "takeoff",
+            "quantity": quantity.strip() or "NetSideArea",
+            "byMaterial": group_by.strip().lower() == "material",
+            "filter": parsed_filters,
+        }
     if operation == "compare":
         # `baseModelId` is deliberately absent: the endpoint resolves the other
         # revision from `compare_with`, so no UUID has to survive the turn.
@@ -159,7 +208,13 @@ def _build_query(
     return aggregate
 
 
-def _render(result: dict[str, Any]) -> str:
+def _entry_label(entry: dict[str, Any], storey: bool = True) -> str:
+    """`IfcWall „Aussenwand Nord“ · Erdgeschoss` — one comparison row, named."""
+    label = f"{entry.get('ifcType')} „{entry.get('name') or entry.get('globalId')}“"
+    return f"{label} · {entry.get('storeyName') or '—'}" if storey else label
+
+
+def _render(result: dict[str, Any], project_id: str | None = None) -> str:
     """Turn the endpoint's body into the string the model reads.
 
     Deliberately compact. The `summary` line is the answer; the structured
@@ -179,8 +234,9 @@ def _render(result: dict[str, Any]) -> str:
 
     lines: list[str] = []
     model = result.get("model") or {}
-    if model.get("filename"):
-        lines.append(f"Modell: {model['filename']}")
+    filename = model.get("filename")
+    if filename:
+        lines.append(f"Modell: {filename}")
     lines.append(str(result.get("summary") or ""))
 
     # The caveat is appended for every op whose numbers the model's structural
@@ -196,9 +252,7 @@ def _render(result: dict[str, Any]) -> str:
         overview = result["overview"]
         storeys = overview.get("storeys") or []
         if storeys:
-            rendered = ", ".join(
-                f"{s.get('name') or '—'} ({s.get('elementCount', 0)} Bauteile)" for s in storeys[:20]
-            )
+            rendered = ", ".join(f"{s.get('name') or '—'} ({s.get('elementCount', 0)} Bauteile)" for s in storeys[:20])
             lines.append(f"Geschosse: {rendered}")
         type_counts = overview.get("typeCounts") or {}
         if type_counts:
@@ -208,10 +262,17 @@ def _render(result: dict[str, Any]) -> str:
         for element in (result.get("elements") or [])[:50]:
             label = element.get("name") or element.get("tag") or element.get("globalId")
             storey = element.get("storeyName") or "—"
-            lines.append(f"- {element.get('ifcType')} „{label}“ · {storey} · GlobalId {element.get('globalId')}")
+            link = _element_link(project_id, filename, element.get("globalId"))
+            suffix = f" · Link: {link}" if link else ""
+            lines.append(
+                f"- {element.get('ifcType')} „{label}“ · {storey} · GlobalId {element.get('globalId')}{suffix}"
+            )
     elif op == "element" and isinstance(result.get("element"), dict):
         element = result["element"]
         lines.append(f"GlobalId: {element.get('globalId')}")
+        link = _element_link(project_id, filename, element.get("globalId"))
+        if link:
+            lines.append(f"Link: {link}")
         if element.get("storeyName"):
             lines.append(f"Geschoss: {element['storeyName']}")
         if element.get("materials"):
@@ -222,18 +283,39 @@ def _render(result: dict[str, Any]) -> str:
         for set_name, quantities in (element.get("quantities") or {}).items():
             rendered = ", ".join(f"{key}={value}" for key, value in quantities.items())
             lines.append(f"{set_name}: {rendered}")
+    elif op == "schedule" and isinstance(result.get("schedule"), dict):
+        schedule = result["schedule"]
+        area_unit = (schedule.get("units") or {}).get("area", "m²")
+        for storey in (schedule.get("storeys") or [])[:12]:
+            lines.append(
+                f"{storey.get('storeyName')}: {storey.get('netFloorArea')} {area_unit} "
+                f"({len(storey.get('rooms') or [])} Räume)"
+            )
+            for room in (storey.get("rooms") or [])[:30]:
+                area = room.get("netFloorArea")
+                lines.append(f"  · {room.get('name')} — {area if area is not None else 'ohne Fläche'}")
+    elif op == "takeoff":
+        for row in (result.get("takeoff") or [])[:40]:
+            missing = f", {row.get('missing')} ohne Wert" if row.get("missing") else ""
+            lines.append(f"- {row.get('group')}: {row.get('value')} ({row.get('elements')} Bauteile{missing})")
+    elif op == "profile":
+        for suggestion in result.get("profileSuggestions") or []:
+            lines.append(
+                f"- {suggestion.get('key')} = {suggestion.get('value')} "
+                f"[{suggestion.get('confidence')}] — {suggestion.get('evidence')}"
+            )
     elif op == "compare" and isinstance(result.get("comparison"), dict):
         comparison = result["comparison"]
         for entry in (comparison.get("added") or [])[:25]:
-            lines.append(f"+ {entry.get('ifcType')} „{entry.get('name') or entry.get('globalId')}“ · {entry.get('storeyName') or '—'}")
+            lines.append(f"+ {_entry_label(entry)}")
         for entry in (comparison.get("removed") or [])[:25]:
-            lines.append(f"- {entry.get('ifcType')} „{entry.get('name') or entry.get('globalId')}“ · {entry.get('storeyName') or '—'}")
+            lines.append(f"- {_entry_label(entry)}")
         for entry in (comparison.get("changed") or [])[:25]:
             deltas = "; ".join(
                 f"{change.get('field')}: {change.get('before')} → {change.get('after')}"
                 for change in (entry.get("changes") or [])[:6]
             )
-            lines.append(f"~ {entry.get('ifcType')} „{entry.get('name') or entry.get('globalId')}“ — {deltas}")
+            lines.append(f"~ {_entry_label(entry, storey=False)} — {deltas}")
     elif op == "properties":
         for entry in (result.get("properties") or [])[:60]:
             values = ", ".join(f"{v.get('value')} ({v.get('elements')}×)" for v in (entry.get("values") or [])[:6])
@@ -308,6 +390,6 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
                 "the model could not be read."
             )
 
-        return _render(result)
+        return _render(result, project_id)
 
     yield FunctionInfo.from_fn(_ifc_query, description=_TOOL_DESCRIPTION)

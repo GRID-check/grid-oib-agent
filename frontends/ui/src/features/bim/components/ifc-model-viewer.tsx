@@ -15,7 +15,7 @@
 
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Layers, Maximize2, MonitorX } from 'lucide-react'
+import { Eye, EyeOff, Layers, Maximize2, MonitorX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
@@ -51,7 +51,13 @@ export interface IfcModelViewerProps {
   isolatedStorey?: string | null
   selectedGlobalId?: string | null
   onSelect?: (element: BimViewerElement | null) => void
-  onFitRequested?: () => void
+  /**
+   * Ghost everything that is not highlighted or selected. Controlled by the
+   * page (and by the `xray` URL parameter) rather than local, so a shared link
+   * reproduces the view it was taken from.
+   */
+  xray?: boolean
+  onXrayChange?: (xray: boolean) => void
   className?: string
   /** Compact chrome for the in-chat card; full chrome for the model page. */
   variant?: 'page' | 'card'
@@ -64,6 +70,8 @@ export function IfcModelViewer({
   isolatedStorey = null,
   selectedGlobalId = null,
   onSelect,
+  xray = false,
+  onXrayChange,
   className,
   variant = 'page',
 }: IfcModelViewerProps): JSX.Element {
@@ -85,6 +93,17 @@ export function IfcModelViewer({
     () => elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null,
     [elements, selectedGlobalId]
   )
+
+  // X-ray keeps the highlighted set solid and fades the rest to context. With
+  // nothing highlighted there is nothing to keep solid, so the toggle has no
+  // set to pass and ghosting stays off rather than fading the whole building.
+  const xrayContextIds = useMemo(() => {
+    if (!xray) return null
+    const ids = new Set<number>()
+    for (const group of resolved) for (const id of group.expressIds) ids.add(id)
+    if (selectedExpressId !== null) ids.add(selectedExpressId)
+    return ids.size > 0 ? ids : null
+  }, [xray, resolved, selectedExpressId])
 
   if (!webGpu || !sourceUrl) {
     return (
@@ -121,6 +140,7 @@ export function IfcModelViewer({
         colorOverrides={colorOverrides}
         isolatedExpressIds={isolatedExpressIds}
         selectedExpressId={selectedExpressId}
+        xrayContextIds={xrayContextIds}
         onSelect={onSelect}
         onStatus={setStatus}
         className="size-full touch-none"
@@ -133,6 +153,22 @@ export function IfcModelViewer({
         </div>
         {variant === 'page' && (
           <div className="pointer-events-auto flex gap-1">
+            {onXrayChange && (
+              <Button
+                type="button"
+                size="sm"
+                variant={xray ? 'default' : 'secondary'}
+                aria-pressed={xray}
+                onClick={() => onXrayChange(!xray)}
+              >
+                {xray ? (
+                  <EyeOff className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <Eye className="size-3.5" aria-hidden="true" />
+                )}
+                {t('viewer.xray')}
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"

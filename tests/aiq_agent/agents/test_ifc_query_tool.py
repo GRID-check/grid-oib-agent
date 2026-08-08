@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from aiq_agent.agents.bim.register import _build_query
+from aiq_agent.agents.bim.register import _element_link
 from aiq_agent.agents.bim.register import _render
 
 
@@ -203,9 +204,7 @@ class TestRender:
                         {
                             "ifcType": "IfcWall",
                             "name": "Aussenwand Nord",
-                            "changes": [
-                                {"field": "Pset_WallCommon.FireRating", "before": "REI 90", "after": "REI 30"}
-                            ],
+                            "changes": [{"field": "Pset_WallCommon.FireRating", "before": "REI 90", "after": "REI 30"}],
                         }
                     ],
                 },
@@ -240,3 +239,86 @@ class TestRender:
         )
         assert "[Merkmal] Pset_WallCommon.FireRating: REI 90 (3×)" in rendered
         assert "[Menge] Qto_SpaceBaseQuantities.NetFloorArea" in rendered
+
+
+class TestElementLinks:
+    """The path that turns a named element in an answer into a clickable chip.
+
+    The frontend recognises exactly one shape (`features/bim/lib/model-link.ts`
+    parses it, `element-question.ts` matches it), so these assertions are the
+    Python half of a two-sided contract. A drifted parameter name here does not
+    fail anything — it just quietly renders as a plain link that opens a model
+    with nothing selected.
+    """
+
+    def test_the_path_matches_what_the_frontend_parses(self):
+        assert _element_link("p1", "haus-a.ifc", "1kTvXnbbzCWw8lcMd1dR4o") == (
+            "/app/projects/p1/model?model=haus-a.ifc&element=1kTvXnbbzCWw8lcMd1dR4o&hl=info%3A1kTvXnbbzCWw8lcMd1dR4o"
+        )
+
+    def test_a_space_in_the_file_name_is_encoded(self):
+        # An unencoded space truncates the query string at the first parameter,
+        # so the link would open the model with no element selected.
+        assert "model=haus%20a.ifc" in _element_link("p1", "haus a.ifc", "g1")
+
+    def test_no_project_or_no_element_yields_no_link(self):
+        # Callers append the result unconditionally; an empty string is how this
+        # says "there is nothing to link to" without producing a broken href.
+        assert _element_link(None, "haus-a.ifc", "g1") == ""
+        assert _element_link("p1", "haus-a.ifc", None) == ""
+
+    def test_a_model_without_a_file_name_still_links_the_element(self):
+        assert _element_link("p1", None, "g1") == "/app/projects/p1/model?element=g1&hl=info%3Ag1"
+
+    def test_an_element_list_carries_a_link_per_row(self):
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "elements",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "1 Bauteil erfüllt die Abfrage.",
+                "elements": [
+                    {
+                        "ifcType": "IfcWall",
+                        "name": "Aussenwand Nord",
+                        "storeyName": "Erdgeschoss",
+                        "globalId": "0GridFixtureWall0001",
+                    }
+                ],
+            },
+            "p1",
+        )
+        assert "Link: /app/projects/p1/model?model=haus-a.ifc&element=0GridFixtureWall0001" in rendered
+
+    def test_one_element_carries_its_own_link(self):
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "element",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "IfcWall „Aussenwand Nord“.",
+                "element": {
+                    "globalId": "0GridFixtureWall0001",
+                    "storeyName": "Erdgeschoss",
+                    "materials": [],
+                    "properties": {},
+                    "quantities": {},
+                },
+            },
+            "p1",
+        )
+        assert "Link: /app/projects/p1/model?model=haus-a.ifc&element=0GridFixtureWall0001" in rendered
+
+    def test_no_project_context_renders_no_link_line(self):
+        # A session with no project cannot address a model page. Emitting a
+        # path with an empty id would produce a link to a 404.
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "elements",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "1 Bauteil.",
+                "elements": [{"ifcType": "IfcWall", "name": "W", "globalId": "g1"}],
+            }
+        )
+        assert "Link:" not in rendered

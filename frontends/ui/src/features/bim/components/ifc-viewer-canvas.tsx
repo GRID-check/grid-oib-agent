@@ -45,6 +45,12 @@ export interface IfcViewerCanvasProps {
   isolatedExpressIds?: Set<number> | null
   /** Currently selected element, highlighted and used as the orbit pivot. */
   selectedExpressId?: number | null
+  /**
+   * Ghost everything that is neither selected nor in this set, so a highlighted
+   * subset reads against a translucent building instead of being buried inside
+   * an opaque one. `null` disables ghosting entirely.
+   */
+  xrayContextIds?: Set<number> | null
   onSelect?: (element: BimViewerElement | null) => void
   onStatus?: (status: IfcViewerStatus) => void
   className?: string
@@ -73,6 +79,10 @@ interface RendererLike {
     pan(dx: number, dy: number): void
     zoom(delta: number): void
     setAspect(aspect: number): void
+    zoomExtent(
+      min: { x: number; y: number; z: number },
+      max: { x: number; y: number; z: number }
+    ): Promise<void>
   }
   getScene(): {
     setColorOverrides(overrides: Map<number, Rgba>, device: unknown, pipeline: unknown): void
@@ -88,6 +98,7 @@ export function IfcViewerCanvas({
   colorOverrides,
   isolatedExpressIds = null,
   selectedExpressId = null,
+  xrayContextIds = null,
   onSelect,
   onStatus,
   className,
@@ -102,9 +113,11 @@ export function IfcViewerCanvas({
   const overridesRef = useRef(colorOverrides)
   const isolatedRef = useRef(isolatedExpressIds)
   const selectedRef = useRef(selectedExpressId)
+  const xrayRef = useRef(xrayContextIds)
   overridesRef.current = colorOverrides
   isolatedRef.current = isolatedExpressIds
   selectedRef.current = selectedExpressId
+  xrayRef.current = xrayContextIds
 
   const elementsRef = useRef(elements)
   elementsRef.current = elements
@@ -126,6 +139,11 @@ export function IfcViewerCanvas({
         renderer.render({
           isolatedIds: isolatedRef.current,
           selectedId: selectedRef.current,
+          // The renderer treats an ABSENT set as "no ghosting" and an empty one
+          // as "ghost everything", so passing an empty set through would fade
+          // the whole building the moment a highlight resolved to nothing.
+          xrayContextIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
+          ghostAlpha: 0.12,
         })
       } catch {
         // A lost device makes render() a no-op upstream; anything else here is
@@ -229,7 +247,7 @@ export function IfcViewerCanvas({
 
   useEffect(() => {
     if (ready) requestFrame()
-  }, [isolatedExpressIds, selectedExpressId, ready, requestFrame])
+  }, [isolatedExpressIds, selectedExpressId, xrayContextIds, ready, requestFrame])
 
   // Keep the drawing buffer in step with the element's CSS box, in device
   // pixels — a canvas sized only by CSS renders blurry on every retina display.

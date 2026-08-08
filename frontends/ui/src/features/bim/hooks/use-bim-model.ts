@@ -9,6 +9,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { BimProfileSuggestion } from '@/lib/bim/profile'
+import type { BimQuantityRow, BimRoomSchedule } from '@/lib/bim/schedule'
 import type { BimModelSummary } from '@/lib/bim/types'
 import type { BimViewerElement } from '../lib/model-index'
 
@@ -22,6 +24,11 @@ export interface BimModelHeaderView {
   elementCount: number
   errorMessage: string | null
   summary: BimModelSummary | null
+  /**
+   * ISO-8601 — the row's `updated_at` after JSON transport, which is what
+   * orders a revision series. A `Date` on the server is a string here.
+   */
+  updatedAt: string
 }
 
 interface AsyncState<T> {
@@ -200,6 +207,95 @@ export function useBimModelSource(modelId: string | null, enabled: boolean): str
   }, [modelId, enabled])
 
   return url
+}
+
+/**
+ * Server-computed model tables: Raumbuch, Massenermittlung, derived facts.
+ *
+ * These deliberately do NOT reuse the element list the page already holds. The
+ * element list is capped at the API's page budget and carries no quantities, so
+ * summing it in the browser would produce a Flächenaufstellung that is short by
+ * however many rows did not fit — silently, and only for large models. The
+ * server computes them over the full element set, which is the same code path
+ * the agent's answers go through, so the page and the chat cannot disagree.
+ */
+function useModelQuery<T>(
+  modelId: string | null,
+  request: Record<string, unknown> | null,
+  select: (body: BimQueryResponse) => T | null
+): AsyncState<T> {
+  const [state, setState] = useState<AsyncState<T>>(IDLE)
+  const body = request ? JSON.stringify(request) : null
+
+  useEffect(() => {
+    if (!modelId || !body) {
+      setState(IDLE)
+      return
+    }
+    let cancelled = false
+    setState({ data: null, isLoading: true, error: null })
+    getJson<BimQueryResponse>(`/api/bim/models/${modelId}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+      .then((payload) => {
+        if (!cancelled) setState({ data: select(payload), isLoading: false, error: null })
+      })
+      .catch(() => {
+        if (!cancelled) setState({ data: null, isLoading: false, error: 'load-failed' })
+      })
+    return () => {
+      cancelled = true
+    }
+    // `select` is a module-level function at every call site; re-running on its
+    // identity would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId, body])
+
+  return state
+}
+
+/** What the query route returns — the subset of `BimQueryResult` used here. */
+interface BimQueryResponse {
+  summary?: string
+  caveat?: string | null
+  schedule?: BimRoomSchedule
+  takeoff?: BimQuantityRow[]
+  profileSuggestions?: BimProfileSuggestion[]
+}
+
+const SCHEDULE_REQUEST = { op: 'schedule' } as const
+const PROFILE_REQUEST = { op: 'profile' } as const
+
+const selectSchedule = (body: BimQueryResponse): BimRoomSchedule | null => body.schedule ?? null
+const selectTakeoff = (body: BimQueryResponse): BimQuantityRow[] | null => body.takeoff ?? null
+const selectProfile = (body: BimQueryResponse): BimProfileSuggestion[] | null =>
+  body.profileSuggestions ?? null
+
+/** The Raumbuch: rooms per storey with the totals and their blind spots. */
+export function useBimRoomSchedule(modelId: string | null): AsyncState<BimRoomSchedule> {
+  return useModelQuery(modelId, SCHEDULE_REQUEST, selectSchedule)
+}
+
+/** The Massenermittlung for one quantity, optionally split by material. */
+export function useBimTakeoff(
+  modelId: string | null,
+  quantity: string,
+  byMaterial: boolean
+): AsyncState<BimQuantityRow[]> {
+  const request = useMemo(
+    () => ({ op: 'takeoff' as const, quantity, byMaterial }),
+    [quantity, byMaterial]
+  )
+  return useModelQuery(modelId, request, selectTakeoff)
+}
+
+/** Project-brief facts the model supports, each with the evidence behind it. */
+export function useBimProfileSuggestions(
+  modelId: string | null
+): AsyncState<BimProfileSuggestion[]> {
+  return useModelQuery(modelId, PROFILE_REQUEST, selectProfile)
 }
 
 /** The first ready model, or the first model at all — the page's default. */

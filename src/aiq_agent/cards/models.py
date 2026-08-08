@@ -686,6 +686,67 @@ class IfcViewerCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification under the viewer")
 
 
+class IfcScheduleCard(BaseModel):
+    """The project's Raumbuch (room schedule) straight from the model.
+
+    The card names WHICH table to show; the frontend fetches the numbers from
+    the model itself. The model therefore cannot get an area wrong, because it
+    never supplies one — the same reason the viewer card carries GlobalIds and
+    not geometry.
+
+    Use when the user asks for room areas, a Flächenaufstellung, or "what rooms
+    are on the second floor".
+    """
+
+    type: Literal["ifc_schedule"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Flächenaufstellung'")
+    model_file: str | None = Field(
+        default=None,
+        description="File name of the model as ifc_query reported it. Empty when the project has one model.",
+    )
+    storey: str | None = Field(
+        default=None, description="Limit the table to one storey, e.g. 'Erdgeschoss'. Empty shows all."
+    )
+    note: str | None = Field(default=None, description="Optional one-line clarification")
+
+
+class IfcElementCard(BaseModel):
+    """One element of the model, in full, with a link into the 3D view.
+
+    Use when the answer is ABOUT a specific element the user will want to look
+    at — the wall that fails a requirement, the door being discussed. The card
+    carries only the GlobalId; every property shown is read live from the model.
+    """
+
+    type: Literal["ifc_element"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Aussenwand Nord'")
+    global_id: str = Field(
+        min_length=1,
+        description=(
+            "IFC GlobalId returned by ifc_query. NEVER invent one — an id you did not see resolves to nothing."
+        ),
+    )
+    model_file: str | None = Field(default=None, description="Model file name; empty when there is one model.")
+    note: str | None = Field(default=None, description="Why this element matters to the answer")
+
+
+class IfcDiffCard(BaseModel):
+    """What changed between two revisions of the model.
+
+    Names the two files; the frontend computes the comparison by IFC GlobalId.
+    Use for "what changed since the last submission" — the question a pair of
+    plan PDFs cannot answer.
+    """
+
+    type: Literal["ifc_diff"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Änderungen seit Einreichung'")
+    base_model_file: str = Field(min_length=1, description="The OLDER revision's file name")
+    model_file: str | None = Field(
+        default=None, description="The NEWER revision's file name. Empty uses the project's current model."
+    )
+    note: str | None = Field(default=None, description="Optional one-line clarification")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -710,6 +771,9 @@ GridCard = (
     | MemoryProposalCard
     | DocumentGridCard
     | IfcViewerCard
+    | IfcScheduleCard
+    | IfcElementCard
+    | IfcDiffCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
@@ -723,6 +787,9 @@ __all__ = [
     "GridCard",
     "IfcHighlight",
     "IfcViewerCard",
+    "IfcScheduleCard",
+    "IfcElementCard",
+    "IfcDiffCard",
     "LegalBasisCard",
     "MemoryProposalCard",
     "SurfacedDocument",

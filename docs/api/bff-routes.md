@@ -348,6 +348,9 @@ organization. Cross-tenant and no-access both surface as 404.
 | `element` | One element in full, by IFC GlobalId. |
 | `aggregate` | `count`/`sum`/`avg`/`min`/`max` over the filtered set, optionally grouped by `ifcType`, `storey`, `predefinedType`, `typeName`, `material` or a property. |
 | `compare` | What changed against another revision, matched by GlobalId. |
+| `schedule` | The Raumbuch: every room with its storey, area and volume, plus per-storey and building totals — and `roomsWithoutArea`, the count each total excludes. |
+| `takeoff` | Massenermittlung: one `quantity` summed per element type, optionally split by material (`byMaterial`). Each row carries `missing`, the elements that publish no value. |
+| `profile` | Project-brief facts the model implies (storeys above/below ground, Fluchtniveau band, main use, room count), each with its evidence and a confidence. Proposals — the agent offers them through a `project_profile_patch` card, never as settled values. |
 
 Filters accept `ifcTypes`, `storeys` (name or GlobalId), `nameContains`,
 `material`, `classification`, `globalIds`, and up to ten property predicates
@@ -359,6 +362,12 @@ string and every value is a bound parameter, so a model-authored filter cannot
 become model-authored SQL. String comparison is case-insensitive; numeric
 comparison is guarded by a `CASE` so a jsonb boolean beside a numeric property
 cannot fail the whole query.
+
+`schedule`, `takeoff` and `profile` are computed over the FULL element set on
+the server, not over the page of elements the browser holds — summing a capped
+element list would produce a Flächenaufstellung that is short by however many
+rows did not fit, silently and only for large models. The model page and the
+agent therefore read the same numbers from the same code path.
 
 ### The caveat field
 

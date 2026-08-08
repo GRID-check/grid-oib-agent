@@ -1364,6 +1364,116 @@
       "title": "GuardrailCheckCard",
       "type": "object"
     },
+    "IfcDiffCard": {
+      "description": "What changed between two revisions of the model.\n\nNames the two files; the frontend computes the comparison by IFC GlobalId.\nUse for \"what changed since the last submission\" \u2014 the question a pair of\nplan PDFs cannot answer.",
+      "properties": {
+        "base_model_file": {
+          "description": "The OLDER revision's file name",
+          "minLength": 1,
+          "title": "Base Model File",
+          "type": "string"
+        },
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The NEWER revision's file name. Empty uses the project's current model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification",
+          "title": "Note"
+        },
+        "title": {
+          "description": "Short heading, e.g. '\u00c4nderungen seit Einreichung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_diff",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "base_model_file"
+      ],
+      "title": "IfcDiffCard",
+      "type": "object"
+    },
+    "IfcElementCard": {
+      "description": "One element of the model, in full, with a link into the 3D view.\n\nUse when the answer is ABOUT a specific element the user will want to look\nat \u2014 the wall that fails a requirement, the door being discussed. The card\ncarries only the GlobalId; every property shown is read live from the model.",
+      "properties": {
+        "global_id": {
+          "description": "IFC GlobalId returned by ifc_query. NEVER invent one \u2014 an id you did not see resolves to nothing.",
+          "minLength": 1,
+          "title": "Global Id",
+          "type": "string"
+        },
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model file name; empty when there is one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why this element matters to the answer",
+          "title": "Note"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Aussenwand Nord'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_element",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "global_id"
+      ],
+      "title": "IfcElementCard",
+      "type": "object"
+    },
     "IfcHighlight": {
       "description": "One set of model elements to call out, with a verdict.",
       "properties": {
@@ -1400,6 +1510,67 @@
         "label"
       ],
       "title": "IfcHighlight",
+      "type": "object"
+    },
+    "IfcScheduleCard": {
+      "description": "The project's Raumbuch (room schedule) straight from the model.\n\nThe card names WHICH table to show; the frontend fetches the numbers from\nthe model itself. The model therefore cannot get an area wrong, because it\nnever supplies one \u2014 the same reason the viewer card carries GlobalIds and\nnot geometry.\n\nUse when the user asks for room areas, a Fl\u00e4chenaufstellung, or \"what rooms\nare on the second floor\".",
+      "properties": {
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name of the model as ifc_query reported it. Empty when the project has one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification",
+          "title": "Note"
+        },
+        "storey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Limit the table to one storey, e.g. 'Erdgeschoss'. Empty shows all.",
+          "title": "Storey"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Fl\u00e4chenaufstellung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_schedule",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcScheduleCard",
       "type": "object"
     },
     "IfcViewerCard": {
@@ -2354,6 +2525,9 @@
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
       "fire_compartment": "#/$defs/FireCompartmentCard",
       "guardrail_check": "#/$defs/GuardrailCheckCard",
+      "ifc_diff": "#/$defs/IfcDiffCard",
+      "ifc_element": "#/$defs/IfcElementCard",
+      "ifc_schedule": "#/$defs/IfcScheduleCard",
       "ifc_viewer": "#/$defs/IfcViewerCard",
       "legal_basis": "#/$defs/LegalBasisCard",
       "memory_proposal": "#/$defs/MemoryProposalCard",
@@ -2436,6 +2610,15 @@
     },
     {
       "$ref": "#/$defs/IfcViewerCard"
+    },
+    {
+      "$ref": "#/$defs/IfcScheduleCard"
+    },
+    {
+      "$ref": "#/$defs/IfcElementCard"
+    },
+    {
+      "$ref": "#/$defs/IfcDiffCard"
     }
   ]
 }

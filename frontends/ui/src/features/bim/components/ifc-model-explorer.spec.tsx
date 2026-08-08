@@ -340,6 +340,7 @@ describe('IfcModelCompare', () => {
       elementCount: 40,
       errorMessage: null,
       summary: null,
+      updatedAt: '2026-01-08T09:00:00.000Z',
     },
   ]
 

@@ -81,6 +81,11 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // are view state, not decisions — nothing is written and nothing would be
   // annoying to redo, so there is nothing to persist on the message.
   ifc_viewer: 'presentational',
+  // All three read their data live from the model and write nothing. Opening
+  // one, sorting it, or downloading the CSV starts no commitment.
+  ifc_schedule: 'presentational',
+  ifc_element: 'presentational',
+  ifc_diff: 'presentational',
 }
 
 /** The card types whose user decisions must be persisted (see the map above). */

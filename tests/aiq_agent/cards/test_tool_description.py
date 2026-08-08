@@ -23,6 +23,13 @@ _CARD_TYPES = [getattr(c.model_fields["type"].annotation, "__args__", ("?",))[0]
 # card type forces a choice: give it an example or list it here (see coverage
 # test below), so a hard-to-nest type can't slip in with no guidance.
 _EXAMPLE_EXEMPT = {
+    # The three model-backed cards carry an identifier and nothing else: the
+    # frontend reads every number from the model, so there is no nesting for an
+    # example to disambiguate. `ifc_viewer` IS exampled, because its highlight
+    # groups are nested.
+    "ifc_schedule",
+    "ifc_element",
+    "ifc_diff",
     "summary",
     "legal_basis",
     "stair_diagram",

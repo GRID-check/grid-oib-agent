@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@/test-utils'
 import { describe, test, expect, vi } from 'vitest'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { InternalLinkProvider } from './internal-link-context'
 
 describe('MarkdownRenderer', () => {
   describe('basic rendering', () => {
@@ -193,6 +194,44 @@ Paragraph 2.`} />)
         'id',
         'aussenwand'
       )
+    })
+
+    /*
+      An in-app link is not an external one. Answers now write links back into
+      the app — `/app/projects/:id/model?element=…` opens a wall in the viewer —
+      and a new tab there means leaving the app to re-enter it with a cold store.
+    */
+    test('in-app links stay in the same tab', () => {
+      render(<MarkdownRenderer content="[AW 38](/app/projects/p1/model?element=abc)" />)
+
+      const link = screen.getByRole('link', { name: 'AW 38' })
+      expect(link).toHaveAttribute('href', '/app/projects/p1/model?element=abc')
+      expect(link).not.toHaveAttribute('target')
+    })
+
+    test('a protocol-relative href is external, however much it looks internal', () => {
+      // `//evil.example/app` is another origin. This renders model output, so
+      // the near-miss is the case that matters.
+      render(<MarkdownRenderer content="[Link](//evil.example/app/projects/p1/model)" />)
+
+      const link = screen.getByRole('link', { name: 'Link' })
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    test('a surface that knows the destination renders it itself', () => {
+      render(
+        <InternalLinkProvider
+          render={({ href, children }) => <span data-testid="custom">{`${children}@${href}`}</span>}
+        >
+          <MarkdownRenderer content="[AW 38](/app/projects/p1/model?element=abc)" />
+        </InternalLinkProvider>
+      )
+
+      expect(screen.getByTestId('custom')).toHaveTextContent(
+        'AW 38@/app/projects/p1/model?element=abc'
+      )
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
     })
 
     test('leaves ASCII heading ids exactly as they were', () => {

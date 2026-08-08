@@ -15,7 +15,7 @@
  * somebody opened the page.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, GitCompare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,26 +30,40 @@ export interface IfcModelCompareProps {
   modelId: string
   /** Every other ready model in scope, offered as the older revision. */
   candidates: readonly BimModelHeaderView[]
+  /**
+   * A comparison the timeline asked for: `{ baseModelId, at }`. The panel
+   * selects that base and runs immediately.
+   *
+   * `at` is a monotonically increasing token rather than a boolean, because
+   * asking for the SAME comparison twice ("compare with previous", read it,
+   * click it again) has to re-run — a changed base id alone would not.
+   */
+  requested?: { baseModelId: string; at: number } | null
 }
 
 /** How many rows each bucket shows before the count speaks for the rest. */
 const VISIBLE_ROWS = 8
 
-export function IfcModelCompare({ modelId, candidates }: IfcModelCompareProps): JSX.Element {
+export function IfcModelCompare({
+  modelId,
+  candidates,
+  requested = null,
+}: IfcModelCompareProps): JSX.Element {
   const t = useTranslations('bim')
   const [baseModelId, setBaseModelId] = useState<string>(candidates[0]?.id ?? '')
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [comparison, setComparison] = useState<BimComparison | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
 
-  const run = async () => {
-    if (!baseModelId) return
+  const run = async (base: string = baseModelId) => {
+    if (!base) return
     setState('loading')
     setComparison(null)
     try {
       const response = await fetch(`/api/bim/models/${modelId}/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ op: 'compare', baseModelId, limit: 20_000 }),
+        body: JSON.stringify({ op: 'compare', baseModelId: base, limit: 20_000 }),
       })
       if (!response.ok) throw new Error(String(response.status))
       const body = (await response.json()) as { comparison?: BimComparison }
@@ -60,9 +74,27 @@ export function IfcModelCompare({ modelId, candidates }: IfcModelCompareProps): 
     }
   }
 
+  // A comparison requested from the timeline: select the base, run it, and
+  // bring the panel into view — the button that asked for it is elsewhere on
+  // the page, and results that appear off-screen read as a button that did
+  // nothing.
+  useEffect(() => {
+    if (!requested?.baseModelId) return
+    setBaseModelId(requested.baseModelId)
+    void run(requested.baseModelId)
+    heading.current?.scrollIntoView({ block: 'nearest' })
+    // Keyed on the request token: re-running the same comparison is a valid
+    // thing to ask for, and `run` is redefined every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested?.baseModelId, requested?.at])
+
   return (
     <section aria-labelledby="bim-compare-heading" className="space-y-2">
-      <h2 id="bim-compare-heading" className="flex items-center gap-2 text-sm font-semibold">
+      <h2
+        ref={heading}
+        id="bim-compare-heading"
+        className="flex items-center gap-2 text-sm font-semibold"
+      >
         <GitCompare className="size-4 text-muted-foreground" aria-hidden="true" />
         {t('compare.title')}
       </h2>
@@ -87,7 +119,13 @@ export function IfcModelCompare({ modelId, candidates }: IfcModelCompareProps): 
               </option>
             ))}
           </select>
-          <Button type="button" size="sm" variant="secondary" onClick={run} disabled={state === 'loading'}>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => void run()}
+            disabled={state === 'loading'}
+          >
             {state === 'loading' ? <Spinner className="size-3" /> : null}
             {state === 'loading' ? t('compare.running') : t('compare.run')}
           </Button>

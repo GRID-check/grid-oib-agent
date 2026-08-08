@@ -283,6 +283,7 @@ function BimModelPreview(): JSX.Element {
                 elementCount: 171,
                 errorMessage: null,
                 summary: null,
+        updatedAt: '2026-02-03T10:00:00.000Z',
               },
             ]}
           />

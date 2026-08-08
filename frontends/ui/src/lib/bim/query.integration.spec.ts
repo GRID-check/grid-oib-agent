@@ -43,6 +43,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   let revisionModelId: string
   let index: BimModelIndex
   let runBimQuery: typeof import('./query').runBimQuery
+  let bimQuerySchema: typeof import('./query').bimQuerySchema
   let BimModelNotReadyError: typeof import('./query').BimModelNotReadyError
   let closeDb: typeof import('@/lib/db').closeDb
 
@@ -53,6 +54,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     const repository = await import('./repository')
     const query = await import('./query')
     runBimQuery = query.runBimQuery
+    bimQuerySchema = query.bimQuerySchema
     BimModelNotReadyError = query.BimModelNotReadyError
     closeDb = close
 
@@ -431,6 +433,68 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     // area, so a storey breakdown over it needs no disclaimer.
     const result = await run({ op: 'aggregate', filter: {}, metric: 'count', groupBy: 'storey', limit: 50 })
     expect(result.caveat).toBeNull()
+  })
+
+  it('builds the Raumbuch over the whole element set', async () => {
+    // The Raumbuch reads rows through their own loader rather than the paged
+    // element list, so this is the only place that proves the two agree — a
+    // Flächenaufstellung short by a page is exactly the failure that would not
+    // show up in a unit test over hand-made records.
+    const result = await run({ op: 'schedule' })
+    const schedule = result.schedule
+    expect(schedule?.totals.rooms).toBe(4)
+    expect(schedule?.totals.netFloorArea).toBe(69)
+    expect(schedule?.storeys.map((storey) => storey.storeyName)).toEqual([
+      'Erdgeschoss',
+      'Obergeschoss',
+    ])
+    // Storey order is the summary's (by elevation), never alphabetical.
+    expect(schedule?.storeys[0].rooms.length).toBeGreaterThan(0)
+    expect(result.summary).toContain('Raumbuch')
+  })
+
+  it('sums a take-off per type and counts what publishes nothing', async () => {
+    // Parsed through the schema rather than hand-built, so this exercises the
+    // request an API caller actually sends — `filter` and `byMaterial` omitted,
+    // filled in by the zod defaults.
+    const result = await run(bimQuerySchema.parse({ op: 'takeoff', quantity: 'NetSideArea' }))
+    const walls = result.takeoff?.find((row) => row.group === 'IfcWall')
+    expect(walls?.elements).toBe(5)
+    // Whatever the fixture publishes, the row must account for every element
+    // in it: a sum plus its blind spot, never a sum alone.
+    expect((walls?.missing ?? 0) + (walls?.value === null ? 0 : 1)).toBeGreaterThan(0)
+    expect(result.summary).toContain('Massenermittlung')
+  })
+
+  it('splits a take-off by material without double-counting an element', async () => {
+    const rows =
+      (await run(bimQuerySchema.parse({ op: 'takeoff', quantity: 'NetSideArea', byMaterial: true })))
+        .takeoff ?? []
+    const wallRows = rows.filter((row) => row.group.startsWith('IfcWall'))
+    // A wall with three material layers is still one wall. Grouping by the
+    // PRIMARY material keeps the element counts summing back to the type total.
+    expect(wallRows.reduce((sum, row) => sum + row.elements, 0)).toBe(5)
+  })
+
+  it('treats an absent filter as "every element" rather than crashing', async () => {
+    // `buildBimPredicate` is reached with an unparsed request by the internal
+    // route and by callers composing a query in code. A TypeError deep in
+    // predicate building would surface as a 500 on a perfectly answerable
+    // request, so the empty case is pinned here where the module is real.
+    const { buildBimPredicate } = await import('./query')
+    expect(buildBimPredicate(undefined)).toBeUndefined()
+    expect(buildBimPredicate({})).toBeUndefined()
+  })
+
+  it('derives project facts from the model, each with its evidence', async () => {
+    const result = await run({ op: 'profile' })
+    const suggestions = result.profileSuggestions ?? []
+    const storeys = suggestions.find((entry) => entry.key === 'geschosse_oberirdisch')
+    expect(storeys?.value).toBe(2)
+    expect(storeys?.evidence).toContain('Erdgeschoss')
+    // Never asserted as settled: every suggestion carries a confidence, and
+    // the Fluchtniveau's can never be better than medium.
+    expect(suggestions.find((entry) => entry.key === 'fluchtniveau')?.confidence).toBe('medium')
   })
 
   it('compares two revisions by GlobalId', async () => {

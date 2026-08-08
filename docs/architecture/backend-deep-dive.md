@@ -960,12 +960,54 @@ tells the agent to report it verbatim. A storey breakdown over a model with 43
 unplaced elements is a subset presented as a total, and this is the only place
 that can be fixed.
 
+### Work products, not just views
+
+Three ops turn the index into the tables an office already keeps by hand:
+`schedule` (Raumbuch, `lib/bim/schedule.ts`), `takeoff` (Massenermittlung, same
+module) and `profile` (project-brief facts the model implies,
+`lib/bim/profile.ts`). All three are computed **server-side over the full
+element set**: the browser holds a capped page of elements with no quantities,
+so summing there would produce a Flächenaufstellung short by however many rows
+did not fit — silently, and only for large models. The page and the agent
+therefore read identical numbers from one code path.
+
+Each carries its own blind spot in the payload rather than in a footnote:
+`roomsWithoutArea` per storey and per building, `missing` per take-off row, and
+an `evidence` string plus a confidence on every derived fact. `profile` is
+deliberately advisory — `geschosse_oberirdisch` picks a Gebäudeklasse, so the
+suggestions travel to the user through the existing `project_profile_patch`
+confirm-the-patch card (ADR-0030), never as a direct write.
+
 ### Revision comparison
 
 `lib/bim/compare.ts` diffs two models by IFC **GlobalId**, which survives
 re-export where express ids do not. Added / removed / changed with per-property
 deltas — the question ("what changed since the last submission") that no pair of
 PDFs can answer.
+
+Above it, `features/bim/lib/revisions.ts` groups a project's models into
+**series** by reading the revision markers offices actually type (`_V2`,
+`-rev3`, `(2)`, a trailing date stamp) out of the file name, and computes each
+step's deltas from the stored summaries — so a six-revision timeline costs zero
+queries. The grouping is deliberately conservative: a bare trailing number is
+not a revision marker, because merging `Bauteil 2` and `Bauteil 3` would report
+one building as a wholesale deletion of the other. The element-level diff stays
+on demand, one step at a time.
+
+### Every model view is addressable
+
+`features/bim/lib/model-link.ts` puts the whole view — model, tab, storey,
+element, highlight groups, x-ray — in the query string, and the model page reads
+its state from there. That one decision is what makes the rest possible: a
+validation finding becomes a shareable link, a card opens the model already
+focused, the `ifc_query` tool emits a `Link:` per element row so an answer can
+name a wall as a chip that opens it (`features/bim/components/ifc-element-chip.tsx`,
+supplied to the markdown renderer through `InternalLinkProvider`), and the
+property panel turns the current selection into a chat question carrying its
+GlobalId. Both halves of that contract are pure string ↔ object and tested on
+both sides — `_element_link` in the Python tool mirrors `buildModelHref`, and a
+drifted parameter name would otherwise fail silently as a link that opens a
+model with nothing selected.
 
 ### Geometry stays in the browser
 

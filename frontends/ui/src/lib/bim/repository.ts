@@ -517,29 +517,65 @@ export async function loadBimElementsForComparison(
       // rather than guessed from whether the page came back full.
       .limit(bounded + 1)
   )
-  const truncated = rows.length > bounded
+  return { elements: rows.slice(0, bounded).map(toBimElement), truncated: rows.length > bounded }
+}
+
+/**
+ * Row → domain element.
+ *
+ * `description` and `containerGlobalId` are not columns: they are only used by
+ * the extractor and the viewer's own index, and storing them would widen the
+ * table for two fields no query reads.
+ */
+function toBimElement(row: BimElementRow): BimElement {
   return {
-    elements: rows.slice(0, bounded).map((row) => ({
-      globalId: row.globalId,
-      expressId: row.expressId,
-      ifcType: row.ifcType,
-      name: row.name,
-      description: null,
-      predefinedType: row.predefinedType,
-      objectType: row.objectType,
-      tag: row.tag,
-      typeName: row.typeName,
-      containerKind: (row.containerKind as BimElement['containerKind']) ?? null,
-      containerGlobalId: null,
-      containerName: row.containerName,
-      storeyGlobalId: row.storeyGlobalId,
-      storeyName: row.storeyName,
-      materials: row.materials,
-      classifications: row.classifications,
-      properties: row.properties,
-      quantities: row.quantities,
-    })),
-    truncated,
+    globalId: row.globalId,
+    expressId: row.expressId,
+    ifcType: row.ifcType,
+    name: row.name,
+    description: null,
+    predefinedType: row.predefinedType,
+    objectType: row.objectType,
+    tag: row.tag,
+    typeName: row.typeName,
+    containerKind: (row.containerKind as BimElement['containerKind']) ?? null,
+    containerGlobalId: null,
+    containerName: row.containerName,
+    storeyGlobalId: row.storeyGlobalId,
+    storeyName: row.storeyName,
+    materials: row.materials,
+    classifications: row.classifications,
+    properties: row.properties,
+    quantities: row.quantities,
+  }
+}
+
+/**
+ * Elements for a whole-model derivation (Raumbuch, Massenermittlung, profile).
+ *
+ * Same shape as the comparison loader but takes a predicate, because a take-off
+ * is usually over a filtered set ("every load-bearing wall") while a room
+ * schedule is over all of them. Bounded by the same cap for the same reason.
+ */
+export async function loadBimElementsForSchedule(
+  modelId: string,
+  organizationId: string,
+  where?: ReturnType<typeof and>,
+  limit = 50_000
+): Promise<{ elements: BimElement[]; truncated: boolean }> {
+  const db = getDb()
+  const bounded = Math.max(1, Math.trunc(limit))
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(bimElements)
+      .where(and(elementScope(modelId, organizationId), where))
+      .orderBy(asc(bimElements.expressId))
+      .limit(bounded + 1)
+  )
+  return {
+    elements: rows.slice(0, bounded).map(toBimElement),
+    truncated: rows.length > bounded,
   }
 }
 

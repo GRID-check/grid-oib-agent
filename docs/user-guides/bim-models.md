@@ -19,12 +19,30 @@ Models above 250 MB are refused with a message rather than half-read.
 
 ## The model page
 
+The 3D view is always on the right. The left half has four tabs.
+
+### Überblick
+
 **Modellübersicht** — what the file says about itself: project, site and
 building names, the IFC schema, which application exported it and when, plus
 the counts and areas read from the model.
 
 **Modellprüfung** — the validation report (below). Read it before trusting a
-number.
+number. Each finding has a **Bauteile zeigen** action that highlights the
+offending elements in 3D and puts that view in the address bar, so a finding is
+something you can send someone.
+
+**Projektangaben aus dem Modell** — the facts your project brief asks for, read
+back out of the model: storeys above and below ground, the Fluchtniveau band,
+the main use, the room count. Each one shows the evidence it came from and how
+confident it is. Nothing is written to the brief from here — **Über den
+Assistenten übernehmen** takes them into the chat, where you confirm each change
+the way you confirm every other proposed change to the project data. A derived
+`Geschosse oberirdisch` picks a Gebäudeklasse, and a Gebäudeklasse decides what
+the fire-safety answer is; that is not a value a page should set behind a
+checkbox.
+
+### Struktur
 
 **Räumliche Struktur** — the Project → Site → Building → Storey → Space tree.
 Click a storey to filter everything else to it.
@@ -32,14 +50,42 @@ Click a storey to filter everything else to it.
 **Bauteile** — every element, searchable by name and filterable by type. Click a
 row to see its full property sets and quantities, and to highlight it in 3D.
 
-**3D-Ansicht** — the model itself. Drag to orbit, Shift-drag to pan, scroll to
-zoom, click to select. The viewer needs **WebGPU** (Chrome and Edge today,
-Safari and Firefox depending on version). Without it you get a short note in
-place of the picture and *everything else on the page still works* — the
-structure, the elements, the properties, the quantities, and every answer the
-assistant gives.
+### Mengen
+
+**Raumbuch** — every room with its storey, area and volume, totalled per storey
+and for the building, downloadable as a semicolon-separated CSV that opens
+straight into Austrian Excel. Rooms that publish no area are **listed and
+counted, never silently dropped**: the banner says how many rooms the totals
+exclude, and each storey heading repeats it. A Flächenaufstellung that is short
+by four rooms and does not say so is the one number in this product that could
+do real damage.
+
+**Massenermittlung** — one quantity (`NetSideArea`, `NetVolume`, …) summed per
+element type, optionally split by material for a Kostenschätzung. Same rule:
+each row states how many of its elements publish no value.
+
+### Revisionen
+
+**Revisionen** — see below.
 
 **Stände vergleichen** — see below.
+
+### The 3D view
+
+Drag to orbit, Shift-drag to pan, scroll to zoom, click to select.
+**Röntgen** ghosts everything that is not selected or highlighted, so a wall
+inside a building is still findable. The viewer needs **WebGPU** (Chrome and
+Edge today, Safari and Firefox depending on version). Without it you get a short
+note in place of the picture and *everything else on the page still works* — the
+structure, the elements, the properties, the quantities, the schedules, and
+every answer the assistant gives.
+
+### Every view is a link
+
+Which model, which tab, which storey, which element, what is highlighted and
+whether x-ray is on all live in the address bar. **Ansicht kopieren** copies the
+current one. That is what makes "the third wall on the left in the ground floor"
+unnecessary: you send the wall.
 
 ## Asking questions in chat
 
@@ -54,6 +100,20 @@ In a project chat, ask about the building the way you would ask a colleague:
 These are answered by **querying the model**, not by reading text about it — the
 counts and sums are computed, not estimated. When the answer is about specific
 parts of the building, the assistant can show them highlighted on the 3D model.
+
+**Element names in an answer are links.** When the assistant names a wall, the
+name is a chip — click it and the model opens with that wall selected,
+highlighted and, where it helps, with everything else ghosted. It goes the other
+way too: with an element selected on the model page, **Assistenten fragen**
+starts a chat about exactly that element, carrying its GlobalId so the
+assistant queries the same one you are looking at rather than one it guessed
+from a description.
+
+The assistant can also answer with a **card**: a Raumbuch for one storey, one
+element with its property sets, or the diff between two revisions. Those cards
+carry only an identifier — the numbers on them are fetched from the model when
+they render, so the assistant cannot state a floor area at all, and every row
+links into the model at that element.
 
 Questions about *regulations* ("was verlangt OIB 2 für Fluchtwege") are answered
 from the OIB corpus as before. A question that combines the two — "which of my
@@ -88,11 +148,32 @@ When a model has structural gaps, the assistant says so in the answer itself:
 daher in jeder geschossweisen Auswertung."* That sentence is not boilerplate —
 it appears only when it applies.
 
+## Revisions
+
+Upload `Haus-A_V2.ifc` next to `Haus-A.ifc` and the **Revisionen** tab shows them
+as one series rather than two files. GRID reads the revision marker out of the
+file name — `_V2`, `-rev3`, `(2)`, a trailing date stamp — so the sequence
+appears without anyone maintaining it. Names that are merely similar are *not*
+merged: `Bauteil 2.ifc` and `Bauteil 3.ifc` stay two buildings, because reporting
+one as a 340-element deletion of the other would be worse than showing no
+timeline.
+
+Each step carries what changed between it and the one before: elements, rooms,
+storeys, net floor area and the Modellqualität score, signed. Those come from the
+stored summaries, so the whole timeline costs nothing to show — and `±0` means
+*measured and unchanged*, while `—` means one of the two revisions publishes no
+such figure. A revision that failed to parse says so instead of reporting a total
+loss.
+
+They are deltas between two **exports**, not between two buildings: an office
+that re-exports with a different mapping can move hundreds of elements without
+touching the design. That is why the element-level comparison is one click away
+rather than replaced by these numbers.
+
 ## Comparing revisions
 
-Upload the new version of a model alongside the old one and use **Stände
-vergleichen**, or ask in chat: *"Was hat sich gegenüber dem letzten Stand
-geändert?"*
+Use **Mit … vergleichen** on a timeline step, **Stände vergleichen** for any two
+models, or ask in chat: *"Was hat sich gegenüber dem letzten Stand geändert?"*
 
 The comparison matches elements by their **IFC GlobalId**, which survives
 re-export. A model re-exported with no changes reports no changes, even though
