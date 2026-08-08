@@ -16,19 +16,15 @@ vi.mock('@/lib/workos/feature-flags', () => ({
   WEB_SEARCH_FLAG: 'web-search',
 }))
 
-// Mocked at the predicate rather than at WorkOS, because what these tests are
-// about is whether the platform write path CONSULTS it — the real
-// `isPlatformOwner` is covered in `authz/platform.spec.ts`.
-const isPlatformOwner = vi.fn()
-vi.mock('@/lib/authz/platform', async () => {
-  const actual = await import('@/lib/authz/platform')
-  return {
-    ...actual,
-    isPlatformOwner: (...args: unknown[]) => isPlatformOwner(...args),
-    requirePlatformOwner: async (session: unknown) => {
-      if (!(await isPlatformOwner(session))) throw new actual.PlatformAccessDeniedError()
-    },
-  }
+// Stubbed at the guard rather than at WorkOS, because what these tests are about
+// is whether the platform write path CALLS it — whether the guard decides
+// correctly is `authz/platform.spec.ts`. `importOriginal` and a spread, matching
+// the three route specs that already mock this module, which is also what keeps
+// the real `PlatformAccessDeniedError` importable below.
+const requirePlatformOwner = vi.fn()
+vi.mock('@/lib/authz/platform', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/authz/platform')>()
+  return { ...original, requirePlatformOwner: (s: unknown) => requirePlatformOwner(s) }
 })
 
 import { ForbiddenError } from '@/lib/api/errors'
@@ -64,7 +60,7 @@ describe('platform-owned settings keys', () => {
       settings: {},
     })
     upsertOrganization.mockResolvedValue(undefined)
-    isPlatformOwner.mockResolvedValue(true)
+    requirePlatformOwner.mockResolvedValue(undefined)
   })
 
   it.each([...PLATFORM_OWNED_SETTINGS])('refuses %s from the tenant write path', async (key) => {
@@ -117,7 +113,7 @@ describe('platform-owned settings keys', () => {
    * wrong.
    */
   it('refuses a caller who is not the platform owner', async () => {
-    isPlatformOwner.mockResolvedValue(false)
+    requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
     await expect(
       updatePlatformOwnedOrgSettings(TENANT_ADMIN, 'org-1', {
         settings: { storageQuotaBytes: 999_999_999_999 },
@@ -127,7 +123,7 @@ describe('platform-owned settings keys', () => {
   })
 
   it('refuses an absent session', async () => {
-    isPlatformOwner.mockResolvedValue(false)
+    requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
     await expect(
       updatePlatformOwnedOrgSettings(null, 'org-1', { settings: { storageQuotaBytes: 1 } })
     ).rejects.toBeInstanceOf(PlatformAccessDeniedError)

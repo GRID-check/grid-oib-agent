@@ -41,21 +41,22 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: (...args: unknown[]) => recordAuditEvent(...args),
 }))
 
-// Mocked at the predicate, not at WorkOS: what this file is about is whether
-// `setStorageQuota` CONSULTS it, and in what order relative to everything else it
-// does. `isPlatformOwner` itself is covered in `authz/platform.spec.ts`.
-const isPlatformOwner = vi.fn()
-vi.mock('@/lib/authz/platform', async () => {
-  const actual = await import('@/lib/authz/platform')
-  return {
-    ...actual,
-    isPlatformOwner: (...args: unknown[]) => isPlatformOwner(...args),
-    requirePlatformOwner: async (session: unknown) => {
-      if (!(await isPlatformOwner(session))) throw new actual.PlatformAccessDeniedError()
-    },
-  }
+// Stubbed at the guard, not at WorkOS: what this file is about is whether
+// `setStorageQuota` CALLS it, and in what order relative to everything else it
+// does. Whether the guard itself decides correctly is `authz/platform.spec.ts`.
+//
+// `importOriginal` rather than importing the module inside its own factory —
+// which is what three other specs mocking this same module already do
+// (`app/api/platform/*/route.spec.ts`). Spreading the original is what keeps the
+// REAL `PlatformAccessDeniedError` available, so the rejection below is the class
+// the handler maps to 403 rather than a look-alike.
+const requirePlatformOwner = vi.fn()
+vi.mock('@/lib/authz/platform', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/authz/platform')>()
+  return { ...original, requirePlatformOwner: (s: unknown) => requirePlatformOwner(s) }
 })
 
+import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import type { GridSession } from '@/lib/auth/types'
 import {
   assertWithinStorageQuota,
@@ -106,8 +107,8 @@ describe('storage quota', () => {
     })
     // Known to Grid by default; the "unknown organization" tests opt out.
     findOrganization.mockResolvedValue({ workosOrganizationId: 'org-1', settings: {} })
-    // The platform owner by default; the authorization tests opt out.
-    isPlatformOwner.mockResolvedValue(true)
+    // Authorized by default; the authorization tests opt out.
+    requirePlatformOwner.mockResolvedValue(undefined)
   })
 
   describe('getStorageQuotaBytes', () => {
@@ -269,7 +270,7 @@ describe('storage quota', () => {
      * without anyone revisiting the comment that depended on them.
      */
     it('refuses a caller who is not the platform owner', async () => {
-      isPlatformOwner.mockResolvedValue(false)
+      requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
       await expect(setStorageQuota(platformSession(), 'org-1', 10 * GB)).rejects.toMatchObject({
         status: 403,
       })
@@ -281,7 +282,7 @@ describe('storage quota', () => {
       // Ordering, not just presence: checking authorization AFTER the existence
       // lookup would answer "does org-X exist?" with 404-vs-403 for anyone who
       // could reach the function.
-      isPlatformOwner.mockResolvedValue(false)
+      requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
       await expect(setStorageQuota(platformSession(), 'org-typo', 10 * GB)).rejects.toMatchObject({
         status: 403,
       })
