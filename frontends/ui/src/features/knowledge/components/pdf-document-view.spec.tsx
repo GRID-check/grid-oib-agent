@@ -1,7 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { installLayoutObservers } from '@/test-utils/layout-observers'
+import {
+  FAKE_FRAME_WIDTH,
+  fakePdfjsRuntime,
+  fakeTextRun as run,
+  type FakePdfState,
+} from '@/test-utils/pdfjs-fake'
 import { PdfDocumentView } from './pdf-document-view'
+
+// `vi.hoisted` runs before the imports, but a type annotation is erased, so
+// naming the shared shape here costs nothing at runtime.
+const state = vi.hoisted((): FakePdfState => ({ fail: false, pages: [], destroyed: 0 }))
+
+vi.mock('../lib/pdfjs-runtime', () => fakePdfjsRuntime(state))
 
 /**
  * The viewer's own wiring: does the page it was pointed at actually get its
@@ -12,71 +24,13 @@ import { PdfDocumentView } from './pdf-document-view'
  * and the DOM.
  */
 
-const PAGE_WIDTH = 600
-const PAGE_HEIGHT = 800
-/** Frame width chosen so the fit-to-width scale works out to exactly 1. */
-const FRAME_WIDTH = PAGE_WIDTH + 24
-
-interface FakeItem {
-  str: string
-  width: number
-  height: number
-  transform: number[]
-}
-
-const state = vi.hoisted(() => ({
-  fail: false,
-  pages: [] as Array<{ items: FakeItem[] }>,
-  destroyed: 0,
-}))
-
-vi.mock('../lib/pdfjs-runtime', () => ({
-  documentParameters: (url: string) => ({ url }),
-  loadPdfjs: async () => {
-    if (state.fail) throw new Error('worker unavailable')
-    return {
-      getDocument: () => ({
-        promise: Promise.resolve({
-          numPages: state.pages.length,
-          getPage: (number: number) =>
-            Promise.resolve({
-              // The viewport pdf.js builds for an unrotated page: y flipped and
-              // shifted by the page height.
-              getViewport: ({ scale }: { scale: number }) => ({
-                width: PAGE_WIDTH * scale,
-                height: PAGE_HEIGHT * scale,
-                scale,
-                transform: [scale, 0, 0, -scale, 0, PAGE_HEIGHT * scale],
-              }),
-              render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
-              getTextContent: () =>
-                Promise.resolve({ items: state.pages[number - 1]?.items ?? [] }),
-            }),
-        }),
-        destroy: () => {
-          state.destroyed += 1
-          return Promise.resolve()
-        },
-      }),
-    }
-  },
-}))
-
-/** A 12pt run of text with its baseline at PDF-space (72, `baseline`). */
-const run = (str: string, baseline: number, width: number): FakeItem => ({
-  str,
-  width,
-  height: 12,
-  transform: [12, 0, 0, 12, 72, baseline],
-})
-
 const restoreObservers = { current: () => {} }
 
 beforeEach(() => {
   state.fail = false
   state.destroyed = 0
   state.pages = []
-  restoreObservers.current = installLayoutObservers({ frameWidth: FRAME_WIDTH })
+  restoreObservers.current = installLayoutObservers({ frameWidth: FAKE_FRAME_WIDTH })
 })
 
 afterEach(() => {
@@ -178,6 +132,43 @@ describe('PdfDocumentView', () => {
     render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
     await screen.findByTitle('doc.pdf')
     expect(screen.queryByText(/cannot be marked/i)).toBeNull()
+  })
+
+  /**
+   * Regression: matching used to sit in the same effect as rasterisation, whose
+   * deps include the zoom-driven width. Every zoom click therefore re-ran the
+   * match, re-announced the hit, and dragged a reader who had deliberately
+   * scrolled elsewhere back to the citation — replaying the arrival pulse at
+   * them. Zoom changes how big the passage is drawn, nothing else.
+   */
+  it('does not re-reveal the passage when the reader zooms', async () => {
+    state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
+    render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="doc.pdf"
+        page={1}
+        highlight="Die Frist betraegt vier Wochen"
+      />,
+    )
+    await screen.findByTestId('passage-mark')
+
+    const frame = screen.getByTestId('pdf-scroll')
+    const scrollTo = vi.fn()
+    frame.scrollTo = scrollTo
+
+    fireEvent.click(screen.getByLabelText('Zoom in'))
+    await waitFor(() => expect(screen.getByText('125%')).toBeTruthy())
+
+    // The mark survives the zoom — it is still the answer to the click.
+    expect(screen.getByTestId('passage-mark')).toBeTruthy()
+    // But the frame is not yanked back to it.
+    expect(scrollTo).not.toHaveBeenCalled()
+
+    // The spy is wired correctly: asking to go back DOES scroll. Without this,
+    // "not called" would pass just as well against a broken assertion.
+    fireEvent.click(screen.getByText('Go to passage'))
+    expect(scrollTo).toHaveBeenCalled()
   })
 
   it('releases the document when the viewer goes away', async () => {

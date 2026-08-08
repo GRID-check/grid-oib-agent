@@ -853,8 +853,9 @@ export async function getDocumentPreview(
 }
 
 /**
- * Stream a stored document's bytes from THIS origin, under the session's own
- * `project:view` check.
+ * Stream a stored PDF's bytes from THIS origin, under the same authorization
+ * `getAccessibleDocument` applies everywhere else — `project:view` for a project
+ * document, org membership for an org-wide Archiv document.
  *
  * The presigned URL `getDocumentPreview` mints points at the object store's own
  * domain, and that is fine for anything the browser NAVIGATES to — a new tab, a
@@ -867,9 +868,18 @@ export async function getDocumentPreview(
  * losing the cited-passage highlight on exactly the documents users uploaded
  * themselves, while the base corpus (already same-origin) kept it.
  *
- * So stored documents get the same shape the corpus route has. The presigned
- * URL is not replaced: it still serves the "open in new tab" link and the image
+ * So stored PDFs get the same shape the corpus route has. The presigned URL is
+ * not replaced: it still serves the "open in new tab" link and the image
  * branch, where a navigation is what happens and an expiring URL is the point.
+ *
+ * PDF ONLY, and narrower than {@link PREVIEW_CONTENT_TYPES} on purpose. That
+ * list admits `image/svg+xml`, and an SVG is a script carrier: served `inline`
+ * from THIS origin it executes in the app's origin with the user's session,
+ * which is stored XSS. `frame-ancestors` does not prevent script execution in a
+ * top-level document. The same hazard is already spelled out for the image
+ * optimizer above — this route must not be the hole that reintroduces it.
+ * Images have no reason to come through here anyway: nothing fetches their
+ * bytes to parse, so every caller keeps them on the presigned URL.
  */
 export async function streamDocumentFile(
   session: AuthorizedSession,
@@ -879,10 +889,8 @@ export async function streamDocumentFile(
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
-  // Same gate as the presigned preview: this route exists to display a file
-  // inline, not to become a second, unfiltered download path.
-  if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
-    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', {
+  if (contentType !== 'application/pdf') {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only PDF documents stream from this route', {
       contentType,
     })
   }

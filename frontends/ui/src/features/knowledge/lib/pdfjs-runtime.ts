@@ -34,10 +34,20 @@ let runtime: Promise<Pdfjs> | null = null
  * `workerSrc` per viewer would be both wasteful and racy.
  */
 export const loadPdfjs = (): Promise<Pdfjs> => {
-  runtime ??= import('pdfjs-dist/legacy/build/pdf.mjs').then((pdfjs: Pdfjs) => {
-    pdfjs.GlobalWorkerOptions.workerSrc = `${ASSET_BASE}pdf.worker.min.mjs`
-    return pdfjs
-  })
+  runtime ??= import('pdfjs-dist/legacy/build/pdf.mjs')
+    .then((pdfjs: Pdfjs) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = `${ASSET_BASE}pdf.worker.min.mjs`
+      return pdfjs
+    })
+    .catch((error: unknown) => {
+      // Drop the cache before rethrowing. A chunk fetch fails for reasons that
+      // pass — a deploy rolling over mid-session, a moment offline — and a
+      // cached REJECTED promise turns that moment into a permanent one: every
+      // later citation click in the session resolves instantly to the failure
+      // and lands on the fallback frame, with no way back short of a reload.
+      runtime = null
+      throw error
+    })
   return runtime
 }
 

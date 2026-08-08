@@ -1,44 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { installLayoutObservers } from '@/test-utils/layout-observers'
+import {
+  FAKE_FRAME_WIDTH,
+  fakePdfjsRuntime,
+  fakeTextRun,
+  type FakePdfState,
+} from '@/test-utils/pdfjs-fake'
 import { PdfViewerDialog } from './pdf-viewer-dialog'
 
-const PAGE_WIDTH = 600
-const PAGE_HEIGHT = 800
-const FRAME_WIDTH = PAGE_WIDTH + 24
+const state = vi.hoisted((): FakePdfState => ({ fail: false, pages: [], destroyed: 0 }))
 
-const state = vi.hoisted(() => ({
-  items: [] as Array<{ str: string; width: number; height: number; transform: number[] }>,
-}))
-
-vi.mock('../lib/pdfjs-runtime', () => ({
-  documentParameters: (url: string) => ({ url }),
-  loadPdfjs: async () => ({
-    getDocument: () => ({
-      promise: Promise.resolve({
-        numPages: 1,
-        getPage: () =>
-          Promise.resolve({
-            getViewport: ({ scale }: { scale: number }) => ({
-              width: PAGE_WIDTH * scale,
-              height: PAGE_HEIGHT * scale,
-              scale,
-              transform: [scale, 0, 0, -scale, 0, PAGE_HEIGHT * scale],
-            }),
-            render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
-            getTextContent: () => Promise.resolve({ items: state.items }),
-          }),
-      }),
-      destroy: () => Promise.resolve(),
-    }),
-  }),
-}))
+vi.mock('../lib/pdfjs-runtime', () => fakePdfjsRuntime(state))
 
 const restoreObservers = { current: () => {} }
 
 beforeEach(() => {
-  state.items = []
-  restoreObservers.current = installLayoutObservers({ frameWidth: FRAME_WIDTH })
+  state.pages = [{ items: [] }]
+  restoreObservers.current = installLayoutObservers({ frameWidth: FAKE_FRAME_WIDTH })
 })
 
 afterEach(() => {
@@ -82,9 +61,7 @@ describe('PdfViewerDialog', () => {
   })
 
   it('passes the cited passage through so the viewer can mark it', async () => {
-    state.items = [
-      { str: 'Die Frist betraegt vier Wochen', width: 180, height: 12, transform: [12, 0, 0, 12, 72, 700] },
-    ]
+    state.pages = [{ items: [fakeTextRun('Die Frist betraegt vier Wochen', 700, 180)] }]
     render(
       <PdfViewerDialog
         open

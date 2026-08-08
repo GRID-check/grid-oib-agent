@@ -27,7 +27,7 @@ export default defineConfig({
      * frame. It only became a crash once enough specs did it at once.
      */
     environmentOptions: {
-      happyDOM: { settings: { disableIframePageLoading: true } },
+      happyDOM: { settings: { navigation: { disableChildFrameNavigation: true } } },
     },
     testTimeout: 50000,
     root: './',

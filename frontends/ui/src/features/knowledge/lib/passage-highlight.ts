@@ -137,9 +137,10 @@ const isWhitespace = (ch: string): boolean => /\s/.test(ch)
 const isLetter = (ch: string): boolean => /\p{L}/u.test(ch)
 
 /**
- * Fold one source character into zero or more comparable ones. NFKC is what
- * turns the `ﬁ` ligature into `fi` — without it a snippet spelling the two
- * letters out never matches the run that carries the single glyph.
+ * Fold one source character into zero or more comparable ones. The compatibility
+ * decomposition is what turns the `ﬁ` ligature into `fi` — without it a snippet
+ * spelling the two letters out never matches the run that carries the single
+ * glyph.
  *
  * Everything that is not a letter, a digit or whitespace becomes a SPACE, i.e.
  * a word boundary rather than a character to agree about. Punctuation is where
@@ -152,7 +153,15 @@ const isLetter = (ch: string): boolean => /\p{L}/u.test(ch)
 const foldChar = (raw: string): string => {
   const folded = CHARACTER_FOLDING[raw]
   if (folded !== undefined) return folded
-  const normalized = raw.normalize('NFKC').toLowerCase()
+  // NFKD, not NFKC. Folding happens one SOURCE character at a time, so a
+  // composing form can never see the base letter and its combining mark
+  // together — and the two are handed to us by different producers: a
+  // precomposed `ü` (U+00FC) would survive as `ü` while a decomposed
+  // `u` + U+0308 would lose its mark and become `u`, so the same word folds two
+  // ways and no matcher tier can recover it. Decomposing instead sends both to
+  // `u`. It still expands the `ﬁ` ligature, which is a COMPATIBILITY
+  // decomposition and therefore present in NFKD too.
+  const normalized = raw.normalize('NFKD').toLowerCase()
   // A combining accent left over from decomposition is not a character the
   // reader typed, and dropping it lets `ﬀ`-style expansions stay aligned.
   return normalized.replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ')

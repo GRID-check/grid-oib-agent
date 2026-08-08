@@ -33,7 +33,7 @@ import {
   type CSSProperties,
   type FC,
 } from 'react'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
+import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { AlertTriangle, Crosshair, Loader2, Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -96,6 +96,8 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   const [frameWidth, setFrameWidth] = useState(0)
   const [zoomStep, setZoomStep] = useState(ZOOM_STEPS.indexOf(1))
   const [hit, setHit] = useState<PassageHit | null>(null)
+  // Page 1's shape, used to reserve room for pages that have not rasterised.
+  const [defaultAspect, setDefaultAspect] = useState<number | null>(null)
   // Bumped to replay the arrival animation — a CSS animation only runs on
   // mount, so re-pinging means remounting the marks.
   const [ping, setPing] = useState(0)
@@ -130,6 +132,32 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     }
   }, [src])
 
+  /**
+   * Reserve realistic room for every page before any of them has rendered.
+   *
+   * Pages rasterise lazily, so without this the whole document starts as a
+   * stack of near-empty boxes: the scrollbar is a lie, `offsetTop` for a page
+   * deep in the document is far short of its final value, and the content
+   * jumps as pages fill in. One `getPage(1)` gives the stack its true height,
+   * because a PDF's pages are all but always the same size — and any page that
+   * is not corrects itself the moment it renders.
+   */
+  useEffect(() => {
+    if (!doc) return
+    let cancelled = false
+    doc
+      .getPage(1)
+      .then((first) => {
+        if (cancelled) return
+        const base = first.getViewport({ scale: 1 })
+        setDefaultAspect(base.height / base.width)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [doc])
+
   // A new Fundstelle is a new question. Clearing the old marks stops the
   // previous passage from staying lit on a page the reader has left, and lets
   // the "open at page" fallback run again for the new target.
@@ -161,23 +189,35 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   }, [])
 
   /**
-   * Bring a located passage to rest near the top of the frame, and pulse it.
+   * Put a located passage near the top of the frame.
    *
    * Scrolling to the PAGE and scrolling to the PASSAGE are different answers,
    * and only the second is what the click asked for — landing at the top of
    * page 12 when the sentence sits at its foot leaves the reader searching
    * exactly as the old iframe did.
+   *
+   * Split from the pulse because the two are wanted at different times: the
+   * scroll has to be re-applied once the page stack settles (see below), and
+   * re-pulsing on every correction would strobe the mark.
    */
-  const revealPassage = useCallback((target: PassageHit) => {
+  const scrollToPassage = useCallback((target: PassageHit, smooth: boolean) => {
     const frame = scrollRef.current
     const pageNode = pageRefs.current.get(target.page)
     const bounds = passageBounds(target.rects)
-    setPing((previous) => previous + 1)
     if (!frame || !pageNode || !bounds) return
     const scale = pageScales.current.get(target.page) ?? 1
     const top = pageNode.offsetTop + bounds.y * scale - frame.clientHeight * PASSAGE_SCROLL_OFFSET
-    frame.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    frame.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
   }, [])
+
+  /** Scroll to the passage AND announce it — what a fresh citation deserves. */
+  const revealPassage = useCallback(
+    (target: PassageHit) => {
+      setPing((previous) => previous + 1)
+      scrollToPassage(target, true)
+    },
+    [scrollToPassage],
+  )
 
   const handlePassage = useCallback(
     (found: PassageHit) => {
@@ -186,6 +226,23 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     },
     [revealPassage],
   )
+
+  /**
+   * Re-apply the scroll once the page stack has settled.
+   *
+   * `scrollToPassage` measures `pageNode.offsetTop`, and a page that has never
+   * rasterised only knows its height once `defaultAspect` arrives or it enters
+   * the render band. Until then the pages above the target are shorter than
+   * they will be, so the first scroll to a passage deep in a long document
+   * lands well short of it — and then the content grows underneath the reader
+   * as those pages fill in. Correcting on the next frame, without a pulse and
+   * without smooth scrolling (the first scroll is still animating), settles it.
+   */
+  useEffect(() => {
+    if (!hit || !defaultAspect) return
+    const frame = requestAnimationFrame(() => scrollToPassage(hit, false))
+    return () => cancelAnimationFrame(frame)
+  }, [hit, defaultAspect, scrollToPassage])
 
   // Opening at a page is the answer when there is no passage to find, and the
   // starting point while the target page's text layer is still being read. A
@@ -254,10 +311,17 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
         </button>
       </div>
 
+      {/* Focusable on purpose. This scroller holds no focusable children, and a
+          bare scrollable div is not reachable by keyboard in most engines — so
+          without a tabindex a keyboard-only reader could tab to the zoom
+          buttons and still have no way to move through the document itself. */}
       <div
         ref={scrollRef}
         data-testid="pdf-scroll"
-        className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken p-3"
+        tabIndex={0}
+        role="group"
+        aria-label={title}
+        className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {!doc && (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -273,6 +337,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
                 doc={doc}
                 pageNumber={number}
                 targetWidth={targetWidth}
+                defaultAspect={defaultAspect}
                 highlight={number === page ? highlight : null}
                 highlightColor={highlightColor}
                 marks={hit?.page === number ? hit.rects : null}
@@ -302,6 +367,8 @@ interface PdfPageCanvasProps {
   doc: PDFDocumentProxy
   pageNumber: number
   targetWidth: number
+  /** Page 1's aspect, so an unrendered page still reserves the right height. */
+  defaultAspect: number | null
   highlight?: string | null
   highlightColor?: string
   marks: HighlightRect[] | null
@@ -319,6 +386,7 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
   doc,
   pageNumber,
   targetWidth,
+  defaultAspect,
   highlight,
   highlightColor,
   marks,
@@ -330,6 +398,8 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [near, setNear] = useState(false)
+  // The page proxy currently held open, so eviction can release its caches.
+  const openedPage = useRef<PDFPageProxy | null>(null)
   // Page aspect survives eviction, so a page that has been seen once keeps
   // reserving the right amount of room and the scrollbar stops jumping.
   const [aspect, setAspect] = useState<number | null>(null)
@@ -353,15 +423,25 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
     return () => observer.disconnect()
   }, [])
 
+  /**
+   * Rasterise. Keyed on the zoom-driven `targetWidth`, because that is the only
+   * thing that changes what the bitmap should look like.
+   */
   useEffect(() => {
     const canvas = canvasRef.current
     if (!near || targetWidth <= 0) {
-      // Release the bitmap for a page that has scrolled out of the band. The
-      // placeholder keeps its height, so nothing moves under the reader.
+      // Release the bitmap AND the page's own caches for a page that scrolled
+      // out of the band. Zeroing the canvas alone leaves pdf.js holding the
+      // page's operator list and text content, which for a long document is the
+      // larger half of what the eviction band exists to bound. The placeholder
+      // keeps its height, so nothing moves under the reader.
       if (canvas) {
         canvas.width = 0
         canvas.height = 0
       }
+      const opened = openedPage.current
+      openedPage.current = null
+      opened?.cleanup()
       return
     }
 
@@ -371,28 +451,61 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
     const run = async (): Promise<void> => {
       const pdfPage = await doc.getPage(pageNumber)
       if (cancelled) return
+      openedPage.current = pdfPage
       const base = pdfPage.getViewport({ scale: 1 })
       const pageScale = targetWidth / base.width
       setAspect(base.height / base.width)
       setScale(pageScale)
       onScale(pageNumber, pageScale)
+      if (!canvas) return
 
-      if (canvas) {
-        // Rasterise at device resolution and let CSS size it back down, or the
-        // page is soft on exactly the retina screens people read plans on.
-        const ratio = Math.min(
-          typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
-          MAX_PIXEL_RATIO,
-        )
-        const viewport = pdfPage.getViewport({ scale: pageScale * ratio })
-        canvas.width = Math.floor(viewport.width)
-        canvas.height = Math.floor(viewport.height)
-        const task = pdfPage.render({ canvas, viewport })
-        cancelRender = () => task.cancel()
-        await task.promise.catch(() => {})
+      // Rasterise at device resolution and let CSS size it back down, or the
+      // page is soft on exactly the retina screens people read plans on.
+      const ratio = Math.min(
+        typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
+        MAX_PIXEL_RATIO,
+      )
+      const viewport = pdfPage.getViewport({ scale: pageScale * ratio })
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      const task = pdfPage.render({ canvas, viewport })
+      cancelRender = () => task.cancel()
+      await task.promise.catch(() => {})
+    }
+
+    // A page that cannot be drawn must not take the dialog down with it — the
+    // other pages, and the document, are still worth reading. The reason still
+    // has to be reachable, or "one blank page" is an unfalsifiable bug report.
+    void run().catch((error: unknown) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(`[pdf] page ${pageNumber} failed to render`, error)
       }
-      if (cancelled || !highlight) return
+    })
+    return () => {
+      cancelled = true
+      cancelRender?.()
+    }
+  }, [doc, pageNumber, targetWidth, near, onScale])
 
+  /**
+   * Find the cited passage. Deliberately NOT keyed on `targetWidth`.
+   *
+   * Matching once produced the rectangles for good: they are in unscaled page
+   * space, and the overlay multiplies them by the current scale. Re-running on
+   * every zoom step would be wasted work, and worse — it re-announces the hit,
+   * so each click of the zoom control would drag a reader who had deliberately
+   * scrolled to page 30 back to the citation and replay the arrival pulse at
+   * them. The passage is found once per (page, snippet); the zoom only changes
+   * how big it is drawn.
+   */
+  useEffect(() => {
+    if (!near || !highlight) return
+    let cancelled = false
+
+    const run = async (): Promise<void> => {
+      const pdfPage = await doc.getPage(pageNumber)
+      if (cancelled) return
+      const base = pdfPage.getViewport({ scale: 1 })
       const content = await pdfPage.getTextContent()
       if (cancelled) return
       // `TextMarkedContent` entries carry structure, not text; `'str' in item`
@@ -410,24 +523,24 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
           : [],
       )
       const match = locatePassage(pageTextChunks(items, base.transform), highlight)
-      if (match) onPassage({ page: pageNumber, rects: match.rects })
+      if (match && !cancelled) onPassage({ page: pageNumber, rects: match.rects })
     }
 
-    // A page that cannot be drawn must not take the dialog down with it — the
-    // other pages, and the document, are still worth reading. The reason still
-    // has to be reachable, or "one blank page" is an unfalsifiable bug report.
+    // A page with no readable text layer — a scan — is a supported outcome, not
+    // an error: the viewer simply opens at the page with nothing marked.
     void run().catch((error: unknown) => {
       if (process.env.NODE_ENV === 'development') {
-        console.debug(`[pdf] page ${pageNumber} failed`, error)
+        console.debug(`[pdf] page ${pageNumber} passage lookup failed`, error)
       }
     })
     return () => {
       cancelled = true
-      cancelRender?.()
     }
-  }, [doc, pageNumber, targetWidth, near, highlight, onPassage, onScale])
+  }, [doc, pageNumber, near, highlight, onPassage])
 
-  const height = aspect && targetWidth ? targetWidth * aspect : undefined
+  // Its own measured shape once it has rendered; page 1's until then.
+  const effectiveAspect = aspect ?? defaultAspect
+  const height = effectiveAspect && targetWidth ? targetWidth * effectiveAspect : undefined
 
   return (
     <div
