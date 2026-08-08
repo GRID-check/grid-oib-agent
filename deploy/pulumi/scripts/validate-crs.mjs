@@ -41,7 +41,7 @@ import { createRequire } from "node:module";
 const CNPG_RELEASE_URL =
   "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml";
 const CNPG_GROUP = "postgresql.cnpg.io/v1";
-const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler"]);
+const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler", "Database"]);
 
 /** Pulumi's preview placeholder for not-yet-known Output values. */
 const UNKNOWN_SENTINEL = "04da6b54-80e4-46f7-8ec5-a065f938c709";

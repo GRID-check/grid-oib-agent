@@ -43,11 +43,27 @@ export interface SeaweedFSBackup {
  *   directories and deletions are NOT propagated. A plain mirror faithfully
  *   replicates `rm -rf`; this does not, which is the entire point of a backup.
  *
- * LAYER B — `fs.meta.save`, the only point-in-time primitive SeaweedFS has. It
- * dumps the whole namespace to one file. Metadata ONLY: the dump references
- * chunk file-ids, so it restores nothing on its own and is worthless without
- * matching volume data. Its job is to make a bad migration or filer-store
- * corruption recoverable.
+ *   With more than one filer replica this still holds, and for a reason worth
+ *   knowing: each filer writes its change log into the SHARED filer store, as
+ *   ordinary entries under `/topics/.system/log/<date>/<HH-MM>.<filerId>`. A
+ *   subscriber attached to filer A therefore replays filer B's history too —
+ *   `collectPersistedLogBuffer` enumerates every producer's files and merges
+ *   them by timestamp. What it cannot replay is the last ≤60s a filer buffered
+ *   in memory and never flushed, which is why the filer pods get a real grace
+ *   period rather than being SIGKILLed.
+ *
+ * LAYER B — `fs.meta.save`, SeaweedFS's own point-in-time primitive. It dumps
+ * the whole namespace to one file. Metadata ONLY: the dump references chunk
+ * file-ids, so it restores nothing on its own and is worthless without matching
+ * volume data. Its job is to make a bad migration or filer-store corruption
+ * recoverable.
+ *
+ *   With the split topology's Postgres filer store this stops being the ONLY
+ *   path back: the namespace is then ordinary rows in a CNPG database with
+ *   continuous WAL archiving, so it inherits real point-in-time recovery. The
+ *   dump stays anyway — it is portable across filer stores and is what makes a
+ *   store MIGRATION (leveldb → Postgres, or back) recoverable, which a Postgres
+ *   PITR of a database that did not yet exist cannot be.
  *
  * RESTORE is documented in docs/deployment/kubernetes.md. Read it before you
  * need it — the two layers restore by DIFFERENT procedures and mixing them
@@ -58,6 +74,14 @@ export function installSeaweedFSBackup(
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
   dependsOn: pulumi.Resource[],
+  /**
+   * Where the master and the filer actually live. Passed in rather than
+   * hardcoded because the split topology puts them on different Services from
+   * the S3 endpoint, and `weed shell` pointed at a port nothing listens on
+   * BLOCKS rather than failing — so getting these wrong produces a backup that
+   * appears to be running and copies nothing.
+   */
+  addresses: { master: string; filer: string },
 ): SeaweedFSBackup {
   const backup = cfg.seaweedfs.backup;
   if (!backup.enabled) return {};
@@ -123,13 +147,13 @@ export function installSeaweedFSBackup(
                 securityContext: hardenedJobSecurityContext(),
                 command: ["/bin/sh", "-c"],
                 args: [
-                  "until wget -q -O /dev/null http://seaweedfs:9333/cluster/status; " +
-                    "do echo waiting for seaweedfs; sleep 3; done; " +
+                  `until wget -q -O /dev/null http://${addresses.filer}/healthz; ` +
+                    "do echo waiting for seaweedfs filer; sleep 3; done; " +
                     // -filerPath=/buckets confines the mirror to bucket data:
                     // /topics (the change log) and /etc (IAM identities) are
                     // filer-internal and would be noise in a restore.
                     "exec weed -config_dir=/etc/seaweedfs/backup filer.backup " +
-                    "-filer=seaweedfs:8888 -filerPath=/buckets",
+                    `-filer=${addresses.filer} -filerPath=/buckets`,
                 ],
                 volumeMounts: [
                   { name: "backup-config", mountPath: "/etc/seaweedfs/backup", readOnly: true },
@@ -155,10 +179,10 @@ export function installSeaweedFSBackup(
   const snapshotScript = pulumi.interpolate`
 set -e
 OUT=/tmp/filer-meta.$(date +%Y-%m-%dT%H-%M-%S).meta
-echo "fs.meta.save -o $OUT /" | timeout 600 weed shell -master=seaweedfs:9333 2>&1
+echo "fs.meta.save -o $OUT /" | timeout 600 weed shell -master=${addresses.master} 2>&1
 if [ ! -s "$OUT" ]; then echo "FATAL: metadata dump missing or empty"; exit 1; fi
 echo "metadata dump $(wc -c < "$OUT") bytes"
-weed filer.copy -filer=seaweedfs:8888 "$OUT" /buckets/${cfg.seaweedfs.bucket}/_meta-snapshots/
+weed filer.copy -filer=${addresses.filer} "$OUT" /buckets/${cfg.seaweedfs.bucket}/_meta-snapshots/
 echo "metadata snapshot stored"
 `;
 

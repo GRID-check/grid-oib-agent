@@ -2531,7 +2531,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     headers={"Content-Type": "image/jpeg"},
                 )
                 resp.raise_for_status()
-            logger.info(f"Uploaded thumbnail ({len(thumbnail_bytes)} bytes) to {thumbnail_upload_url[:80]}...")
+            # NEVER log the upload URL, not even truncated. It is a presigned S3
+            # URL — a live bearer credential to that object with no user, org or
+            # IP binding. The `[:80]` prefix this used to print was not a
+            # control: the cut lands at a different place depending on how long
+            # the org/project/document ids in the key are, so whether the
+            # signature survived was luck, and the tenant path leaked in full for
+            # short keys. Same rule as the download side in
+            # frontends/aiq_api/src/aiq_api/routes/ingest.py.
+            logger.info("Uploaded thumbnail (%d bytes)", len(thumbnail_bytes))
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 

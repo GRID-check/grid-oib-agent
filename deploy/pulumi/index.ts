@@ -24,9 +24,9 @@ import { installCertManager } from "./src/platform/cert-manager";
 import { installGatewayController, installGatewayResources } from "./src/platform/gateway";
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installNetworkPolicies } from "./src/platform/network-policies";
-import { installPostgres } from "./src/data/postgres";
+import { installPostgres, type Postgres } from "./src/data/postgres";
 import { installDragonfly, installRateLimitStore } from "./src/data/dragonfly";
-import { installSeaweedFS } from "./src/data/seaweedfs";
+import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
 import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
 import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
@@ -63,26 +63,69 @@ if (cfg.ingress.installMetricsServer) {
 }
 
 // ── Data tier ─────────────────────────────────────────────────────────────
-// SeaweedFS first so Postgres can gate its PITR backups on the backup bucket.
-const seaweed = installSeaweedFS(
-  cfg,
-  provider,
-  namespace,
-  cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [],
-);
+//
+// The two data stores depend on each other, and which way round depends on the
+// SeaweedFS topology:
+//
+//   - Postgres archives its WAL into a SeaweedFS bucket, so it wants the bucket
+//     to exist before the cluster boots.
+//   - The SPLIT topology's filer keeps its namespace in a Postgres database, so
+//     it cannot start until that database exists.
+//
+// Run both at once and it is a cycle. It is only a real cycle in one
+// configuration, though — split topology with the Postgres filer store — so
+// rather than degrade every deployment to the weaker ordering, each branch
+// takes the ordering that is actually correct for it.
+const extraBuckets = cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [];
+const filerNeedsPostgres =
+  cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres";
+
+let seaweed: SeaweedFS;
+let postgres: Postgres;
+
+if (filerNeedsPostgres) {
+  // Postgres first: the filer cannot open its store otherwise, and Pulumi would
+  // sit waiting for a StatefulSet that is crash-looping on a database this same
+  // `up` has not created yet.
+  //
+  // The cost, and it is a real one: with `pgBackupsEnabled` the cluster now
+  // boots BEFORE its WAL archive bucket exists, so the first minutes of a fresh
+  // deploy report `ContinuousArchiving: false` with NoSuchBucket. That
+  // resolves itself — Postgres retries `archive_command` indefinitely and picks
+  // up the moment bucket-init lands, holding the segments in pg_wal until then
+  // — but it is visible in `kubectl cnpg status` and should not be mistaken for
+  // a broken backup. Gating the cluster on the bucket is exactly what would
+  // close the cycle back up.
+  postgres = installPostgres(cfg, provider, namespace, []);
+  seaweed = installSeaweedFS(
+    cfg,
+    provider,
+    namespace,
+    extraBuckets,
+    postgres.rwHost,
+    postgres.filerStoreDeps,
+  );
+} else {
+  // No cycle: SeaweedFS first, so the cluster only boots once its archive
+  // bucket is there.
+  seaweed = installSeaweedFS(cfg, provider, namespace, extraBuckets);
+  postgres = installPostgres(
+    cfg,
+    provider,
+    namespace,
+    cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
+  );
+}
+
 // Offsite backup for the documents bucket (ADR-0042). Gated on an EXTERNAL S3
 // target; `loadConfig` refuses an in-cluster endpoint, which would put the
 // backup on the very volumes it exists to survive.
-installSeaweedFSBackup(cfg, provider, namespace, [
-  seaweed.service,
-  seaweed.bucketInitJob,
-]);
-
-const postgres = installPostgres(
+installSeaweedFSBackup(
   cfg,
   provider,
   namespace,
-  cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
+  [seaweed.service, seaweed.bucketInitJob],
+  { master: seaweed.masterAddress, filer: seaweed.filerAddress },
 );
 const dragonfly = installDragonfly(cfg, provider, namespace);
 // Counter store for edge rate limiting (ADR-0040 L1) — deliberately a SECOND

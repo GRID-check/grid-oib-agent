@@ -23,6 +23,12 @@ export interface Postgres {
   rwHost: string;
   /** Build a DSN for one of the three logical databases. */
   dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
+  /**
+   * Resources the SeaweedFS filer must wait for before it can open its store
+   * (ADR-0043): the dedicated role, its database, and the grant lockdown.
+   * Empty when the filer is not using Postgres.
+   */
+  filerStoreDeps: pulumi.Resource[];
 }
 
 const CLUSTER_NAME = "grid-pg";
@@ -67,6 +73,22 @@ CREATE TABLE IF NOT EXISTS checkpoint_writes (
   task_id TEXT NOT NULL, idx INTEGER NOT NULL, channel TEXT NOT NULL, type TEXT, blob BYTEA NOT NULL,
   PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx));
 `;
+
+/**
+ * Lock down the filer's database (ADR-0043).
+ *
+ * PostgreSQL grants `CONNECT` on every new database to `PUBLIC`, which here
+ * means the application logins can open a session against the store holding an
+ * AES key for every chunk in the object store. They would find no tables they
+ * could read — the filer owns them and grants nothing — but "the grant table
+ * happens to be empty" is not a boundary, and `[postgres2]` creates a new table
+ * per bucket at runtime, so the set of objects to protect is not even fixed.
+ *
+ * Run as the database OWNER, which is exactly the privilege needed and nothing
+ * more. Idempotent: re-revoking an absent grant is a no-op.
+ */
+const seaweedFilerSql = (database: string): string =>
+  `REVOKE CONNECT ON DATABASE "${database}" FROM PUBLIC;\n`;
 
 export function installPostgres(
   cfg: GridConfig,
@@ -172,6 +194,39 @@ export function installPostgres(
     },
     { provider },
   );
+
+  /**
+   * Login for the SeaweedFS filer's metadata store (ADR-0043).
+   *
+   * Its own role and its own database, deliberately not one of the three
+   * application databases and deliberately not the application login. The
+   * filer store holds an AES key for every chunk in the object store, so a
+   * credential that reaches it must not also reach `grid_app`, and vice versa:
+   * compromising the storage daemon should not yield the tenant database, and
+   * compromising the app should not yield the keys to decrypt objects it was
+   * never authorized to read.
+   *
+   * Declared here for the same reason the RLS roles are: CloudNativePG
+   * reconciles it as superuser, so the role exists before anything tries to log
+   * in as it.
+   */
+  const filerStoreEnabled =
+    cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres";
+
+  const filerCredentials = filerStoreEnabled
+    ? new k8s.core.v1.Secret(
+        "pg-seaweedfs-filer-credentials",
+        {
+          metadata: { name: `${CLUSTER_NAME}-seaweedfs-filer-credentials`, namespace },
+          type: "kubernetes.io/basic-auth",
+          stringData: {
+            username: cfg.seaweedfs.filerDatabaseUser,
+            password: cfg.seaweedfs.filerDatabasePassword,
+          },
+        },
+        { provider },
+      )
+    : undefined;
 
   // 2b. Object-store credentials for continuous backup (only when enabled). The
   //     provider's StorageClasses reclaim `Delete`, so WAL archiving + scheduled
@@ -289,6 +344,26 @@ export function installPostgres(
               inRoles: ["grid_app_platform"],
               passwordSecret: { name: runtimeCredentials.metadata.apply((m) => m!.name!) },
             },
+            // The SeaweedFS filer's own login (ADR-0043). It owns exactly one
+            // database and needs DDL inside it — the `[postgres2]` store
+            // creates a table per S3 bucket on demand, which is what makes
+            // dropping a tenant a DROP TABLE instead of a row sweep. That DDL
+            // right is confined to a database it owns; it has no CREATEDB and
+            // no CREATEROLE, so it cannot make itself another one.
+            ...(filerCredentials
+              ? [
+                  {
+                    name: cfg.seaweedfs.filerDatabaseUser,
+                    ensure: "present",
+                    login: true,
+                    superuser: false,
+                    createdb: false,
+                    createrole: false,
+                    bypassrls: false,
+                    passwordSecret: { name: filerCredentials.metadata.apply((m) => m!.name!) },
+                  },
+                ]
+              : []),
           ],
         },
         bootstrap: {
@@ -334,6 +409,45 @@ export function installPostgres(
 
   const rwHost = `${CLUSTER_NAME}-rw`;
 
+  /**
+   * The filer's database, declared rather than bootstrapped.
+   *
+   * `bootstrap.initdb.postInitSQL` — where `aiq_checkpoints` and `grid_app` are
+   * created — runs EXACTLY ONCE, at cluster initialisation. Adding a fourth
+   * database there would create it on a fresh stack and silently do nothing on
+   * every existing one, which is the worst of both: the manifest would claim a
+   * database that, on the cluster that matters, does not exist. The `Database`
+   * CR is reconciled continuously by the operator instead, so it converges on
+   * a running cluster.
+   *
+   * `databaseReclaimPolicy: retain` (the CRD default, pinned here because it is
+   * load-bearing): deleting this CR must not drop the database. Under volume
+   * encryption that database holds the only copy of every chunk key — dropping
+   * it turns the entire object store into ciphertext nobody can open.
+   */
+  const filerDatabase = filerCredentials
+    ? new k8s.apiextensions.CustomResource(
+        "pg-seaweedfs-filer-db",
+        {
+          apiVersion: "postgresql.cnpg.io/v1",
+          kind: "Database",
+          metadata: {
+            name: cfg.seaweedfs.filerDatabase,
+            namespace,
+            labels: commonLabels("postgres"),
+          },
+          spec: {
+            cluster: { name: CLUSTER_NAME },
+            name: cfg.seaweedfs.filerDatabase,
+            owner: cfg.seaweedfs.filerDatabaseUser,
+            ensure: "present",
+            databaseReclaimPolicy: "retain",
+          },
+        },
+        { provider, dependsOn: [cluster], protect: cfg.protectDataResources },
+      )
+    : undefined;
+
   const appUser = encodeURIComponent(cfg.postgres.appUser);
   /**
    * Build a DSN. `as` selects a non-default role — used for the least-privilege
@@ -378,7 +492,13 @@ export function installPostgres(
     "pg-init-sql",
     {
       metadata: { namespace },
-      data: { "jobs.sql": JOBS_SQL, "checkpoints.sql": CHECKPOINTS_SQL },
+      data: {
+        "jobs.sql": JOBS_SQL,
+        "checkpoints.sql": CHECKPOINTS_SQL,
+        ...(filerCredentials
+          ? { "seaweedfs-filer.sql": seaweedFilerSql(cfg.seaweedfs.filerDatabase) }
+          : {}),
+      },
     },
     { provider },
   );
@@ -393,6 +513,20 @@ export function installPostgres(
       stringData: {
         JOBS_DSN: dsn({ db: "aiq_jobs" }),
         CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints" }),
+        // As the filer's own role, which is the only login that can revoke a
+        // grant on the database it owns — the app user has no rights there at
+        // all, which is the whole point.
+        ...(filerCredentials
+          ? {
+              SEAWEED_FILER_DSN: dsn({
+                db: cfg.seaweedfs.filerDatabase,
+                as: {
+                  user: cfg.seaweedfs.filerDatabaseUser,
+                  password: cfg.seaweedfs.filerDatabasePassword,
+                },
+              }),
+            }
+          : {}),
       },
     },
     { provider },
@@ -426,6 +560,19 @@ export function installPostgres(
                     'until pg_isready -d "$JOBS_DSN" >/dev/null 2>&1; do sleep 2; done;',
                     'psql "$JOBS_DSN" -v ON_ERROR_STOP=1 -f /sql/jobs.sql;',
                     'psql "$CHECKPOINTS_DSN" -v ON_ERROR_STOP=1 -f /sql/checkpoints.sql;',
+                    // The filer database is reconciled by the CNPG operator, not
+                    // by the cluster bootstrap, so it can appear seconds AFTER
+                    // the cluster is ready. Wait for it rather than racing it —
+                    // and wait with a real connection, because `pg_isready`
+                    // reports the SERVER, not whether this database exists yet.
+                    ...(filerCredentials
+                      ? [
+                          "echo 'waiting for the seaweedfs filer database…';",
+                          'until psql "$SEAWEED_FILER_DSN" -c "select 1" >/dev/null 2>&1;',
+                          "do sleep 2; done;",
+                          'psql "$SEAWEED_FILER_DSN" -v ON_ERROR_STOP=1 -f /sql/seaweedfs-filer.sql;',
+                        ]
+                      : []),
                     "echo 'db init complete';",
                   ].join(" "),
                 ],
@@ -437,7 +584,15 @@ export function installPostgres(
         },
       },
     },
-    { provider, dependsOn: [cluster, initSqlCm, initDsnSecret] },
+    {
+      provider,
+      dependsOn: [
+        cluster,
+        initSqlCm,
+        initDsnSecret,
+        ...(filerDatabase ? [filerDatabase] : []),
+      ],
+    },
   );
 
   // 5. Nightly base backup (WAL is archived continuously by the cluster above).
@@ -464,5 +619,11 @@ export function installPostgres(
       )
     : undefined;
 
-  return { operator, cluster, initJob, scheduledBackup, rwHost, dsn };
+  // The filer must not open its store until the role, the database and the
+  // CONNECT lockdown are all in place. The init Job is the last of the three,
+  // so it is the one to gate on — and it is also the step that proves the
+  // database is actually reachable, not merely declared.
+  const filerStoreDeps: pulumi.Resource[] = filerDatabase ? [filerDatabase, initJob] : [];
+
+  return { operator, cluster, initJob, scheduledBackup, rwHost, dsn, filerStoreDeps };
 }

@@ -91,6 +91,19 @@ config:
   # surprise storage-engine upgrades are the one class of update you want to
   # control. 3.80 is the compose-proven version; bump deliberately.
   grid-oib:seaweedfsImage: chrislusf/seaweedfs:3.80
+  # PINNED to the pre-ADR-0043 layout because this stack already holds objects.
+  # The split topology (master/volume/filer as separate workloads, filer
+  # namespace on Postgres) uses different PVCs, so flipping this is a DATA
+  # MIGRATION, not a config change: without the runbook in
+  # `docs/deployment/kubernetes.md` § "Migrating SeaweedFS to the split
+  # topology", the cluster comes up empty while every existing object sits on a
+  # PersistentVolumeClaim that nothing mounts. Nothing errors — which is exactly
+  # why this is pinned rather than left to the default.
+  #
+  # Rehearse on dev first. The split topology is what makes volume capacity a
+  # replica count and moves the per-chunk encryption keys off the disk holding
+  # the ciphertext they open.
+  grid-oib:seaweedfsTopology: single
   grid-oib:seaweedfsStorageSize: 20Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid

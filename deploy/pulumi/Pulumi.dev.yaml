@@ -63,6 +63,14 @@ config:
   grid-oib:pgRuntimePassword:
     secure: AAABAP+0FzCMfjSbTI4yV5tfwQm7hUmPVKhdCgc0z5GaOc37WV51A2FHivbTrBWNpLHmMg4AsX4=
   # ── SeaweedFS ──
+  # PINNED to the pre-ADR-0043 layout because this stack already holds objects.
+  # The split topology uses different PVCs, so flipping this without running
+  # `docs/deployment/kubernetes.md` § "Migrating SeaweedFS to the split
+  # topology" brings up an EMPTY object store while the data sits on a claim
+  # nothing mounts — no error, no alert, just an app that has lost every file.
+  # New stacks default to "split"; this one migrates deliberately, and dev is
+  # the right place to rehearse it first.
+  grid-oib:seaweedfsTopology: single
   grid-oib:seaweedfsStorageSize: 10Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid
