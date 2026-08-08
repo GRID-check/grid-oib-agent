@@ -375,9 +375,40 @@ requires writes to be stopped, because SeaweedFS cannot take a consistent
 point-in-time copy of a bucket (ADR-0042) and a document written between the
 metadata dump and the object copy lands in neither.
 
-1. **Verify the backup is real.** `seaweedfsBackupEnabled: true`, and the object
-   count in the offsite bucket matches the source. "The pod is running" is not
-   evidence — `filer.backup` has no initial full-copy phase.
+1. **Verify the backup is real.** `seaweedfsBackupEnabled: true`, and a LOGICAL
+   inventory of the offsite bucket accounts for every current object. "The pod is
+   running" is not evidence — `filer.backup` has no initial full-copy phase.
+
+   Not an object count. The sink is `is_incremental`, so it keeps historical
+   copies and never propagates deletions, and the nightly `fs.meta.save` dump
+   lands in the same bucket — so the offsite count is EXPECTED to exceed the
+   source, and can match it by coincidence while current keys are missing.
+   Compare current `(key, size)` pairs, newest date directory winning, and
+   exclude the snapshot prefix:
+
+   ```
+   # Source: every bucket the ledger records, not just grid-documents.
+   for b in $(psql -At -d grid_app -c \
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL"); do
+     aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
+       --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
+   done | sort > /tmp/source.inventory
+
+   # Offsite: the mirror lays objects out as <date>/buckets/<bucket>/<key>.
+   # Strip the date so the newest copy of each key wins, and drop the snapshots.
+   aws --endpoint-url https://s3.example.com s3api list-objects-v2 \
+     --bucket grid-documents-backup --query 'Contents[].[Key,Size]' --output text \
+     | grep -v '\.meta$' \
+     | sed -E 's|^[0-9]{4}-[0-9]{2}-[0-9]{2}/buckets/||' \
+     | sort -u > /tmp/offsite.inventory
+
+   # Anything present in the source and absent offsite is a gap.
+   comm -23 /tmp/source.inventory /tmp/offsite.inventory
+   ```
+
+   Empty output is the pass condition. Anything listed is an object the mirror
+   does not have, which means the change log was incomplete when the mirror
+   started — see ADR-0042's risk note.
 
 2. **Take a metadata snapshot and keep it off-cluster.**
    ```
@@ -390,10 +421,25 @@ metadata dump and the object copy lands in neither.
 
 3. **Stop writes.** Scale the frontend, purger and agent-worker to zero.
 
-4. **Record the object inventory**, so step 8 has something to check against:
+4. **Record the object inventory of EVERY bucket**, so step 7 has something to
+   check against. With per-organization buckets enabled the set is not
+   `grid-documents` alone, and it is not derivable from the org id either — the
+   ledger is what knows (ADR-0043):
+
    ```
-   aws --endpoint-url http://seaweedfs:8333 s3 ls --recursive s3://grid-documents | wc -l
+   BUCKETS=$(psql -At -d grid_app -c \
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL")
+
+   for b in $BUCKETS; do
+     aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
+       --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
+   done | sort > /tmp/pre-split.inventory
+
+   wc -l /tmp/pre-split.inventory
    ```
+
+   Keep the file, not just the number: step 7 compares contents, because a count
+   can match while the contents differ.
 
 5. **Set the filer store credential and the topology**, then apply:
    ```
@@ -440,7 +486,19 @@ metadata dump and the object copy lands in neither.
    verify the load before you delete anything: open a document written before
    the migration, not just one written after.
 
-7. **Compare counts** against step 4. Not "the sync finished" — the count.
+7. **Compare the inventory** against step 4 — the file, not the number:
+
+   ```
+   for b in $BUCKETS; do
+     aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
+       --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
+   done | sort > /tmp/post-split.inventory
+
+   diff /tmp/pre-split.inventory /tmp/post-split.inventory
+   ```
+
+   No output is the pass condition. Not "the sync finished", and not a matching
+   count: two inventories of the same length can differ in which keys they hold.
 
 8. **Bring the app back up**, upload one document, preview it, download it, and
    delete it. Then confirm the offsite mirror picked up all four events.
@@ -520,9 +578,12 @@ schema.
   only alongside an external S3 destination that documents SSE support. Full
   picture in §7e.
 
-- **Document backups (ADR-0042) — IMPLEMENTED, opt-in.** The `grid-documents`
-  bucket is backed up in two layers, both off `false` by default because both
-  need an **external** S3 target to mean anything:
+- **Document backups (ADR-0042) — IMPLEMENTED, opt-in.** Every bucket under
+  `/buckets` is backed up in two layers — `grid-documents` and, when
+  per-organization buckets are on, each `grid-org-*` — because `filer.backup`
+  runs with `-filerPath=/buckets` and mirrors the whole subtree. Both layers
+  default to `false`, because both need an **external** S3 target to mean
+  anything:
 
   ```
   pulumi config set grid-oib:seaweedfsBackupEnabled true
@@ -545,7 +606,11 @@ schema.
   > is intact. `fs.log.purge`, or a filer-store migration via `fs.meta.load`
   > (which does not regenerate the log), silently leaves the mirror with a
   > partial baseline and reports nothing. **After the first sync settles, compare
-  > object counts against the source.** A running pod is not evidence.
+  > a LOGICAL inventory against the source** — see § 4 step 1 for the commands. A
+  > raw object count will not do it: the sink is `is_incremental` and the nightly
+  > metadata dump lands in the same bucket, so the offsite count is expected to
+  > exceed the source and can match it by coincidence while current keys are
+  > missing. A running pod is not evidence either.
 
   **Layer B — metadata snapshot.** A `seaweedfs-meta-snapshot` CronJob
   (`seaweedfsMetaSnapshotSchedule`, default `0 3 * * *`) runs `fs.meta.save` —
@@ -562,13 +627,51 @@ schema.
   **Restore — two procedures, do not mix them.**
 
   1. *From the object mirror (the one to rehearse).* Stand up an empty cluster,
-     recreate the buckets (`s3.bucket.create`, then verify with
-     `s3.bucket.list`), then sync the backup bucket back **through the new
-     cluster's S3 API**, oldest date directory first so later versions win:
+     recreate **every** bucket, then sync each one back **through the new
+     cluster's S3 API**, oldest date directory first so later versions win.
+
+     Every bucket, not `grid-documents`: with per-organization buckets enabled
+     the tenant objects live in `grid-org-*` buckets, and the mirror already
+     covers them (`filer.backup` runs with `-filerPath=/buckets`, so it mirrors
+     the whole subtree and the layout is `<date>/buckets/<bucket>/…`). What is
+     easy to miss is the RESTORE, because the bucket set is not a constant.
+
+     Take it from the mirror itself rather than from a naming rule — the rule
+     depends on the current prefix and hash width, and the mirror knows what is
+     actually there:
      ```
-     aws s3 sync s3://grid-documents-backup/2026-08-06/buckets/grid-documents/ \
-                 s3://grid-documents/ --endpoint-url http://seaweedfs:8333
+     # Every bucket that appears in the mirror, newest date first.
+     BUCKETS=$(aws --endpoint-url https://s3.example.com s3api list-objects-v2 \
+       --bucket grid-documents-backup --query 'Contents[].Key' --output text \
+       | tr '\t' '\n' | sed -nE 's|^[0-9-]{10}/buckets/([^/]+)/.*|\1|p' | sort -u)
+
+     for b in $BUCKETS; do
+       echo "s3.bucket.create -name $b" | weed shell -master=seaweedfs-master:9333
+     done
+     echo 's3.bucket.list' | weed shell -master=seaweedfs-master:9333   # verify
+
+     # Oldest date directory first, so a later version of a key overwrites an
+     # earlier one rather than the reverse.
+     for d in $(aws --endpoint-url https://s3.example.com s3 ls s3://grid-documents-backup/ \
+                  | awk '{print $2}' | tr -d / | sort); do
+       for b in $BUCKETS; do
+         aws s3 sync "s3://grid-documents-backup/$d/buckets/$b/" "s3://$b/" \
+           --endpoint-url http://seaweedfs:8333
+       done
+     done
      ```
+
+     If the database survived, cross-check the restored set against the ledger —
+     it is the record of which bucket each document's bytes are in, and a bucket
+     present in the ledger but absent from the mirror is a gap you want to know
+     about before declaring the restore done:
+     ```
+     psql -At -d grid_app -c \
+       "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL" \
+       | sort > /tmp/ledger.buckets
+     comm -23 /tmp/ledger.buckets <(echo "$BUCKETS")
+     ```
+
      Verify with `s3.bucket.list` (sizes and counts) and `volume.fsck`.
   2. *From a metadata snapshot.* `fs.meta.load` is **only** correct when the
      matching volume `.dat`/`.idx` files are restored alongside it. The dump

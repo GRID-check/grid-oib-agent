@@ -159,6 +159,10 @@ export const documents = pgTable('documents', {
   createdBy: text('created_by').notNull(),
   filename: text('filename').notNull(),
   storageKey: text('storage_key').notNull(),
+  // NULL = the deployment's shared bucket (SEAWEED_BUCKET). Recorded rather than
+  // derived from the organization id, which is what makes per-organization
+  // buckets reversible — see ADR-0043 and migration 0033.
+  storageBucket: text('storage_bucket'),
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),

@@ -39,24 +39,36 @@ const OVER_QUOTA = {
   quotaBytes: 50 * GB,
 }
 
+/**
+ * One endpoint per fixture, so each card asks for the state it is labelled with.
+ *
+ * This used to vary by CALL ORDER through a `window` counter — first mount got
+ * the within-quota fixture, second got the over-quota one. React strict mode
+ * double-invokes effects and the counter persisted across remounts, so both cards
+ * frequently ended on the same fixture and the screenshot captured whichever
+ * state the counter reached. In the artifact whose only job is to show both
+ * states, that made it evidence of nothing.
+ *
+ * Keying on the url instead is order-independent: mount them twice, in any
+ * sequence, and each still resolves to its own fixture.
+ */
+const FIXTURES: Record<string, typeof STORAGE> = {
+  '/api/organization/storage?fixture=within': STORAGE,
+  '/api/organization/storage?fixture=over': OVER_QUOTA,
+}
+
 // Module scope, not a useEffect: a shim installed from an effect loses the race
 // with the child component's own mount-time fetch.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  const w = window as unknown as { __storageUsageShim?: boolean; __storageCall?: number }
+  const w = window as unknown as { __storageUsageShim?: boolean }
   if (!w.__storageUsageShim) {
     w.__storageUsageShim = true
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      // Both cards fetch the SAME url, so the shim varies by call order rather
-      // than by query string: first mount gets the within-quota fixture, second
-      // gets the over-quota one. A prop would have meant adding a preview-only
-      // parameter to the production component.
-      if (url.startsWith('/api/organization/storage')) {
-        w.__storageCall = (w.__storageCall ?? 0) + 1
-        return Response.json(w.__storageCall === 1 ? STORAGE : OVER_QUOTA)
-      }
+      const fixture = FIXTURES[url]
+      if (fixture) return Response.json(fixture)
       return real(input, init)
     }
   }
@@ -88,7 +100,7 @@ export default function StorageUsageDevPage(): JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StorageUsageCard />
+          <StorageUsageCard endpoint="/api/organization/storage?fixture=within" />
         </CardContent>
       </Card>
 
@@ -104,7 +116,7 @@ export default function StorageUsageDevPage(): JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StorageUsageCard />
+          <StorageUsageCard endpoint="/api/organization/storage?fixture=over" />
         </CardContent>
       </Card>
     </main>

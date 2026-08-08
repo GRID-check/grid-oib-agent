@@ -190,13 +190,28 @@ shell` (gRPC to master), which does not go through S3 auth, so nothing needs
 
 **5. Treat encryption honestly rather than claiming it.**
 
-`-encryptVolumeData` is exposed as an opt-in config flag with its real trade-off
-recorded: keys are generated per chunk and stored **in the filer metadata**, so
-the filer store becomes the key store for every object. It protects against
-someone obtaining volume disks *without* the filer store — not the usual failure
-in a single-namespace cluster. Provider-level disk encryption remains the better
-control for "disks at rest are encrypted"; this is for the GDPR-erasure property
-(drop the metadata and the bytes become undecryptable).
+`-encryptVolumeData` is exposed as `seaweedfsEncryptVolumeData`, which **defaults
+to `true`** — `false` is the opt-out. (An earlier revision of this ADR called it
+opt-in, which disagreed with both the code and the deployment guide.) It applies
+to NEW writes only; objects written before it was enabled stay plaintext and keep
+working.
+
+Its real trade-off is recorded rather than glossed: keys are generated per chunk
+and stored **in the filer metadata**, so the filer store becomes the key store for
+every object. It protects against someone obtaining volume disks *without* the
+filer store — which, under `seaweedfsTopology: single`, is nobody, because both
+sit on the same PVC. ADR-0043's split topology with the Postgres filer store is
+what makes those two different disks; `pulumi preview` warns when encryption is on
+in a topology where they are not. Provider-level disk encryption remains the
+better control for "disks at rest are encrypted"; this is for the GDPR-erasure
+property (drop the metadata and the bytes become undecryptable).
+
+Defaulting it ON raises the stakes on the metadata snapshot rather than lowering
+them, and `loadConfig` warns when encryption is enabled with
+`seaweedfsBackupEnabled` false: there is no master key and no escrow, so losing
+the filer store makes every encrypted object unrecoverable. That is a warning
+rather than a refusal because the safer default should not be harder to adopt
+than the unsafe one.
 
 We do **not** claim SSE support on 3.80, because there is none.
 
@@ -254,21 +269,38 @@ Secrets.
 
 ### Positive
 
-- Losing the SeaweedFS volume no longer loses the documents, and no longer loses
-  the Postgres backups with them.
-- A tenant filling the disk becomes that tenant's problem, with a page that says
-  so, rather than an outage for everyone.
+Each of these is CONDITIONAL, and the condition is stated, because a consequence
+list read as a guarantee is how an operator comes to believe in protection their
+configuration does not provide.
+
+- **When `seaweedfsBackupEnabled` is true and points at an external S3 target**
+  (it is **off by default**, and a stack with it off has exactly the durability it
+  had before this ADR), losing the SeaweedFS volume no longer loses the documents,
+  and no longer loses the Postgres backups with them.
+- **When a quota is set** — per organization, or fleet-wide via
+  `GRID_DEFAULT_STORAGE_QUOTA_BYTES` — a tenant filling the disk becomes that
+  tenant's problem, with a page that says so, rather than an outage for everyone.
+  **Unset means unlimited**, which is what every existing deployment has until
+  someone chooses otherwise.
 - The blast radius of a leaked BFF S3 credential shrinks from "every bucket,
-  every action" to "object CRUD on two known buckets".
+  every action" to "object CRUD on two known buckets". Unconditional: the identity
+  set carries no `Admin` on any platform bucket regardless of configuration.
 - A tenant cannot raise its own ceiling, so the quota is a real commercial
-  control rather than a suggestion.
+  control rather than a suggestion. Unconditional since the platform-owned key
+  guard (`PLATFORM_OWNED_SETTINGS`) — before it, `PUT /api/organization/settings`
+  accepted `storageQuotaBytes` from anyone holding `org:settings:manage`.
+- The quota is a HARD ceiling, not a best-effort one: admission re-reads usage
+  inside the transaction that inserts the row, under a per-organization lock, so
+  concurrent uploads cannot jointly cross it.
 - The limits are written down where they are enforced, so nobody has to
   rediscover that `filer.backup` starts empty or that 3.80 ignores SSE headers.
 - There is now one page (`docs/deployment/kubernetes.md` §7e) that answers
   "what is encrypted?" per store and per channel, including the rows where the
   answer is "no" and the rows where the answer belongs to the provider.
-- A pod that gets a foothold in `grid` can no longer read every chat frame and
-  every cached user record out of the cache for free.
+- **Unless `allowUnauthenticatedRedis` is set**, a pod that gets a foothold in
+  `grid` can no longer read every chat frame and every cached user record out of
+  the cache for free. That opt-out exists for throwaway environments and is a
+  deliberate hole when used.
 
 ### Negative
 
@@ -289,8 +321,14 @@ Secrets.
 - **The mirror can be silently incomplete.** `filer.backup` replays the metadata
   log; if that log was ever purged, or the filer store was migrated via
   `fs.meta.load` (which does not regenerate it), the baseline is partial and
-  nothing says so. **Object counts must be compared after the first sync
-  settles.** "The pod is running" is not evidence.
+  nothing says so. **A logical inventory must be compared after the first sync
+  settles** — "the pod is running" is not evidence, and neither is a raw object
+  count. The sink is `is_incremental`, so it retains historical copies and never
+  propagates deletions, and the nightly `fs.meta.save` dump lands in the same
+  bucket: the offsite object count is therefore expected to EXCEED the source, and
+  can match it by coincidence while current keys are missing. Compare a normalized
+  manifest of current `(bucket, key, size)` entries, excluding the snapshot
+  prefix, per `docs/deployment/kubernetes.md` § 4.
 - **Neither layer is point-in-time consistent**, and the two restore by
   *different* procedures. Mixing them — loading a metadata dump against volumes
   it does not match — produces a namespace of dangling chunk references where
@@ -325,10 +363,10 @@ Secrets.
 
 ## Open Questions / Follow-ups
 
-- Split the topology (masters ≥1 **odd only** — an even peer count is a fatal
-  error, not degraded mode; volume servers scaled independently; filer store on
-  Postgres). Note the 3.80 scaffold ships an `upsertQuery` that is invalid
-  PostgreSQL and must be overridden.
+- ~~Split the topology~~ — **done, in ADR-0043**: masters odd-only, volume servers
+  as the capacity knob, filer store on Postgres, with the invalid-PostgreSQL
+  `upsertQuery` from the 3.80 scaffold overridden. Not yet applied to a cluster;
+  both stacks remain on `single`.
 - Rehearse a restore end to end on the dev stack.
 - Decide whether SSE justifies an upgrade to ≥3.97, which brings its own key
   management (lose the KEK, lose the objects).
@@ -345,9 +383,13 @@ Secrets.
   `http://chroma`, RESP to Dragonfly, OTLP). Deferred as a mesh decision, not a
   per-service flag.
 - Per-org quota defaults per plan/tier, once there are plans.
-- A platform-tier UI for the quota. The API exists and is gated; the operator
-  currently sets it with an authenticated `PUT`, which is enough to run the
-  control but is not yet a screen.
+- ~~A platform-tier UI for the quota~~ — **done**: Platform → Storage lists every
+  tenant ordered by consumption with an inline quota editor
+  (`app/platform/storage-table.tsx`). What remains is paging: the list is bounded
+  at `ORGANIZATION_PAGE_MAX` and says so when it truncates, rather than offering a
+  cursor. Sorting happens in memory over an aggregate of another table, so a real
+  cursor means moving the ordering into SQL — worth doing the day a fleet
+  approaches that bound, and not before.
 
 ## References
 

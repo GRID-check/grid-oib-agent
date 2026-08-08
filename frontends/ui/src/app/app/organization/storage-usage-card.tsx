@@ -123,14 +123,36 @@ const ScopeRow: FC<{ label: string; usage: StorageScopeUsage }> = ({ label, usag
   )
 }
 
-export const StorageUsageCard: FC = () => {
+/** The endpoint this panel reads. Overridable so a preview can name a fixture. */
+const STORAGE_ENDPOINT = '/api/organization/storage'
+
+interface StorageUsageCardProps {
+  /**
+   * Where to read usage from. Defaults to the real endpoint.
+   *
+   * Exists so the dev preview can render the within-quota and over-quota states
+   * side by side and have each card ask for a DISTINCT url. It previously varied
+   * the fixture by call ORDER through a `window` counter, which strict mode's
+   * double-invocation and any remount made non-deterministic — the screenshot
+   * captured whichever state the counter happened to reach, in the artifact whose
+   * only job is to show both.
+   *
+   * A defaulted endpoint is an ordinary component parameter, not a preview-only
+   * hatch: production passes nothing and behaves exactly as before.
+   */
+  endpoint?: string
+}
+
+export const StorageUsageCard: FC<StorageUsageCardProps> = ({
+  endpoint = STORAGE_ENDPOINT,
+}) => {
   const t = useTranslations('organization')
   const [data, setData] = useState<StorageResponse | null>(null)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/organization/storage')
+      const res = await fetch(endpoint)
       if (!res.ok) throw new Error('load failed')
       setData((await res.json()) as StorageResponse)
     } catch {
@@ -138,7 +160,7 @@ export const StorageUsageCard: FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, endpoint])
 
   useEffect(() => {
     void load()
