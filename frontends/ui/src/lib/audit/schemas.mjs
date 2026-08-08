@@ -85,6 +85,14 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { fields: 'string' },
   },
+  // Storage quota (ADR-0042). Separate from `org.settings.updated` because it
+  // is the one org setting that can stop every upload in the tenant, so "who
+  // shrank the disk, and to what" has to be answerable on its own. `0` is the
+  // wire form of "unlimited" — the metadata map admits primitives only.
+  'org.storage_quota.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: { quotaBytes: 'number' },
+  },
   'budget.policy.set': {
     targets: [{ type: 'budget_policy' }],
     metadata: {

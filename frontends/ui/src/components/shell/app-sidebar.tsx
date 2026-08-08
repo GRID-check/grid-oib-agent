@@ -70,11 +70,21 @@ export interface AppSidebarProps {
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
   showWorkflows?: boolean
   /**
-   * Whether the collaboration surfaces are reachable (ADR-0032…0035, dark-launched).
-   * Gates the Inbox nav entry — and with it the badge subscription, so a gated org
-   * opens no live connection and issues no request (spec NF-8).
+   * Whether the inbox is reachable for this reader. Gates the Inbox nav entry —
+   * and with it the badge subscription, so a gated reader opens no live
+   * connection and issues no request (spec NF-8).
+   *
+   * Not the collaboration flag since ADR-0042: the inbox also carries
+   * operational alerts, and hiding the entry from a tenant without
+   * collaboration hid the warning that its storage was filling up.
+   *
+   * REQUIRED, unlike its neighbours. It used to default to `false`, and two of
+   * the three callers — the dev preview and the spec fixture — omitted it, so
+   * both silently exercised the HIDDEN state: the entry was missing and the badge
+   * subscription never opened, in exactly the two places whose job is to show
+   * what the rail looks like. A required prop turns that into a compile error.
    */
-  canCollaborate?: boolean
+  canAccessInbox: boolean
 }
 
 export function AppSidebar({
@@ -87,7 +97,7 @@ export function AppSidebar({
   canManagePlatform = false,
   canAccessArchiv = false,
   showWorkflows = false,
-  canCollaborate = false,
+  canAccessInbox,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
@@ -98,9 +108,9 @@ export function AppSidebar({
   const [collapsed, setCollapsed] = React.useState(false)
 
   // The "needs you" count for the Inbox entry (spec IB-18/IB-19). One request on
-  // mount, then it rides the live event channel; disabled for an org without the
-  // flag, in which case the hook does nothing at all.
-  const { pending: inboxPending } = useInboxBadge(canCollaborate)
+  // mount, then it rides the live event channel; disabled for a reader who
+  // cannot reach the inbox, in which case the hook does nothing at all.
+  const { pending: inboxPending } = useInboxBadge(canAccessInbox)
 
   // The mobile nav drawer's open state lives in the layout store so the chat's
   // floating toolbar can open it: on the chat route the standalone mobile top
@@ -235,7 +245,7 @@ export function AppSidebar({
   // Workflows is feature-flagged (default off); Archiv shows for any member of
   // an org with the `organization-archiv` flag — the same gate the user menu's
   // Archiv entry uses (the layout passes both from getNavFlags).
-  const navItems = railSections({ showWorkflows, canAccessArchiv, canCollaborate })
+  const navItems = railSections({ showWorkflows, canAccessArchiv, canAccessInbox })
 
   const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)
 

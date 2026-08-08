@@ -180,6 +180,7 @@ export function ShortcutsCheatsheet({
   showWorkflows = false,
   canAccessArchiv = false,
   canCollaborate = false,
+  canAccessInbox = false,
 }: ShortcutsCheatsheetProps) {
   const t = useTranslations('shortcuts.cheatsheet')
   const tGroups = useTranslations('shortcuts.cheatsheet.groups')
@@ -195,8 +196,9 @@ export function ShortcutsCheatsheet({
         showWorkflows,
         canAccessArchiv,
         canCollaborate,
+        canAccessInbox,
       }),
-    [canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate],
+    [canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate, canAccessInbox],
   )
   const columns = React.useMemo(() => splitColumns(sections), [sections])
 

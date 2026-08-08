@@ -45,7 +45,10 @@ export default async function OrganizationLayout({
     // Capability flags decide the nav, exactly as they decide each route: a custom
     // role holding a single granular permission (e.g. org:models:manage) sees that
     // one section and nothing else. Order is irrelevant here — the nav owns it.
-    const sections: OrganizationSectionKey[] = ['overview', 'budgets']
+    // Storage joins the overview and budgets as a section every member sees:
+    // a member whose upload was just refused needs to be able to find out why,
+    // and the quota itself is only editable with `org:settings:manage`.
+    const sections: OrganizationSectionKey[] = ['overview', 'budgets', 'storage']
     if (canManageMembers(session)) sections.push('access')
     if (canManageModels(session)) sections.push('models')
     // Audit-view ONLY, matching `/api/organization/audit-portal`, which gates on
@@ -65,7 +68,7 @@ export default async function OrganizationLayout({
           canViewOrganization={navFlags.canViewOrganization}
           canManagePlatform={navFlags.canManagePlatform}
           canAccessArchiv={navFlags.canAccessArchiv}
-          canCollaborate={navFlags.canCollaborate}
+          canAccessInbox={navFlags.canAccessInbox}
         />
         <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10">
           <Link

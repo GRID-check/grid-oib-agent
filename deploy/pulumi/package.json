@@ -6,6 +6,7 @@
   "main": "index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "preview": "pulumi preview",
     "validate": "pulumi preview --json > .plan.json && node scripts/validate-crs.mjs .plan.json",
     "up": "pulumi up",
@@ -19,7 +20,8 @@
     "@types/node": "^22.10.0",
     "ajv": "^8.20.0",
     "js-yaml": "^5.2.2",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.7"
   },
   "dependencies": {
     "@pulumi/kubernetes": "^4.19.0",

@@ -517,6 +517,7 @@ export const platform: typeof en.platform = {
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
     workflows: 'Workflow-Vorlagen',
+    storage: 'Speicher',
     maintenance: 'Wartung',
   },
   answerFeedback: {
@@ -627,6 +628,11 @@ export const platform: typeof en.platform = {
     workflows: {
       title: 'Workflow-Vorlagen',
       subtitle: 'Vorlagen, die in der Galerie jeder Organisation erscheinen.',
+    },
+    storage: {
+      title: 'Speicher',
+      subtitle:
+        'Belegter Speicher je Organisation und das jeweils begrenzende Kontingent.',
     },
     maintenance: {
       title: 'Wartung',
@@ -1020,4 +1026,37 @@ export const platform: typeof en.platform = {
       deep: 'Tiefenrecherche',
     },
   },
+  /** Speicher: Verbrauch je Mandant und das begrenzende Kontingent. */
+  storage: {
+    title: 'Dokumentenspeicher',
+    description:
+      'Belegter Speicher je Organisation und das Kontingent, das weitere Uploads ablehnt. Kontingente sind eine Plattformsteuerung — Mandanten sehen ihren Wert, ändern ihn aber nie.',
+    totals: '{used} belegt in {orgs} Organisationen',
+    columnOrg: 'Organisation',
+    columnUsed: 'Belegt',
+    columnQuota: 'Kontingent',
+    unlimited: 'Unbegrenzt',
+    inherited: 'Plattform-Standard',
+    /** Count-neutral: die Vorlage wird auch bei genau einem Dokument gerendert. */
+    rowDocuments: 'Dokumente: {count}',
+    rowOver: 'Kontingent erreicht — Uploads abgelehnt',
+    rowNear: 'Fast voll',
+    edit: 'Kontingent für {org} bearbeiten',
+    save: 'Kontingent speichern',
+    cancel: 'Abbrechen',
+    saved: 'Kontingent aktualisiert.',
+    saveError: 'Kontingent konnte nicht aktualisiert werden.',
+    belowUsage:
+      'Dieses Kontingent liegt unter dem bereits belegten Speicher. Geben Sie zuerst Platz frei.',
+    invalidQuota:
+      'Geben Sie ein Kontingent in GB über null ein oder lassen Sie das Feld leer für kein Limit.',
+    quotaTooLarge:
+      'Dieses Kontingent ist größer als das System darstellen kann. Geben Sie höchstens 9.000.000 GB ein oder lassen Sie das Feld leer für kein Limit.',
+    truncated:
+      'Es werden die ersten 1000 Organisationen angezeigt. Für den Rest bitte einen Flottenbericht anfordern.',
+    loadError: 'Speichernutzung konnte nicht geladen werden.',
+    empty: 'Noch keine Organisation hat Daten gespeichert.',
+    hint: 'Feld leer lassen, um das Limit zu entfernen. Ein Kontingent unter der aktuellen Belegung wird abgelehnt — es würde den Mandanten handlungsunfähig machen.',
+  },
+
 }

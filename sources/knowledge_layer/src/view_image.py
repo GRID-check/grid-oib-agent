@@ -191,8 +191,19 @@ def _normalize_image_to_jpeg(image_bytes: bytes, max_dim: int) -> tuple[bytes, i
     return buf.getvalue(), pil_image.width, pil_image.height
 
 
-async def _resolve_storage_key(collection: str, file_name: str, organization_id: str | None = None) -> str | None:
-    """Resolve a ``(collection, filename)`` pair to a SeaweedFS storage key.
+async def _resolve_storage_location(
+    collection: str, file_name: str, organization_id: str | None = None
+) -> tuple[str, str | None] | None:
+    """Resolve a ``(collection, filename)`` pair to a SeaweedFS object location.
+
+    Returns ``(storage_key, storage_bucket)``, where ``storage_bucket`` is
+    ``None`` for a document in the deployment's shared bucket — which is every
+    document written before per-organization buckets existed (ADR-0043). The
+    bucket comes from the BFF rather than being derived here on purpose: the
+    naming rule already exists in two places (TypeScript for the app, CommonJS
+    for the purger) and a third implementation in Python would only ever be
+    discovered when it disagreed, which surfaces as a silent 404 and a
+    text-only answer rather than as an error.
 
     Calls the BFF internal lookup (service-token guarded). Returns ``None`` on
     any failure (unconfigured URL/token, non-200, transport error) — fail-open,
@@ -225,7 +236,12 @@ async def _resolve_storage_key(collection: str, file_name: str, organization_id:
             return None
         data = response.json()
         storage_key = data.get("storageKey")
-        return storage_key if isinstance(storage_key, str) and storage_key else None
+        if not isinstance(storage_key, str) or not storage_key:
+            return None
+        storage_bucket = data.get("storageBucket")
+        if not isinstance(storage_bucket, str) or not storage_bucket:
+            storage_bucket = None
+        return storage_key, storage_bucket
     except Exception:  # noqa: BLE001 - fail-open contract
         logger.warning(
             "view_knowledge_image: storage-key lookup failed for %s/%s", collection, file_name, exc_info=True
@@ -233,8 +249,12 @@ async def _resolve_storage_key(collection: str, file_name: str, organization_id:
         return None
 
 
-def _fetch_seaweed_bytes(storage_key: str) -> bytes | None:
+def _fetch_seaweed_bytes(storage_key: str, storage_bucket: str | None = None) -> bytes | None:
     """Fetch an object's bytes from SeaweedFS via boto3 (S3, path-style).
+
+    ``storage_bucket`` is the bucket the BFF recorded for this document;
+    ``None`` means the deployment's shared bucket (``SEAWEED_BUCKET``), which is
+    what every document predating ADR-0043 uses.
 
     Returns ``None`` on any failure (missing creds, transport error, NoSuchKey)
     so callers degrade to a text-only block. Imports boto3 lazily so the tool
@@ -245,7 +265,9 @@ def _fetch_seaweed_bytes(storage_key: str) -> bytes | None:
     secret_key = os.environ.get(_SEAWEED_SECRET_KEY_ENV, "").strip()
     if not endpoint or not access_key or not secret_key:
         return None
-    bucket = os.environ.get(_SEAWEED_BUCKET_ENV, _DEFAULT_SEAWEED_BUCKET).strip() or _DEFAULT_SEAWEED_BUCKET
+    bucket = storage_bucket or (
+        os.environ.get(_SEAWEED_BUCKET_ENV, _DEFAULT_SEAWEED_BUCKET).strip() or _DEFAULT_SEAWEED_BUCKET
+    )
     try:
         import boto3
         from botocore.config import Config as _BotoConfig
@@ -261,7 +283,7 @@ def _fetch_seaweed_bytes(storage_key: str) -> bytes | None:
         response = client.get_object(Bucket=bucket, Key=storage_key)
         return response["Body"].read()
     except Exception:  # noqa: BLE001 - fail-open contract
-        logger.warning("view_knowledge_image: SeaweedFS fetch failed for key %s", storage_key, exc_info=True)
+        logger.warning("view_knowledge_image: SeaweedFS fetch failed for %s/%s", bucket, storage_key, exc_info=True)
         return None
 
 
@@ -319,8 +341,8 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                     f"[view_knowledge_image] '{file_name}' is an uploaded image; pass the "
                     "collection it belongs to so the stored bytes can be located."
                 )
-            storage_key = await _resolve_storage_key(collection, file_name)
-            if storage_key is None:
+            location = await _resolve_storage_location(collection, file_name)
+            if location is None:
                 return (
                     f"[view_knowledge_image] Could not locate the stored file for '{file_name}' "
                     f"in collection '{collection}' (not in the document index, or the document "
@@ -328,7 +350,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                 )
             try:
                 image_bytes = await asyncio.wait_for(
-                    asyncio.to_thread(_fetch_seaweed_bytes, storage_key), timeout=config.timeout
+                    asyncio.to_thread(_fetch_seaweed_bytes, *location), timeout=config.timeout
                 )
             except Exception as e:  # noqa: BLE001 - fail-open contract
                 logger.warning("view_knowledge_image: fetch failed for %s: %s", file_name, e)
@@ -390,8 +412,8 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                 "Rendering is possible for base-corpus documents (data/oib, OIB_UPLOADS_DIR) "
                 "without a collection; pass the collection for a project/Archiv document."
             )
-        storage_key = await _resolve_storage_key(collection, file_name)
-        if storage_key is None:
+        location = await _resolve_storage_location(collection, file_name)
+        if location is None:
             return (
                 f"[view_knowledge_image] Could not locate the stored file for '{file_name}' "
                 f"in collection '{collection}' (not in the document index, or the document "
@@ -399,7 +421,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             )
         try:
             pdf_bytes = await asyncio.wait_for(
-                asyncio.to_thread(_fetch_seaweed_bytes, storage_key), timeout=config.timeout
+                asyncio.to_thread(_fetch_seaweed_bytes, *location), timeout=config.timeout
             )
         except Exception as e:  # noqa: BLE001 - fail-open contract
             logger.warning("view_knowledge_image: fetch failed for %s: %s", file_name, e)

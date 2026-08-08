@@ -374,6 +374,13 @@ jobs:
       # deploy.yml; this is the part that can run on an untrusted PR.
       - run: task infra:types
         working-directory: .
+      # Manifest assertions under `pulumi.runtime.setMocks` — no cluster, no
+      # stack credentials, so this is the part of the deeper gate that CAN run
+      # on an untrusted PR. It catches the class tsc cannot: a renamed weed
+      # flag, a Service missing the gRPC port `weed shell` needs, a liveness
+      # probe on an endpoint that answers 423.
+      - run: task infra:test
+        working-directory: .
 
   ci-ok:
     name: CI OK

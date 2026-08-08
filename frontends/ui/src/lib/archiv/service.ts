@@ -18,12 +18,20 @@
 
 import 'server-only'
 import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { s3Client, bucketName, buildArchivStorageKey } from '@/lib/s3'
+import {
+  s3Client,
+  bucketAdminS3Client,
+  buildArchivStorageKey,
+  buildThumbnailStorageKey,
+} from '@/lib/s3'
+import { ensureTenantBucket, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { assertFileSizeAllowed, assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
+import { assertWithinStorageQuota } from '@/lib/storage/service'
+import { admitOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -31,7 +39,6 @@ import { archivCollectionName } from './collection'
 import {
   deleteArchivDocument as deleteArchivDocumentRow,
   findArchivDocument,
-  insertArchivDocument,
   listArchivDocuments as listArchivDocumentRows,
 } from './repository'
 
@@ -100,22 +107,33 @@ export async function uploadArchivDocument(
   if (!canManageArchiv(session)) throw new ForbiddenError()
   await assertUploadTypeAllowed(session, file.name)
   assertFileSizeAllowed(file.size)
+  // Same org ceiling as the project path — the Archiv shares the tenant's
+  // bytes, so it must not be a way around the quota (ADR-0042).
+  await assertWithinStorageQuota(session.organizationId, file.size)
 
   const documentId = crypto.randomUUID()
   const collectionName = archivCollectionName(session.organizationId)
   const storageKey = buildArchivStorageKey(session.organizationId, documentId, file.name)
 
+  // Same provisioning step as the project path (ADR-0043): the Archiv shares
+  // the tenant's bucket, because it shares the tenant's bytes.
+  const storageBucket = await ensureTenantBucket(bucketAdminS3Client, session.organizationId)
+
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
     new PutObjectCommand({
-      Bucket: bucketName,
+      Bucket: storageBucket,
       Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
     }),
   )
 
-  await insertArchivDocument({
+  // Same hard ceiling as the project path, and the same compensating delete on
+  // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
+  // a way around the limit — including under concurrency, which is what the
+  // pre-check above cannot cover.
+  await admitOrDiscard(storageBucket, storageKey, {
     id: documentId,
     organizationId: session.organizationId,
     projectId: null,
@@ -124,13 +142,20 @@ export async function uploadArchivDocument(
     createdBy: session.userId,
     filename: file.name,
     storageKey,
+    storageBucket,
     collectionName,
     fileSize: file.size,
     contentType: file.type || null,
     status: 'uploaded',
   })
 
-  const { jobId, status } = await dispatchIngest(documentId, collectionName, storageKey, session.organizationId)
+  const { jobId, status } = await dispatchIngest(
+    documentId,
+    collectionName,
+    storageKey,
+    session.organizationId,
+    storageBucket,
+  )
 
   // Data-provenance event: who brought which file into the org Archiv.
   await recordAuditEvent({
@@ -176,7 +201,16 @@ export async function deleteArchivDocument(
 
   if (doc.storageKey) {
     try {
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.storageKey }))
+      const bucket = resolveDocumentBucket(doc.storageBucket)
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
+      // The ingest pipeline writes `_thumb.jpg` beside the object; deleting
+      // only the document left it orphaned. Same fix as the project path.
+      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
+      if (thumbKey) {
+        await s3Client
+          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
+          .catch(() => undefined)
+      }
     } catch {
       // ignore — the object may already be gone; the row delete below is the record of intent
     }

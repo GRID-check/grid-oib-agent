@@ -51,7 +51,7 @@ export default async function PlatformLayout({
           canViewOrganization={navFlags.canViewOrganization}
           canManagePlatform={navFlags.canManagePlatform}
           canAccessArchiv={navFlags.canAccessArchiv}
-          canCollaborate={navFlags.canCollaborate}
+          canAccessInbox={navFlags.canAccessInbox}
         />
         <main
           id="main-content"

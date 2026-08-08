@@ -410,7 +410,7 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
     const queries = captureSql()
     const inbox = await vi.importActual<typeof import('@/lib/inbox/repository')>('@/lib/inbox/repository')
 
-    await inbox.markInboxItemsRead('org_1', session.userId, ['item_of_another_user'])
+    await inbox.markInboxItemsRead('org_1', session.userId, ['item_of_another_user'], inbox.EVERY_INBOX_TYPE)
 
     expect(queries).toHaveLength(1)
     expect(queries[0]!.sql).toContain('"inbox_items"."organization_id" = ')
@@ -423,7 +423,7 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
     const queries = captureSql()
     const inbox = await vi.importActual<typeof import('@/lib/inbox/repository')>('@/lib/inbox/repository')
 
-    await inbox.archiveInboxItem('org_1', session.userId, 'item_of_another_user')
+    await inbox.archiveInboxItem('org_1', session.userId, 'item_of_another_user', inbox.EVERY_INBOX_TYPE)
 
     expect(queries[0]!.sql).toContain('"inbox_items"."recipient_user_id" = ')
     expect(queries[0]!.params).toEqual(expect.arrayContaining(['org_1', session.userId, 'item_of_another_user']))
@@ -435,7 +435,14 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
     const result = await markRead(session, ['item_of_another_user'])
 
     // Reporting "that item is not yours" would confirm the item exists.
-    expect(markInboxItemsRead).toHaveBeenCalledWith('org_1', session.userId, ['item_of_another_user'])
+    expect(markInboxItemsRead).toHaveBeenCalledWith(
+      'org_1',
+      session.userId,
+      ['item_of_another_user'],
+      // The type gate travels with the mutation now: recipient scoping alone let
+      // an id kept from before collaboration was disabled still be marked read.
+      expect.any(Array),
+    )
     expect(result.affected).toBe(0)
   })
 

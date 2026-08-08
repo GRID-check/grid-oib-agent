@@ -14,7 +14,7 @@ import 'server-only'
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders, type Document, type NewDocument } from '@/lib/db/schema'
+import { documents, projectFolders, type Document } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
 export const DOCUMENT_LIST_LIMIT = 500
@@ -91,7 +91,7 @@ export async function findStorageKeyByCollectionAndFilename(
   collectionName: string,
   filename: string,
   organizationId?: string,
-): Promise<{ storageKey: string; contentType: string | null } | null> {
+): Promise<{ storageKey: string; storageBucket: string | null; contentType: string | null } | null> {
   const db = getDb()
   const [row] = await withOptionalTenant(
     organizationId,
@@ -99,7 +99,14 @@ export async function findStorageKeyByCollectionAndFilename(
       'unguessable collection name and carries no organization',
     () =>
       db
-        .select({ storageKey: documents.storageKey, contentType: documents.contentType })
+        .select({
+          storageKey: documents.storageKey,
+          // The agent tier calls get_object directly (ADR-0039), so it needs
+          // the bucket as well as the key — recomputing it there would be a
+          // second implementation of the naming rule in a third language.
+          storageBucket: documents.storageBucket,
+          contentType: documents.contentType,
+        })
         .from(documents)
         .where(
           and(
@@ -115,10 +122,16 @@ export async function findStorageKeyByCollectionAndFilename(
   return row ?? null
 }
 
-export async function insertDocument(values: NewDocument): Promise<void> {
-  const db = getDb()
-  await withTenant({ organizationId: values.organizationId }, () => db.insert(documents).values(values))
-}
+/**
+ * Recording a document goes through `insertDocumentWithinQuota`
+ * (`@/lib/storage/repository`), not through a plain insert here.
+ *
+ * There used to be an `insertDocument` in this module. It is gone on purpose: an
+ * organization's storage quota is only a ceiling if EVERY insert of a `documents`
+ * row is gated by it, and a second, ungated way in is how a ceiling stops being
+ * one. Anything that needs to create a document row calls the admitting insert
+ * and handles its refusal.
+ */
 
 /**
  * Hard-delete a project document row (the DB record; SeaweedFS + backend

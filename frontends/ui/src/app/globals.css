@@ -615,3 +615,19 @@ body {
   --spend-meter: #3987e5;
   --spend-meter-over: #d03b3b;
 }
+
+/* Storage (ADR-0042) asks the same question as the spend meter — am I about to
+   be cut off — so it uses the same STATUS pair and the same values, in both
+   themes. Kept as its own scope rather than borrowing `.grid-spend-viz`: the
+   series slots there are for money by model and mean nothing here, and a card
+   that opts into a palette it only half-uses invites someone to colour storage
+   by category later. If one pair changes, change both. */
+.grid-storage-viz {
+  --storage-meter: #2a78d6; /* under the quota */
+  --storage-meter-over: #d03b3b; /* at or over the quota */
+}
+
+.dark .grid-storage-viz {
+  --storage-meter: #3987e5;
+  --storage-meter-over: #d03b3b;
+}

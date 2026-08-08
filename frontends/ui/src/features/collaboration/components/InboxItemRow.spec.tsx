@@ -228,3 +228,64 @@ describe('InboxItemRow — actions', () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'i1' }))
   })
 })
+
+describe('InboxItemRow — the operational storage alert (ADR-0042)', () => {
+  /** The row as `evaluateStorageAlert` produces it: system-generated, no actor. */
+  const storageAlert = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
+    item({
+      id: 'i-storage',
+      type: 'storage.quota_warning',
+      actionable: false,
+      resourceType: 'organization',
+      resourceId: 'org_1',
+      anchorId: '80',
+      actorName: null,
+      actorUserId: null,
+      href: '/app/organization/storage',
+      // The locale-neutral token the emitter puts in `payload.subject`.
+      subject: '82%',
+      excerpt: null,
+      ...overrides,
+    })
+
+  test('renders the warning copy and links to the page that explains it', () => {
+    render(<InboxItemRow item={storageAlert()} />)
+
+    expect(screen.getByText('Your organisation is running out of storage')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '82% of the storage quota is in use. Once it is full, uploads will start failing — delete documents you no longer need, or ask whoever runs Piloti for you to raise the quota.',
+      ),
+    ).toBeInTheDocument()
+    // The deep link goes to Organization → Storage, which every member can read
+    // — not to a settings control the tenant does not have.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/organization/storage')
+  })
+
+  test('names no actor — the platform is not a colleague', () => {
+    render(<InboxItemRow item={storageAlert()} />)
+
+    // The mention rows read "<Name> asked for your input"; a system alert that
+    // fell back to the actor placeholder would invent a person.
+    expect(screen.queryByText(/Someone/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Anna Weber/)).not.toBeInTheDocument()
+  })
+
+  test('still reads correctly after a re-crossing bumps the count', () => {
+    // A recovery archives the row; the next crossing REVIVES it, so `count`
+    // arrives at 2. The type ships a single `title` (no titleOne/titleMany), and
+    // the count-aware key picker must fall back to it rather than dropping the
+    // title entirely.
+    render(<InboxItemRow item={storageAlert({ count: 2 })} />)
+
+    expect(screen.getByText('Your organisation is running out of storage')).toBeInTheDocument()
+  })
+
+  test('is tinted as needing attention without being an actionable request', () => {
+    const { container } = render(<InboxItemRow item={storageAlert()} />)
+
+    // `tone: 'warning'` shares the request tint — something needs attention —
+    // but the row is not actionable, so it never sits in the "needs me" badge.
+    expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
+  })
+})

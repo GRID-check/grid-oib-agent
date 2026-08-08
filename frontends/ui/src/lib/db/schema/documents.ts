@@ -31,6 +31,17 @@ export const documents = pgTable('documents', {
   createdBy: text('created_by').notNull(),
   filename: text('filename').notNull(),
   storageKey: text('storage_key').notNull(),
+  /**
+   * The S3 bucket holding this document's bytes (ADR-0043, migration 0033).
+   *
+   * NULL means the deployment's shared bucket — which is what every row written
+   * before per-organization buckets existed means, and the meaning is fixed:
+   * `resolveDocumentBucket` in `@/lib/storage/bucket` is the one place that
+   * turns it back into a name. Recorded rather than derived from
+   * `organizationId` so that enabling per-org buckets is not a cutover; see the
+   * migration for the full reasoning.
+   */
+  storageBucket: text('storage_bucket'),
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),

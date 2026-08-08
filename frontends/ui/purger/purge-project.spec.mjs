@@ -19,9 +19,22 @@ import { LEGAL_HOLD_CODE, purgeProject } from './purge-project.js'
  * (`tx(ids)`), which is how the parameter blow-up was expressed. A real template
  * strings array carries `.raw`; a plain array of ids does not.
  */
-function makeTx({ projectRow, conversationRows, holdRows = [] }) {
+function makeTx({
+  projectRow,
+  conversationRows,
+  holdRows = [],
+  documentBucketRows = [],
+  /**
+   * Hold rows to return on the Nth `legal_holds` read, so a test can place a
+   * hold PART WAY through the purge. `holdRows` still covers "held from the
+   * start"; this covers "held after we began", which is the case the per-step
+   * re-check exists for.
+   */
+  holdOnCheck = {},
+}) {
   const executed = []
   const expansions = []
+  let holdChecks = 0
   const tx = (strings, ...values) => {
     if (!Array.isArray(strings) || !('raw' in strings)) {
       expansions.push(strings)
@@ -30,13 +43,17 @@ function makeTx({ projectRow, conversationRows, holdRows = [] }) {
     const text = strings.join('$').replace(/\s+/g, ' ').trim()
     executed.push({ text, values })
     if (text.startsWith('SELECT') && text.includes('FROM legal_holds')) {
-      return Promise.resolve(holdRows)
+      holdChecks += 1
+      return Promise.resolve(holdOnCheck[holdChecks] ?? holdRows)
     }
     if (text.startsWith('SELECT') && text.includes('FROM projects')) {
       return Promise.resolve(projectRow ? [projectRow] : [])
     }
     if (text.startsWith('SELECT') && text.includes('FROM conversations')) {
       return Promise.resolve(conversationRows)
+    }
+    if (text.startsWith('SELECT DISTINCT storage_bucket')) {
+      return Promise.resolve(documentBucketRows)
     }
     return Promise.resolve([])
   }
@@ -135,6 +152,108 @@ describe('purgeProject', () => {
     // delete, no grid_app row deletes.
     expect(deps.fetchImpl).not.toHaveBeenCalled()
     expect(deps.deleteStoragePrefix).not.toHaveBeenCalled()
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  // Per-organization buckets (ADR-0043). An organization that predates the flip
+  // has objects in the shared bucket AND in its own, so a purge that visits only
+  // one of them leaves half the tenant's files behind while deleting the rows
+  // that named them — an erasure that reports success and did not happen.
+  //
+  // The list comes from the DOCUMENT ROWS, not from re-deriving the bucket name.
+  // That is the same principle the column exists for: the bucket is recorded so
+  // nothing has to recompute it, and the purge is the one place where a naming
+  // disagreement would be invisible.
+  it('sweeps every bucket the project documents actually recorded', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
+    })
+
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([
+      ['grid-documents', 'org/org1/project/p1/'],
+      ['grid-org-org1-abcdef123456', 'org/org1/project/p1/'],
+    ])
+  })
+
+  // The shared bucket is unconditional: NULL means shared (migration 0033), so
+  // a project whose documents all predate the column records nothing, and the
+  // sweep must still reach them.
+  it('always sweeps the shared bucket, even when no row records one', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [],
+    })
+
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([
+      ['grid-documents', 'org/org1/project/p1/'],
+    ])
+  })
+
+  // Two documents in the same bucket must not produce two sweeps of it.
+  it('visits each bucket once', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [
+        { storage_bucket: 'grid-documents' },
+        { storage_bucket: 'grid-org-org1-abcdef123456' },
+      ],
+    })
+
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toHaveLength(2)
+  })
+
+  // A hold placed mid-sweep. The hold check used to run once before the loop, so
+  // once the first bucket's sweep had started the erasure continued through every
+  // remaining bucket regardless — which is exactly what a legal hold exists to
+  // stop. The loop now re-checks per bucket, so the second sweep never happens.
+  it('stops between buckets when a hold appears mid-sweep', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
+      // Checks 1 and 2 are the pre-flight and post-backend ones; 3 guards the
+      // first bucket, 4 the second. Placing the hold at 4 lets one sweep run.
+      holdOnCheck: { 4: [{ '?column?': 1 }] },
+    })
+
+    const deps = makeDeps()
+    await expect(purgeProject(tx, entry, deps)).rejects.toMatchObject({ code: 'LEGAL_HOLD_ACTIVE' })
+    expect(deps.deleteStoragePrefix.mock.calls).toHaveLength(1)
+    // And nothing downstream ran, so the pointers still name the surviving bytes.
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+  })
+
+  // The prefix delete throws on a partial failure so the queue row retries. That
+  // guarantee has to survive the loop: if the SECOND bucket cannot be cleared,
+  // the purge must still fail, or the pointers get deleted while the objects
+  // remain.
+  it('fails the purge when a later bucket cannot be cleared', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
+    })
+    const deleteStoragePrefix = vi
+      .fn()
+      .mockResolvedValueOnce(3)
+      .mockRejectedValueOnce(new Error('SeaweedFS delete reported 2 error(s)'))
+    const deps = makeDeps({ deleteStoragePrefix })
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/SeaweedFS delete reported/)
     expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })

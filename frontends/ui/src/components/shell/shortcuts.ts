@@ -220,6 +220,7 @@ if (process.env.NODE_ENV !== 'production') {
     showWorkflows: true,
     canAccessArchiv: true,
     canCollaborate: true,
+    canAccessInbox: true,
   }).map((target) => target.key)
   const duplicate = keys.find((key, index) => keys.indexOf(key) !== index)
   if (duplicate) {

@@ -81,6 +81,26 @@ export class UnprocessableError extends ApiError {
 }
 
 /**
+ * 507 — the organization's storage quota would be exceeded by this write.
+ *
+ * Distinct from 400 "file exceeds the maximum size", which judges the ONE file:
+ * this one says the file is acceptable but the tenant has no room left, so the
+ * remedy is different (delete something, or raise the quota) and the UI has to
+ * say so. RFC 4918's Insufficient Storage is exactly this case.
+ *
+ * NOT a rate limit: 429 means come back later, this means nothing changes until
+ * someone acts.
+ */
+export class InsufficientStorageError extends ApiError {
+  constructor(
+    message = 'Storage quota exceeded',
+    details?: { quotaBytes: number; usedBytes: number; requestedBytes: number }
+  ) {
+    super(507, 'STORAGE_QUOTA_EXCEEDED', message, details)
+  }
+}
+
+/**
  * 429 — an abuse bound was reached (ADR-0040 L2).
  *
  * Carries the decision itself rather than a bare message, because the three

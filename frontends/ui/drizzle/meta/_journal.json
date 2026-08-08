@@ -232,6 +232,13 @@
       "when": 1785542400002,
       "tag": "0032_messages_organization_id",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785542400003,
+      "tag": "0033_documents_storage_bucket",
+      "breakpoints": true
     }
   ]
 }

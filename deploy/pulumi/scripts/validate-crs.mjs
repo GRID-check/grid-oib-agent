@@ -36,12 +36,13 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 /** Pinned CNPG release (tag ref, immutable) whose CRDs the plan is validated against. */
 const CNPG_RELEASE_URL =
   "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml";
 const CNPG_GROUP = "postgresql.cnpg.io/v1";
-const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler"]);
+const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler", "Database"]);
 
 /** Pulumi's preview placeholder for not-yet-known Output values. */
 const UNKNOWN_SENTINEL = "04da6b54-80e4-46f7-8ec5-a065f938c709";
@@ -159,7 +160,19 @@ async function loadCnpgSchemas() {
   if (cnpgSchemas) return cnpgSchemas;
   cnpgSchemas = {};
   const cacheDir = join(here, "../.schemas-cache");
-  const cacheFile = join(cacheDir, "cnpg-crds.yaml");
+  // The cache stores ONLY the kinds selected at write time, so its identity is
+  // (release URL, kind set) — not just "cnpg". Without that in the filename, a
+  // checkout carrying a cache written before a kind was added takes the
+  // `existsSync` branch, finds no schema for the new kind, and FAILS the gate
+  // with "no schema for this kind in the pinned CNPG release" — a wrong answer
+  // that `rm -rf .schemas-cache` fixes and nothing in the output suggests.
+  const cacheKey = createHash("sha256")
+    .update(CNPG_RELEASE_URL)
+    .update("\u0000")
+    .update([...CNPG_KINDS].sort().join(","))
+    .digest("hex")
+    .slice(0, 12);
+  const cacheFile = join(cacheDir, `cnpg-crds.${cacheKey}.yaml`);
   let raw;
   if (existsSync(cacheFile)) {
     raw = readFileSync(cacheFile, "utf8");

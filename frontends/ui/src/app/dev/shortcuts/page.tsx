@@ -61,6 +61,10 @@ export default function ShortcutsPreviewPage() {
           showWorkflows={everything}
           canAccessArchiv={everything}
           canCollaborate={everything}
+          // Its own flag since ADR-0042, so the preview has to pass it too — the
+          // prop defaults to false, and without this the "everything" variant
+          // would quietly render a cheatsheet missing the `g i` jump.
+          canAccessInbox={everything}
         />
       </main>
     </I18nProvider>

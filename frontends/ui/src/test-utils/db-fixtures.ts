@@ -78,6 +78,10 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   createdBy: 'user-1',
   filename: 'plan.pdf',
   storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+  // NULL is what every row written before migration 0033 carries, and it means
+  // the shared bucket — so it is the right default for a fixture standing in
+  // for "an ordinary existing document".
+  storageBucket: null,
   collectionName: 'proj_abc',
   fileSize: 1024,
   contentType: 'application/pdf',

@@ -26,6 +26,7 @@ import {
   Building2,
   Cpu,
   Gauge,
+  HardDrive,
   ScrollText,
   ShieldCheck,
   Users,
@@ -45,6 +46,7 @@ export const ORGANIZATION_SECTIONS = [
   { key: 'access', href: '/app/organization/access', icon: Users },
   { key: 'models', href: '/app/organization/models', icon: Cpu },
   { key: 'budgets', href: '/app/organization/budgets', icon: Gauge },
+  { key: 'storage', href: '/app/organization/storage', icon: HardDrive },
   { key: 'compliance', href: '/app/organization/compliance', icon: ScrollText },
   { key: 'enterprise', href: '/app/organization/enterprise', icon: ShieldCheck },
 ] as const satisfies readonly { key: string; href: string; icon: LucideIcon }[]
