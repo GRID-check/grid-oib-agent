@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,18 +23,39 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@/adapters/*": ["./src/adapters/*"],
-      "@/features/*": ["./src/features/*"],
-      "@/shared/*": ["./src/shared/*"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@/adapters/*": [
+        "./src/adapters/*"
+      ],
+      "@/features/*": [
+        "./src/features/*"
+      ],
+      "@/shared/*": [
+        "./src/shared/*"
+      ]
     }
   },
+  "_includeNote": [
+    "`purger/**/*.js` and `workers/**/*.js` are here on purpose. Those files are",
+    "CommonJS because the purger runs as `node purger/index.js` with no build",
+    "step and no loader hook — the process that erases a tenant should have as",
+    "little between the source and the running code as possible. That is a",
+    "reason to be CommonJS; it was never a reason to be UNCHECKED. They carry",
+    "`// @ts-check` and JSDoc, and listing them here is what points tsc at them.",
+    "Nothing about the runtime changes: no rename, no emit, no flag."
+  ],
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    "purger/**/*.js",
+    "workers/**/*.js"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

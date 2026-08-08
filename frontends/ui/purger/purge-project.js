@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Ordered, idempotent purge steps for one project.
  *
@@ -16,6 +17,10 @@
 
 const { hasActiveHold } = require('./db')
 
+/** @typedef {import('./types').Tx} Tx */
+/** @typedef {import('./types').QueueEntry} QueueEntry */
+/** @typedef {import('./types').PurgeDeps} PurgeDeps */
+
 /** error.code used to signal "hold appeared after claim" to the caller. */
 const LEGAL_HOLD_CODE = 'LEGAL_HOLD_ACTIVE'
 
@@ -23,13 +28,28 @@ const LEGAL_HOLD_CODE = 'LEGAL_HOLD_ACTIVE'
 // "not found" anywhere in a message wrongly swallowed errors like WorkOS's
 // "Organization not found" or a proxy "upstream host not found", leaking the
 // resource while the row was marked purged.
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
 function isNotFound(error) {
-  return error != null && error.status === 404
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    /** @type {{ status?: unknown }} */ (error).status === 404
+  )
 }
 
-/** Throw LEGAL_HOLD_ACTIVE if a hold now covers this entry. */
+/**
+ * Throw LEGAL_HOLD_ACTIVE if a hold now covers this entry.
+ *
+ * @param {Tx} tx
+ * @param {QueueEntry} entry
+ * @returns {Promise<void>}
+ */
 async function assertNoHold(tx, entry) {
   if (await hasActiveHold(tx, entry)) {
+    /** @type {import('./types').LegalHoldError} */
     const error = new Error(
       `legal hold active for ${entry.entity_type} ${entry.entity_id} — aborting purge`,
     )
@@ -38,6 +58,12 @@ async function assertNoHold(tx, entry) {
   }
 }
 
+/**
+ * @param {Tx} tx
+ * @param {QueueEntry} entry
+ * @param {PurgeDeps} deps
+ * @returns {Promise<void>}
+ */
 async function purgeProject(tx, entry, deps) {
   const { backendUrl, internalToken, bucket, workos, deleteStoragePrefix } = deps
   const fetchImpl = deps.fetchImpl || fetch
@@ -56,7 +82,11 @@ async function purgeProject(tx, entry, deps) {
   const collectionName = project
     ? project.collection_name
     : (entry.payload && entry.payload.collectionName) || null
-  const conversations = await tx`SELECT id FROM conversations WHERE project_id = ${projectId}`
+  // Narrowed at the boundary, where the SQL shape is known — the same rule
+  // AGENTS.md sets for raw `sql<T>` results in the repositories.
+  const conversations = /** @type {{ id: string }[]} */ (
+    await tx`SELECT id FROM conversations WHERE project_id = ${projectId}`
+  )
 
   // 1. Python-side stores: Chroma collection, summaries, job rows, checkpoints.
   const res = await fetchImpl(`${backendUrl}/v1/maintenance/purge-project-resources`, {
@@ -104,9 +134,11 @@ async function purgeProject(tx, entry, deps) {
   //    Sequential rather than concurrent on purpose: the prefix sweep is a
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
-  const recorded = await tx`
-    SELECT DISTINCT storage_bucket FROM documents
-     WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+  const recorded = /** @type {{ storage_bucket: string }[]} */ (
+    await tx`
+      SELECT DISTINCT storage_bucket FROM documents
+       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+  )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)

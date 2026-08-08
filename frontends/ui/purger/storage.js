@@ -1,6 +1,18 @@
+// @ts-check
 /**
  * Prefix-based SeaweedFS cleanup. Paginated list + batched delete; a prefix with
  * no objects is a successful no-op (idempotent re-runs).
+ *
+ * ## Why this file is JavaScript, and why it is still typechecked
+ *
+ * The purger runs as `node purger/index.js` — plain CommonJS, no build step and
+ * no loader hook, which is deliberate: the process that erases a tenant should
+ * have as little between the source and the running code as possible.
+ *
+ * That is a reason to be CommonJS. It was never a reason to be unchecked.
+ * `// @ts-check` plus JSDoc gives this file the same compiler that guards the
+ * rest of the repo, with no rename, no emit and nothing different at runtime —
+ * `tsconfig.json` includes `purger/**\/*.js` so `npm run type-check` covers it.
  */
 
 const {
@@ -9,6 +21,7 @@ const {
   S3Client,
 } = require('@aws-sdk/client-s3')
 
+/** @returns {import('@aws-sdk/client-s3').S3Client} */
 function createS3Client() {
   return new S3Client({
     endpoint: process.env.SEAWEED_ENDPOINT,
@@ -53,10 +66,26 @@ function createS3Client() {
  * (`weed/s3api/s3api_object_handlers_list.go`), so the code alone is both
  * necessary and sufficient.
  */
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
 function isMissingBucket(error) {
-  return error?.name === 'NoSuchBucket'
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    /** @type {{ name?: unknown }} */ (error).name === 'NoSuchBucket'
+  )
 }
 
+/**
+ * Delete every object under `prefix`, returning how many were removed.
+ *
+ * @param {import('@aws-sdk/client-s3').S3Client} s3
+ * @param {string} bucket
+ * @param {string} prefix
+ * @returns {Promise<number>}
+ */
 async function deleteStoragePrefix(s3, bucket, prefix) {
   let deleted = 0
   let continuationToken
@@ -74,7 +103,7 @@ async function deleteStoragePrefix(s3, bucket, prefix) {
       if (isMissingBucket(error)) return deleted
       throw error
     }
-    const keys = (page.Contents || []).map((obj) => ({ Key: obj.Key }))
+    const keys = (page.Contents || []).map((/** @type {{ Key?: string }} */ obj) => ({ Key: obj.Key }))
     if (keys.length > 0) {
       // Quiet:true returns ONLY per-key errors. A 200 response can still carry
       // partial failures — if we ignore them the purge "succeeds", the grid_app
@@ -100,7 +129,7 @@ async function deleteStoragePrefix(s3, bucket, prefix) {
       }
       if (res.Errors && res.Errors.length > 0) {
         const sample = res.Errors.slice(0, 3)
-          .map((e) => `${e.Key}: ${e.Code}`)
+          .map((/** @type {{ Key?: string, Code?: string }} */ e) => `${e.Key}: ${e.Code}`)
           .join('; ')
         throw new Error(
           `SeaweedFS delete reported ${res.Errors.length} error(s) for prefix ${prefix}: ${sample}`,

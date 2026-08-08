@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * GRID purger service.
  *
@@ -52,7 +53,8 @@ const deps = {
   // why this process needs no bucket-naming rule and no feature flag.
   bucket: sharedBucket,
   workos,
-  deleteStoragePrefix: (bucket, prefix) => deleteStoragePrefix(s3, bucket, prefix),
+  deleteStoragePrefix: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
+    deleteStoragePrefix(s3, bucket, prefix),
 }
 
 const purgers = {
@@ -70,7 +72,9 @@ async function processOne() {
   // the 15-minute stale-claim window.
   // Unsupported entity types are a config/programming error, not a transient
   // failure: fail the row permanently instead of burning MAX_ATTEMPTS retries.
-  const purge = purgers[claimed.entity_type]
+  const purge = /** @type {Record<string, typeof purgeProject | undefined>} */ (purgers)[
+    claimed.entity_type
+  ]
   if (!purge) {
     const reason = `no purger registered for entity_type '${claimed.entity_type}'`
     console.error(`[purger] ${reason} (queue row ${claimed.id}) — marking failed, no retry`)
@@ -86,7 +90,10 @@ async function processOne() {
     console.log(`[purger] purged ${claimed.entity_type} ${claimed.entity_id} ("${claimed.display_name}")`)
     return true
   } catch (error) {
-    if (error && error.code === LEGAL_HOLD_CODE) {
+    const failure = /** @type {import('./types').LegalHoldError | undefined} */ (
+      error instanceof Error ? error : undefined
+    )
+    if (failure?.code === LEGAL_HOLD_CODE) {
       // A hold appeared between claim and purge: not a failure. Release the
       // row back to 'pending'; claimNext skips it while the hold is active.
       console.warn(
@@ -98,7 +105,7 @@ async function processOne() {
       return true
     }
     console.error('[purger] purge failed:', error)
-    await markFailed(sql, claimed.id, error.message || error).catch((e) =>
+    await markFailed(sql, claimed.id, failure?.message ?? error).catch((e) =>
       console.error('[purger] failed to record error:', e),
     )
     return false

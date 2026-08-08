@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Platform scope for the background workers (ADR-0041).
  *
@@ -40,14 +41,22 @@ async function enterPlatformScope(tx) {
  * `SET LOCAL` needs one, and wrapping a lone statement costs nothing because
  * postgres-js pipelines the whole transaction.
  *
+ * `Tx` rather than `unknown` for the callback's argument: every caller uses it
+ * as a `postgres` tagged template, and typing it as `unknown` pushed a cast
+ * into each of the nine call sites instead of stating the contract once here.
+ *
+ * @template T
  * @param {{ begin: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown> }} sql
- * @param {(tx: unknown) => Promise<unknown>} fn
+ * @param {(tx: import('../purger/types').Tx) => Promise<T>} fn
+ * @returns {Promise<T>}
  */
 async function withPlatformScope(sql, fn) {
-  return sql.begin(async (tx) => {
-    await enterPlatformScope(tx)
-    return fn(tx)
-  })
+  return /** @type {Promise<T>} */ (
+    sql.begin(async (tx) => {
+      await enterPlatformScope(/** @type {{ unsafe: (sql: string) => Promise<unknown> }} */ (tx))
+      return fn(/** @type {import('../purger/types').Tx} */ (tx))
+    })
+  )
 }
 
 module.exports = { PLATFORM_ROLE, enterPlatformScope, withPlatformScope }
