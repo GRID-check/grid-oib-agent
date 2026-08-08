@@ -158,11 +158,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # app (which reaches it through the bundle, not from disk), so it lives in
 # lib/audit rather than being duplicated into scripts/.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/lib/audit/schemas.mjs
-# `next.config.ts` imports this at server start (AVATAR_IMAGE_PATTERNS); Next
-# transpiles the config to `next.config.compiled.js`, which then requires the
-# file from disk — missing from the image, `server.js` dies with
-# MODULE_NOT_FOUND before ever listening (update 67 CrashLoopBackOff).
+# `next.config.ts` imports these at server start (AVATAR_IMAGE_PATTERNS,
+# LOCAL_IMAGE_PATTERNS); Next transpiles the config to
+# `next.config.compiled.js`, which then requires the files from disk — missing
+# from the image, `server.js` dies with MODULE_NOT_FOUND before ever listening
+# (avatar-hosts: update 67 CrashLoopBackOff; optimizable: update 83).
+# Both modules must stay import-free (see their file headers) — anything they
+# import needs a copy here too.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./src/lib/images/avatar-hosts.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/optimizable.ts ./src/lib/images/optimizable.ts
 # `server.js` requires these three at startup for WebSocket rate limiting
 # (ADR-0040 L2b). They are CommonJS precisely so the proxy can load them — the
 # same shared catalog the TypeScript side imports — which means they must be on
