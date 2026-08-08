@@ -58,10 +58,16 @@ export async function findArchivDocument(documentId: string, organizationId: str
   return row ?? null
 }
 
-export async function insertArchivDocument(values: NewDocument): Promise<void> {
-  const db = getDb()
-  await db.insert(documents).values({ ...values, scope: 'archiv', projectId: null })
-}
+/**
+ * Recording an Archiv document goes through `insertDocumentWithinQuota`
+ * (`@/lib/storage/repository`), which applies the organization's quota in the
+ * same transaction as the insert.
+ *
+ * `insertArchivDocument` is gone for the reason given in
+ * `documents/repository.ts`: a second, ungated insert is how a ceiling stops
+ * being one. The caller now states `scope: 'archiv'` and `projectId: null`
+ * itself — those defaults were the only thing this function added.
+ */
 
 /** Hard-delete an Archiv row (the DB record; SeaweedFS + backend cleanup live in the service). */
 export async function deleteArchivDocument(documentId: string, organizationId: string): Promise<void> {

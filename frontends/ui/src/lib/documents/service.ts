@@ -32,6 +32,7 @@ import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
+import { admitOrDiscard } from '@/lib/storage/admission'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
@@ -41,7 +42,6 @@ import {
   findDocumentInOrg,
   findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
-  insertDocument,
   listProjectDocuments,
   markDocumentIngestFailed,
   setDocumentIngestJob,
@@ -528,7 +528,14 @@ export async function uploadDocument(
     }),
   )
 
-  await insertDocument({
+  // The quota's HARD ceiling: the usage is re-read inside the same transaction
+  // that inserts the row, under a per-organization lock, so concurrent uploads
+  // cannot jointly cross the limit the way the pre-check above allows (ADR-0042).
+  //
+  // The object is already written, so a refusal has to take it back — the row was
+  // not inserted, so nothing else will ever reference those bytes and leaving
+  // them would be an orphan that only a bucket-wide sweep could find.
+  await admitOrDiscard(storageBucket, storageKey, {
     id: documentId,
     organizationId: session.organizationId,
     projectId,

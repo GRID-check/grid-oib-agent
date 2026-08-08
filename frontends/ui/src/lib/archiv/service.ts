@@ -31,6 +31,7 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { assertFileSizeAllowed, assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
+import { admitOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -38,7 +39,6 @@ import { archivCollectionName } from './collection'
 import {
   deleteArchivDocument as deleteArchivDocumentRow,
   findArchivDocument,
-  insertArchivDocument,
   listArchivDocuments as listArchivDocumentRows,
 } from './repository'
 
@@ -129,7 +129,11 @@ export async function uploadArchivDocument(
     }),
   )
 
-  await insertArchivDocument({
+  // Same hard ceiling as the project path, and the same compensating delete on
+  // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
+  // a way around the limit — including under concurrency, which is what the
+  // pre-check above cannot cover.
+  await admitOrDiscard(storageBucket, storageKey, {
     id: documentId,
     organizationId: session.organizationId,
     projectId: null,

@@ -19,7 +19,13 @@
 import 'server-only'
 import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
 import { findOrganization } from '@/lib/organizations/repository'
-import { aggregateStorageUsage, sumStorageBytes, type StorageUsageByScope } from './repository'
+import {
+  aggregateStorageUsage,
+  insertDocumentWithinQuota,
+  sumStorageBytes,
+  type StorageUsageByScope,
+} from './repository'
+import type { NewDocument } from '@/lib/db/schema'
 import { InsufficientStorageError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
@@ -108,13 +114,22 @@ export async function getOrganizationStorage(
 }
 
 /**
- * Refuse an upload that would take the organization past its quota.
+ * Refuse an upload that would obviously take the organization past its quota.
  *
- * Called from the upload paths BEFORE any bytes reach SeaweedFS, so a refused
- * upload leaves nothing behind to clean up. Fail-CLOSED is deliberate here and
- * the opposite of the abuse limiter's posture: a limiter that fails open costs
- * a little extra traffic, whereas a quota that fails open costs disk that is
- * shared with every other tenant and with the Postgres backup archive.
+ * ADVISORY, and deliberately so. This runs before any bytes reach SeaweedFS, so
+ * the common refusal costs nothing — but it is a check-then-act, and it cannot be
+ * the ceiling: the bytes and the row that records them land afterwards, so two
+ * uploads that start together both read the same sum and both pass. The hard
+ * ceiling is {@link admitDocumentWithinQuota}, which re-checks inside the same
+ * transaction that inserts the row.
+ *
+ * Keeping both is not redundancy. This one saves an upload that was never going
+ * to be admitted; the other one is what makes the word "quota" true.
+ *
+ * Fail-CLOSED is deliberate here and the opposite of the abuse limiter's posture:
+ * a limiter that fails open costs a little extra traffic, whereas a quota that
+ * fails open costs disk that is shared with every other tenant and with the
+ * Postgres backup archive.
  */
 export async function assertWithinStorageQuota(
   organizationId: string,
@@ -129,6 +144,36 @@ export async function assertWithinStorageQuota(
   throw new InsufficientStorageError(
     'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
     { quotaBytes, usedBytes, requestedBytes: incomingBytes }
+  )
+}
+
+/**
+ * Record a document, or refuse it because the organization is at its quota —
+ * atomically, and with the object already written.
+ *
+ * This is the ceiling. It re-reads the usage inside the transaction that inserts
+ * the row, under a per-organization advisory lock, so after any commit
+ * `SUM(file_size) <= quota` holds no matter how many uploads raced (see
+ * `insertDocumentWithinQuota`).
+ *
+ * On refusal it throws `InsufficientStorageError` — the same error the advisory
+ * check throws, so the API contract is unchanged and the caller's `catch` does
+ * not have to know which of the two refused. What the caller MUST do is delete
+ * the object it wrote before calling this; the row was not inserted, so nothing
+ * else will ever reference those bytes.
+ */
+export async function admitDocumentWithinQuota(values: NewDocument): Promise<void> {
+  const quotaBytes = await getStorageQuotaBytes(values.organizationId)
+  const result = await insertDocumentWithinQuota(values, quotaBytes)
+  if (result.ok) return
+
+  throw new InsufficientStorageError(
+    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    {
+      quotaBytes: quotaBytes ?? 0,
+      usedBytes: result.usedBytes,
+      requestedBytes: values.fileSize ?? 0,
+    }
   )
 }
 

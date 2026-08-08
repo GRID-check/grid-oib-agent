@@ -45,8 +45,16 @@ vi.mock('@/lib/documents/vlm-capability', () => ({
   isVlmConfigured: vi.fn().mockResolvedValue(false),
 }))
 
+// The admitting insert, not the repository's. Recording a document now goes
+// through `admitOrDiscard`, which applies the organization's quota in the same
+// transaction as the insert and deletes the just-written object if it refuses
+// (ADR-0042). Asserting on it here keeps these tests about WHAT would be
+// recorded; the admission and compensation behaviour has its own spec.
+vi.mock('@/lib/storage/admission', () => ({
+  admitOrDiscard: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('./repository', () => ({
-  insertDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentIngestJob: vi.fn().mockResolvedValue(undefined),
   markDocumentIngestFailed: vi.fn().mockResolvedValue(undefined),
   findFolderPathInProject: vi.fn().mockResolvedValue(null),
@@ -62,8 +70,8 @@ vi.mock('./reconcile-status', () => ({
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { admitOrDiscard } from '@/lib/storage/admission'
 import {
-  insertDocument,
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
@@ -151,7 +159,7 @@ describe('uploadDocument server-side type gate', () => {
     ).rejects.toBeInstanceOf(BadRequestError)
 
     // Rejected before any storage/ingest side effects.
-    expect(insertDocument).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
@@ -166,7 +174,7 @@ describe('uploadDocument server-side type gate', () => {
     await expect(
       uploadDocument(gatedSession, makeInput({ name: 'photo.png', type: 'image/png' }), new Request('http://x')),
     ).rejects.toBeInstanceOf(BadRequestError)
-    expect(insertDocument).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
@@ -184,7 +192,7 @@ describe('uploadDocument server-side type gate', () => {
     )
 
     expect(result.status).toBe('pending')
-    expect(insertDocument).toHaveBeenCalled()
+    expect(admitOrDiscard).toHaveBeenCalled()
   })
 
   it('rejects a type outside the accepted list regardless of flags (general allow-list)', async () => {
@@ -193,7 +201,7 @@ describe('uploadDocument server-side type gate', () => {
     await expect(
       uploadDocument(session, makeInput({ name: 'malware.exe', type: 'application/octet-stream' }), new Request('http://x')),
     ).rejects.toBeInstanceOf(BadRequestError)
-    expect(insertDocument).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
   })
 })
 
@@ -222,7 +230,9 @@ describe('uploadDocument bucket selection', () => {
       input: { Bucket: string }
     }
     expect(put.input.Bucket).toBe('test-bucket')
-    expect(insertDocument).toHaveBeenCalledWith(
+    expect(admitOrDiscard).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
       expect.objectContaining({ storageBucket: 'test-bucket' }),
     )
     // No bucket-lifecycle call at all — not even a HeadBucket.
@@ -240,7 +250,9 @@ describe('uploadDocument bucket selection', () => {
       input: { Bucket: string }
     }
     expect(put.input.Bucket).toBe(expected)
-    expect(insertDocument).toHaveBeenCalledWith(
+    expect(admitOrDiscard).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
       expect.objectContaining({ storageBucket: expected }),
     )
   })
@@ -277,7 +289,9 @@ describe('uploadDocument ingest dispatch', () => {
     expect(setDocumentIngestJob).toHaveBeenCalledWith(result.documentId, 'org-1', 'job-42')
     expect(markDocumentIngestFailed).not.toHaveBeenCalled()
     // Document is first inserted as 'uploaded' before the job id lands.
-    expect(insertDocument).toHaveBeenCalledWith(
+    expect(admitOrDiscard).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
       expect.objectContaining({ status: 'uploaded' }),
     )
   })

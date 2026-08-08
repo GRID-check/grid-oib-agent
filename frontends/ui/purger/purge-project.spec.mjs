@@ -19,9 +19,22 @@ import { LEGAL_HOLD_CODE, purgeProject } from './purge-project.js'
  * (`tx(ids)`), which is how the parameter blow-up was expressed. A real template
  * strings array carries `.raw`; a plain array of ids does not.
  */
-function makeTx({ projectRow, conversationRows, holdRows = [], documentBucketRows = [] }) {
+function makeTx({
+  projectRow,
+  conversationRows,
+  holdRows = [],
+  documentBucketRows = [],
+  /**
+   * Hold rows to return on the Nth `legal_holds` read, so a test can place a
+   * hold PART WAY through the purge. `holdRows` still covers "held from the
+   * start"; this covers "held after we began", which is the case the per-step
+   * re-check exists for.
+   */
+  holdOnCheck = {},
+}) {
   const executed = []
   const expansions = []
+  let holdChecks = 0
   const tx = (strings, ...values) => {
     if (!Array.isArray(strings) || !('raw' in strings)) {
       expansions.push(strings)
@@ -30,7 +43,8 @@ function makeTx({ projectRow, conversationRows, holdRows = [], documentBucketRow
     const text = strings.join('$').replace(/\s+/g, ' ').trim()
     executed.push({ text, values })
     if (text.startsWith('SELECT') && text.includes('FROM legal_holds')) {
-      return Promise.resolve(holdRows)
+      holdChecks += 1
+      return Promise.resolve(holdOnCheck[holdChecks] ?? holdRows)
     }
     if (text.startsWith('SELECT') && text.includes('FROM projects')) {
       return Promise.resolve(projectRow ? [projectRow] : [])
@@ -200,6 +214,27 @@ describe('purgeProject', () => {
     await purgeProject(tx, entry, deps)
 
     expect(deps.deleteStoragePrefix.mock.calls).toHaveLength(2)
+  })
+
+  // A hold placed mid-sweep. The hold check used to run once before the loop, so
+  // once the first bucket's sweep had started the erasure continued through every
+  // remaining bucket regardless — which is exactly what a legal hold exists to
+  // stop. The loop now re-checks per bucket, so the second sweep never happens.
+  it('stops between buckets when a hold appears mid-sweep', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
+      // Checks 1 and 2 are the pre-flight and post-backend ones; 3 guards the
+      // first bucket, 4 the second. Placing the hold at 4 lets one sweep run.
+      holdOnCheck: { 4: [{ '?column?': 1 }] },
+    })
+
+    const deps = makeDeps()
+    await expect(purgeProject(tx, entry, deps)).rejects.toMatchObject({ code: 'LEGAL_HOLD_ACTIVE' })
+    expect(deps.deleteStoragePrefix.mock.calls).toHaveLength(1)
+    // And nothing downstream ran, so the pointers still name the surviving bytes.
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
   })
 
   // The prefix delete throws on a partial failure so the queue row retries. That

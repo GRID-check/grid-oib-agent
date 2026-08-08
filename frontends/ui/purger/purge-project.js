@@ -141,6 +141,13 @@ async function purgeProject(tx, entry, deps) {
   )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
+    // Re-checked per BUCKET, not once for the loop. The hold check above bounds
+    // the window to a single step, and this loop is now N destructive steps —
+    // one sweep per bucket, each of which can take a while. A hold placed after
+    // the first sweep began would otherwise be ignored for every bucket after
+    // it, which is precisely the case a legal hold exists to stop: the erasure
+    // continues past the moment someone said stop, and reports success.
+    await assertNoHold(tx, entry)
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
   }
 

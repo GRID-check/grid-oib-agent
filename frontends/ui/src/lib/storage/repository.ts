@@ -18,7 +18,7 @@ import 'server-only'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
-import { documents, type DocumentScope } from '@/lib/db/schema'
+import { documents, type DocumentScope, type NewDocument } from '@/lib/db/schema'
 
 /** Bytes and document count for one scope. */
 export interface StorageScopeUsage {
@@ -132,4 +132,85 @@ export async function aggregateStorageUsageByOrganization(): Promise<
       { bytes: Number(row.bytes) || 0, documents: Number(row.documents) || 0 },
     ]),
   )
+}
+
+/**
+ * Insert a document row only if it keeps the organization within its quota,
+ * atomically.
+ *
+ * ## What was wrong with checking first
+ *
+ * `assertWithinStorageQuota` reads the sum, compares, and returns; the bytes go
+ * to SeaweedFS afterwards and the row that carries `file_size` is inserted after
+ * that. Two uploads that start together read the same sum, both pass, and the
+ * organization ends up over its quota by up to the per-file limit times the
+ * concurrency. Nothing reserved the capacity the check had approved, so the
+ * approval was stale the moment it was given — which makes "quota" the wrong word
+ * for what was implemented.
+ *
+ * ## How this is atomic
+ *
+ * One transaction, holding a per-organization advisory lock, re-reads the sum and
+ * inserts inside it. Concurrent admissions for the same organization serialize on
+ * that lock, so after any commit `SUM(file_size) <= quota` holds — the ceiling is
+ * hard rather than statistical. `SUM` stays the only source of truth: no counter
+ * to drift, nothing to reconcile.
+ *
+ * The lock is per ORGANIZATION, keyed by `hashtextextended`, so tenants never
+ * queue behind each other. It is held for the duration of a sum and an insert —
+ * microseconds — and NOT across the upload, which is the whole reason the object
+ * write stays outside this function.
+ *
+ * ## Why the row is still written after the bytes
+ *
+ * The tempting alternative is to insert first (reserving with the row itself) and
+ * upload after. That would mean a row exists whose object does not, so every read
+ * path in the application would have to learn to exclude a new in-flight state —
+ * a wide change for a narrow problem, and a new way to show a user a document
+ * that cannot be opened.
+ *
+ * Instead the caller uploads first and calls this; if admission is refused, the
+ * caller deletes the object it just wrote. That keeps the existing invariant (a
+ * row implies its bytes) and pays for the rare refusal with a wasted transfer
+ * rather than paying for the common case with a new document state. The
+ * pre-upload check remains as a courtesy so an obviously-over-quota upload is
+ * refused before the bytes move.
+ */
+export async function insertDocumentWithinQuota(
+  values: NewDocument,
+  quotaBytes: number | null,
+): Promise<{ ok: true } | { ok: false; usedBytes: number }> {
+  const db = getDb()
+  const incoming = values.fileSize ?? 0
+
+  return db.transaction(async (tx) => {
+    // Serialize admissions for THIS organization. `pg_advisory_xact_lock`
+    // releases at commit or rollback, so there is no path that leaks it.
+    // `hashtextextended` gives the bigint the lock function wants and is stable
+    // across sessions, unlike `hashtext`'s 32-bit output which would collide
+    // often enough at fleet scale to make two tenants share a lock.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`storage_quota:${values.organizationId}`}, 0))`,
+    )
+
+    if (quotaBytes !== null) {
+      const [row] = await tx
+        .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
+        .from(documents)
+        .where(
+          and(eq(documents.organizationId, values.organizationId), isNull(documents.deletedAt)),
+        )
+
+      const usedBytes = Number(row?.bytes) || 0
+      if (usedBytes + incoming > quotaBytes) {
+        // Returned rather than thrown: the caller has an object to clean up, and
+        // a refusal is an expected outcome here, not an error condition. The
+        // transaction commits having done nothing but take and release a lock.
+        return { ok: false as const, usedBytes }
+      }
+    }
+
+    await tx.insert(documents).values(values)
+    return { ok: true as const }
+  })
 }

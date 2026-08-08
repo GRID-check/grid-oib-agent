@@ -122,10 +122,16 @@ export async function findStorageKeyByCollectionAndFilename(
   return row ?? null
 }
 
-export async function insertDocument(values: NewDocument): Promise<void> {
-  const db = getDb()
-  await withTenant({ organizationId: values.organizationId }, () => db.insert(documents).values(values))
-}
+/**
+ * Recording a document goes through `insertDocumentWithinQuota`
+ * (`@/lib/storage/repository`), not through a plain insert here.
+ *
+ * There used to be an `insertDocument` in this module. It is gone on purpose: an
+ * organization's storage quota is only a ceiling if EVERY insert of a `documents`
+ * row is gated by it, and a second, ungated way in is how a ceiling stops being
+ * one. Anything that needs to create a document row calls the admitting insert
+ * and handles its refusal.
+ */
 
 /**
  * Hard-delete a project document row (the DB record; SeaweedFS + backend

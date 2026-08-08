@@ -45,10 +45,16 @@ vi.mock('@/lib/documents/reconcile-status', () => ({
   reconcileDocumentStatuses: vi.fn(),
 }))
 
+// The admitting insert, not the repository's — see the note in
+// `documents/service.spec.ts`. The Archiv shares the tenant's bytes, so it goes
+// through the same quota admission and the same compensating delete.
+vi.mock('@/lib/storage/admission', () => ({
+  admitOrDiscard: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('./repository', () => ({
   listArchivDocuments: vi.fn(),
   findArchivDocument: vi.fn(),
-  insertArchivDocument: vi.fn().mockResolvedValue(undefined),
   deleteArchivDocument: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -57,10 +63,10 @@ import { assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToF
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { admitOrDiscard } from '@/lib/storage/admission'
 import {
   listArchivDocuments,
   findArchivDocument,
-  insertArchivDocument,
   deleteArchivDocument as deleteArchivDocumentRow,
 } from './repository'
 import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
@@ -190,7 +196,7 @@ describe('uploadArchivDocument', () => {
     vi.mocked(canManageArchiv).mockReturnValue(false)
 
     await expect(uploadArchivDocument(session, makeFile(), request)).rejects.toBeInstanceOf(ForbiddenError)
-    expect(insertArchivDocument).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(assertUploadTypeAllowed).not.toHaveBeenCalled()
   })
 
@@ -200,7 +206,9 @@ describe('uploadArchivDocument', () => {
     const result = await uploadArchivDocument(session, makeFile(), request)
 
     expect(assertUploadTypeAllowed).toHaveBeenCalledWith(session, 'plan.pdf')
-    expect(insertArchivDocument).toHaveBeenCalledWith(
+    expect(admitOrDiscard).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
       expect.objectContaining({ organizationId: 'org-1', scope: 'archiv', projectId: null, collectionName: 'archiv_org-1' }),
     )
     // The bucket travels with the key (ADR-0043): both presigned URLs the

@@ -60,16 +60,52 @@ moving target. Three findings shaped the decision:
 disk you are trying to survive losing is not a backup, and the configuration
 should not let anyone believe otherwise.
 
-**2. Enforce a per-organization storage quota in the application.**
+**2. Enforce a per-organization storage quota in the application, atomically.**
 
-Checked before any bytes reach SeaweedFS, so a refusal leaves no orphan object.
+Two checks, and the distinction between them is the decision:
+
+- **An advisory pre-check**, before any bytes reach SeaweedFS, so an upload that
+  was never going to be admitted is refused without moving the file.
+- **A hard ceiling at admission**, inside the same transaction that inserts the
+  `documents` row, under a per-organization advisory lock
+  (`insertDocumentWithinQuota`).
+
+The pre-check alone was the original design and it was not a ceiling. It reads
+`SUM(file_size)`, compares, and returns; the bytes and the row that records them
+land afterwards. Two uploads that start together read the same sum, both pass,
+and the organization ends over its limit by up to the per-file maximum times the
+concurrency. Nothing reserved the capacity the check had approved, so the
+approval was stale the moment it was given.
+
+Serializing admissions per organization makes `SUM(file_size) <= quota` hold
+after every commit, with `SUM` still the only source of truth — no counter to
+drift and nothing to reconcile. The lock is held for a sum and an insert, not
+across the upload.
+
+**The object is written before the row, and a refusal deletes it.** The
+alternative — insert first, reserving with the row itself, then upload — would
+mean a row whose object does not exist, so every read path in the application
+would have to learn a new in-flight state. That is a wide change for a narrow
+problem and a new way to show someone a document that cannot be opened. So the
+order stays, and `lib/storage/admission.ts` owns the compensating delete: a
+refused upload must not leave an object nothing references, because an orphan
+there is invisible to the UI, invisible to the quota ledger (which counts rows),
+and findable only by a bucket-wide sweep.
+
 Fail-closed, deliberately unlike the abuse limiter: a limiter that fails open
 costs some traffic, a quota that fails open costs disk shared with every other
 tenant. Unset means unlimited, so introducing quotas does not retroactively
 block tenants who were never given a limit.
 
 The quota lives in the `organizations.settings` jsonb bag, not a new table: it
-is one nullable scalar with no history requirement.
+is one nullable scalar with no history requirement. It is a **platform-owned**
+key in that bag, which the generic tenant settings route refuses to write — see
+decision 3.
+
+**There is one way to insert a `documents` row, and it is the admitting one.**
+`insertDocument` and `insertArchivDocument` were removed rather than left beside
+it: a ceiling is only a ceiling if every insert passes through it, and a second
+ungated path is how that stops being true.
 
 **3. The quota is set by the platform owner, never by the tenant.**
 
