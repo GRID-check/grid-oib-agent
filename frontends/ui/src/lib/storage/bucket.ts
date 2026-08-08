@@ -4,17 +4,20 @@ import {
   S3Client,
   S3ServiceException,
 } from '@aws-sdk/client-s3'
+import { createHash } from 'node:crypto'
 import { bucketName as sharedBucketName } from '@/lib/s3'
-import * as naming from './tenant-bucket.js'
 
 /**
  * Which bucket an organization's objects live in (ADR-0043), and how one gets
  * created.
  *
- * The naming algorithm itself is `./tenant-bucket.js` — CommonJS, because the
- * purger must derive the same name and cannot import TypeScript. This module is
- * its typed face plus the two things that need runtime state: reading the
- * deployment's configuration, and provisioning.
+ * One module: the naming rule, the resolution rule, and provisioning. It used
+ * to be two, with the algorithm in a CommonJS twin so the purger could load it
+ * — the purger is plain Node and cannot import TypeScript. That is gone, and
+ * not by finding a way to load TypeScript from CommonJS: the purger stopped
+ * needing the rule at all. It reads the buckets its documents RECORDED instead
+ * of deriving them, which is both more complete and impossible to get wrong by
+ * disagreeing with this file.
  *
  * ## The bucket is recorded, not recomputed
  *
@@ -57,8 +60,126 @@ import * as naming from './tenant-bucket.js'
  * tenant out of their own data. Authorization stays where ADR-0038 put it.
  */
 
-export const DEFAULT_TENANT_BUCKET_PREFIX: string = naming.DEFAULT_TENANT_BUCKET_PREFIX
-export const assertValidBucketName: (name: string) => string = naming.assertValidBucketName
+
+/**
+ * Default prefix. Mirrored by `seaweedfsTenantBucketPrefix` in the Pulumi
+ * config, which validates it — including that it is not itself a prefix of any
+ * platform bucket name, since the S3 grants are wildcarded on it.
+ */
+export const DEFAULT_TENANT_BUCKET_PREFIX = 'grid-org-'
+
+/**
+ * Hex characters of SHA-256 kept as the uniqueness suffix.
+ *
+ * 12 hex = 48 bits. At 100,000 organizations the birthday bound puts a
+ * collision at roughly 1 in 30,000 — and a collision here is not a cosmetic
+ * problem, it is cross-tenant data access, so the number is chosen with that in
+ * mind rather than for tidiness. 8 hex (32 bits) would be about even odds at
+ * the same scale, which is why it is not 8.
+ */
+const HASH_CHARS = 12
+
+/** S3's hard ceiling on a bucket name. */
+const MAX_BUCKET_NAME = 63
+
+/**
+ * Reduce an arbitrary identifier to the S3 bucket alphabet. Lossy by design —
+ * the hash suffix is what restores uniqueness.
+ */
+function slugify(organizationId: string): string {
+  return organizationId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Throw unless `name` is a legal S3 bucket name.
+ *
+ * Called on the way out of {@link tenantBucketName}, on a value this module
+ * just built. Not redundant: the input is an organization id from an external
+ * identity provider, so this is the only thing standing between a malformed id
+ * and a bucket name. Failing at the call site beats a CreateBucket that returns
+ * InvalidBucketName three layers down.
+ */
+export function assertValidBucketName(name: string): string {
+  if (name.length < 3 || name.length > MAX_BUCKET_NAME) {
+    throw new Error(
+      `Invalid S3 bucket name "${name}": length ${name.length} is outside 3–${MAX_BUCKET_NAME}.`,
+    )
+  }
+  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(name)) {
+    throw new Error(
+      `Invalid S3 bucket name "${name}": must be lowercase alphanumeric, hyphen or dot, ` +
+        'and start and end with a letter or digit.',
+    )
+  }
+  if (name.includes('..')) {
+    throw new Error(`Invalid S3 bucket name "${name}": consecutive dots are not allowed.`)
+  }
+  // A name that parses as an IPv4 address is rejected by S3 (and by SeaweedFS's
+  // own VerifyS3BucketName) because it is ambiguous with virtual-host
+  // addressing. Unreachable with the default prefix; checked anyway, because
+  // the prefix is configurable.
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(name)) {
+    throw new Error(`Invalid S3 bucket name "${name}": must not be formatted as an IP address.`)
+  }
+  // SeaweedFS's own `VerifyS3BucketName` rejects both of these outright, so a
+  // name we accept and it does not is an upload that fails at bucket-creation
+  // time for one specific tenant. `xn--` is reachable through a configured
+  // prefix; `-s3alias` is not, because every name ends in hex — checked anyway,
+  // since matching a validator we do not control is the cheaper half.
+  if (name.startsWith('xn--')) {
+    throw new Error(`Invalid S3 bucket name "${name}": must not start with "xn--".`)
+  }
+  if (name.endsWith('-s3alias')) {
+    throw new Error(`Invalid S3 bucket name "${name}": must not end with "-s3alias".`)
+  }
+  return name
+}
+
+/**
+ * The bucket for one organization. Pure: same inputs, same name, forever.
+ *
+ * Three properties, each load-bearing:
+ *
+ * 1. **Deterministic.** No lookup table, no state.
+ * 2. **Injective.** Two organizations must never collide, or one tenant reads
+ *    another's documents. Slugging into the S3 alphabet is lossy (`Org_1` and
+ *    `org-1` both reduce to `org-1`), so a truncated SHA-256 of the ORIGINAL id
+ *    is appended unconditionally — unconditionally rather than only when the
+ *    slug is lossy, because "is this id lossy?" is one more thing to get wrong
+ *    and 12 hex characters cost nothing.
+ * 3. **Recognisable.** An operator looking at `grid-org-org-01h8…-3f9a12c4b7e0`
+ *    can see which tenant it belongs to, which a bare hash would not give them.
+ */
+export function tenantBucketName(
+  organizationId: string,
+  prefix: string = tenantPrefix(),
+): string {
+  if (!organizationId) {
+    throw new Error('tenantBucketName requires a non-empty organization id.')
+  }
+  const hash = createHash('sha256').update(organizationId).digest('hex').slice(0, HASH_CHARS)
+
+  // Everything the prefix and the suffix do not already claim. The suffix costs
+  // HASH_CHARS plus its separating hyphen.
+  const slugBudget = MAX_BUCKET_NAME - prefix.length - 1 - HASH_CHARS
+  if (slugBudget < 1) {
+    throw new Error(
+      `Tenant bucket prefix "${prefix}" leaves no room for an organization id ` +
+        `within S3's ${MAX_BUCKET_NAME}-character limit.`,
+    )
+  }
+
+  // Trim any hyphen the truncation exposed, so the slug never ends in one and
+  // the name never contains `--` at the join.
+  const slug = slugify(organizationId).slice(0, slugBudget).replace(/-+$/, '')
+
+  // An id made entirely of characters outside the alphabet slugs to nothing.
+  // The hash alone still identifies it uniquely.
+  return assertValidBucketName(slug ? `${prefix}${slug}-${hash}` : `${prefix}${hash}`)
+}
 
 /**
  * Is this deployment writing per-organization buckets?
@@ -73,11 +194,6 @@ export function perOrgBucketsEnabled(): boolean {
 
 function tenantPrefix(): string {
   return process.env.SEAWEED_TENANT_BUCKET_PREFIX || DEFAULT_TENANT_BUCKET_PREFIX
-}
-
-/** The bucket name for an organization, whether or not the flag is on. */
-export function tenantBucketName(organizationId: string): string {
-  return naming.tenantBucketName(organizationId, tenantPrefix())
 }
 
 /**
@@ -101,19 +217,23 @@ export function resolveDocumentBucket(storageBucket: string | null | undefined):
 
 /**
  * Every bucket an organization's objects could be in, for operations that must
- * not miss any — tenant erasure, usage reconciliation.
+ * not miss any — usage reconciliation, and any future organization-level
+ * erasure.
  *
- * Both, ALWAYS, and deliberately not gated on the feature flag: see the
- * three-state argument on `bucketsForOrganization` in `./tenant-bucket.js`. The
- * dangerous state is "the flag was on and has since been turned off", where a
- * gated sweep skips the tenant bucket and reports success.
+ * Both, ALWAYS, and deliberately not gated on the feature flag. Three states
+ * have to be correct and only one of them is "the flag is on": before it the
+ * tenant bucket does not exist, and a sweep over a bucket that does not exist
+ * is a no-op because it holds no objects; during, objects are in both; after it
+ * is turned off again, objects are STILL in both — and that is the state where
+ * gating would skip the tenant bucket and report success.
  *
- * The purger — the process that actually erases a tenant — calls the CommonJS
- * function directly, because it cannot import TypeScript. This is the same
- * function, re-exported, so the two cannot disagree.
+ * Note what does NOT use this: the deletion pipeline. `purge-project.js` reads
+ * the buckets its documents actually recorded, which is both more complete
+ * (it finds buckets written under a previous prefix) and impossible to get
+ * wrong by disagreeing with this function.
  */
 export function bucketsForOrganization(organizationId: string): string[] {
-  return naming.bucketsForOrganization(organizationId, sharedBucketName, tenantPrefix())
+  return [sharedBucketName, tenantBucketName(organizationId)]
 }
 
 /**

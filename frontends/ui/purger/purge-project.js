@@ -40,24 +40,6 @@ async function assertNoHold(tx, entry) {
 
 async function purgeProject(tx, entry, deps) {
   const { backendUrl, internalToken, bucket, workos, deleteStoragePrefix } = deps
-  // Every bucket this organization's objects could be in (ADR-0043): the
-  // shared one, plus its own. Both, always — an organization that predates the
-  // flip has objects in the shared bucket AND in its own, and a sweep that
-  // visits only one leaves the other half behind. For an erasure request that
-  // IS the failure.
-  //
-  // Required, with no fallback to `[bucket]`. A default here would mean that
-  // dropping the wiring in `index.js` silently degrades erasure to
-  // shared-bucket-only — no error, no log line, and a purge that reports
-  // success. The whole reason the naming rule is a shared module is to make
-  // that class of drift impossible; a permissive default would put it back.
-  const bucketsFor = deps.bucketsForOrg
-  if (typeof bucketsFor !== 'function') {
-    throw new Error(
-      'purgeProject requires deps.bucketsForOrg — without it the object sweep would silently ' +
-        'skip per-organization buckets and report the erasure as complete.',
-    )
-  }
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -102,16 +84,31 @@ async function purgeProject(tx, entry, deps) {
   // Re-check the hold before EACH external destructive step to keep the TOCTOU
   // window to a single step (see file header). Aborts release the row.
   await assertNoHold(tx, entry)
-  // 2. SeaweedFS objects under the project prefix, in every bucket that could
-  //    hold them. `deleteStoragePrefix` throws on a partial delete, so a bucket
-  //    that has objects it cannot remove fails the whole purge and the queue
-  //    row retries — the prefix must be gone everywhere before the pointers
-  //    that name it are.
+  // 2. SeaweedFS objects under the project prefix, in every bucket that holds
+  //    them.
+  //
+  //    READ from the ledger rather than DERIVED from the organization id. Under
+  //    ADR-0043 each document records the bucket it was written to precisely so
+  //    that nothing has to recompute it — and a purge that recomputed it would
+  //    be the one place where a naming disagreement is invisible: it would
+  //    sweep a bucket that does not exist, find nothing, and report the erasure
+  //    complete. Asking the rows is also strictly more complete than deriving,
+  //    because it finds buckets written under a PREVIOUS prefix configuration,
+  //    which no current-rule derivation can.
+  //
+  //    Read here, before step 4 deletes the rows that answer it. The shared
+  //    bucket is always included: NULL means shared (migration 0033), and an
+  //    orphaned object from an upload whose row insert failed can only be
+  //    there or in a bucket a sibling document names.
   //
   //    Sequential rather than concurrent on purpose: the prefix sweep is a
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
-  for (const target of bucketsFor(orgId)) {
+  const recorded = await tx`
+    SELECT DISTINCT storage_bucket FROM documents
+     WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+  const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
+  for (const target of targets) {
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
   }
 

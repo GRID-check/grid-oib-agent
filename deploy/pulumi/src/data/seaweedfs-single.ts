@@ -34,12 +34,12 @@ export function installSingleNodeSeaweedFS(
   namespace: pulumi.Input<string>,
   s3Secret: k8s.core.v1.Secret,
   /**
-   * Digest of the rendered `s3.json`. Without it a rotated
-   * `seaweedfsSecretKey` updates the Secret, restarts nothing, and leaves every
-   * pod authenticating against the key that was just retired — a `pulumi up`
-   * that reports success and changed nothing that matters.
+   * Digest of the rendered config. Without it a rotated `seaweedfsSecretKey`
+   * updates the Secret, restarts nothing, and leaves every pod authenticating
+   * callers against the key that was just retired — a `pulumi up` that reports
+   * success and changed nothing that matters.
    */
-  s3Checksum: pulumi.Output<string>,
+  configChecksum: pulumi.Output<string>,
 ): SeaweedTopology {
   const labels = commonLabels(SEAWEED.filer);
 
@@ -81,7 +81,7 @@ export function installSingleNodeSeaweedFS(
         ...orderedRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: labels },
         template: {
-          metadata: { labels, annotations: secretChecksumAnnotations(s3Checksum) },
+          metadata: { labels, annotations: secretChecksumAnnotations(configChecksum) },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             securityContext: { fsGroup: 1000 },

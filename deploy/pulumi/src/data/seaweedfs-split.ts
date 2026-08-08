@@ -101,7 +101,7 @@ const CONFIG_DIR = "/etc/seaweedfs";
  * constraint`, so the fallback never fires and a concurrent insert surfaces as
  * a hard error instead. The statement below is the supported combination.
  */
-function filerToml(cfg: GridConfig, host: string): pulumi.Output<string> {
+export function filerToml(cfg: GridConfig, host: string): pulumi.Output<string> {
   // TOML basic strings need `"` and `\` escaped, and cannot hold a raw
   // newline. `JSON.stringify` emits exactly TOML's escape set
   // (`\" \\ \b \f \n \r \t \uXXXX`), quotes included — so it is the
@@ -158,7 +158,7 @@ function filerToml(cfg: GridConfig, host: string): pulumi.Output<string> {
 }
 
 /** `filer.toml` for the embedded store — the no-Postgres fallback. */
-function leveldbFilerToml(): string {
+export function leveldbFilerToml(): string {
   return [
     "[filer.options]",
     "recursive_delete = false",
@@ -211,8 +211,12 @@ export function installSplitSeaweedFS(
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
   s3Secret: k8s.core.v1.Secret,
-  /** Digest of the rendered `s3.json`, so a key rotation rolls the pods. */
-  s3Checksum: pulumi.Output<string>,
+  /**
+   * Digest of the rendered config files, so rotating either the S3 secret key
+   * or the filer's Postgres password rolls the pods instead of silently
+   * leaving them on the retired credential.
+   */
+  configChecksum: pulumi.Output<string>,
   /** CNPG read/write host, for the Postgres filer store. */
   postgresHost: string,
   /** Gate the filer on the filer database and role existing. */
@@ -493,7 +497,7 @@ export function installSplitSeaweedFS(
         ...orderedRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: filerLabels },
         template: {
-          metadata: { labels: filerLabels, annotations: secretChecksumAnnotations(s3Checksum) },
+          metadata: { labels: filerLabels, annotations: secretChecksumAnnotations(configChecksum) },
           spec: {
             enableServiceLinks: false,
             securityContext: { fsGroup: 1000 },

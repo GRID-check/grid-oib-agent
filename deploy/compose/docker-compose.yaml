@@ -137,6 +137,19 @@ services:
     environment:
       SEAWEED_ACCESS_KEY: seaweedadmin
       SEAWEED_SECRET_KEY: seaweedadmin
+      # A SECOND identity, and a DISTINCT credential, for bucket lifecycle.
+      # SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket
+      # together, so the only way to keep "drop a tenant's bucket" out of reach
+      # of the upload path is to keep it on a key the upload path does not hold.
+      #
+      # These must be on THIS service, not only on the frontend: the printf
+      # below runs inside this container, and an undefined variable there
+      # expands to an empty string. SeaweedFS accepts an identity with an empty
+      # access key without complaint, so the failure is a silent
+      # InvalidAccessKeyId on the first tenant upload rather than anything at
+      # boot.
+      SEAWEED_TENANT_ADMIN_ACCESS_KEY: grid-tenant-admin
+      SEAWEED_TENANT_ADMIN_SECRET_KEY: seaweedtenantadmin # pragma: allowlist secret (local dev)
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
@@ -347,12 +360,9 @@ services:
       - SEAWEED_ACCESS_KEY=seaweedadmin
       - SEAWEED_SECRET_KEY=seaweedadmin
       - SEAWEED_BUCKET=grid-documents
-      # The purger needs the bucket NAMING inputs so it can reconstruct which
-      # buckets an organization's objects can be in, but deliberately not the
-      # bucket-admin credential: it erases objects by prefix, and an unattended
-      # queue worker is the last thing that should be able to drop a bucket.
-      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
-      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      # No per-organization bucket variables here on purpose: the purge reads
+      # the buckets its documents recorded rather than deriving them, so it
+      # needs neither the naming rule nor the feature flag (ADR-0043).
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     networks:

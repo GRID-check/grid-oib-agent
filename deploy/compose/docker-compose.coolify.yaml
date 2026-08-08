@@ -301,6 +301,14 @@ services:
       - SERVICE_FQDN_SEAWEEDFS_8333
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      # Bucket lifecycle gets its own identity and its own Coolify-generated
+      # secret. These must be on THIS service, not only on the frontend: the
+      # printf below runs inside this container, and an undefined variable
+      # there expands to an empty string — which SeaweedFS accepts without
+      # complaint, so the failure would be a silent InvalidAccessKeyId on the
+      # first tenant upload rather than anything at boot.
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDTENANT}
     # The identity below is bucket-scoped, not `Admin`. SeaweedFS compares a
     # BARE action before it ever looks at the bucket, so `"Admin"` on its own
     # matched every bucket that will ever exist here — and authorised
@@ -485,11 +493,9 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
       - SEAWEED_BUCKET=grid-documents
-      # The naming inputs so the purge can reconstruct which buckets an
-      # organization's objects are in — deliberately NOT the bucket-admin
-      # credential (ADR-0043).
-      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
-      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      # No per-organization bucket variables here on purpose: the purge reads
+      # the buckets its documents recorded rather than deriving them, so it
+      # needs neither the naming rule nor the feature flag (ADR-0043).
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     depends_on:

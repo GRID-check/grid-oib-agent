@@ -391,13 +391,11 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
-    // The purger needs the NAMING inputs so it can reconstruct which buckets an
-    // organization's objects can be in, but deliberately NOT the bucket-admin
-    // credential: it erases objects by prefix, and a process that runs
-    // unattended on a queue is the last one that should be able to drop a
-    // bucket outright.
-    { name: "SEAWEED_PER_ORG_BUCKETS", value: String(cfg.seaweedfs.perOrgBuckets) },
-    { name: "SEAWEED_TENANT_BUCKET_PREFIX", value: cfg.seaweedfs.tenantBucketPrefix },
+    // Deliberately no per-organization bucket variables. The purge reads which
+    // buckets a project's documents recorded rather than deriving them from the
+    // organization id (ADR-0043), so it needs neither the naming rule, the
+    // feature flag, nor the bucket-admin credential — and an unattended queue
+    // worker is the last process that should be able to drop a bucket.
     sref("WORKOS_API_KEY"),
     { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
     // OTLP logs via the cluster collector (see frontendEnv for the gating

@@ -27,7 +27,10 @@ function makeS3(pages, { deleteResult = {} } = {}) {
       if (next instanceof Error) throw next
       return next
     }
-    if (command instanceof DeleteObjectsCommand) return deleteResult
+    if (command instanceof DeleteObjectsCommand) {
+      if (deleteResult instanceof Error) throw deleteResult
+      return deleteResult
+    }
     throw new Error(`unexpected command ${command.constructor.name}`)
   })
   return { send }
@@ -89,6 +92,26 @@ describe('deleteStoragePrefix', () => {
     )
   })
 
+  // The dangerous near-miss. `SEAWEED_ENDPOINT` pointed at the filer's HTTP
+  // port instead of the S3 port, or an ingress that lost its route, answers
+  // 404 — and a guard that keyed on the STATUS rather than the code would call
+  // that "already erased", let the purge delete the WorkOS resource and the
+  // grid_app rows, and mark the queue row purged with every object intact.
+  it('does not treat a bare 404 from a misrouted endpoint as an empty bucket', async () => {
+    const s3 = makeS3([s3Error('NotFound', 404)])
+    await expect(deleteStoragePrefix(s3, 'grid-documents', 'org/o1/')).rejects.toThrow('NotFound')
+  })
+
+  // The bucket can also vanish BETWEEN the list and the delete. "Gone" means
+  // the same thing at either point — nothing left to erase — so the guard has
+  // to cover both calls, not just the first.
+  it('treats a bucket that disappears mid-sweep as an empty sweep', async () => {
+    const s3 = makeS3([{ Contents: [{ Key: 'a' }], IsTruncated: false }], {
+      deleteResult: s3Error('NoSuchBucket', 404),
+    })
+    expect(await deleteStoragePrefix(s3, 'grid-org-o1-abcdef123456', 'org/o1/')).toBe(0)
+  })
+
   it('does not mistake a plain transport error for a missing bucket', async () => {
     const s3 = makeS3([new Error('ECONNREFUSED')])
     await expect(deleteStoragePrefix(s3, 'grid-documents', 'org/o1/')).rejects.toThrow(
@@ -98,13 +121,19 @@ describe('deleteStoragePrefix', () => {
 })
 
 describe('isMissingBucket', () => {
+  // Deliberately narrow. This function's answer is "there is nothing here to
+  // erase", and the purge acts on it by deleting the rows that name the
+  // objects — so a false positive is an erasure that reported success and
+  // removed only the pointers. Every row below that maps to `false` is a
+  // 404 that means something OTHER than a missing bucket.
   it.each([
-    [s3Error('NoSuchBucket', 404), true],
-    [s3Error('NotFound', 404), true],
-    [s3Error('AccessDenied', 403), false],
-    [new Error('ECONNREFUSED'), false],
-    [undefined, false],
-  ])('classifies %o', (error, expected) => {
+    ['a missing bucket', s3Error('NoSuchBucket', 404), true],
+    ['a missing KEY, which is a 404 too', s3Error('NoSuchKey', 404), false],
+    ['an endpoint pointed at the wrong port (bare 404)', s3Error('NotFound', 404), false],
+    ['a wrong credential', s3Error('AccessDenied', 403), false],
+    ['a transport failure', new Error('ECONNREFUSED'), false],
+    ['nothing at all', undefined, false],
+  ])('%s -> %s', (_label, error, expected) => {
     expect(isMissingBucket(error)).toBe(expected)
   })
 })

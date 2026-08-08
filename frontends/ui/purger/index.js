@@ -26,7 +26,6 @@ const {
   releaseHeld,
 } = require('./db')
 const { createS3Client, deleteStoragePrefix } = require('./storage')
-const { bucketsForOrganization } = require('../src/lib/storage/tenant-bucket.js')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 const { initOtelLogs } = require('../observability/otel-logs')
 // The deletion queue spans every organization, so the purger's transactions
@@ -43,26 +42,15 @@ const s3 = createS3Client()
 const workos = new WorkOS(process.env.WORKOS_API_KEY)
 
 const sharedBucket = process.env.SEAWEED_BUCKET || 'grid-documents'
-const tenantPrefix = process.env.SEAWEED_TENANT_BUCKET_PREFIX || undefined
 
 const deps = {
   backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
   internalToken: process.env.GRID_INTERNAL_API_TOKEN || '',
+  // The deployment's shared bucket. Every OTHER bucket a purge has to sweep is
+  // read from the document rows themselves (ADR-0043) rather than derived from
+  // the organization id — see the note in `purge-project.js` step 2. That is
+  // why this process needs no bucket-naming rule and no feature flag.
   bucket: sharedBucket,
-  // Which buckets an organization's objects can be in (ADR-0043). The naming
-  // rule lives in `src/lib/storage/tenant-bucket.js` — shared with the BFF
-  // rather than reimplemented here, because this is the process that ERASES a
-  // tenant and a naming disagreement would sweep a bucket that does not exist
-  // and report success.
-  //
-  // Deliberately NOT gated on SEAWEED_PER_ORG_BUCKETS. Erasure has to be
-  // correct in all three states, and the dangerous one is "the flag was on and
-  // has since been turned off": objects are still in the tenant bucket, and a
-  // sweep that consulted the flag would skip it and report success while
-  // deleting the rows that named them. A bucket that does not exist is a
-  // successful no-op (`isMissingBucket` in ./storage.js), so visiting it
-  // unconditionally costs one list call and closes that hole.
-  bucketsForOrg: (orgId) => bucketsForOrganization(orgId, sharedBucket, tenantPrefix),
   workos,
   deleteStoragePrefix: (bucket, prefix) => deleteStoragePrefix(s3, bucket, prefix),
 }

@@ -27,12 +27,39 @@ import * as pulumi from "@pulumi/pulumi";
 
 // Mocks must be installed before any Pulumi resource is constructed, so the
 // modules under test are imported lazily inside `beforeAll`.
+/** Every Secret the program creates, and the file names inside it. */
+const SECRET_KEYS: Array<{ name: string; keys: string[] }> = [];
+
+/**
+ * Pulumi lifts secretness to the ENCLOSING object when it serializes, so a
+ * `stringData` map holding one secret value arrives at the mock wrapped in
+ * `{ <sentinel>: sig, value: {...} }` rather than as the map itself. Unwrap it,
+ * or `Object.keys` returns Pulumi's internals instead of the file names.
+ */
+// Pulumi's own well-known special-value marker, not a credential.
+const SECRET_SENTINEL = "4dabf18193072939515e22adb298388d"; // pragma: allowlist secret
+function unwrapSecret(input: unknown): Record<string, unknown> | undefined {
+  if (input === null || typeof input !== "object") return undefined;
+  const record = input as Record<string, unknown>;
+  return SECRET_SENTINEL in record
+    ? (record.value as Record<string, unknown>)
+    : record;
+}
+
 pulumi.runtime.setMocks(
   {
-    newResource: (args: pulumi.runtime.MockResourceArgs) => ({
-      id: `${args.name}-id`,
-      state: { ...args.inputs, metadata: args.inputs.metadata ?? { name: args.name } },
-    }),
+    newResource: (args: pulumi.runtime.MockResourceArgs) => {
+      if (args.type === "kubernetes:core/v1:Secret") {
+        SECRET_KEYS.push({
+          name: (args.inputs.metadata as { name?: string } | undefined)?.name ?? args.name,
+          keys: Object.keys(unwrapSecret(args.inputs.stringData) ?? {}),
+        });
+      }
+      return {
+        id: `${args.name}-id`,
+        state: { ...args.inputs, metadata: args.inputs.metadata ?? { name: args.name } },
+      };
+    },
     call: () => ({}),
   },
   "grid-oib",
@@ -396,11 +423,31 @@ describe("split topology", () => {
     expect(mounts.find((m) => m.name === "config")?.mountPath).toBe("/etc/seaweedfs");
   });
 
-  // `s3.json` is read once, at process start. Without a checksum on the pod
-  // template, rotating `seaweedfsSecretKey` updates the Secret, restarts
-  // nothing, and reports success while every pod keeps authenticating callers
-  // against the key that was just retired.
-  it("rolls the pods when the identity file changes", async () => {
+  // A projected volume without `items` surfaces every key of each source, so
+  // two sources sharing a key name is a conflict the API server cannot catch at
+  // admission — it lands as a pod stuck mounting. The two Secrets are disjoint
+  // today; this is what keeps them so.
+  it("projects two Secrets whose keys cannot collide", async () => {
+    await install();
+    // Earlier cases in this file build the topology too, so dedupe by name —
+    // what is under test is the KEY SETS, not how many times they were created.
+    const byName = new Map(
+      SECRET_KEYS.filter(
+        (s) => s.name === "seaweedfs-filer-config" || s.name === "seaweedfs-s3-config",
+      ).map((s) => [s.name, s]),
+    );
+    const projected = [...byName.values()];
+    expect(projected).toHaveLength(2);
+    const all = projected.flatMap((s) => s.keys);
+    expect(all.sort()).toEqual(["filer.toml", "s3.json"]);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  // Both config files are read once, at process start. Without a checksum on
+  // the pod template, rotating either credential updates the Secret, restarts
+  // nothing, and reports success while every pod keeps using the value that was
+  // just retired.
+  it("rolls the pods when either config file changes", async () => {
     const t = await install();
     const spec = await statefulSetSpec(t.workloads[2]);
     const annotations = (spec.template as unknown as {
@@ -546,5 +593,52 @@ describe("s3 identities", () => {
     // only THIS identity is gated.
     const cfg = await render({});
     expect(cfg.identities.map((i) => i.name)).toEqual(["grid", "grid-backend-read"]);
+  });
+});
+
+describe("config checksum", () => {
+  /**
+   * Both credentials, through the REAL `installSeaweedFS` path.
+   *
+   * The topology specs above pass a stubbed checksum, so nothing exercised the
+   * computation itself. That matters because the failure it prevents is silent
+   * in exactly the way a test is meant to catch: the Secret changes, no pod
+   * field changes, `pulumi up` reports success, and every pod keeps using the
+   * credential that was just retired.
+   */
+  async function checksumFor(overrides: Record<string, unknown>): Promise<string> {
+    const k8s = await import("@pulumi/kubernetes");
+    const { installSeaweedFS } = await import("./seaweedfs");
+    const provider = new k8s.Provider(`ck-${JSON.stringify(overrides).length}-${Math.abs(
+      JSON.stringify(overrides).split("").reduce((a, c) => a + c.charCodeAt(0), 0),
+    )}`, {});
+    const t = installSeaweedFS(makeConfig(overrides), provider, "grid", [], "grid-pg-rw", []);
+    const spec = await statefulSetSpec(t.workloads[t.workloads.length - 1]);
+    const annotations = (spec.template as unknown as {
+      metadata: { annotations?: Record<string, string> };
+    }).metadata.annotations;
+    return annotations!["grid.bigls.net/secret-checksum"];
+  }
+
+  it("changes when the S3 secret key is rotated", async () => {
+    const before = await checksumFor({});
+    const after = await checksumFor({
+      seaweedfs: { secretKey: pulumi.secret("rotated-s3") }, // pragma: allowlist secret
+    });
+    expect(after).not.toBe(before);
+  });
+
+  it("changes when the filer's Postgres password is rotated", async () => {
+    // The quieter of the two: the filer keeps its existing connection pool, so
+    // the auth failures start a `connection_max_lifetime` after the deploy.
+    const before = await checksumFor({});
+    const after = await checksumFor({
+      seaweedfs: { filerDatabasePassword: pulumi.secret("rotated-pg") }, // pragma: allowlist secret
+    });
+    expect(after).not.toBe(before);
+  });
+
+  it("is stable when nothing changed", async () => {
+    expect(await checksumFor({})).toBe(await checksumFor({}));
   });
 });

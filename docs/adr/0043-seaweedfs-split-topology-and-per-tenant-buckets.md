@@ -325,6 +325,15 @@ operation would have restarted the only storage server in the deployment.
   Not verified, and not verifiable here: that the cluster comes up. No
   `pulumi up` has applied this. The runbook is written to be rehearsed on dev
   first for exactly that reason.
+- **The next `pulumi up` restarts the object store once, on every existing
+  stack.** Two pod-template changes land together: the liveness probe moves off
+  `/cluster/healthz` (which answers 423 during an ordinary admin operation, and
+  would restart the only storage server in a single-node deployment), and the
+  config checksum annotation appears so that a future credential rotation
+  actually rolls the pods. Neither is a REPLACE — every resource name, label,
+  Service and volume claim is byte-identical to the parent commit — but on
+  `seaweedfsTopology: single` there is one replica, so it is a brief object-store
+  outage rather than a rolling one. Deploy it in a window.
 - **Per-organization buckets are off by default**, and turning them on does not
   move anything that already exists. An organization keeps objects in both
   buckets indefinitely. That is the design (see decision 4), but it means "how

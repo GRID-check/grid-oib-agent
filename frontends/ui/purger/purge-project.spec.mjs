@@ -19,7 +19,7 @@ import { LEGAL_HOLD_CODE, purgeProject } from './purge-project.js'
  * (`tx(ids)`), which is how the parameter blow-up was expressed. A real template
  * strings array carries `.raw`; a plain array of ids does not.
  */
-function makeTx({ projectRow, conversationRows, holdRows = [] }) {
+function makeTx({ projectRow, conversationRows, holdRows = [], documentBucketRows = [] }) {
   const executed = []
   const expansions = []
   const tx = (strings, ...values) => {
@@ -38,6 +38,9 @@ function makeTx({ projectRow, conversationRows, holdRows = [] }) {
     if (text.startsWith('SELECT') && text.includes('FROM conversations')) {
       return Promise.resolve(conversationRows)
     }
+    if (text.startsWith('SELECT DISTINCT storage_bucket')) {
+      return Promise.resolve(documentBucketRows)
+    }
     return Promise.resolve([])
   }
   return { tx, executed, expansions }
@@ -48,9 +51,6 @@ function makeDeps(overrides = {}) {
     backendUrl: 'http://backend:8000',
     internalToken: 'tok',
     bucket: 'grid-documents',
-    // Required in production, so required here: a default would let a test
-    // pass against a wiring that erases half of what it claims to.
-    bucketsForOrg: (orgId) => ['grid-documents', `grid-org-${orgId}-abcdef123456`],
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     deleteStoragePrefix: vi.fn().mockResolvedValue(3),
     workos: {
@@ -146,19 +146,60 @@ describe('purgeProject', () => {
   // has objects in the shared bucket AND in its own, so a purge that visits only
   // one of them leaves half the tenant's files behind while deleting the rows
   // that named them — an erasure that reports success and did not happen.
-  it('sweeps every bucket the organization could have objects in', async () => {
+  //
+  // The list comes from the DOCUMENT ROWS, not from re-deriving the bucket name.
+  // That is the same principle the column exists for: the bucket is recorded so
+  // nothing has to recompute it, and the purge is the one place where a naming
+  // disagreement would be invisible.
+  it('sweeps every bucket the project documents actually recorded', async () => {
     const { tx } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
       conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
     })
-    const deps = makeDeps()
 
+    const deps = makeDeps()
     await purgeProject(tx, entry, deps)
 
     expect(deps.deleteStoragePrefix.mock.calls).toEqual([
       ['grid-documents', 'org/org1/project/p1/'],
       ['grid-org-org1-abcdef123456', 'org/org1/project/p1/'],
     ])
+  })
+
+  // The shared bucket is unconditional: NULL means shared (migration 0033), so
+  // a project whose documents all predate the column records nothing, and the
+  // sweep must still reach them.
+  it('always sweeps the shared bucket, even when no row records one', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [],
+    })
+
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([
+      ['grid-documents', 'org/org1/project/p1/'],
+    ])
+  })
+
+  // Two documents in the same bucket must not produce two sweeps of it.
+  it('visits each bucket once', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [
+        { storage_bucket: 'grid-documents' },
+        { storage_bucket: 'grid-org-org1-abcdef123456' },
+      ],
+    })
+
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toHaveLength(2)
   })
 
   // The prefix delete throws on a partial failure so the queue row retries. That
@@ -169,6 +210,7 @@ describe('purgeProject', () => {
     const { tx, executed } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
       conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
     })
     const deleteStoragePrefix = vi
       .fn()
@@ -178,23 +220,6 @@ describe('purgeProject', () => {
 
     await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/SeaweedFS delete reported/)
     expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
-    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
-  })
-
-  // A default here would mean that dropping the wiring in `index.js` silently
-  // degrades erasure to shared-bucket-only: no error, no log line, and a purge
-  // that deletes the rows naming a tenant's objects while the objects remain.
-  // The whole reason the naming rule is a shared module is to make that class
-  // of drift impossible; a permissive default would put it straight back.
-  it('refuses to run without an explicit bucket list rather than guessing one', async () => {
-    const { tx, executed } = makeTx({
-      projectRow: { id: 'p1', collection_name: 'proj_abc' },
-      conversationRows: [],
-    })
-    const deps = makeDeps({ bucketsForOrg: undefined })
-
-    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/bucketsForOrg/)
-    expect(deps.fetchImpl).not.toHaveBeenCalled()
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })
 

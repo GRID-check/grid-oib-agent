@@ -24,24 +24,6 @@ export default [
     rules: { 'grid/require-tenant-scope': 'error' },
   },
   {
-    // The CommonJS bridge modules under `src/lib/**`.
-    //
-    // A handful of files are CommonJS on purpose, not by accident: `server.js`
-    // (the WebSocket proxy) and `purger/` are plain Node and cannot import
-    // TypeScript, yet they must share EXACTLY the data and algorithms the typed
-    // side uses — the rate-limit catalog, and the tenant bucket naming rule that
-    // decides which bucket a tenant's objects are erased from. Reimplementing
-    // either on the other side of the language boundary is how the two drift,
-    // and both drift silently.
-    //
-    // `no-require-imports` exists to stop TypeScript reaching for `require`.
-    // These files have no other option. Listed one by one rather than by glob,
-    // so the exemption cannot quietly grow to cover a file that does have a
-    // choice.
-    files: ['src/lib/storage/tenant-bucket.js'],
-    rules: { '@typescript-eslint/no-require-imports': 'off' },
-  },
-  {
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': [

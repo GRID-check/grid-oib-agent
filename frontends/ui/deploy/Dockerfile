@@ -172,11 +172,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/rules.js ./src/lib/limits/rules.js
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/factory.js ./src/lib/limits/factory.js
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src/lib/limits/ws-frames.js
-# Same deal for the purger (ADR-0043): it derives an organization's bucket name
-# with the SAME algorithm the BFF used to write there. Reimplementing it in the
-# purger would make a disagreement invisible — the erase sweeps a bucket that
-# does not exist, finds nothing, and reports success.
-COPY --from=builder --chown=nextjs:nodejs /app/src/lib/storage/tenant-bucket.js ./src/lib/storage/tenant-bucket.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
