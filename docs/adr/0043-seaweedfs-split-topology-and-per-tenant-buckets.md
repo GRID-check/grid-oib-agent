@@ -288,6 +288,12 @@ operation would have restarted the only storage server in the deployment.
   Postgres retries `archive_command` indefinitely and recovers on its own, but
   it is visible in `kubectl cnpg status` and should not be mistaken for a broken
   backup.
+
+  The one-shot BASE backup does not self-heal the same way — CNPG does not retry
+  a failed `Backup`, so the next attempt would be the cron the following night,
+  and archived WAL with no base backup is not a recoverable PITR. That is why
+  the `ScheduledBackup` is created from `index.ts` after bucket-init rather than
+  inside `installPostgres`.
 - **The BFF still holds one credential across every tenant bucket**, scoped
   `Read:<prefix>*` / `Write:<prefix>*`. Per-ORGANIZATION credentials are the
   next step and SeaweedFS can express them, but they would have to live in the
@@ -304,11 +310,20 @@ operation would have restarted the only storage server in the deployment.
   `seaweedfsMasterReplicas` validates that the count is odd and builds the peer
   list, but no live 3-master failover has been exercised. Treat 3 as untested
   until it is.
-- **The split topology itself has not run on a live cluster.** Everything below
-  the manifests is verified — the flags, the ports, the health-endpoint
-  semantics and the filer-store behaviour were all read out of the 3.80 source,
-  and the program type-checks and passes the CrossGuard policy pack — but no
-  `pulumi up` has applied it. The runbook is written to be rehearsed on dev
+- **The split topology itself has not run on a live cluster.** Be precise about
+  what that leaves. Verified: every flag name and value against the SeaweedFS
+  3.80 source; the health-endpoint semantics, read out of the handlers rather
+  than the wiki; the generated `filer.toml`, parsed with a TOML parser including
+  the awkward password cases; the CNPG `Database` CR, run through the repo's own
+  `validate-crs.mjs` against the pinned v1.28.0 CRD; and the manifests
+  themselves, asserted under `pulumi.runtime.setMocks` — including a
+  whole-program construction in BOTH topologies, which is what would catch a
+  dependency cycle. The policy-pack invariants are asserted the same way,
+  rule by rule; **CrossGuard itself has not been run**, because
+  `pulumi preview --policy-pack` needs stack credentials.
+
+  Not verified, and not verifiable here: that the cluster comes up. No
+  `pulumi up` has applied this. The runbook is written to be rehearsed on dev
   first for exactly that reason.
 - **Per-organization buckets are off by default**, and turning them on does not
   move anything that already exists. An organization keeps objects in both
