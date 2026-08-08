@@ -410,6 +410,55 @@ metadata dump and the object copy lands in neither.
    does not have, which means the change log was incomplete when the mirror
    started — see ADR-0042's risk note.
 
+   **If no offsite mirror is configured yet.** This is the ordinary situation for
+   a first migration: `filer.backup` has no initial full-copy phase, so a mirror
+   turned on today does not contain yesterday's objects and cannot be verified
+   against them however long you wait. Enabling it first does not solve step 1;
+   it only moves the unverified window. So the migration can proceed without it,
+   with the safety net named explicitly rather than assumed:
+
+   - **The old PVC is the backup.** The `single` topology's claim is not deleted
+     by the switch — it is left unmounted. Confirm that before starting, and
+     confirm nothing will reclaim it:
+
+     ```shell
+     kubectl -n grid get pvc -o custom-columns=\
+     'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,SC:.spec.storageClassName'
+     kubectl -n grid get pv -o custom-columns=\
+     'NAME:.metadata.name,CLAIM:.spec.claimRef.name,POLICY:.spec.persistentVolumeReclaimPolicy'
+     ```
+
+     Any volume backing the SeaweedFS claim must read `Retain`, not `Delete`. If
+     it reads `Delete`, patch it before touching the topology — a `Delete` policy
+     turns the rollback path into permanent loss the moment the claim is
+     released:
+
+     ```shell
+     kubectl patch pv <name> -p \
+       '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+     ```
+
+     Keep `grid-oib:protectDataResources: true` set for the same reason.
+
+   - **Rollback is the flip back.** Because the claim survives, returning
+     `seaweedfsTopology` to `single` and re-applying restores the previous object
+     store. That is the whole recovery plan, and it is only true while the claim
+     exists — which is why the check above is not optional.
+
+   - **Copy the metadata dump off-cluster anyway.** Step 2's `fs.meta.save`
+     output is small and is the only thing that makes the namespace
+     reconstructible if both claims are lost. `kubectl cp` it somewhere that is
+     not this cluster before step 3, even without a mirror to put it in.
+
+   - **Take the local inventory regardless.** Run the source half of the
+     comparison above and keep `/tmp/source.inventory`. Without an offsite side
+     to compare against it is not a pass condition, but after step 5 it is the
+     only way to answer "did everything arrive?" with something other than a
+     count.
+
+   Enable the mirror after the migration, once there is a stable topology for it
+   to run against, and treat its first verification as a separate exercise.
+
 2. **Take a metadata snapshot and keep it off-cluster.**
    ```
    kubectl -n grid exec deploy/seaweedfs-backup -- \
