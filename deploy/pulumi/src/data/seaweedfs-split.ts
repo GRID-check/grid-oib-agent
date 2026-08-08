@@ -97,6 +97,19 @@ const CONFIG_DIR = "/etc/seaweedfs";
  * a hard error instead. The statement below is the supported combination.
  */
 function filerToml(cfg: GridConfig, host: string): pulumi.Output<string> {
+  // TOML basic strings need `"` and `\` escaped, and cannot hold a raw
+  // newline. `JSON.stringify` emits exactly TOML's escape set
+  // (`\" \\ \b \f \n \r \t \uXXXX`), quotes included — so it is the
+  // correct encoder here, not merely a convenient one.
+  //
+  // This is not hypothetical. The documented way to generate the password is
+  // `openssl rand -base64 24`, whose alphabet is safe, but an operator who
+  // pastes their own with a `"` in it would produce a filer.toml that fails to
+  // parse. viper's failure mode for that is `glog.Fatalf`, so the filer would
+  // crash-loop at startup with a message about the CONFIG FILE rather than
+  // about the password — and object storage would be down.
+  const q = (value: string): string => JSON.stringify(value);
+
   return cfg.seaweedfs.filerDatabasePassword.apply((password) =>
     [
       "[filer.options]",
@@ -116,11 +129,11 @@ function filerToml(cfg: GridConfig, host: string): pulumi.Output<string> {
       "    PRIMARY KEY (dirhash, name)",
       "  );",
       '"""',
-      `hostname = "${host}"`,
+      `hostname = ${q(host)}`,
       `port = ${PORT.postgres}`,
-      `username = "${cfg.seaweedfs.filerDatabaseUser}"`,
-      `password = "${password}"`,
-      `database = "${cfg.seaweedfs.filerDatabase}"`,
+      `username = ${q(cfg.seaweedfs.filerDatabaseUser)}`,
+      `password = ${q(password)}`,
+      `database = ${q(cfg.seaweedfs.filerDatabase)}`,
       'schema = ""',
       // Same posture as every other DSN in the program: encrypt, do not verify
       // the CA. CNPG serves TLS with its own internal CA; `require` closes the

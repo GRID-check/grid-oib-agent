@@ -62,6 +62,7 @@ tasks:
       - task: fe:verify
       - task: web:verify
       - task: infra:types
+      - task: infra:test
 
   verify:fast:
     desc: Everything CI runs except the production builds (the slow step)
@@ -76,6 +77,7 @@ tasks:
       - task: web:install
       - task: web:check
       - task: infra:types
+      - task: infra:test
 
   setup:
     desc: Install every toolchain this repo needs (backend venv + UI + web + infra)
@@ -271,6 +273,17 @@ tasks:
     cmds:
       - npm --prefix deploy/pulumi run typecheck
       - npm --prefix deploy/pulumi/policy run typecheck
+
+  infra:test:
+    desc: Manifest tests for the Pulumi program (no cluster, no stack credentials)
+    # `typecheck` proves the program is well-typed; it proves nothing about the
+    # manifests, which is where every SeaweedFS bug in this repo's history has
+    # lived — a renamed flag, a Service missing the gRPC port `weed shell`
+    # needs, a liveness probe pointed at an endpoint that answers 423. All
+    # string-valued, all invisible to tsc. These run the program under
+    # `pulumi.runtime.setMocks` and assert the resource inputs directly.
+    cmds:
+      - npm --prefix deploy/pulumi test
 
   infra:preview:
     desc: 'Pulumi preview (needs stack credentials)'
