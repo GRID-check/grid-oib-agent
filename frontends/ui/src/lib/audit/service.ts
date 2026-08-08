@@ -8,44 +8,22 @@
  * (`adminPortal.generateLink({ intent: 'audit_logs' })`), and the existing
  * `widgets:audit-log-streaming:manage` widget configures streams.
  *
- * Event ACTIONS must exist as Audit Log schemas in the WorkOS environment —
- * `npm run provision:audit-schemas` creates them idempotently
- * (docs/deployment/workos-provisioning.md). Until then WorkOS may reject the
- * events; the emitter is deliberately non-throwing either way, because an
- * audit hiccup must never take the privileged mutation down with it — the
- * domain tables (budget_policies supersede chain, org_model_config_versions)
- * remain the system of record for WHAT changed.
+ * Event ACTIONS must exist as Audit Log schemas in the WorkOS environment, or
+ * WorkOS rejects the event. Action AND schema live together in `./schemas.mjs`
+ * (one list, so they cannot drift), and the deploy reconciles them into the
+ * environment — `npm run provision:audit-schemas` does it by hand
+ * (docs/deployment/workos-provisioning.md). The emitter is deliberately
+ * non-throwing regardless, because an audit hiccup must never take the
+ * privileged mutation down with it — the domain tables (budget_policies
+ * supersede chain, org_model_config_versions) remain the system of record for
+ * WHAT changed.
  */
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
+import { AUDIT_ACTIONS } from './schemas.mjs'
 
-export const AUDIT_ACTIONS = [
-  'org.created',
-  'org.settings.updated',
-  'budget.policy.set',
-  'budget.policy.cleared',
-  'model_config.version.activated',
-  'model_config.zdr.updated',
-  'llm_credential.created',
-  'llm_credential.rotated',
-  'llm_credential.revoked',
-  'llm_credential.verified',
-  'llm_credential.mode_changed',
-  'compliance.hold.created',
-  'compliance.hold.released',
-  'platform.access.break_glass',
-  'platform.norm_registry.updated',
-  'project.created',
-  'project.deleted',
-  'project.restored',
-  'project.role.assigned',
-  'project.role.removed',
-  'document.uploaded',
-  'document.deleted',
-  'archiv.document.uploaded',
-  'archiv.document.deleted',
-] as const
+export { AUDIT_ACTIONS }
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
 /** Flat primitives only — the WorkOS metadata contract. */
@@ -70,14 +48,23 @@ function requestContext(request?: Request): { location: string; userAgent?: stri
   return { location: forwarded || 'unknown', userAgent }
 }
 
-function compactMetadata(
-  metadata: AuditEventInput['metadata'],
-): AuditMetadata | undefined {
-  if (!metadata) return undefined
-  const entries = Object.entries(metadata).filter(
+/**
+ * Nulls out, and ALWAYS an object — never `undefined`.
+ *
+ * WorkOS generates the validator from what `createSchema` registers, and
+ * registering a `metadata` property map makes metadata REQUIRED in the
+ * generated schema (`required: [action, actor, context, occurred_at, targets,
+ * metadata]`) — an event that omits it is rejected outright. The map itself
+ * stays permissive (no `required` inside it, no `additionalProperties: false`),
+ * so `{}` validates for every action, including the ones that register no
+ * metadata at all. Sending the empty object costs nothing and removes a whole
+ * rejection class; see the actor note in `recordAuditEvent`.
+ */
+function compactMetadata(metadata: AuditEventInput['metadata']): AuditMetadata {
+  const entries = Object.entries(metadata ?? {}).filter(
     (entry): entry is [string, string | number | boolean] => entry[1] != null,
   )
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+  return Object.fromEntries(entries)
 }
 
 /** Emit one WorkOS Audit Log event. Never throws. */
@@ -91,6 +78,19 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
         type: 'user',
         id: input.actor.userId,
         name: input.actor.email ?? undefined,
+        // Required, and empty on purpose. The validator WorkOS generates for an
+        // action that registers a metadata map also marks `actor.metadata`
+        // required — `actor: {required: [id, type, metadata]}` with an EMPTY
+        // property map — even though the app never registers an actor schema
+        // and `createSchema` is never passed one. Omitting it is what issues
+        // #274/#277 were: every emit rejected with "Invalid Audit Log event:
+        // incorrect or missing metadata keys", pointing at `/actor`, on the one
+        // path that deliberately swallows its errors — so the trail lost
+        // `resource.shared` and `platform.model_defaults.updated` events while
+        // the mutations themselves succeeded. The property map is empty and
+        // unconstrained, so `{}` satisfies it; the actor's identity is already
+        // carried by `id` and `name`.
+        metadata: {},
       },
       targets: [
         {

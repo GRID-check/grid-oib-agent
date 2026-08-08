@@ -19,12 +19,21 @@ export const shortcuts = {
     description: 'Navigate Piloti without leaving the keyboard.',
     thenSeparator: 'then',
     orSeparator: 'or',
+    groups: {
+      general: 'General',
+      navigation: 'Jump to',
+      chat: 'Chat',
+    },
+    /** Shown under the navigation group, which mixes scoped and global jumps. */
+    projectScopeNote: 'Section jumps open that section of the project you are in.',
     items: {
       palette: 'Open the command palette',
       cheatsheet: 'Show this overview',
-      projects: 'Go to your projects',
+      dismiss: 'Close a dialog or menu',
       sendMessage: 'Send message',
       newLine: 'New line',
+      mention: 'Mention a colleague',
+      chooseOption: 'Pick a numbered option',
     },
     disableHint: 'You can turn shortcuts off in your profile settings.',
   },

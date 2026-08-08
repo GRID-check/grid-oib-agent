@@ -31,6 +31,8 @@ from .factory import get_active_ingestor
 from .factory import get_active_retriever
 from .factory import get_available_documents
 from .factory import get_available_documents_async
+from .factory import get_document_display_title
+from .factory import get_document_display_titles
 from .factory import get_document_doc_class
 from .factory import get_ingestor
 from .factory import get_retriever
@@ -40,6 +42,7 @@ from .factory import register_retriever
 from .factory import register_summary
 from .factory import set_active_ingestor
 from .factory import set_active_retriever
+from .factory import set_document_display_title
 from .factory import set_document_doc_class
 from .factory import unregister_summary
 from .factory import update_document_tags
@@ -83,6 +86,9 @@ __all__ = [
     "update_document_tags",
     "set_document_doc_class",
     "get_document_doc_class",
+    "set_document_display_title",
+    "get_document_display_title",
+    "get_document_display_titles",
     "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",

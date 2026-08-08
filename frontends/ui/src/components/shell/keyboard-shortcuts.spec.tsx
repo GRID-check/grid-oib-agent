@@ -95,17 +95,140 @@ describe('KeyboardShortcuts', () => {
     fireEvent.keyDown(window, { key: '?', shiftKey: true })
 
     expect(await screen.findByText('Keyboard shortcuts')).toBeInTheDocument()
+    // Grouped: what the shell binds, where you can jump, what the chat does.
+    for (const group of ['General', 'Jump to', 'Chat']) {
+      expect(screen.getByText(group)).toBeInTheDocument()
+    }
     expect(screen.getByText('Open the command palette')).toBeInTheDocument()
-    expect(screen.getByText('Go to your projects')).toBeInTheDocument()
+    expect(screen.getByText('Close a dialog or menu')).toBeInTheDocument()
     // Composer rows document the send / newline bindings.
     expect(screen.getByText('Send message')).toBeInTheDocument()
     expect(screen.getByText('New line')).toBeInTheDocument()
+    expect(screen.getByText('Pick a numbered option')).toBeInTheDocument()
+  })
+
+  test('the cheatsheet documents every jump the handler actually binds', async () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization canAccessArchiv />)
+
+    fireEvent.keyDown(window, { key: '?', shiftKey: true })
+
+    await screen.findByText('Keyboard shortcuts')
+    // Rows are derived from the shared IA, so they carry the rail's own labels.
+    for (const label of ['All projects', 'Organization', 'Ask Piloti', 'Files', 'History', 'Archiv', 'Settings']) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+    // Flag-gated sections stay out until their flag is on.
+    expect(screen.queryByText('Workflows')).toBeNull()
+    expect(screen.queryByText('Knowledge')).toBeNull()
+    // The keycaps show the leader sequence, not a bare letter. Asserted
+    // against the <kbd> elements rather than the row text — the label "Files"
+    // contains an F, so a text assertion would pass without a keycap.
+    const filesRow = document.querySelector('[data-shortcut="jump-f"]')
+    const caps = Array.from(filesRow?.querySelectorAll('kbd') ?? []).map((cap) => cap.textContent)
+    expect(caps).toEqual(['G', 'F'])
+    expect(filesRow?.textContent).toContain('then')
+  })
+
+  test('a gated-off shortcut group row disappears with its feature', async () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: '?', shiftKey: true })
+
+    await screen.findByText('Keyboard shortcuts')
+    // Mentions only exist where collaboration is on.
+    expect(screen.queryByText('Mention a colleague')).toBeNull()
   })
 
   test('g then p navigates to the projects list', async () => {
     render(<KeyboardShortcuts authRequired canViewOrganization />)
 
     fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'p' })
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/app/projects'))
+  })
+
+  test('g then a section key jumps within the project the user is in', async () => {
+    pathname = '/app/projects/p1/chat'
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'f' })
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/app/projects/p1/files'))
+  })
+
+  test('a project-scoped jump outside a project does nothing', () => {
+    pathname = '/app/profile'
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'f' })
+
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  test('cross-project doorways jump from anywhere, and stay gated', async () => {
+    pathname = '/app/profile'
+    const { unmount } = render(<KeyboardShortcuts authRequired canViewOrganization canAccessArchiv />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'a' })
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/app/archiv'))
+
+    unmount()
+    push.mockClear()
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'a' })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  test('a lone modifier keypress does not spend the armed leader', async () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    // Reaching for a capital letter fires a Shift keydown of its own. It
+    // cannot complete a sequence, so it must not cost the user their `g`.
+    fireEvent.keyDown(window, { key: 'Shift', shiftKey: true })
+    fireEvent.keyDown(window, { key: 'CapsLock' })
+    fireEvent.keyDown(window, { key: 'p' })
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/app/projects'))
+  })
+
+  test('Escape cancels a pending leader sequence', () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    // Escape is a real key, not a modifier: it means "never mind". Ignoring
+    // every multi-character key would leave the leader armed here, so a `p`
+    // typed straight after a cancel would still navigate.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(window, { key: 'p' })
+
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  test('an unbound second key disarms the leader instead of navigating', () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'z' })
+    expect(push).not.toHaveBeenCalled()
+
+    // The leader is spent: a following `p` is a fresh key, not a completion.
+    fireEvent.keyDown(window, { key: 'p' })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  test('a bare modifier keypress does not spend the armed leader', async () => {
+    render(<KeyboardShortcuts authRequired canViewOrganization />)
+
+    fireEvent.keyDown(window, { key: 'g' })
+    // Reaching for a modifier is not a completion — the leader stays armed.
+    fireEvent.keyDown(window, { key: 'Shift', shiftKey: true })
     fireEvent.keyDown(window, { key: 'p' })
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/app/projects'))

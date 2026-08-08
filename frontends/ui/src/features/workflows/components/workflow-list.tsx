@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   AlertCircle,
   CalendarClock,
@@ -50,6 +51,8 @@ import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 
 interface WorkflowListProps {
   projectId: string
+  /** Qdrant collection of this project — scopes the run history's live job statuses. */
+  projectCollection: string | null
   onCreate: () => void
   /** Open the builder pre-filled from a GRID default template. */
   onUseTemplate: (template: ResolvedTemplate) => void
@@ -79,6 +82,7 @@ function scheduleSummary(t: Translate, cron: string | null, timezone: string): s
 
 function WorkflowCard({
   projectId,
+  projectCollection,
   workflow,
   onEdit,
   opening,
@@ -86,6 +90,7 @@ function WorkflowCard({
   onDeleted,
 }: {
   projectId: string
+  projectCollection: string | null
   workflow: WorkflowSummary
   onEdit: (id: string) => void
   opening: boolean
@@ -94,11 +99,14 @@ function WorkflowCard({
 }): JSX.Element {
   const t = useTranslations('workflows')
   const { locale } = useLocale()
+  const router = useRouter()
   const [toggling, setToggling] = useState(false)
   const [running, setRunning] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Remounts the run history so a just-started run shows up immediately.
+  const [historyToken, setHistoryToken] = useState(0)
 
   const toggleEnabled = async (enabled: boolean) => {
     setToggling(true)
@@ -120,7 +128,24 @@ function WorkflowCard({
     try {
       const result = await runWorkflow(projectId, workflow.id)
       if (result.status === 'submitted') {
-        toast.success(t('run.submitted'), { description: t('run.submittedDetail') })
+        // The run is now a live job. Open the history (so the new row and its
+        // status are visible right away) and offer a one-click jump into the
+        // research panel that follows it.
+        const jobId = result.jobId
+        toast.success(t('run.submitted'), {
+          description: t('run.submittedDetail'),
+          ...(jobId
+            ? {
+                action: {
+                  label: t('run.viewProgress'),
+                  onClick: () =>
+                    router.push(`/app/projects/${projectId}/chat?job=${jobId}&tab=tasks`),
+                },
+              }
+            : {}),
+        })
+        setHistoryOpen(true)
+        setHistoryToken((token) => token + 1)
         onChanged({ ...workflow, lastRunAt: new Date().toISOString() })
       } else if (result.status === 'skipped') {
         toast.warning(t('run.skipped'), { description: result.detail ?? undefined })
@@ -229,7 +254,14 @@ function WorkflowCard({
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="border-t border-border pt-1">
-            {historyOpen && <RunHistory projectId={projectId} workflowId={workflow.id} />}
+            {historyOpen && (
+              <RunHistory
+                key={historyToken}
+                projectId={projectId}
+                projectCollection={projectCollection}
+                workflowId={workflow.id}
+              />
+            )}
           </CollapsibleContent>
         </Collapsible>
       </CardContent>
@@ -250,6 +282,7 @@ function WorkflowCard({
 
 export function WorkflowList({
   projectId,
+  projectCollection,
   onCreate,
   onUseTemplate,
   onEdit,
@@ -343,6 +376,7 @@ export function WorkflowList({
               <WorkflowCard
                 key={workflow.id}
                 projectId={projectId}
+                projectCollection={projectCollection}
                 workflow={workflow}
                 onEdit={onEdit}
                 opening={openingId === workflow.id}

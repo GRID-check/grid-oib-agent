@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const isOwner = { value: false }
@@ -52,12 +55,12 @@ describe('GET /api/platform/overview', () => {
   })
 
   it('rejects non-owners with 403', async () => {
-    expect((await GET()).status).toBe(403)
+    expect((await GET(new Request('http://localhost/api/platform'))).status).toBe(403)
   })
 
   it('returns the overview for the platform owner', async () => {
     isOwner.value = true
-    const res = await GET()
+    const res = await GET(new Request('http://localhost/api/platform'))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.totals.organizations).toBe(1)

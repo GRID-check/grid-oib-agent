@@ -50,7 +50,7 @@ export const FilesTab: FC = () => {
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {files.map((file) => (
             <div key={file.id} className="shrink-0">
               <FileCard file={file} />

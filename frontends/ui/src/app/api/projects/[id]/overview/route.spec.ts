@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -17,6 +20,7 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+import { asDb } from '@/test-utils/db-fixtures'
 import { GET } from './route'
 
 describe('GET /api/projects/[id]/overview', () => {
@@ -56,19 +60,16 @@ describe('GET /api/projects/[id]/overview', () => {
       Object.assign(Promise.resolve([statsRow]), {
         orderBy: mockOrderBy,
         limit: mockLimit,
-      }),
+      })
     )
     const mockFrom = vi.fn().mockImplementation(() => ({ where: mockWhere }))
     const mockSelect = vi.fn().mockImplementation(() => ({ from: mockFrom }))
 
-    vi.mocked(getDb).mockReturnValue({
-      select: mockSelect,
-    } as any)
+    vi.mocked(getDb).mockReturnValue(asDb({ select: mockSelect }))
 
-    const response = await GET(
-      new Request('https://grid.test/api/projects/proj-1/overview'),
-      { params: Promise.resolve({ id: 'proj-1' }) },
-    )
+    const response = await GET(new Request('https://grid.test/api/projects/proj-1/overview'), {
+      params: Promise.resolve({ id: 'proj-1' }),
+    })
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toHaveProperty('name', 'Test Project')

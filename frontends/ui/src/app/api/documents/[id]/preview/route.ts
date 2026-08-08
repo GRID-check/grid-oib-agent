@@ -9,4 +9,7 @@ import { getDocumentPreview } from '@/lib/documents/service'
 
 type Params = { id: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getDocumentPreview(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getDocumentPreview(session, params.id),
+  { authz: { enforcedBy: 'getDocumentPreview -> getAccessibleDocument (project:view)' } }
+)

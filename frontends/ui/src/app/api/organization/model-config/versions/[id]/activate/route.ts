@@ -36,5 +36,5 @@ export const POST = apiRoute<Params>(
     })
     return { activeVersion: version }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

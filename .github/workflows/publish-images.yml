@@ -1,12 +1,25 @@
 name: Publish Images
 
-# Builds the backend + frontend images and PUSHES them to GHCR so the Pulumi
-# k8s deployment (deploy/pulumi) can reference immutable, pre-built tags.
+# Builds the backend + frontend + web (landing) images and PUSHES them to GHCR
+# so the Pulumi k8s deployment (deploy/pulumi) can reference immutable,
+# pre-built tags.
 #
 # Complements docker-build.yml (which only validates the build on PRs, no push).
 # Runs on merges to develop/release and on version tags. Each image is tagged
 # with the commit SHA (immutable — what Pulumi should pin via `imageTag`) and a
 # moving tag (`latest` on develop, the git tag on releases).
+#
+# The web image bakes its site URLs at build time: `latest`/SHA images carry the
+# DEV hosts (app.dev.piloti.at / dev.piloti.at), version-tagged images the PROD
+# hosts (app.piloti.at / piloti.at) — the Dockerfile defaults cover dev, the
+# build args below override for release tags.
+#
+# Path-filtered rebuilds: the `changes` job (dorny/paths-filter) tracks which
+# inputs each image consumes, so on pushes to develop an image is only rebuilt
+# when its own inputs changed — a blog-post commit under frontends/web/** (blog
+# content lives at frontends/web/src/content/**) rebuilds just the web image.
+# Non-develop refs (release/** branches, version tags) and manual
+# workflow_dispatch runs always build ALL three images (unchanged behavior).
 on:
   push:
     branches: [develop, "release/**"]
@@ -22,13 +35,67 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  backend:
-    name: Build & push backend image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        with:
+          # paths-filter diffs the pushed range against `github.event.before`.
+          # In the default shallow clone that commit is missing, so the action
+          # falls back to `git fetch` — which cannot authenticate here (the
+          # checkout below persists no credentials) and dies with "could not
+          # read Username for 'https://github.com'". Full history keeps the base
+          # commit local, so no fetch is attempted and the token stays off disk.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # Backend filter mirrors exactly what deploy/Dockerfile COPYs from the
+          # repo-root build context (plus the toolchain files and the workflow
+          # itself — a changed Dockerfile/trigger always rebuilds the image).
+          filters: |
+            backend:
+              - 'src/**'
+              - 'sources/**'
+              - 'frontends/aiq_api/**'
+              - 'frontends/cli/**'
+              - 'frontends/debug/**'
+              - 'configs/**'
+              - 'scripts/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'deploy/entrypoint.py'
+              - 'deploy/start_web.py'
+              - 'deploy/Dockerfile'
+              - '.github/workflows/publish-images.yml'
+            frontend:
+              - 'frontends/ui/**'
+              - '.github/workflows/publish-images.yml'
+            # frontends/web/** already covers blog content
+            # (frontends/web/src/content/**), so a blog save rebuilds only grid-web.
+            web:
+              - 'frontends/web/**'
+              - '.github/workflows/publish-images.yml'
+
+  backend:
+    name: Build & push backend image
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.backend == 'true' }}
+    steps:
+      # No persisted checkout token: images are pushed via docker/login-action
+      # below, never git credentials.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -37,7 +104,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/grid-oib-backend
           tags: |
@@ -45,7 +112,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push (release target)
-        uses: useblacksmith/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
@@ -53,14 +120,26 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache, scoped per image so the three do not evict each other.
+          # `mode=max` is required: these are multi-stage builds and the layer
+          # worth reusing is the dependency install in an intermediate stage,
+          # which `mode=min` does not export. This does NOT make an unchanged
+          # `RUN build` reusable — `COPY . .` invalidates it on any source
+          # change; it saves the install, not the build.
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
   frontend:
     name: Build & push frontend image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.frontend == 'true' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -69,7 +148,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/grid-oib-frontend
           tags: |
@@ -77,10 +156,80 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push
-        uses: useblacksmith/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache, scoped per image so the three do not evict each other.
+          # `mode=max` is required: these are multi-stage builds and the layer
+          # worth reusing is the dependency install in an intermediate stage,
+          # which `mode=min` does not export. This does NOT make an unchanged
+          # `RUN build` reusable — `COPY . .` invalidates it on any source
+          # change; it saves the install, not the build.
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  web:
+    name: Build & push web image
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.web == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The layer cache above cannot help `RUN npm run build`, so the image
+      # pipeline would reprocess every blog image from cold inside the container
+      # on every publish. Restoring the cache into the build context lets the
+      # container start warm — `.astro-cache` is deliberately absent from
+      # frontends/web/.dockerignore for this reason, and the runner stage copies
+      # only dist/, node_modules/ and package.json, so it never reaches the
+      # shipped image. Restore-only: this job cannot extract the container's
+      # cache afterwards, so the CI web job is what writes the entry (one commit
+      # behind, which `restore-keys` handles).
+      - name: Restore the Astro asset cache into the build context
+        uses: actions/cache/restore@v6
+        with:
+          path: frontends/web/.astro-cache
+          key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
+          restore-keys: |
+            astro-cache-${{ runner.os }}-
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/grid-oib-web
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=ref,event=tag
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: frontends/web
+          file: frontends/web/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            PUBLIC_APP_URL=${{ startsWith(github.ref, 'refs/tags/') && 'https://app.piloti.at' || 'https://app.dev.piloti.at' }}
+            PUBLIC_SITE_URL=${{ startsWith(github.ref, 'refs/tags/') && 'https://piloti.at' || 'https://dev.piloti.at' }}
+          # Layer cache, scoped per image so the three do not evict each other.
+          # `mode=max` is required: these are multi-stage builds and the layer
+          # worth reusing is the dependency install in an intermediate stage,
+          # which `mode=min` does not export. This does NOT make an unchanged
+          # `RUN build` reusable — `COPY . .` invalidates it on any source
+          # change; it saves the install, not the build.
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

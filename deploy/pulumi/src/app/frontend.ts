@@ -1,13 +1,30 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, frontendImage, toResourceRequirements } from "../config";
+import {
+  GridConfig,
+  appPullPolicy,
+  assertHpaTargetIsProportional,
+  assertMemoryFitsLimit,
+  frontendImage,
+  toResourceRequirements,
+} from "../config";
 import { commonLabels } from "../platform/namespaces";
-import { AppWiring, frontendEnv } from "./config";
+import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
+import { hardenedContainerSecurityContext } from "../platform/security";
+import {
+  ROLLOUT,
+  gracefulShutdown,
+  secretChecksumAnnotations,
+  surgeRollout,
+} from "../platform/rollout";
+import { AppSecrets, AppWiring, frontendEnv } from "./config";
+import { PORT, UID } from "../constants";
 
 export interface Frontend {
   deployment: k8s.apps.v1.Deployment;
   service: k8s.core.v1.Service;
   hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler;
+  pdb: k8s.policy.v1.PodDisruptionBudget;
 }
 
 /**
@@ -24,10 +41,22 @@ export interface Frontend {
 export function installFrontend(
   w: AppWiring,
   cfg: GridConfig,
-  secret: k8s.core.v1.Secret,
+  secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
 ): Frontend {
   const labels = commonLabels("frontend");
+  const shutdown = gracefulShutdown(ROLLOUT.frontend, "node");
+
+  // Fail the preview, not production: a CPU request far below steady-state
+  // usage turns the HPA below into an on/off switch to maxReplicas.
+  assertHpaTargetIsProportional(
+    "frontend",
+    cfg.frontend.resources,
+    cfg.frontend.hpaCpuTargetPercent,
+  );
+  // Memory is forwarded to the container verbatim, so an unparseable quantity or
+  // an inverted request/limit pair otherwise only fails at admission time.
+  assertMemoryFitsLimit("frontend", cfg.frontend.resources);
 
   const deployment = new k8s.apps.v1.Deployment(
     "frontend",
@@ -37,30 +66,49 @@ export function installFrontend(
         // Initial size; the HPA owns replica count thereafter.
         replicas: cfg.frontend.minReplicas,
         selector: { matchLabels: labels },
-        strategy: {
-          type: "RollingUpdate",
-          rollingUpdate: { maxUnavailable: 0, maxSurge: 1 },
-        },
+        // Surge-only rolling update + a stability soak + a progress deadline.
+        ...surgeRollout(ROLLOUT.frontend),
         template: {
-          metadata: { labels },
+          metadata: {
+            labels,
+            // Rotating any credential in `grid-secrets` changes this annotation,
+            // which is what turns the rotation into an actual rolling update
+            // instead of a Secret nobody re-reads (rollout.ts).
+            annotations: secretChecksumAnnotations(secrets.checksum),
+          },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            imagePullSecrets: w.imagePullSecrets,
+            // Keep serving after SIGTERM: preStop covers EndpointSlice
+            // propagation at the gateway, then server.js drains in-flight
+            // requests and WebSockets (GRID_SHUTDOWN_DRAIN_MS).
+            terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
+            // The frontend image runs as non-root UID 1001; make it explicit so
+            // the pod is Pod-Security "restricted"-ready.
+            securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
+            // Spread replicas across worker nodes so a single node loss (or the
+            // provider's automatic upgrade node-replacement) never drops the
+            // whole frontend tier. Soft (ScheduleAnyway) — never blocks a deploy.
+            topologySpreadConstraints: spreadAcrossNodes(labels),
             containers: [
               {
                 name: "frontend",
                 image: frontendImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
+                imagePullPolicy: appPullPolicy(cfg, frontendImage(cfg)),
+                securityContext: hardenedContainerSecurityContext(),
                 // Skip the image's built-in migrate; the Job owns migrations.
                 command: ["node", "server.js"],
-                ports: [{ containerPort: 3000, name: "http" }],
+                ports: [{ containerPort: PORT.frontend, name: "http" }],
                 env: frontendEnv(w),
                 resources: toResourceRequirements(cfg.frontend.resources),
+                lifecycle: shutdown.lifecycle,
                 readinessProbe: {
-                  httpGet: { path: "/api/healthz", port: 3000 },
+                  httpGet: { path: "/api/healthz", port: PORT.frontend },
                   initialDelaySeconds: 10,
                   periodSeconds: 10,
                 },
                 livenessProbe: {
-                  httpGet: { path: "/api/healthz", port: 3000 },
+                  httpGet: { path: "/api/healthz", port: PORT.frontend },
                   initialDelaySeconds: 30,
                   periodSeconds: 15,
                   failureThreshold: 5,
@@ -71,9 +119,19 @@ export function installFrontend(
         },
       },
     },
-    // The HPA owns spec.replicas after creation — don't let `pulumi up` revert
-    // an autoscaling decision back to minReplicas.
-    { provider: w.provider, dependsOn: [secret, ...dependsOn], ignoreChanges: ["spec.replicas"] },
+    {
+      provider: w.provider,
+      dependsOn: [secrets.secret, ...dependsOn],
+      // The HPA owns spec.replicas after creation — don't let `pulumi up` revert
+      // an autoscaling decision back to minReplicas.
+      ignoreChanges: ["spec.replicas"],
+      // Surge-only rolling of up to `frontendMaxReplicas` pods, each soaking for
+      // minReadySeconds and draining for up to a full grace period, comfortably
+      // exceeds Pulumi's default 10m await. Keep this above
+      // progressDeadlineSeconds so the failure the operator sees is Kubernetes'
+      // real "ProgressDeadlineExceeded" reason, not an opaque Pulumi timeout.
+      customTimeouts: { create: "20m", update: "20m" },
+    },
   );
 
   const service = new k8s.core.v1.Service(
@@ -82,7 +140,7 @@ export function installFrontend(
       metadata: { name: "frontend", namespace: w.namespace, labels },
       spec: {
         selector: labels,
-        ports: [{ port: 3000, targetPort: 3000, name: "http" }],
+        ports: [{ port: PORT.frontend, targetPort: PORT.frontend, name: "http" }],
       },
     },
     { provider: w.provider, dependsOn: deployment },
@@ -117,5 +175,9 @@ export function installFrontend(
     { provider: w.provider, dependsOn: deployment },
   );
 
-  return { deployment, service, hpa };
+  // Cap voluntary disruptions at one pod so an automatic-upgrade node drain
+  // can't evict every frontend replica simultaneously.
+  const pdb = installPdb("frontend", w.namespace, w.provider, labels, [deployment]);
+
+  return { deployment, service, hpa, pdb };
 }

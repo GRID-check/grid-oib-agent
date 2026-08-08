@@ -2,13 +2,31 @@
  * Conversation messages API — list a conversation's history and append
  * messages (single object or batch array; both return an array). Thin
  * handlers; all logic lives in `@/lib/conversations/service`.
+ *
+ * The POST response carries the server's addressee ruling on each persisted
+ * message (`addressees`, `createdRequests`) alongside the row, so the client can
+ * decide whether to open an agent turn (ADR-0034). Extra fields only — the array
+ * shape existing callers expect is unchanged.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { createConversationMessages, listConversationMessages } from '@/lib/conversations/service'
+import {
+  DEFAULT_MUTATION_LIMIT,
+  enforceLimit,
+  MAX_MENTIONS_PER_MESSAGE,
+  MAX_MESSAGES_PER_REQUEST,
+  memberSubject,
+} from '@/lib/limits'
 
 type Params = { id: string }
+
+const mentionSchema = z.object({
+  // A WorkOS user id or the agent's sentinel id; length-capped like every other
+  // client-supplied identifier. Legitimacy is decided server-side, not here.
+  targetId: z.string().min(1).max(128),
+})
 
 const createMessageSchema = z.object({
   // Client-generated id; length-capped so user-controlled strings never
@@ -23,17 +41,46 @@ const createMessageSchema = z.object({
   // Kept as a plain string: the chat store sends both ISO strings and
   // `String(Date)` output, which `.datetime()` would reject.
   createdAt: z.string().optional(),
+  // Structured mentions (spec MN-3) — never a text match on a name. The
+  // addressee set is resolved from these server-side (spec MN-2).
+  //
+  // Bounded by the SAME constant the service enforces (`@/lib/sharing/rate-limit`
+  // owns the product bound MN-13 asks for) so the two cannot drift: this schema
+  // used to cap the array at 20 while the service refused anything over 10, which
+  // meant an 11-mention message passed validation and then hit a 403. The two are
+  // still both needed — this bounds the PAYLOAD, the service bounds the
+  // DEDUPLICATED target count, which is the number the abuse bound is about.
+  mentions: z.array(mentionSchema).max(MAX_MENTIONS_PER_MESSAGE).optional(),
+  // The asker's question, carried into the recipient's inbox item (spec MN-12).
+  mentionNote: z.string().max(500).nullable().optional(),
 })
 
-const createMessagesSchema = z.union([createMessageSchema, z.array(createMessageSchema).min(1)])
+// Bounded for the reason the constant explains: the route factory charges one
+// unit of budget per REQUEST, so an unbounded array would buy unbounded insert
+// work for a single unit. The POST below pays the other half by charging per
+// message.
+const createMessagesSchema = z.union([
+  createMessageSchema,
+  z.array(createMessageSchema).min(1).max(MAX_MESSAGES_PER_REQUEST),
+])
 
-export const GET = apiRoute<Params>(async ({ session, params }) => listConversationMessages(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => listConversationMessages(session, params.id),
+  { authz: { enforcedBy: 'listConversationMessages (requireResourceAccess)' } }
+)
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
     const body = await parseJsonBody(request, createMessagesSchema)
     const inputs = Array.isArray(body) ? body : [body]
+    // `apiRoute` already charged one unit before this handler ran. A batch does
+    // N times the work of a single post, so charge the remainder: the budget
+    // then meters messages written rather than requests sent, and a batch cannot
+    // buy work that the same number of single posts would have been refused.
+    if (inputs.length > 1) {
+      await enforceLimit(DEFAULT_MUTATION_LIMIT, memberSubject(session), inputs.length - 1)
+    }
     return createConversationMessages(session, params.id, inputs)
   },
-  { status: 201 },
+  { status: 201, authz: { enforcedBy: 'createConversationMessages (requireResourceAccess)' } }
 )

@@ -11,6 +11,49 @@ import { renderHook } from '@testing-library/react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { useIsCurrentSessionBusy } from './use-current-session-busy'
 import { useChatStore } from '../store'
+import type { ChatState, Conversation, PendingInteraction } from '../types'
+
+/**
+ * The slice of the chat store this hook actually selects from. Deriving it
+ * from `ChatState` means a rename or a type change in the store surfaces here
+ * as a compile error rather than as a test that silently stops exercising the
+ * real shape.
+ */
+type BusySlice = Pick<
+  ChatState,
+  | 'isStreaming'
+  | 'isDeepResearchStreaming'
+  | 'deepResearchStatus'
+  | 'currentConversation'
+  | 'pendingInteraction'
+>
+
+/** A zustand selector as the hook calls it, narrowed to the slice above. */
+type BusySelector = (state: BusySlice) => unknown
+
+const makeConversation = (overrides: Partial<Conversation> = {}): Conversation => ({
+  id: 'conv-1',
+  userId: 'user-1',
+  title: 'Test session',
+  messages: [],
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
+  ...overrides,
+})
+
+/**
+ * The hook only asks whether a pending interaction exists, but the fixture is
+ * a complete one so it cannot drift out of shape unnoticed.
+ */
+const makePendingInteraction = (
+  overrides: Partial<PendingInteraction> = {},
+): PendingInteraction => ({
+  id: 'interaction-1',
+  parentId: 'msg-1',
+  inputType: 'binary_choice',
+  text: 'Approve this plan?',
+  ...overrides,
+})
 
 // Mock the chat store
 vi.mock('../store', () => ({
@@ -28,11 +71,11 @@ const mockHasActiveJob = hasActiveDeepResearchJob as unknown as ReturnType<typeo
 /**
  * Default idle state — all flags off, no persisted activity.
  */
-const idleState = {
+const idleState: BusySlice = {
   isStreaming: false,
   isDeepResearchStreaming: false,
   deepResearchStatus: null,
-  currentConversation: { id: 'conv-1', messages: [] },
+  currentConversation: makeConversation(),
   pendingInteraction: null,
 }
 
@@ -47,7 +90,7 @@ describe('useIsCurrentSessionBusy', () => {
   // ─── Ephemeral State Tests ─────────────────────────────────────
 
   it('returns false when no operations are active', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector(idleState)
     )
 
@@ -56,7 +99,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns true when WebSocket is streaming (shallow thinking)', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, isStreaming: true })
     )
 
@@ -65,7 +108,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns true when deep research SSE is streaming', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, isDeepResearchStreaming: true, deepResearchStatus: 'running' })
     )
 
@@ -74,7 +117,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns true when deep research status is "submitted"', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, deepResearchStatus: 'submitted' })
     )
 
@@ -83,7 +126,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns true when deep research status is "running"', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, deepResearchStatus: 'running' })
     )
 
@@ -92,7 +135,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns false when deep research status is "success" (terminal state)', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, deepResearchStatus: 'success' })
     )
 
@@ -101,7 +144,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns false when deep research status is "failure" (terminal state)', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, deepResearchStatus: 'failure' })
     )
 
@@ -110,7 +153,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns false when deep research status is "interrupted" (terminal state)', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, deepResearchStatus: 'interrupted' })
     )
 
@@ -119,7 +162,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns true when both shallow and deep research are active', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({
         ...idleState,
         isStreaming: true,
@@ -138,7 +181,7 @@ describe('useIsCurrentSessionBusy', () => {
     // Simulate page refresh: ephemeral state is reset, but persisted messages indicate active job
     mockHasActiveJob.mockReturnValue(true)
 
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector(idleState) // All ephemeral state is idle
     )
 
@@ -147,10 +190,10 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns true when pending HITL interaction exists (refresh scenario)', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({
         ...idleState,
-        pendingInteraction: { type: 'plan_approval', content: 'Approve this plan?' },
+        pendingInteraction: makePendingInteraction(),
       })
     )
 
@@ -159,7 +202,7 @@ describe('useIsCurrentSessionBusy', () => {
   })
 
   it('returns false when currentConversation is null', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({ ...idleState, currentConversation: null })
     )
 
@@ -170,11 +213,11 @@ describe('useIsCurrentSessionBusy', () => {
   // ─── Combined State Tests ──────────────────────────────────────
 
   it('returns true when both ephemeral streaming and persisted HITL are active', () => {
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({
         ...idleState,
         isStreaming: true,
-        pendingInteraction: { type: 'plan_approval' },
+        pendingInteraction: makePendingInteraction(),
       })
     )
 
@@ -185,10 +228,10 @@ describe('useIsCurrentSessionBusy', () => {
   it('returns true when ephemeral is idle but both persisted flags are active', () => {
     mockHasActiveJob.mockReturnValue(true)
 
-    mockUseChatStore.mockImplementation((selector: (state: any) => any) =>
+    mockUseChatStore.mockImplementation((selector: BusySelector) =>
       selector({
         ...idleState,
-        pendingInteraction: { type: 'plan_approval' },
+        pendingInteraction: makePendingInteraction(),
       })
     )
 

@@ -19,10 +19,10 @@ from httpx import ASGITransport
 from httpx import AsyncClient
 
 from aiq_agent import oib_sync
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import configure_summary_db
 from aiq_agent.knowledge.factory import register_summary
 from aiq_agent.knowledge.schema import FileStatus
-from aiq_agent.knowledge.summary_store import SummaryStore
 from aiq_api.routes.oib import add_oib_routes
 
 _COLLECTION = "oib_knowledge"
@@ -36,14 +36,14 @@ def summary_db():
     # let a teardown race fail an otherwise-passing test (seen flaky on py3.13).
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         db_url = f"sqlite:///{Path(tmpdir) / 'oib.db'}"
-        SummaryStore._tables_initialized.discard(db_url)
+        DocumentMetadataStore._tables_initialized.discard(db_url)
         configure_summary_db(db_url)
         yield db_url
 
 
 @pytest.fixture
 def store(summary_db):
-    return SummaryStore(summary_db)
+    return DocumentMetadataStore(summary_db)
 
 
 @pytest.fixture
@@ -238,6 +238,49 @@ async def test_patch_missing_row_404(app, uploads_dir):
         res = await client.patch(
             "/v1/admin/oib/documents/ghost.pdf/doc-class",
             json={"doc_class": "gesetz"},
+        )
+
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_display_title_updates(app, store, uploads_dir):
+    register_summary(_COLLECTION, "plan.pdf", "A plan.")
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/admin/oib/documents/plan.pdf/display-title",
+            json={"display_title": "OIB-Richtlinie 2, Ausgabe Mai 2023"},
+        )
+
+    assert res.status_code == 200
+    assert res.json() == {"file_name": "plan.pdf", "display_title": "OIB-Richtlinie 2, Ausgabe Mai 2023"}
+    assert store.get_display_title(_COLLECTION, "plan.pdf") == "OIB-Richtlinie 2, Ausgabe Mai 2023"
+
+
+@pytest.mark.asyncio
+async def test_patch_display_title_blank_clears_override(app, store, uploads_dir):
+    register_summary(_COLLECTION, "plan.pdf", "A plan.")
+    store.set_display_title(_COLLECTION, "plan.pdf", "A custom name")
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/admin/oib/documents/plan.pdf/display-title",
+            json={"display_title": "   "},
+        )
+
+    assert res.status_code == 200
+    assert res.json() == {"file_name": "plan.pdf", "display_title": None}
+    # Cleared → the derived default applies again on read.
+    assert store.get_display_title(_COLLECTION, "plan.pdf") is None
+
+
+@pytest.mark.asyncio
+async def test_patch_display_title_missing_row_404(app, uploads_dir):
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/admin/oib/documents/ghost.pdf/display-title",
+            json={"display_title": "Anything"},
         )
 
     assert res.status_code == 404

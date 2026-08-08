@@ -1,0 +1,37 @@
+---
+interface Props {
+  glyph: string
+  tile: string
+  title: string
+  sub: string
+  value: string
+  dx: number
+  dy: number
+  fx: number
+  fy: number
+  pos: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
+}
+const { glyph, tile, title, sub, value, dx, dy, fx, fy, pos } = Astro.props
+
+const posStyle = Object.entries(pos)
+  .map(([k, v]) => `${k}:${(v * 100).toFixed(1)}%`)
+  .join(';')
+---
+
+<div
+  class="absolute flex items-center gap-3 rounded-xl bg-surface py-3 pl-3 pr-4 shadow-float"
+  style={posStyle}
+  data-frag={`${dx},${dy}`}
+  data-target={`${fx},${fy}`}
+>
+  <span
+    class="inline-flex size-8 items-center justify-center rounded-lg text-sm"
+    style={`background: ${tile}`}
+    aria-hidden="true">{glyph}</span
+  >
+  <span>
+    <span class="block text-sm font-semibold tracking-tight text-panel">{title}</span>
+    <span class="block text-2xs text-ink-mute">{sub}</span>
+  </span>
+  <span class="ml-2 text-sm font-semibold text-panel">{value}</span>
+</div>

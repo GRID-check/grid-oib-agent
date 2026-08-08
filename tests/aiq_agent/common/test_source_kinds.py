@@ -13,7 +13,10 @@ from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
 from aiq_agent.common.source_kinds import SOURCE_KINDS
+from aiq_agent.common.source_kinds import collection_scope
 from aiq_agent.common.source_kinds import kind_for_lane
+from aiq_agent.common.source_kinds import scope_for_qualifier
+from aiq_agent.common.source_kinds import scope_qualifier
 from aiq_agent.common.source_kinds import source_kind
 
 
@@ -115,3 +118,40 @@ class TestBindingNote:
     def test_ris_without_registry_match_has_no_binding_note(self):
         entry = SourceEntry(url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic")
         assert "binding_note" not in source_entry_to_wire(entry)
+
+
+class TestCollectionScope:
+    """The collection half of a document's `(collection, filename)` identity."""
+
+    @pytest.mark.parametrize(
+        "collection,expected",
+        [
+            ("archiv_org1", "buero"),
+            ("proj_alpha", "projekt"),
+            ("s_9f2a4c", "projekt"),
+            # A named collection that is neither project/session nor Archiv is
+            # the base knowledge corpus — same branch order as `lane_for_hit`.
+            ("oib_knowledge", "baurecht"),
+            ("", None),
+            (None, None),
+        ],
+    )
+    def test_scope_of_a_collection(self, collection, expected):
+        assert collection_scope(collection) == expected
+
+    def test_qualifier_round_trips_through_the_scope(self):
+        # A citation key carries the qualifier; resolution parses it back. If
+        # these two ever disagree, every qualified key stops resolving.
+        for collection in ("archiv_org1", "proj_alpha", "oib_knowledge"):
+            qualifier = scope_qualifier(collection)
+            assert scope_for_qualifier(qualifier) == collection_scope(collection)
+
+    def test_an_unqualified_or_unknown_key_names_no_scope(self):
+        assert scope_qualifier(None) is None
+        assert scope_for_qualifier(None) is None
+        assert scope_for_qualifier("Internal") is None
+
+    def test_qualifiers_are_matched_case_insensitively(self):
+        # The qualifier survives a round trip through an LLM, which may recase it.
+        assert scope_for_qualifier("projektwissen") == "projekt"
+        assert scope_for_qualifier("  BÜROARCHIV  ") == "buero"

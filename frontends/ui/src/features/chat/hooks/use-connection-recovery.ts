@@ -12,6 +12,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef } from 'react'
+import { applyJitter } from '@/shared/utils/backoff'
 import {
   checkBackendHealthCached,
   invalidateHealthCache,
@@ -55,7 +56,10 @@ export function useConnectionRecovery(onRecovered: () => void): void {
       delayRef.current * BACKOFF_FACTOR,
       MAX_DELAY_MS
     )
-    timerRef.current = setTimeout(checkHealth, delayRef.current)
+    // `delayRef` holds the undithered schedule; the jitter is applied per-wait
+    // so that clients which entered the error state together don't poll in
+    // lockstep for as long as the outage lasts.
+    timerRef.current = setTimeout(checkHealth, applyJitter(delayRef.current))
   }, [dismissConnectionErrors, onRecovered])
 
   // Activate / deactivate polling based on connection error presence
@@ -69,7 +73,7 @@ export function useConnectionRecovery(onRecovered: () => void): void {
 
     activeRef.current = true
     delayRef.current = INITIAL_DELAY_MS
-    timerRef.current = setTimeout(checkHealth, delayRef.current)
+    timerRef.current = setTimeout(checkHealth, applyJitter(delayRef.current))
 
     return () => {
       activeRef.current = false

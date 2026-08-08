@@ -51,11 +51,11 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
   afterEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
     vi.restoreAllMocks()
   })
 
@@ -63,7 +63,7 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
     const user = userEvent.setup()
     const { calls } = stubFetch()
     const reviewStep = projectIntakeDefinitionV1.stages.length - 1
-    sessionStorage.setItem(
+    localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({ answers: { A2_land: 'wien' }, currentStep: reviewStep }),
     )

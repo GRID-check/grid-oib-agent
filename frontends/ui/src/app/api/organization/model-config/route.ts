@@ -38,7 +38,11 @@ export const GET = apiRoute(
     let catalogSource: { source: string; provider: string | null; validation: string } | null = null
     try {
       const catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
-      catalogSource = { source: catalog.source, provider: catalog.provider, validation: catalog.validation }
+      catalogSource = {
+        source: catalog.source,
+        provider: catalog.provider,
+        validation: catalog.validation,
+      }
     } catch (error) {
       console.warn('[Model Config API] Could not resolve the org catalog source:', error)
     }
@@ -52,7 +56,7 @@ export const GET = apiRoute(
       updatedAt: config.updatedAt,
     }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )
 
 const putSchema = z.object({
@@ -60,7 +64,7 @@ const putSchema = z.object({
     z.enum(AGENT_GROUP_IDS as [string, ...string[]]),
     // BYOK-aware shape (`author/slug` OR provider-native id, ADR-0022);
     // catalog membership below is the real gate.
-    z.object({ model: z.string().regex(MODEL_ID_PATTERN, 'not a plausible model id') }),
+    z.object({ model: z.string().regex(MODEL_ID_PATTERN, 'not a plausible model id') })
   ),
   comment: z.string().trim().max(500).nullable().optional(),
 })
@@ -118,5 +122,5 @@ export const PUT = apiRoute(
     })
     return { activeVersion: version }
   },
-  { permission: ORG_PERMISSIONS.modelsManage, status: 201 },
+  { status: 201, authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

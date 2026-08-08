@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The route factory (`@/lib/api/handler`) statically imports the session
@@ -8,9 +11,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/projects/memory-service', () => ({
   buildProjectMemoryDigest: vi.fn(),
+  resolveProjectOrganization: vi.fn(),
 }))
 
-import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 import { GET } from './route'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
@@ -65,9 +69,13 @@ describe('GET /api/internal/memory/digest', () => {
 
   it('returns the digest for a valid token (200)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
-    vi.mocked(buildProjectMemoryDigest).mockResolvedValue('PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"')
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(
+      'PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"'
+    )
 
-    const response = await GET(makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}`, REAL_TOKEN))
+    const response = await GET(
+      makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}`, REAL_TOKEN)
+    )
 
     expect(response.status).toBe(200)
     const body = await response.json()
@@ -89,9 +97,52 @@ describe('GET /api/internal/memory/digest', () => {
 
   it('returns 500 when the digest builder throws', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
     vi.mocked(buildProjectMemoryDigest).mockRejectedValue(new Error('db down'))
 
     const response = await GET(makeRequest(`?projectId=${PROJECT_ID}`, REAL_TOKEN))
     expect(response.status).toBe(500)
+  })
+
+  /**
+   * A project-only request used to read under platform scope — RLS bypassed —
+   * with the query filtered by project id alone, so ANY project id returned
+   * that project's memory to any holder of the internal token. The tenant is
+   * now resolved from the project row and the read happens inside it.
+   */
+  describe('a request that names only a project', () => {
+    it('resolves the tenant from the project row and reads the digest inside it', async () => {
+      vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+      vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
+      vi.mocked(buildProjectMemoryDigest).mockResolvedValue('PROJECT_MEMORY v1')
+
+      const response = await GET(makeRequest(`?projectId=${PROJECT_ID}`, REAL_TOKEN))
+
+      expect(response.status).toBe(200)
+      expect(resolveProjectOrganization).toHaveBeenCalledWith(PROJECT_ID)
+      // The organization the PROJECT names — never undefined, which is what
+      // made the read unscoped.
+      expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
+    })
+
+    it('reads nothing at all when the project does not exist', async () => {
+      vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+      vi.mocked(resolveProjectOrganization).mockResolvedValue(null)
+
+      const response = await GET(makeRequest(`?projectId=${PROJECT_ID}`, REAL_TOKEN))
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ digest: null })
+      expect(buildProjectMemoryDigest).not.toHaveBeenCalled()
+    })
+
+    it('does not consult the project row when the caller already named the tenant', async () => {
+      vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+      vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+
+      await GET(makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}`, REAL_TOKEN))
+
+      expect(resolveProjectOrganization).not.toHaveBeenCalled()
+    })
   })
 })

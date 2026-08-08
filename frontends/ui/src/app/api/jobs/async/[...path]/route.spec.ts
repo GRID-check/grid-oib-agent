@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Break the authkit-nextjs import chain (pulls in next/cache) at load time.
@@ -12,25 +15,27 @@ vi.mock('@/lib/proxy/collection-authz', () => ({
 }))
 
 vi.mock('@/lib/collection-scope-request', () => ({
-  buildCollectionScopeFromRequest: vi.fn().mockResolvedValue({ headerValue: 'scope', scope: [], projectId: undefined }),
+  buildCollectionScopeFromRequest: vi
+    .fn()
+    .mockResolvedValue({ headerValue: 'scope', scope: [], projectId: undefined }),
 }))
 
 // Org model overrides lookup used by the POST handler to build
 // X-Grid-Model-Overrides — controlled per-test below.
 vi.mock('@/lib/model-config/service', () => ({
-  getActiveModelOverrides: vi.fn(),
+  getEffectiveModelOverrides: vi.fn(),
 }))
 
 // Structured bundesland fact lookup (backlog T3-9 follow-up, 2026-07-16,
 // user-mandated) — avoids pulling in the real @/lib/db chain; controlled
-// per-test below like getActiveModelOverrides.
+// per-test below like getEffectiveModelOverrides.
 vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectBundesland: vi.fn().mockResolvedValue(null),
 }))
 
 import { GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 
@@ -114,7 +119,9 @@ describe('/api/jobs/async/[...path] proxy — SSE reconnection resume', () => {
 
   it('does not append the header to an explicit /stream/{id} resume request', async () => {
     await GET(
-      getRequest('https://grid.example/api/jobs/async/job/job-1/stream/7', { 'Last-Event-ID': '42' }),
+      getRequest('https://grid.example/api/jobs/async/job/job-1/stream/7', {
+        'Last-Event-ID': '42',
+      }),
       streamParams(['job', 'job-1', 'stream', '7'])
     )
 
@@ -182,7 +189,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
   })
 
   it('forwards X-Grid-Model-Overrides with the base64url payload when the org has overrides', async () => {
-    vi.mocked(getActiveModelOverrides).mockResolvedValue({ deep_research: 'openrouter/model-x' })
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue({ deep_research: 'openrouter/model-x' })
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -200,7 +207,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
   })
 
   it('omits the header cleanly when the org has no overrides configured', async () => {
-    vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -214,7 +221,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
   })
 
   it('still proxies the submission without the header when override resolution throws', async () => {
-    vi.mocked(getActiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
+    vi.mocked(getEffectiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -253,8 +260,8 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
       projectId: 'proj-1',
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
-    } as any)
-    vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+    })
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
     vi.mocked(loadProjectBundesland).mockResolvedValue(null)
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job-1' }), {
@@ -294,7 +301,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     expect(headers['X-Grid-Request-Context']).toBeDefined()
     expect(headers['X-Grid-Request-Context-Sig']).toBeUndefined()
 
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded).toEqual({
       organizationId: 'org-1',
       userId: 'user-1',
@@ -318,7 +327,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
   })
 
   it('still attaches the envelope when model-overrides resolution throws (envelope is not best-effort)', async () => {
-    vi.mocked(getActiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
+    vi.mocked(getEffectiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
 
     const res = await POST(
       postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
@@ -340,10 +349,12 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     )
 
     expect(res.status).toBe(200)
-    expect(loadProjectBundesland).toHaveBeenCalledWith('proj-1')
+    expect(loadProjectBundesland).toHaveBeenCalledWith('proj-1', 'org-1')
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded.bundesland).toBe('tirol')
   })
 
@@ -358,7 +369,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     expect(res.status).toBe(200)
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded.bundesland).toBeUndefined()
   })
 
@@ -374,7 +387,9 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
     expect(headers['X-Grid-Request-Context']).toBeDefined()
-    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    const decoded = JSON.parse(
+      Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
+    )
     expect(decoded.bundesland).toBeUndefined()
   })
 })

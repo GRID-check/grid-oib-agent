@@ -13,13 +13,16 @@ import type {
   DeepResearchBannerType,
   PendingInteraction,
   PlanMessage,
+  WireCitationSource,
 } from '../types'
+import { citationFromWire, mergeCitation, sameCitation } from '../lib/wire-citation'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 import {
   saveDeepResearchToSession,
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { isUnavailableDeepResearchJobError } from '../lib/deep-research-errors'
+import { getLatestDeepResearchMessage } from '../lib/session-activity'
 import { patchConversationMessageById } from './sessions-store'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 
@@ -55,26 +58,25 @@ export type DeepResearchSlice = {
   respondToInteractionFn: ((response: string) => void) | null
 
   startDeepResearch: (jobId: string, messageId?: string) => void
+  /**
+   * Observe a run this session did not start (a workflow run, or one opened
+   * from the run history / another device): binds the job so the SSE stream
+   * connects and the research panel follows it live, without an owning
+   * conversation or tracking message.
+   */
+  attachToDeepResearchJob: (jobId: string) => void
   updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
   completeDeepResearch: () => void
   setDeepResearchStalled: (stalled: boolean) => void
   setDeepResearchConnectionLost: (lost: boolean) => void
   setReconnectDeepResearchFn: (fn: (() => void) | null) => void
-  addDeepResearchCitation: (
-    url: string,
-    content: string,
-    isCited?: boolean,
-    extras?: {
-      title?: string
-      citationKey?: string
-      collection?: string
-      sourceType?: string
-      tool?: string
-      origin?: string
-      fileName?: string
-      page?: number
-    }
-  ) => void
+  /**
+   * Record a citation source from the deep-research stream. Takes the backend
+   * wire payload whole and normalizes it with `citationFromWire`, so this path
+   * carries the same fields (`kind`, `lane`, `bindingNote`, `number`) as the
+   * shallow-chat path instead of a hand-picked subset.
+   */
+  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => void
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   stopDeepResearchTodos: () => void
   stopAllDeepResearchSpinners: (isSuccessfulCompletion?: boolean) => void
@@ -148,16 +150,6 @@ const updateConversationInList = (
   updatedConversation: (ChatStore['conversations'])[number]
 ): ChatStore['conversations'] => {
   return conversations.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
-}
-
-const getLatestDeepResearchMessage = (conversation: ChatStore['conversations'][number]): ChatMessage | null => {
-  for (let i = conversation.messages.length - 1; i >= 0; i--) {
-    const message = conversation.messages[i]
-    if (message.messageType === 'agent_response' && message.deepResearchJobId) {
-      return message
-    }
-  }
-  return null
 }
 
 const isCompletedDeepResearchReportMessage = (message: ChatMessage): boolean =>
@@ -256,6 +248,26 @@ export const initialDeepResearchState = {
   respondToInteractionFn: null as ((response: string) => void) | null,
 }
 
+/**
+ * Per-run artifact reset shared by every entry point that (re)binds a run.
+ * A factory, so each bind gets its own arrays.
+ */
+const clearedRunArtifacts = (): Partial<ChatStore> => ({
+  deepResearchLastEventId: null,
+  reportContent: '',
+  reportContentCategory: null,
+  deepResearchCitations: [],
+  deepResearchTodos: [],
+  deepResearchLLMSteps: [],
+  deepResearchAgents: [],
+  deepResearchToolCalls: [],
+  deepResearchFiles: [],
+  deepResearchCards: [],
+  deepResearchStreamLoaded: false,
+  isDeepResearchStalled: false,
+  deepResearchConnectionLost: false,
+})
+
 export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], DeepResearchSlice> = (set, get) => ({
   ...initialDeepResearchState,
 
@@ -263,28 +275,39 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const { currentConversation } = get()
     set(
       {
+        ...clearedRunArtifacts(),
         deepResearchJobId: jobId,
-        deepResearchLastEventId: null,
         isDeepResearchStreaming: true,
         deepResearchStartedAt: Date.now(),
         deepResearchStatus: 'submitted',
         deepResearchOwnerConversationId: currentConversation?.id || null,
         activeDeepResearchMessageId: messageId || null,
-        reportContent: '',
-        reportContentCategory: null,
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchCards: [],
-        deepResearchStreamLoaded: false,
-        isDeepResearchStalled: false,
-        deepResearchConnectionLost: false,
       },
       false,
       'startDeepResearch'
+    )
+  },
+
+  attachToDeepResearchJob: (jobId: string) => {
+    set(
+      {
+        ...clearedRunArtifacts(),
+        deepResearchJobId: jobId,
+        isDeepResearchStreaming: true,
+        // The run started elsewhere (a workflow run, another tab/device), so
+        // its true start time is unknown — the elapsed pill stays hidden.
+        deepResearchStartedAt: null,
+        // 'running' (not 'submitted') puts the SSE connect into reconnect
+        // mode: replayed history is buffered and flushed once, then events
+        // stream live — instead of a per-event render storm over the backlog.
+        deepResearchStatus: 'running',
+        // No owning conversation: an attached run belongs to the research
+        // panel alone, so it must never write into whatever thread is open.
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+      },
+      false,
+      'attachToDeepResearchJob'
     )
   },
 
@@ -323,98 +346,33 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     set({ reconnectDeepResearchFn: fn }, false, 'setReconnectDeepResearchFn')
   },
 
-  addDeepResearchCitation: (
-    url: string,
-    content: string,
-    isCited?: boolean,
-    extras?: {
-      title?: string
-      citationKey?: string
-      collection?: string
-      sourceType?: string
-      tool?: string
-      origin?: string
-      fileName?: string
-      page?: number
-    }
-  ) => {
+  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => {
     const { deepResearchCitations } = get()
+    // ONE normalizer for every transport — the shallow WS path and this SSE
+    // path now produce identical CitationSource objects, so `kind`, `lane`,
+    // `bindingNote` and `number` survive here too.
+    const incoming = citationFromWire(wire, { isCited })
 
-    const identity =
-      extras?.citationKey?.trim().toLowerCase() ||
-      (url && url.trim().toLowerCase()) ||
-      (extras?.fileName
-        ? `file:${extras.fileName.trim().toLowerCase()}:${extras.page ?? ''}`
-        : content.trim().toLowerCase().slice(0, 120))
-
-    const existingIndex = deepResearchCitations.findIndex((c) => {
-      if (extras?.citationKey && c.citationKey) {
-        return c.citationKey.toLowerCase() === extras.citationKey.toLowerCase()
-      }
-      if (url && c.url) return c.url === url
-      if (extras?.fileName && c.fileName) {
-        return (
-          c.fileName.toLowerCase() === extras.fileName.toLowerCase() &&
-          (c.page ?? null) === (extras.page ?? null)
-        )
-      }
-      return c.content === content && !c.url && !url
-    })
-
-    const origin =
-      extras?.origin === 'kb' || extras?.origin === 'ris' || extras?.origin === 'web'
-        ? extras.origin
-        : undefined
+    const existingIndex = deepResearchCitations.findIndex((c) =>
+      sameCitation(c, incoming)
+    )
 
     if (existingIndex >= 0) {
-      const updatedCitations = deepResearchCitations.map((c, i) => {
-        if (i !== existingIndex) return c
-        return {
-          ...c,
-          content: content || c.content,
-          url: url || c.url,
-          isCited: isCited || c.isCited,
-          title: extras?.title ?? c.title,
-          citationKey: extras?.citationKey ?? c.citationKey,
-          collection: extras?.collection ?? c.collection,
-          sourceType: extras?.sourceType ?? c.sourceType,
-          tool: extras?.tool ?? c.tool,
-          origin: origin ?? c.origin,
-          fileName: extras?.fileName ?? c.fileName,
-          page: extras?.page ?? c.page,
-        }
-      })
-
-      set(
-        { deepResearchCitations: updatedCitations },
-        false,
-        'addDeepResearchCitation:update'
+      // A `citation_use` arriving after the `citation_source` for the same
+      // document is the CITED flag being set — merge, never replace, so the
+      // richer discovery payload is not overwritten by a sparser one.
+      const updatedCitations = deepResearchCitations.map((c, i) =>
+        i === existingIndex ? mergeCitation(c, incoming) : c
       )
-    } else {
-      const newCitation: CitationSource = {
-        id: identity || uuidv4(),
-        url: url || undefined,
-        content,
-        timestamp: new Date(),
-        isCited,
-        title: extras?.title,
-        citationKey: extras?.citationKey,
-        collection: extras?.collection,
-        sourceType: extras?.sourceType,
-        tool: extras?.tool,
-        origin,
-        fileName: extras?.fileName,
-        page: extras?.page,
-      }
-
-      set(
-        {
-          deepResearchCitations: [...deepResearchCitations, newCitation],
-        },
-        false,
-        'addDeepResearchCitation'
-      )
+      set({ deepResearchCitations: updatedCitations }, false, 'addDeepResearchCitation:update')
+      return
     }
+
+    set(
+      { deepResearchCitations: [...deepResearchCitations, { ...incoming, id: incoming.id || uuidv4() }] },
+      false,
+      'addDeepResearchCitation'
+    )
   },
 
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => {
@@ -931,7 +889,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       .filter((conversation) => conversation.userId === currentUserId)
       .map((conversation) => ({
         conversation,
-        message: getLatestDeepResearchMessage(conversation),
+        message: getLatestDeepResearchMessage(conversation.messages),
       }))
       .filter(
         (candidate): candidate is { conversation: ChatStore['conversations'][number]; message: ChatMessage } =>
@@ -987,7 +945,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const updatedConversations = latestState.conversations.map((conversation) => {
       if (conversation.userId !== currentUserId) return conversation
 
-      const message = getLatestDeepResearchMessage(conversation)
+      const message = getLatestDeepResearchMessage(conversation.messages)
       const jobId = message?.deepResearchJobId
       if (!message || !jobId) return conversation
 

@@ -35,7 +35,7 @@ BATCH_STATUS_MAX_IDS = 200
 def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) -> list[FileInfo]:
     """Attach persisted per-document summaries and tags onto the file list.
 
-    SummaryStore (SQL, keyed by ``(collection, filename)``) is the source of
+    DocumentMetadataStore (SQL, keyed by ``(collection, filename)``) is the source of
     truth for both the one-sentence summary and the controlled ingestion tags;
     ``list_files`` only knows what the vector store holds. The join key is the
     filename, unique within the summaries table, so a straight lookup is safe.

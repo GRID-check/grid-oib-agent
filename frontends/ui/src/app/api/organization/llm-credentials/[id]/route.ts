@@ -18,5 +18,5 @@ export const DELETE = apiRoute<{ id: string }>(
     if (!UUID_RE.test(params.id)) throw new BadRequestError('Invalid credential id')
     return { credential: await revokeOrgCredential(session, params.id, request) }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

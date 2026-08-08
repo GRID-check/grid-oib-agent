@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -16,6 +17,10 @@ from pydantic import ValidationError
 from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
 
+from aiq_agent.conversation_context import ContextOnlyMessage
+from aiq_agent.conversation_context import append_conversation_context
+from aiq_agent.conversation_context import format_context_turn
+from aiq_agent.conversation_context import parse_context_only_payload
 from aiq_api.auth.errors import AuthError
 from aiq_api.auth.middleware import build_request_trace_tags
 from aiq_api.auth.middleware import detect_internal_caller
@@ -89,12 +94,56 @@ async def authenticate_websocket_connection(socket: WebSocket) -> tuple[dict[str
     return None, WS_POLICY_VIOLATION
 
 
+#: How long a human-in-the-loop prompt stays open before the turn gives up.
+#:
+#: Generous on purpose — a clarifying question can legitimately sit while somebody
+#: checks a drawing — but finite, because the alternative is what shipped: an
+#: unanswered prompt pinning a turn and its checkpoint forever. Overridable so an
+#: operator can tune it without a deploy.
+HITL_RESPONSE_TIMEOUT_SECONDS = float(os.getenv("GRID_HITL_RESPONSE_TIMEOUT_SECONDS", "1800"))
+
+#: Sentinel for an answer whose authorization was already established elsewhere —
+#: today only a bus relay, where the accepting replica checked the sender before
+#: publishing and the subject is not carried on the wire.
+_ANY_SUBJECT = "*"
+
+
+def _may_answer_interaction(awaited_subject: str | None, answered_by: str | None) -> bool:
+    """Whether ``answered_by`` is allowed to resolve a prompt addressed to ``awaited_subject``.
+
+    Deliberately permissive in exactly two cases, both of which would otherwise
+    break a working path rather than close a hole:
+
+    * ``awaited_subject is None`` — no verified human was asked (an internal or
+      service-token caller). There is no identity to match, and requiring one would
+      make every internal HITL turn unanswerable.
+    * ``answered_by is _ANY_SUBJECT`` — a bus relay, already authorized upstream.
+
+    Everything else must match exactly. A colleague in a shared conversation
+    (ADR-0032) is a different subject, so their answer is refused: the assistant
+    asked one person, and only that person's answer is theirs to give.
+    """
+    if awaited_subject is None:
+        return True
+    if answered_by == _ANY_SUBJECT:
+        return True
+    return answered_by is not None and answered_by == awaited_subject
+
+
 class WebSocketSessionRegistry:
     """Keep track of active sockets, pending HITL responses, and running workflow tasks."""
 
     def __init__(self) -> None:
         self._sockets: dict[str, WebSocket] = {}
-        self._pending_interactions: dict[str, asyncio.Future[TextContent]] = {}
+        # conversation id -> (future, subject the prompt was addressed to).
+        #
+        # The subject is what makes an answer authorized rather than merely
+        # well-formed. Keyed by conversation alone, this map let ANY socket
+        # registered for the conversation resolve the future — which in a shared
+        # conversation (ADR-0032) means a colleague answering a question the
+        # assistant asked somebody else. `None` means "no verified human", which
+        # is the internal/service-token case and stays open by design.
+        self._pending_interactions: dict[str, tuple[asyncio.Future[TextContent], str | None]] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
         # Multi-replica bus (ADR-0028): background subscribers that relay bus
@@ -189,16 +238,24 @@ class WebSocketSessionRegistry:
             logger.warning("Failed to send websocket message after reconnect: %s", exc)
             return False
 
-    async def submit_hitl_answer(self, conversation_id: str | None, user_content: TextContent) -> bool:
+    async def submit_hitl_answer(
+        self,
+        conversation_id: str | None,
+        user_content: TextContent,
+        answered_by: str | None = None,
+    ) -> bool:
         """Deliver a HITL answer to the awaiting turn.
 
         Resolves a locally-held future first (co-located owner==relay). If none is
         local and the bus spans replicas, publish the answer so the owning replica
         (subscribed via ``_start_owner_input``) resolves its future.
+
+        ``answered_by`` is the verified subject of whoever sent the answer; it must
+        match the subject the prompt was addressed to.
         """
         if not conversation_id:
             return False
-        if await self.resolve_pending_interaction(conversation_id, user_content):
+        if await self.resolve_pending_interaction(conversation_id, user_content, answered_by):
             return True
         if is_multi_replica_bus():
             try:
@@ -212,12 +269,13 @@ class WebSocketSessionRegistry:
         self,
         conversation_id: str | None,
         future: asyncio.Future[TextContent],
+        awaited_subject: str | None = None,
     ) -> None:
-        """Store the pending HITL future for a conversation."""
+        """Store the pending HITL future for a conversation, and who may answer it."""
         if not conversation_id:
             return
         async with self._lock:
-            self._pending_interactions[conversation_id] = future
+            self._pending_interactions[conversation_id] = (future, awaited_subject)
         # Owner side: while awaiting the answer, subscribe to the input channel so
         # an answer published by a relay on another replica resolves this future.
         if is_multi_replica_bus():
@@ -238,7 +296,10 @@ class WebSocketSessionRegistry:
                     except Exception:
                         logger.warning("Malformed bus HITL answer for %s", conversation_id, exc_info=True)
                         continue
-                    if await self.resolve_pending_interaction(conversation_id, content):
+                    # A bus answer has already been authorized by the replica that
+                    # accepted it from a socket; re-checking here would need the
+                    # subject on the wire and would reject every legitimate relay.
+                    if await self.resolve_pending_interaction(conversation_id, content, _ANY_SUBJECT):
                         return  # answer delivered; stop listening
             except asyncio.CancelledError:
                 raise
@@ -251,13 +312,29 @@ class WebSocketSessionRegistry:
         self,
         conversation_id: str | None,
         user_content: TextContent,
+        answered_by: str | None = None,
     ) -> bool:
-        """Resolve a pending HITL future if it exists."""
+        """Resolve a pending HITL future if one exists AND this answerer may.
+
+        Returns False both when there is nothing pending and when the answerer is
+        not the person who was asked — the caller logs and the prompt stays open for
+        whoever it was for. Refusing rather than raising keeps a stray answer from
+        tearing down a socket.
+        """
         if not conversation_id:
             return False
         async with self._lock:
-            future = self._pending_interactions.get(conversation_id)
-            if future is None or future.done():
+            entry = self._pending_interactions.get(conversation_id)
+            if entry is None:
+                return False
+            future, awaited_subject = entry
+            if future.done():
+                return False
+            if not _may_answer_interaction(awaited_subject, answered_by):
+                logger.warning(
+                    "Refusing HITL answer for conversation %s: addressed to another participant",
+                    conversation_id,
+                )
                 return False
             future.set_result(user_content)
             self._pending_interactions.pop(conversation_id, None)
@@ -328,10 +405,40 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "routing_reason",
     "escalation_reason",
     "answer_confidence_capped_reason",
+    "answer_confidence_reason",
     "citations_removed",
     "job_admission_rejected",
     "retry_after_seconds",
 )
+
+
+def latest_user_text(message: WebSocketUserMessage) -> str | None:
+    """The last non-empty text part of a ``user_message`` frame, or ``None``.
+
+    The Grid client puts a JSON string there (``{"query": ..., "data_sources":
+    [...]}``); this returns it verbatim so the caller can decide what it means.
+    Tolerant by construction — a shape we do not recognise reads as "no text",
+    which routes the frame down the unchanged default path.
+    """
+    try:
+        entries = message.content.messages
+    except AttributeError:
+        return None
+    for entry in reversed(list(entries or [])):
+        for part in reversed(list(getattr(entry, "content", None) or [])):
+            text = getattr(part, "text", None)
+            if isinstance(text, str) and text.strip():
+                return text
+    return None
+
+
+def context_only_directive(message: WebSocketUserMessage) -> ContextOnlyMessage | None:
+    """Read the ingest-only directive off a ``user_message``, if it carries one.
+
+    ``None`` for every ordinary message, which is what keeps the default path free:
+    one JSON parse of a payload the workflow would parse anyway.
+    """
+    return parse_context_only_payload(latest_user_text(message))
 
 
 def _pull_response_extra(data_model: Any, name: str) -> Any:
@@ -397,6 +504,8 @@ async def persist_assistant_message(
     cards: Any = None,
     deep_research_job_id: Any = None,
     answer_confidence: Any = None,
+    answer_confidence_reason: Any = None,
+    answer_confidence_capped_reason: Any = None,
     sources: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
@@ -455,6 +564,10 @@ async def persist_assistant_message(
         metadata["deep_research_job_id"] = deep_research_job_id
     if answer_confidence:
         metadata["answer_confidence"] = answer_confidence
+    if answer_confidence_reason:
+        metadata["answer_confidence_reason"] = answer_confidence_reason
+    if answer_confidence_capped_reason:
+        metadata["answer_confidence_capped_reason"] = answer_confidence_capped_reason
     if sources:
         metadata["sources"] = sources
 
@@ -583,6 +696,75 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         except Exception as exc:  # pragma: no cover - socket may already be closed
             logger.warning("Failed to send auth_expired: %s", exc)
 
+    def _authenticated_subject(self) -> str | None:
+        """Stable identity of the human holding this socket, from VERIFIED claims.
+
+        This is what a pending HITL prompt is bound to. Without it the prompt was
+        bound to nothing: ``_pending_interactions`` is keyed by conversation id
+        alone, so ANY socket registered for that conversation could resolve the
+        future, and in a shared conversation (ADR-0032) that means a colleague
+        could answer a question the assistant asked somebody else. Nothing on the
+        server prevented it — the only thing that did was the answering browser
+        having no local prompt to render, which is a UI accident and not a rule.
+
+        Internal and anonymous callers carry no subject. They are trusted by other
+        means (a service token, not a user), so a null subject must not lock them
+        out — see ``_may_answer_interaction``.
+        """
+        user = self._authenticated_user
+        if not isinstance(user, dict):
+            return None
+        for key in ("sub", "user_id", "id"):
+            value = user.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _authenticated_display_name(self) -> str | None:
+        """Display name of the human holding this socket, from the VERIFIED claims.
+
+        Preferred over the client-supplied ``author_name`` so a caller cannot
+        attribute text to a colleague inside the agent's own history. Internal and
+        anonymous callers carry no name; then the client's value is all there is.
+        """
+        user = self._authenticated_user
+        if not isinstance(user, dict):
+            return None
+        for key in ("name", "email"):
+            value = user.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    async def _ingest_context_only_message(
+        self,
+        message: WebSocketUserMessage,
+        directive: ContextOnlyMessage,
+    ) -> None:
+        """Put a colleague's message into the agent's history and generate NOTHING.
+
+        The whole contract is in what this does *not* do: no workflow, no LLM, no
+        ``system_response_message``, no intermediate or status frame, and the socket
+        is not even registered for relay — nothing will ever be sent back for it. The
+        turn is appended to the conversation's checkpoint so the next time the agent
+        IS addressed, "given that" refers to something.
+
+        Failures are logged, never raised and never surfaced: the human's message is
+        already persisted by the BFF, so the worst case is an agent with a gap in its
+        memory, which must not cost anyone their socket.
+        """
+        conversation_id = message.conversation_id
+        if not conversation_id:
+            logger.warning("Dropping ingest-only message without a conversation id")
+            return
+        text = format_context_turn(directive, author=self._authenticated_display_name())
+        stored = await append_conversation_context(conversation_id, text)
+        if not stored:
+            logger.warning(
+                "Ingest-only message not stored for conversation %s; the agent's history is incomplete",
+                conversation_id,
+            )
+
     async def run(self) -> None:
         """Process websocket messages and allow reconnect HITL responses."""
         if self._authenticated_user is None:
@@ -606,6 +788,15 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                             validated_message.conversation_id,
                         )
                         await self._send_auth_expired_error(validated_message.conversation_id)
+                        continue
+
+                    # Ingest-only (ADR-0034 addendum): a human turn the agent must
+                    # SEE but must not answer. Checked AFTER the re-auth gate — an
+                    # expired token buys no write into the checkpoint either — and
+                    # BEFORE the workflow, because the point is that nothing runs.
+                    directive = context_only_directive(validated_message)
+                    if directive is not None:
+                        await self._ingest_context_only_message(validated_message, directive)
                         continue
 
                     await self.process_workflow_request(validated_message)
@@ -634,6 +825,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     user_content = await self._process_websocket_user_interaction_response_message(validated_message)
                     await _registry.set_socket(validated_message.conversation_id, self._socket)
                     if self._user_interaction_response is not None:
+                        # This handler's OWN future, so the answerer is by
+                        # definition the socket the prompt was sent to — the
+                        # identity check below is what stops a DIFFERENT socket on
+                        # the same conversation resolving it through the registry.
+                        #
                         # Guard against a double-submitted answer (client retry
                         # or double-click): a second set_result would raise
                         # InvalidStateError and tear down the whole handler.
@@ -648,10 +844,17 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         # No local future on THIS handler. Resolve a locally-held
                         # registry future, or (multi-replica) publish the answer so
                         # the owning replica resolves it over the bus.
-                        resolved = await _registry.submit_hitl_answer(validated_message.conversation_id, user_content)
+                        resolved = await _registry.submit_hitl_answer(
+                            validated_message.conversation_id,
+                            user_content,
+                            self._authenticated_subject(),
+                        )
                         if not resolved:
+                            # Either nothing is pending, or this participant is not
+                            # the one who was asked. Both are refusals rather than
+                            # errors: the prompt stays open for whoever it is for.
                             logger.warning(
-                                "No pending HITL interaction to resume for conversation %s",
+                                "No answerable HITL interaction for conversation %s from this participant",
                                 validated_message.conversation_id,
                             )
             except (asyncio.CancelledError, WebSocketDisconnect):
@@ -763,7 +966,17 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             }
 
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
+                # ``message_type`` MUST be forwarded. Both `system_response_message`
+                # and `error_message` map to this one schema class, but the schema
+                # validates content against the discriminator: an `Error` body is
+                # only legal when `type` says `error_message`. Relying on the
+                # builder's `RESPONSE_MESSAGE` default made every workflow-error
+                # frame fail validation, and because the builder swallows that
+                # failure and returns None (see the guard below), the client was
+                # never told the turn had failed and its composer stayed locked
+                # forever -- the exact hang the error frame exists to prevent.
                 message = await self._message_validator.create_system_response_token_message(
+                    message_type=message_type,
                     message_id=message_id,
                     parent_id=self._message_parent_id,
                     conversation_id=self._conversation_id,
@@ -839,6 +1052,19 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     f"Message type could not be resolved by input data model: {data_model.model_dump_json()}"
                 )
 
+            # Every builder above reports failure by returning None rather than
+            # raising (it logs and swallows its own ValidationError). Without
+            # this guard that None falls straight through to ``finally``, which
+            # sends nothing at all -- so a frame we believed we had delivered
+            # silently vanishes and the client waits on a turn that will never
+            # be closed. Turning it into an exception routes it to the fallback
+            # below, which emits a real ERROR frame the client can act on.
+            if message is None:
+                raise ValueError(
+                    f"Websocket message could not be built for type {message_type!r} "
+                    f"from content {type(content).__name__}"
+                )
+
         except (ValidationError, ValueError, TypeError) as exc:
             logger.exception("A data validation error occurred creating websocket message: %s", str(exc))
             message = await self._message_validator.create_system_response_token_message(
@@ -903,6 +1129,8 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             cards = dump.get("cards")
             deep_research_job_id = dump.get("deep_research_job_id")
             answer_confidence = dump.get("answer_confidence")
+            answer_confidence_reason = dump.get("answer_confidence_reason")
+            answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
             sources = dump.get("sources")
 
             if not (text and text.strip()) and not cards:
@@ -916,6 +1144,8 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 cards=cards,
                 deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
+                answer_confidence_reason=answer_confidence_reason,
+                answer_confidence_capped_reason=answer_confidence_capped_reason,
                 sources=sources,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
@@ -927,7 +1157,9 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         """
         human_response_future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
         self._user_interaction_response = human_response_future
-        await _registry.register_pending_interaction(self._conversation_id, human_response_future)
+        # Bound to the person the assistant is asking, so only they can answer it.
+        awaited_subject = self._authenticated_subject()
+        await _registry.register_pending_interaction(self._conversation_id, human_response_future, awaited_subject)
 
         try:
             await self.create_websocket_message(
@@ -939,7 +1171,26 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if isinstance(prompt.content, HumanPromptNotification):
                 return HumanResponseNotification()
 
-            text_content: TextContent = await human_response_future
+            # Bounded, because an unanswered prompt used to hang the turn — and its
+            # langgraph checkpoint — indefinitely: the only thing that ever released
+            # it was a NEW turn on the same conversation cancelling the stale task.
+            # A shared conversation makes that worse rather than better, since the
+            # asker may simply have closed the tab while colleagues keep reading.
+            #
+            # On expiry the prompt is abandoned rather than answered: raising
+            # TimeoutError propagates as a turn failure, which is a state the client
+            # already renders, instead of fabricating a response the user never gave.
+            try:
+                text_content: TextContent = await asyncio.wait_for(
+                    human_response_future, timeout=HITL_RESPONSE_TIMEOUT_SECONDS
+                )
+            except TimeoutError:
+                logger.warning(
+                    "HITL prompt expired unanswered after %ss (conversation %s)",
+                    HITL_RESPONSE_TIMEOUT_SECONDS,
+                    self._conversation_id,
+                )
+                raise
             interaction_response: HumanResponse = await self._message_validator.convert_text_content_to_human_response(
                 text_content, prompt.content
             )
@@ -981,57 +1232,73 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     # COMPLETE — is preserved exactly.
                     saw_content_delta = False
                     saw_terminal = False
-                    async for value in generate_streaming_response(
-                        payload,
-                        session=session,
-                        streaming=True,
-                        step_adaptor=self._step_adaptor,
-                        result_type=result_type,
-                        output_type=output_type,
-                    ):
-                        if isinstance(value, ResponseObservabilityTrace):
-                            if self._pending_observability_trace is None:
-                                self._pending_observability_trace = value
-                            continue
+                    # `aclosing`, not a bare `async for`. Leaving this loop early
+                    # -- a client disconnect, or any send below raising -- does
+                    # NOT close the generator: Python leaves it suspended and the
+                    # event loop's async-generator finalizer runs `aclose()` later,
+                    # from a DIFFERENT task and context. NAT's stream sets
+                    # contextvars on entry and resets them in its `finally`, so
+                    # that foreign-context teardown raised
+                    # `ValueError: <Token ...> was created in a different Context`
+                    # (issues #337, #338) and left its producer task holding an
+                    # unretrieved `QueueClosed` (#334) -- three ERROR-severity
+                    # reports per dropped connection, none of them a real fault.
+                    # Closing it here runs the same teardown inside the task that
+                    # opened it, where the tokens belong.
+                    async with contextlib.aclosing(
+                        generate_streaming_response(
+                            payload,
+                            session=session,
+                            streaming=True,
+                            step_adaptor=self._step_adaptor,
+                            result_type=result_type,
+                            output_type=output_type,
+                        )
+                    ) as workflow_stream:
+                        async for value in workflow_stream:
+                            if isinstance(value, ResponseObservabilityTrace):
+                                if self._pending_observability_trace is None:
+                                    self._pending_observability_trace = value
+                                continue
 
-                        finish_reason = _chunk_finish_reason(value)
-                        if finish_reason == "stop":
-                            saw_terminal = True
-                            if saw_content_delta:
-                                # Streaming mode: the terminal is the finalizing
-                                # frame (full text + cards/sources), sent COMPLETE.
+                            finish_reason = _chunk_finish_reason(value)
+                            if finish_reason == "stop":
+                                saw_terminal = True
+                                if saw_content_delta:
+                                    # Streaming mode: the terminal is the finalizing
+                                    # frame (full text + cards/sources), sent COMPLETE.
+                                    await self.create_websocket_message(
+                                        data_model=value,
+                                        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                                        status=WebSocketMessageStatus.COMPLETE,
+                                    )
+                                else:
+                                    # Single-response mode (streaming disabled):
+                                    # reproduce the pre-streaming frame pattern exactly.
+                                    await self.create_websocket_message(
+                                        data_model=value,
+                                        status=WebSocketMessageStatus.IN_PROGRESS,
+                                    )
+                                    await self.create_websocket_message(
+                                        data_model=SystemResponseContent(),
+                                        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                                        status=WebSocketMessageStatus.COMPLETE,
+                                    )
+                            elif isinstance(value, ChatResponseChunk):
+                                # A streamed answer delta — accumulate on the client,
+                                # never persist a partial on disconnect.
+                                saw_content_delta = True
                                 await self.create_websocket_message(
                                     data_model=value,
-                                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
-                                    status=WebSocketMessageStatus.COMPLETE,
+                                    status=WebSocketMessageStatus.IN_PROGRESS,
+                                    persist_on_drop=False,
                                 )
                             else:
-                                # Single-response mode (streaming disabled):
-                                # reproduce the pre-streaming frame pattern exactly.
+                                # Non-chunk streamed value — preserve prior behavior.
                                 await self.create_websocket_message(
                                     data_model=value,
                                     status=WebSocketMessageStatus.IN_PROGRESS,
                                 )
-                                await self.create_websocket_message(
-                                    data_model=SystemResponseContent(),
-                                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
-                                    status=WebSocketMessageStatus.COMPLETE,
-                                )
-                        elif isinstance(value, ChatResponseChunk):
-                            # A streamed answer delta — accumulate on the client,
-                            # never persist a partial on disconnect.
-                            saw_content_delta = True
-                            await self.create_websocket_message(
-                                data_model=value,
-                                status=WebSocketMessageStatus.IN_PROGRESS,
-                                persist_on_drop=False,
-                            )
-                        else:
-                            # Non-chunk streamed value — preserve prior behavior.
-                            await self.create_websocket_message(
-                                data_model=value,
-                                status=WebSocketMessageStatus.IN_PROGRESS,
-                            )
 
                 # If the workflow never produced a terminal chunk (empty stream or
                 # an error surfaced elsewhere), still close the turn with the

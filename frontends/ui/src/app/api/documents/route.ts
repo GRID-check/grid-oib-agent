@@ -11,7 +11,10 @@ const listDocumentsQuerySchema = z.object({
   projectId: z.string().min(1),
 })
 
-export const GET = apiRoute(async ({ session, request }) => {
-  const { projectId } = parseQuery(request, listDocumentsQuerySchema)
-  return { documents: await listDocuments(session, projectId) }
-})
+export const GET = apiRoute(
+  async ({ session, request }) => {
+    const { projectId } = parseQuery(request, listDocumentsQuerySchema)
+    return { documents: await listDocuments(session, projectId) }
+  },
+  { authz: { enforcedBy: 'listDocuments (requireProjectAccess project:view)' } }
+)

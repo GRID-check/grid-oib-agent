@@ -14,11 +14,16 @@ import {
 import { Chip, ChipCount } from '@/components/ui/chip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useTranslations } from '@/i18n'
-import { useConversationMemory } from '../hooks/use-conversation-memory'
+import type { ConversationMemoryItem } from '../hooks/use-conversation-memory'
 
 interface MemoryNotedChipProps {
-  projectId: string | null | undefined
-  conversationId: string | null | undefined
+  /**
+   * The items recorded during this conversation. Fetched ONCE by the answer that
+   * owns the footer, because the answer also needs to know whether any exist to
+   * decide whether the meta row renders at all — a second `useConversationMemory`
+   * here would poll the same endpoint twice per answer.
+   */
+  items: ConversationMemoryItem[]
 }
 
 const KIND_META: Record<string, { icon: LucideIcon; labelKey: string }> = {
@@ -35,9 +40,8 @@ const KIND_META: Record<string, { icon: LucideIcon; labelKey: string }> = {
  * post-answer reflection stage), which otherwise land silently. Renders nothing
  * until at least one item exists.
  */
-export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ projectId, conversationId }) => {
+export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ items }) => {
   const t = useTranslations('chat')
-  const { items } = useConversationMemory(projectId, conversationId)
 
   /** In-turn `remember` vs the async reflection stage (provenance 'distillation'). */
   const provenanceLabel = (provenanceType: string): string =>

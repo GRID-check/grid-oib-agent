@@ -10,12 +10,13 @@
 
 'use client'
 
-import { type FC, useCallback, useEffect } from 'react'
+import { type FC, useCallback } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { BranchOptions } from './reasoning/BranchOptions'
 import { useChatStore } from '../store'
 import type { PromptType } from '../types'
 
@@ -53,6 +54,19 @@ export interface AgentPromptProps {
   onRespond?: (promptId: string, response: string) => void
   /** Timestamp (Date or ISO string from persisted state) */
   timestamp?: Date | string
+  /**
+   * Whether THIS reader is the person the agent asked (ADR-0037).
+   *
+   * Defaults to true, which is right for a live prompt: the browser holding the
+   * socket is the addressee by construction. It is false only for a colleague in a
+   * shared thread reading a prompt restored from the server — and for them the
+   * actions must not render, because the agent tier refuses an answer from anybody
+   * but the addressee (`_may_answer_interaction`), so a button would be offering a
+   * refusal.
+   */
+  isAddressee?: boolean
+  /** Who was asked, for the read-only line a colleague sees instead of buttons. */
+  addresseeName?: string | null
 }
 
 /**
@@ -69,12 +83,15 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   isResponded = false,
   response,
   timestamp,
+  isAddressee = true,
+  addresseeName,
 }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
   const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
-  const showApprovalButtons = isApprovalPrompt && !isResponded && !!respondToInteractionFn
+  const showApprovalButtons =
+    isApprovalPrompt && !isResponded && !!respondToInteractionFn && isAddressee
   // Replace the English envelope sentence with localized copy rendered below.
   const displayContent = isApprovalPrompt
     ? content.replace(APPROVAL_PROMPT_STRIP_RE, '').trim()
@@ -89,11 +106,13 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   }, [respondToInteractionFn])
 
   return (
-    <div className="flex w-full justify-start">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-200 motion-reduce:animate-none">
       <div className="flex max-w-[85%] flex-col">
         <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
           {/* Agent icon and label */}
-          <div className={`flex items-center gap-2 ${isResponded ? 'opacity-75' : ''}`}>
+          <div
+            className={`flex items-center gap-2 transition-opacity duration-300 motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+          >
             <MessageSquare className="h-5 w-5 text-muted-foreground" />
             <span className="text-sm font-semibold text-muted-foreground">
               {isResponded ? t('agentPrompt.receivedInput') : t('agentPrompt.needsInput')}
@@ -101,18 +120,41 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
           </div>
 
           {/* Content - rendered as markdown */}
-          <div className={`prose prose-sm max-w-none ${isResponded ? 'opacity-75' : ''}`}>
+          <div
+            className={`prose prose-sm max-w-none transition-opacity duration-300 motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+          >
             <MarkdownRenderer content={displayContent} />
           </div>
 
-          {/* Options list for choice prompts */}
-          {options.length > 0 && !isResponded && (
-            <OptionsList options={options} onSelect={respondToInteractionFn} />
+          {/* Choice prompts render as the shared Folgewege branch-picker cards
+              (same look as the trace's BranchesNode). After answering, the
+              chosen card stays selected and the rest dim, so the picker doubles
+              as the response display. */}
+          {options.length > 0 && (
+            <BranchOptions
+              options={options}
+              selected={isResponded ? response : undefined}
+              // A colleague sees the choices as a settled list, not a picker: the
+              // question is not theirs to answer.
+              isResponded={isResponded || !isAddressee}
+              onSelect={isAddressee ? (respondToInteractionFn ?? undefined) : undefined}
+              digitShortcuts={isAddressee}
+            />
+          )}
+
+          {/* Why a colleague has no buttons. Without a line here the card reads as
+              broken rather than as somebody else's turn. */}
+          {!isAddressee && !isResponded && (
+            <p data-testid="agent-prompt-awaiting-other" className="text-xs text-muted-foreground">
+              {addresseeName
+                ? t('agentPrompt.awaitingOther', { name: addresseeName })
+                : t('agentPrompt.awaitingSomeone')}
+            </p>
           )}
 
           {/* Localized instruction + duration/cost expectation for plan
               approval prompts, shown at the decision point (before approval). */}
-          {isApprovalPrompt && !isResponded && (
+          {isApprovalPrompt && !isResponded && isAddressee && (
             <div className="flex flex-col gap-1">
               <span className="text-sm text-foreground">
                 {t('agentPrompt.approvalInstruction')}
@@ -145,8 +187,9 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
             </div>
           )}
 
-          {/* Response display (only shown after user responds) */}
-          {isResponded && <ResponseDisplay response={response} />}
+          {/* Response display for NON-choice prompts (text/approval). Choice
+              prompts show their answer via the selected branch card above. */}
+          {isResponded && options.length === 0 && <ResponseDisplay response={response} />}
         </div>
 
         {/* Timestamp outside bubble, right-aligned */}
@@ -156,84 +199,6 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
           </span>
         )}
       </div>
-    </div>
-  )
-}
-
-/**
- * Options for choice prompts. When a response callback is available each option
- * is a focusable button that submits that option as the interaction answer on
- * click or Enter/Space — matching the immediate-submit behaviour of the inline
- * approve/reject buttons. Without a callback the options fall back to read-only.
- *
- * Digit keys 1–9 also select the matching option, making the numeric prefixes
- * shown on each row real shortcuts. The listener is deliberately scoped so it
- * can never hijack digits meant for another control: it bails when focus is in
- * an editable element (the composer, any input/textarea/contenteditable) and
- * when a modifier is held (so e.g. ⌘1 / Ctrl+1 still switches browser tabs).
- * Only the active, unresponded choice prompt mounts this list with a callback,
- * so at most one such listener is live at a time.
- */
-const OptionsList: FC<{
-  options: string[]
-  onSelect?: ((response: string) => void) | null
-}> = ({ options, onSelect }) => {
-  const t = useTranslations('chat')
-
-  useEffect(() => {
-    if (!onSelect) return
-    const handleDigit = (e: globalThis.KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      const active = document.activeElement
-      if (
-        active instanceof HTMLInputElement ||
-        active instanceof HTMLTextAreaElement ||
-        active instanceof HTMLSelectElement ||
-        (active instanceof HTMLElement && active.isContentEditable)
-      ) {
-        return
-      }
-      if (!/^[1-9]$/.test(e.key)) return
-      const index = Number(e.key) - 1
-      if (index >= options.length) return
-      e.preventDefault()
-      onSelect(options[index])
-    }
-    document.addEventListener('keydown', handleDigit)
-    return () => document.removeEventListener('keydown', handleDigit)
-  }, [options, onSelect])
-
-  return (
-    <div className="flex flex-col gap-1">
-      {options.map((option, index) => {
-        const content = (
-          <>
-            <span className="text-subtle text-xs">{index + 1}.</span>
-            <span className="text-sm">{option}</span>
-          </>
-        )
-        if (!onSelect) {
-          return (
-            <div
-              key={index}
-              className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2"
-            >
-              {content}
-            </div>
-          )
-        }
-        return (
-          <button
-            key={index}
-            type="button"
-            onClick={() => onSelect(option)}
-            aria-label={t('agentPrompt.selectOption', { option })}
-            className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            {content}
-          </button>
-        )
-      })}
     </div>
   )
 }

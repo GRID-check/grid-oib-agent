@@ -37,7 +37,8 @@ import { useLayoutStore } from '@/features/layout/store'
 import { useTranslations } from '@/i18n'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
-import { normalizeOrigin } from '../lib/wire-citation'
+import { dedupeBufferedCitations } from '../lib/wire-citation'
+import type { WireCitationSource } from '../types'
 
 const STREAM_BACKED_RESEARCH_TABS = new Set<ResearchPanelTab>(['tasks', 'thinking'])
 
@@ -98,6 +99,16 @@ const isAnotherJobStreaming = (jobId: string): boolean => {
       state.deepResearchJobId !== jobId
   )
 }
+
+/** True when THIS job is the one already streaming live into the panel. */
+const isJobStreamingLive = (jobId: string): boolean => {
+  const state = useChatStore.getState()
+  return Boolean(state.isDeepResearchStreaming && state.deepResearchJobId === jobId)
+}
+
+/** Job statuses that mean the run is over, one way or another. */
+const isTerminalJobStatus = (status: DeepResearchJobStatus): boolean =>
+  status === 'success' || status === 'failure' || status === 'interrupted'
 
 const isJobLoadScopeCurrent = (scope: JobLoadScope): boolean => {
   const state = useChatStore.getState()
@@ -206,6 +217,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const setStreaming = useChatStore((s) => s.setStreaming)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
+  const attachToDeepResearchJob = useChatStore((s) => s.attachToDeepResearchJob)
 
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
@@ -213,6 +225,24 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const clearError = useCallback(() => {
     setError(null)
   }, [])
+
+  /**
+   * Follow a run that is still in progress: bind it to the panel so
+   * `useDeepResearch` connects its SSE stream (replay first, then live) and
+   * show the Tasks tab, where the progress actually appears.
+   *
+   * This is what makes a job that was started somewhere else — a workflow run
+   * (manual or scheduled), or a run opened from the run history / another
+   * device — watchable instead of a dead "the run is still in progress" error.
+   */
+  const followRunningJob = useCallback(
+    (jobId: string): void => {
+      attachToDeepResearchJob(jobId)
+      setResearchPanelTab('tasks')
+      openRightPanel('research')
+    },
+    [attachToDeepResearchJob, setResearchPanelTab, openRightPanel]
+  )
 
   const syncMissingJobToFailureState = useCallback(
     (jobId: string): void => {
@@ -394,19 +424,9 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             }
           >(),
           todos: null as TodoItem[] | null,
-          citations: [] as Array<{
-            url: string
-            content: string
-            isCited: boolean
-            title?: string
-            citationKey?: string
-            collection?: string
-            sourceType?: string
-            tool?: string
-            origin?: string
-            fileName?: string
-            page?: number
-          }>,
+          // Buffered as the raw wire so the commit below normalizes exactly
+          // once, through the same `citationFromWire` the live path uses.
+          citations: [] as Array<{ wire: WireCitationSource; isCited: boolean }>,
           files: new Map<string, string>(), // filename -> latest content (deduped)
           reportContent: null as string | null,
           reportCards: null as unknown[] | null,
@@ -455,21 +475,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             timestamp: now,
           }))
 
-          const citations = buffer.citations.map((c, idx) => ({
-            id: `citation-${idx}`,
-            url: c.url || undefined,
-            content: c.content,
-            isCited: c.isCited,
-            timestamp: now,
-            title: c.title,
-            citationKey: c.citationKey,
-            collection: c.collection,
-            sourceType: c.sourceType,
-            tool: c.tool,
-            origin: normalizeOrigin(c.origin),
-            fileName: c.fileName,
-            page: c.page,
-          }))
+          const citations = dedupeBufferedCitations(buffer.citations, now)
 
           const files = Array.from(buffer.files.entries()).map(([filename, content], idx) => ({
             id: `file-${idx}`,
@@ -629,20 +635,8 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               buffer.todos = todos
             },
 
-            onCitationUpdate: (url, content, isCited, extras) => {
-              buffer.citations.push({
-                url,
-                content,
-                isCited: isCited ?? false,
-                title: extras?.title,
-                citationKey: extras?.citationKey,
-                collection: extras?.collection,
-                sourceType: extras?.sourceType,
-                tool: extras?.tool,
-                origin: extras?.origin,
-                fileName: extras?.fileName,
-                page: extras?.page,
-              })
+            onCitationUpdate: (wire, isCited) => {
+              buffer.citations.push({ wire, isCited })
             },
 
             onFileUpdate: (filename, content) => {
@@ -717,6 +711,13 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // Already following this job live — re-binding would restart its stream
+      // and drop the progress collected so far.
+      if (isJobStreamingLive(jobId)) {
+        openRightPanel('research')
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -726,10 +727,11 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
 
         if (!isJobLoadScopeCurrent(scope)) return
 
-        if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
-          // This message is user-facing: it becomes err.message below, which
-          // flows into the error state (rendered as a tooltip) and error card.
-          throw new Error(tChat('deepResearchErrors.jobStillRunning'))
+        if (!isTerminalJobStatus(jobStatus)) {
+          // The run is still going: follow it live rather than reporting a
+          // dead end. There is no report yet — the Tasks tab shows progress.
+          followRunningJob(jobId)
+          return
         }
 
         // Re-check after the await: a live run for another job may have
@@ -794,6 +796,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
       idToken,
       tChat,
       clearDeepResearch,
+      followRunningJob,
       loadJobDataFast,
       streamFullJob,
       setLoadedJobId,
@@ -833,7 +836,8 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
    * Import stream data only - does NOT change panel tab
    * Use when loading stream data for an already-open tab (e.g., Tasks/Thinking/Citations)
    * Checks ephemeral cache first to avoid duplicate API calls
-   * Silently returns if job is still in progress (active SSE will populate data)
+   * A job still in progress is followed live instead of replayed — that path
+   * switches the panel to Tasks, where a run's live progress renders.
    */
   const importStreamOnly = useCallback(
     async (jobId: string): Promise<void> => {
@@ -851,6 +855,11 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // This job's live SSE is already connected and populating the panel.
+      if (isJobStreamingLive(jobId)) {
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -860,10 +869,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
 
         if (!isJobLoadScopeCurrent(scope)) return
 
-        if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
-          // Job is still in progress - silently return (live SSE will populate data)
-          // This is expected when opening tabs for active jobs
-          setIsLoading(false)
+        if (!isTerminalJobStatus(jobStatus)) {
+          // Still in progress: attach the live stream so the tab fills up as
+          // the run works, instead of staying empty until it finishes.
+          followRunningJob(jobId)
           return
         }
 
@@ -916,6 +925,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
       idToken,
       tChat,
       clearDeepResearch,
+      followRunningJob,
       streamFullJob,
       stopAllDeepResearchSpinners,
       setStreamLoaded,

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const session = {
@@ -22,7 +25,8 @@ vi.mock('@/lib/budgets/service', () => ({
 
 import { GET } from './route'
 
-const request = (url = 'http://localhost/api/auth/connection-diagnostics'): Request => new Request(url)
+const request = (url = 'http://localhost/api/auth/connection-diagnostics'): Request =>
+  new Request(url)
 
 describe('GET /api/auth/connection-diagnostics', () => {
   beforeEach(() => {
@@ -45,7 +49,7 @@ describe('GET /api/auth/connection-diagnostics', () => {
     })
 
     const res = await GET(
-      request('http://localhost/api/auth/connection-diagnostics?projectId=proj-9'),
+      request('http://localhost/api/auth/connection-diagnostics?projectId=proj-9')
     )
 
     expect(res.status).toBe(200)

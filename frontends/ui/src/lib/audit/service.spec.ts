@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
@@ -38,7 +41,7 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     const [orgId, event] = createEvent.mock.calls[0]
     expect(orgId).toBe('org_1')
     expect(event.action).toBe('budget.policy.set')
-    expect(event.actor).toEqual({ type: 'user', id: 'user_1', name: 'admin@acme.at' })
+    expect(event.actor).toEqual({ type: 'user', id: 'user_1', name: 'admin@acme.at', metadata: {} })
     expect(event.targets).toEqual([{ type: 'budget_policy', id: 'policy_1' }])
     // First x-forwarded-for hop is the client.
     expect(event.context).toEqual({ location: '203.0.113.7', userAgent: 'vitest' })
@@ -57,7 +60,29 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     const [, event] = createEvent.mock.calls[0]
     expect(event.targets).toEqual([{ type: 'organization', id: 'org_1' }])
     expect(event.context.location).toBe('unknown')
-    expect(event.metadata).toBeUndefined()
+    expect(event.metadata).toEqual({})
+  })
+
+  // Issues #274/#277. WorkOS derives the validator from the registered schema
+  // and marks BOTH `metadata` and `actor.metadata` required for every action
+  // that registers a metadata map — so an omitted key is a 400, not a smaller
+  // event, and the emitter swallows that 400 by design. Both keys must
+  // therefore be present on every emit, whatever the caller passed.
+  it.each([
+    ['no metadata at all', undefined],
+    ['metadata that is entirely null', { subject: null, role: undefined }],
+  ])('always sends actor.metadata and metadata — %s', async (_case, metadata) => {
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { userId: 'user_1' },
+      action: 'resource.shared',
+      targetType: 'conversation',
+      targetId: 'conv_1',
+      metadata: metadata as Record<string, string | number | boolean | null | undefined> | undefined,
+    })
+    const [, event] = createEvent.mock.calls[0]
+    expect(event.actor.metadata).toEqual({})
+    expect(event.metadata).toEqual({})
   })
 
   it('never throws — a WorkOS failure is logged, not propagated', async () => {

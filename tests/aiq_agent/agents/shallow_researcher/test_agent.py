@@ -410,7 +410,14 @@ class TestShallowResearcherAgent:
         assert "[ESCALATE_TO_DEEP]" in agent.system_prompt
         assert "exactly as written" in agent.system_prompt
 
-    def _render_default_prompt(self, mock_llm_provider, real_tool, *, requires_sources: bool) -> str:
+    def _render_default_prompt(
+        self,
+        mock_llm_provider,
+        real_tool,
+        *,
+        requires_sources: bool,
+        project_context: str | None = None,
+    ) -> str:
         from aiq_agent.common import render_prompt_template
 
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
@@ -420,7 +427,7 @@ class TestShallowResearcherAgent:
             user_info=None,
             current_datetime="2026-07-15",
             available_documents=[],
-            project_context=None,
+            project_context=project_context,
             ris_catalog=None,
             requires_sources=requires_sources,
         )
@@ -429,10 +436,32 @@ class TestShallowResearcherAgent:
         """requires_sources=False renders a deterministic suppression note and no marker mandate."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)
 
-        assert "classified as conversational / meta" in rendered
+        assert "<turn_classification>" in rendered
+        assert "NOT a research turn" in rendered
         # The marker-mandate blocks are omitted on meta turns.
         assert "<insufficient_answer_marker>" not in rendered
         assert "<confidence_marker>" not in rendered
+
+    def test_project_memory_is_framed_as_fallible_not_binding(self, mock_llm_provider, real_tool):
+        """The digest rides inside <project_context>, whose "binding constraints —
+        never contradict them" rule is meant for CONFIRMED profile facts. Without an
+        explicit carve-out, agent-authored `unverified` notes inherit that weight and
+        the agent defends stale memory instead of accepting a correction."""
+        rendered = self._render_default_prompt(
+            mock_llm_provider,
+            real_tool,
+            requires_sources=True,
+            project_context=(
+                "PROJECT_MEMORY v1\n"
+                '- [derived_fact | high | unverified] "Für Bergsteiggasse ist OIB-RL 2.1 nicht anwendbar"'
+            ),
+        )
+
+        assert "not** confirmed project facts" in rendered
+        assert "The current conversation outranks memory, always." in rendered
+        assert "never argue the user out of their own correction" in rendered
+        # Memory must never be laundered into a legal citation.
+        assert "never a source for a legal requirement" in rendered
 
     def test_research_turn_prompt_keeps_marker_mandate(self, mock_llm_provider, real_tool):
         """requires_sources=True keeps the marker mandate and omits the suppression note."""
@@ -1633,6 +1662,73 @@ class TestShallowResearcherAnswerGrounding:
         result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
         assert result.verified_sources is None
 
+    # --- citation numbers: the [N] label each cited source carries in the prose ---
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_carry_their_citation_number(self, mock_llm_provider, mock_llm):
+        # The [N] → source binding exists only inside verify_citations. Emitting
+        # it lets the frontend render ONE numbered provenance block instead of
+        # the written source list plus an unnumbered chip row.
+        mock_llm.ainvoke.return_value = AIMessage(content="Antwort [1][2].")
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
+        registry.add(SourceEntry(citation_key="oib-rl_4.pdf, p.9", title="OIB 4", tool_name="kb_search"))
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Antwort [1][2].",
+                valid_citations=[
+                    {"number": 1, "url": "https://example.com/a", "citation_key": None, "line": "[1]"},
+                    {"number": 2, "url": None, "citation_key": "oib-rl_4.pdf, p.9", "line": "[2]"},
+                ],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert [s["number"] for s in result.verified_sources] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_minimal_citation_source_is_numbered_one(self, mock_llm_provider, mock_llm):
+        # ``_append_minimal_citation`` writes "[1]" into the answer, so the one
+        # emitted source must claim that number.
+        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool"))
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Answer without any citation.",
+                valid_citations=[],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert [s["number"] for s in result.verified_sources] == [1]
+
+    @pytest.mark.asyncio
+    async def test_citation_numbers_survive_the_sanitize_renumber(self, mock_llm_provider, mock_llm):
+        # Real pipeline (no mocked verifier): the model cites [1] and [2], but
+        # [1] is fabricated. verify_citations drops it, then sanitize_report
+        # closes the gap so the surviving source becomes [1] in the prose. The
+        # wire number must follow, or the chip is labelled [2] while the answer
+        # points at [1] — and the inline marker's anchor leads nowhere.
+        answer = (
+            "Erfunden [1]. Belegt [2].\n\n"
+            "**References:**\n"
+            "- [1] Fake - https://not-in-registry.example/x\n"
+            "- [2] Real - https://example.com/real\n"
+        )
+        mock_llm.ainvoke.return_value = AIMessage(content=answer)
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/real", title="Real", tool_name="web_search_tool"))
+
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+        result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+
+        final_text = result.messages[-1].content
+        assert "[2]" not in final_text  # the gap was closed
+        assert "Belegt [1]" in final_text
+        assert [s["number"] for s in result.verified_sources] == [1]
+        assert [s["url"] for s in result.verified_sources] == ["https://example.com/real"]
+
     # --- citations_removed: transparency summary of dropped citations ---
 
     @pytest.mark.asyncio
@@ -1793,3 +1889,194 @@ class TestShallowResearcherQuoteVerification:
     def test_state_defaults_quotes_verified_true(self):
         state = ShallowResearchAgentState(messages=[HumanMessage(content="hi")])
         assert state.answer_quotes_verified is True
+
+
+class TestShallowClarificationGuidance:
+    """The shallow agent must be told to push back on under-specified queries —
+    in shallow mode too, and independent of whether project_context is present.
+
+    Regression: the only Rueckfrage/pushback guidance lived INSIDE the
+    ``{% if project_context %}`` block, so a shallow turn with no project brief
+    got zero clarification guidance and always answered straight through.
+    """
+
+    def _render(self, *, requires_sources: bool, project_context):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(
+            Path(shallow_agent.__file__).parent / "prompts",
+            "researcher",
+        )
+        return render_prompt_template(
+            prompt,
+            tools=[{"name": "knowledge_search"}],
+            user_info={"name": "Alex", "email": "a@example.com"},
+            current_datetime="2026-07-23",
+            available_documents=[],
+            project_context=project_context,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=requires_sources,
+        )
+
+    def test_clarification_guidance_present_on_research_turn_without_project_context(self):
+        """A research turn (requires_sources=True) with NO project context still
+        gets the push-back guidance — the core regression."""
+        rendered = self._render(requires_sources=True, project_context=None)
+        assert "<clarification>" in rendered
+        assert "Folgefrage" in rendered
+        # It must explicitly extend push-back to the shallow/quick path.
+        lowered = rendered.lower()
+        assert "shallow" in lowered
+        # And it must teach the "state your assumption" alternative, not only asking.
+        assert "assumption" in lowered
+
+    def test_clarification_guidance_present_with_project_context_too(self):
+        rendered = self._render(requires_sources=True, project_context="facts:\n  bundesland: unknown")
+        assert "<clarification>" in rendered
+        assert "Folgefrage" in rendered
+
+    def test_clarification_guidance_suppressed_on_meta_turn(self):
+        """Meta/conversational turns (requires_sources=False) answer/redirect
+        directly and must NOT carry the research push-back block."""
+        rendered = self._render(requires_sources=False, project_context=None)
+        assert "<clarification>" not in rendered
+
+
+class TestOffTopicDeclineShape:
+    """Out-of-scope questions route to the assistant as `meta`, but the assistant
+    must DECLINE + redirect them — not answer them from its own knowledge.
+
+    Regression: the meta output shape said "answer from your own knowledge", so a
+    clearly off-topic question (e.g. "how do I bake a cake") classified `meta`
+    risked getting a cheerful full answer. The contract now carves out an
+    explicit off-topic decline shape.
+    """
+
+    def _render_meta(self):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(Path(shallow_agent.__file__).parent / "prompts", "researcher")
+        # requires_sources=False is the meta/off-topic (non-research) turn.
+        return render_prompt_template(
+            prompt,
+            tools=[],
+            user_info={"name": "Alex", "email": "a@example.com"},
+            current_datetime="2026-07-23",
+            available_documents=[],
+            project_context=None,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=False,
+        )
+
+    def test_contract_has_explicit_off_topic_decline_shape(self):
+        rendered = self._render_meta()
+        assert "Off-topic / out-of-scope turn" in rendered
+        # The decisive instruction: do not answer, decline + redirect.
+        assert "Do NOT answer" in rendered
+        lowered = rendered.lower()
+        assert "decline" in lowered and "redirect" in lowered
+        # A worked off-topic decline example is present to anchor the behavior.
+        assert 'type="off_topic"' in rendered
+
+    def test_in_scope_conversational_shape_still_answers(self):
+        """Guard against over-correction: genuine conversational/platform turns
+        (greetings, capability questions) are still answered directly."""
+        rendered = self._render_meta()
+        assert "in-scope meta turn" in rendered
+        # The capability example that DOES answer is retained.
+        assert 'type="meta"' in rendered
+
+    def test_non_research_turn_classification_points_at_both_shapes(self):
+        """The requires_sources=False banner must not blanket-say 'reply
+        directly' (which pushed toward answering off-topic questions)."""
+        rendered = self._render_meta()
+        banner = rendered.split("<turn_classification>")[1].split("</turn_classification>")[0]
+        assert "off-topic" in banner.lower()
+        assert "decline" in banner.lower()
+
+
+class TestKnowledgeInventoryIsNotCitable:
+    """The corpus inventory in the prompt must not read as citable evidence.
+
+    Every research turn renders the whole knowledge base — base OIB corpus
+    included — as `file_name: summary` lines. Those filenames are the exact
+    citation keys verification matches against, so a model that cites one it
+    never retrieved produces citations that are all dropped
+    (`citation_key_not_in_registry`) and an answer that ships with no source at
+    all. The prompt used to forbid recalling URLs from memory but said nothing
+    about document keys, while handing the model a list of them.
+    """
+
+    def _render(self, prompt: str, documents: list[dict]) -> str:
+        from aiq_agent.common import render_prompt_template
+
+        return render_prompt_template(
+            prompt,
+            tools=[{"name": "knowledge_search", "description": "Search the knowledge base"}],
+            user_info=None,
+            current_datetime="2026-07-28",
+            available_documents=documents,
+            project_context=None,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=True,
+            execution_enabled=False,
+            jurisdiction_grounding=None,
+            enable_source_router=False,
+            max_research_concurrency=3,
+        )
+
+    @staticmethod
+    def _prompt(path: str) -> str:
+        from pathlib import Path
+
+        import aiq_agent
+
+        return (Path(aiq_agent.__file__).parent / "agents" / path).read_text(encoding="utf-8")
+
+    DOCUMENTS = [{"file_name": "oib-rl_2_ausgabe_mai_2023.pdf", "summary": "Brandschutz.", "tags": []}]
+
+    def test_shallow_prompt_marks_the_inventory_as_not_a_source(self):
+        rendered = self._render(self._prompt("shallow_researcher/prompts/researcher.j2"), self.DOCUMENTS)
+
+        # The inventory still lists the file — the agent must know it exists.
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" in rendered
+        # …but it is labelled an index, not evidence.
+        assert "NOT sources" in rendered
+        assert "not a citable source" in rendered
+        # And the anti-memory rule covers document keys, not only URLs.
+        citation_block = rendered.split("<citation_format>")[1].split("</citation_format>")[0]
+        assert "document citation keys" in citation_block
+        assert "knowledge_search" in citation_block
+
+    def test_deep_researcher_prompt_marks_the_inventory_as_not_a_source(self):
+        rendered = self._render(self._prompt("deep_researcher/prompts/researcher.j2"), self.DOCUMENTS)
+
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" in rendered
+        assert "NOT sources" in rendered
+        assert "not a citable source" in rendered
+
+    def test_no_prompt_still_calls_the_base_corpus_a_user_upload(self):
+        """The list mixes the platform's OIB corpus with project uploads, so
+        "User Uploaded Documents" was also simply untrue — and a heading rename
+        must not leave dangling references to the old one."""
+        for path in (
+            "shallow_researcher/prompts/researcher.j2",
+            "deep_researcher/prompts/researcher.j2",
+            "deep_researcher/prompts/orchestrator.j2",
+        ):
+            source = self._prompt(path)
+            assert "Uploaded Documents" not in source, path

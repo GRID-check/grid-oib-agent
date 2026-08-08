@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { createDocumentsClient } from '@/adapters/api'
 import { useDocumentsStore } from '../store'
 import { useAuth } from '@/adapters/auth'
@@ -56,6 +56,10 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
   const { idToken } = useAuth()
   const t = useTranslations('files')
+  // The APP's locale, not the runtime's: a size named in a validation error must
+  // be punctuated like the one on the file card beside it, and the user may be
+  // reading the app in German on an English-locale browser.
+  const { locale } = useLocale()
   const { fileUpload: fileUploadConfig } = useAppConfig()
   const clientRef = useRef(createDocumentsClient({ authToken: idToken }))
   const previousSessionIdRef = useRef<string | undefined>(undefined)
@@ -160,7 +164,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return
       }
 
-      const validationResult = validateFileUpload(files, validationContext, fileUploadConfig)
+      const validationResult = validateFileUpload(files, validationContext, fileUploadConfig, locale)
 
       // Images rejected because no VLM is configured (flag on, capability off)
       // get a localized, specific reason so admins aren't puzzled by a generic
@@ -324,6 +328,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       archiv,
       validationContext,
       fileUploadConfig,
+      locale,
       ensureCollectionExists,
       addTrackedFile,
       updateTrackedFile,

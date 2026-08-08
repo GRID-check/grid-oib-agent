@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { isAuthzError } from '@/lib/auth-utils'
@@ -27,8 +30,9 @@ import {
   requireAuthorizedSession,
   requireAuthorizedPageSession,
 } from './require-auth'
+import type { AuthorizedSession, GridSession } from './types'
 
-const authorizedSession = {
+const authorizedSession: AuthorizedSession = {
   userId: 'user-1',
   email: 'test@grid.com',
   name: 'Test User',
@@ -37,9 +41,11 @@ const authorizedSession = {
   organizationMembershipId: 'mem-1',
   role: 'admin',
   permissions: [],
+  featureFlags: null,
 }
 
-const sessionWithoutOrg = {
+/** The same identity before an organization has been selected. */
+const sessionWithoutOrg: GridSession = {
   ...authorizedSession,
   organizationId: null,
   organizationMembershipId: null,
@@ -51,7 +57,7 @@ describe('require-auth guards', () => {
   })
 
   it('requireAuthorizedSession throws a NoOrganizationError treated as authz error when no organization', async () => {
-    vi.mocked(requireGridSession).mockResolvedValue(sessionWithoutOrg as any)
+    vi.mocked(requireGridSession).mockResolvedValue(sessionWithoutOrg)
 
     let caught: unknown
     try {
@@ -65,14 +71,14 @@ describe('require-auth guards', () => {
   })
 
   it('requireAuthorizedPageSession redirects to organization onboarding when no organization', async () => {
-    vi.mocked(requireGridSession).mockResolvedValue(sessionWithoutOrg as any)
+    vi.mocked(requireGridSession).mockResolvedValue(sessionWithoutOrg)
 
     await expect(requireAuthorizedPageSession()).rejects.toThrow(RedirectError)
     expect(redirect).toHaveBeenCalledWith('/app/onboarding/organization')
   })
 
   it('both guards resolve to the session when an organization is selected', async () => {
-    vi.mocked(requireGridSession).mockResolvedValue(authorizedSession as any)
+    vi.mocked(requireGridSession).mockResolvedValue(authorizedSession)
 
     await expect(requireAuthorizedSession()).resolves.toBe(authorizedSession)
     await expect(requireAuthorizedPageSession()).resolves.toBe(authorizedSession)

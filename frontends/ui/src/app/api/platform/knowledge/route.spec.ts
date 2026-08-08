@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const isOwner = { value: false }
@@ -41,9 +44,15 @@ import { POST as syncRoute } from './sync/route'
 function uploadRequest(withFile = true): Request {
   const form = new FormData()
   if (withFile) {
-    form.append('file', new File([new Uint8Array([1, 2, 3])], 'norm.pdf', { type: 'application/pdf' }))
+    form.append(
+      'file',
+      new File([new Uint8Array([1, 2, 3])], 'norm.pdf', { type: 'application/pdf' })
+    )
   }
-  return new Request('https://grid.example/api/platform/knowledge/documents', { method: 'POST', body: form })
+  return new Request('https://grid.example/api/platform/knowledge/documents', {
+    method: 'POST',
+    body: form,
+  })
 }
 
 describe('platform knowledge routes', () => {
@@ -61,9 +70,11 @@ describe('platform knowledge routes', () => {
         await deleteRoute(new Request('https://grid.example', { method: 'DELETE' }), {
           params: Promise.resolve({ fileName: 'norm.pdf' }),
         })
-      ).status,
+      ).status
     ).toBe(403)
-    expect((await syncRoute()).status).toBe(403)
+    expect((await syncRoute(new Request('https://grid.example', { method: 'POST' }))).status).toBe(
+      403
+    )
     expect(uploadMock).not.toHaveBeenCalled()
     expect(deleteMock).not.toHaveBeenCalled()
     expect(syncMock).not.toHaveBeenCalled()
@@ -109,7 +120,7 @@ describe('platform knowledge routes', () => {
     isOwner.value = true
     syncMock.mockResolvedValue({ filesAdded: 2, filesTotal: 41, message: 'ok' })
 
-    const res = await syncRoute()
+    const res = await syncRoute(new Request('https://grid.example', { method: 'POST' }))
 
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ filesAdded: 2, filesTotal: 41 })

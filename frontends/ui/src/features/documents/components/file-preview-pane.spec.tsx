@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FilePreviewPane } from './file-preview-pane'
 
@@ -56,6 +56,27 @@ describe('FilePreviewPane', () => {
 
     await waitFor(() => expect(screen.getByAltText('diagram.png')).toBeDefined())
     expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
+  })
+
+  it('falls back to the failed caption and a retry action when the preview image cannot load', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://example.test/expired.png' }),
+    } as Response)
+
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, filename: 'diagram.png', contentType: 'image/png' }}
+        projectId="proj-1"
+      />
+    )
+
+    // The BFF handed out a presigned link, but it is expired/unreachable by the
+    // time the browser fetches the bytes.
+    fireEvent.error(await screen.findByAltText('diagram.png'))
+
+    expect(await screen.findByText(/preview couldn't be loaded/i)).toBeDefined()
+    expect(screen.getByRole('button', { name: /try again/i })).toBeDefined()
   })
 
   it('opens the large preview dialog when the expand affordance is clicked', async () => {
@@ -195,8 +216,13 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText('Pages')).toBeNull()
       expect(screen.queryByText('Passages')).toBeNull()
       expect(screen.queryByText('Contents')).toBeNull()
-      // …but the pre-existing status/type/size rows stay (never gated).
-      expect(screen.getByText('Status')).toBeDefined()
+      // …but the ungated rows stay. Status is no longer one of them: it moved
+      // to the header beside the filename, because "is this actually indexed"
+      // is the first question on opening a file and it used to sit below the
+      // fold in a column the flag can hide entirely. Assert it is still
+      // ANSWERED, just not from a row.
+      expect(screen.getByText('Citable')).toBeDefined()
+      expect(screen.queryByText('Status')).toBeNull()
       expect(screen.getByText('Type')).toBeDefined()
       expect(screen.getByText('Size')).toBeDefined()
       expect(screen.getByText(/1\.0 MB/i)).toBeDefined()

@@ -1538,6 +1538,7 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                max_run_seconds=None,
                 checkpointer=None,
             ):
                 self.llm_provider = llm_provider
@@ -1553,6 +1554,7 @@ class TestAsyncJobRunnerAgentFactory:
                 self.max_research_concurrency = max_research_concurrency
                 self.max_concurrent_source_tool_calls = max_concurrent_source_tool_calls
                 self.max_source_tool_batch_size = max_source_tool_batch_size
+                self.max_run_seconds = max_run_seconds
                 self.checkpointer = checkpointer
 
         fn_config = DeepResearchAgentConfig(
@@ -1590,6 +1592,8 @@ class TestAsyncJobRunnerAgentFactory:
         assert agent.max_research_concurrency == 2
         assert agent.max_concurrent_source_tool_calls == 3
         assert agent.max_source_tool_batch_size == 4
+        # F5: max_run_seconds wired through from fn_config (DeepResearchAgentConfig default 2400)
+        assert agent.max_run_seconds == 2400
 
     def test_async_deep_researcher_constructor_applies_config_tuning(self):
         """Async construction preserves catalog and concurrency settings."""
@@ -1795,6 +1799,7 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                max_run_seconds=None,
                 checkpointer=None,
             ):
                 raise TypeError("internal constructor failure")
@@ -1992,3 +1997,134 @@ class TestDeepResearchReflection:
                 org_credential=None,
                 model_overrides=None,
             )
+
+
+class TestCitedSourceEmission:
+    """A knowledge-base document must be markable as CITED, not just discovered.
+
+    ``citation_use`` was URL-only, so a KB source could never earn the flag. The
+    frontend's provenance row filters on it and only falls back to "show every
+    discovered source" when NOTHING is flagged — so a run that cited four OIB
+    Richtlinien plus one web page marked only the web page, and the row rendered
+    that web page alone.
+    """
+
+    def _registry(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import SourceRegistry
+
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+                title="OIB-Richtlinie 2",
+                source_type="knowledge_layer",
+                collection="oib_knowledge",
+                tool_name="knowledge_search",
+            )
+        )
+        registry.add(SourceEntry(url="https://example.com/a", source_type="generic", tool_name="web_search_tool"))
+        return registry
+
+    def _cited_artifacts(self, report: str) -> list[dict]:
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        callback = DeepResearchEventCallback()
+        emitted: list[dict] = []
+        token = set_session_registry(self._registry())
+        try:
+            with patch.object(
+                callback,
+                "_emit_artifact",
+                side_effect=lambda artifact_type, content, **kw: emitted.append(
+                    {"type": artifact_type, "content": content, **kw}
+                ),
+            ):
+                callback._emit_cited_sources(report)
+        finally:
+            reset_session_registry(token)
+        return [item for item in emitted if item["type"] == ArtifactType.CITATION_USE]
+
+    REPORT = (
+        "Brandabschnitte sind zu begrenzen [1]. Weiteres [2].\n\n"
+        "## Sources\n"
+        "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+        "- [2] [Web] Beispiel: https://example.com/a\n"
+    )
+
+    def test_a_cited_document_is_flagged(self):
+        cited = self._cited_artifacts(self.REPORT)
+        keys = [item.get("citation_key") for item in cited]
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" in keys
+
+    def test_the_web_source_is_still_flagged(self):
+        cited = self._cited_artifacts(self.REPORT)
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
+    def test_a_cited_document_carries_its_structured_wire(self):
+        cited = self._cited_artifacts(self.REPORT)
+        document = next(item for item in cited if item.get("citation_key"))
+        assert document["file_name"] == "oib-rl_2_ausgabe_mai_2023.pdf"
+        assert document["page"] == 12
+        assert document["kind"] == "baurecht"
+
+    def test_a_document_the_report_never_names_is_not_flagged(self):
+        cited = self._cited_artifacts("Ein Bericht ohne Quellenangaben.")
+        assert [item.get("citation_key") for item in cited] == []
+
+    def test_a_document_only_MENTIONED_in_prose_is_not_flagged(self):
+        """Naming a document is not citing it — it may be the opposite.
+
+        This runs on intermediate agent output too, where documents are
+        discussed far more often than cited. The URL path gets away with a
+        looser rule only because URLs rarely appear in prose; filenames
+        routinely do.
+        """
+        prose = (
+            "Ich konnte oib-rl_2_ausgabe_mai_2023.pdf nicht vollständig abrufen "
+            "und habe daher keine belastbare Aussage."
+        )
+        assert [item.get("citation_key") for item in self._cited_artifacts(prose)] == []
+
+    def test_only_the_document_in_the_source_section_is_flagged(self):
+        report = (
+            "Zu einem zweiten Dokument, oib-rl_2_ausgabe_mai_2023.pdf, liegen mir "
+            "keine Angaben vor. Belegt ist hingegen [1].\n\n"
+            "## Quellen\n"
+            "- [1] [Web] Beispiel: https://example.com/a\n"
+        )
+        cited = self._cited_artifacts(report)
+        assert [item.get("citation_key") for item in cited if item.get("citation_key")] == []
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
+    def test_emission_is_idempotent_across_repeated_outputs(self):
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        callback = DeepResearchEventCallback()
+        emitted: list[dict] = []
+        token = set_session_registry(self._registry())
+        try:
+            with patch.object(
+                callback,
+                "_emit_artifact",
+                side_effect=lambda artifact_type, content, **kw: emitted.append({"type": artifact_type, **kw}),
+            ):
+                callback._emit_cited_sources(self.REPORT)
+                callback._emit_cited_sources(self.REPORT)
+        finally:
+            reset_session_registry(token)
+        cited = [item for item in emitted if item["type"] == ArtifactType.CITATION_USE]
+        assert len(cited) == 2  # one document + one URL, each emitted once
+
+    def test_without_a_registry_documents_are_not_guessed(self):
+        callback = DeepResearchEventCallback()
+        emitted: list[dict] = []
+        with patch.object(
+            callback,
+            "_emit_artifact",
+            side_effect=lambda artifact_type, content, **kw: emitted.append({"type": artifact_type, **kw}),
+        ):
+            callback._emit_cited_documents(self.REPORT)
+        assert emitted == []

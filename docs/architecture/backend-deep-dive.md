@@ -44,9 +44,20 @@ Browser WebSocket
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
       LangGraph:  intent_classifier
-                    ├─ meta      → END
+                    ├─ out_of_scope → END  (classifier emits a FIXED redirect
+                    │                  message; no answering agent runs — a clearly
+                    │                  off-domain question never spins up a research
+                    │                  agent or a source lookup. Surfaced as the
+                    │                  `meta`/"Direktantwort" routing decision.)
+                    ├─ meta      → shallow_research  (persona + `remember`; greetings,
+                    │               capability & project-profile questions)
                     ├─ shallow   → shallow_research ─(escalate?)→ clarifier
                     └─ deep      → clarifier → deep_research
+
+    Note: the shallow node doubles as the conversational assistant, so the UI
+    presents it neutrally as "Assistant" (getDisplayName in
+    intermediate-step-parser.ts), not "Shallow Research Agent" — a greeting is
+    not a research run.
   → response streamed back through the MONKEYPATCHED WS handler
       frontends/aiq_api/src/aiq_api/websocket_reconnect.py
   → frontends/ui/src/adapters/api/websocket-client.ts  (parse system_response)
@@ -72,6 +83,8 @@ so the frontend can read them at `message.<field>` (not nested under
 - `cards`  → `message.cards`  (rendered as Grid cards)
 - `deep_research_job_id` → `message.deep_research_job_id` (opens the research panel)
 - `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
+- `answer_confidence_reason` → `message.answer_confidence_reason` (the model's
+  own one-clause justification, shown verbatim in the chip tooltip)
 - `sources` → `message.sources` (verified citation sources)
 
 **Transparency extras (WP-A).** The same lift carries a family of optional,
@@ -85,8 +98,20 @@ boundary in `ChatResearcherAgent.run()`:
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) + `routing_reason`
   (`depth_decision.raw_reasoning`) — which path the turn took and why.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
-  escalation (`ShallowResult.escalation_reason`, or a fixed German notice on the
-  keyword-fallback path).
+  escalation, and only from the structured `ShallowResult.escalation_reason`
+  carried by the shallow agent's explicit `[ESCALATE_TO_DEEP]` marker. There is
+  no keyword/prose fallback: a substring match on the answer tail ("nicht
+  finden", "weitere Recherche erforderlich") false-positived on successful
+  German legal answers and surprise-escalated them to deep research. Likewise
+  an empty/missing shallow answer is a generation failure — the node answers
+  with the standard retry-able error (`escalate_to_deep=False`) instead of
+  deep-escalating on a bug.
+- `answer_confidence_reason` (≤300 chars) — the model's own one-clause
+  justification. The shallow researcher may append `| <reason>` to its terminal
+  `[CONFIDENCE:<level>]` marker (`researcher.j2`); `markers.py` parses it
+  (fail-open: an invalid level discards level AND reason, the reason is trimmed
+  and capped), and `_finalize_shallow_answer` carries it as
+  `answer_confidence_reason` alongside the level. Escalated turns drop it.
 - `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified"`) — set
   when `surface_answer_confidence` downgraded the self-report: `"ungrounded"` when
   citation verification left the answer without grounding, `"quote_unverified"`
@@ -140,6 +165,53 @@ internal-token-authenticated service calls, and every non-enumerated path —
 the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
+
+### 2b-bis. Ingest-only turns: how a message reaches the graph WITHOUT a turn
+
+Not every `user_message` opens a turn. The chat graph's conversation history **is**
+its LangGraph checkpoint (`thread_id == conversation_id`, `chat_deepresearcher_agent
+.checkpoint_db`), so only what passes through the agent is ever in its memory. That
+made collaboration's hand-off (ADR-0034) lose the thread: a message addressed to a
+*person* was suppressed by not invoking the agent, so Piloti never saw the question
+asked of Anna, nor Anna's answer, and a follow-up `@Piloti given that, recheck` had
+nothing to refer to.
+
+The rule is **"always send, never always judge"**: every human message is delivered
+to the agent, tagged with whether it is addressed to it. Routing stays deterministic
+and server-decided (the BFF's `addressees`, computed at persist time); only *delivery*
+changed.
+
+```
+client  user_message  content.text = {"query": …, "data_sources": […],
+                                      "context_only": true, "author_name": "Anna Weber"}
+  → websocket_reconnect.run()
+      1. per-message re-auth gate (unchanged; an expired token buys no write either)
+      2. context_only_directive(msg)  →  parse_context_only_payload()
+      3. _ingest_context_only_message()
+           • author = VERIFIED principal name, falling back to author_name
+           • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
+           • append_conversation_context()  → the registered appender
+      4. continue  ← no process_workflow_request, no socket registration
+  → ChatResearcherAgent.append_context_message()
+      graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
+```
+
+What makes it genuinely free: `aupdate_state` writes a checkpoint through the
+`messages` reducer (`add_messages` appends) and **executes no node**, so no LLM call,
+no `system_response_message`, no intermediate/status frame, and nothing to stream. The
+next real turn's `ainvoke` then reads the ingested turns as ordinary history.
+
+Key pieces:
+- Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
+- The appender is *published*, not imported: `aiq_api` owns the socket and
+  `aiq_agent` owns the graph, so `chat_researcher/register.py` calls
+  `register_context_appender(agent.append_context_message)` where the compiled graph
+  (and its checkpointer) exists.
+- Fail-soft throughout. A missing appender, a dead checkpointer or a raising append is
+  logged and swallowed: the human's message is already persisted in `grid_app.messages`,
+  so the worst case is a gap in the agent's memory, never a lost message or a closed
+  socket.
+- Wire contract + compatibility in both directions: `docs/api/websocket-protocol.md`.
 
 ### 2c. Reconnect & resume semantics (socket drop mid-turn)
 
@@ -207,7 +279,7 @@ frontend renders them in `frontends/ui/src/features/grid-cards/`.
 
 Card generation is a **second LLM call** (`ChatResearcherAgent._generate_cards`,
 `agent.py`) run in `run()` after the graph produces an answer, using the
-`card_generator_llm` (config: `deepseek_super_llm`). Post-fix behaviour:
+`card_generator_llm` (config: `card_llm`). Post-fix behaviour:
 
 - Cards are generated whenever a turn produced a real answer (`query` + `context`).
   The old code hard-gated on `intent == "research"` and was inconsistent between
@@ -368,11 +440,14 @@ no project scope when `session.organizationId` is falsy (anonymous /
 
 Two separate stores back "documents" and are **architecturally distinct**:
 the **ChromaDB vector index** that `knowledge_search`/`knowledge_retrieval`
-queries (what's actually retrievable), and a **SQL `summaries` side-table**
-(`SummaryStore`, `src/aiq_agent/knowledge/summary_store.py` + `factory.py
-get_available_documents_async`) that is the **sole source** of the
-`available_documents` list (file name + summary, optionally tags) rendered
-into agent prompts and shown in the Data Sources panel. A document could
+queries (what's actually retrievable), and a **SQL `document_metadata`
+side-table** (`DocumentMetadataStore`,
+`src/aiq_agent/knowledge/document_metadata_store.py` + `factory.py
+get_available_documents_async`; formerly the `document_metadata` table / `SummaryStore`,
+renamed because it now holds summary + tags + `doc_class` + `display_title`) that
+is the **sole source** of the `available_documents` list (file name + summary,
+optionally tags, doc_class, and the user-facing `display_title`) rendered into
+agent prompts and shown in the Data Sources panel. A document could
 previously end up fully ingested and retrievable via `knowledge_search` yet
 **absent** from `available_documents` — see "Silent summary-row loss on
 double LLM failure" below for the fix that closed the practical case of
@@ -394,7 +469,7 @@ prompts (`agents/deep_researcher/prompts/planner.j2`,
 shallow researcher's unconditional "use `knowledge_search` first" instruction
 (`agents/shallow_researcher/prompts/researcher.j2:31`). The document
 *listing* block is still wrapped in `{% if available_documents %}` (nothing
-to list when the summaries table has no row), but `planner.j2` and
+to list when the document_metadata table has no row), but `planner.j2` and
 `researcher.j2` now separately instruct the agent to probe `knowledge_search`
 unconditionally whenever the query concerns project/user content — "do this
 regardless of whether the ... list below is empty or missing" — explaining
@@ -404,6 +479,31 @@ treated as proof no project documents exist. Combined with the reconciliation
 backfill below, the list itself should now rarely be wrong in practice, but
 the prompt-level distrust remains as defense in depth.
 
+**The inventory is an index, not evidence — the list must never be cited**:
+because the base OIB corpus is one of the collections aggregated above, every
+research turn renders ~40 real corpus filenames plus their summaries into the
+system prompt. Those filenames are *exactly* the citation keys
+`verify_citations` matches against, and the registry it matches them against
+holds only sources captured from actual tool results
+(`common/citation_verification.py`). A model that cites a filename it read off
+the inventory rather than out of a `knowledge_search` result therefore gets
+every such citation dropped with `citation_key_not_in_registry`, and the answer
+ships with the visible "Ohne Quellenangabe" note — while the document sits
+indexed and healthy in the corpus. On the citation-health dashboard this
+presents as "sources the platform HAS are not reaching answers", which points
+at indexing and is the wrong place to look.
+
+The prompts therefore label the block "Knowledge-base inventory (index — NOT
+sources)" and state that a filename is not citable until a retrieval result has
+returned a passage from it (`shallow_researcher/prompts/researcher.j2`,
+`deep_researcher/prompts/{researcher,orchestrator}.j2`); the anti-memory rule in
+`<citation_format>` covers document citation keys and not only URLs, and the
+prompt no longer tells the model that verification will sort the references out
+for it — verification only ever REMOVES. Pinned by
+`TestKnowledgeInventoryIsNotCitable`. `planner.j2` / `source_router.j2` keep
+their own listing block: those agents route and plan, they never emit
+citations.
+
 **Silent summary-row loss on double LLM failure — fixed 2026-07-16**:
 ingestion (`sources/knowledge_layer/src/llamaindex/adapter.py`, ~lines
 1795–1965) runs summary generation and tag classification as two concurrent
@@ -412,7 +512,7 @@ exceptions/timeouts and return `None` on failure. Previously the
 deterministic, text-derived fallback summary only kicked in when `not
 summary and tags and text_documents` — i.e. only when tag classification
 succeeded but summarization did not — so when **both** calls failed, no
-`summaries` row was ever written even though the file's chunks were embedded
+`document_metadata` row was ever written even though the file's chunks were embedded
 successfully and the file was already `FileStatus.SUCCESS`. Two fixes landed
 together:
 
@@ -425,17 +525,22 @@ together:
    ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
    and any future caller get it for free. It diffs a collection's indexed,
    successfully-ingested files (`BaseIngestor.list_files`) against the
-   `summaries` table and registers a deterministic fallback summary for any
+   `document_metadata` table and registers a deterministic fallback summary for any
    gap, logging a WARNING per backfilled document (a gap still means the
    primary summary path failed silently — this is a backstop, not a silent
    fix). Backends may optionally expose `get_document_text_sample()` to give
    the fallback a real text sample; `LlamaIndexIngestor` does, reading chunk
-   text back out of Chroma.
+   text back out of Chroma. The per-job call is **scoped** to the job's own
+   successful files (`file_names=[...]`), so the caller's known-indexed set is
+   diffed directly and the full `list_files` metadata scan — O(collection
+   size) on every single-file upload, painful on the large `oib_knowledge`
+   corpus — is skipped; the unscoped full-collection diff remains available
+   for manual/out-of-band reconciliation.
 
 Together these implement backlog T3-10's cure (reconciliation pass +
 ungating `fallback_summary_from_text` from tag success) and make "ingested ⇒
 visible in `available_documents`" hold for every ingestion path — a document
-that finishes ingestion always gets a `summaries` row, either from the
+that finishes ingestion always gets a `document_metadata` row, either from the
 primary LLM path or, on backfill, from the reconciliation pass. The two
 stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
 index), so this is a structural backstop rather than a merge of the two
@@ -443,9 +548,11 @@ sources — see backlog T3-10 for the closed status and rationale.
 
 ### Multimodal & visual/vector-drawing ingestion
 
-`_run_ingestion` (`adapter.py`) extracts content from a PDF along four
-independent tracks, then indexes every resulting `Document` chunk and derives
-the document summary:
+`_run_ingestion` (`adapter.py`) extracts content from a PDF in a **two-phase
+pipeline**, then indexes every resulting `Document` chunk and derives the
+document summary:
+
+**Phase 1 — extraction (no VLM):**
 
 1. **Text** — `_extract_text_from_pdf` (pdfplumber), per page. Licence/watermark
    boilerplate lines (e.g. `VECTORWORKS EDUCATIONAL VERSION`) are removed by
@@ -455,32 +562,71 @@ the document summary:
 2. **Tables** — `_extract_tables_from_pdf` (pdfplumber), gated on
    `extract_tables`.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
-   XObjects) → `_analyze_image_with_vlm`, gated on `extract_images`/
-   `extract_charts`. This only sees **raster** images embedded in the page. The
-   generic caption prompt is content-focused and, like the drawing prompt,
-   instructs the model to **exclude** licence/watermark/tool-stamp text (e.g.
-   `VECTORWORKS EDUCATIONAL VERSION`). As belt-and-braces, the returned caption is
-   also run through `_scrub_watermark_phrases` — a **substring** watermark filter
-   (the `WATERMARK_PHRASE_PATTERNS` counterparts of `_strip_watermark_lines`'
-   whole-line patterns) — before it is stored, so a stamp the VLM wove mid-prose
-   never survives. The identical raster-image caption path is used for
-   **standalone uploaded JPG/PNG plans** (`_build_image_caption_document`).
-4. **Rendered visual/vector pages** — `_render_visual_pdf_pages`, gated on
-   `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key. This is
-   the track that captures **vector CAD/architectural drawings** (plans,
+   XObjects), gated on `extract_images`/`extract_charts`. Returns raw image
+   bytes — **no VLM call yet**. Identical rasters (a logo re-embedded on every
+   page, a reused plan) are content-hash deduped (SHA-256 of the re-encoded
+   JPEG) so each unique image is captioned and indexed exactly once.
+4. **Rendered visual/vector pages** — `processing.render_visual_pages_no_vlm`,
+   gated on `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key.
+   This is the track that captures **vector CAD/architectural drawings** (plans,
    sections, elevations, perspectives): they are thousands of vector *path*
    objects with almost no text and **no embedded raster image**, so tracks 1
    and 3 both miss them entirely. The whole page is composited into one bitmap
    (`page.render`, scaled so the long edge ≈ `AIQ_PAGE_RENDER_MAX_DIM` px,
-   default 2048) and sent to `_analyze_drawing_page_with_vlm` with a
-   drawing-aware German prompt that returns a structured description (drawing
-   type, Maßstab/scale, rooms/elements, spatial relationships, and a
-   one-sentence summary), parsed by `_parse_drawing_fields`. A page is routed
-   here only when its watermark-stripped text is below
-   `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200) **or** it has ≥
-   `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary text PDFs (the
-   bulk OIB corpus) skip the VLM at near-zero cost — and at most
-   `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
+   default 2048) — **no VLM call yet**. A page is routed here only when its
+   watermark-stripped text is below `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200)
+   **or** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
+   text PDFs (the bulk OIB corpus) skip rendering at near-zero cost — and at
+   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document. The
+   renderer receives track 1's already watermark-stripped page texts
+   (`page_texts=…`), so the PDF's text layer is read once per library and the
+   "watermark-stripped" threshold actually holds (it previously measured the
+   raw pdfium text, letting a stamped watermark make a drawing look textful).
+
+**Phase 2 — concurrent VLM enrichment:**
+
+All image bytes (from track 3) and rendered page bitmaps (from track 4) are
+passed to `processing.enrich_vlm_batch`, which runs every VLM caption call in a
+single `ThreadPoolExecutor` (`AIQ_VLM_BATCH_WORKERS`, default 4) per file, with
+**content-hash caching** via the shared Dragonfly/Redis store (ADR-0020). The
+cache key is `vlm:caption:{model}:{prompt_type}:{sha256(image_bytes)}` with a
+30-day TTL — the model is part of the identity, so a model switch (deployment-
+wide or per-org `ingest_vlm` override) never serves stale captions and two orgs
+on different models never share output. Re-ingesting a changed PDF only
+re-captions its new/modified pages. **Failure placeholders are never cached** —
+a failed analysis (`processing.is_failed_caption`) is returned to the caller but
+not stored, so the re-ingest that recovers the file actually reaches the VLM
+again instead of replaying a transient provider error for the 30-day TTL. Both VLM call sites construct their OpenAI
+client with an explicit timeout (`AIQ_VLM_TIMEOUT_SECONDS`, default 180s) and a
+single retry — previously SDK defaults (≈600s × 2 retries) let one hung
+provider park an ingest worker for ~20 minutes. A response clipped at
+`max_tokens` (`finish_reason == "length"`) is retried **once** with a doubled
+budget (the structured drawing format loses its trailing `ZUSAMMENFASSUNG` —
+exactly the field the document summary is built from — when clipped); a still-
+truncated response is stored with a warning rather than silently treated as
+complete. That truncation retry runs with SDK retries disabled and swallows its
+own failures, returning the truncated first caption: it is a quality improvement
+on a response that already succeeded, so it must neither double the per-caption
+latency ceiling (~9 minutes worst case, vs ~6 for a request that simply hangs)
+nor turn a partial success into a dropped chunk. Items whose VLM analysis fails — an exception **or** the fail-open
+placeholder caption the call sites return on error (`"[Image|Drawing -
+analysis failed…]"`, detected by `processing.is_failed_caption`) — are
+**skipped and never indexed**: a placeholder used to be embedded as a real,
+content-free chunk that polluted retrieval.
+
+- **Embedded raster images** → `_analyze_image_with_vlm` with the generic English
+  caption prompt (classifies chart vs. image, describes content, instructs the
+  model to **exclude** licence/watermark/tool-stamp text). Returned captions are
+  also run through `_scrub_watermark_phrases` as a belt-and-braces substring
+  filter. The same analyzer serves **standalone uploaded JPG/PNG plans**
+  (`_build_image_caption_document`), which routes through the same content-hash
+  cache (it previously bypassed both the batch pool and the cache) and — since
+  the caption is the file's only content — **fails the file** on a failure
+  placeholder instead of indexing a content-free chunk (retryable via re-ingest).
+- **Rendered visual/vector pages** → `_analyze_drawing_page_with_vlm` with the
+  drawing-aware German prompt that returns a structured description (drawing
+  type, Maßstab/scale, rooms/elements, spatial relationships, and a one-sentence
+  summary), parsed by `_parse_drawing_fields`.
 
 The drawing prompt returns a rich structured block — drawing type, Maßstab,
 Nutzung, Räume/Elemente, Materialien/Bauweise, räumliche Beziehungen, and a
@@ -491,7 +637,10 @@ circulation) that used to have no indexed content at all. The same descriptions
 are browsable by the user, second to the one-line summary: `get_document_visual_details`
 reads the visual chunks back from Chroma and the file-preview pane's collapsible
 **"Detailed information"** section lazy-loads them (`GET /api/documents/{id}/visual-details`
-→ `GET /v1/collections/{c}/documents/{f}/visual-details`).
+→ `GET /v1/collections/{c}/documents/{f}/visual-details`). Drawing chunks carry
+`content_type: "drawing"` in metadata (mapped to `ContentType.DRAWING` at
+retrieval by `normalize`), giving them their own citation format
+`"file, p.N, drawing_type"` in the agent context.
 
 **Summary sourcing (why the summary no longer describes the watermark).** The
 document summary + tag LLM calls are started **after** visual extraction. For a
@@ -511,18 +660,27 @@ it the summary stays `None` rather than becoming an empty string — so a
 Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
 **Org BYOK + runtime model override for the VLM.** The vision model used across
-all four tracks is resolved the SAME way the NAT chat models resolve theirs.
-`/v1/ingest` forwards `x-grid-organization-id` (the BFF's `dispatchIngest` sets
-it) into the job config; because `_run_ingestion` runs in a detached thread pool
-with no request context, the org id must be captured at the request boundary and
-carried in the config. From it the ingestor resolves, per job:
-`resolve_vlm_credential(org_id)` (org BYOK key + base URL, else the deployment
-env chain) and `_resolve_vlm_model_override(org_id)` (the org's `ingest_vlm`
-model override, `AgentGroup.INGEST_VLM`). The resolved `(model, base_url,
-api_key)` is threaded into every VLM call site. Org-agnostic base-corpus sync
+all VLM call sites (Phase 2 enrichment) is resolved the SAME way the NAT chat
+models resolve theirs. `/v1/ingest` forwards `x-grid-organization-id` (the BFF's
+`dispatchIngest` sets it) into the job config; because `_run_ingestion` runs in a
+detached thread pool with no request context, the org id must be captured at the
+request boundary and carried in the config. From it the ingestor resolves, per
+job: `resolve_vlm_credential(org_id)` (org BYOK key + base URL, else the
+deployment env chain) and `_resolve_vlm_model_override(org_id)` (the org's
+`ingest_vlm` model override, `AgentGroup.INGEST_VLM`). The resolved
+`(model, base_url, api_key)` is threaded into `processing.enrich_vlm_batch`.
+Org-agnostic base-corpus sync
 (`oib_sync`) carries no org id and gets the deployment default, unchanged. Org
 admins select the model in the model-config picker (`ingest_vlm` group, gated to
 vision-capable models); see `docs/architecture/org-model-configuration.md`.
+
+**Embedding throughput.** Chunks are embedded by `NVIDIAEmbedding` in batches of
+`AIQ_EMBED_BATCH_SIZE` (default 64) per HTTP call instead of the llama-index
+default of 10 — a 500-chunk document went from ~50 serialized embedding
+round-trips on the ingest worker to ~8. The knob applies to both the ingestor
+and the retriever's embedding client. (Embedding calls remain synchronous on
+the worker thread; the standalone ingest-worker tier, not in-process
+parallelism, is the scaling answer — see the scope note below.)
 
 > Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
 > backend shares the summary prompt (`summarize_document_text`) but not yet the
@@ -541,11 +699,20 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. During ingestion (`_run_ingestion` in `adapter.py`), after a file is
-   indexed and marked SUCCESS, `_generate_and_upload_thumbnail` renders:
+3. The `/v1/ingest` route handler (`ingest.py`) generates the thumbnail
+   **pre-ingest**, before `submit_job`, so the BFF polling job status sees a
+   thumbnail almost immediately — before the file even enters the worker pool:
    - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
    - **Images**: PIL open → RGB → 200px JPEG quality 80.
-4. The JPEG bytes are PUT to SeaweedFS via the presigned URL.
+   On a successful upload the route sets `config["thumbnail_pregenerated"] = True`.
+4. The JPEG bytes are PUT to SeaweedFS via the presigned URL (pypdfium2
+   render is quick — ~50 ms per page — so it does not delay the request
+   noticeably).
+5. `_run_ingestion` in `adapter.py` keeps a **fallback** thumbnail render
+   (400px) for callers that submit jobs without going through the route, or
+   whose pre-ingest render failed. It is skipped when
+   `config["thumbnail_pregenerated"]` is set, so the file is never rendered
+   and PUT twice.
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
@@ -563,6 +730,86 @@ Thumbnails are ephemeral: there is no separate DB column — the key is derived
 deterministically from `storageKey`, and a missing/expired SeaweedFS object falls
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
+
+### Agentic retrieval quality package (ADR-0039)
+
+Five retrieval-quality improvements sit in the knowledge layer's `register.py`
+(`knowledge_search` / `knowledge_retrieval`) and `llamaindex` package, all
+**fail-open** (any error degrades to the previous plain behavior, never raises):
+
+1. **Agentic filters** — `knowledge_search` accepts optional `doc_class`
+   (`oib_richtlinie` / `oib_leitfaden` / `norm` / `gesetz` / `sonstiges`) and
+   `title_contains` (case-insensitive substring) arguments. `_apply_agent_filters`
+   applies them post-merge with an over-fetch factor of 3
+   (`_AGENT_FILTER_OVERFETCH`): retrieval asks for 3× `top_k` candidates so the
+   filters still leave ≥ `top_k` results. Both filters are **store-authoritative**:
+   `_resolve_doc_classes` / `_resolve_display_titles` build `(collection,
+   file_name) → value` maps via `aiq_agent.knowledge.factory`
+   (`get_document_doc_classes` / `get_document_display_titles`), so an admin
+   reclassification in the base-knowledge panel takes effect immediately with no
+   re-ingest; chunk metadata is only the fallback. An invalid `doc_class` value
+   returns the allowed vocabulary in the message instead of an empty result.
+
+2. **Hybrid lexical + vector retrieval (RRF)** — gated on `AIQ_HYBRID_RETRIEVAL`
+   (default on, config key `hybrid_search` in the knowledge layer YAML block).
+   When enabled, `LlamaIndexRetriever` issues an additional exact-term lexical
+   query per collection: `extract_exact_terms` (token-based, shared utility in
+   `src/aiq_agent/common/legal_terms.py` — deliberately **no regex**) pulls up to
+   three technical tokens from the query, matched via Chroma's
+   `where_document: {"$contains": term}`. The lexical channel is fused with the
+   vector channel using **reciprocal rank fusion** (`reciprocal_rank_fusion` in
+   `llamaindex/hybrid.py`, Cormack `k=60`, vector channel wins ties). This fixes
+   exact-keyword misses (e.g. a norm number or a precise term that the embedding
+   model did not weight) without an embedding re-index.
+
+3. **LLM-judge reranker** — optional config keys `rerank_llm` (an LLM alias from
+   the config's `llms:` block; `config_oib_openrouter.yml` points it at
+   `summary_llm`) and `rerank_candidates` (default 15; must exceed `top_k` — the
+   judge call trims to `rerank_candidates`, so the reference config pairs
+   `top_k: 16` with `rerank_candidates: 20`). When `rerank_llm` is set,
+   the merged+filtered candidates are rescored once by an LLM judge
+   (`rerank_chunks` in `llamaindex/rerank.py`, 30s timeout, fail-open to the
+   original order) before trimming to `top_k`. No separate reranker API exists on
+   OpenRouter/OpenAI-compatible endpoints, so the judge is a cheap single LLM
+   call scoring 1–10 with an excerpt-windowed prompt (`_CHUNK_EXCERPT_CHARS=400`).
+
+4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
+   the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
+   `build_turn_events` now compares the *retrieved* source labels against the
+   *cited* ones per turn and emits an info-severity event when retrieval
+   surfaced documents the answer did not use (`retrieved` / `cited` / `uncited`
+   counts + the first 10 uncited labels). This closes the retrieval-quality loop
+   on the existing `GRID_CITATION_EVENTS_ENABLED` dashboard surface (frontend:
+   `CITATION_PRECISION_KIND` in `lib/db/schema/citation-events.ts`; the defect
+   queries and glossary in `lib/citations/{service,repository}.ts` exclude the
+   new kind so "precision" is shown as its own diagnostic, not a citation
+   defect).
+
+5. **Multimodal answer-time page/image viewing** — a new NAT tool
+   `view_knowledge_image` (`llamaindex/view_image.py`, gated on
+   `AIQ_VIEW_IMAGES_ENABLED`, default on, plus a resolvable VLM key) hands a
+   knowledge image to the VLM **as an image block during a research turn** —
+   not just at ingestion. Two source shapes: **PDF pages** are re-rendered on
+   demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
+   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   PDFs from SeaweedFS bytes — and **standalone image uploads** (PNG/JPG
+   project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
+   directly. Because the SeaweedFS `storage_key` lives only in the frontend's
+   `documents` table, the tool resolves `(collection, filename)` through a new
+   token-guarded BFF route `GET /api/internal/document-file`
+   (`lib/documents/{service,repository}.ts`, ADR-0017 layering) and fetches the
+   bytes itself via boto3 (S3, path-style, read-only `get_object`) — which is
+   why the aiq-agent tier now carries the `SEAWEED_*` credential set
+   (deliberate override of the previous presign-only separation; ADR-0039).
+   Every failure path (missing file, lookup/fetch/render error, invalid page
+   number, disabled flag, no VLM key) degrades to a text-only explanation
+   block.
+
+All five changes are covered by tests under `tests/knowledge_layer_tests/`
+(`test_agent_filters.py`, `test_hybrid.py`, `test_rerank.py`,
+`test_view_image.py`) and `src/app/api/internal/document-file/route.spec.ts`.
+Design rationale and rejected alternatives (native reranker API, embedding
+re-index, regex term extraction, presign-based reads): **ADR-0039**.
 
 ## 6b. Norm catalog (Normenregister — flat curated pointers + prose legal notes)
 
@@ -631,14 +878,30 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-  into the shallow-researcher, deep-researcher, planner, and writer templates
-  as `{{ norm_doctrine }}`.
-- **Jurisdiction** — `resolve_bundesland`: the validated envelope token wins
-  (`ausserhalb_oesterreichs` → None is final), then the structured
-  `bundesland=<token>` prompt fact, then free-text state-name probing.
-  `focus_entries` drops other states' law and sorts the project's state first;
-  the same rule filters `ris_search`'s catalog short-circuit and
-  `ris_catalog_lookup` before truncation.
+   into the shallow-researcher, deep-researcher, planner, and writer templates
+   as `{{ norm_doctrine }}`.
+- **Jurisdiction** — `resolve_country(project_context)` regexes the structured
+   `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
+   by the intake wizard's new A2_country question); absent → `"at"`. Every
+   prompt now carries a **Jurisdiction & Country Handling** block that instructs
+   the agent: for `at` → full OIB/RIS pipeline, binding precision; for non-AT →
+   Austrian corpus only, comparative guidance, recommend local verification.
+- **Bundesland** — `resolve_bundesland`: the validated envelope token wins
+   (`ausserhalb_oesterreichs` → None is final), then the structured
+   `bundesland=<token>` prompt fact, then free-text state-name probing.
+   `focus_entries` drops other states' law and sorts the project's state first;
+   the same rule filters `ris_search`'s catalog short-circuit and
+   `ris_catalog_lookup` before truncation. When the country is non-AT, the
+   profile save derives `bundesland=ausserhalb_oesterreichs`, so the downstream
+   pipeline consistently treats non-Austrian projects as jurisdiction-neutral.
+- **Hard limits** — Every research-facing prompt now includes a **Project Hard
+   Limits & Grounding** block that instructs agents to treat confirmed wizard
+   facts (fluchtniveau, BG Fläche, Anzahl Geschoße, Bauweise, Nutzung,
+   Brandschutzanlagen, …) as binding constraints, derive building classes from
+   them, flag contradictions, and surface gaps. The compliance-checker pair
+   (`requirement_profile.j2`, `evidence_batch.j2`) gained a
+   **Projekt-Hartgrenzen** section that maps each wizard fact to its OIB
+   significance.
 - **Applicability** — `common/applicability.py` is a small hand-written module
   (no DSL): OIB verdicts from project facts (mirrors the UI's
   `applicable-standards.ts`), German trigger hints for the four boolean intake
@@ -779,6 +1042,22 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   from a detached thread: `/v1/ingest` captures the org id into the job config
   and the ingestor resolves the override (and BYOK credential) by org id — see
   §6 "Multimodal & visual/vector-drawing ingestion".
+- **Retrieval settings** (2026-07-31): the fleet-wide retrieval counts —
+  `knowledge_search` `top_k`/`max_chunks_per_document`, `surface_documents`
+  `chunk_top_k`/`max_files`, web/advanced-web `max_results`, `ris_search`
+  `max_results`/`page_size`, `ris_catalog_lookup` `max_matches` — are no
+  longer only build-time YAML. The BFF's Platform → Retrieval surface
+  (`/api/platform/retrieval-settings`, catalog + bounds in
+  `frontends/ui/src/lib/retrieval-settings/catalog.ts`) pins keys; the backend
+  resolves them through `src/aiq_agent/common/retrieval_settings.py`
+  (`get_retrieval_setting(key, fallback)`), which pulls the pinned set from
+  the token-guarded `GET /api/internal/retrieval-settings` just like
+  `model_overrides` does, TTL-cached in-process (60s positive / 30s negative)
+  and **fail-open**: any fetch error, or a key absent from the pinned set,
+  falls back to the YAML/build-time value the tool was configured with. The
+  resolver never raises, so a BFF outage cannot break retrieval. Platform-only
+  by design: there is no org layer (ADR-0016) — every tenant's queries share
+  the fleet counts.
 - **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
@@ -881,6 +1160,46 @@ yet).
   now retries only rate limits, timeouts, transport errors, and 5xx (was any
   exception). See `src/aiq_agent/agents/deep_researcher/README.md`
   "Known limitations" for details.
+- **Researcher-worker step cap — fixed 2026-07-27 (`tools/research.py`)** —
+  each single-query researcher runnable now receives an explicit
+  `recursion_limit=100` in its invoke config (was: relying on LangGraph's
+  default of 25, which triggered `GraphRecursionError` early and fed the
+  plan→batch→resubmit burn loop). The caught `GraphRecursionError` now
+  becomes a terminal `ResearcherExhaustedError` (listed in the batch error
+  as an exhausted query, not wrapped in a resubmittable `RuntimeError`).
+- **Orchestrator recursion limit lowered — fixed 2026-07-27
+  (`factory.py:569`)** — `_ORCHESTRATOR_RECURSION_LIMIT` changed from 2000
+  to 150 so the step-count ceiling can actually fire as a hard stop before
+  the 40-minute wall-clock killer surfaces as a generic internal error.
+- **Code-level query resubmission cap (`tools/research.py`) — fixed
+  2026-07-27** — the batch tool now tracks submitted query digests per run
+  instance. After `MAX_QUERY_SUBMISSIONS=3` submissions of the same digest
+  (was: prompt prose only that the model could ignore), the query is returned
+  as a terminal unresearchable gap with a German-language "nicht recherchierbar"
+  note instead of being re-run and burning more budget.
+- **Wall-clock timeout re-raised as `TimeoutError` — fixed 2026-07-27
+  (`agent.py:372-378`)** — `asyncio.wait_for`'s `TimeoutError` is no longer
+  wrapped into `RuntimeError`. The runner's `sanitize_job_error` already
+  special-cases `TimeoutError` (matching "wall-clock" in the message to
+  produce a German UI string), so users now see "Die Recherche hat ihr
+  Zeitlimit erreicht" instead of a generic internal error.
+- **Research-note size cap (`tools/research.py`) — fixed 2026-07-27** —
+  `_research_note_files` now truncates serialised payloads exceeding
+  `RESEARCH_NOTE_MAX_CHARS=40_000` with a suffix marker, preventing a single
+  oversized note from blowing the writer's context late in a run.
+- **Writer total-char budget (`ToolResultPruningMiddleware`) — fixed
+  2026-07-27** — the writer's middleware stack now enforces
+  `total_char_budget=200_000`: when the sum of all oversized tool results
+  exceeds this ceiling, the oldest oversized results are monotonically
+  truncated (same per-message-id freeze as the existing keep-last-N logic)
+  so the writer's context cannot grow unbounded across many research notes.
+- **`RunBudgetExceededError` no longer erased by worker wrapping (`F6`) —
+  fixed 2026-07-27** — `_run_research_query` now re-raises
+  `RunBudgetExceededError` (was: caught by `except Exception` and wrapped
+  into a resubmittable `RuntimeError`). The error also propagates past
+  `asyncio.gather(return_exceptions=True)` in `_run_research_queries`
+  so the budget guard can halt a budget-exhausted job immediately rather
+  than being silently converted to a batch-level `RuntimeError`.
 - **Deep-research strict structured-output schema bounds — fixed 2026-07-16
   (`2db0f7d`)** — `EvidenceJudgment.relevance_score` (`ge=0`/`le=100`) and
   `ResearchQuery.preferred_tools` (`min_length`) used to compile to

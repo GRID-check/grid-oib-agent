@@ -53,7 +53,8 @@ export const workflows = {
 
   run: {
     submitted: 'Run started.',
-    submittedDetail: 'Follow it in the Research tab.',
+    submittedDetail: 'It is running now — follow it live from the run history.',
+    viewProgress: 'View progress',
     skipped: 'Run skipped',
     error: 'The run could not be started.',
     disabled: 'Enable the workflow before running it.',
@@ -137,15 +138,27 @@ export const workflows = {
     loadError: 'The run history could not be loaded.',
     empty: 'This workflow has not run yet.',
     viewReport: 'View report',
+    viewProgress: 'View progress',
+    viewThinking: 'View thinking',
     scheduler: 'Scheduler',
     trigger: {
       manual: 'Manual',
       schedule: 'Scheduled',
     },
+    // How the submission went (workflow_runs.status).
     status: {
       submitted: 'Submitted',
       skipped: 'Skipped',
       error: 'Error',
+    },
+    // How the run itself is going, read from the backend job store.
+    jobStatus: {
+      submitted: 'Queued',
+      pending: 'Queued',
+      running: 'Running',
+      completed: 'Completed',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
     },
   },
 

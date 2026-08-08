@@ -80,6 +80,11 @@ SOURCE_KINDS: dict[str, SourceKind] = {
 #: ``("web", "Web")`` fallback.
 DEFAULT_SOURCE_KIND = "web"
 
+#: ``SourceEntry.source_type`` of the non-URL capture fallback: a tool that
+#: produced output but named no document and no URL, registered under its own
+#: tool name (``extract_sources_from_tool_result``).
+TOOL_RESULT_SOURCE_TYPE = "tool_result"
+
 # Fine lane stratum-key → coarse source kind. A prefix match on the lane family
 # keeps this table small and forward-compatible: any new ``baurecht_*`` sub-lane
 # (a new OIB document class, a new RIS rank) maps to ``baurecht`` without a code
@@ -111,3 +116,68 @@ def kind_for_lane(lane_key: str | None) -> str:
 def source_kind(key: str | None) -> SourceKind:
     """Look up a :class:`SourceKind` by key, fail-open to the default kind."""
     return SOURCE_KINDS.get((key or "").strip().lower(), SOURCE_KINDS[DEFAULT_SOURCE_KIND])
+
+
+# ---------------------------------------------------------------------------
+# Collection scope — the collection half of a document's identity
+# ---------------------------------------------------------------------------
+#
+# A document is identified by ``(collection, filename)``: that is the PRIMARY KEY
+# of ``document_metadata`` and the only pair that is actually unique. A filename
+# alone is not — one knowledge_search fans out across the base corpus, the
+# session collection and the project collections concurrently, so `Plan.pdf` from
+# a project upload and `Plan.pdf` from the Büroarchiv can arrive in the SAME
+# result set and are different documents.
+#
+# The citation key an LLM writes cannot carry a raw collection id (`s_9f2a…` is
+# neither reproducible nor readable if it leaks into prose), so it carries the
+# collection's SCOPE instead — which shelf the document sits on. That is enough
+# to separate every collision the fan-out can actually produce, and it stays
+# legible when the key is shown to a user.
+
+#: Collection-id prefix → owning coarse kind. Mirrors ``norm_registry.lane_for_hit``'s
+#: collection heuristic; kept here because scope is an identity question, not a
+#: display one, and both the citation registry and the frontend need it.
+_COLLECTION_SCOPE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("archiv_", "buero"),
+    ("proj_", "projekt"),
+    ("s_", "projekt"),
+)
+
+#: Scope → the short qualifier a citation key uses (`Plan.pdf (Projektwissen), p.3`).
+#: Deliberately shorter than ``SourceKind.label`` ("Baurecht & Richtlinien" reads
+#: badly inside a parenthetical) and stable: it is part of a citation key, so
+#: changing a string here invalidates keys in already-persisted messages.
+SCOPE_QUALIFIERS: dict[str, str] = {
+    "buero": "Büroarchiv",
+    "projekt": "Projektwissen",
+    "baurecht": "Basiswissen",
+}
+
+_QUALIFIER_SCOPES: dict[str, str] = {label.lower(): scope for scope, label in SCOPE_QUALIFIERS.items()}
+
+
+def collection_scope(collection: str | None) -> str | None:
+    """Coarse kind key owning ``collection``; None when there is no collection.
+
+    A named collection that is neither project/session nor Archiv is the base
+    knowledge corpus, matching ``lane_for_hit``'s final ``if collection`` branch.
+    """
+    key = (collection or "").strip().lower()
+    if not key:
+        return None
+    for prefix, kind in _COLLECTION_SCOPE_PREFIXES:
+        if key.startswith(prefix):
+            return kind
+    return "baurecht"
+
+
+def scope_qualifier(collection: str | None) -> str | None:
+    """The citation-key qualifier for ``collection`` (None when unknown)."""
+    scope = collection_scope(collection)
+    return SCOPE_QUALIFIERS.get(scope) if scope else None
+
+
+def scope_for_qualifier(qualifier: str | None) -> str | None:
+    """Inverse of :func:`scope_qualifier` — parse a key's qualifier back to a scope."""
+    return _QUALIFIER_SCOPES.get((qualifier or "").strip().lower())

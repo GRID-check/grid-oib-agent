@@ -10,6 +10,14 @@
  * Values must be JSON-serializable — the shared backend round-trips through
  * JSON, and anything that only works with the in-process store would break the
  * moment a second replica appears.
+ *
+ * **`Set`, `Map` and `Date` are NOT JSON-serializable, and `getCached<T>` casts
+ * rather than validates**, so caching one type-checks and then hands every cache
+ * HIT a `{}` (or a string) wearing the declared type. Cache the array/plain
+ * shape and rebuild the collection at the boundary — see `enabledSlugsForOrg`
+ * (`@/lib/workos/feature-flags`), `loadOrganizationDirectory`
+ * (`@/lib/sharing/directory`) and `fetchZdrModelIds`
+ * (`@/lib/model-config/openrouter`).
  */
 
 export interface CacheStore {
@@ -172,6 +180,22 @@ export async function getCached<T>(
     console.warn(`[cache] write failed for ${key}:`, error)
   }
   return value
+}
+
+/**
+ * Write a value directly, bypassing the read-through path.
+ *
+ * For the rare case where the caller has already computed the value and the
+ * write is the point — e.g. a fixed-window counter incrementing itself
+ * (`@/lib/sharing/rate-limit`). Prefer `getCached` for anything load-shaped.
+ * Fails open: a store error is logged, never thrown.
+ */
+export async function setCached<T>(key: string, value: T, ttlMs: number): Promise<void> {
+  try {
+    await store.set(key, JSON.stringify(value ?? null), ttlMs)
+  } catch (error) {
+    console.warn(`[cache] direct write failed for ${key}:`, error)
+  }
 }
 
 /** Drop a single cache entry (write-invalidate call sites). */

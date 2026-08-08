@@ -266,6 +266,7 @@ describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
           routing_reason: 'The question needs a deep dive.',
           escalation_reason: 'The first answer was insufficient.',
           answer_confidence_capped_reason: 'ungrounded',
+          answer_confidence_reason: 'Only one source found.',
           citations_removed: { count: 1, reasons: ['not verifiable'] },
           job_admission_rejected: true,
           retry_after_seconds: 20,
@@ -280,6 +281,7 @@ describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
       routingReason: 'The question needs a deep dive.',
       escalationReason: 'The first answer was insufficient.',
       answerConfidenceCappedReason: 'ungrounded',
+      answerConfidenceReason: 'Only one source found.',
       citationsRemoved: { count: 1, reasons: ['not verifiable'] },
       jobAdmissionRejected: true,
       retryAfterSeconds: 20,
@@ -449,5 +451,193 @@ describe('NATWebSocketClient URL construction', () => {
     client.updateProjectId('proj-1')
     await Promise.resolve()
     expect(MockWebSocket.instances).toHaveLength(1)
+  })
+})
+
+/**
+ * THE INGEST-ONLY WIRE CONTRACT (ADR-0034 addendum).
+ *
+ * A human message that is NOT addressed to the agent still has to reach the agent's
+ * conversation history, or `@Piloti given that, recheck` refers to nothing. It rides
+ * the ordinary `user_message` frame with two additive fields inside the JSON text
+ * payload: `context_only: true` and `author_name`.
+ *
+ * These tests assert on the BYTES that leave the socket, because the wire is the
+ * contract — a backend on the other side of it cannot see our internal state.
+ */
+describe('NATWebSocketClient — the ingest-only user_message payload', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** Open a client and hand back the parsed JSON text payload of the Nth frame. */
+  const sentPayload = (ws: MockWebSocket, index = 0): Record<string, unknown> => {
+    const frame = JSON.parse(ws.send.mock.calls[index][0] as string)
+    return JSON.parse(frame.content.messages[0].content[0].text) as Record<string, unknown>
+  }
+
+  const openClient = async () => {
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: {},
+    })
+    await client.connect()
+    return { client, ws: MockWebSocket.instances[0] }
+  }
+
+  test('a context-only send carries context_only + author_name alongside the query', async () => {
+    const { client, ws } = await openClient()
+
+    const id = client.sendMessage('Das Atrium zählt als eigener Brandabschnitt.', ['source-1'], {
+      contextOnly: true,
+      authorName: 'Anna Weber',
+    })
+
+    expect(id).toEqual(expect.any(String))
+    expect(sentPayload(ws)).toEqual({
+      query: 'Das Atrium zählt als eigener Brandabschnitt.',
+      data_sources: ['source-1'],
+      context_only: true,
+      author_name: 'Anna Weber',
+    })
+  })
+
+  test('an ordinary send is byte-for-byte what it always was — no new keys', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Wie breit muss der Fluchtweg sein?', ['source-1'])
+
+    // A NEW backend receiving no field must behave exactly as today, which is only
+    // guaranteed if the field is genuinely absent (not `context_only: false`).
+    expect(sentPayload(ws)).toEqual({
+      query: 'Wie breit muss der Fluchtweg sein?',
+      data_sources: ['source-1'],
+    })
+  })
+
+  test('a context-only send does NOT become the active parent id', async () => {
+    // `activeParentId` is what the stale-response guard measures inbound answer
+    // frames against. An ingest-only frame is never answered, so claiming it would
+    // make the NEXT real turn's frames look stale and silently drop the answer.
+    const { client, ws } = await openClient()
+
+    const realId = client.sendMessage('Erste Frage', [])
+    expect(client.activeParentId).toBe(realId)
+
+    client.sendMessage('Annas Bemerkung', [], { contextOnly: true, authorName: 'Anna' })
+    expect(client.activeParentId).toBe(realId)
+    expect(ws.send).toHaveBeenCalledTimes(2)
+  })
+
+  test('author_name is omitted when the display name is unknown', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Bemerkung', [], { contextOnly: true, authorName: null })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Bemerkung',
+      data_sources: [],
+      context_only: true,
+    })
+  })
+})
+
+describe('NATWebSocketClient reconnect scheduling', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * Regression: the reconnect wait used to be a fixed `reconnectDelay`. A
+   * rolling deploy drops every socket on a pod at the same instant, so a fixed
+   * wait brings the whole herd back on an identical schedule — and each upgrade
+   * costs a session resolution + FGA checks + budget reads (ADR-0020).
+   */
+  const scheduleFirstReconnect = async (random: number): Promise<number> => {
+    vi.spyOn(Math, 'random').mockReturnValue(random)
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-reconnect',
+      reconnectDelay: 1000,
+      callbacks: {},
+    })
+    await client.connect()
+
+    const socket = MockWebSocket.instances.at(-1)!
+    setTimeoutSpy.mockClear()
+    socket.onclose?.(new CloseEvent('close'))
+
+    const scheduled = setTimeoutSpy.mock.calls.at(-1)
+    return scheduled?.[1] as number
+  }
+
+  test('the top of the jitter window is the configured base delay', async () => {
+    expect(await scheduleFirstReconnect(1)).toBe(1000)
+  })
+
+  test('jitter can schedule earlier than the base delay', async () => {
+    // Previously this was always exactly 1000 — that constancy was the bug.
+    expect(await scheduleFirstReconnect(0)).toBe(500)
+  })
+
+  /**
+   * Regression: the default budget used to be 3 attempts, i.e. it expired
+   * ~4-7 seconds after the socket dropped. A rolling deploy takes minutes (the
+   * serving pod drains, then the replacement cold-starts — see
+   * `deploy/pulumi/src/platform/rollout.ts`), so EVERY deploy ended with
+   * "Unable to connect to the server" in front of every open chat, even though
+   * the stack came back healthy on its own moments later.
+   *
+   * The budget is asserted as a count rather than a wall-clock span because the
+   * curve is jittered; the count is what `handleReconnect` gates on.
+   */
+  test('keeps retrying across a rolling deploy instead of giving up in seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const client = new NATWebSocketClient({
+        conversationId: 'conv-deploy',
+        callbacks: { onError },
+      })
+      await client.connect()
+
+      // Fail every attempt. Each close schedules the next connect; running the
+      // timers drives the whole budget to exhaustion.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        MockWebSocket.instances.at(-1)!.onclose?.(new CloseEvent('close'))
+        await vi.runOnlyPendingTimersAsync()
+      }
+      // The old budget would already have surrendered here.
+      expect(onError).not.toHaveBeenCalled()
+
+      for (let attempt = 3; attempt < 12; attempt++) {
+        MockWebSocket.instances.at(-1)!.onclose?.(new CloseEvent('close'))
+        await vi.runOnlyPendingTimersAsync()
+      }
+      // ...and the 12th failure is still not terminal; the budget is spent only
+      // when the next close arrives with no attempts left.
+      expect(onError).not.toHaveBeenCalled()
+
+      MockWebSocket.instances.at(-1)!.onclose?.(new CloseEvent('close'))
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'CONNECTION_FAILED' })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

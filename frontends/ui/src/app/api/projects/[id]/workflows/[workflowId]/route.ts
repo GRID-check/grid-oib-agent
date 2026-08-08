@@ -11,21 +11,30 @@ import { patchWorkflowSchema } from '@/lib/workflows/types'
 
 type Params = { id: string; workflowId: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  return getWorkflow(session, params.id, params.workflowId)
-})
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    return getWorkflow(session, params.id, params.workflowId)
+  },
+  { authz: { enforcedBy: 'getWorkflow (requireProjectAccess project:view)' } }
+)
 
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  const patch = await parseJsonBody(request, patchWorkflowSchema)
-  return updateWorkflow(session, params.id, params.workflowId, patch)
-})
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    const patch = await parseJsonBody(request, patchWorkflowSchema)
+    return updateWorkflow(session, params.id, params.workflowId, patch)
+  },
+  { authz: { enforcedBy: 'updateWorkflow (requireProjectAccess project:workflows:manage)' } }
+)
 
-export const DELETE = apiRoute<Params>(async ({ session, params }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  await deleteWorkflow(session, params.id, params.workflowId)
-})
+export const DELETE = apiRoute<Params>(
+  async ({ session, params }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    await deleteWorkflow(session, params.id, params.workflowId)
+  },
+  { authz: { enforcedBy: 'deleteWorkflow (requireProjectAccess project:workflows:manage)' } }
+)

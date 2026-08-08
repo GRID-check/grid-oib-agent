@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   submitWorkflowJob,
@@ -5,6 +8,14 @@ import {
   WorkflowSubmitSkippedError,
   type WorkflowSubmitPayload,
 } from './backend-client'
+
+/**
+ * The request headers as this client sets them. `HeadersInit` also admits a
+ * `Headers` instance and a tuple array; `submitWorkflowJob` always passes a
+ * plain record, and these tests read it by key.
+ */
+const headersOf = (init: RequestInit | undefined): Record<string, string> =>
+  (init as RequestInit).headers as Record<string, string>
 
 const payload: WorkflowSubmitPayload = {
   agent_type: 'deep_researcher',
@@ -48,7 +59,7 @@ describe('submitWorkflowJob', () => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('http://backend:8000/v1/internal/workflows/submit')
     expect((init as RequestInit).method).toBe('POST')
-    expect((init as any).headers['X-Internal-Token']).toBe('secret')
+    expect(headersOf(init)['X-Internal-Token']).toBe('secret')
   })
 
   it('maps a 429 to a SkippedError carrying Retry-After seconds', async () => {
@@ -94,7 +105,7 @@ describe('submitWorkflowJob', () => {
       'X-Grid-Request-Context-Sig': 'deadbeef',
     })
     const [, init] = fetchMock.mock.calls[0]
-    const headers = (init as any).headers
+    const headers = headersOf(init)
     expect(headers['X-Internal-Token']).toBe('secret')
     expect(headers['X-Grid-Request-Context']).toBe('envelope-header-value')
     expect(headers['X-Grid-Request-Context-Sig']).toBe('deadbeef')

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const isOwner = { value: false }
@@ -28,7 +31,8 @@ vi.mock('@/lib/audit/service', () => ({
 
 import { POST } from './route'
 
-const request = (): Request => new Request('https://grid.example/api/platform/audit-portal', { method: 'POST' })
+const request = (): Request =>
+  new Request('https://grid.example/api/platform/audit-portal', { method: 'POST' })
 
 describe('POST /api/platform/audit-portal', () => {
   beforeEach(() => {
@@ -47,7 +51,10 @@ describe('POST /api/platform/audit-portal', () => {
     const res = await POST(request())
     expect(res.status).toBe(200)
     expect((await res.json()).link).toBe('https://portal.workos.com/p')
-    expect(generateAuditPortalLink).toHaveBeenCalledWith('org_platform', 'https://grid.example/app/platform')
+    expect(generateAuditPortalLink).toHaveBeenCalledWith(
+      'org_platform',
+      'https://grid.example/app/platform'
+    )
   })
 
   it('returns 404 when the platform org is not provisioned (break-glass phase)', async () => {

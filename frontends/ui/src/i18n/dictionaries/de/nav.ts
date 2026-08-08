@@ -18,6 +18,8 @@ export const nav: typeof en.nav = {
     archiv: 'Archiv',
     history: 'Historie',
     settings: 'Einstellungen',
+    // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
+    intake: 'Einrichtung',
   },
   tabTitle: {
     intake: 'Einrichtung',

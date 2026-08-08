@@ -2,6 +2,9 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useDeepResearch } from './use-deep-research'
 import { en } from '@/i18n/dictionaries/en'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '../store'
+import type { LayoutStore } from '@/features/layout/types'
 
 // ============================================================
 // Mock store state and actions
@@ -39,26 +42,28 @@ const mockSetDeepResearchStalled = vi.fn()
 const mockSetDeepResearchConnectionLost = vi.fn()
 const mockSetReconnectDeepResearchFn = vi.fn()
 
-let mockStoreState = {
-  deepResearchJobId: null as string | null,
-  deepResearchLastEventId: null as string | null,
+// Typed against the real store rather than a hand-copied shape, so the status
+// fixtures below are checked against `DeepResearchJobStatus` instead of `string`.
+let mockStoreState: DeepPartial<ChatStoreWithHydration> = {
+  deepResearchJobId: null,
+  deepResearchLastEventId: null,
   isDeepResearchStreaming: false,
-  deepResearchStatus: null as string | null,
+  deepResearchStatus: null,
   reportContent: '',
-  deepResearchAgents: [] as unknown[],
-  deepResearchLLMSteps: [] as unknown[],
-  deepResearchToolCalls: [] as unknown[],
-  deepResearchCitations: [] as unknown[],
+  deepResearchAgents: [],
+  deepResearchLLMSteps: [],
+  deepResearchToolCalls: [],
+  deepResearchCitations: [],
   deepResearchOwnerConversationId: 'test-conv-123',
-  currentConversation: { id: 'test-conv-123' } as { id: string } | null,
-  activeDeepResearchMessageId: null as string | null,
-  currentUserMessageId: 'user-msg-1' as string | null,
+  currentConversation: { id: 'test-conv-123' },
+  activeDeepResearchMessageId: null,
+  currentUserMessageId: 'user-msg-1',
 }
 
 vi.mock('../store', () => ({
   useChatStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
+    vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         ...mockStoreState,
         updateDeepResearchStatus: mockUpdateDeepResearchStatus,
         completeDeepResearch: mockCompleteDeepResearch,
@@ -91,7 +96,7 @@ vi.mock('../store', () => ({
         setDeepResearchConnectionLost: mockSetDeepResearchConnectionLost,
         setReconnectDeepResearchFn: mockSetReconnectDeepResearchFn,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     }),
     {
       getState: vi.fn(() => ({
@@ -119,12 +124,12 @@ const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
 
 vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       openRightPanel: mockOpenRightPanel,
       setResearchPanelTab: mockSetResearchPanelTab,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 
@@ -590,7 +595,7 @@ describe('useDeepResearch', () => {
 
       act(() => {
         mockClient?.callbacks.onOutputUpdate?.('Old job report', 'final_report')
-        mockClient?.callbacks.onCitationUpdate?.('https://old.example', 'Old citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://old.example', content: 'Old citation' }, true)
       })
 
       mockStoreState.deepResearchJobId = 'job-new'
@@ -935,14 +940,12 @@ describe('useDeepResearch', () => {
       await setupConnectedHook()
 
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Citation content', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://example.com', content: 'Citation content' }, true)
       })
 
       expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(
-        'https://example.com',
-        'Citation content',
-        true,
-        undefined
+        { url: 'https://example.com', content: 'Citation content' },
+        true
       )
     })
 
@@ -1157,6 +1160,72 @@ describe('useDeepResearch', () => {
     })
   })
 
+  describe('attached runs (no owning conversation)', () => {
+    /**
+     * A run followed from a workflow's run history is bound to the panel with
+     * no owning conversation. Its events must still be accepted, and its
+     * thread artifacts (banner, error card) must NOT land in whatever
+     * conversation happens to be open.
+     */
+    const setupAttachedHook = async () =>
+      setupConnectedHook({
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        deepResearchStatus: 'running',
+      })
+
+    test('accepts stream events although no conversation owns the run', async () => {
+      await setupAttachedHook()
+
+      act(() => {
+        mockClient?.callbacks.onStreamMode?.('live')
+        mockClient?.callbacks.onStreamStart?.('job-456')
+        mockClient?.callbacks.onToolStart?.('web_search', { query: 'OIB' }, undefined, 'e1', 'a1')
+      })
+
+      expect(mockSetCurrentStatus).toHaveBeenCalledWith('researching')
+      expect(mockAddDeepResearchToolCall).toHaveBeenCalled()
+    })
+
+    test('a finished attached run posts no banner into the open thread', async () => {
+      await setupAttachedHook()
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        addErrorCard: mockAddErrorCard,
+      })) as unknown as typeof useChatStore.getState
+
+      act(() => {
+        mockClient?.callbacks.onJobStatus?.('success', undefined)
+      })
+
+      expect(mockCompleteDeepResearch).toHaveBeenCalled()
+      expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+      expect(mockPatchConversationMessage).not.toHaveBeenCalled()
+    })
+
+    test('a failed attached run posts no banner or error card into the open thread', async () => {
+      await setupAttachedHook()
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        addErrorCard: mockAddErrorCard,
+      })) as unknown as typeof useChatStore.getState
+
+      act(() => {
+        mockClient?.callbacks.onJobStatus?.('failure', 'Something went wrong')
+      })
+
+      expect(mockSetCurrentStatus).toHaveBeenCalledWith('error')
+      expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+      expect(mockAddErrorCard).not.toHaveBeenCalled()
+    })
+  })
+
   describe('replay buffer teardown', () => {
     const collectSetStateUpdates = (): Array<Record<string, unknown>> =>
       vi
@@ -1174,7 +1243,7 @@ describe('useDeepResearch', () => {
 
       // Events buffered on the FIRST connection (never flushed).
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://stale.example', 'Stale citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://stale.example', content: 'Stale citation' }, true)
       })
 
       // Reconnect tears the first connection down and starts a new buffer.
@@ -1196,7 +1265,7 @@ describe('useDeepResearch', () => {
       const { result } = await setupBufferedHook()
 
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://stale.example', 'Stale citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://stale.example', content: 'Stale citation' }, true)
       })
 
       act(() => {
@@ -1226,13 +1295,11 @@ describe('useDeepResearch', () => {
 
       // Resumed events append live — no replay buffer swallowing them.
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://example.com', content: 'Citation' }, true)
       })
       expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(
-        'https://example.com',
-        'Citation',
-        true,
-        undefined
+        { url: 'https://example.com', content: 'Citation' },
+        true
       )
     })
 
@@ -1268,7 +1335,7 @@ describe('useDeepResearch', () => {
       await act(async () => { await advanceAndFlush(60) })
 
       act(() => {
-        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Replayed citation', true)
+        mockClient?.callbacks.onCitationUpdate?.({ url: 'https://example.com', content: 'Replayed citation' }, true)
       })
 
       // Buffered: replayed events must NOT be appended to the store directly.

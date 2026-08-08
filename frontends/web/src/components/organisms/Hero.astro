@@ -1,0 +1,67 @@
+---
+import { Image } from 'astro:assets'
+import Pill from '../atoms/Pill.astro'
+import hero from '../../assets/hero.png'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<div data-hero-wrap class="relative h-screen">
+  <header
+    id="top"
+    data-screen-label={t.sheets.hero}
+    data-hero
+    class="sticky top-0 box-border flex h-screen flex-col items-center justify-center overflow-hidden bg-hero-bg px-6 py-24 sm:px-12"
+  >
+    <Image
+      src={hero}
+      alt=""
+      aria-hidden="true"
+      loading="eager"
+      fetchpriority="high"
+      sizes="100vw"
+      class="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+    />
+    <canvas data-aura class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"
+    ></canvas>
+    <div
+      class="absolute inset-0"
+      style="background: linear-gradient(180deg, rgb(232 229 221 / 0) 0%, rgb(232 229 221 / 0) 66%, rgb(234 231 223 / 0.5) 84%, rgb(237 235 227 / 0.88) 100%)"
+      aria-hidden="true"
+    >
+    </div>
+
+    <h1
+      class="relative mt-[min(52vh,calc(100vh-330px))] max-w-5xl text-center font-display text-display text-ink"
+      style="text-wrap: balance"
+    >
+      {t.hero.title}
+    </h1>
+
+    <div class="absolute inset-x-6 bottom-16 flex flex-col items-center gap-3.5">
+      <div
+        data-hero-cta
+        class="flex flex-wrap items-center justify-center gap-4 transition duration-500"
+      >
+        <p class="m-0 text-center text-sm leading-normal text-ink-mid" style="text-wrap: pretty">
+          {t.hero.sub}
+        </p>
+        <div class="flex gap-2.5">
+          <Pill href="#kontakt" variant="solid" size="md">{t.hero.ctaDemo}</Pill>
+          <Pill href="#problem" variant="outline" size="md">{t.hero.ctaMore}</Pill>
+        </div>
+      </div>
+    </div>
+    <div
+      class="absolute bottom-5 left-1/2 h-8 w-px -translate-x-1/2 bg-panel/30"
+      style="animation: scrollhint 2s ease-in-out infinite"
+      aria-hidden="true"
+    >
+    </div>
+  </header>
+</div>

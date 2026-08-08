@@ -1,0 +1,41 @@
+---
+import Pill from '../atoms/Pill.astro'
+import { CONTACT_EMAIL } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<section
+  id="kontakt"
+  data-screen-label={t.sheets.kontakt}
+  class="mx-auto box-border flex min-h-[85vh] max-w-[80rem] flex-col justify-center px-6 py-28 text-center sm:px-12"
+>
+  <h2
+    data-reveal
+    class="mx-auto mb-8 max-w-5xl font-display text-h1"
+    style="text-wrap: balance"
+    set:html={t.cta.titleHtml}
+  />
+  <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
+    {
+      t.cta.chips.map((c) => (
+        <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs uppercase tracking-widest text-accent-600">
+          {c}
+        </span>
+      ))
+    }
+  </div>
+  <div data-reveal class="flex justify-center gap-3.5 max-sm:flex-col max-sm:items-center">
+    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="lg">
+      {t.cta.demo}
+    </Pill>
+    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectWaitlist}`} variant="outline-dark" size="lg">
+      {t.cta.waitlist}
+    </Pill>
+  </div>
+</section>

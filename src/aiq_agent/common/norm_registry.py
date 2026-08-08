@@ -31,6 +31,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 import yaml
 from pydantic import BaseModel
@@ -141,6 +142,54 @@ nennen (soweit aus anderen Dokumenten bekannt) und offenlegen, dass der Volltext
 
 **Bestand/Übergangsrecht:** Wenn das Projekt kein Neubau ist (Sanierung, Zubau, Änderung), darauf hinweisen, dass
 Bestandsschutz/Übergangsbestimmungen gelten können und dies baurechtlich zu prüfen ist."""
+
+# The jurisdiction + project-hard-limits grounding, injected into every deep-research
+# prompt as {{ jurisdiction_grounding }} — ONE copy, rendered by the prompt factories
+# (same pattern as NORM_DOCTRINE). Keep the rendered prompts long and specific; only
+# the authorship is deduplicated here so the four prompts cannot drift apart.
+JURISDICTION_GROUNDING = """## Jurisdiction & Country Handling
+
+The project context (injected at the bottom of this prompt) carries a `country=<cc>` line: an ISO-2 country
+code (e.g. `at`, `de`, `ch`) or the sentinel `other` for any country without a dedicated pipeline. When the
+line is absent the country is UNCONFIRMED: default to the Austrian pipeline but treat it as provisional (see
+below), never as a confirmed `country=at`. For Austrian projects there is also a `bundesland=<token>` line
+naming the state.
+
+- **country=at (confirmed)**: Full Austrian building-regulation pipeline applies. OIB-Richtlinien,
+  Landesbauordnung, and RIS are authoritative; cite ÖNORM only as a reference unless its binding incorporation
+  and applicable text are verified; never reproduce ÖNORM full text as binding. Answer with binding-law
+  precision, name the exact regulation/edition/Punkt, and state the applicable Bundesland.
+- **country != at** (any other ISO-2 code, or the `other` sentinel): The OIB corpus and RIS tools are
+  Austrian-only. Provide general/comparative guidance based on available sources, but clearly state that the
+  answer draws on Austrian law and may not be binding in the project's jurisdiction. Always recommend local
+  verification by a qualified professional. Do NOT cite OIB/RIS findings as binding for a non-AT jurisdiction.
+- **country absent (unconfirmed)**: Use the Austrian pipeline provisionally, but do NOT present
+  OIB/RIS/Landesbauordnung findings as binding. State that the jurisdiction is unconfirmed, ask for (or
+  explicitly flag the assumption of) `country=at`, and add the same local-verification disclaimer as for a
+  non-AT project.
+- The `bundesland=ausserhalb_oesterreichs` token means the project is outside Austria (functionally the same
+  as `country != at`), even when no explicit non-AT country line is present.
+
+## Project Hard Limits & Grounding
+
+The project context includes confirmed facts (hard constraints), unknowns (gaps), and assumptions
+(provisional). Use them as follows:
+
+- **Confirmed facts** are binding — never contradict them. If research sources conflict with a confirmed
+  fact, flag the conflict and explain.
+- **Unknowns** are known gaps — if a critical fact for the answer (especially building-class relevant:
+  fluchtniveau_m, geschosse, bgf, nutzungen, bundesland) is flagged unknown, the answer must either ask for
+  it or state the gap clearly.
+- **Assumptions** are provisional estimates — treat as likely but note the uncertainty.
+- Wizard facts that constrain building-regulation outputs: **fluchtniveau_m** → Gebäudeklasse per OIB-RL 2;
+  **geschosse_oberirdisch / geschosse_unterirdisch**; **max_gebaeudehoehe**; **bgf_oberirdisch**;
+  **vorhabensart** (neubau/zubau/umbau/sanierung/...); **nutzungen** (wohnen/büro/handel/...); **bauweise**;
+  **aufzug**; **konditionierung**; **feuerstaetten**; **publikumsverkehr**; **gefahrenzonen**;
+  **brandschutz_anlagen**; **waermeversorgung**; **pv**; **lueftung**; **kuehlung**; **versickerung**.
+- Keys with `@bwN` suffix apply to a specific building; keys with `@zone` suffix to a use zone.
+- When the plan or synthesis concerns a building-regulation question, cross-check the projected output
+  against the project's hard limits. If the research produces a requirement that contradicts a confirmed
+  fact, note the contradiction in the output rather than blindly repeating both."""
 
 
 class VerifySeed(BaseModel):
@@ -746,6 +795,110 @@ def guess_doc_class(file_name: str) -> str:
     return _OIB_CLASS_TO_DOC_CLASS.get(raw, DEFAULT_DOC_CLASS)
 
 
+# German role prefixes derived from the corpus filename convention. These seed a
+# *default* display title only — the stored value in the document_metadata store
+# is authoritative and admin-overridable, so an odd future filename never shows a
+# wrong name forever (worst case: a mediocre default an admin corrects once).
+_OIB_TITLE_ROLE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("erlaeuterungen_", "Erläuterungen zu "),
+    ("aenderungen_", "Änderungen zu "),
+)
+
+_OIB_EDITION_RE = re.compile(r"ausgabe[_-]mai[_-]2023")
+_OIB_REVISION_RE = re.compile(r"rev[_.]?(\d+)")
+_OIB_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)")
+
+
+def guess_display_title(file_name: str) -> str | None:
+    """Derive a human display title for an OIB corpus document from its filename.
+
+    This is the DEFAULT seed stamped at ingestion; the stored
+    ``display_title`` (document_metadata store) overrides it and is the
+    user-editable source of truth. Returns ``None`` for a filename this cannot
+    confidently render (any non-OIB upload, or an unrecognised OIB structure) —
+    callers then keep the document's existing name rather than showing a mangled
+    guess.
+
+    Examples::
+
+        oib-rl_2_ausgabe_mai_2023.pdf        -> "OIB-Richtlinie 2, Ausgabe Mai 2023"
+        oib-rl_2.3_ausgabe_mai_2023.pdf      -> "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
+        oib-rl_6-leitfaden_...pdf            -> "OIB-Richtlinie 6 – Leitfaden, Ausgabe Mai 2023"
+        erlaeuterungen_oib-rl_2_...pdf       -> "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023"
+    """
+    if not file_name:
+        return None
+    stem = Path(Path(file_name).name).stem
+    # Normalise the one known separator inconsistency (`6-leitfaden` vs
+    # `2_leitfaden`) so the rest of the parse is uniform.
+    low = stem.lower().replace("-leitfaden", "_leitfaden")
+
+    role_prefix = ""
+    for marker, german in _OIB_TITLE_ROLE_PREFIXES:
+        if low.startswith(marker):
+            role_prefix = german
+            low = low[len(marker) :]
+            break
+
+    if not low.startswith("oib-rl_"):
+        return None
+    low = low[len("oib-rl_") :]
+
+    edition = ""
+    edition_match = _OIB_EDITION_RE.search(low)
+    if edition_match:
+        edition = "Ausgabe Mai 2023"
+        low = (low[: edition_match.start()] + low[edition_match.end() :]).strip("_")
+
+    revision = ""
+    revision_match = _OIB_REVISION_RE.search(low)
+    if revision_match:
+        revision = f"Rev. {revision_match.group(1)}"
+        low = (low[: revision_match.start()] + low[revision_match.end() :]).strip("_")
+
+    is_leitfaden = "leitfaden" in low
+    low = low.replace("leitfaden", "").strip("_")
+
+    if low.startswith("begriffsbestimmungen"):
+        subject = "OIB-Richtlinie Begriffsbestimmungen"
+    elif low.startswith("zitierte_normen"):
+        subject = "OIB-Richtlinie – Zitierte Normen und sonstige technische Regelwerke"
+    elif not low:
+        subject = "OIB-Richtlinie"
+    else:
+        number_match = _OIB_NUMBER_RE.match(low)
+        if not number_match:
+            return None
+        subject = f"OIB-Richtlinie {number_match.group(1)}"
+
+    if is_leitfaden:
+        subject += " – Leitfaden"
+
+    title = f"{role_prefix}{subject}"
+    tail = ", ".join(part for part in (edition, revision) if part)
+    return f"{title}, {tail}" if tail else title
+
+
+def _host_matches(source_url: str | None, domain: str) -> bool:
+    """True when *source_url*'s host is ``domain`` or a subdomain of it.
+
+    Lanes are provenance labels, so they must key off the real host: a substring
+    test would also accept lookalike hosts (``wien.gv.at.evil.example``) and mere
+    path/query text (``evil.example/?q=wien.gv.at``). Mirrors ``isHost`` in the
+    frontend ``trace-lanes`` client.
+    """
+    raw = (source_url or "").strip()
+    if not raw:
+        return False
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    try:
+        host = (urlparse(raw).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == domain or host.endswith(f".{domain}")
+
+
 def lane_for_hit(
     *,
     doc_class: str | None = None,
@@ -781,12 +934,49 @@ def lane_for_hit(
         doc_class = oib_doc_class(Path(file_name).name)
         if doc_class:
             return _OIB_CLASS_LANES[doc_class]
-    if source_url and "ris.bka.gv.at" in source_url:
+    if _host_matches(source_url, "ris.bka.gv.at"):
         if registry:
             for entry in registry.entries:
                 if entry.document_number and entry.document_number in source_url:
                     return _RANK_LANES[entry.rank]
         return ("baurecht_ris", "Rechtsquelle (RIS)")
+    # wien.gv.at is the curated MA-37 (Baupolizei Wien) registry pointer —
+    # official municipal building information, Baurecht family, never Web.
+    # Mirrors the frontend laneForHitClient so both render paths agree.
+    if _host_matches(source_url, "wien.gv.at"):
+        return ("behoerde", "Behördliche Information")
     if collection:  # a named KB collection that is not project/archiv: the base corpus
         return ("baurecht_oib", "OIB-Richtlinie")
     return ("web", "Web")
+
+
+def lane_for_knowledge_hit(
+    *,
+    doc_class: str | None = None,
+    file_name: str | None = None,
+    source_url: str | None = None,
+    collection: str | None = None,
+    registry: NormRegistry | None = None,
+) -> tuple[str, str]:
+    """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
+
+    Identical, except that such a hit can never be Web. A retrieved document is
+    by definition something we hold — a project upload, the Büroarchiv, the base
+    corpus — so ``("web", "Web")`` is not a classification, it is the fail-open
+    value meaning "none of the signals matched" (no doc_class, no recognizable
+    collection prefix, no OIB filename). Those land in Projektwissen.
+
+    This exists so the two consumers of the rule cannot drift: the citation
+    chips (``citation_verification.source_lane``) and the Herleitung fan-out
+    (``knowledge_layer.register._trace_lanes_json``) used to apply it
+    separately, and only the former actually did — so the same document showed
+    as "Projektwissen" on a chip and "Web" in the fan-out of the same answer.
+    """
+    lane = lane_for_hit(
+        doc_class=doc_class,
+        file_name=file_name,
+        source_url=source_url,
+        collection=collection,
+        registry=registry,
+    )
+    return ("projekt", "Projektwissen") if lane == ("web", "Web") else lane

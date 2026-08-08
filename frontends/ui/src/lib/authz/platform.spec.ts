@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
@@ -51,15 +54,23 @@ describe('isPlatformOwner', () => {
 
   it('fast path: active platform org + role/permission claims', async () => {
     expect(
-      await isPlatformOwner(session({ organizationId: PLATFORM_ORG, role: PLATFORM_OWNER_ROLE_SLUG })),
+      await isPlatformOwner(
+        session({ organizationId: PLATFORM_ORG, role: PLATFORM_OWNER_ROLE_SLUG })
+      )
     ).toBe(true)
     expect(
       await isPlatformOwner(
-        session({ organizationId: PLATFORM_ORG, role: 'member', permissions: ['platform:organizations:view'] }),
-      ),
+        session({
+          organizationId: PLATFORM_ORG,
+          role: 'member',
+          permissions: ['platform:organizations:view'],
+        })
+      )
     ).toBe(true)
     // Membership in the platform org without the role is NOT enough.
-    expect(await isPlatformOwner(session({ organizationId: PLATFORM_ORG, role: 'member' }))).toBe(false)
+    expect(await isPlatformOwner(session({ organizationId: PLATFORM_ORG, role: 'member' }))).toBe(
+      false
+    )
   })
 
   it('cross-org path: platform membership with the owner role (cached)', async () => {
@@ -97,7 +108,7 @@ describe('isPlatformOwner', () => {
       expect.objectContaining({
         organizationId: PLATFORM_ORG,
         action: 'platform.access.break_glass',
-      }),
+      })
     )
     // Access itself never depends on the audit emit.
     recordAuditEvent.mockRejectedValueOnce(new Error('audit down'))

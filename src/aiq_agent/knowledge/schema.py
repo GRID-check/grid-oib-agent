@@ -6,7 +6,7 @@ adapters must output. This ensures agents always see a consistent format
 regardless of the underlying backend (LlamaIndex, Foundational RAG, and so on).
 
 Schema Rules (enforced by all adapters):
-1. Four Pillars: content_type MUST be exactly "text", "table", "chart", or "image"
+1. Five Pillars: content_type MUST be exactly "text", "table", "chart", "image", or "drawing"
 2. Display Citation: display_citation MUST be populated with human-readable string
 3. Visual Safety: content MUST NEVER be None (use empty string for visuals)
 4. Data vs View: Raw data in structured_data, renderable image in image_url
@@ -24,9 +24,9 @@ from pydantic import model_validator
 
 class ContentType(StrEnum):
     """
-    The Four Pillars - strict content categorization.
+    The Five Pillars - strict content categorization.
 
-    All adapters MUST map their internal types to one of these four categories.
+    All adapters MUST map their internal types to one of these five categories.
     The frontend relies on this for component switching.
     """
 
@@ -34,6 +34,7 @@ class ContentType(StrEnum):
     TABLE = "table"
     CHART = "chart"
     IMAGE = "image"
+    DRAWING = "drawing"
 
 
 class Chunk(BaseModel):
@@ -254,9 +255,13 @@ class AvailableDocument(BaseModel):
             discipline).
         doc_class: Optional explicit per-document classification ("Dokumentart"),
             preferred over the filename guess for lane/kind placement.
+        display_title: Optional user-facing document name shown on citation chips
+            and in the base-corpus admin UI. When unset, callers fall back to the
+            derived default (``guess_display_title``); the filename is never shown.
     """
 
     file_name: str
     summary: str | None = None
     tags: list[str] | None = None
     doc_class: str | None = None
+    display_title: str | None = None

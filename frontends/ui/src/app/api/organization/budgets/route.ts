@@ -30,17 +30,31 @@ const deleteSchema = z.object({
   subjectId: z.string().min(1).max(120),
 })
 
-export const GET = apiRoute(async ({ session }) => getBudgetOverview(session))
+export const GET = apiRoute(async ({ session }) => getBudgetOverview(session), {
+  authz: { enforcedBy: 'getBudgetOverview (canManageBudgets, else own-limits only)' },
+})
 
 export const PUT = apiRoute(
   async ({ session, request }) => {
     const input = await parseJsonBody(request, putSchema)
     return { policy: await saveBudgetPolicy(session, input, request) }
   },
-  { status: 201 },
+  {
+    status: 201,
+    authz: {
+      enforcedBy: 'saveBudgetPolicy (canManageBudgets or project:manage for project scope)',
+    },
+  }
 )
 
-export const DELETE = apiRoute(async ({ session, request }) => {
-  const input = await parseJsonBody(request, deleteSchema)
-  return { removed: await removeBudgetPolicy(session, input, request) }
-})
+export const DELETE = apiRoute(
+  async ({ session, request }) => {
+    const input = await parseJsonBody(request, deleteSchema)
+    return { removed: await removeBudgetPolicy(session, input, request) }
+  },
+  {
+    authz: {
+      enforcedBy: 'removeBudgetPolicy (canManageBudgets or project:manage for project scope)',
+    },
+  }
+)

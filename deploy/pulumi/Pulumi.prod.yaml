@@ -8,6 +8,9 @@
 #   pulumi stack init prod
 #   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
 #   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+#   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
+#   # Required, no fallback — a stack without it fails at `pulumi preview`:
+#   pulumi config set --secret grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)"
 #   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
 #   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
 #   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
@@ -19,6 +22,14 @@
 #   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
 #   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 #   pulumi config set --secret grid-oib:jobPayloadKek          "$(openssl rand -base64 32)"
+#   # `requirepass` for the two Dragonfly instances (cache + edge counter store).
+#   # REQUIRED — the deploy fails closed without them; set
+#   # grid-oib:allowUnauthenticatedRedis=true to run without authentication
+#   # deliberately. The two MUST DIFFER: every app pod carries the cache password
+#   # in its REDIS_URL, and sharing it would let the app tier flush the edge
+#   # rate-limit counters.
+#   pulumi config set --secret grid-oib:dragonflyPassword      "$(openssl rand -base64 32)"
+#   pulumi config set --secret grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)"
 #   # Optional (only if using the local BYOK backend):
 #   pulumi config set --secret grid-oib:byokLocalKek          "$(openssl rand -base64 32)"
 #
@@ -30,20 +41,69 @@ config:
   grid-oib:imageRegistry: ghcr.io/grid-check
   grid-oib:imageTag: latest
 
-  # ── Storage: the provider's Lightbits (NVMe/TCP) StorageClass ──
-  grid-oib:storageClass: REPLACE_ME  # e.g. lightbits, or run `kubectl get sc`
+  # ── Storage (provider CSI, NVMe/TCP) ──
+  # Classes offered by the provider (see `kubectl get storageclass`):
+  #   premium         — DEFAULT, 3 storage replicas (use for all durable data)
+  #   standard        — 2 replicas
+  #   single-replica  — 1 replica (cheapest; no storage-level redundancy)
+  # NOTE: `lightbits` is the *VolumeSnapshotClass* name, NOT a StorageClass.
+  # All classes reclaim `Delete` — deleting a PVC destroys its data irreversibly.
+  grid-oib:storageClass: premium
 
-  # ── Ingress / TLS ──
-  grid-oib:appDomain: app.example.com
-  grid-oib:s3Domain: s3.example.com
+  # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
+  # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
+  grid-oib:baseDomain: example.com
   grid-oib:letsEncryptEmail: ops@example.com
   grid-oib:useStagingIssuer: "true"   # flip to false once DNS + TLS verified
+  # The provider ships an unremovable metrics stack, so DON'T install a second.
+  grid-oib:installMetricsServer: "false"
+  # After the first deploy, read the Envoy LoadBalancer's external IP
+  # (`kubectl -n envoy-gateway-system get svc`) and pin it here so DNS keeps
+  # pointing at the same address across any Gateway re-creation (the provider
+  # reserves a released IP for 14 days and reclaims it via this annotation):
+  # grid-oib:loadBalancerIp: "203.0.113.10"
+  # NetworkPolicies (default-deny ingress + least-privilege allows) are ON by
+  # default. Set false only if a validation pass shows they block required
+  # traffic on your cluster. Egress is left open (see network-policies.ts).
+  # grid-oib:networkPolicies: "true"
+  # Pulumi `protect` on the resources whose loss is not recoverable by re-running
+  # `pulumi up`: the CloudNativePG Cluster (the operator owns its PVCs, so
+  # deleting the CR destroys every database) and the SeaweedFS / Chroma
+  # StatefulSets. Protected resources make Pulumi REFUSE to delete or replace
+  # them, so a stray rename or `pulumi destroy` fails loudly with the data still
+  # there. Keep this true on prod; lift a single resource deliberately with
+  # `pulumi state unprotect <urn>`.
+  # grid-oib:protectDataResources: "true"
 
   # ── Postgres (CloudNativePG) ──
-  grid-oib:pgInstances: "1"           # set 3 for HA (1 primary + 2 replicas)
+  grid-oib:pgInstances: "3"           # HA: 1 primary + 2 streaming replicas
   grid-oib:pgStorageSize: 20Gi
+  # Continuous WAL archiving + nightly base backups to SeaweedFS (PITR). This is
+  # the only recovery path from the provider's `Delete` reclaim policy, so it is
+  # ON in prod. The grid-pg-backups bucket is auto-created.
+  grid-oib:pgBackupsEnabled: "true"
+  grid-oib:pgBackupRetention: 30d
+  grid-oib:pgBackupSchedule: "0 0 2 * * *"   # 6-field (sec min hour …): 02:00 daily
 
   # ── SeaweedFS ──
+  # Pin the storage engine in prod: the provider replaces nodes on ITS schedule,
+  # and an unpinned tag would re-pull whatever SeaweedFS shipped that day —
+  # surprise storage-engine upgrades are the one class of update you want to
+  # control. 3.80 is the compose-proven version; bump deliberately.
+  grid-oib:seaweedfsImage: chrislusf/seaweedfs:3.80
+  # PINNED to the pre-ADR-0043 layout because this stack already holds objects.
+  # The split topology (master/volume/filer as separate workloads, filer
+  # namespace on Postgres) uses different PVCs, so flipping this is a DATA
+  # MIGRATION, not a config change: without the runbook in
+  # `docs/deployment/kubernetes.md` § "Migrating SeaweedFS to the split
+  # topology", the cluster comes up empty while every existing object sits on a
+  # PersistentVolumeClaim that nothing mounts. Nothing errors — which is exactly
+  # why this is pinned rather than left to the default.
+  #
+  # Rehearse on dev first. The split topology is what makes volume capacity a
+  # replica count and moves the per-chunk encryption keys off the disk holding
+  # the ciphertext they open.
+  grid-oib:seaweedfsTopology: single
   grid-oib:seaweedfsStorageSize: 20Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid
@@ -74,6 +134,13 @@ config:
   grid-oib:agentWorkerMinReplicas: "2"
   grid-oib:agentWorkerMaxReplicas: "8"
   grid-oib:agentWorkerConcurrency: "1"
+  # Seconds a terminating worker may spend finishing the research jobs it has
+  # already claimed (terminationGracePeriodSeconds). On SIGTERM the worker stops
+  # claiming and drains; below this budget the kubelet SIGKILLs it mid-job, so
+  # every deploy and every node drain destroys research a user is waiting on.
+  # Set it at or above the p99 job duration; the cost is deploy latency, since
+  # workers roll one at a time and a draining one holds its slot this long.
+  grid-oib:agentWorkerDrainSeconds: "600"
   # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
   # proxy pins each conversation to its owning replica — ADR-0028).
   grid-oib:backendReplicas: "2"
@@ -87,3 +154,40 @@ config:
   grid-oib:workosClientId: client_REPLACE_ME
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "false"
+  # Collaboration (ADR-0032…0035) stays dark in prod until it has run in staging.
+  grid-oib:collaborationEnabled: "false"
+
+  # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
+  # Deployed only when grid-oib:observabilityEnabled (default true) AND every
+  # dependency below is set (otelPrimaryApiKey plus the dashboard's Connect
+  # application; otel.<baseDomain> is the host); otherwise `pulumi preview`
+  # warns and skips the tier.
+  # REQUIRED secret:
+  #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
+  # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
+  # only override here when deliberately upgrading.
+  # Dashboard auth runs on the Gateway against a dedicated WorkOS **Connect**
+  # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
+  # serve this flow). Create it in the WorkOS dashboard as a CONFIDENTIAL OAuth
+  # application with callback https://<otelDomain>/oauth2/callback and the
+  # platform:organizations:view permission assigned under Scopes, then:
+  #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
+  #   pulumi config set        grid-oib:otelOidcClientId     client_...
+  #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
+
+  # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
+  # OFF in prod for now — deliberately, not by oversight. Two things must be
+  # true before flipping it:
+  #   1. `err2issueImage` is digest-pinned. It currently defaults to a moving
+  #      `:latest` because upstream publishes no tags; a moving tag on a pod
+  #      holding a repo-write token is not a prod posture, and the trivy job in
+  #      .github/workflows/security.yml only scans pinned refs.
+  #   2. Steady-state error volume is known from dev, so
+  #      err2issueMaxNewFingerprintsPerDay is a considered number rather than
+  #      the conservative 20 that ships by default.
+  # Then:
+  #   pulumi config set        grid-oib:err2issueEnabled     true
+  #   pulumi config set        grid-oib:err2issueGithubRepo  GRID-check/grid-oib-agent
+  #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
+  #   pulumi config set        grid-oib:err2issueImage       ghcr.io/matthiasbigl/err2issue@sha256:...
+  grid-oib:err2issueEnabled: "false"

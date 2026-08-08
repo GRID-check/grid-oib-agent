@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createDocumentsClient } from './documents-client'
 

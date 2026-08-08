@@ -37,7 +37,7 @@ Downloads the file from `file_ref` (presigned SeaweedFS URL), saves to a tempora
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/collections/{collection_name}/documents` | Upload documents | `multipart` with `files` | `{ job_id, file_ids, message }` (202) | `add_document_routes` in `aiq_api.routes.documents` |
-| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries **and tags** from the `summaries` table) | — | `[FileInfo]` | Same |
+| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries **and tags** from the `document_metadata` table) | — | `[FileInfo]` | Same |
 | `PATCH` | `/v1/collections/{collection_name}/documents/{file_name}/tags` | Replace a document's controlled tags (never touches the summary). Dedups then validates against the ingestion vocabulary `ALLOWED_TAGS`. | `{ tags: [string] }` | `{ collection_name, file_name, tags }` | Same |
 | `GET` | `/v1/collections/{collection_name}/documents/{file_name}/visual-details` | Per-page VLM descriptions of a document's visual chunks (drawings/images/charts) — the "detailed information" the summary is distilled from. Read-only; fail-open (`{ details: [] }`) when the backend lacks the method or the lookup errors. | — | `{ details: [{ page, content_type, drawing_type, scale, text }] }` | Same |
 | `DELETE` | `/v1/collections/{collection_name}/documents` | Delete files from a collection | `{ file_ids }` | `{ message, successful, failed, total_deleted }` | Same |
@@ -63,6 +63,30 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 | `POST` | `/v1/consistency-check` | End-of-wizard **free-text** intake consistency check (FB-13). Calls an LLM to detect contradictions between the free-text intake answers and the structured answers (passed as read-only context) or within the free text itself; structured-vs-structured checks are done deterministically on the client and never sent here. | `{ free_text: [{field, value}], structured?: [{field, value}], locale? }` | `ConsistencyCheckResponse`: `{ findings: [{ fields, severity: "warning"\|"inconsistency", explanation }] \| null, error? }` | `add_consistency_check_routes` in `aiq_api.routes.consistency_check` |
 
 **Best-effort by design**: always returns HTTP `200`. Any failure (no resolvable LLM key → `error=llm_not_configured`; upstream LLM error/transport failure → `llm_request_failed`; unparseable/odd-shaped LLM output → `llm_response_malformed`) yields `findings: null` + an `error` code so the wizard can save anyway. Empty free text short-circuits to `findings: []`. The LLM is resolved from `CONSISTENCY_LLM_MODEL` / `CONSISTENCY_LLM_API_KEY` / `CONSISTENCY_LLM_BASE_URL` (falling back to `LLM_*` then the OpenRouter/OpenAI defaults — see the environment-variables reference). Proxied by the BFF `POST /api/projects/{id}/consistency-check` (which adds `project:edit` authorization).
+
+## Conversations
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/generate-conversation-title` | ChatGPT-style naming of a chat from its opening exchange, plus 0–3 OIB topic tags drawn from the caller's closed vocabulary. Backs the BFF `POST /api/conversations/{id}/generate-title`, which persists both on the `conversations` row so Historie can name and filter the chat. | `{ messages: [{role, content}], allowed_tags: string[], locale? }` | `GenerateConversationTitleResponse`: `{ title, tags, error? }` | `add_generate_conversation_title_routes` in `aiq_api.routes.generate_conversation_title` |
+
+**Best-effort by design**: always returns HTTP `200`, with the same `llm_not_configured` / `llm_request_failed` / `llm_response_malformed` codes as its siblings and an empty title. A title is **cosmetic** — the client has already set a provisional name from the first message and keeps it — so there is deliberately no server-side fallback title (inventing one would overwrite a better name), an empty title is never persisted, and **both sides log a handled failure at WARNING rather than ERROR** so a model's phrasing cannot open a GitHub issue (issue #233). LLM settings resolve through the shared summary chain (`SUMMARY_LLM_*` → `LLM_*` → OpenRouter/OpenAI defaults, plus BYOK via the forwarded `x-grid-organization-id`).
+
+### Reading a reply that must be JSON
+
+`/v1/generate-conversation-title`, `/v1/feedback-digest` and `/v1/consistency-check` all ask an OpenAI-compatible endpoint for "ONLY a JSON object" and share one reader for what comes back (`aiq_api.routes._llm_json`). All three request `response_format: {"type": "json_object"}` so the constraint is on the endpoint and not only on the prompt, and all three tolerate the same, bounded, set of deviations: a ```` ```json ```` fence (closing fence optional), prose before and after the object, and a reply the completion-token cap cut off mid-object (closed with **structural closers only** — no value is ever invented). A reply that contained no JSON object at all is still reported as `llm_response_malformed`: every caller fails open to something better than the model's prose. Unparseable replies are logged with the upstream `finish_reason`, which is what separates "the completion budget was too small" from "the model ignored the contract".
+
+## Platform quality
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/feedback-digest` | Plain-language digest of one window of answer feedback, backing the platform's **Answer feedback** card. Turns an aggregate (vote counts, reason mix, per-topic and anonymised per-organization splits, trend delta) plus a bounded sample of the **questions** that were rated into a short readable summary. `strengths` and `concerns` are separate required fields: a single free-form summary of a feedback dataset comes back as a list of complaints every time. | `{ window_days, answers, up, down, voters, down_voters, reasons, topics, organizations, trend_delta_points?, samples, locale? }` | `FeedbackDigestResponse`: `{ headline, strengths, concerns, recommendation?, error? }` | `add_feedback_digest_routes` in `aiq_api.routes.feedback_digest` |
+
+**What the caller sends, and what it does not.** Counts and questions only. No answer text, no user/conversation/message identifiers, and — deliberately — **no organization identifiers**: the digest needs the shape of the distribution ("one tenant accounts for most of the negative votes"), never the identity, and the per-organization table renders directly beneath it on the same screen. The BFF strips these at its own boundary (`lib/feedback/digest.ts`), so this route never receives them.
+
+**The sampled questions are treated as data, not instructions.** They are the one piece of raw, user-authored text that reaches the model here, so each is fenced in `<question>…</question>` markers (with any closing marker inside the text neutralised) and the system prompt declares everything between those markers as data to summarise. A user who anticipates being sampled cannot steer the digest a platform owner reads by writing instructions into their question.
+
+**Best-effort by design**: always returns HTTP `200`. `no_feedback` (nothing was rated — the model is never called), `llm_not_configured`, `llm_request_failed` and `llm_response_malformed` all come back with an empty digest so the page, which works without it, keeps working. LLM settings resolve through the shared summary chain (`SUMMARY_LLM_*` → `LLM_*` → OpenRouter/OpenAI defaults, plus BYOK). Proxied by the BFF `GET /api/platform/answer-feedback/digest`, which adds the platform-owner gate and a 6-hour shared cache.
 
 ## Chat / Generation
 
@@ -114,6 +138,8 @@ These routes are **not registered by custom code** — they are provided by the 
 | Method | Path | Auth | Description | Request | Response | Handler |
 |--------|------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/admin/oib/sync` | Admin token (`X-Admin-Token` header matching `GRID_ADMIN_TOKEN` env) | Trigger incremental OIB PDF ingestion. Runs `sync()` from `aiq_agent.oib_sync` in a thread pool. | — | `{ status, message, files_added, files_total }` | `add_oib_routes` in `aiq_api.routes.oib` |
+| `PATCH` | `/v1/admin/oib/documents/{file_name}/doc-class` | Admin token | Set a base-corpus document's explicit `doc_class` ("Dokumentart"). Store-authoritative — no re-ingest. `400` off-vocabulary, `404` when no metadata row. | `{ doc_class }` | `{ file_name, doc_class }` | `add_oib_routes` |
+| `PATCH` | `/v1/admin/oib/documents/{file_name}/display-title` | Admin token | Rename a base-corpus document (user-facing `display_title` on citation chips). Store-authoritative — no re-ingest. Empty/null clears the override, restoring the derived default. `404` when no metadata row. | `{ display_title }` | `{ file_name, display_title }` | `add_oib_routes` |
 
 ## Health
 

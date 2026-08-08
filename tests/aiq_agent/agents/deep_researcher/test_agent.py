@@ -931,7 +931,7 @@ class TestDeepResearcherAgent:
         )
         assert '"subqueries": [' in call_state["messages"][0].content
         assert "Execution order" not in call_state["messages"][0].content
-        assert call_config == {"callbacks": agent.callbacks}
+        assert call_config == {"callbacks": agent.callbacks, "recursion_limit": 100}
         fake_backend.upload_files.assert_called_once()
         persisted_files = fake_backend.upload_files.call_args.args[0]
         assert len(persisted_files) == 1
@@ -1540,7 +1540,7 @@ class TestDeepResearcherAgent:
                 max_run_seconds=1,
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
-            with pytest.raises(RuntimeError, match="wall-clock budget"):
+            with pytest.raises(TimeoutError, match="wall-clock budget"):
                 await agent.run(state)
 
     @pytest.mark.asyncio

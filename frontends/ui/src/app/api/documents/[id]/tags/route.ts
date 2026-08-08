@@ -19,7 +19,10 @@ const updateTagsSchema = z.object({
   tags: z.array(z.string().min(1).max(128)).max(MAX_TAGS),
 })
 
-export const PATCH = apiRoute<Params>(async ({ session, request, params }) => {
-  const { tags } = await parseJsonBody(request, updateTagsSchema)
-  return updateDocumentTags(session, params.id, tags)
-})
+export const PATCH = apiRoute<Params>(
+  async ({ session, request, params }) => {
+    const { tags } = await parseJsonBody(request, updateTagsSchema)
+    return updateDocumentTags(session, params.id, tags)
+  },
+  { authz: { enforcedBy: 'updateDocumentTags -> getAccessibleDocument (project:documents:write)' } }
+)

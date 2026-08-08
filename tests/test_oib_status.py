@@ -154,12 +154,33 @@ def test_status_attaches_document_summaries(monkeypatch, tmp_path):
     oib_dir = tmp_path / "oib"
     _write_pdf(oib_dir / "a.pdf", b"a")
     registry_path.write_text(json.dumps({str(oib_dir / "a.pdf"): _sha256(b"a")}), encoding="utf-8")
-    monkeypatch.setattr(oib_status, "_load_summaries", lambda _name: {"a.pdf": ("Brandschutz basics.", None)})
+    monkeypatch.setattr(
+        oib_status,
+        "_load_summaries",
+        lambda _name: {"a.pdf": ("Brandschutz basics.", None, "Custom OIB name")},
+    )
     ingestor = FakeIngestor(_collection(), files=[_file_info("a.pdf", 3)])
 
     status = oib_status.get_status(ingestor=ingestor)
 
     assert status.files[0].summary == "Brandschutz basics."
+    # The stored display-title override is surfaced as the effective name.
+    assert status.files[0].display_title == "Custom OIB name"
+
+
+def test_status_display_title_falls_back_to_derived_default(monkeypatch, tmp_path):
+    """A repo-corpus OIB file with no stored override still gets an effective name."""
+    registry_path = _configure(monkeypatch, tmp_path)
+    oib_dir = tmp_path / "oib"
+    name = "oib-rl_2_ausgabe_mai_2023.pdf"
+    _write_pdf(oib_dir / name, b"a")
+    registry_path.write_text(json.dumps({str(oib_dir / name): _sha256(b"a")}), encoding="utf-8")
+    monkeypatch.setattr(oib_status, "_load_summaries", lambda _name: {})
+    ingestor = FakeIngestor(_collection(), files=[_file_info(name, 3)])
+
+    status = oib_status.get_status(ingestor=ingestor)
+
+    assert status.files[0].display_title == "OIB-Richtlinie 2, Ausgabe Mai 2023"
 
 
 def test_status_files_are_sorted_by_name(monkeypatch, tmp_path):

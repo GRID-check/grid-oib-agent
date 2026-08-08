@@ -5,6 +5,103 @@ export const organization = {
   loading: 'Loading organization…',
   memberSubtitle: 'Your LLM usage and your organization at a glance.',
   backToApp: 'Back to projects',
+  nav: {
+    label: 'Organization sections',
+    overview: 'Overview',
+    access: 'People & access',
+    models: 'Models',
+    budgets: 'Usage & budgets',
+    storage: 'Storage',
+    compliance: 'Compliance',
+    enterprise: 'Enterprise',
+  },
+  /** Page headers of the section routes — one heading per route, not per card. */
+  sections: {
+    overview: {
+      title: 'Overview',
+      subtitle:
+        'Your organization at a glance — name, domains, members, and the Piloti settings that apply to everyone in it.',
+    },
+    access: {
+      title: 'People & access',
+      subtitle:
+        'Who is in the organization, the role each of them holds, and what that role is allowed to do.',
+    },
+    models: {
+      title: 'Models',
+      subtitle:
+        'Which model each part of the agent runs on, and whether it runs on the platform key or your own.',
+    },
+    budgets: {
+      title: 'Usage & budgets',
+      subtitle:
+        'LLM spend against the limits it is checked against. Admins see the whole organization, everyone else their own.',
+    },
+    storage: {
+      title: 'Storage',
+      subtitle:
+        'How much document storage this organization uses, and the quota that bounds it.',
+    },
+    compliance: {
+      title: 'Compliance',
+      subtitle:
+        'The audit trail of every privileged change, plus the legal holds and deletions that answer for your data.',
+    },
+    enterprise: {
+      title: 'Enterprise',
+      subtitle:
+        'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
+    },
+  },
+  /** People & access: the member directory, the role catalog, the permission map. */
+  access: {
+    people: {
+      title: 'People',
+      description: 'Everyone in the organization and the role they were given.',
+      columnName: 'Name',
+      columnEmail: 'Email',
+      columnRole: 'Role',
+      columnStatus: 'Status',
+      noRole: 'No role',
+      empty: 'Nobody has joined this organization yet.',
+      loadError:
+        'Could not load the member directory right now. Roles can still be changed below.',
+    },
+    roles: {
+      title: 'Roles',
+      description: 'The roles this organization can hand out, and what each one unlocks.',
+      // Singular/plural is chosen in the component — this i18n has no ICU.
+      permissionCountOne: '1 permission',
+      permissionCountOther: '{count} permissions',
+      platformNotice:
+        'Platform staff only. These roles live in the GRID Platform organization and cannot be assigned here.',
+    },
+    permissions: {
+      title: 'Permissions',
+      description: 'Every permission the organization knows about, and the roles that grant it.',
+      columnPermission: 'Permission',
+      grantedBy: 'Granted by',
+      noRoles: 'No role grants this',
+      deprecated: 'Deprecated',
+    },
+    // Shared by the role catalog and the permission reference — one tier
+    // vocabulary, so the two surfaces cannot drift into different words for
+    // the same thing.
+    tiers: {
+      org: 'Organization',
+      project: 'Project',
+      workflow: 'Workflow',
+      platform: 'Platform',
+    },
+    // The gate here is `org:members:manage`, NOT org admin — borrowing the
+    // notAdmin copy would tell a User Admin the wrong thing about why they
+    // are being refused.
+    notAllowed: {
+      title: 'You cannot manage people here',
+      description:
+        'Managing people and roles needs the “Manage people and roles” permission. An organization admin can grant it.',
+    },
+  },
   overview: {
     title: 'Overview',
     description: 'Your organization at a glance.',
@@ -59,7 +156,7 @@ export const organization = {
     title: 'AI model configuration',
     description:
       'Choose which OpenRouter model each agent group runs on. Changes apply to new conversations immediately; every save is a new version you can roll back to.',
-    defaultModel: 'Workflow default',
+    defaultModel: 'Platform default',
     defaultBadge: 'Default',
     overrideBadge: 'Override',
     discard: 'Discard changes',
@@ -76,13 +173,18 @@ export const organization = {
     saved: 'Model configuration saved',
     saveError: 'Could not save the model configuration.',
     history: 'Version history',
-    historyEmpty: 'No versions yet — the organization runs on the workflow defaults.',
+    historyEmpty: 'No versions yet — the organization runs on the platform defaults.',
     version: 'Version',
     activeBadge: 'Active',
     activate: 'Activate',
     activated: 'Version activated',
     activateError: 'Could not activate this version.',
-    useDefaults: 'Deactivate overrides (use workflow defaults)',
+    activateTitle: 'Activate for the whole organization?',
+    activateDescription:
+      'Makes {target} the production model for every member of your organization, effective immediately for new conversations. You can roll back to another version at any time.',
+    activateConfirm: 'Activate now',
+    defaultsTarget: 'the platform defaults',
+    useDefaults: 'Deactivate overrides (use the platform defaults)',
     loadError: 'Could not load the model configuration.',
     byokCatalogHint:
       'Your organization key ({provider}) is active: the picker lists the models available to YOUR provider account, and all traffic is billed to it. Removing the key switches back to the platform catalog.',
@@ -92,6 +194,10 @@ export const organization = {
     zdrEnabled: 'Zero data retention enabled',
     zdrDisabled: 'Zero data retention disabled',
     zdrError: 'Could not change the zero-data-retention policy.',
+    zdrDisableTitle: 'Turn off zero data retention?',
+    zdrDisableDescription:
+      'Requests may then be sent to endpoints without zero data retention, so the provider can store prompts and responses. This affects every member of your organization.',
+    zdrDisableConfirm: 'Turn off',
   },
   byok: {
     title: 'LLM API key (BYOK)',
@@ -150,6 +256,23 @@ export const organization = {
     revokeError: 'Could not revoke the key.',
     history: 'Key history',
     revokedOn: 'created {date}',
+  },
+  /** Storage: bytes stored against the quota that stops new uploads. */
+  storage: {
+    title: 'Document storage',
+    description:
+      'Every uploaded document is kept so it can be re-read, re-embedded and audited. The quota is what stops one organization filling the shared disk.',
+    used: 'Used',
+    ofQuota: '{used} of {quota}',
+    noQuota: '{used} stored (no quota set)',
+    overQuota: 'Quota reached — new uploads are refused until space is freed',
+    nearQuota: 'Almost full — new uploads will soon be refused',
+    projectDocuments: 'Project documents',
+    archivDocuments: 'Organization Archiv',
+    /** Count-neutral: a scope with exactly one document renders this too. */
+    documentCount: 'Documents: {count}',
+    setByPlatform: 'Your storage quota is set by Piloti. Contact support if you need more room.',
+    loadError: 'Could not load storage usage.',
   },
   budgets: {
     title: 'Usage & budgets',

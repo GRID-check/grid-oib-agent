@@ -179,13 +179,80 @@ time) is disabled with a loud log instead of wedging the due-scan.
 
 Sidebar gains a `workflows` nav item (flag-gated like `knowledge`), page at
 `app/projects/[id]/workflows` (server shell: session → flag `notFound()` →
-`requireProjectAccess` → client panel). Feature dir
-`src/features/workflows/`: list of workflows with enable/disable + next-run,
-create/edit builder (blocks form left, live compiled-prompt preview right,
-schedule editor with common presets + custom cron + timezone picker, data
+`requireProjectAccess` → project `collection_name` lookup → client panel).
+Feature dir `src/features/workflows/`: list of workflows with enable/disable +
+next-run, create/edit builder (blocks form left, live compiled-prompt preview
+right, schedule editor with common presets + custom cron + timezone picker, data
 source checkboxes from the existing sources endpoint), per-workflow run
 history with links into the existing research-run/report surfaces. i18n:
 `en`/`de` dictionaries (nav + workflows namespace).
+
+### Watching a run (a run is never invisible)
+
+`workflow_runs.status` records only how the SUBMISSION went; the run's real
+state lives in the backend job store. The UI joins the two so a started run can
+actually be followed:
+
+- **Run history rows carry the live job status.** `RunHistory` joins its rows
+  against `GET /v1/jobs/async/jobs?project_collection=<proj_…>` — the same list
+  the History page uses — and shows `Queued / Running / Completed / Failed /
+  Cancelled` in place of the submission badge. One request covers every row;
+  it repeats every 10 s while at least one run is still active and stops on its
+  own. Best-effort: without the join (backend unreachable, run older than the
+  lookup window) the row falls back to its submission badge. That list is
+  owner-scoped in the backend, so it resolves for the run's own submitter/
+  workflow creator and degrades to the fallback for other members.
+- **The row's action follows that status** — running → `?job=<id>&tab=tasks`
+  (progress), completed → `?job=<id>` (report), failed/cancelled →
+  `?job=<id>&tab=thinking`. Same three links on the History page's runs list.
+- **"Run now" reveals the run it started**: the history opens and reloads, and
+  the success toast carries a *View progress* action into the live job.
+- **The research panel attaches to a job that is still running.** Opening
+  `?job=<id>` for a non-terminal job used to dead-end in "This research is still
+  running"; `useLoadJobData` now calls `attachToDeepResearchJob(jobId)`, which
+  binds the job with `deepResearchStatus: 'running'` and NO owning
+  conversation. `useDeepResearch` then connects the job's SSE stream in
+  reconnect mode (replayed backlog buffered and flushed once, then live) and the
+  Tasks tab fills in as the run works. The panel's Stop button cancels it like
+  any other run.
+- **An attached run writes no thread artifacts.** With no owning conversation,
+  the success/failure/cancel banner and the error card are skipped — they would
+  otherwise land in whatever chat thread happens to be open. TasksTab's outcome
+  notice reports how the run ended instead.
+
+Screenshot evidence: `visual/screenshots/workflow-run-history.{light,dark}.png`
+(preview route `/dev/workflow-run-history`).
+
+## Platform templates (ADR-0027)
+
+The Workflows gallery merges two sources: the built-in templates above and
+**platform-managed templates** the platform owner publishes centrally so they
+appear in every organization's gallery (opt-in — selecting one pre-fills the
+builder, exactly like a built-in; nothing auto-creates or runs).
+
+| Component | Where | Role |
+|---|---|---|
+| Table + migration | `frontends/ui/src/lib/db/schema/platform-workflow-templates.ts`, `frontends/ui/drizzle/0024_platform_workflow_templates.sql` | Global `platform_workflow_templates` — no tenant scope, no run state |
+| Types + service | `frontends/ui/src/lib/platform-workflow-templates/` | Zod schemas (per-locale content), repository, CRUD + DTO mapping |
+| Platform BFF | `frontends/ui/src/app/api/platform/workflow-templates/…` | `requirePlatformOwner` CRUD: list (drafts incl.), create, patch (publish toggle), delete |
+| Org BFF | `frontends/ui/src/app/api/workflow-templates` | Session-auth, workflows-flag-gated read of PUBLISHED templates (lean, both-locale, no PII) |
+| Platform UI | `frontends/ui/src/features/platform/components/workflow-templates.tsx` (+ `workflow-template-form.tsx`) | Manager card on `/app/platform`: DE/EN form, JSON import/export, publish toggle |
+| Gallery merge | `frontends/ui/src/features/workflows/components/template-cards.tsx`, `…/lib/templates.ts` (`resolveGalleryTemplate`) | Fetches published templates, resolves the active locale into the same `ResolvedTemplate` shape |
+
+Data model (`platform_workflow_templates`, global): `provenance`,
+`data_sources` (same null=all / additional-sources contract as `workflows`),
+`agent_type`, `schedule_cron`/`schedule_timezone` (a SUGGESTION — no
+min-interval enforced), `content` JSONB (`{ de, en }`, each carrying
+name/description/category + the version-1 block definition), `published`,
+`sort_order`, author columns. Publishing is a `published` PATCH; the org read
+is served by a partial index on `(sort_order, created_at) WHERE published`.
+
+Authoring is by **form and JSON file**: the create payload is the JSON
+interchange schema (unknown envelope keys stripped), so a per-template export
+re-imports losslessly and always lands as a draft. The platform CRUD routes
+are intentionally NOT behind the per-org workflows flag — authoring the shared
+catalog is a platform-owner capability; the flag gates only the org-facing
+gallery read.
 
 ## Testing
 

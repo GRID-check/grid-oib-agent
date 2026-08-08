@@ -1,28 +1,48 @@
 'use client'
 
 /**
- * Platform owner's cross-organization overview (ADR-0016): stat tiles, the
- * organization directory with per-org spend from the usage ledger, and the
- * WorkOS Users Management widget scoped to the GRID Platform organization
- * (platform team). Mobile-first: tiles wrap 2-up, org rows stack with
- * micro-labeled stats under the `sm` breakpoint.
+ * Platform owner's cross-organization overview (ADR-0016): headline stat tiles,
+ * the 30-day spend trend, the organization directory with per-org spend from
+ * the usage ledger, and the WorkOS Users Management widget scoped to the GRID
+ * Platform organization.
+ *
+ * The directory is built on the shared admin primitives (SectionCard +
+ * DataToolbar + Table + Pagination). It used to be a hand-rolled list of flex
+ * rows with micro-labelled stats stacked inside each row: nothing could be
+ * compared column-wise, nothing could be sorted, and a cross-organization
+ * directory had no search at all. The platform team moved into its own card
+ * because inviting staff with platform-wide access is a different job from
+ * reading org spend, and sharing a card implied otherwise.
  */
 
-import { type FC, type ReactNode, useCallback, useEffect, useState } from 'react'
+import { type FC, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { WorkOsWidgets, UsersManagement } from '@workos-inc/widgets'
 import '@radix-ui/themes/styles.css'
-import { AlertTriangle, Building2, FolderKanban, Gauge, ReceiptEuro, RefreshCw } from 'lucide-react'
+import {
+  Building2,
+  ChevronDown,
+  ChevronsUpDown,
+  ChevronUp,
+  FolderKanban,
+  Gauge,
+  ReceiptEuro,
+  SearchX,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { DataToolbar } from '@/components/ui/data-toolbar'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Pagination } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { SectionCard } from '@/features/platform/components/section-card'
 import { makeWidgetTokenFetcher } from '@/lib/workos/widget-token'
-import { useResolvedAppearance } from '@/lib/workos/use-widget-appearance'
+import { useResolvedAppearance, widgetTheme } from '@/lib/workos/use-widget-appearance'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatEur as eur } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { AuditLogButton } from '@/components/audit/audit-log-button'
 import { SpendTrendChart, type SpendTrendPoint } from '@/components/charts/spend-trend-chart'
 
@@ -45,7 +65,49 @@ interface OverviewDto {
   eurPerUsd: number
 }
 
-const StatTile: FC<{ icon: ReactNode; label: string; value: ReactNode }> = ({ icon, label, value }) => (
+const PAGE_SIZE = 10
+
+type SortKey = 'name' | 'projects' | 'day' | 'month' | 'created'
+type SortDirection = 'asc' | 'desc'
+
+/**
+ * Where each column starts when it is first clicked. Money and counts are
+ * interesting at the top end, names and dates at the natural reading end.
+ */
+const INITIAL_DIRECTION: Record<SortKey, SortDirection> = {
+  name: 'asc',
+  projects: 'desc',
+  day: 'desc',
+  month: 'desc',
+  created: 'desc',
+}
+
+const compareBy = (
+  a: PlatformOrganizationDto,
+  b: PlatformOrganizationDto,
+  key: SortKey,
+  locale: string,
+): number => {
+  switch (key) {
+    case 'name':
+      return a.name.localeCompare(b.name, locale)
+    case 'projects':
+      return a.projectCount - b.projectCount
+    case 'day':
+      return a.dayUsd - b.dayUsd
+    case 'month':
+      return a.monthUsd - b.monthUsd
+    case 'created':
+      return Date.parse(a.createdAt) - Date.parse(b.createdAt)
+  }
+}
+
+const StatTile: FC<{ icon: ReactNode; label: string; value: ReactNode; hint?: string }> = ({
+  icon,
+  label,
+  value,
+  hint,
+}) => (
   <div className="flex items-center gap-3 rounded-lg border p-4">
     <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
       {icon}
@@ -53,9 +115,39 @@ const StatTile: FC<{ icon: ReactNode; label: string; value: ReactNode }> = ({ ic
     <div className="min-w-0">
       <p className="truncate text-xs font-medium uppercase text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold tabular-nums tracking-tight">{value}</p>
+      {hint ? <p className="text-xs leading-tight text-muted-foreground">{hint}</p> : null}
     </div>
   </div>
 )
+
+const SortableHead: FC<{
+  label: string
+  ariaLabel: string
+  active: boolean
+  direction: SortDirection
+  onSort: () => void
+  className?: string
+}> = ({ label, ariaLabel, active, direction, onSort, className }) => {
+  const Icon = active ? (direction === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown
+  return (
+    <TableHead className={className} aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        onClick={onSort}
+        aria-label={ariaLabel}
+        className={cn(
+          // A column header is text-height by design; `touch-target` makes it
+          // tappable without turning the header row into a row of buttons.
+          'inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target',
+          active && 'text-foreground',
+        )}
+      >
+        {label}
+        <Icon className={cn('size-3', !active && 'opacity-50')} aria-hidden />
+      </button>
+    </TableHead>
+  )
+}
 
 export const PlatformOverview: FC = () => {
   const t = useTranslations('platform')
@@ -64,6 +156,12 @@ export const PlatformOverview: FC = () => {
   const [overview, setOverview] = useState<OverviewDto | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [query, setQuery] = useState('')
+  const [offset, setOffset] = useState(0)
+  // Mirrors the backend's own ordering, so the first render matches what the
+  // service already sorted for us.
+  const [sortKey, setSortKey] = useState<SortKey>('month')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -85,23 +183,39 @@ export const PlatformOverview: FC = () => {
     load()
   }, [load])
 
-  // Failed and nothing to show — an inline, retryable error instead of a
+  const organizations = overview?.organizations
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    const rows = (organizations ?? []).filter((org) => org.name.toLowerCase().includes(needle))
+    return rows.sort((a, b) => {
+      const ordered = compareBy(a, b, sortKey, locale) * (sortDirection === 'asc' ? 1 : -1)
+      // Equal spend is common (zero), so fall back to a stable, readable order
+      // instead of whatever the array happened to hold.
+      return ordered || a.name.localeCompare(b.name, locale)
+    })
+  }, [organizations, query, sortKey, sortDirection, locale])
+
+  const sortOn = (key: SortKey): void => {
+    setSortDirection(key === sortKey ? (sortDirection === 'asc' ? 'desc' : 'asc') : INITIAL_DIRECTION[key])
+    setSortKey(key)
+    // Re-ordering under a reader parked on page three would show them rows they
+    // never asked for; start the new order at its top.
+    setOffset(0)
+  }
+
+  // Failed and nothing to show — one inline, retryable error instead of a
   // skeleton that would otherwise spin forever.
   if (error && !overview) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
-          <AlertTriangle className="size-8 text-muted-foreground" aria-hidden />
-          <div className="space-y-1">
-            <p className="text-sm font-medium">{t('loadError')}</p>
-            <p className="text-sm text-muted-foreground">{t('loadErrorHint')}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-            {t('retry')}
-          </Button>
-        </CardContent>
-      </Card>
+      <SectionCard
+        title={t('sections.overview.title')}
+        description={t('loadErrorHint')}
+        error
+        errorMessage={t('loadError')}
+        onRetry={load}
+        loading={loading}
+        testId="platform-overview-error"
+      />
     )
   }
 
@@ -119,6 +233,23 @@ export const PlatformOverview: FC = () => {
   }
 
   const { totals } = overview
+  // Search and sort reset the offset, but a reload does not: if a retry returns
+  // fewer organizations than the reader's current page starts at, the offset
+  // points past the end and the table renders empty instead of falling back to
+  // page one. Clamp on read.
+  const safeOffset = offset < visible.length ? offset : 0
+  const page = visible.slice(safeOffset, safeOffset + PAGE_SIZE)
+
+  const sortableColumn = (key: SortKey, label: string, className?: string): JSX.Element => (
+    <SortableHead
+      label={label}
+      ariaLabel={t('overview.sortBy', { column: label })}
+      active={sortKey === key}
+      direction={sortDirection}
+      onSort={() => sortOn(key)}
+      className={className}
+    />
+  )
 
   return (
     <TooltipProvider delayDuration={100}>
@@ -128,7 +259,14 @@ export const PlatformOverview: FC = () => {
           <StatTile
             icon={<Building2 className="size-4" aria-hidden />}
             label={t('stats.organizations')}
-            value={overview.organizationsCapped ? `${totals.organizations}+` : totals.organizations}
+            value={totals.organizations}
+            // A bare "100+" reads as a typo. Say what actually happened: the
+            // directory stopped at a page boundary and more organizations exist.
+            hint={
+              overview.organizationsCapped
+                ? t('overview.cappedTile', { count: totals.organizations })
+                : undefined
+            }
           />
           <StatTile
             icon={<FolderKanban className="size-4" aria-hidden />}
@@ -155,93 +293,124 @@ export const PlatformOverview: FC = () => {
         </div>
 
         {/* 30-day platform-wide spend trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('trend.title')}</CardTitle>
-            <CardDescription>{t('trend.description')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SpendTrendChart
-              points={overview.dailyTrend ?? []}
-              eurPerUsd={overview.eurPerUsd}
-              requestsLabel={(count) => t('trend.requests', { count })}
-              emptyLabel={t('trend.empty')}
-            />
-          </CardContent>
-        </Card>
+        <SectionCard title={t('trend.title')} description={t('trend.description')} testId="platform-trend">
+          <SpendTrendChart
+            points={overview.dailyTrend ?? []}
+            eurPerUsd={overview.eurPerUsd}
+            requestsLabel={(count) => t('trend.requests', { count })}
+            emptyLabel={t('trend.empty')}
+          />
+        </SectionCard>
 
         {/* Organization directory */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('orgs.title')}</CardTitle>
-            <CardDescription>{t('orgs.description')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {overview.organizations.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('orgs.empty')}</p>
+        <SectionCard
+          title={t('orgs.title')}
+          description={t('orgs.description')}
+          testId="platform-organizations"
+          empty={overview.organizations.length === 0}
+          emptyIcon={Building2}
+          emptyTitle={t('orgs.empty')}
+          emptyDescription={t('overview.emptyHint')}
+        >
+          <div className="flex flex-col gap-3">
+            <DataToolbar
+              searchValue={query}
+              onSearchChange={(value) => {
+                setQuery(value)
+                setOffset(0)
+              }}
+              searchPlaceholder={t('overview.search')}
+              searchLabel={t('overview.searchLabel')}
+              clearLabel={t('overview.searchClear')}
+            />
+
+            {visible.length === 0 ? (
+              <EmptyState
+                variant="bare"
+                icon={SearchX}
+                title={t('overview.noMatches')}
+                description={t('overview.noMatchesHint')}
+              />
             ) : (
-              <ul className="flex flex-col divide-y rounded-lg border">
-                {overview.organizations.map((org) => (
-                  <li
-                    key={org.id}
-                    className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap"
-                  >
-                    <div className="min-w-0 flex-1 basis-full sm:basis-0">
-                      <p className="flex items-center gap-2 truncate text-sm">
-                        {org.name}
-                        {org.isPlatformOrg && (
-                          <Badge variant="secondary" className="shrink-0">
-                            {t('orgs.platformBadge')}
-                          </Badge>
-                        )}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {t('orgs.colCreated')}: {new Date(org.createdAt).toLocaleDateString(locale)}
-                      </p>
-                    </div>
-                    <div className="flex flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end">
-                      {(
-                        [
-                          [t('orgs.colProjects'), String(org.projectCount)],
-                          [t('orgs.colToday'), eur(org.dayUsd * overview.eurPerUsd, locale)],
-                          [t('orgs.colMonth'), eur(org.monthUsd * overview.eurPerUsd, locale)],
-                        ] as const
-                      ).map(([label, value]) => (
-                        <div key={label} className="flex min-w-14 flex-col items-end">
-                          <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-                            {label}
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {sortableColumn('name', t('orgs.colOrganization'))}
+                      {sortableColumn('projects', t('orgs.colProjects'), 'text-right')}
+                      {sortableColumn('day', t('orgs.colToday'), 'text-right')}
+                      {sortableColumn('month', t('orgs.colMonth'), 'text-right')}
+                      {sortableColumn('created', t('orgs.colCreated'), 'text-right')}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {page.map((org) => (
+                      <TableRow key={org.id}>
+                        <TableCell>
+                          <span className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">{org.name}</span>
+                            {org.isPlatformOrg ? (
+                              <Badge variant="secondary" className="shrink-0">
+                                {t('orgs.platformBadge')}
+                              </Badge>
+                            ) : null}
                           </span>
-                          <span className="text-sm tabular-nums">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                          {org.projectCount}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {eur(org.dayUsd * overview.eurPerUsd, locale)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {eur(org.monthUsd * overview.eurPerUsd, locale)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right text-sm tabular-nums text-muted-foreground">
+                          {new Date(org.createdAt).toLocaleDateString(locale)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
-          </CardContent>
-        </Card>
+
+            <Pagination
+              offset={safeOffset}
+              pageSize={PAGE_SIZE}
+              total={visible.length}
+              onOffsetChange={setOffset}
+              rangeLabel={(from, to, total) => t('overview.range', { from, to, total })}
+              previousLabel={t('overview.previous')}
+              nextLabel={t('overview.next')}
+            />
+
+            {overview.organizationsCapped ? (
+              <p className="text-xs text-muted-foreground">
+                {t('overview.cappedNote', { count: totals.organizations })}
+              </p>
+            ) : null}
+          </div>
+        </SectionCard>
 
         {/* Platform team — WorkOS widget scoped to the GRID Platform org */}
-        <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('team.title')}</CardTitle>
-              <CardDescription>{t('team.description')}</CardDescription>
-              <CardAction>
-                {/* Platform trail: break-glass + platform-org admin events. */}
-                <AuditLogButton
-                  endpoint="/api/platform/audit-portal"
-                  label={t('team.auditLogs')}
-                  errorMessage={t('team.auditError')}
-                />
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              <UsersManagement authToken={makeWidgetTokenFetcher(['widgets:users-table:manage'], 'platform')} />
-            </CardContent>
-          </Card>
-        </WorkOsWidgets>
+        <SectionCard
+          title={t('team.title')}
+          description={t('team.description')}
+          testId="platform-team"
+          action={
+            /* Platform trail: break-glass + platform-org admin events. */
+            <AuditLogButton
+              endpoint="/api/platform/audit-portal"
+              label={t('team.auditLogs')}
+              errorMessage={t('team.auditError')}
+            />
+          }
+        >
+          <WorkOsWidgets theme={widgetTheme(appearance)}>
+            <UsersManagement authToken={makeWidgetTokenFetcher(['widgets:users-table:manage'], 'platform')} />
+          </WorkOsWidgets>
+        </SectionCard>
       </div>
     </TooltipProvider>
   )

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, test } from 'vitest'
 import { compilePreview } from './compile-preview'
 import type { WorkflowDefinition } from '@/adapters/api/workflows-client'

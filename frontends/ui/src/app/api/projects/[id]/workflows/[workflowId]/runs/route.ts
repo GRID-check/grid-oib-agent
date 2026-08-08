@@ -10,9 +10,12 @@ import { listRunsQuerySchema } from '@/lib/workflows/types'
 
 type Params = { id: string; workflowId: string }
 
-export const GET = apiRoute<Params>(async ({ session, params, request }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  const { limit, offset } = parseQuery(request, listRunsQuerySchema)
-  return { runs: await listRuns(session, params.id, params.workflowId, { limit, offset }) }
-})
+export const GET = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    const { limit, offset } = parseQuery(request, listRunsQuerySchema)
+    return { runs: await listRuns(session, params.id, params.workflowId, { limit, offset }) }
+  },
+  { authz: { enforcedBy: 'listRuns (requireProjectAccess project:view)' } }
+)

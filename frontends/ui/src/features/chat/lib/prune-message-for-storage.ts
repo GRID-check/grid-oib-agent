@@ -21,8 +21,15 @@ export const capString = (value: string, max: number): string => {
  *
  * - Deep research steps (isDeepResearch=true) are removed entirely since
  *   they are refetched from the async backend API.
- * - Shallow steps keep display fields + compact `traceLanes` (derived from
- *   content before it is dropped so the sources fan-out survives reload).
+ * - Shallow steps keep display fields + compact `traceLanes` so the sources
+ *   fan-out survives reload. A step that reported a `## Trace-Lanes` block
+ *   already carries them: `updateThinkingStepByFunctionName` accumulates the
+ *   lanes of every completion frame there, so its `traceLanes` is the union of
+ *   all calls while `content` only holds the last payload — taking the step's
+ *   own field first is therefore not just cheaper, it is the only version that
+ *   still knows what the earlier calls retrieved. Deriving from the payload
+ *   remains the path for steps with no structured block (web/RIS URL scan),
+ *   and runs here, before that payload is dropped.
  */
 export const stripThinkingStepsForStorage = (
   steps: NonNullable<ChatMessage['thinkingSteps']>

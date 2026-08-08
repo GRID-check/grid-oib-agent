@@ -24,9 +24,11 @@ from aiq_agent.common.citation_verification import get_or_create_session_registr
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
+from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
+from aiq_agent.observability.otlp_logging_method import ensure_registered as _ensure_otlp_logging_registered
 from aiq_agent.project_context import get_memory_reflection_enabled_from_context
 from nat.builder.builder import Builder
 from nat.builder.context import Context
@@ -47,6 +49,7 @@ from .utils import _extract_query_and_sources
 logger = logging.getLogger(__name__)
 
 _ensure_otel_redaction_registered()
+_ensure_otlp_logging_registered()
 # Register a direct ChatResponse -> ChatResponseChunk converter so Grid cards
 # (attached as an extra field on the response) survive NAT's CHAT_STREAM
 # serialization instead of being dropped by the lossy indirect str conversion.
@@ -80,9 +83,27 @@ def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
     if user_intent is None and isinstance(result, dict):
         user_intent = result.get("user_intent")
     intent = getattr(user_intent, "intent", None)
-    if intent in {"meta", "error"}:
+    if intent in {"meta", "error", "out_of_scope"}:
         return False
     return True
+
+
+def _admission_organization_id() -> str | None:
+    """Tenant this turn is admitted against (ADR-0040 L3), or None.
+
+    Read from the signed request-context envelope rather than threaded down
+    through the turn: the organization is needed at exactly one point, and the
+    envelope is the authority for it. Degrades to None — the turn is then
+    admitted against the global pool only — because a missing tenant must cost
+    a coarser limit, never a failed answer.
+    """
+    try:
+        from aiq_agent.project_context import GridRequestContext
+
+        return GridRequestContext.from_context().organization_id
+    except Exception:
+        logger.debug("No organization in request context for turn admission", exc_info=True)
+        return None
 
 
 def _available_documents_limit() -> int:
@@ -170,6 +191,7 @@ _STREAM_EXTRA_FIELDS = (
     "routing_reason",
     "escalation_reason",
     "answer_confidence_capped_reason",
+    "answer_confidence_reason",
     "citations_removed",
     "job_admission_rejected",
     "retry_after_seconds",
@@ -707,6 +729,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         validate_deep_research_tools_fn=validate_deep_research_tools,
     )
 
+    # Ingest-only context (ADR-0034 addendum). The WebSocket front end owns the
+    # socket and this tier owns the graph, so the appender is published rather than
+    # imported: a `context_only` frame lands in this conversation's checkpoint
+    # without a turn, so the agent can see what a colleague wrote the next time it
+    # IS addressed. Registered here because this is where the compiled graph (and
+    # its checkpointer) exists.
+    register_context_appender(agent.append_context_message)
+
     async def _run(
         query: object,
     ) -> Annotated[AsyncGenerator[ChatResponseChunk, None], Streaming(convert=_fold_chunks_to_response)]:
@@ -967,10 +997,31 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             from aiq_agent.common.cost_tracking import BudgetExceededError
             from aiq_agent.common.cost_tracking import track_llm_costs
             from aiq_agent.common.profiler import track_agent_profile
+            from aiq_agent.common.turn_admission import TurnAdmissionError
+            from aiq_agent.common.turn_admission import admit_turn_async
 
             try:
-                with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
-                    result = await agent.run(state, thread_id=nat_context_conversation_id)
+                # Concurrency admission (ADR-0040 L3). A turn OCCUPIES capacity
+                # for as long as it runs, so the slot is held around the run
+                # itself — outside it, a per-minute rate limit would still admit
+                # an unbounded number of simultaneous research runs at a steady
+                # trickle. Interactive turns have their own pool, so background
+                # deep research can never crowd them out.
+                async with admit_turn_async(_admission_organization_id()):
+                    with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
+                        result = await agent.run(state, thread_id=nat_context_conversation_id)
+            except TurnAdmissionError as admission_error:
+                logger.warning("Turn refused by admission control: %s", admission_error)
+                busy_response = _create_chat_response(
+                    str(admission_error), response_id="turn_admission", model=workflow_id
+                )
+                # Same contract as every other refusal in the system: say WHEN to
+                # come back, not just no. Without it the client has to guess, and
+                # guessing is what turns a refusal into a retry storm.
+                busy_response.retry_after_seconds = admission_error.retry_after_seconds
+                for _chunk in _response_to_chunks(busy_response, stream=False):
+                    yield _chunk
+                return
             except BudgetExceededError as budget_error:
                 logger.warning("Turn stopped by budget enforcement: %s", budget_error)
                 budget_response = _create_chat_response(
@@ -1024,6 +1075,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         routing_reason = getattr(depth_decision, "raw_reasoning", None)
         escalation_reason = _result_field(result, "escalation_reason")
         answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
+        answer_confidence_reason = _result_field(result, "answer_confidence_reason")
         citations_removed = _result_field(result, "citations_removed")
         job_admission_rejected = _result_field(result, "job_admission_rejected")
         retry_after_seconds = _result_field(result, "retry_after_seconds")
@@ -1059,6 +1111,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.escalation_reason = escalation_reason
         if answer_confidence_capped_reason:
             response.answer_confidence_capped_reason = answer_confidence_capped_reason
+        if answer_confidence_reason:
+            response.answer_confidence_reason = answer_confidence_reason
         if citations_removed:
             response.citations_removed = citations_removed
         if job_admission_rejected:
@@ -1072,8 +1126,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # deep-research job stubs carry no answer; meta/error turns and
         # insufficiency answers ("I don't have enough information …") have nothing
         # durable to record and would only invite spurious findings (audit gap).
-        # Runtime on/off is solely the `memory-reflection` WorkOS feature flag,
-        # forwarded as a request header (no env-var fallback).
+        # Runtime on/off is decided by the BFF (`isMemoryReflectionEnabled`):
+        # the `memory-reflection` WorkOS feature flag when flag enforcement is
+        # on, otherwise `GRID_MEMORY_REFLECTION_ENABLED` (default ON) — forwarded
+        # as a request header.
         if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
             answer_text = response_content if isinstance(response_content, str) else str(response_content)
             if _reflection_answer_is_substantive(result, answer_text):

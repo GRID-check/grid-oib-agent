@@ -22,7 +22,10 @@ const consistencyCheckSchema = z.object({
   locale: z.string().optional(),
 })
 
-export const POST = apiRoute<{ id: string }>(async ({ session, params, request }) => {
-  const input = await parseJsonBody(request, consistencyCheckSchema)
-  return checkProjectConsistency(session, params.id, input)
-})
+export const POST = apiRoute<{ id: string }>(
+  async ({ session, params, request }) => {
+    const input = await parseJsonBody(request, consistencyCheckSchema)
+    return checkProjectConsistency(session, params.id, input)
+  },
+  { authz: { enforcedBy: 'checkProjectConsistency (requireProjectAccess project:edit)' } }
+)

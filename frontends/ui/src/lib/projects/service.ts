@@ -10,7 +10,11 @@
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { checkResourcePermission } from '@/lib/authz/resource-check'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { neutralizeCollaborationForProject } from '@/lib/collaboration/cleanup'
+import { listConversationIdsForProject } from '@/lib/conversations/repository'
+import { countDocumentsByProject } from '@/lib/documents/repository'
 import { computePurgeAfter, projectGraceDays } from '@/lib/deletion/policy'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -37,8 +41,62 @@ import {
   softDeleteProjectAndEnqueue,
 } from './repository'
 
-export async function listProjects(session: AuthorizedSession): Promise<Project[]> {
-  return listProjectsInOrg(session.organizationId)
+/**
+ * Projects the caller can actually reach, not merely the ones their tenant owns.
+ *
+ * The listing used to return every non-deleted project in the organization while
+ * `getProject` gated on per-project FGA — so the detail view was protected and
+ * the list that fed it was not. Any member enumerated every project name and id
+ * in the tenant, which is exactly the distinction `project-viewer` /
+ * `project-editor` / `project-admin` exist to draw (ADR-0038).
+ *
+ * Org admins keep seeing everything (the same named bypass `requireProjectAccess`
+ * applies), and the checks run concurrently so the page costs one round of
+ * parallel FGA calls rather than a serial walk. Each check **fails closed**
+ * independently: a project whose check errors is omitted rather than shown.
+ */
+export async function listProjects(
+  session: AuthorizedSession,
+  order: 'newest' | 'oldest' = 'newest',
+): Promise<Project[]> {
+  const projects = await listProjectsInOrg(session.organizationId, { order })
+  if (session.role === 'admin') return projects
+
+  const visible = await Promise.all(
+    projects.map(async (project) => {
+      const allowed = await checkResourcePermission({
+        organizationMembershipId: session.organizationMembershipId,
+        permissionSlug: 'project:view',
+        resourceExternalId: project.id,
+        resourceTypeSlug: 'project',
+      })
+      return allowed ? project : null
+    }),
+  )
+  return visible.filter((project): project is Project => project !== null)
+}
+
+/**
+ * Everything the projects grid renders: the reachable projects and their
+ * document counts.
+ *
+ * Exists so the page has a service call for its whole view instead of a reason
+ * to open the database itself. The page previously ran its own
+ * `select().from(projects)` filtered only by organization, which bypassed the
+ * FGA filtering in {@link listProjects} and put every project in the tenant on
+ * screen for every member — the precise regression ADR-0038 closed. Counting is
+ * derived from the filtered list for the same reason.
+ */
+export async function getProjectsGridData(
+  session: AuthorizedSession,
+  order: 'newest' | 'oldest' = 'newest',
+): Promise<{ projects: Project[]; documentCounts: Record<string, number> }> {
+  const visible = await listProjects(session, order)
+  const documentCounts = await countDocumentsByProject(
+    session.organizationId,
+    visible.map((project) => project.id),
+  )
+  return { projects: visible, documentCounts }
 }
 
 /**
@@ -48,7 +106,11 @@ export async function listProjects(session: AuthorizedSession): Promise<Project[
 export async function createProject(
   session: AuthorizedSession,
   input: { name: string },
-  request: Request,
+  // Optional because the projects-page server action has no `Request` to pass.
+  // `recordAuditEvent` already treats it as optional (it only enriches the event
+  // context with IP + user agent), so requiring it here was the sole reason that
+  // action re-implemented this whole function instead of calling it.
+  request?: Request,
 ): Promise<Project> {
   const workos = getWorkOS()
 
@@ -66,7 +128,7 @@ export async function createProject(
     name: input.name,
   })
 
-  await setProjectWorkosResourceId(project.id, resource.id)
+  await setProjectWorkosResourceId(project.id, session.organizationId, resource.id)
 
   await workos.authorization.assignRole({
     organizationMembershipId: session.organizationMembershipId,
@@ -127,6 +189,23 @@ export async function deleteProject(
   const purgeAfter = computePurgeAfter(new Date(), projectGraceDays())
   await softDeleteProjectAndEnqueue(project, session.userId, purgeAfter)
 
+  // Every conversation in the project just became unreachable, so collaboration
+  // state that assumes someone can READ those threads must be settled: open
+  // mention requests are voided (nobody can answer a thread they cannot open, and
+  // the hand-off banner would otherwise wait forever) and inbox items go inert
+  // with their payloads wiped, so a quoted snippet cannot outlive access to the
+  // thread it came from.
+  //
+  // Grants are deliberately KEPT: a soft delete may be restored during the grace
+  // period, and the project should come back with its threads shared exactly as
+  // they were (spec SH-13). Best-effort — a deletion must not fail on bookkeeping.
+  try {
+    const conversationIds = await listConversationIdsForProject(projectId, session.organizationId)
+    await neutralizeCollaborationForProject(session.organizationId, projectId, conversationIds)
+  } catch (error) {
+    console.warn('[projects] collaboration neutralization on project delete failed:', error)
+  }
+
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -148,7 +227,7 @@ export async function restoreProject(
 ): Promise<void> {
   await requireProjectAccess(session, projectId, 'project:manage', { includeDeleted: true })
 
-  const restored = await restoreProjectIfPending(projectId)
+  const restored = await restoreProjectIfPending(projectId, session.organizationId)
   if (!restored) {
     throw new ConflictError('No pending deletion to restore (already purged, or purge in progress).')
   }
@@ -199,7 +278,7 @@ export async function addProjectMemoryItem(
     pinned?: boolean
   },
 ): Promise<ProjectMemoryItem> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   return createProjectMemoryItem({
     scope: 'project',
     projectId,
@@ -220,7 +299,7 @@ export async function editProjectMemoryItem(
   itemId: string,
   patch: ProjectMemoryItemPatch,
 ): Promise<ProjectMemoryItem> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   const item = await updateProjectMemoryItem({ projectId }, itemId, patch)
   if (!item) throw new NotFoundError()
   return item
@@ -231,7 +310,7 @@ export async function removeProjectMemoryItem(
   projectId: string,
   itemId: string,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   const deleted = await deleteProjectMemoryItem({ projectId }, itemId)
   if (!deleted) throw new NotFoundError()
 }

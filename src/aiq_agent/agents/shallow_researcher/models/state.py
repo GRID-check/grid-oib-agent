@@ -68,6 +68,11 @@ class ShallowResearchAgentState(BaseModel):
     # before the chat node's overconfidence guard). None = marker absent/malformed
     # (or extraction did not run — disambiguated via ``escalation_requested``).
     answer_confidence_marker: Literal["low", "medium", "high"] | None = None
+    # The marker's optional ``| …`` justification (one clause, already
+    # length-capped by the parser). None when the marker had no reason or was
+    # absent/malformed. The chat node surfaces it as ``answer_confidence_reason``
+    # so the UI can show WHY the model chose the level.
+    answer_confidence_marker_reason: str | None = None
     # Structured sources captured this turn (wire-ready dicts from
     # ``source_entry_to_wire``). Surfaced on the final ChatResponse so the FE
     # can open document previews without inventing filenames.

@@ -21,6 +21,8 @@ const querySchema = z.object({
   projectId: z.string().optional(),
 })
 
-export const GET = apiRoute(async ({ session, request }) =>
-  getConnectionDiagnostics(session, parseQuery(request, querySchema)),
+export const GET = apiRoute(
+  async ({ session, request }) =>
+    getConnectionDiagnostics(session, parseQuery(request, querySchema)),
+  { authz: { enforcedBy: 'getConnectionDiagnostics (scoped to session.organizationId)' } }
 )

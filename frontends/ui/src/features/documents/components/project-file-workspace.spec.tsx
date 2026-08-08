@@ -135,13 +135,16 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
     const fileRow = await screen.findByRole('button', { name: /notes\.txt/i })
     fireEvent.click(fileRow)
 
-    // Mobile overlay exposes dialog semantics with an accessible name.
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(dialog).toHaveAttribute('aria-label', 'File preview: notes.txt')
+    // Dialog semantics with an accessible name. Asserted by NAME rather than by
+    // `aria-label`: the shell is Radix now, which labels the content via
+    // `aria-labelledby` pointing at a visually-hidden DialogTitle. Querying the
+    // computed accessible name tests what a screen reader announces instead of
+    // pinning the attribute the implementation happens to use.
+    const dialog = await screen.findByRole('dialog', { name: /File preview: notes\.txt/i })
+    expect(dialog).toBeInTheDocument()
 
-    // Escape closes the overlay.
-    fireEvent.keyDown(document, { key: 'Escape' })
+    // Escape closes it. Radix listens on the content, not on document.
+    fireEvent.keyDown(dialog, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })

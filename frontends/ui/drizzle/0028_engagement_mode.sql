@@ -1,0 +1,14 @@
+-- ADR-0036: when the agent answers a message that tags nobody.
+--
+-- Nullable with NO default and NO backfill, both deliberate:
+--   * NULL means "derive it" — a thread with two or more human authors is in
+--     `mention`, one with a single author is in `ask`. An absent value is
+--     therefore never a broken thread, and the derivation rule can improve
+--     without a data migration.
+--   * every existing conversation has exactly one human author (authorship
+--     arrived with 0027, and sharing is dark-launched), so every existing row
+--     derives to `ask` — which is precisely the behaviour they have today.
+--
+-- The value is written once, at the moment a second human contributes, so the
+-- derivation query does not run per message forever.
+ALTER TABLE "conversations" ADD COLUMN IF NOT EXISTS "engagement" text;

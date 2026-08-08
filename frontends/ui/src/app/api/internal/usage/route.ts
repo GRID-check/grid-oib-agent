@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import { COST_SOURCES } from '@/lib/db/schema'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withTenant } from '@/lib/db/tenant-context'
 import { recordUsageEvents } from '@/lib/budgets/service'
 
 const usageEventSchema = z.object({
@@ -44,7 +45,9 @@ export const POST = internalApiRoute(
       return { recorded: 0, skipped: batch.events.length }
     }
 
-    const recorded = await recordUsageEvents(
+    // The ledger row is the tenant's own; the scope makes the database agree.
+    const recorded = await withTenant({ organizationId: batch.organizationId }, () =>
+      recordUsageEvents(
       batch.events.map((event) => ({
         organizationId: batch.organizationId as string,
         userId: batch.userId ?? null,
@@ -62,9 +65,10 @@ export const POST = internalApiRoute(
         costUsd: event.costUsd.toFixed(8),
         costSource: event.costSource,
         isByok: event.isByok ?? null,
-      })),
+      }))
+      )
     )
     return { recorded }
   },
-  { status: 202 },
+  { status: 202, tenancy: { fromPayload: 'body.organizationId' } }
 )

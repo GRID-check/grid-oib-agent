@@ -8,8 +8,9 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ErrorCode } from '../types'
@@ -28,10 +29,24 @@ export interface ErrorBannerProps {
   timestamp?: Date | string
   /** Optional callback when banner is dismissed */
   onDismiss?: () => void
+  /**
+   * Optional retry action. When provided, the banner renders a "Erneut
+   * versuchen" button (the design language mandates "helpful message + retry").
+   * Left optional so callers/specs that don't wire a retry are unaffected.
+   */
+  onRetry?: () => void
 }
 
 /**
- * Error banner for displaying connection, file, auth, and system errors
+ * Error banner for displaying connection, file, auth, and system errors.
+ *
+ * Motion: the banner arrives in the transcript with the same entrance every
+ * other chat turn uses — a 200ms fade-and-rise (`animate-in fade-in-0
+ * slide-in-from-bottom-1 duration-200`) on mount only, never on re-render, so a
+ * banner that appears mid-conversation reads as the same class of object as the
+ * answer beside it. Dropped entirely under `prefers-reduced-motion` via
+ * `motion-reduce:animate-none` (design language §Motion vocabulary): the banner
+ * is fully legible without it, so no information depends on the animation.
  */
 export const ErrorBanner: FC<ErrorBannerProps> = ({
   code,
@@ -39,6 +54,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   details,
   timestamp,
   onDismiss,
+  onRetry,
 }) => {
   const t = useTranslations('chat')
   const tc = useTranslations('common')
@@ -58,7 +74,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   const StatusIcon = errorMeta.status === 'error' ? XCircle : AlertTriangle
 
   return (
-    <div className="flex w-full flex-col gap-1">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-200 motion-reduce:animate-none">
       <Alert variant={variant} className="relative">
         <StatusIcon />
         <AlertTitle>{displayTitle}</AlertTitle>
@@ -92,6 +108,19 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
             >
               {details}
             </pre>
+          )}
+          {onRetry && (
+            <div className="mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetry}
+                aria-label={t('error.retry')}
+              >
+                <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('error.retry')}
+              </Button>
+            </div>
           )}
         </AlertDescription>
         {onDismiss && (

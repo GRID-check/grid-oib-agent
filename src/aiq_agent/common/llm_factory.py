@@ -1,13 +1,17 @@
 """Fleet-wide LangChain LLM acquisition.
 
 Every agent resolves its chat models through :func:`get_langchain_llm` instead
-of calling ``builder.get_llm`` directly, so the OpenRouter response-healing
-default is forced on in exactly one place (DRY) and any new agent inherits it
+of calling ``builder.get_llm`` directly, so cross-cutting request hardening is
+forced on in exactly one place (DRY) and any new agent inherits it
 automatically:
 
 - ``plugins: [{"id": "response-healing"}]``: repair malformed / markdown-fenced
   JSON provider-side before it reaches us (activates only on json_schema /
   json_object requests; a no-op on plain calls).
+- the provider-portable chat-request contract (see
+  :mod:`aiq_agent.common.message_contract`): a request must never end on an
+  assistant turn, because Google rejects that shape while OpenAI-compatible
+  providers accept it, and OpenRouter picks the provider per request.
 
 This is an OpenRouter-specific request-body field, so it is applied only to LLMs
 whose ``base_url`` points at OpenRouter — non-OpenRouter deployments (e.g.
@@ -28,12 +32,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from aiq_agent.common.message_contract import normalize_chat_request
 from nat.builder.framework_enum import LLMFrameworkEnum
 
 logger = logging.getLogger(__name__)
 
 _OPENROUTER_HOST = "openrouter.ai"
 _RESPONSE_HEALING_PLUGIN = {"id": "response-healing"}
+
+#: Marks a chat-model class as already carrying the request contract, so
+#: resolving the same model twice does not stack wrappers.
+_CONTRACT_MARKER = "__grid_request_contract__"
+
+#: One contract subclass per base chat-model class, not per instance — keeps
+#: ``type(llm)`` stable and cheap across the fleet's many resolutions.
+_CONTRACT_SUBCLASSES: dict[type, type] = {}
 
 
 def _llm_base_url(llm: Any) -> str:
@@ -105,6 +118,78 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     return llm
 
 
+def _contract_subclass(base: type) -> type:
+    """Build (once per base class) a subclass that normalizes outgoing requests.
+
+    The override sits on ``_generate``/``_agenerate``/``_stream``/``_astream``
+    because that is the single point every public entry point converges on —
+    ``invoke``, ``ainvoke``, ``stream``, ``astream``, ``batch``, and everything
+    layered on top of them (``bind``, ``bind_tools``, ``with_structured_output``,
+    ``create_agent``) delegates down to these four. Wrapping ``ainvoke`` instead
+    would be bypassed by the streaming and structured-output paths, which is
+    where the failures actually happened.
+    """
+    cached = _CONTRACT_SUBCLASSES.get(base)
+    if cached is not None:
+        return cached
+
+    from langchain_core.language_models.chat_models import BaseChatModel
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        return base._generate(self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs)
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        return await base._agenerate(
+            self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs
+        )
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        yield from base._stream(self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs)
+
+    async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+        async for chunk in base._astream(
+            self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs
+        ):
+            yield chunk
+
+    namespace: dict[str, Any] = {_CONTRACT_MARKER: True, "_generate": _generate, "_agenerate": _agenerate}
+    # LangChain decides whether a model can stream by comparing these attributes
+    # against BaseChatModel's (`_should_stream`). Defining them unconditionally
+    # would advertise streaming for models that do not implement it, so each
+    # override is added only when the base class actually provides one.
+    if base._stream is not BaseChatModel._stream:
+        namespace["_stream"] = _stream
+    if base._astream is not BaseChatModel._astream:
+        namespace["_astream"] = _astream
+
+    subclass = type(f"RequestContract{base.__name__}", (base,), namespace)
+    _CONTRACT_SUBCLASSES[base] = subclass
+    return subclass
+
+
+def enforce_chat_request_contract(llm: Any) -> Any:
+    """Make ``llm`` incapable of sending a provider-invalid message sequence.
+
+    Re-points the instance at a contract subclass of its own class, so every
+    call it serves — directly, tool-bound, or wrapped in structured output —
+    passes through :func:`~aiq_agent.common.message_contract.normalize_chat_request`
+    first. ``isinstance`` checks against ``BaseChatModel`` and friends keep
+    working, and ``model_copy`` (how the per-request override seam produces
+    per-org instances) carries the contract along with the copy.
+
+    Idempotent, and never fatal: a model class that cannot be subclassed is
+    returned untouched rather than failing model resolution.
+    """
+    base = type(llm)
+    if getattr(base, _CONTRACT_MARKER, False):
+        return llm
+    try:
+        llm.__class__ = _contract_subclass(base)
+    except Exception:  # noqa: BLE001 - hardening must never break model resolution
+        logger.warning("Could not enforce the chat-request contract on %s", base.__name__, exc_info=True)
+    return llm
+
+
 # NOTE on reasoning_effort: we deliberately do NOT translate effort values
 # per model family app-side. Configs use the OpenRouter/OpenAI-standard
 # vocabulary (none/minimal/low/medium/high/xhigh) and the value is passed
@@ -127,7 +212,7 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     the instance), never here.
     """
     llm = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    return apply_openrouter_structured_defaults(llm)
+    return enforce_chat_request_contract(apply_openrouter_structured_defaults(llm))
 
 
 def strict_response_format(schema: Any) -> Any:

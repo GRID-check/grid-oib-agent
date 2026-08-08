@@ -51,13 +51,17 @@ export const research = {
     signInToCreate: 'Sign in to create sessions',
     cannotCreateActive: 'Cannot create a new session while the current session is active',
     newChat: 'New chat',
-    toggleSessions: 'Toggle sessions sidebar',
-    signInToView: 'Sign in to view sessions',
+    toggleSessions: 'Chat history',
+    signInToView: 'Sign in to view your chat history',
     sessions: 'Sessions',
     addSources: 'Add data sources',
     signInToManage: 'Sign in to manage data sources',
     sources: 'Sources',
     research: 'Research',
+    /** Trigger for the thread menu that holds every non-primary header action. */
+    moreActions: 'More actions',
+    renameSession: 'Rename chat',
+    researchReport: 'Research report',
   },
 
   dataSources: {
@@ -108,22 +112,22 @@ export const research = {
     aboutToDelete: 'You are about to delete',
     lossSuffix: '. You will lose all progress and any files you have attached will be removed.',
     all: {
-      title: 'Deleting All Sessions in This Project',
-      countSessions: 'all {count} sessions in this project',
-      allSessions: 'ALL sessions in this project',
-      scopeNote: 'Only sessions in this project are deleted. Your sessions in other projects are not affected.',
-      confirm: 'Delete Project Sessions',
+      title: 'Delete all chats in this project?',
+      countSessions: 'all {count} chats in this project',
+      allSessions: 'EVERY chat in this project',
+      scopeNote: 'Only chats in this project are deleted. Your chats in other projects are not affected.',
+      confirm: 'Delete all chats',
     },
     file: {
       title: 'Delete File',
       thisFile: 'this file',
-      suffix: '. This will completely remove it from your session.',
+      suffix: '. This will completely remove it from your chat.',
       confirm: 'Delete File',
     },
     session: {
-      title: 'Deleting Session',
-      thisSession: 'this session',
-      confirm: 'Delete Session',
+      title: 'Delete this chat?',
+      thisSession: 'this chat',
+      confirm: 'Delete chat',
     },
   },
 
@@ -176,6 +180,7 @@ export const research = {
     waitUpload: 'Wait for upload to complete',
     cannotDeleteBusy: 'Cannot delete files during active operations',
     deleteFile: 'Delete file',
+    open: 'Open preview: {title}',
   },
 
   fileSourcesTab: {
@@ -225,6 +230,7 @@ export const research = {
     researchCompleted: 'Research completed',
     researchCompletedPopover:
       'Research completed. For further questions or reports, please create a new session.',
+    startNewSession: 'Start new session',
     researchInProgressAria: 'Research in progress - please wait',
     researchInProgress: 'Research in progress',
     researchInProgressPopover:
@@ -240,6 +246,8 @@ export const research = {
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',
     manageFilesCount: 'Manage attached files ({count})',
+    manageFilesMobile: 'Manage {count} files',
+    openFile: 'Open file: {name}',
     fileUploadingStatus: 'Uploading',
     fileFailedStatus: 'Upload failed',
     fileReadyStatus: 'Ready',
@@ -292,44 +300,63 @@ export const research = {
   },
 
   sessionsPanel: {
-    title: 'Sessions',
-    storageQuota: 'Using {percent}% of browser storage quota',
+    title: 'Chat history',
+    /** Shown beside the title so the panel states its own size. */
+    countLabel: '{count} chats',
+    countLabelOne: '1 chat',
+    // Storage is surfaced only once it is close enough to matter, and then it
+    // says what to do about it rather than reporting a number.
+    storageQuota: 'Browser storage is {percent}% full — delete old chats to free space.',
     storageNote:
-      'Note: Chat sessions are saved in this browser. Research reports may expire on the server.',
-    deleteAllDisabled: 'Delete all sessions in this project (disabled)',
-    deleteAll: 'Delete all sessions in this project',
+      'Chats are saved in this browser. Research reports may expire on the server.',
+    deleteAllDisabled: 'Delete all chats in this project (disabled)',
+    deleteAll: 'Delete all chats in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
-    deleteAllButton: 'Delete All',
-    newSessionDisabled: 'Start new session (disabled during active operations)',
-    startNewSession: 'Start new session',
-    cannotCreateActive: 'Cannot create new session while current session is active',
-    newSessionButton: 'New Session',
-    searchPlaceholder: 'Search sessions...',
-    searchAria: 'Search sessions',
-    noMatching: 'No matching sessions',
-    noMatchingDescription: 'No sessions match your search. Try a different term.',
-    noSessions: 'No sessions yet',
-    noSessionsDescription: 'Start a new session to begin researching with Piloti.',
-    startNewSessionButton: 'Start a new session',
+    deleteAllButton: 'Delete all chats',
+    newSessionDisabled: 'Start a new chat (disabled during active operations)',
+    startNewSession: 'Start a new chat',
+    cannotCreateActive: 'Cannot start a new chat while this one is still answering',
+    newSessionButton: 'New chat',
+    searchPlaceholder: 'Search chats',
+    searchAria: 'Search chats',
+    clearSearch: 'Clear search',
+    /** Live result count under the search field while a query is active. */
+    searchResults: '{count} of {total} chats',
+    noMatching: 'No matching chats',
+    noMatchingDescription: 'Nothing in this project matches “{query}”.',
+    noSessions: 'No chats yet',
+    noSessionsDescription: 'Your chats with Piloti in this project will be listed here.',
+    /** Explains why every row is dimmed and unclickable mid-answer. */
+    navigationBlocked:
+      'Piloti is still answering. Starting or switching chats is paused until it finishes.',
     today: 'Today',
     yesterday: 'Yesterday',
-    editTitle: 'Edit session title',
-    untitledSession: 'New chat',
-    renameDisabled: 'Rename session (disabled)',
-    rename: 'Rename session',
+    editTitle: 'Edit chat title',
+    untitledSession: 'Untitled chat',
+    renameDisabled: 'Rename chat (disabled)',
+    rename: 'Rename chat',
     cannotRenameBusy: 'Cannot rename while operations are in progress',
-    deleteDisabled: 'Delete session (disabled)',
-    deleteSession: 'Delete session',
-    sessionActive: 'Session active',
+    deleteDisabled: 'Delete chat (disabled)',
+    deleteSession: 'Delete chat',
+    sessionActive: 'Working on this chat',
     reportExpired: 'Report expired',
-    reportCompleted: 'Report completed',
-    chatSession: 'Chat session',
-    sessionLabelBusy: 'Session: {title} (processing in progress)',
-    sessionLabel: 'Session: {title}',
+    reportCompleted: 'Report ready',
+    chatSession: 'Chat',
+    sessionLabelBusy: 'Chat: {title} (processing in progress)',
+    sessionLabel: 'Chat: {title}',
+    /** Same row, plus the state its leading icon depicts. */
+    sessionLabelWithStatus: 'Chat: {title} — {status}',
     // FB-10: Deep Research section folded into the sessions panel.
     deepResearchHeading: 'Deep Research ({count})',
     deepResearchChip: 'Deep Research',
-    deepResearchRunLabel: 'Open deep research run: {label}',
+    deepResearchRunLabel: 'Open deep research run: {label} — {status}',
+    /** A run's state, in words — the icon alone made "failed" and "ready" look alike. */
+    runStatus: {
+      running: 'Running',
+      completed: 'Report ready',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
   },
 
   taskCard: {
@@ -357,6 +384,11 @@ export const research = {
     connectionLostBody:
       'We lost the live connection, but the job may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
     reconnect: 'Reconnect',
+    // Outcome of a run followed here without a chat thread of its own (a
+    // workflow run) — it has no thread banner to report the ending.
+    attachedRunFinished: 'This run has finished. The report is in the Report tab.',
+    attachedRunFailed: 'This run failed before it finished.',
+    attachedRunStopped: 'This run was stopped before it finished.',
   },
 
   thinkingTab: {

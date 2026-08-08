@@ -129,7 +129,7 @@ docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec
 open http://localhost:3000
 ```
 
-> **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (DeepSeek + embeddings via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
+> **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (OpenAI GPT-5.6 Luna + `text-embedding-3-large`, both via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
 
 The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
 
@@ -141,7 +141,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 | **Backend** | Python 3.11+, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
 | **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph, Dask | Multi-agent pipeline + async jobs |
 | **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
-| **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: DeepSeek via OpenRouter | Reasoning, classification, cards, embeddings |
+| **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: OpenAI GPT-5.6 Luna via OpenRouter | Reasoning, classification, cards, embeddings |
 | **Web Search** | Tavily | Context beyond the OIB corpus |
 | **Database** | PostgreSQL, Drizzle ORM | Projects, conversations, documents, memory, deletion queue |
 | **Object Storage** | SeaweedFS (S3-compatible) | OIB PDFs + uploaded documents |
@@ -183,17 +183,25 @@ Start with the current architecture deep-dives, then the topic docs:
 
 **Prerequisites:** Docker & Docker Compose · Git LFS (`git lfs pull` for OIB PDFs) · API keys (OpenRouter, Tavily; WorkOS for auth).
 
-**Verification.** Host `npm install` is unreliable on this project — run frontend checks in Docker, backend checks via the project venv:
+**Verification.** Every check is a task in the root [`Taskfile.yml`](Taskfile.yml),
+run with [go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the
+same tasks, so there is no second copy to drift:
 
 ```bash
-# Frontend typecheck + tests
-cd frontends/ui && docker build -f Dockerfile.typecheck -t grid-tsc . && docker run --rm grid-tsc
-docker run --rm grid-tsc npx vitest run           # test suite
+task setup        # one-time: backend venv, UI deps, Pulumi deps
+task verify       # repo lint + be:verify + fe:verify + infra:types
+task db:test:rls  # tenant-isolation suite — a required check that verify does NOT run
+                  # (it needs PostgreSQL server binaries); run it when you touch
+                  # the tenant boundary. See docs/database/row-level-security.md
+task verify:fast  # same, minus only the slow production build
 
-# Backend
-.venv/Scripts/python.exe -m pytest tests/
-.venv/Scripts/ruff.exe check .
+task fe:types     # or fe:lint / fe:test / fe:build
+task be:test      # or be:lint
+task infra:types
 ```
+
+`task --list` shows everything. The tasks absorb the venv layout
+(`.venv/Scripts` vs `.venv/bin`) and the required `PYTHONPATH=src`.
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`. See [AGENTS.md](AGENTS.md) for the full contributor workflow.
 

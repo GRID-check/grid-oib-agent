@@ -133,6 +133,62 @@ Sent when the user submits a chat message.
 
 The `content.text` field is a JSON-encoded string containing both the query text and the list of enabled data source IDs.
 
+##### Ingest-only messages (`context_only`)
+
+Two **additive** fields inside that JSON payload deliver a human message to the agent
+*as context* rather than as a question (ADR-0034 addendum). The agent's history is its
+LangGraph checkpoint, so a message that never reaches it can never be referred back to
+— a hand-off (`@Anna Weber …`, or a colleague's reply while a wait is open) has to be
+in the agent's memory even though the agent must not answer it.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `context_only` | `true` | Append this turn to the conversation's state and **generate nothing**: no LLM call, no `system_response_message`, no `system_intermediate_message`, no status frame. Only the literal `true` counts. |
+| `author_name` | `string` | Display name of the human who wrote it, so the agent can attribute the turn in its own history. Advisory: the backend prefers the **verified** principal's name from the handshake JWT, so a client cannot attribute text to a colleague. |
+
+```typescript
+text: JSON.stringify({
+  query: "Ja, das Atrium ist ein eigener Brandabschnitt.",
+  data_sources: [],
+  context_only: true,          // omitted entirely for an ordinary message
+  author_name: "Anna Weber"    // omitted when the display name is unknown
+})
+```
+
+The frame is an ordinary `user_message` in every other respect — same `type`, same
+`schema_type`, same envelope, same per-message re-auth gate. Who a message is
+addressed to is decided by the **server** at persist time (`addressees`, ADR-0034 §4);
+this flag only carries that ruling to the agent tier, so routing never becomes a
+model's judgement.
+
+**Client-side:** `contextOnly` / `authorName` on
+`NATWebSocketClient.sendMessage(content, dataSources, options)`. An ingest-only frame
+deliberately does **not** become `activeParentId` (nothing will ever be answered
+against it) and is not tracked by the delivery-ack timeout — a frame that is answered
+by design would otherwise trip the "no response received" banner. Delivery is
+best-effort: the message is already persisted by the BFF, so a dropped context frame
+costs the agent a line of memory and the thread nothing.
+
+**Backend-side:** `websocket_reconnect.py` (`context_only_directive` →
+`_ingest_context_only_message`) and `aiq_agent/conversation_context.py`. The stored
+text is capped at 4000 chars (the same bound `normalize_project_context` uses) so a
+pathological paste cannot bloat the checkpoint every later turn reads.
+
+**Compatibility, both directions:**
+
+- **New backend, old client (no field).** `context_only` is absent, which is falsy, so
+  the message runs the workflow exactly as it always did. Nothing about the default
+  path changed — the flag is spread into the payload only when set, never emitted as
+  `context_only: false`.
+- **New client, old backend (unknown field).** The frame stays a valid `user_message`,
+  so nothing throws, no validation error is raised, and the socket is not closed. The
+  old query parser (`_extract_query_and_sources` → `_extract_query_from_text`) reads
+  only `query` / `text` / `data_sources` and ignores unknown keys, so the backend
+  simply answers the message — i.e. it degrades to the behaviour that existed *before*
+  this field, not to anything worse, and the human's message is persisted by the BFF
+  either way. The observable cost of a version skew is one unwanted answer in a thread
+  the sender can already read; the cost is never a dropped frame or a lost message.
+
 #### user_interaction_message
 
 Sent when the user responds to a human prompt (clarification, approval, choice).
@@ -177,6 +233,10 @@ Delivers final or streaming response text.
   cards?: [...],
   deep_research_job_id?: string,
   answer_confidence?: "low" | "medium" | "high",
+  // Optional one-clause justification the model appended to its confidence
+  // marker (`[CONFIDENCE:high | <reason>]`), ≤300 chars, shown verbatim in the
+  // ConfidenceChip tooltip. Absent when the model gave no reason.
+  answer_confidence_reason?: string,
   // Structured sources from the research registry (shallow path). Enables
   // Belegt-durch chips to open OIB/project PDFs via file_name + page.
   sources?: Array<{
@@ -188,6 +248,11 @@ Delivers final or streaming response text.
     source_type?: string | null
     tool?: string | null
     origin?: "kb" | "ris" | "web" | string | null
+    // The [N] marker this source carries in the answer prose, resolved by
+    // verify_citations (the only place that binding exists). Lets the UI render
+    // ONE numbered provenance block instead of the written "## Quellen" list
+    // plus an unnumbered chip row. Absent when unknown (legacy/meta turns).
+    number?: number | null
     file_name?: string | null
     page?: number | null
   }>,
@@ -201,7 +266,7 @@ Delivers final or streaming response text.
   routing_decision?: "meta" | "shallow" | "deep" | "error",
   routing_reason?: string,
   escalation_reason?: string,
-  answer_confidence_capped_reason?: "ungrounded",
+  answer_confidence_capped_reason?: "ungrounded" | "quote_unverified",
   citations_removed?: { count: number, reasons: string[] },
   job_admission_rejected?: true,
   retry_after_seconds?: number
@@ -213,7 +278,7 @@ Delivers final or streaming response text.
 - **SystemResponseContent** (`{ text: string | null }`): Standard assistant response.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
-The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Structured extras (`cards`, `deep_research_job_id`, `answer_confidence`, `sources`) are optional and fail-open when absent.
+The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `deep_research_job_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, plus the transparency extras tabled below.
 
 **Transparency extras** (terminal frame; all optional, fail-open per-field):
 
@@ -222,7 +287,8 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took after intent classification. Rendered as a "Warum dieser Weg?" line in the expanded Herleitung. |
 | `routing_reason` | `string` | Human-readable "why" for the routing decision, rendered verbatim from the classifier. |
 | `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
-| `answer_confidence_capped_reason` | `"ungrounded"` | Present only when confidence was downgraded for lack of citation grounding. Adds a sentence to the ConfidenceChip tooltip. |
+| `answer_confidence_reason` | `string` (≤300 chars) | The model's own one-clause justification for its self-assessed confidence, parsed from the `[CONFIDENCE:<level> \| <reason>]` marker. Shown verbatim in the ConfidenceChip tooltip under "Assistant's reason". |
+| `answer_confidence_capped_reason` | `"ungrounded" \| "quote_unverified"` | Present only when confidence was downgraded by the deterministic overconfidence guard (no citation grounding, or an unverifiable quote). Adds a sentence to the ConfidenceChip tooltip. |
 | `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |

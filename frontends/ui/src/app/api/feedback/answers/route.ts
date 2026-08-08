@@ -22,24 +22,33 @@ import {
   upsertAnswerFeedbackSchema,
 } from '@/lib/feedback/types'
 
-export const GET = apiRoute(async ({ session, request }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
-  if (gated) return gated
-  const { conversationId } = parseQuery(request, conversationFeedbackQuerySchema)
-  return { feedback: await getOwnConversationFeedback(session, conversationId) }
-})
+export const GET = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
+    if (gated) return gated
+    const { conversationId } = parseQuery(request, conversationFeedbackQuerySchema)
+    return { feedback: await getOwnConversationFeedback(session, conversationId) }
+  },
+  { authz: { enforcedBy: 'getOwnConversationFeedback (keyed to session.userId)' } }
+)
 
-export const POST = apiRoute(async ({ session, request }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
-  if (gated) return gated
-  const input = await parseJsonBody(request, upsertAnswerFeedbackSchema)
-  return submitAnswerFeedback(session, input)
-})
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
+    if (gated) return gated
+    const input = await parseJsonBody(request, upsertAnswerFeedbackSchema)
+    return submitAnswerFeedback(session, input)
+  },
+  { authz: { enforcedBy: 'submitAnswerFeedback (requireProjectAccess project:view)' } }
+)
 
-export const DELETE = apiRoute(async ({ session, request }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
-  if (gated) return gated
-  const { messageId } = parseQuery(request, retractAnswerFeedbackQuerySchema)
-  await retractAnswerFeedback(session, messageId)
-  return null // 204 — retraction is idempotent
-})
+export const DELETE = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
+    if (gated) return gated
+    const { messageId } = parseQuery(request, retractAnswerFeedbackQuerySchema)
+    await retractAnswerFeedback(session, messageId)
+    return null // 204 — retraction is idempotent
+  },
+  { authz: { enforcedBy: 'retractAnswerFeedback (keyed to session.userId)' } }
+)

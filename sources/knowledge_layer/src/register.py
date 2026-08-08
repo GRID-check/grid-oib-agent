@@ -22,6 +22,20 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
+# Chunk content truncation. OIB tables routinely exceed 1500 chars and were cut
+# mid-table, losing rows the LLM needs to quote. Set to 2500 to keep most table
+# rows intact within one chunk. Value chosen as a named constant (#no-magic).
+_CHUNK_TRUNCATE_CHARS = 2500
+
+# Diversity-aware merge caps how many chunks per document are taken in the
+# first pass before spreading to other documents. With max_per_document=2 and
+# top_k=8 the second pass fills remaining slots, covering >=4 documents.
+_MAX_CHUNKS_PER_DOC = 2
+
+# Retrieval over-fetch factor applied when the caller narrows results with the
+# agentic filters (doc_class / title_contains): post-merge filtering drops
+# candidates, so each layer fetches 3x top_k to leave enough survivors.
+_AGENT_FILTER_OVERFETCH = 3
 
 # Type-safe backend selection - Pydantic validates at config load time
 BackendType = Literal["llamaindex", "foundational_rag"]
@@ -59,6 +73,16 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         ),
     )
     top_k: int = Field(default=5, description="Number of results to return")
+    max_chunks_per_document: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Diversity cap: at most this many chunks from a single document are included before "
+            "other documents get a slot; any remaining slots up to top_k are then filled with the "
+            "highest-scoring chunks regardless of source. Prevents one high-scoring PDF from "
+            "crowding out other documents on cross-cutting questions. 0 disables the cap."
+        ),
+    )
     exclude_file_names: list[str] = Field(
         default_factory=list,
         description=(
@@ -83,6 +107,24 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     # LlamaIndex-specific options
     chroma_dir: str = Field(
         default="/tmp/chroma_data", description="Directory for ChromaDB persistence (LlamaIndex only)"
+    )
+    hybrid_search: bool | None = Field(
+        default=None,
+        description=(
+            "Enable lexical+vector hybrid retrieval on the LlamaIndex backend (exact-term "
+            "Chroma $contains passes fused with vector results via reciprocal rank fusion). "
+            "None = environment default AIQ_HYBRID_RETRIEVAL (on)."
+        ),
+    )
+    rerank_llm: str | None = Field(
+        default=None,
+        description=(
+            "Optional LLM reference from llms: section used to re-rank retrieved chunks "
+            "against the query (LLM-judge reranking; fail-open to the original order)."
+        ),
+    )
+    rerank_candidates: int = Field(
+        default=15, ge=0, description="How many candidate chunks to over-fetch and re-rank when rerank_llm is set"
     )
     # Foundational RAG (hosted RAG Blueprint) options
     rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
@@ -149,10 +191,12 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
         import knowledge_layer.llamaindex.adapter  # noqa: F401
 
         os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
-        backend_config = {
+        backend_config: dict = {
             "persist_dir": config.chroma_dir,
             **summary_config,
         }
+        if config.hybrid_search is not None:
+            backend_config["hybrid_search"] = config.hybrid_search
 
     elif backend == "foundational_rag":
         import knowledge_layer.foundational_rag.adapter  # noqa: F401
@@ -358,13 +402,17 @@ def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: d
     return {"$and": clauses}
 
 
-def _merge_results(results, query: str, top_k: int, backend_name: str):
+def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_document: int = _MAX_CHUNKS_PER_DOC):
     """
     Merge per-collection retrieval results into a single scored result.
 
     Scores are comparable across collections (same embedding model, cosine [0,1]),
-    so chunks from all successful layers are concatenated, sorted by score
-    descending, and truncated to ``top_k``.
+    so chunks from all successful layers are concatenated and sorted by score
+    descending. Selection is diversity-aware: a first pass takes at most
+    ``max_per_document`` chunks per distinct document (keyed by collection +
+    file_name), then any remaining slots up to ``top_k`` are filled with the
+    highest-scoring leftovers regardless of source. With a single document (or
+    ``max_per_document=0``) this is identical to a plain top-k truncation.
 
     Failed layers (``success=False``, e.g. a brand-new session whose collection
     does not exist yet) and raised exceptions are treated as empty contributions
@@ -375,6 +423,7 @@ def _merge_results(results, query: str, top_k: int, backend_name: str):
         query: The original query string.
         top_k: Maximum number of merged chunks to return.
         backend_name: Fallback backend label if no successful result is available.
+        max_per_document: Diversity cap per distinct document on the first pass.
 
     Returns:
         A synthetic RetrievalResult with success=True and the merged top-k chunks.
@@ -398,7 +447,21 @@ def _merge_results(results, query: str, top_k: int, backend_name: str):
         merged_chunks.extend(result.chunks)
 
     merged_chunks.sort(key=lambda chunk: chunk.score, reverse=True)
-    merged_top_k = merged_chunks[:top_k]
+
+    if max_per_document > 0:
+        selected = []
+        leftovers = []
+        per_doc: dict[tuple, int] = {}
+        for chunk in merged_chunks:
+            doc_key = ((chunk.metadata or {}).get("collection"), chunk.file_name)
+            if per_doc.get(doc_key, 0) < max_per_document:
+                per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
+                selected.append(chunk)
+            else:
+                leftovers.append(chunk)
+        merged_top_k = (selected + leftovers)[:top_k]
+    else:
+        merged_top_k = merged_chunks[:top_k]
 
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
 
@@ -464,35 +527,155 @@ def _hit_doc_class(chunk, resolved: dict[tuple[str, str], str]) -> str | None:
     return metadata.get("doc_class")
 
 
-def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None) -> str:
+def _resolve_display_titles(chunks) -> dict[tuple[str, str], str]:
+    """Resolve the stored ``display_title`` for each hit's document (batched).
+
+    Mirrors :func:`_resolve_doc_classes`: the document_metadata store is the
+    source of truth for the user-facing name. Builds a ``(collection, file_name)
+    -> stored display_title`` map with one batched query per in-scope collection.
+    Fail-open: any store error yields an empty/partial map and callers fall back
+    to the derived default (:func:`~aiq_agent.common.norm_registry.guess_display_title`).
+    """
+    resolved: dict[tuple[str, str], str] = {}
+    try:
+        from aiq_agent.knowledge.factory import get_document_display_titles
+    except Exception:
+        return resolved
+
+    by_collection: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        collection = (chunk.metadata or {}).get("collection")
+        file_name = chunk.file_name
+        if not collection or not file_name:
+            continue
+        key = (collection, file_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        by_collection.setdefault(collection, []).append(file_name)
+
+    for collection, file_names in by_collection.items():
+        try:
+            stored_map = get_document_display_titles(collection, file_names)
+        except Exception:
+            stored_map = {}
+        for file_name, stored in stored_map.items():
+            if stored:
+                resolved[(collection, file_name)] = stored
+    return resolved
+
+
+def _hit_display_title(chunk, resolved: dict[tuple[str, str], str]) -> str | None:
+    """User-facing document name for a single hit: stored override wins.
+
+    Precedence: the admin-editable stored ``display_title`` (source of truth) →
+    the deterministic default derived from the OIB filename convention
+    (:func:`~aiq_agent.common.norm_registry.guess_display_title`) → ``None`` for a
+    document with neither (e.g. a project upload), where the caller keeps the raw
+    filename because that IS the user-meaningful name for their own files.
+    """
+    metadata = chunk.metadata or {}
+    collection = metadata.get("collection")
+    if collection and chunk.file_name:
+        stored = resolved.get((collection, chunk.file_name))
+        if stored:
+            return stored
+    if chunk.file_name:
+        try:
+            from aiq_agent.common.norm_registry import guess_display_title
+
+            return guess_display_title(chunk.file_name)
+        except Exception:
+            return None
+    return None
+
+
+def _apply_agent_filters(chunks, doc_class: str | None, title_contains: str | None) -> list:
+    """Narrow a merged candidate list by the agent-supplied filters.
+
+    Both filters run post-merge so they apply uniformly across every collection
+    layer (base, session, project). ``doc_class`` uses the same store-authoritative
+    resolution as the Dokumentart line (:func:`_hit_doc_class`), so a platform-owner
+    reclassification takes effect without re-ingest. ``title_contains`` matches the
+    raw file name OR the resolved display title, case-insensitively.
+    """
+    resolved_classes = _resolve_doc_classes(chunks) if doc_class else {}
+    resolved_titles = _resolve_display_titles(chunks) if title_contains else {}
+    needle = title_contains.casefold() if title_contains else None
+    kept = []
+    for chunk in chunks:
+        if doc_class and _hit_doc_class(chunk, resolved_classes) != doc_class:
+            continue
+        if needle:
+            haystacks = [chunk.file_name or ""]
+            title = _hit_display_title(chunk, resolved_titles)
+            if title:
+                haystacks.append(title)
+            if not any(needle in hay.casefold() for hay in haystacks):
+                continue
+        kept.append(chunk)
+    return kept
+
+
+def _trace_lanes_json(
+    chunks,
+    resolved: dict[tuple[str, str], str] | None = None,
+    resolved_titles: dict[tuple[str, str], str] | None = None,
+) -> str:
     """Machine-readable lane fan-out for the chat Herleitung UI.
 
     One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
     hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
     ``lane_for_hit``. Fail-open: never break tool output for the LLM.
 
+    Each lane carries BOTH classifications the consumer needs: the fine ``key``
+    /``label`` from ``lane_for_hit`` (the authority sub-tier — OIB-Richtlinie vs.
+    Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
+    :func:`~aiq_agent.common.source_kinds.kind_for_lane` — the same taxonomy
+    ``source_entry_to_wire`` puts on every citation (ADR-0026). Shipping ``kind``
+    is what lets the Herleitung fan-out stop mirroring the lane→kind table on the
+    frontend, so the fan-out and the "Belegt durch" chips cannot drift apart.
+
+    Each source carries both identities: ``name`` is the raw filename (document
+    identity — dedup, preview resolution) and ``title`` the user-facing display
+    name, so the Herleitung fan-out shows "OIB-Richtlinie 2, Ausgabe Mai 2023"
+    rather than ``oib-rl_2_ausgabe_mai_2023.pdf``. ``title`` is omitted when it
+    would merely repeat the filename (project/Büroarchiv uploads, where the
+    filename IS the user-meaningful name).
+
     ``resolved`` is the store-authoritative doc_class map from
-    :func:`_resolve_doc_classes`; when omitted it is computed here so the
-    function stays usable standalone.
+    :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
+    map from :func:`_resolve_display_titles`; when omitted they are computed here
+    so the function stays usable standalone.
     """
     try:
         import json
         from collections import OrderedDict
 
-        from aiq_agent.common.norm_registry import lane_for_hit
+        from aiq_agent.common.norm_registry import lane_for_knowledge_hit
+        from aiq_agent.common.source_kinds import kind_for_lane
 
         if resolved is None:
             resolved = _resolve_doc_classes(chunks)
+        if resolved_titles is None:
+            resolved_titles = _resolve_display_titles(chunks)
 
         lanes: OrderedDict[str, dict] = OrderedDict()
         for chunk in chunks:
             metadata = chunk.metadata or {}
             collection = metadata.get("collection")
             doc_class = _hit_doc_class(chunk, resolved)
-            key, label = lane_for_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
+            key, label = lane_for_knowledge_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
             bucket = lanes.get(key)
             if bucket is None:
-                bucket = {"key": key, "label": label, "hitCount": 0, "sources": []}
+                bucket = {
+                    "key": key,
+                    "label": label,
+                    "kind": kind_for_lane(key),
+                    "hitCount": 0,
+                    "sources": [],
+                }
                 lanes[key] = bucket
             bucket["hitCount"] += 1
             name = chunk.file_name or ""
@@ -502,6 +685,9 @@ def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None
             existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
             if name and sig not in existing:
                 entry: dict[str, str] = {"name": name}
+                title = _hit_display_title(chunk, resolved_titles)
+                if title and title != name:
+                    entry["title"] = title
                 if detail:
                     entry["detail"] = detail
                 bucket["sources"].append(entry)
@@ -509,6 +695,30 @@ def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None
     except Exception:
         logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
         return '{"lanes":[]}'
+
+
+def _ambiguous_file_names(chunks) -> set[str]:
+    """Filenames this result set holds under MORE THAN ONE collection scope.
+
+    A search fans out across the base corpus, the session collection and the
+    project collections concurrently, so one result set can carry a project
+    `Plan.pdf` and a Büroarchiv `Plan.pdf` — different documents that a bare
+    filename cannot tell apart. Those names (and only those) get a scope
+    qualifier in their citation key, so the common case stays a plain filename.
+
+    Scope, not raw collection, is the grouping: it is all a citation key can
+    express, so two collections on the same shelf are not a distinction the
+    model could act on anyway.
+    """
+    from aiq_agent.common.source_kinds import collection_scope
+
+    scopes_by_name: dict[str, set[str | None]] = {}
+    for chunk in chunks:
+        name = (chunk.file_name or "").strip()
+        if not name:
+            continue
+        scopes_by_name.setdefault(name.lower(), set()).add(collection_scope((chunk.metadata or {}).get("collection")))
+    return {name for name, scopes in scopes_by_name.items() if len(scopes) > 1}
 
 
 def _format_results(retrieval_result, query: str) -> str:
@@ -529,21 +739,43 @@ def _format_results(retrieval_result, query: str) -> str:
 
     lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
 
-    # Resolve the authoritative doc_class per document once (summary store wins
-    # over chunk metadata) and reuse it for both the Dokumentart line and the
-    # Trace-Lanes fan-out so the two never disagree.
+    # Resolve the authoritative doc_class per document once (store wins over chunk
+    # metadata) and reuse it for both the Dokumentart line and the Trace-Lanes
+    # fan-out so the two never disagree.
     resolved = _resolve_doc_classes(retrieval_result.chunks)
+    # Resolve the user-facing display title per document once (stored override →
+    # derived default). This becomes the citation chip label so the answer never
+    # surfaces a raw corpus filename like "oib-rl_2_ausgabe_mai_2023.pdf".
+    resolved_titles = _resolve_display_titles(retrieval_result.chunks)
+    # Names this result set holds on more than one shelf; only these are qualified.
+    ambiguous = _ambiguous_file_names(retrieval_result.chunks)
 
     for i, chunk in enumerate(retrieval_result.chunks, 1):
-        # Build citation string: "filename, p.X" or just "filename"
-        if chunk.page_number and chunk.page_number > 0:
-            citation = f"{chunk.file_name}, p.{chunk.page_number}"
-        else:
-            citation = chunk.file_name
+        # Build citation string: "filename, p.X" or just "filename". The Citation
+        # keeps the real filename — it is the document identity used for preview
+        # resolution and source dedup; only the human Source label is prettified.
+        # When the same filename arrived from two different shelves in this very
+        # result set, the name alone no longer identifies a document, so it is
+        # qualified: "Plan.pdf (Projektwissen), p.3".
+        name = chunk.file_name
+        if name and name.lower() in ambiguous:
+            from aiq_agent.common.source_kinds import scope_qualifier
 
-        # Header with source info
+            qualifier = scope_qualifier((chunk.metadata or {}).get("collection"))
+            if qualifier:
+                name = f"{name} ({qualifier})"
+        if chunk.page_number and chunk.page_number > 0:
+            citation = f"{name}, p.{chunk.page_number}"
+        else:
+            citation = name
+
+        # Header with source info. `Source:` carries the user-facing display name
+        # (parsed into the citation chip's title); it falls back to the filename
+        # for documents with no display title (project/Büroarchiv uploads).
+        display_title = _hit_display_title(chunk, resolved_titles) or chunk.file_name
+
         lines.append(f"--- Result {i} ---")
-        lines.append(f"Source: {chunk.file_name}")
+        lines.append(f"Source: {display_title}")
         collection = (chunk.metadata or {}).get("collection")
         if collection:
             lines.append(f"Collection: {collection}")
@@ -565,17 +797,16 @@ def _format_results(retrieval_result, query: str) -> str:
         lines.append(f"Relevance Score: {chunk.score:.2f}")
         lines.append("")
 
-        # Content (truncate if very long)
         content = chunk.content
-        if len(content) > 1500:
-            content = content[:1500] + "... [truncated]"
+        if len(content) > _CHUNK_TRUNCATE_CHARS:
+            content = content[:_CHUNK_TRUNCATE_CHARS] + "... [truncated]"
         lines.append(content)
         lines.append("")
 
     # Fan-out summary for the Herleitung UI (after chunk bodies so the LLM
     # still sees citations first; parsers look for the marker explicitly).
     lines.append("## Trace-Lanes")
-    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved))
+    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved, resolved_titles))
     lines.append("")
 
     return "\n".join(lines)
@@ -603,6 +834,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         summary_llm_obj = await get_langchain_llm(_builder, config.summary_model)
         logger.info("Resolved summary model: %s", config.summary_model)
 
+    # Resolve the LLM-judge reranker model (fail-open: search still works when
+    # unset or unresolvable — rerank_chunks degrades to the original order).
+    rerank_llm_obj = None
+    if config.rerank_llm:
+        from aiq_agent.common import get_langchain_llm
+
+        try:
+            rerank_llm_obj = await get_langchain_llm(_builder, config.rerank_llm)
+            logger.info("Resolved rerank model: %s", config.rerank_llm)
+        except Exception as e:
+            logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
+
     # Initialize summary DB with configured URL
     from aiq_agent.knowledge.factory import configure_summary_db
 
@@ -622,12 +865,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
     collection = config.collection_name
     top_k = config.top_k
+    max_per_document = config.max_chunks_per_document
 
     logger.info(
         "Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", config.backend, collection, top_k
     )
 
-    async def search(query: str, filters: dict | None = None) -> str:
+    async def search(
+        query: str,
+        filters: dict | None = None,
+        doc_class: str | None = None,
+        title_contains: str | None = None,
+    ) -> str:
         """Search for documents relevant to the query.
 
         Args:
@@ -636,10 +885,37 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 collection (e.g. {"content_type": "text"} or nested
                 {"$and": [...]}/{"$or": [...]}). AND-ed with the configured
                 exclude_file_names. Session/project collections are never filtered.
+            doc_class (str | None): Optional document-class filter (the "Dokumentart"
+                key, e.g. "oib_richtlinie", "gesetz"). Keeps only documents of exactly
+                that class, resolved store-authoritatively (reclassifications apply
+                without re-ingest).
+            title_contains (str | None): Optional case-insensitive substring matched
+                against the document's file name OR its display title.
 
         Returns:
             str: Formatted string containing relevant document excerpts with citations.
         """
+        if doc_class is not None:
+            from aiq_agent.knowledge.document_classification import DOCUMENT_CLASSES
+            from aiq_agent.knowledge.document_classification import is_valid_doc_class
+
+            if not is_valid_doc_class(doc_class):
+                valid = ", ".join(DOCUMENT_CLASSES)
+                return f"Invalid doc_class '{doc_class}'. Valid values: {valid}."
+
+        # Platform-tunable counts (Platform → Retrieval), resolved per call so
+        # an admin save takes effect without a redeploy; fail-open to the YAML
+        # build-time values above.
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        effective_top_k = get_retrieval_setting("knowledge.top_k", top_k)
+        effective_max_per_document = get_retrieval_setting("knowledge.max_chunks_per_document", max_per_document)
+
+        # Over-fetch when agentic filters will drop candidates post-merge.
+        candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if (doc_class or title_contains) else effective_top_k
+        if rerank_llm_obj is not None:
+            candidate_k = max(candidate_k, config.rerank_candidates)
+
         # Resolve the per-session collection (UI uploads for this conversation).
         try:
             ctx = Context.get()
@@ -660,7 +936,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
-            result = await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
+            result = await retriever.retrieve(
+                query=query, collection_name=coll, top_k=candidate_k, filters=coll_filters
+            )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
             for chunk in getattr(result, "chunks", []) or []:
@@ -674,8 +952,24 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 return_exceptions=True,
             )
 
-            # Merge by score (comparable across collections) and truncate to top_k.
-            merged = _merge_results(results, query, top_k, retriever.backend_name)
+            # Merge by score (comparable across collections) with a per-document
+            # diversity cap so cross-cutting questions span multiple documents.
+            merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
+
+            # Agentic narrowing (doc_class / title_contains), then trim to the
+            # effective top_k.
+            if doc_class or title_contains:
+                kept = _apply_agent_filters(merged.chunks, doc_class=doc_class, title_contains=title_contains)
+                merged = merged.model_copy(update={"chunks": kept})
+
+            # LLM-judge reranking (fail-open: any error keeps the fused order).
+            if rerank_llm_obj is not None:
+                from knowledge_layer.rerank import rerank_chunks
+
+                reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=config.rerank_candidates)
+                merged = merged.model_copy(update={"chunks": reranked})
+
+            merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
 
             # Format for LLM. _format_results does the (now batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
@@ -692,11 +986,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             return f"Error searching knowledge base: {str(e)}"
 
     # Yield the function info for NAT registration
+    if max_per_document > 0:
+        diversity_clause = (
+            f"spread across multiple distinct documents (at most {max_per_document} per document "
+            "where possible), so cross-cutting questions see every relevant Richtlinie."
+        )
+    else:
+        diversity_clause = "ranked purely by relevance, with no per-document diversity cap."
     yield FunctionInfo.from_fn(
         search,
         description=(
             "Search the knowledge base for relevant documents. "
             "Use this to find information from ingested PDFs, documents, and other files. "
-            f"Returns up to {top_k} relevant excerpts with citations."
+            f"Returns up to {top_k} relevant excerpts with citations (platform-configurable), {diversity_clause}"
         ),
     )

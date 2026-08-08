@@ -51,7 +51,7 @@ export async function createProjectFolder(
   input: CreateFolderInput,
   session: AuthorizedSession,
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
-  await requireProjectAccess(session, input.projectId, 'project:edit')
+  await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const validation = validateFolderName(input.name)
   if (!validation.ok) {
     return { ok: false, error: validation.error! }

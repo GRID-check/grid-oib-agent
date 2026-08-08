@@ -16,7 +16,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ESCALATION_KEYWORD_REASON
+from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import _normalize_citations_removed
 from aiq_agent.agents.chat_researcher.agent import answer_confidence_capped_reason
@@ -198,7 +198,9 @@ class TestEscalationReasonFor:
         )
         assert agent._escalation_reason_for(state) == "not enough sources"
 
-    def test_keyword_fallback_fixed_german_string(self):
+    def test_keyword_prose_without_marker_yields_none(self):
+        # Insufficiency-sounding prose alone never escalates: without the
+        # explicit marker there is no escalation and therefore no reason.
         agent = _agent()
         state = ChatResearcherState(
             messages=[
@@ -206,9 +208,9 @@ class TestEscalationReasonFor:
                 AIMessage(content="Ich konnte keine Informationen dazu finden."),
             ],
         )
-        assert agent._escalation_reason_for(state) == ESCALATION_KEYWORD_REASON
+        assert agent._escalation_reason_for(state) is None
 
-    def test_direct_deep_no_shallow_no_keyword_yields_none(self):
+    def test_direct_deep_no_shallow_yields_none(self):
         agent = _agent()
         state = ChatResearcherState(
             messages=[HumanMessage(content="Compare X and Y in detail")],
@@ -298,7 +300,7 @@ class TestEscalationReasonEndToEnd:
     """A shallow→deep escalation surfaces escalation_reason on the final state."""
 
     @pytest.mark.asyncio
-    async def test_keyword_escalation_surfaces_reason(self):
+    async def test_marker_escalation_surfaces_reason(self):
         async def shallow_orchestration(state):
             return {
                 "user_intent": IntentResult(intent="research", raw=None),
@@ -307,11 +309,10 @@ class TestEscalationReasonEndToEnd:
 
         async def insufficient_shallow(state):
             result = MagicMock()
-            # No structured escalation signal → keyword tail-match drives escalation.
             result.messages = list(state.messages) + [
-                AIMessage(content="Ich konnte keine Informationen gefunden."),
+                AIMessage(content=f"Teilantwort [1].\n{ESCALATION_MARKER}"),
             ]
-            result.escalation_requested = None
+            result.escalation_requested = True
             result.answer_confidence_marker = None
             result.verified_sources = None
             result.citations_removed = None
@@ -343,7 +344,89 @@ class TestEscalationReasonEndToEnd:
         state = ChatResearcherState(messages=[HumanMessage(content="Obscure question")])
         result = await agent.run(state, thread_id="t")
 
-        assert result["escalation_reason"] == ESCALATION_KEYWORD_REASON
+        assert result["escalation_reason"] == "Shallow agent emitted insufficiency marker"
+
+    @pytest.mark.asyncio
+    async def test_insufficiency_prose_without_marker_does_not_escalate(self):
+        """Regression: German legal hedging in a shallow answer must NOT trigger
+        a deep-research escalation — only the explicit marker may."""
+
+        async def shallow_orchestration(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Simple"),
+            }
+
+        async def hedged_shallow(state):
+            result = MagicMock()
+            # No escalation marker — just prose that the removed keyword
+            # fallback would have false-positived on.
+            result.messages = list(state.messages) + [
+                AIMessage(content="Teilantwort [1]. Weitere Recherche erforderlich, lässt sich nicht finden."),
+            ]
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = None
+            return result
+
+        async def deep(state):
+            raise AssertionError("deep research must not run on prose alone")
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=shallow_orchestration,
+            shallow_research_fn=hedged_shallow,
+            deep_research_fn=deep,
+            clarifier_fn=None,
+            enable_escalation=True,
+            enable_clarifier=False,
+        )
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Obscure question")])
+        result = await agent.run(state, thread_id="t")
+
+        assert result.get("escalation_reason") is None
+        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert any("Weitere Recherche erforderlich" in c for c in contents)
+
+    @pytest.mark.asyncio
+    async def test_empty_shallow_answer_is_error_not_escalation(self):
+        """An empty assistant message is a generation failure: the turn ends
+        with a retry-able error message, never a deep-research escalation."""
+
+        async def shallow_orchestration(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Simple"),
+            }
+
+        async def empty_shallow(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="")]
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = None
+            return result
+
+        async def deep(state):
+            raise AssertionError("deep research must not run on an empty answer")
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=shallow_orchestration,
+            shallow_research_fn=empty_shallow,
+            deep_research_fn=deep,
+            clarifier_fn=None,
+            enable_escalation=True,
+            enable_clarifier=False,
+        )
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Any question")])
+        result = await agent.run(state, thread_id="t")
+
+        assert result.get("escalation_reason") is None
+        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert any("An error occurred" in c for c in contents)
 
 
 class TestCitationsRemovedEndToEnd:

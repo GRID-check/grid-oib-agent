@@ -38,11 +38,11 @@ def _fake_async_client(post_mock):
     return MagicMock(return_value=client)
 
 
-def _title_response(content: str):
+def _title_response(content: str, finish_reason: str = "stop"):
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = 200
     mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {"choices": [{"message": {"content": content}}]}
+    mock_response.json.return_value = {"choices": [{"message": {"content": content}, "finish_reason": finish_reason}]}
     return mock_response
 
 
@@ -93,6 +93,153 @@ async def test_parses_json_wrapped_in_code_fence(app):
 
 
 @pytest.mark.asyncio
+async def test_parses_json_in_unterminated_code_fence(app):
+    """The token cap eats the CLOSING fence first. An opening fence with no
+    closing one must still be stripped rather than read as "not fenced"."""
+    mock_post = AsyncMock(
+        return_value=_title_response('```json\n{"title": "Schallschutz Wohnbau", "tags": ["schallschutz"]}')
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    assert response.json()["title"] == "Schallschutz Wohnbau"
+
+
+@pytest.mark.asyncio
+async def test_parses_json_surrounded_by_prose(app):
+    """Preamble AND a trailing sentence containing a brace. The old
+    first-`{`-to-last-`}` slice swallowed the trailing text into the object and
+    failed to decode it; the span must end at the object's own closing brace."""
+    mock_post = AsyncMock(
+        return_value=_title_response(
+            "Sure! Here is the JSON you asked for:\n"
+            '{"title": "Brandschutz Stiegenhaus", "tags": ["brandschutz"]}\n'
+            "Hope that helps :}"
+        )
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    data = response.json()
+    assert data["title"] == "Brandschutz Stiegenhaus"
+    assert data["tags"] == ["brandschutz"]
+    assert data["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_brace_inside_title_does_not_end_the_object(app):
+    """A `}` inside a string value is data, not the end of the object."""
+    mock_post = AsyncMock(
+        return_value=_title_response('{"title": "Regel {OIB 2} für Stiegen", "tags": ["brandschutz"]}')
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    data = response.json()
+    assert data["title"] == "Regel {OIB 2} für Stiegen"
+    assert data["tags"] == ["brandschutz"]
+
+
+@pytest.mark.asyncio
+async def test_reply_truncated_mid_title_is_recovered(app):
+    """THE issue-#233 regression: the completion cap cut the reply off mid-string.
+
+    The JSON prefix was well-formed, so closing the string and the object
+    recovers a usable (if clipped) name — a cosmetic title must not be reported
+    as a failure because the model ran out of budget one word early."""
+    mock_post = AsyncMock(
+        return_value=_title_response('{"title": "Brandschutzanforderungen für Stiegen', finish_reason="length")
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    data = response.json()
+    assert data["title"] == "Brandschutzanforderungen für Stiegen"
+    assert data["tags"] == []
+    assert data["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_reply_truncated_mid_tag_list_is_recovered(app):
+    """Same cut, landing inside the tag array — the title is still recoverable."""
+    mock_post = AsyncMock(
+        return_value=_title_response('{"title": "Brandschutz Stiegen", "tags": ["brandschutz", "sta', "length")
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    data = response.json()
+    assert data["title"] == "Brandschutz Stiegen"
+    # "sta" was cut mid-word and is not in the allow-list, so it is dropped.
+    assert data["tags"] == ["brandschutz"]
+    assert data["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_reply_truncated_after_a_trailing_comma_is_recovered(app):
+    """A cut landing right after a comma leaves a dangling separator."""
+    mock_post = AsyncMock(return_value=_title_response('{"title": "Brandschutz Stiegen", ', "length"))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    assert response.json()["title"] == "Brandschutz Stiegen"
+
+
+@pytest.mark.asyncio
+async def test_bare_title_string_is_not_accepted_as_a_title(app):
+    """The parser must stay honest: a reply with NO JSON object in it is a
+    failure, not a title. Accepting the model's prose would happily name a chat
+    "Es tut mir leid, das kann ich nicht" the first time it declines."""
+    mock_post = AsyncMock(return_value=_title_response("Brandschutz bei Stiegenhäusern"))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    assert response.json() == {"title": "", "tags": [], "error": "llm_response_malformed"}
+
+
+@pytest.mark.asyncio
+async def test_truncated_beyond_repair_is_still_reported(app):
+    """A cut landing on a bare key cannot be closed into valid JSON. Nothing is
+    invented to paper over it — the caller keeps its provisional title."""
+    mock_post = AsyncMock(return_value=_title_response('{"title":', "length"))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    assert response.json() == {"title": "", "tags": [], "error": "llm_response_malformed"}
+
+
+@pytest.mark.asyncio
+async def test_request_constrains_the_endpoint_to_json(app):
+    """Prevention half of the fix: the endpoint is asked for a JSON object, and
+    the completion budget leaves room for whatever the model emits first."""
+    mock_post = AsyncMock(return_value=_title_response('{"title": "Brandschutz", "tags": []}'))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["max_tokens"] >= 300
+
+
+@pytest.mark.asyncio
 async def test_empty_messages_short_circuits(app):
     """No usable transcript → no LLM call."""
     mock_post = AsyncMock()
@@ -132,6 +279,20 @@ async def test_null_choices_returns_malformed_not_500(app):
     null_choices.raise_for_status = MagicMock()
     null_choices.json.return_value = {"choices": None}
     mock_post = AsyncMock(return_value=null_choices)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    assert response.status_code == 200
+    assert response.json() == {"title": "", "tags": [], "error": "llm_response_malformed"}
+
+
+@pytest.mark.asyncio
+async def test_null_content_returns_malformed_not_500(app):
+    """A 200 with ``message.content = null`` (a reasoning-only reply) must degrade
+    to llm_response_malformed, not raise AttributeError on ``None.strip()`` → 500."""
+    mock_post = AsyncMock(return_value=_title_response(None))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with patch("httpx.AsyncClient", _fake_async_client(mock_post)):

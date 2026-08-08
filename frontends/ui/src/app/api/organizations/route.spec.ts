@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const createOrganization = vi.fn()
@@ -36,7 +39,7 @@ describe('POST /api/organizations', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ organizationId: 'org_new' })
     expect(createOrganizationMembership).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'user_1', organizationId: 'org_new', roleSlug: 'admin' }),
+      expect.objectContaining({ userId: 'user_1', organizationId: 'org_new', roleSlug: 'admin' })
     )
   })
 
@@ -49,7 +52,9 @@ describe('POST /api/organizations', () => {
   })
 
   it('never leaks provider error messages to the client', async () => {
-    createOrganization.mockRejectedValue(new Error('WorkOS internal: connection cfg_123 misconfigured'))
+    createOrganization.mockRejectedValue(
+      new Error('WorkOS internal: connection cfg_123 misconfigured')
+    )
     const res = await POST(request({ name: 'Acme' }))
     expect(res.status).toBe(500)
     const body = await res.json()

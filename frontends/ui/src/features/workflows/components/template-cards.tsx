@@ -16,11 +16,14 @@
  * "More coming" placeholder closes the grid.
  */
 
+import { useEffect, useState } from 'react'
 import { ArrowRight, Clock, FileCheck2, Plus, ShieldCheck, type LucideIcon } from 'lucide-react'
-import { useTranslations, type Translator } from '@/i18n'
+import { useLocale, useTranslations, type Translator } from '@/i18n'
+import { listGalleryTemplates } from '@/adapters/api/platform-workflow-templates-client'
 import { presetForCron } from '../lib/schedule'
 import {
   resolveAllTemplates,
+  resolveGalleryTemplate,
   type ResolvedTemplate,
   type TemplateProvenance,
 } from '../lib/templates'
@@ -84,7 +87,28 @@ function cadenceLabel(t: Translator, cron: string | undefined): string {
 
 export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
   const t = useTranslations('workflows')
-  const templates = resolveAllTemplates(t)
+  const { locale } = useLocale()
+  const builtins = resolveAllTemplates(t)
+
+  // Platform-published templates (ADR-0027) are additive: they merge in after
+  // the built-ins once fetched. A failure leaves the built-in gallery intact —
+  // it must never block the always-available defaults, so errors are swallowed.
+  const [platform, setPlatform] = useState<ResolvedTemplate[]>([])
+  useEffect(() => {
+    let cancelled = false
+    listGalleryTemplates()
+      .then((rows) => {
+        if (!cancelled) setPlatform(rows.map((row) => resolveGalleryTemplate(row, locale)))
+      })
+      .catch(() => {
+        if (!cancelled) setPlatform([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [locale])
+
+  const templates = [...builtins, ...platform]
 
   return (
     <div
@@ -97,7 +121,7 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
         return (
           <div
             key={template.id}
-            className="flex flex-col overflow-hidden rounded-[12px]"
+            className="flex flex-col overflow-hidden rounded-xl"
             style={{
               background: 'var(--input-background)',
               border: `0.5px solid ${HAIRLINE}`,
@@ -146,7 +170,7 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
                 type="button"
                 onClick={() => onUse(template)}
                 aria-label={t('templates.setUpAria', { name: template.name })}
-                className="ml-auto inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[10px] bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-xs transition-colors hover:bg-interaction-primary-hover"
+                className="ml-auto inline-flex h-[30px] shrink-0 pointer-coarse:h-11 items-center gap-1.5 rounded-[10px] bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-xs transition-colors hover:bg-interaction-primary-hover"
               >
                 {t('templates.setUp')}
                 <ArrowRight className="size-[13px]" strokeWidth={2.2} aria-hidden />
@@ -158,7 +182,7 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
 
       {/* "More coming" placeholder — deliberately not interactive. */}
       <div
-        className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-[12px] p-5 text-center"
+        className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-xl p-5 text-center"
         style={{ border: `1.5px dashed ${HAIRLINE}` }}
         data-testid="workflow-templates-placeholder"
       >

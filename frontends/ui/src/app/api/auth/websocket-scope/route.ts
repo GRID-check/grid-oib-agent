@@ -7,18 +7,19 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
-import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
+import { isMemoryReflectionEnabled } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
 
-export async function GET(req: Request): Promise<Response> {
+export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Response> {
   try {
     const { searchParams } = new URL(req.url)
     const projectId = searchParams.get('projectId') || undefined
@@ -46,15 +47,12 @@ export async function GET(req: Request): Promise<Response> {
       response.accessToken = session.accessToken
     }
 
-    // Gate the async memory-reflection stage solely on the WorkOS
-    // "memory-reflection" feature flag, evaluated for the caller's org. No org
-    // in scope (anonymous mode) or any evaluation failure both fail closed to
-    // off — there is no env-var fallback (removed; the feature flag is the
-    // single source of truth). server.js forwards this as
+    // Gate the async memory-reflection stage: with WorkOS flag enforcement
+    // on, the per-org "memory-reflection" flag is the source of truth; without
+    // enforcement it follows GRID_MEMORY_REFLECTION_ENABLED (default on) — see
+    // isMemoryReflectionEnabled. server.js forwards this as
     // x-grid-feature-memory-reflection.
-    response.memoryReflectionEnabled = session?.organizationId
-      ? await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, session.organizationId)
-      : false
+    response.memoryReflectionEnabled = await isMemoryReflectionEnabled(session?.organizationId)
 
     if (session?.organizationId) {
       // Org-level web-search setting (ADR-0022): when off, server.js forwards
@@ -69,11 +67,13 @@ export async function GET(req: Request): Promise<Response> {
         console.warn('[WebSocket Scope API] Failed to resolve web-search setting:', error)
       }
 
-      // Per-org runtime model overrides (active org_model_configs version) —
-      // forwarded by server.js as x-grid-model-overrides. Best-effort: a
-      // config read failure must not block chat; defaults apply instead.
+      // Effective runtime model selection — the platform defaults
+      // (`platform_model_defaults`) with the org's own active
+      // org_model_configs version layered on top — forwarded by server.js as
+      // x-grid-model-overrides. Best-effort: a config read failure must not
+      // block chat; the workflow YAML models apply instead.
       try {
-        const modelOverrides = await getActiveModelOverrides(session.organizationId)
+        const modelOverrides = await getEffectiveModelOverrides(session.organizationId)
         if (modelOverrides) {
           response.modelOverrides = modelOverrides
         }
@@ -87,14 +87,18 @@ export async function GET(req: Request): Promise<Response> {
       // Fails OPEN on read errors — a broken budget lookup must not take
       // chat down; enforcement resumes on the next healthy upgrade.
       try {
-        const budgetStatus = await getBudgetStatus(session.organizationId, session.userId, projectId ?? null)
+        const budgetStatus = await getBudgetStatus(
+          session.organizationId,
+          session.userId,
+          projectId ?? null
+        )
         if (budgetStatus.blocked) {
           return NextResponse.json(
             {
               error: 'Budget exhausted',
               reason: `The ${budgetStatus.blockedScope} LLM budget is exhausted. An org admin can raise limits under Organization → Usage & budgets.`,
             },
-            { status: 403 },
+            { status: 403 }
           )
         }
         response.budget = {
@@ -119,7 +123,7 @@ export async function GET(req: Request): Promise<Response> {
       // session exists (defense-in-depth); fully gating anonymous mode is a
       // product decision.
       response.projectId = projectId
-      const projectContext = await loadProjectPromptView(projectId)
+      const projectContext = await loadProjectPromptView(projectId, session?.organizationId)
       if (projectContext) {
         response.projectContext = projectContext
       }
@@ -131,7 +135,7 @@ export async function GET(req: Request): Promise<Response> {
       // Best-effort: a lookup failure must not block the chat handshake, it
       // just means the backend falls back to prompt-text parsing.
       try {
-        const bundesland = await loadProjectBundesland(projectId)
+        const bundesland = await loadProjectBundesland(projectId, session?.organizationId)
         if (bundesland) {
           response.bundesland = bundesland
         }
@@ -145,7 +149,10 @@ export async function GET(req: Request): Promise<Response> {
     // even outside a project-scoped chat. Best-effort: memory must never block
     // the chat handshake.
     try {
-      const projectMemory = await buildProjectMemoryDigest(projectId, session?.organizationId ?? undefined)
+      const projectMemory = await buildProjectMemoryDigest(
+        projectId,
+        session?.organizationId ?? undefined
+      )
       if (projectMemory) {
         response.projectMemory = projectMemory
       }
@@ -161,9 +168,6 @@ export async function GET(req: Request): Promise<Response> {
 
     console.error('[WebSocket Scope API] Error:', error)
 
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
-}
+})

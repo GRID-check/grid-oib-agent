@@ -15,6 +15,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withTenant } from '@/lib/db/tenant-context'
 import { persistInternalConversationMessages } from '@/lib/conversations/service'
 
 type Params = { id: string }
@@ -38,8 +39,13 @@ export const POST = internalApiRoute<Params>(
   'Internal Conversation Messages',
   async ({ request, params }) => {
     const { organizationId, ...message } = await parseJsonBody(request, internalMessageSchema)
-    const messages = await persistInternalConversationMessages(organizationId, params.id, [message])
+    // The service already resolves the conversation against this organization;
+    // the scope means the database refuses the write too, rather than trusting
+    // that resolution to be the only gate.
+    const messages = await withTenant({ organizationId }, () =>
+      persistInternalConversationMessages(organizationId, params.id, [message])
+    )
     return { messages }
   },
-  { status: 201 },
+  { status: 201, tenancy: { fromPayload: 'body.organizationId' } }
 )

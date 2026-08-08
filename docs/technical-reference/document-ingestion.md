@@ -123,7 +123,7 @@ For each file:
 1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects
 2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
 3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to NVIDIA's VLM API (default: `nvidia/nemotron-nano-12b-v2-vl`) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
-4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `summaries` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
+4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `document_metadata` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with NVIDIA embeddings (`nvidia/llama-nemotron-embed-vl-1b-v2`)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
 
@@ -148,7 +148,7 @@ Session-scoped collections (`s_*`) are automatically reaped by a background thre
 
 ### Backfilling tags for documents ingested before tagging existed
 
-Ingestion now also classifies each document into controlled tags (document type + OIB discipline), stored on the `summaries` table alongside the one-sentence summary. Documents ingested **before** this feature shipped have a summary but `tags = NULL`, and OIB sync is hash-gated (an already-ingested, unchanged document is never re-processed), so they will never pick tags up on their own.
+Ingestion now also classifies each document into controlled tags (document type + OIB discipline), stored on the `document_metadata` table alongside the one-sentence summary. Documents ingested **before** this feature shipped have a summary but `tags = NULL`, and OIB sync is hash-gated (an already-ingested, unchanged document is never re-processed), so they will never pick tags up on their own.
 
 Run the classify-only backfill **once** after deploying the tagging feature:
 
@@ -167,11 +167,11 @@ The summary and tag-classification calls in Step 4 above run concurrently
 against the same `summary_llm` (`sources/knowledge_layer/src/llamaindex/adapter.py`,
 ~lines 1795–1965) and both fail open (log a warning, return `None`) on
 error/timeout. `register_summary()` — the only call that writes a row into
-the `summaries` table — only runs when a summary value exists. Previously the
+the `document_metadata` table — only runs when a summary value exists. Previously the
 deterministic fallback summary (derived from already-extracted text) only
 covered the case where *tagging* succeeded but *summarization* didn't, so a
 **double** failure left the document indexed into ChromaDB and marked
-`SUCCESS` (fully searchable via `knowledge_search`) but with no `summaries`
+`SUCCESS` (fully searchable via `knowledge_search`) but with no `document_metadata`
 row at all — invisible in `available_documents` (agent prompts, Data Sources
 panel summary list), and unrecoverable by the tag-backfill script above
 (which only fills `tags` on rows that already exist).
@@ -185,9 +185,12 @@ Two fixes landed together, both described in
 2. **Reconciliation backfill** (`42a4fa3`) — `reconcile_collection_summaries()`
    runs at the end of every ingestion job (this ingestor, `scripts/ingest_oib.py`'s
    `oib_sync`, and any future caller), diffing indexed-and-successful files
-   against the `summaries` table and backfilling a fallback summary for any
+   against the `document_metadata` table and backfilling a fallback summary for any
    gap it finds (logged as a WARNING per backfilled document — a gap still
-   means the primary path failed, this is a backstop not a silent fix).
+   means the primary path failed, this is a backstop not a silent fix). The
+   per-job call is scoped to the job's own successful files (`file_names=…`),
+   so it no longer pays the full-collection `list_files` metadata scan on every
+   single-file upload.
 
 Recovery no longer requires re-ingesting the file; the reconciliation pass
 catches it on the next ingestion run for that collection.
@@ -240,17 +243,17 @@ The collection file list is fetched at most once per collection per request.
 At query time, the `knowledge_retrieval` NAT function:
 
 1. Resolves target collections via `_resolve_target_collections()` (see [Collection Scoping](collection-scoping.md))
-2. For each collection, calls `retriever.retrieve(query, collection_name, top_k=5)`
+2. For each collection, calls `retriever.retrieve(query, collection_name, top_k)` (config `top_k`, default 5; the working OpenRouter config uses 8)
 3. The `LlamaIndexRetriever` queries ChromaDB for the `top_k` most similar chunks
-4. Results from all collections are merged by relevance score (cosine similarity) and truncated to `top_k`
-5. Formatted with citations (filename, page number) for LLM consumption
+4. Results from all collections are merged by relevance score (cosine similarity) with a per-document diversity cap (`max_chunks_per_document`, default 2): a first pass takes at most that many chunks per distinct document (keyed by collection + file_name), then remaining slots up to `top_k` are filled with the highest-scoring leftovers — so cross-cutting questions span multiple Richtlinien instead of all chunks coming from the 1-2 top-scoring PDFs
+5. Formatted with citations (filename, page number) for LLM consumption (chunk content truncated at 2500 chars so OIB tables survive intact)
 
 Note this search path reads **only** the ChromaDB vector index — it is
-independent of the SQL `summaries` table that feeds `available_documents`
+independent of the SQL `document_metadata` table that feeds `available_documents`
 (the per-document summary list injected into agent prompts, described above
 and in `docs/architecture/backend-deep-dive.md` §6). The two stores remain
 architecturally distinct, so a document can in principle be returned here
-without a `summaries` row (the reconciliation backstop above closes this for
+without a `document_metadata` row (the reconciliation backstop above closes this for
 every ingestion path in practice), and conversely `available_documents`
 cannot show a document that failed to index into ChromaDB.
 

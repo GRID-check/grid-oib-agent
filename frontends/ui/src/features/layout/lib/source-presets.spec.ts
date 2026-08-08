@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { classifySourceSignal, computePresetSourceIds } from './source-presets'
 

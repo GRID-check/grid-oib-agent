@@ -18,5 +18,5 @@ export const GET = apiRoute(
       activeVersionId: config.activeVersion?.id ?? null,
     }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

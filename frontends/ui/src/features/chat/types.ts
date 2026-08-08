@@ -5,6 +5,8 @@
  */
 
 import type { GridCard } from '@/shared/cards/schemas'
+import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
+import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { SourceKind } from './lib/source-kinds'
 
 /** Message role types */
@@ -26,6 +28,12 @@ export type DeepResearchBannerType = 'starting' | 'success' | 'failure' | 'cance
 
 /** File upload status types for banner messages */
 export type FileUploadStatusType = 'uploaded' | 'pending_warning'
+
+/** A queued composer prefill: the text plus any structured mentions it renders. */
+export interface ComposerPrefill {
+  text: string
+  mentions?: DraftMention[]
+}
 
 /** Status types for status card messages */
 export type StatusType =
@@ -97,6 +105,8 @@ export interface AnswerTransparency {
   routingReason?: string
   escalationReason?: string
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
+  answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
 }
 
@@ -173,6 +183,16 @@ export interface ChatMessage {
   promptResponse?: string
   /** Whether the prompt has been responded to */
   isPromptResponded?: boolean
+  /**
+   * The person the agent asked (ADR-0037). Present on a prompt restored from the
+   * server; absent on a live one, where the browser holding the socket IS the
+   * addressee by construction.
+   *
+   * Every other reader is shown the question read-only, because the agent tier
+   * refuses an answer from anybody but this person — offering them buttons would be
+   * offering a refusal.
+   */
+  promptFor?: string
   /** File card data for file messages */
   fileData?: FileCardData
   /** Error card data for error messages */
@@ -227,6 +247,41 @@ export interface ChatMessage {
   /** Grid cards rendered with this agent response */
   cards?: GridCard[]
   /**
+   * The user's answer to each interactive card of this answer (`accepted`,
+   * `dismissed`, …), keyed by `cardKey(card, index)`. Persisted alongside
+   * `cards` in both storage layers so an applied patch / saved memory stays
+   * settled across reloads instead of re-offering buttons that would apply it
+   * twice — the card-level twin of `isPromptResponded` (see
+   * `features/grid-cards/card-decision.ts`).
+   */
+  cardInteractions?: CardInteractions
+  /**
+   * WHICH person wrote this message (collaboration, ADR-0032/CC-3).
+   *
+   * `role` only ever said what KIND of author wrote a message, which was free
+   * while a thread had one human in it. With two it is a defect: the reader must
+   * be able to tell colleagues apart, and apart from the agent. Absent/null for
+   * assistant, status and system messages, and for solo threads where the UI
+   * deliberately renders no attribution at all.
+   */
+  authorUserId?: string | null
+  /** Resolved display name + avatar, so a bubble needs no directory lookup. */
+  authorName?: string | null
+  authorAvatarUrl?: string | null
+  /**
+   * Structured mentions carried by this message, in the order they appear.
+   * Deliberately NOT derived from the text: typing the characters "@Anna"
+   * without choosing her from the picker is not a mention and must not notify
+   * her (spec MN-3).
+   */
+  mentions?: Array<{ targetId: string; display: string }>
+  /**
+   * Who the message was addressed to, as ruled by the SERVER at persist time
+   * (spec MN-1/MN-2). The client stores it for rendering only — the decision of
+   * whether to open an agent turn was already made from this value.
+   */
+  addressees?: { agent: boolean; users: string[] }
+  /**
    * The assistant's own guarded self-assessment of how well this answer is
    * grounded in its sources (shallow answers only). Absent on error, escalation,
    * deep-research, and historical turns — nothing renders when undefined.
@@ -240,6 +295,12 @@ export interface ChatMessage {
    * tooltip (PB-9).
    */
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /**
+   * The model's own one-clause justification for its confidence level
+   * (`[CONFIDENCE:level | reason]`). Shown verbatim in the ConfidenceChip
+   * tooltip so the reader can see WHY the level was chosen.
+   */
+  answerConfidenceReason?: string
   /**
    * Which path the turn took after intent classification (meta/shallow/deep/
    * error) — drives the "Warum dieser Weg?" narration in the Herleitung.
@@ -278,6 +339,12 @@ export interface ThinkingTraceLane {
   label: string
   hitCount: number
   sources: Array<{ name: string; detail?: string }>
+  /**
+   * Canonical coarse source kind (ADR-0026), as classified by the backend.
+   * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
+   * only `signal`, which stays the field consumers read.
+   */
+  kind?: 'baurecht' | 'buero' | 'projekt' | 'web'
   signal: 'law' | 'project' | 'office' | 'auto'
 }
 
@@ -364,6 +431,14 @@ export interface CitationSource {
   isCited?: boolean
   /** Backend origin token without brackets: kb | ris | web */
   origin?: 'kb' | 'ris' | 'web'
+  /**
+   * The `[N]` marker this source carries in the answer prose, when the backend
+   * resolved one (`verify_citations` owns that binding). Lets the provenance
+   * block render as the answer's numbered source list — one block instead of a
+   * written list plus an unnumbered chip row. Absent on legacy/persisted
+   * messages and on the deep-research SSE path.
+   */
+  number?: number
   title?: string
   citationKey?: string
   collection?: string
@@ -379,6 +454,13 @@ export interface CitationSource {
    * persisted messages, which fall back to origin/URL heuristics.
    */
   kind?: SourceKind
+  /**
+   * Identity of the DOCUMENT this source is a passage of, as the backend
+   * registry groups it (`citation_verification.document_key`). Absent on
+   * messages persisted before the wire carried it, where the client derives an
+   * equivalent key from filename/collection instead.
+   */
+  documentId?: string
   /** Fine lane stratum-key (baurecht_oib, baurecht_ris, …) — drives the authority badge. */
   lane?: string
   /** Human lane label ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
@@ -401,6 +483,10 @@ export interface WireCitationSource {
   source_type?: string | null
   tool?: string | null
   origin?: string | null
+  /** Citation label ([N]) this source carries in the answer prose. */
+  number?: number | null
+  /** Backend identity of the document this source is a passage of. */
+  document_id?: string | null
   file_name?: string | null
   page?: number | null
   kind?: string | null
@@ -524,6 +610,12 @@ export interface ChatState {
    * appears once this settles to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /**
+   * Whether the server conversation list has been asked for at least once. A
+   * `?session=<id>` deep link needs this to tell "stale id" from "not fetched
+   * yet" before it strips itself from the URL (see the sessions slice).
+   */
+  serverConversationsLoaded: boolean
   /** Whether a message is currently streaming */
   isStreaming: boolean
   /** Whether we're waiting for the first response token */
@@ -549,8 +641,14 @@ export interface ChatState {
    * One-shot draft text queued for the chat composer (InputArea). Set by deep
    * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
    * by the composer. Null when there is nothing to prefill.
+   *
+   * `mentions` carries the STRUCTURED references a prefill renders as `@…`
+   * tokens (e.g. the hand-off banner's "ask Piloti instead"): without them the
+   * tokens are dead text and the send routes as a plain message, which is not
+   * what the button that queued the prefill promised (spec MN-3 — a mention is
+   * never re-derived from text).
    */
-  composerPrefill: string | null
+  composerPrefill: ComposerPrefill | null
   /**
    * Per-session composer drafts: the user's own in-progress, unsent text keyed
    * by conversation id. Distinct from `composerPrefill` (one-shot, external):
@@ -561,6 +659,13 @@ export interface ChatState {
    * across contexts.
    */
   composerDrafts: Record<string, string>
+  /**
+   * Transient live chat send callback registered by InputArea's WebSocket hook
+   * (mirrors `respondToInteractionFn`, not persisted). Lets components that do
+   * not own the socket — e.g. the retry action on an errored answer in
+   * ChatArea — resend through the real send path.
+   */
+  chatSendFn: ((content: string) => void) | null
   /** Content for the Details Panel - Report tab */
   reportContent: string
   /** Category of the current report content (distinguishes intermediate notes from final report) */
@@ -790,6 +895,14 @@ export interface ChatActions {
     messageId: string,
     patch: Partial<ChatMessage>
   ) => void
+  /**
+   * Record the user's answer to one interactive card of an answer (see
+   * `features/grid-cards/card-decision.ts`). Writes it onto the owning message
+   * — persisting it to localStorage through the store's `persist` middleware —
+   * and mirrors it to the server message row so the decision also survives a
+   * storage wipe or a different device. No-op when the message is unknown.
+   */
+  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => void
   /** Set pending interaction requiring user response */
   setPendingInteraction: (interaction: PendingInteraction | null) => void
   /** Clear pending interaction (after user responds) */
@@ -828,6 +941,12 @@ export interface ChatActions {
 
   /** Start deep research streaming with a job ID and optional originating message ID */
   startDeepResearch: (jobId: string, messageId?: string) => void
+  /**
+   * Follow a run this session did not start (a workflow run, or one opened from
+   * the run history): binds the job so its SSE stream connects and the research
+   * panel updates live — without an owning conversation or tracking message.
+   */
+  attachToDeepResearchJob: (jobId: string) => void
   /** Update deep research job status */
   updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
   /** Update the last received SSE event ID (for reconnection) */
@@ -854,22 +973,13 @@ export interface ChatActions {
    * the session previously had a completed report.
    */
   refreshDeepResearchSessionStatuses: () => Promise<void>
-  /** Add a citation from deep research (isCited=true for citation_use, false for citation_source) */
-  addDeepResearchCitation: (
-    url: string,
-    content: string,
-    isCited?: boolean,
-    extras?: {
-      title?: string
-      citationKey?: string
-      collection?: string
-      sourceType?: string
-      tool?: string
-      origin?: string
-      fileName?: string
-      page?: number
-    }
-  ) => void
+  /**
+   * Add a citation from deep research (isCited=true for citation_use, false for
+   * citation_source). Takes the backend citation wire whole and normalizes it
+   * with `citationFromWire` — the same single normalizer the shallow-chat path
+   * uses, so both transports produce identical CitationSource objects.
+   */
+  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => void
   /** Set the full todo list from deep research (replaces existing) */
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   /** Mark all in-progress and pending todos as stopped (on error) */
@@ -966,14 +1076,43 @@ export interface ChatActions {
   _ensureConversationExists: () => Promise<void>
   /** Append a single message to the server for the current conversation */
   _appendMessage: (message: ChatMessage) => Promise<void>
+  /**
+   * Mirror a message's card decisions to its server row. Best-effort: the local
+   * store is already the authoritative copy, so a failure here only costs the
+   * cross-device/after-a-storage-wipe replay and is logged, never surfaced.
+   */
+  _persistCardInteractions: (
+    conversationId: string,
+    messageId: string,
+    cardInteractions: CardInteractions
+  ) => Promise<void>
+  /**
+   * Mirror the settled turn's provenance to its server rows (ADR-0037): the
+   * Herleitung onto the user message, the confidence and routing transparency onto
+   * the assistant message.
+   *
+   * Best-effort, like the card mirror. Without it a colleague — who holds no agent
+   * socket by design — sees a bare answer, and the asker loses the reasoning on any
+   * other device.
+   */
+  _persistTurnProvenance: () => Promise<void>
+  /**
+   * Mirror the answer to a human-in-the-loop prompt onto its message row, so the
+   * transcript records what was decided and a colleague's reload sees it settled.
+   */
+  _persistPromptState: (messageId: string, response: string) => Promise<void>
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void
 
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
-  consumeComposerPrefill: () => string | null
+  consumeComposerPrefill: () => ComposerPrefill | null
+  /** Register the live chat send callback (called by InputArea on mount). */
+  setChatSendFn: (fn: ((content: string) => void) | null) => void
+  /** Resend the current conversation's last user message (retry affordance). */
+  retryLastUserMessage: () => void
 
   /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
   setComposerDraft: (conversationId: string, text: string) => void

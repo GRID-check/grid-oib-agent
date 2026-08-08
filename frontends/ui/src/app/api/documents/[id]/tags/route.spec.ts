@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
 
@@ -25,14 +28,17 @@ const call = (id: string, body: unknown) =>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }) as unknown as NextRequest,
-    { params: Promise.resolve({ id }) },
+    { params: Promise.resolve({ id }) }
   )
 
 describe('PATCH /api/documents/[id]/tags', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('delegates valid tags to the service and returns the result', async () => {
-    vi.mocked(updateDocumentTags).mockResolvedValue({ id: 'doc-1', tags: ['Grundriss', 'Brandschutz'] })
+    vi.mocked(updateDocumentTags).mockResolvedValue({
+      id: 'doc-1',
+      tags: ['Grundriss', 'Brandschutz'],
+    })
 
     const response = await call('doc-1', { tags: ['Grundriss', 'Brandschutz'] })
 
@@ -41,7 +47,7 @@ describe('PATCH /api/documents/[id]/tags', () => {
     expect(updateDocumentTags).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1' }),
       'doc-1',
-      ['Grundriss', 'Brandschutz'],
+      ['Grundriss', 'Brandschutz']
     )
   })
 

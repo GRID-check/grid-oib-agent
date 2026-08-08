@@ -15,7 +15,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { computeCollectionScope } from '@/lib/collection-scope'
 import { buildGridRequestContextWireHeaders, encodeGridBudgetHeader, type GridBudgetSnapshot } from '@/lib/request-context'
@@ -68,7 +68,7 @@ export async function createWorkflow(
 ): Promise<Workflow> {
   // Tenancy is covered by requireProjectAccess: it verifies the project exists
   // and belongs to the caller's org (findProjectTenancy) before any FGA check.
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
 
   const compiledPrompt = compileWorkflowPrompt(input.definition)
   const timezone = input.scheduleTimezone ?? 'UTC'
@@ -102,7 +102,7 @@ export async function updateWorkflow(
   workflowId: string,
   patch: PatchWorkflowInput,
 ): Promise<Workflow> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
 
   const existing = await repository.findWorkflow(workflowId, session.organizationId)
   if (!existing || existing.projectId !== projectId) throw new NotFoundError()
@@ -139,7 +139,7 @@ export async function deleteWorkflow(
   projectId: string,
   workflowId: string,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
 
   const existing = await repository.findWorkflow(workflowId, session.organizationId)
   if (!existing || existing.projectId !== projectId) throw new NotFoundError()
@@ -169,7 +169,7 @@ export async function runWorkflowNow(
   projectId: string,
   workflowId: string,
 ): Promise<WorkflowRun> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:workflows:manage', 'project:edit'])
   const workflow = await repository.findWorkflow(workflowId, session.organizationId)
   if (!workflow || workflow.projectId !== projectId) throw new NotFoundError()
   if (!workflow.enabled) throw new ConflictError('Workflow is disabled.')
@@ -263,15 +263,15 @@ export async function fireWorkflow(
     // advanced past this occurrence, so a silent loss would leave no trace.
     const [budgetSnapshot, modelOverrides, collectionScope, projectContext, bundesland] = await Promise.all([
       resolveBudgetSnapshot(organizationId, createdBy, projectId),
-      getActiveModelOverrides(organizationId).catch(() => null),
+      getEffectiveModelOverrides(organizationId).catch(() => null),
       buildProjectCollectionScope(projectId, organizationId),
-      loadProjectPromptView(projectId).catch(() => null),
+      loadProjectPromptView(projectId, organizationId).catch(() => null),
       // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
       // user-mandated) — rides the envelope's `bundesland` field alongside
       // the unchanged `bundesland=<token>` line already inside
       // `projectContext` above. Best-effort: a lookup failure must not
       // block the scheduled run.
-      loadProjectBundesland(projectId).catch(() => null),
+      loadProjectBundesland(projectId, organizationId).catch(() => null),
     ])
     const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 

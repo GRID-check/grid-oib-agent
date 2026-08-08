@@ -16,6 +16,36 @@ vi.mock('@/adapters/api/workflows-client', async (importActual) => {
   }
 })
 
+// Toasts are asserted through the mock (no <Toaster /> in these renders).
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}))
+
+// "Run now" offers a toast action that navigates into the running job.
+const routerPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: routerPush,
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}))
+
+// The run history joins its rows against the backend's research runs to show
+// each run's LIVE job status.
+vi.mock('@/adapters/api/research-runs-client', () => ({
+  listResearchRuns: vi.fn(),
+}))
+
+// The template gallery fetches published platform templates on mount; keep it
+// empty so tests exercise only the built-in templates (ADR-0027).
+vi.mock('@/adapters/api/platform-workflow-templates-client', () => ({
+  listGalleryTemplates: vi.fn().mockResolvedValue([]),
+}))
+
 // Data-sources client is called on builder mount.
 vi.mock('@/adapters/api/data-sources-client', () => ({
   createDataSourcesClient: () => ({
@@ -27,16 +57,46 @@ vi.mock('@/adapters/api/data-sources-client', () => ({
   }),
 }))
 
+import { toast } from 'sonner'
 import { getDictionary } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
 import * as client from '@/adapters/api/workflows-client'
+import * as researchRunsClient from '@/adapters/api/research-runs-client'
 import { resolveTemplate } from '../lib/templates'
+import { RunHistory } from './run-history'
 import { WorkflowList } from './workflow-list'
 import { WorkflowBuilder } from './workflow-builder'
 import { TemplateCards } from './template-cards'
 
 const listWorkflowsMock = vi.mocked(client.listWorkflows)
 const createWorkflowMock = vi.mocked(client.createWorkflow)
+const runWorkflowMock = vi.mocked(client.runWorkflow)
+const listWorkflowRunsMock = vi.mocked(client.listWorkflowRuns)
+const listResearchRunsMock = vi.mocked(researchRunsClient.listResearchRuns)
+
+const submittedRun: client.WorkflowRun = {
+  id: 'r1',
+  jobId: 'job-1',
+  trigger: 'manual',
+  status: 'submitted',
+  detail: null,
+  triggeredBy: 'user_1',
+  createdAt: '2026-07-16T06:00:00Z',
+}
+
+/** One live research run as the backend job list reports it. */
+const researchRun = (status: string) => ({
+  jobs: [
+    {
+      job_id: 'job-1',
+      status,
+      created_at: '2026-07-16T06:00:00Z',
+      conversation_id: null,
+      project_collection: 'proj_1',
+    },
+  ],
+  total: 1,
+})
 
 const sampleWorkflow: client.WorkflowSummary = {
   id: 'w1',
@@ -59,7 +119,7 @@ describe('WorkflowList', () => {
 
   test('renders workflow cards from the client', async () => {
     listWorkflowsMock.mockResolvedValue([sampleWorkflow])
-    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" projectCollection="proj_1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('Weekly OIB scan')).toBeInTheDocument()
     // Humanized schedule summary with the timezone.
@@ -69,7 +129,7 @@ describe('WorkflowList', () => {
 
   test('the template gallery is always visible, even with configured workflows', async () => {
     listWorkflowsMock.mockResolvedValue([sampleWorkflow])
-    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" projectCollection="proj_1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('Weekly OIB scan')).toBeInTheDocument()
     expect(screen.getByTestId('workflow-templates')).toBeInTheDocument()
@@ -79,19 +139,129 @@ describe('WorkflowList', () => {
 
   test('shows the empty state (below the gallery) when there are no workflows', async () => {
     listWorkflowsMock.mockResolvedValue([])
-    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" projectCollection="proj_1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('No workflows yet')).toBeInTheDocument()
     // The gallery still renders above the empty state.
     expect(screen.getByTestId('workflow-templates')).toBeInTheDocument()
   })
 
+  test('starting a run reveals it: history opens and shows the live job status', async () => {
+    listWorkflowsMock.mockResolvedValue([sampleWorkflow])
+    runWorkflowMock.mockResolvedValue({ status: 'submitted', jobId: 'job-1' })
+    listWorkflowRunsMock.mockResolvedValue([submittedRun])
+    listResearchRunsMock.mockResolvedValue(researchRun('running'))
+
+    render(
+      <WorkflowList projectId="p1" projectCollection="proj_1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /Run now/ }))
+
+    // The run history opens by itself — the started run must not be invisible.
+    await waitFor(() => expect(listWorkflowRunsMock).toHaveBeenCalledWith('p1', 'w1', { limit: 20 }))
+    expect(await screen.findByText('Running')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View progress/ })).toHaveAttribute(
+      'href',
+      '/app/projects/p1/chat?job=job-1&tab=tasks',
+    )
+  })
+
+  test('the run-started toast jumps straight into the running job', async () => {
+    listWorkflowsMock.mockResolvedValue([sampleWorkflow])
+    runWorkflowMock.mockResolvedValue({ status: 'submitted', jobId: 'job-1' })
+    listWorkflowRunsMock.mockResolvedValue([submittedRun])
+    listResearchRunsMock.mockResolvedValue(researchRun('running'))
+
+    render(
+      <WorkflowList projectId="p1" projectCollection="proj_1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /Run now/ }))
+
+    const toastSuccess = vi.mocked(toast.success)
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+    const options = toastSuccess.mock.calls[0][1] as {
+      action?: { label: string; onClick: () => void }
+    }
+    expect(options.action?.label).toBe('View progress')
+    options.action?.onClick()
+    expect(routerPush).toHaveBeenCalledWith('/app/projects/p1/chat?job=job-1&tab=tasks')
+  })
+
   test('surfaces a retryable error when the list fails to load', async () => {
     listWorkflowsMock.mockRejectedValue(new Error('boom'))
-    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" projectCollection="proj_1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('The workflows could not be loaded.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+})
+
+describe('RunHistory', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  test('shows the live job status and links a still-running run to its progress', async () => {
+    listWorkflowRunsMock.mockResolvedValue([submittedRun])
+    listResearchRunsMock.mockResolvedValue(researchRun('running'))
+
+    render(<RunHistory projectId="p1" workflowId="w1" projectCollection="proj_1" />)
+
+    // The submission badge ("Submitted") gives way to the run's real state.
+    expect(await screen.findByText('Running')).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /View progress/ })
+    expect(link).toHaveAttribute('href', '/app/projects/p1/chat?job=job-1&tab=tasks')
+  })
+
+  test('links a finished run to its report and a failed one to its thinking', async () => {
+    listWorkflowRunsMock.mockResolvedValue([submittedRun])
+    listResearchRunsMock.mockResolvedValue(researchRun('completed'))
+
+    const { unmount } = render(
+      <RunHistory projectId="p1" workflowId="w1" projectCollection="proj_1" />,
+    )
+    expect(await screen.findByText('Completed')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View report/ })).toHaveAttribute(
+      'href',
+      '/app/projects/p1/chat?job=job-1',
+    )
+    unmount()
+
+    listResearchRunsMock.mockResolvedValue(researchRun('failed'))
+    render(<RunHistory projectId="p1" workflowId="w1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText('Failed')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View thinking/ })).toHaveAttribute(
+      'href',
+      '/app/projects/p1/chat?job=job-1&tab=thinking',
+    )
+  })
+
+  test('falls back to the submission badge when the live status is unavailable', async () => {
+    listWorkflowRunsMock.mockResolvedValue([submittedRun])
+    listResearchRunsMock.mockRejectedValue(new Error('backend down'))
+
+    render(<RunHistory projectId="p1" workflowId="w1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText('Submitted')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View report/ })).toHaveAttribute(
+      'href',
+      '/app/projects/p1/chat?job=job-1',
+    )
+  })
+
+  test('does not query live statuses for runs that never produced a job', async () => {
+    listWorkflowRunsMock.mockResolvedValue([
+      { ...submittedRun, jobId: null, status: 'skipped', detail: 'Org job cap reached' },
+    ])
+
+    render(<RunHistory projectId="p1" workflowId="w1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText('Skipped')).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(listResearchRunsMock).not.toHaveBeenCalled()
   })
 })
 

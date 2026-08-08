@@ -13,7 +13,14 @@ const searchBodySchema = z.object({
   topK: z.number().int().min(1).max(100).optional(),
 })
 
-export const POST = apiRoute(async ({ session, request }) => {
-  const { projectId, q, topK } = await parseJsonBody(request, searchBodySchema)
-  return searchProjectDocuments(session, projectId, q, topK)
-})
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const { projectId, q, topK } = await parseJsonBody(request, searchBodySchema)
+    return searchProjectDocuments(session, projectId, q, topK)
+  },
+  {
+    authz: {
+      enforcedBy: 'searchProjectDocuments -> listDocuments (requireProjectAccess project:view)',
+    },
+  }
+)

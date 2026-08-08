@@ -24,7 +24,8 @@ import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
 import { isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
-import { normalizeOrigin } from '../lib/wire-citation'
+import { dedupeBufferedCitations } from '../lib/wire-citation'
+import type { WireCitationSource } from '../types'
 
 /** Timeout in milliseconds before showing a warning (60 seconds) */
 const TIMEOUT_WARNING_MS = 60000
@@ -131,14 +132,21 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   /**
    * Check if the current session owns the active deep research stream.
    * This prevents SSE events from mutating the wrong session.
+   *
+   * A run with no owning conversation is an *attached* run (a workflow run or
+   * a run opened from the history — `attachToDeepResearchJob`). It belongs to
+   * the research panel rather than to a thread, so the job-id match is the
+   * whole guard there; there is no session it could leak into.
    */
   const isOwnerActive = useCallback((expectedJobId?: string): boolean => {
     const state = useChatStore.getState()
+    const ownerConversationId = state.deepResearchOwnerConversationId
     return Boolean(
       state.isDeepResearchStreaming &&
         (!expectedJobId || state.deepResearchJobId === expectedJobId) &&
-        state.deepResearchOwnerConversationId &&
-        state.currentConversation?.id === state.deepResearchOwnerConversationId
+        (ownerConversationId
+          ? state.currentConversation?.id === ownerConversationId
+          : true)
     )
   }, [])
 
@@ -209,19 +217,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         llmSteps: new Map<string, { name: string; workflow?: string; content: string; thinking?: string; usage?: { input_tokens: number; output_tokens: number } }>(),
         toolCalls: new Map<string, { name: string; input?: Record<string, unknown>; output?: string; workflow?: string; agentId?: string }>(),
         todos: null as TodoItem[] | null,
-        citations: [] as Array<{
-          url: string
-          content: string
-          isCited: boolean
-          title?: string
-          citationKey?: string
-          collection?: string
-          sourceType?: string
-          tool?: string
-          origin?: string
-          fileName?: string
-          page?: number
-        }>,
+        // Buffered as the raw wire so the flush below normalizes exactly once,
+        // through the same `citationFromWire` the live path uses.
+        citations: [] as Array<{ wire: WireCitationSource; isCited: boolean }>,
         files: new Map<string, string>(),
         reportContent: null as string | null,
         reportCards: null as unknown[] | null,
@@ -249,21 +247,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         const agents = Array.from(buf.agents.entries()).map(([id, a]) => ({ id, name: a.name, input: a.input, output: a.output, status: 'complete' as const, startedAt: now, completedAt: now }))
         const llmSteps = Array.from(buf.llmSteps.entries()).map(([id, s]) => ({ id, name: s.name, workflow: s.workflow, content: s.content, thinking: s.thinking, usage: s.usage, isComplete: true, timestamp: now }))
         const toolCalls = Array.from(buf.toolCalls.entries()).map(([id, t]) => ({ id, name: t.name, input: t.input, output: t.output, workflow: t.workflow, agentId: t.agentId, status: 'complete' as const, timestamp: now }))
-        const citations = buf.citations.map((c, i) => ({
-          id: `citation-${i}`,
-          url: c.url || undefined,
-          content: c.content,
-          isCited: c.isCited,
-          timestamp: now,
-          title: c.title,
-          citationKey: c.citationKey,
-          collection: c.collection,
-          sourceType: c.sourceType,
-          tool: c.tool,
-          origin: normalizeOrigin(c.origin),
-          fileName: c.fileName,
-          page: c.page,
-        }))
+        const citations = dedupeBufferedCitations(buf.citations, now)
         const files = Array.from(buf.files.entries()).map(([filename, content], i) => ({ id: `file-${i}`, filename, content, timestamp: now }))
         const todos = buf.todos ? normalizeDeepResearchTodos(buf.todos) : undefined
 
@@ -342,6 +326,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             const state = useChatStore.getState()
             const ownerConvId = state.deepResearchOwnerConversationId
             const messageId = state.activeDeepResearchMessageId
+            // An attached run (no owning conversation — a workflow run opened
+            // from the run history) has no thread to write into. Its banner
+            // and error card would land in whatever conversation happens to be
+            // open, so the outcome is left to the research panel instead.
+            const isAttachedRun = !ownerConvId
 
             if (status === 'success') {
               setCurrentStatus('complete')
@@ -358,7 +347,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                   showViewReport: hasReport,
                 })
               }
-              addDeepResearchBanner('success', jobId, ownerConvId || undefined, { totalTokens, toolCallCount })
+              if (!isAttachedRun) {
+                addDeepResearchBanner('success', jobId, ownerConvId, { totalTokens, toolCallCount })
+              }
               stopAllDeepResearchSpinners(true)
               setStreamLoaded(true)
               completeDeepResearch()
@@ -377,12 +368,17 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                   showViewReport: hasReport,
                 })
               }
-              addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId || undefined)
+              if (!isAttachedRun) {
+                addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId)
+              }
               clientRef.current?.disconnect()
               setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
-              if (error && !isUserCancelled) {
+              // Error cards are thread artifacts too: an attached run has no
+              // thread, and the research panel's outcome notice carries its
+              // failure instead.
+              if (!isAttachedRun && error && !isUserCancelled) {
                 // The failure banner above carries the user-facing outcome and
                 // its View-report/Thinking affordances; the error card adds the
                 // technical context. No explicit message: ErrorBanner localizes
@@ -391,7 +387,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 // being shown as the headline.
                 const { addErrorCard } = useChatStore.getState()
                 addErrorCard('agent.deep_research_failed', undefined, error)
-              } else if (status === 'interrupted' && !isUserCancelled) {
+              } else if (!isAttachedRun && status === 'interrupted' && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
                 addErrorCard('agent.deep_research_failed', tChat('deepResearchErrors.interrupted'))
               }
@@ -529,25 +525,13 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
           },
 
-          onCitationUpdate: (url, content, isCited, extras) => {
+          onCitationUpdate: (wire, isCited) => {
             if (buf.active) {
-              buf.citations.push({
-                url,
-                content,
-                isCited: isCited ?? false,
-                title: extras?.title,
-                citationKey: extras?.citationKey,
-                collection: extras?.collection,
-                sourceType: extras?.sourceType,
-                tool: extras?.tool,
-                origin: extras?.origin,
-                fileName: extras?.fileName,
-                page: extras?.page,
-              })
+              buf.citations.push({ wire, isCited })
               return
             }
             if (!isActiveJob()) return
-            resetTimeout(); addDeepResearchCitation(url, content, isCited, extras)
+            resetTimeout(); addDeepResearchCitation(wire, isCited)
           },
 
           onFileUpdate: (filename, content) => {
@@ -702,7 +686,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             showViewReport: hasReport,
           })
         }
-        addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId || undefined)
+        // Attached runs (no owning conversation) get no thread banner — it
+        // would land in an unrelated conversation.
+        if (ownerConvId) {
+          addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId)
+        }
         stopAllDeepResearchSpinners()
         clientRef.current?.disconnect()
         clientRef.current = null

@@ -64,6 +64,14 @@ interface MainLayoutProps {
   projectCollection?: string | null
   /** Active project name — thread-header breadcrumb + composer scope chip. */
   projectName?: string | null
+  /**
+   * Whether the collaboration surfaces are available (ADR-0032…0035): message
+   * authorship, the unread divider, the turn-in-flight banner. Threaded to
+   * ChatArea. Defaults to false — this feature is dark-launched, and unlike the
+   * fail-open flags above it changes who can see a conversation, so it must not
+   * switch itself on for callers that have not opted in (spec NF-7/NF-8).
+   */
+  canCollaborate?: boolean
 }
 
 /**
@@ -78,6 +86,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   showConfidenceChip = true,
   showAnswerFeedback = true,
   showResearchInHistory = false,
+  canCollaborate = false,
   projectCollection = null,
   projectName = null,
 }) => {
@@ -250,6 +259,13 @@ export const MainLayout: FC<MainLayoutProps> = ({
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
             isChatStarted={(currentConversation?.messages?.length ?? 0) > 0}
+            // Collaboration affordances in the thread header: the participant
+            // strip, the access chip and the share dialog. All three are gated on
+            // the dark-launch flag AND on there being a conversation to share, so
+            // an unshared or brand-new thread shows no extra chrome at all.
+            conversationId={currentConversation?.id ?? null}
+            isCollaborationEnabled={canCollaborate}
+            currentUserId={currentUserId}
           />
 
           {/* Chat Area - Scrollable, extends behind the floating composer AND
@@ -259,6 +275,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             onSignIn={onSignIn}
             showConfidenceChip={showConfidenceChip}
             showAnswerFeedback={showAnswerFeedback}
+            canCollaborate={canCollaborate}
           />
 
           {/* Floating composer stack: overlays the bottom of the chat scroll
@@ -274,6 +291,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
               isAuthenticated={isAuthenticated}
               connectionMode="websocket"
               projectName={projectName ?? undefined}
+              // Gates the composer's addressee statement (and the hand-off read
+              // behind it). False — the default — is byte-for-byte today's
+              // composer (spec NF-8).
+              canCollaborate={canCollaborate}
             />
           </div>
         </div>

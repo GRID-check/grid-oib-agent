@@ -8,12 +8,12 @@
 
 'use client'
 
-import { type FC, memo, useCallback } from 'react'
+import { type FC, memo, useCallback, useId, useMemo } from 'react'
 import { Check, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
@@ -22,7 +22,10 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { useConversationMemory } from '../hooks/use-conversation-memory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
+import { AnswerCitations } from './AnswerCitations'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -60,6 +63,11 @@ export interface AgentResponseProps {
    * the ConfidenceChip tooltip (PB-9).
    */
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /**
+   * The model's own one-clause justification for its confidence level, shown
+   * verbatim in the ConfidenceChip tooltip.
+   */
+  answerConfidenceReason?: string
   /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the
@@ -180,6 +188,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   conversationId,
   answerConfidence,
   answerConfidenceCappedReason,
+  answerConfidenceReason,
   citationsRemoved,
   showConfidenceChip = true,
   messageId,
@@ -188,9 +197,31 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   routingDecision,
 }) => {
   const t = useTranslations('chat')
+  // Without the locale `formatTime` uses the RUNTIME default, so a German user on
+  // an en-US browser got "03:35 PM" beside cards that all say "15:35".
+  const { locale } = useLocale()
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const projectId = useChatStore((s) => s.projectId)
+  // An answer that ends in a written "## Quellen" list used to state its sources
+  // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
+  // (numbers/titles/pages vs. provenance color, authority and click-through).
+  // Lift the list out of the body and hand its entries to AnswerSourcesRow,
+  // which renders the one consolidated block; the inline [N] markers left in the
+  // prose become links to its rows. Answers without such a section are untouched.
+  const fallbackId = useId()
+  const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
+  const { body, entries: sourceEntries } = useMemo(
+    () => splitAnswerBody(content, anchorPrefix),
+    [content, anchorPrefix]
+  )
+  // ONE derivation for the whole answer: the inline `[N]` markers in the prose
+  // and the provenance chips below are the same citations seen twice, and two
+  // derivations of one citation is exactly the defect the model removes.
+  const documents = useMemo(
+    () => buildCitationModel({ citations, entries: sourceEntries, cards }),
+    [citations, sourceEntries, cards]
+  )
 
   const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
     useChatStore(useShallow((s) => ({
@@ -201,6 +232,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   })))
   const reconnectToActiveJob = useChatStore((s) => s.reconnectToActiveJob)
   const { loadResearchPanelTab, isLoading, error } = useLoadJobData()
+  // Fetched here, not inside MemoryNotedChip: the merged footer's meta row only
+  // renders when it has something to hold, and "Piloti noted N" is one of those
+  // things — a memory-only turn (both chip flags off, no timestamp) must still
+  // show it rather than have the row unmount around it.
+  const { items: memoryItems } = useConversationMemory(projectId, conversationId)
 
   // Determine if we should show the action button
   // Show "View Progress" for active jobs, "View Report" for completed jobs
@@ -257,6 +293,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
   const hasCards = cards && cards.length > 0
 
+  // What the merged footer's meta row would actually hold. The flags alone are
+  // not the answer: `showConfidenceChip` is on by default but the chip renders
+  // nothing without a level, and the feedback row needs a `messageId` — gating
+  // the row on the flags let it mount as an empty band (bare spacer + its own
+  // gap) on a meta turn that has neither.
+  const hasConfidence =
+    showConfidenceChip &&
+    (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
+  const hasFeedback = showAnswerFeedback && Boolean(messageId)
+  const hasMetaRow = hasConfidence || hasFeedback || Boolean(timestamp) || memoryItems.length > 0
+
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
   if ((!content || !content.trim() || content === 'null') && !hasCards) {
@@ -266,9 +313,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
+      <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Optional Grid cards rendered before the markdown body */}
-        {hasCards && <GridCards cards={cards} projectId={projectId} />}
+        {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
 
         {/* Response Content rendered as markdown (with streaming caret). While
             streaming, the markdown block + its last child are forced inline so
@@ -280,7 +328,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               : undefined
           }
         >
-          <MarkdownRenderer content={content} isStreaming={isStreaming} />
+          <MarkdownRenderer content={body} isStreaming={isStreaming} />
           {isStreaming && <StreamingCaret />}
         </div>
 
@@ -313,7 +361,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )}
 
         {/* "Belegt durch": provenance chips for sources this answer carries */}
-        <AnswerSourcesRow citations={citations} cards={cards} />
+        <AnswerSourcesRow
+          documents={documents}
+          anchorPrefix={anchorPrefix}
+          routingDecision={routingDecision}
+          isStreaming={isStreaming}
+        />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
@@ -322,9 +375,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <ConfidenceChip
               confidence={answerConfidence}
               cappedReason={answerConfidenceCappedReason}
+              reason={answerConfidenceReason}
             />
           )}
-          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+          <MemoryNotedChip items={memoryItems} />
         </div>
 
         {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
@@ -335,10 +389,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
           <span className="text-subtle mr-3 mt-1 self-end text-xs">
-            {formatTime(timestamp)}
+            {formatTime(timestamp, locale)}
           </span>
         )}
       </div>
+      </AnswerCitations>
     )
   }
 
@@ -353,7 +408,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
   const isMeta = routingDecision === 'meta'
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto flex w-[680px] max-w-full flex-col duration-200">
+    <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
       {isMeta ? (
@@ -369,19 +425,23 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       )}
 
       {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
-          reply sits on a quieter muted surface with a lighter shadow so the
-          whole card — not just the tab — reads as the calmer, non-result kind. */}
+          reply sits on a quieter muted surface, so the whole card — not just the
+          tab — reads as the calmer, non-result kind. Both kinds use shadow-sm,
+          matching the composer's elevation so the answer never outranks it. */}
       <div
         className={
           isMeta
             ? 'overflow-hidden rounded-[12px] border border-input bg-muted/50 shadow-sm'
-            : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md'
+            : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-sm'
         }
       >
-        {/* White inner block — the answer body sits flat here (dummy anatomy) */}
-        <div className="flex flex-col gap-2 break-words rounded-b-[10px] bg-card px-[22px] pb-[18px] pt-[19px] shadow-sm">
+        {/* Answer body — the hero white surface. It fills the top of the card
+            flush (corners clipped by the shell) and is separated from the
+            provenance footer by a single hairline, so the whole thing reads as
+            one considered object with sections — not a card floating in a tray. */}
+        <div className="flex flex-col gap-2 break-words border-b border-border/55 bg-card px-[22px] pb-[17px] pt-[18px]">
           {/* Optional Grid cards rendered before the markdown body */}
-          {hasCards && <GridCards cards={cards} projectId={projectId} />}
+          {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
 
           {/* Response Content rendered as markdown (with streaming caret) */}
           <div
@@ -391,7 +451,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 : undefined
             }
           >
-            <MarkdownRenderer content={content} isStreaming={isStreaming} />
+            <MarkdownRenderer content={body} isStreaming={isStreaming} />
             {isStreaming && <StreamingCaret />}
           </div>
 
@@ -424,42 +484,45 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           )}
         </div>
 
-        {/* "Belegt durch": provenance chips for sources this answer carries.
-            Sits on the tinted shell below the white block. */}
-        <div className="px-[22px] pb-3 pt-[11px]">
-          <AnswerSourcesRow citations={citations} cards={cards} />
+        {/* Provenance footer — ONE tinted zone under the body's hairline that
+            holds two things: the sources block, then a single meta row with
+            the confidence + memory pills left and the thumbs feedback +
+            timestamp right. This replaces the old stack of three separated
+            bands (sources row, chip row, divided feedback row) plus a
+            timestamp floating outside the card — same information, one
+            hairline, no band-on-band clutter. The sources row must not draw
+            its own divider here (the body hairline already separates), so it
+            takes withDivider={false}. */}
+        <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
+          <AnswerSourcesRow
+            documents={documents}
+            anchorPrefix={anchorPrefix}
+            routingDecision={routingDecision}
+            isStreaming={isStreaming}
+            withDivider={false}
+          />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          {/* Footer chips: self-assessed confidence + what Piloti recorded */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {showConfidenceChip && (
-              <ConfidenceChip
-                confidence={answerConfidence}
-                cappedReason={answerConfidenceCappedReason}
-              />
-            )}
-            <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
-          </div>
+          {hasMetaRow && (
+            <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
+              {hasConfidence && (
+                <ConfidenceChip
+                  confidence={answerConfidence}
+                  cappedReason={answerConfidenceCappedReason}
+                  reason={answerConfidenceReason}
+                />
+              )}
+              <MemoryNotedChip items={memoryItems} />
+              <span className="flex-1" aria-hidden="true" />
+              {hasFeedback && messageId && (
+                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+              )}
+              {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp, locale)}</span>}
+            </div>
+          )}
         </div>
-
-        {/* Per-answer thumbs feedback (WS-7) — own row with a divider so it
-            reads as its own thing, not a trailing afterthought */}
-        {showAnswerFeedback && messageId && (
-          <>
-            <div className="mx-[22px] border-t border-border/70" />
-            <AnswerFeedback
-              messageId={messageId}
-              conversationId={conversationId}
-              className="px-[22px] pb-[16px] pt-[14px]"
-            />
-          </>
-        )}
       </div>
-
-      {/* Timestamp outside the card, right-aligned */}
-      {timestamp && (
-        <span className="text-subtle mr-3 mt-1 self-end text-xs">{formatTime(timestamp)}</span>
-      )}
     </div>
+    </AnswerCitations>
   )
 }
 

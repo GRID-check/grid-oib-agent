@@ -53,13 +53,17 @@ export const research: typeof en.research = {
     cannotCreateActive:
       'Es kann keine neue Sitzung erstellt werden, solange die aktuelle Sitzung aktiv ist',
     newChat: 'Neuer Chat',
-    toggleSessions: 'Sitzungsleiste umschalten',
-    signInToView: 'Melden Sie sich an, um Sitzungen anzuzeigen',
+    toggleSessions: 'Chatverlauf',
+    signInToView: 'Melden Sie sich an, um Ihren Chatverlauf zu sehen',
     sessions: 'Sitzungen',
     addSources: 'Datenquellen hinzufügen',
     signInToManage: 'Melden Sie sich an, um Datenquellen zu verwalten',
     sources: 'Quellen',
     research: 'Recherche',
+    /** Trigger for the thread menu that holds every non-primary header action. */
+    moreActions: 'Weitere Aktionen',
+    renameSession: 'Chat umbenennen',
+    researchReport: 'Recherchebericht',
   },
 
   dataSources: {
@@ -112,12 +116,12 @@ export const research: typeof en.research = {
     lossSuffix:
       ' zu löschen. Dabei gehen sämtliche Fortschritte verloren und alle von Ihnen angehängten Dateien werden entfernt.',
     all: {
-      title: 'Alle Sitzungen dieses Projekts löschen',
-      countSessions: 'alle {count} Sitzungen dieses Projekts',
-      allSessions: 'ALLE Sitzungen dieses Projekts',
+      title: 'Alle Chats dieses Projekts löschen?',
+      countSessions: 'alle {count} Chats dieses Projekts',
+      allSessions: 'JEDEN Chat dieses Projekts',
       scopeNote:
-        'Es werden nur Sitzungen dieses Projekts gelöscht. Ihre Sitzungen in anderen Projekten sind nicht betroffen.',
-      confirm: 'Projektsitzungen löschen',
+        'Es werden nur Chats dieses Projekts gelöscht. Ihre Chats in anderen Projekten sind nicht betroffen.',
+      confirm: 'Alle Chats löschen',
     },
     file: {
       title: 'Datei löschen',
@@ -126,9 +130,9 @@ export const research: typeof en.research = {
       confirm: 'Datei löschen',
     },
     session: {
-      title: 'Sitzung löschen',
-      thisSession: 'diese Sitzung',
-      confirm: 'Sitzung löschen',
+      title: 'Diesen Chat löschen?',
+      thisSession: 'diesen Chat',
+      confirm: 'Chat löschen',
     },
   },
 
@@ -181,6 +185,7 @@ export const research: typeof en.research = {
     waitUpload: 'Warten Sie, bis der Upload abgeschlossen ist',
     cannotDeleteBusy: 'Dateien können während aktiver Vorgänge nicht gelöscht werden',
     deleteFile: 'Datei löschen',
+    open: 'Vorschau öffnen: {title}',
   },
 
   fileSourcesTab: {
@@ -233,6 +238,7 @@ export const research: typeof en.research = {
     researchCompleted: 'Recherche abgeschlossen',
     researchCompletedPopover:
       'Recherche abgeschlossen. Für weitere Fragen oder Berichte erstellen Sie bitte eine neue Sitzung.',
+    startNewSession: 'Neue Sitzung starten',
     researchInProgressAria: 'Recherche läuft – bitte warten',
     researchInProgress: 'Recherche läuft',
     researchInProgressPopover:
@@ -248,6 +254,8 @@ export const research: typeof en.research = {
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',
     manageFilesCount: 'Angehängte Dateien verwalten ({count})',
+    manageFilesMobile: '{count} Dateien verwalten',
+    openFile: 'Datei öffnen: {name}',
     fileUploadingStatus: 'Wird hochgeladen',
     fileFailedStatus: 'Upload fehlgeschlagen',
     fileReadyStatus: 'Bereit',
@@ -295,45 +303,64 @@ export const research: typeof en.research = {
   },
 
   sessionsPanel: {
-    title: 'Sitzungen',
-    storageQuota: '{percent}% des Browser-Speicherkontingents belegt',
+    title: 'Chatverlauf',
+    /** Steht neben dem Titel, damit der Bereich seinen eigenen Umfang nennt. */
+    countLabel: '{count} Chats',
+    countLabelOne: '1 Chat',
+    // Der Speicher wird erst eingeblendet, wenn er relevant wird — und sagt dann,
+    // was zu tun ist, statt nur eine Zahl zu melden.
+    storageQuota: 'Browser-Speicher zu {percent}% belegt — alte Chats löschen schafft Platz.',
     storageNote:
-      'Hinweis: Chat-Sitzungen werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
-    deleteAllDisabled: 'Alle Sitzungen dieses Projekts löschen (deaktiviert)',
-    deleteAll: 'Alle Sitzungen dieses Projekts löschen',
+      'Chats werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
+    deleteAllDisabled: 'Alle Chats dieses Projekts löschen (deaktiviert)',
+    deleteAll: 'Alle Chats dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
-    deleteAllButton: 'Alle löschen',
-    newSessionDisabled: 'Neue Sitzung starten (während aktiver Vorgänge deaktiviert)',
-    startNewSession: 'Neue Sitzung starten',
+    deleteAllButton: 'Alle Chats löschen',
+    newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
+    startNewSession: 'Neuen Chat starten',
     cannotCreateActive:
-      'Es kann keine neue Sitzung erstellt werden, solange die aktuelle Sitzung aktiv ist',
-    newSessionButton: 'Neue Sitzung',
-    searchPlaceholder: 'Sitzungen durchsuchen...',
-    searchAria: 'Sitzungen durchsuchen',
-    noMatching: 'Keine passenden Sitzungen',
-    noMatchingDescription: 'Keine Sitzungen entsprechen Ihrer Suche. Versuchen Sie einen anderen Begriff.',
-    noSessions: 'Noch keine Sitzungen',
-    noSessionsDescription: 'Starten Sie eine neue Sitzung, um mit Piloti zu recherchieren.',
-    startNewSessionButton: 'Neue Sitzung starten',
+      'Es kann kein neuer Chat gestartet werden, solange dieser noch antwortet',
+    newSessionButton: 'Neuer Chat',
+    searchPlaceholder: 'Chats durchsuchen',
+    searchAria: 'Chats durchsuchen',
+    clearSearch: 'Suche zurücksetzen',
+    /** Live-Trefferanzahl unter dem Suchfeld, solange eine Suche aktiv ist. */
+    searchResults: '{count} von {total} Chats',
+    noMatching: 'Keine passenden Chats',
+    noMatchingDescription: 'Nichts in diesem Projekt passt zu „{query}“.',
+    noSessions: 'Noch keine Chats',
+    noSessionsDescription: 'Ihre Chats mit Piloti in diesem Projekt erscheinen hier.',
+    /** Erklärt, warum alle Zeilen während einer Antwort ausgegraut sind. */
+    navigationBlocked:
+      'Piloti antwortet noch. Neue Chats und der Wechsel zwischen Chats pausieren bis zum Abschluss.',
     today: 'Heute',
     yesterday: 'Gestern',
-    editTitle: 'Sitzungstitel bearbeiten',
-    untitledSession: 'Neuer Chat',
-    renameDisabled: 'Sitzung umbenennen (deaktiviert)',
-    rename: 'Sitzung umbenennen',
+    editTitle: 'Chat-Titel bearbeiten',
+    untitledSession: 'Chat ohne Titel',
+    renameDisabled: 'Chat umbenennen (deaktiviert)',
+    rename: 'Chat umbenennen',
     cannotRenameBusy: 'Umbenennen nicht möglich, während Vorgänge laufen',
-    deleteDisabled: 'Sitzung löschen (deaktiviert)',
-    deleteSession: 'Sitzung löschen',
-    sessionActive: 'Sitzung aktiv',
+    deleteDisabled: 'Chat löschen (deaktiviert)',
+    deleteSession: 'Chat löschen',
+    sessionActive: 'Piloti arbeitet an diesem Chat',
     reportExpired: 'Bericht abgelaufen',
-    reportCompleted: 'Bericht abgeschlossen',
-    chatSession: 'Chat-Sitzung',
-    sessionLabelBusy: 'Sitzung: {title} (Verarbeitung läuft)',
-    sessionLabel: 'Sitzung: {title}',
+    reportCompleted: 'Bericht fertig',
+    chatSession: 'Chat',
+    sessionLabelBusy: 'Chat: {title} (Verarbeitung läuft)',
+    sessionLabel: 'Chat: {title}',
+    /** Dieselbe Zeile, ergänzt um den Zustand, den ihr Symbol zeigt. */
+    sessionLabelWithStatus: 'Chat: {title} — {status}',
     // FB-10: Deep-Research-Bereich im Sitzungsbereich.
     deepResearchHeading: 'Deep Research ({count})',
     deepResearchChip: 'Deep Research',
-    deepResearchRunLabel: 'Deep-Research-Durchlauf öffnen: {label}',
+    deepResearchRunLabel: 'Deep-Research-Durchlauf öffnen: {label} — {status}',
+    /** Der Zustand eines Durchlaufs in Worten — das Symbol allein ließ „fehlgeschlagen“ und „fertig“ gleich aussehen. */
+    runStatus: {
+      running: 'Läuft',
+      completed: 'Bericht fertig',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
+    },
   },
 
   taskCard: {
@@ -362,6 +389,11 @@ export const research: typeof en.research = {
     connectionLostBody:
       'Die Live-Verbindung wurde unterbrochen, aber der Job läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie ihn über die Leiste oben.',
     reconnect: 'Erneut verbinden',
+    // Ergebnis einer Ausführung, die hier ohne eigenen Chat-Verlauf verfolgt
+    // wird (Workflow-Ausführung) — sie hat kein Banner im Verlauf.
+    attachedRunFinished: 'Diese Ausführung ist abgeschlossen. Der Bericht steht im Reiter „Bericht“.',
+    attachedRunFailed: 'Diese Ausführung ist vor dem Abschluss fehlgeschlagen.',
+    attachedRunStopped: 'Diese Ausführung wurde vor dem Abschluss gestoppt.',
   },
 
   thinkingTab: {

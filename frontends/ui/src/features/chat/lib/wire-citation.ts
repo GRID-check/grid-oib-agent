@@ -48,16 +48,88 @@ export const citationFromWire = (
     origin,
     title: wire.title?.trim() || undefined,
     citationKey: wire.citation_key?.trim() || undefined,
+    documentId: wire.document_id?.trim() || undefined,
     collection: wire.collection?.trim() || undefined,
     sourceType: wire.source_type?.trim() || undefined,
     tool: wire.tool?.trim() || undefined,
     fileName: wire.file_name?.trim() || undefined,
     page: typeof wire.page === 'number' && Number.isFinite(wire.page) ? wire.page : undefined,
+    number:
+      typeof wire.number === 'number' && Number.isInteger(wire.number) && wire.number > 0
+        ? wire.number
+        : undefined,
     kind: asSourceKind(wire.kind),
     lane: trimmed(wire.lane),
     laneLabel: trimmed(wire.lane_label),
     bindingNote: trimmed(wire.binding_note),
   }
+}
+
+/**
+ * Identity of an already-normalized citation, for deduplication across the two
+ * events that can describe the SAME source (`citation_source` on discovery,
+ * `citation_use` when the report cites it).
+ *
+ * Document key first, then URL, then file+page — the same precedence
+ * `wireIdentity` uses, but tolerant of the small URL spelling differences
+ * between the discovery payload (the tool's URL) and the citation payload (the
+ * URL as extracted from the report text).
+ */
+const citationIdentity = (citation: CitationSource): string => {
+  const key = citation.citationKey?.trim().toLowerCase()
+  if (key) return `key:${key}`
+  const url = citation.url?.trim().toLowerCase().replace(/\/+$/, '')
+  if (url) return `url:${url}`
+  const file = citation.fileName?.trim().toLowerCase()
+  if (file) return `file:${file}:${citation.page ?? ''}`
+  return `content:${(citation.content || '').trim().toLowerCase().slice(0, 120)}`
+}
+
+/** Whether two normalized citations describe the same source. */
+export const sameCitation = (a: CitationSource, b: CitationSource): boolean =>
+  citationIdentity(a) === citationIdentity(b)
+
+/**
+ * Fold a later payload for the same source into the one already held.
+ *
+ * Field-wise "prefer the value that exists", so the sparser `citation_use`
+ * event can raise `isCited` without erasing the richer discovery payload —
+ * and `isCited` is sticky once true.
+ */
+export const mergeCitation = (
+  existing: CitationSource,
+  incoming: CitationSource
+): CitationSource => ({
+  ...existing,
+  ...Object.fromEntries(
+    Object.entries(incoming).filter(([, value]) => value !== undefined && value !== '')
+  ),
+  // Identity and first-seen time belong to the entry already in the list.
+  id: existing.id,
+  timestamp: existing.timestamp,
+  isCited: incoming.isCited || existing.isCited,
+})
+
+/**
+ * Collapse a buffered replay of citation events into the citation list.
+ *
+ * The SSE replay delivers `citation_source` and `citation_use` for the same
+ * source as separate events, exactly as the live stream does; buffering them
+ * and mapping 1:1 produced duplicate rows where the live path produced one
+ * merged row. Folding them here keeps a replayed run identical to a live one.
+ */
+export const dedupeBufferedCitations = (
+  buffered: ReadonlyArray<{ wire: WireCitationSource; isCited?: boolean }>,
+  timestamp: Date
+): CitationSource[] => {
+  const out: CitationSource[] = []
+  for (const { wire, isCited } of buffered) {
+    const incoming = citationFromWire(wire, { isCited, timestamp })
+    const existing = out.findIndex((candidate) => sameCitation(candidate, incoming))
+    if (existing >= 0) out[existing] = mergeCitation(out[existing], incoming)
+    else out.push(incoming)
+  }
+  return out
 }
 
 export const citationsFromWireList = (

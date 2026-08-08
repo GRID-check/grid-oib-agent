@@ -168,6 +168,58 @@ class TestMergeResults:
 
 
 # =============================================================================
+# Per-document diversity cap
+# =============================================================================
+
+
+class TestMergeDiversity:
+    def test_cap_spreads_across_documents(self):
+        # 4 chunks from one high-scoring doc + 1 from another: the second doc
+        # must get a slot instead of rank-3/4 chunks from the first.
+        r1 = _result(
+            [
+                _chunk(0.95, "a.pdf"),
+                _chunk(0.90, "a.pdf"),
+                _chunk(0.85, "a.pdf"),
+                _chunk(0.80, "a.pdf"),
+                _chunk(0.50, "b.pdf"),
+            ]
+        )
+        merged = _merge_results([r1], query="q", top_k=3, backend_name="llamaindex", max_per_document=2)
+        assert [(c.file_name, c.score) for c in merged.chunks] == [("a.pdf", 0.95), ("a.pdf", 0.90), ("b.pdf", 0.50)]
+
+    def test_fill_pass_uses_score_when_documents_exhausted(self):
+        # Fewer distinct documents than top_k allows: leftovers fill by score.
+        r1 = _result([_chunk(0.9, "a.pdf"), _chunk(0.8, "a.pdf"), _chunk(0.7, "a.pdf")])
+        r2 = _result([_chunk(0.6, "b.pdf")])
+        merged = _merge_results([r1, r2], query="q", top_k=4, backend_name="llamaindex", max_per_document=2)
+        assert [c.score for c in merged.chunks] == [0.9, 0.8, 0.6, 0.7]
+
+    def test_single_document_matches_plain_truncation(self):
+        chunks = [_chunk(s, "a.pdf") for s in (0.9, 0.8, 0.7, 0.6, 0.5)]
+        merged = _merge_results([_result(chunks)], query="q", top_k=4, backend_name="llamaindex", max_per_document=2)
+        assert [c.score for c in merged.chunks] == [0.9, 0.8, 0.7, 0.6]
+
+    def test_same_file_name_in_different_collections_counts_separately(self):
+        c1 = _chunk(0.9, "a.pdf")
+        c1.metadata["collection"] = "oib_knowledge"
+        c2 = _chunk(0.8, "a.pdf")
+        c2.metadata["collection"] = "proj_123"
+        merged = _merge_results([_result([c1, c2])], query="q", top_k=2, backend_name="llamaindex", max_per_document=1)
+        assert [c.score for c in merged.chunks] == [0.9, 0.8]
+
+    def test_cap_one_keeps_one_chunk_per_document(self):
+        r1 = _result([_chunk(0.9, "a.pdf"), _chunk(0.8, "b.pdf"), _chunk(0.7, "a.pdf")])
+        merged = _merge_results([r1], query="q", top_k=3, backend_name="llamaindex", max_per_document=1)
+        assert [(c.file_name, c.score) for c in merged.chunks] == [("a.pdf", 0.9), ("b.pdf", 0.8), ("a.pdf", 0.7)]
+
+    def test_cap_zero_disables_diversity(self):
+        r1 = _result([_chunk(0.9, "a.pdf"), _chunk(0.8, "a.pdf"), _chunk(0.5, "b.pdf")])
+        merged = _merge_results([r1], query="q", top_k=2, backend_name="llamaindex", max_per_document=0)
+        assert [c.score for c in merged.chunks] == [0.9, 0.8]
+
+
+# =============================================================================
 # TTL reaper session-prefix exclusion
 # =============================================================================
 

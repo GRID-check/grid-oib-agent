@@ -7,11 +7,15 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import _format_registry_reference
+from aiq_agent.common.citation_verification import _is_knowledge_citation
 from aiq_agent.common.citation_verification import _normalize_url
 from aiq_agent.common.citation_verification import _parse_citation_key
+from aiq_agent.common.citation_verification import _parse_citation_ref
+from aiq_agent.common.citation_verification import cited_document_entries
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import register_source_parser
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_lane
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
@@ -1289,7 +1293,8 @@ class TestVerifyCitationsOriginTokens:
         assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in sanitized
         assert "[2] [Web] Article: https://example.com/article" in sanitized
         assert "[3]" not in sanitized
-        assert "A [1]. B . C [2]." in sanitized
+        # The dropped "[2]" leaves no orphaned space before its sentence period.
+        assert "A [1]. B. C [2]." in sanitized
 
     def test_sanitize_report_leaves_existing_tokens_alone(self):
         """``_normalize_citation_syntax`` must not rewrite ``[KB]``/``[RIS]``/``[Web]``."""
@@ -1777,6 +1782,22 @@ class TestSourceLane:
         assert wire["kind"] == "baurecht"
 
 
+class TestWireCitationNumber:
+    """The wire carries the [N] label a source has in the answer prose."""
+
+    def test_number_is_emitted_when_known(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = SourceEntry(citation_key="oib-rl_4_ausgabe_mai_2023.pdf, p.9", source_type="knowledge_layer")
+        assert source_entry_to_wire(entry, number=3)["number"] == 3
+
+    def test_number_is_absent_when_unknown(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = SourceEntry(url="https://example.com/a", title="A")
+        assert "number" not in source_entry_to_wire(entry)
+
+
 class TestKnowledgeLayerDocClassParsing:
     """The knowledge-layer parser reads the Dokumentart field into doc_class."""
 
@@ -1795,6 +1816,324 @@ class TestKnowledgeLayerDocClassParsing:
         assert entries[0].doc_class == "gesetz"
         # …and it drives the lane ahead of the filename guess.
         assert source_lane(entries[0]) == ("baurecht_ris", "Rechtsquelle (RIS)")
+
+
+class TestTurnCaptureLog:
+    """Per-turn retrieval, kept apart from the cumulative session registry."""
+
+    def _capture(self, *entries: SourceEntry) -> list[SourceEntry]:
+        from aiq_agent.common.citation_verification import begin_turn_capture
+        from aiq_agent.common.citation_verification import end_turn_capture
+        from aiq_agent.common.citation_verification import get_turn_captures
+        from aiq_agent.common.citation_verification import record_turn_capture
+
+        token = begin_turn_capture()
+        try:
+            record_turn_capture(list(entries))
+            return get_turn_captures()
+        finally:
+            end_turn_capture(token)
+
+    def test_records_what_the_turn_retrieved(self):
+        captured = self._capture(
+            SourceEntry(citation_key="a.pdf, p.1", source_type="knowledge_layer"),
+            SourceEntry(url="https://example.com/x", source_type="generic"),
+        )
+        assert len(captured) == 2
+
+    def test_same_document_twice_in_one_turn_counts_once(self):
+        captured = self._capture(
+            SourceEntry(citation_key="a.pdf, p.1", source_type="knowledge_layer"),
+            SourceEntry(citation_key="A.pdf, p.1", source_type="knowledge_layer"),
+        )
+        assert len(captured) == 1
+
+    def test_equivalent_urls_count_once(self):
+        captured = self._capture(
+            SourceEntry(url="https://example.com/a/", source_type="generic"),
+            SourceEntry(url="https://example.com/a?utm_source=x", source_type="generic"),
+        )
+        assert len(captured) == 1
+
+    def test_outside_a_turn_nothing_is_recorded(self):
+        from aiq_agent.common.citation_verification import get_turn_captures
+        from aiq_agent.common.citation_verification import record_turn_capture
+
+        record_turn_capture([SourceEntry(citation_key="stray.pdf", source_type="knowledge_layer")])
+        assert get_turn_captures() == []
+
+    def test_a_later_turn_can_recount_a_document_the_registry_already_holds(self):
+        """The distortion this exists to remove: cited_count > source_count."""
+        entry = SourceEntry(citation_key="a.pdf, p.1", source_type="knowledge_layer")
+        # Turn 1 retrieves it; the cumulative registry keeps it forever.
+        registry = SourceRegistry()
+        registry.add(entry)
+        # Turn 2 retrieves it AGAIN — the registry dedups, the turn log does not.
+        assert len(self._capture(entry)) == 1
+        assert len(registry.all_sources()) == 1
+
+
+class TestKnowledgeCitationLineFormats:
+    """Real citation lines must survive, whatever shape the model writes them in.
+
+    The title-prefixed and parenthesised forms are what models actually produce.
+    Both used to be dropped — the greedy filename pattern swallowed the title
+    into the "filename", and the trailing-parenthetical trim (meant for
+    "(Internal)") ate the whole locator. The user saw "Quellenangabe entfernt"
+    on a citation to a document that had genuinely been retrieved.
+    """
+
+    FILE = "oib-rl_2_ausgabe_mai_2023.pdf"
+
+    def _registry(self) -> SourceRegistry:
+        reg = SourceRegistry()
+        for page in (12, 30):
+            reg.add(
+                SourceEntry(
+                    citation_key=f"{self.FILE}, p.{page}",
+                    title="OIB-Richtlinie 2",
+                    source_type="knowledge_layer",
+                )
+            )
+        return reg
+
+    def _verify(self, line: str):
+        return verify_citations(f"Antwort [1].\n\n## Quellen\n{line}\n", self._registry())
+
+    @pytest.mark.parametrize(
+        "line,expected_page",
+        [
+            (f"- [1] {FILE}, p.12", 12),
+            (f"- [1] OIB-Richtlinie 2 – Brandschutz - {FILE}, p.30", 30),
+            (f"- [1] OIB-Richtlinie 2 ({FILE}, p.30)", 30),
+            (f"- [1] **{FILE}, p.12** (Internal)", 12),
+            (f"- [1] OIB-Richtlinie 2: {FILE}, p.30", 30),
+        ],
+    )
+    def test_line_is_kept_and_resolves_to_the_cited_page(self, line, expected_page):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        registry = self._registry()
+        result = verify_citations(f"Antwort [1].\n\n## Quellen\n{line}\n", registry)
+        assert len(result.valid_citations) == 1, f"dropped: {result.removed_citations}"
+        entry = registry.entry_for_citation_key(result.valid_citations[0]["citation_key"])
+        assert source_entry_to_wire(entry)["page"] == expected_page
+
+    def test_document_never_retrieved_is_still_dropped(self):
+        result = self._verify("- [1] Ein Dokument das es nicht gibt.pdf, p.4")
+        assert result.valid_citations == []
+        assert result.removed_citations[0]["reason"] == "citation_key_not_in_registry"
+
+    def test_label_without_a_document_is_still_unverifiable(self):
+        result = self._verify("- [1] Eine vage Bezeichnung ohne Datei")
+        assert result.valid_citations == []
+        assert result.removed_citations[0]["reason"] == "unverifiable"
+
+    def test_a_longer_filename_is_not_claimed_by_a_shorter_registered_one(self):
+        """`plan.pdf` in the registry must not answer for `bestandsplan.pdf`."""
+        reg = SourceRegistry()
+        reg.add(SourceEntry(citation_key="plan.pdf, p.1", source_type="knowledge_layer"))
+        result = verify_citations("Antwort [1].\n\n## Quellen\n- [1] bestandsplan.pdf, p.7\n", reg)
+        assert result.valid_citations == []
+        assert result.removed_citations[0]["reason"] == "citation_key_not_in_registry"
+
+    def test_the_more_specific_registered_filename_wins(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        reg = SourceRegistry()
+        reg.add(SourceEntry(citation_key="plan.pdf, p.1", source_type="knowledge_layer"))
+        reg.add(SourceEntry(citation_key="bestandsplan.pdf, p.7", source_type="knowledge_layer"))
+        result = verify_citations("Antwort [1].\n\n## Quellen\n- [1] Bestand - bestandsplan.pdf, p.7\n", reg)
+        assert len(result.valid_citations) == 1
+        entry = reg.entry_for_citation_key(result.valid_citations[0]["citation_key"])
+        assert source_entry_to_wire(entry)["file_name"] == "bestandsplan.pdf"
+
+
+class TestCitedPageResolution:
+    """The wire's page is the page the UI opens the PDF at — resolve it exactly."""
+
+    def _registry(self) -> SourceRegistry:
+        reg = SourceRegistry()
+        # Same document, two retrieved pages — p.12 registered first.
+        reg.add(SourceEntry(citation_key="oib-rl_2.pdf, p.12", source_type="knowledge_layer"))
+        reg.add(SourceEntry(citation_key="oib-rl_2.pdf, p.30", source_type="knowledge_layer"))
+        return reg
+
+    def test_resolves_to_the_page_the_citation_names(self):
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf, p.30")
+        assert entry is not None and entry.citation_key == "oib-rl_2.pdf, p.30"
+
+    def test_wire_page_matches_the_cited_page(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf, p.30")
+        assert source_entry_to_wire(entry)["page"] == 30
+
+    def test_unretrieved_page_still_resolves_to_a_retrieved_one(self):
+        """A page the retrieval never returned must not deep-link to itself."""
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf, p.47")
+        assert entry is not None
+        assert source_entry_to_wire(entry)["page"] in (12, 30)
+
+    def test_pageless_citation_falls_back_to_the_first_match(self):
+        entry = self._registry().entry_for_citation_key("oib-rl_2.pdf")
+        assert entry is not None and entry.citation_key == "oib-rl_2.pdf, p.12"
+
+    def test_unknown_file_resolves_to_nothing(self):
+        assert self._registry().entry_for_citation_key("other.pdf, p.1") is None
+
+
+class TestDeletionDoesNotStrandPunctuation:
+    """Removing something mid-sentence must not leave "… Begehung ." behind.
+
+    Both upstream deletions produce the artifact — a bare URL stripped by
+    sanitization, and an unverifiable ``[N]`` stripped by verification — and the
+    result is user-visible prose in the answer.
+    """
+
+    def test_a_stripped_citation_does_not_strand_a_space(self):
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://real.example/a", title="Real", tool_name="web_search_tool"))
+        report = (
+            "Belegt [1]. Erfunden [2]. Ende.\n\n"
+            "## Quellen\n"
+            "- [1] Real - https://real.example/a\n"
+            "- [2] Fake - https://fake.example/b\n"
+        )
+        verified = verify_citations(report, registry).verified_report
+        body = sanitize_report(verified).sanitized_report
+        assert "Erfunden." in body
+        assert "Erfunden ." not in body
+
+    def test_a_removed_body_url_does_not_strand_a_space(self):
+        report = "Ein Satz mit https://nowhere.example/x . Ende.\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        body = sanitize_report(report).sanitized_report
+        assert body.startswith("Ein Satz mit. Ende.")
+
+    def test_a_line_break_before_punctuation_is_left_alone(self):
+        """A newline before punctuation is the author's layout, not our debris."""
+        report = "Zeile eins\n. Zeile zwei [1].\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        assert "eins\n." in sanitize_report(report).sanitized_report
+
+
+class TestSanitizeReportExposesRenumberMap:
+    """Callers that put verify_citations' [N] on the wire must be able to remap."""
+
+    def test_gap_closing_is_reported(self):
+        report = "A [1] and C [3].\n\n## Sources\n- [1] https://a.example/x\n- [3] https://c.example/z\n"
+        result = sanitize_report(report)
+        assert result.renumber_map == {1: 1, 3: 2}
+        # …and the prose the reader sees uses the NEW numbers.
+        assert "C [2]" in result.sanitized_report
+
+    def test_sequential_report_maps_every_number_to_itself(self):
+        report = "A [1] and B [2].\n\n## Sources\n- [1] https://a.example/x\n- [2] https://b.example/y\n"
+        assert sanitize_report(report).renumber_map == {1: 1, 2: 2}
+
+    def test_report_without_a_source_section_has_an_empty_map(self):
+        assert sanitize_report("Just prose, no sources.").renumber_map == {}
+
+
+class TestKnowledgeLayerFieldsAreBlockScoped:
+    """Optional header fields must bind to THEIR hit, never to a later one.
+
+    ``_format_results`` emits ``Collection:`` and ``Dokumentart:`` only when the
+    hit has one. Zipping separate whole-document ``findall`` lists therefore
+    shifted every optional value up by one as soon as a result set mixed a
+    classified with an unclassified hit — and since ``doc_class`` is the
+    FIRST-priority signal in ``lane_for_hit``, a project upload silently
+    rendered as an OIB Richtlinie.
+    """
+
+    # Result 1 is a project upload: no Dokumentart line (nothing classifies it).
+    # Result 2 is an OIB corpus hit and carries one.
+    MIXED_OUTPUT = (
+        "Found 2 relevant document(s):\n\n"
+        "--- Result 1 ---\n"
+        "Source: Einreichplan Obergeschoss\n"
+        "Collection: proj_abc\n"
+        "Page: 4\n"
+        "Citation: einreichplan_og.pdf, p.4\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.71\n"
+        "\n"
+        "Der Einreichplan zeigt die Lage der Fluchtwege.\n"
+        "\n"
+        "--- Result 2 ---\n"
+        "Source: OIB-Richtlinie 2 – Brandschutz\n"
+        "Collection: oib_knowledge\n"
+        "Dokumentart: oib_richtlinie — OIB-Richtlinie\n"
+        "Page: 12\n"
+        "Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.88\n"
+        "\n"
+        "Brandabschnitte sind so auszubilden.\n"
+        "\n"
+        "## Trace-Lanes\n"
+        '{"lanes":[]}\n'
+    )
+
+    def _entries(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        return extract_sources_from_tool_result("knowledge_search", self.MIXED_OUTPUT)
+
+    def test_optional_doc_class_does_not_shift_onto_the_previous_hit(self):
+        entries = self._entries()
+        assert [e.citation_key for e in entries] == [
+            "einreichplan_og.pdf, p.4",
+            "oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+        ]
+        # The unclassified project upload keeps NO doc_class…
+        assert entries[0].doc_class is None
+        # …and the OIB hit keeps its own instead of losing it to the shift.
+        assert entries[1].doc_class == "oib_richtlinie"
+
+    def test_every_field_stays_with_its_own_hit(self):
+        first, second = self._entries()
+        assert (first.title, first.collection) == ("Einreichplan Obergeschoss", "proj_abc")
+        assert (second.title, second.collection) == ("OIB-Richtlinie 2 – Brandschutz", "oib_knowledge")
+        assert "Fluchtwege" in (first.chunk_text or "")
+        assert "Brandabschnitte" in (second.chunk_text or "")
+
+    def test_project_upload_is_not_rendered_as_building_law(self):
+        """The user-visible consequence: chip colour and authority badge."""
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        first, second = self._entries()
+        assert source_lane(first) == ("projekt", "Projektwissen")
+        assert source_entry_to_wire(first)["kind"] == "projekt"
+        # The real OIB document is the one that gets the Baurecht treatment.
+        assert source_lane(second)[0].startswith("baurecht_oib")
+        assert source_entry_to_wire(second)["kind"] == "baurecht"
+
+    def test_trace_lanes_block_is_not_parsed_as_a_hit_body(self):
+        second = self._entries()[1]
+        assert "Trace-Lanes" not in (second.chunk_text or "")
+        assert "lanes" not in (second.chunk_text or "")
+
+    def test_block_without_a_citation_field_is_skipped(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = (
+            "--- Result 1 ---\nSource: orphan.pdf\nRelevance Score: 0.5\n\nbody\n\n"
+            "--- Result 2 ---\nSource: real.pdf\nCitation: real.pdf, p.1\nRelevance Score: 0.9\n\nbody\n"
+        )
+        entries = extract_sources_from_tool_result("knowledge_search", content)
+        assert [e.citation_key for e in entries] == ["real.pdf, p.1"]
+
+    def test_output_without_block_markers_still_parses(self):
+        """A non-``_format_results`` producer keeps the legacy positional path."""
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = "Source: legacy.pdf\nCollection: oib_knowledge\nCitation: legacy.pdf, p.2\n"
+        entries = extract_sources_from_tool_result("knowledge_search", content)
+        assert len(entries) == 1
+        assert entries[0].citation_key == "legacy.pdf, p.2"
+        assert entries[0].collection == "oib_knowledge"
 
 
 # ---------------------------------------------------------------------------
@@ -2181,3 +2520,219 @@ class TestKnowledgeLayerChunkTextCapture:
 
         hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
         assert hydrated.all_sources()[0].chunk_text == "round trip body"
+
+
+class TestDocumentIdentityIsCollectionAndFilename:
+    """A document is `(collection, filename)` — the PRIMARY KEY of document_metadata.
+
+    One knowledge_search fans out across the base corpus, the session collection
+    and the project collections concurrently, so a project `Plan.pdf` and a
+    Büroarchiv `Plan.pdf` can arrive in the SAME result set. They are different
+    documents, and every stage — dedup, verification, resolution — has to keep
+    them apart.
+    """
+
+    @staticmethod
+    def _two_shelves(*, project_key: str, archiv_key: str) -> SourceRegistry:
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                citation_key=project_key,
+                source_type="knowledge_layer",
+                collection="proj_alpha",
+                chunk_text="Aus dem Projekt.",
+            )
+        )
+        registry.add(
+            SourceEntry(
+                citation_key=archiv_key,
+                source_type="knowledge_layer",
+                collection="archiv_org1",
+                chunk_text="Aus dem Büroarchiv.",
+            )
+        )
+        return registry
+
+    def test_the_same_name_on_two_shelves_stays_two_documents(self):
+        # Same filename AND same page: keying on (filename, page) collapsed these
+        # onto whichever chunk arrived first and discarded the other document's
+        # evidence — including its chunk body, which quote verification needs.
+        registry = self._two_shelves(project_key="Plan.pdf, p.3", archiv_key="Plan.pdf, p.3")
+        assert len(registry._citation_keys) == 2
+        assert {entry.chunk_text for entry in registry._citation_keys} == {
+            "Aus dem Projekt.",
+            "Aus dem Büroarchiv.",
+        }
+
+    def test_chunks_of_one_document_still_merge(self):
+        # The counterpart: within ONE collection, two chunks of the same page are
+        # one document and must still collapse into a single entry whose body
+        # carries both passages.
+        registry = SourceRegistry()
+        for body in ("Erster Absatz.", "Zweiter Absatz."):
+            registry.add(
+                SourceEntry(
+                    citation_key="Plan.pdf, p.3",
+                    source_type="knowledge_layer",
+                    collection="proj_alpha",
+                    chunk_text=body,
+                )
+            )
+        assert len(registry._citation_keys) == 1
+        assert "Erster Absatz." in registry._citation_keys[0].chunk_text
+        assert "Zweiter Absatz." in registry._citation_keys[0].chunk_text
+
+    def test_a_qualified_key_resolves_to_the_shelf_it_names(self):
+        registry = self._two_shelves(
+            project_key="Plan.pdf (Projektwissen), p.3",
+            archiv_key="Plan.pdf (Büroarchiv), p.3",
+        )
+        assert registry.entry_for_citation_key("Plan.pdf (Büroarchiv), p.3").collection == "archiv_org1"
+        assert registry.entry_for_citation_key("Plan.pdf (Projektwissen), p.3").collection == "proj_alpha"
+
+    def test_an_unqualified_key_still_validates(self):
+        # Verification only ever REMOVES, so the scope narrowing must be
+        # fail-open: the bare filename was already proof the document was
+        # retrieved, and an answer must never lose its source over a missing
+        # qualifier.
+        registry = self._two_shelves(
+            project_key="Plan.pdf (Projektwissen), p.3",
+            archiv_key="Plan.pdf (Büroarchiv), p.3",
+        )
+        assert registry.has_citation_key("Plan.pdf, p.3") is True
+        assert registry.entry_for_citation_key("Plan.pdf, p.3") is not None
+
+    def test_a_qualifier_naming_no_retrieved_shelf_is_ignored_not_rejected(self):
+        registry = self._two_shelves(project_key="Plan.pdf, p.3", archiv_key="Plan.pdf, p.9")
+        # Nothing was retrieved from the base corpus, so the qualifier matches no
+        # entry. The citation is still valid — the document WAS retrieved.
+        assert registry.has_citation_key("Plan.pdf (Basiswissen), p.3") is True
+        assert registry.entry_for_citation_key("Plan.pdf (Basiswissen), p.3") is not None
+
+    def test_the_wire_carries_the_bare_filename(self):
+        # The qualifier is part of the KEY, not of the document's name: the UI
+        # opens `file_name` against a real document list, so a name carrying
+        # "(Projektwissen)" would match nothing.
+        entry = SourceEntry(
+            citation_key="Plan.pdf (Projektwissen), p.3",
+            source_type="knowledge_layer",
+            collection="proj_alpha",
+        )
+        wire = source_entry_to_wire(entry)
+        assert wire["file_name"] == "Plan.pdf"
+        assert wire["page"] == 3
+        assert wire["collection"] == "proj_alpha"
+
+    def test_a_parenthetical_that_is_part_of_the_filename_survives(self):
+        # Only the KNOWN qualifiers are stripped, so a real filename keeps its
+        # parenthesis. Trimming any trailing "(…)" would rename the document.
+        assert _parse_citation_ref("Bescheid (Kopie).pdf, p.2") == ("Bescheid (Kopie).pdf", None, 2)
+
+
+class TestQualifiedKeysSurviveVerification:
+    """The qualifier must reach the registry lookup, not be trimmed on the way."""
+
+    @staticmethod
+    def _registry() -> SourceRegistry:
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                citation_key="Plan.pdf (Projektwissen), p.3",
+                source_type="knowledge_layer",
+                collection="proj_alpha",
+            )
+        )
+        registry.add(
+            SourceEntry(
+                citation_key="Plan.pdf (Büroarchiv), p.3",
+                source_type="knowledge_layer",
+                collection="archiv_org1",
+            )
+        )
+        return registry
+
+    def test_both_shelves_verify_from_one_answer(self):
+        report = (
+            "Im Projekt so geplant [1], im Büro so detailliert [2].\n\n"
+            "**Quellen:**\n"
+            "- [1] Plan.pdf (Projektwissen), p.3\n"
+            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+        )
+        result = verify_citations(report, self._registry())
+        assert result.removed_citations == []
+        assert "Plan.pdf (Projektwissen), p.3" in result.verified_report
+        assert "Plan.pdf (Büroarchiv), p.3" in result.verified_report
+
+    def test_the_line_scanner_keeps_the_qualifier_it_finds(self):
+        # `_match_registry_filename` rebuilds a canonical key from the line. It
+        # must carry the qualifier through — dropping it (as trimming a trailing
+        # parenthetical would) makes the whole distinction inert, because every
+        # downstream lookup then sees a bare filename again.
+        is_kl, key = _is_knowledge_citation("Bestandsplan – Plan.pdf (BÜROARCHIV), p.3", self._registry())
+        assert is_kl is True
+        # Canonical spelling, so the key matches regardless of how the LLM cased it.
+        assert key == "Plan.pdf (Büroarchiv), p.3"
+
+    def test_an_annotation_is_still_trimmed(self):
+        # "(Internal)" is not a shelf; it must keep being treated as noise.
+        is_kl, key = _is_knowledge_citation("Plan.pdf (Internal)", self._registry())
+        assert is_kl is True
+        assert key == "Plan.pdf"
+
+
+class TestCitedDocumentsKeepTheirShelf:
+    """Being cited is a per-DOCUMENT claim, and a document is `(collection, filename)`.
+
+    `cited_document_entries` feeds the deep-research `citation_use` events, i.e.
+    the provenance row's "cited" filter. Matching on the bare filename marked
+    whichever same-named entry the registry held first, so a report citing the
+    Büroarchiv `Plan.pdf` credited the project's unrelated file of the same name
+    and dropped the Archiv document the answer actually stood on.
+    """
+
+    @staticmethod
+    def _registry() -> SourceRegistry:
+        registry = SourceRegistry()
+        for collection in ("proj_alpha", "archiv_org1"):
+            registry.add(
+                SourceEntry(
+                    citation_key="Plan.pdf, p.3",
+                    source_type="knowledge_layer",
+                    collection=collection,
+                )
+            )
+        return registry
+
+    def test_the_qualified_shelf_is_the_one_marked_cited(self):
+        report = "Wie im Archivplan [1].\n\n**Quellen:**\n- [1] Plan.pdf (Büroarchiv), p.3\n"
+        entries = cited_document_entries(report, self._registry())
+        assert [entry.collection for entry in entries] == ["archiv_org1"]
+
+    def test_both_shelves_are_cited_when_the_answer_names_both(self):
+        report = (
+            "Projekt [1] gegen Archiv [2].\n\n"
+            "**Quellen:**\n"
+            "- [1] Plan.pdf (Projektwissen), p.3\n"
+            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+        )
+        entries = cited_document_entries(report, self._registry())
+        assert {entry.collection for entry in entries} == {"proj_alpha", "archiv_org1"}
+
+    def test_an_unqualified_line_still_cites_one_document(self):
+        # Fail-open: a bare filename proves the document was cited but not which
+        # copy, so exactly one entry is marked — never zero, never both.
+        report = "Wie im Plan [1].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n"
+        assert len(cited_document_entries(report, self._registry())) == 1
+
+    def test_pages_of_one_document_are_one_cited_document(self):
+        registry = SourceRegistry()
+        for page in (3, 9):
+            registry.add(
+                SourceEntry(
+                    citation_key=f"Plan.pdf, p.{page}",
+                    source_type="knowledge_layer",
+                    collection="proj_alpha",
+                )
+            )
+        report = "Siehe Plan [1][2].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n- [2] Plan.pdf, p.9\n"
+        assert len(cited_document_entries(report, registry)) == 1

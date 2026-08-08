@@ -197,6 +197,14 @@ export const NATGenerateResponseContentSchema = z.object({
   intermediate_steps: z.array(z.unknown()).nullable().optional(),
 })
 
+/**
+ * Wire cap for `answer_confidence_reason`, mirroring the backend's
+ * `_CONFIDENCE_REASON_MAX_CHARS` (`shallow_researcher/markers.py`) and the
+ * documented protocol limit (`docs/api/websocket-protocol.md`). A longer value
+ * is a contract violation and degrades to "absent".
+ */
+export const ANSWER_CONFIDENCE_REASON_MAX_CHARS = 300
+
 /** System Response Message - final or streaming response */
 export const NATSystemResponseMessageSchema = z.object({
   type: z.literal(NATMessageType.SYSTEM_RESPONSE),
@@ -240,6 +248,10 @@ export const NATSystemResponseMessageSchema = z.object({
           source_type: z.string().nullable().optional(),
           tool: z.string().nullable().optional(),
           origin: z.string().nullable().optional(),
+          // The [N] citation label this source carries in the answer prose, so
+          // the provenance block can render as the answer's numbered source
+          // list instead of duplicating a written one.
+          number: z.number().nullable().optional(),
           file_name: z.string().nullable().optional(),
           page: z.number().nullable().optional(),
         })
@@ -274,6 +286,15 @@ export const NATSystemResponseMessageSchema = z.object({
   //   'quote_unverified' — a quoted span did not match any source passage.
   answer_confidence_capped_reason: z
     .enum(['ungrounded', 'quote_unverified'])
+    .optional()
+    .catch(undefined),
+  // The model's own one-clause justification for its self-assessment
+  // (`[CONFIDENCE:level | reason]`). Shown verbatim in the chip tooltip. Capped
+  // at the documented wire limit — an oversized reason degrades to "absent",
+  // never kills the frame.
+  answer_confidence_reason: z
+    .string()
+    .max(ANSWER_CONFIDENCE_REASON_MAX_CHARS)
     .optional()
     .catch(undefined),
   // Present only when citation verification removed ≥1 citation.

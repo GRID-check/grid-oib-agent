@@ -1,9 +1,35 @@
 import type { NextConfig } from 'next'
+import { AVATAR_IMAGE_PATTERNS } from './src/lib/images/avatar-hosts'
+import { LOCAL_IMAGE_PATTERNS } from './src/lib/images/optimizable'
 
 const fileUploadMaxSizeMB = parseInt(process.env.FILE_UPLOAD_MAX_SIZE_MB || '100', 10)
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+
+  images: {
+    // The optimizer refuses any remote host that is not named here, which is
+    // what keeps it from being an open image proxy. Directory avatars are the
+    // only remote images we serve; see `avatar-hosts.ts` for why one entry
+    // covers the whole directory and what happens to a host that is not on it.
+    //
+    // Document images are NOT here and must not be: they are streamed from a
+    // same-origin route (`/api/documents/[id]/image`), so they are governed by
+    // `localPatterns` below. Presigning them to the object store instead would
+    // put them on a per-environment host that resolves to a private IP inside
+    // the compose network — which the optimizer rejects outright — and would
+    // defeat its cache, since every fresh signature is a new cache key.
+    remotePatterns: AVATAR_IMAGE_PATTERNS.map((pattern) => ({ ...pattern })),
+
+    // Same-origin paths the optimizer may serve. Leaving this unset does NOT
+    // mean "no allow-list": Next 16 defaults it to `[{ pathname: '**', search:
+    // '' }]`, which rejects every local URL that carries a query string with
+    // `"url" parameter is not allowed`. Our signed document images carry their
+    // authorization in the query, so the default blanked every preview and
+    // thumbnail in the app. See `optimizable.ts` for the patterns and why the
+    // document route is allowed a query string.
+    localPatterns: LOCAL_IMAGE_PATTERNS.map((pattern) => ({ ...pattern })),
+  },
 
   experimental: {
     serverActions: {

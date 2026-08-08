@@ -16,6 +16,8 @@ export const nav = {
     archiv: 'Archiv',
     history: 'History',
     settings: 'Settings',
+    // The intake wizard, labelled "Setup" in the product (⌘K palette only).
+    intake: 'Setup',
   },
   /**
    * Browser-tab title fragments. `{label}` is the localized section name; the

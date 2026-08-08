@@ -1,0 +1,55 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<section
+  id="ki"
+  data-screen-label={t.sheets.ki}
+  class="mx-auto box-border max-w-[85rem] px-4 py-24 sm:px-10"
+>
+  <div class="box-border rounded-panel bg-tint px-6 py-14 sheet-light sm:px-16 sm:py-20">
+    <!-- Two columns rather than a third heading-over-cards block: the statement
+         holds its position on the left while the three answers scroll past it. -->
+    <div class="grid grid-cols-[5fr_7fr] gap-x-16 gap-y-10 max-lg:grid-cols-1">
+      <div id="datenschutz" data-reveal class="lg:sticky lg:top-28 lg:self-start">
+        <SectionTag class="mb-5 text-accent-900/80">{t.ki.tag}</SectionTag>
+        <h2 class="m-0 font-display text-h4 text-panel" style="text-wrap: balance">
+          {t.ki.title}
+        </h2>
+      </div>
+
+      <ol class="m-0 list-none p-0">
+        {
+          t.ki.cards.map((c, i) => (
+            <li
+              data-reveal
+              class="grid grid-cols-[auto_1fr] gap-x-5 border-t border-panel/15 py-7 first:border-t-0 first:pt-0 sm:gap-x-8"
+            >
+              <span class="font-mono text-2xs uppercase tracking-widest text-accent-600">
+                {`0${i + 1}`}
+              </span>
+              <div>
+                <h3 class="m-0 font-display text-xl font-semibold tracking-tight text-panel">
+                  {c.title}
+                </h3>
+                <p
+                  class="m-0 mt-3 max-w-2xl text-base leading-relaxed text-accent-900/75"
+                  style="text-wrap: pretty"
+                >
+                  {c.body}
+                </p>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </div>
+</section>

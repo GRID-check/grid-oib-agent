@@ -13,7 +13,6 @@ always-200, best-effort shape. Any failure returns HTTP 200 with an ``error``
 code and ``findings: None`` so a check outage never blocks the user from saving.
 """
 
-import json
 import logging
 import os
 
@@ -24,6 +23,8 @@ from fastapi import Header
 from ..models.requests import ConsistencyCheckRequest
 from ..models.requests import ConsistencyCheckResponse
 from ..models.requests import ConsistencyFinding
+from ._llm_json import extract_json_object
+from ._llm_json import message_content
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,20 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     fallback; the resolver adds BYOK (org key + base, model unchanged) and
     provider inference on top. Fail-open: a BYOK miss falls back to the env chain.
     """
+    from aiq_agent.common.credential_resolution import read_api_key_env
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-    default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
+    # `read_api_key_env`, not `os.getenv`: docker compose `env_file` does not
+    # interpolate `${VAR}` references, so `OPENROUTER_API_KEY=${OPENROUTER_API_KEY}`
+    # arrives as a literal placeholder — truthy, but not a key. Reading it raw
+    # selected the OpenRouter endpoint below while the resolver (which normalizes
+    # the same way) treated the key as unset and fell back to `LLM_API_KEY`,
+    # sending another provider's key to openrouter.ai.
+    openrouter_key = read_api_key_env("OPENROUTER_API_KEY")
+    # Mirrors the boot floor in config_oib_openrouter.yml. NOTE: this route is
+    # not an AgentGroup, so it resolves outside `platform_model_defaults` — the
+    # platform default set under Platform → Models does not reach it.
+    default_model = "openai/gpt-5.6-luna" if openrouter_key else "gpt-4o-mini"
     default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
 
     model = os.getenv("CONSISTENCY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))
@@ -92,31 +103,23 @@ def _render_fields(fields: list) -> str:
     return "\n".join(f"- {item.field}: {item.value}" for item in fields)
 
 
-def _strip_code_fence(text: str) -> str:
-    """Tolerate models that wrap JSON in ```json ... ``` fences."""
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        # Drop the opening fence line (``` or ```json) and the trailing fence.
-        stripped = stripped.split("\n", 1)[1] if "\n" in stripped else ""
-        if stripped.rstrip().endswith("```"):
-            stripped = stripped.rstrip()[: -len("```")]
-    return stripped.strip()
-
-
-def _parse_findings(content: str) -> list[ConsistencyFinding] | None:
+def _parse_findings(content: str | None) -> list[ConsistencyFinding] | None:
     """Defensively parse the model's JSON into findings.
 
     Returns a (possibly empty) list of valid findings, or ``None`` if the
     payload is not the expected object shape. Individual malformed findings are
     skipped rather than failing the whole parse.
+
+    Recovery of the object itself is shared with the other two JSON-returning
+    routes (issue #233), which also buys this route two tolerances its local
+    fence-stripper never had: a line of prose around the object, and a reply the
+    token cap cut off mid-object.
     """
     try:
-        data = json.loads(_strip_code_fence(content))
-    except (json.JSONDecodeError, ValueError):
+        data = extract_json_object(content)
+    except ValueError:
         return None
 
-    if not isinstance(data, dict):
-        return None
     raw_findings = data.get("findings")
     if raw_findings is None:
         # A well-formed object without a findings key means "consistent".
@@ -216,14 +219,18 @@ def add_consistency_check_routes(router: APIRouter) -> None:
             return ConsistencyCheckResponse(findings=None, error="llm_request_failed")
 
         try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
+            content, finish_reason = message_content(data)
+        except ValueError:
             logger.warning("Consistency-check LLM response had an unexpected shape")
             return ConsistencyCheckResponse(findings=None, error="llm_response_malformed")
 
-        findings = _parse_findings(content if isinstance(content, str) else "")
+        findings = _parse_findings(content)
         if findings is None:
-            logger.warning("Consistency-check LLM returned unparseable findings JSON")
+            logger.warning(
+                "Consistency-check LLM returned unparseable findings JSON (finish_reason=%s, %d chars)",
+                finish_reason,
+                len(content or ""),
+            )
             return ConsistencyCheckResponse(findings=None, error="llm_response_malformed")
 
         return ConsistencyCheckResponse(findings=findings)

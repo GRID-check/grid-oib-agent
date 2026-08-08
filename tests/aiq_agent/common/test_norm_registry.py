@@ -390,6 +390,20 @@ class TestLaneForHit:
             "Rechtsquelle (RIS)",
         )
 
+    def test_wien_gv_at_is_behoerde_lane(self):
+        behoerde = ("behoerde", "Behördliche Information")
+        assert nr.lane_for_hit(source_url="https://www.wien.gv.at/wohnen/baupolizei") == behoerde
+        assert nr.lane_for_hit(source_url="https://wien.gv.at/x") == behoerde
+        assert nr.lane_for_hit(source_url="https://WWW.WIEN.GV.AT/x") == behoerde
+
+    def test_lookalike_hosts_stay_web(self):
+        # Host-boundary matching: a lookalike host or a domain mentioned in the
+        # path/query must not inherit an authoritative lane.
+        assert nr.lane_for_hit(source_url="https://evil.example/wien.gv.at") == ("web", "Web")
+        assert nr.lane_for_hit(source_url="https://evil.example/?q=ris.bka.gv.at") == ("web", "Web")
+        assert nr.lane_for_hit(source_url="https://wien.gv.at.evil.example/x") == ("web", "Web")
+        assert nr.lane_for_hit(source_url="https://ris.bka.gv.at.evil.example/") == ("web", "Web")
+
     def test_archiv_collection(self):
         assert nr.lane_for_hit(collection="archiv_buero") == ("buero", "Büroarchiv")
 
@@ -428,6 +442,24 @@ class TestLaneForHit:
             "baurecht_oib",
             "OIB-Richtlinie",
         )
+
+
+class TestLaneForKnowledgeHit:
+    """A retrieved document is something we hold — it can never be Web."""
+
+    def test_the_fail_open_lane_becomes_projektwissen(self):
+        # No doc_class, no recognizable collection prefix, no OIB filename:
+        # lane_for_hit fails open to Web. For a knowledge-layer hit that value
+        # means "no signal matched", not "this came off the internet".
+        assert nr.lane_for_hit(file_name="Bestandsplan.pdf") == ("web", "Web")
+        assert nr.lane_for_knowledge_hit(file_name="Bestandsplan.pdf") == ("projekt", "Projektwissen")
+
+    def test_a_real_classification_is_never_overridden(self):
+        assert nr.lane_for_knowledge_hit(file_name="oib-rl_2_ausgabe_mai_2023.pdf") == (
+            "baurecht_oib",
+            "OIB-Richtlinie",
+        )
+        assert nr.lane_for_knowledge_hit(collection="archiv_org1") == ("buero", "Büroarchiv")
 
 
 # ---------------------------------------------------------------------------
@@ -563,3 +595,56 @@ class TestParcelNote:
         parsed = yaml.safe_load(open("configs/norms/at/registry.yml"))
         assert nr.NormsFile.model_validate(parsed).corpus_collection == "oib_knowledge"
         assert nr.NormsFile(version=1, entries=[]).corpus_collection == "oib_knowledge"
+
+
+class TestGuessDisplayTitle:
+    """The default display-title seed derived from the OIB filename convention."""
+
+    def test_richtlinie(self):
+        assert nr.guess_display_title("oib-rl_2_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 2, Ausgabe Mai 2023"
+
+    def test_sub_number(self):
+        assert nr.guess_display_title("oib-rl_2.3_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
+
+    def test_leitfaden_underscore_and_hyphen_normalize(self):
+        assert nr.guess_display_title("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf") == (
+            "OIB-Richtlinie 2 – Leitfaden, Ausgabe Mai 2023"
+        )
+        # The corpus has a hyphen variant for RL 6; it must normalize identically.
+        assert nr.guess_display_title("oib-rl_6-leitfaden_ausgabe_mai_2023.pdf") == (
+            "OIB-Richtlinie 6 – Leitfaden, Ausgabe Mai 2023"
+        )
+
+    def test_role_prefixes(self):
+        assert nr.guess_display_title("erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf") == (
+            "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023"
+        )
+        assert nr.guess_display_title("aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf") == (
+            "Änderungen zu OIB-Richtlinie 2.1, Ausgabe Mai 2023"
+        )
+
+    def test_named_documents(self):
+        assert nr.guess_display_title("oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf") == (
+            "OIB-Richtlinie Begriffsbestimmungen, Ausgabe Mai 2023"
+        )
+        assert (
+            nr.guess_display_title(
+                "oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf"
+            )
+            == "OIB-Richtlinie – Zitierte Normen und sonstige technische Regelwerke, Ausgabe Mai 2023, Rev. 1"
+        )
+
+    def test_edition_year_is_not_mistaken_for_the_number(self):
+        assert nr.guess_display_title("oib-rl_6_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 6, Ausgabe Mai 2023"
+
+    def test_non_oib_returns_none(self):
+        assert nr.guess_display_title("Brandschutzkonzept_v3.pdf") is None
+        assert nr.guess_display_title("") is None
+
+    def test_covers_every_real_corpus_file(self):
+        """Every shipped OIB corpus PDF derives a confident (non-None) title."""
+        corpus = Path("data/oib")
+        if not corpus.is_dir():
+            pytest.skip("corpus not present in this checkout")
+        for pdf in corpus.glob("*.pdf"):
+            assert nr.guess_display_title(pdf.name), pdf.name

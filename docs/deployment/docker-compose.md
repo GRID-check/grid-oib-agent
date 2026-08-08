@@ -135,6 +135,25 @@ idempotent (bucket-already-exists is a successful no-op).
 
 This container runs, creates the bucket, and exits. It is not restarted.
 
+### grid-migrate
+
+One-shot migrator, and the reason `frontend` no longer migrates. It provisions
+the row-level-security roles (`scripts/ensure-rls-roles.mjs`) and then runs
+`drizzle-kit migrate`, in that order — migration 0030 asserts the roles and
+aborts without them, and `init-db.sql` only creates them when Postgres
+initialises a **fresh** data directory, so an upgraded stack would otherwise
+never get them.
+
+It is the only long-running-image container that holds
+`GRID_APP_MIGRATION_DATABASE_URL` (the schema owner). Keeping that credential
+out of the container that serves requests is the point: row-level security does
+not apply to a table's owner, so a bug that reached it would have a full bypass
+inside the very process the boundary is meant to constrain. `frontend`,
+`purger` and `workflow-scheduler` all wait on it via
+`depends_on: { condition: service_completed_successfully }`.
+
+Runbook: [row-level security](../database/row-level-security.md), ADR-0041.
+
 ### frontend
 
 The Next.js UI application.
@@ -154,7 +173,7 @@ The Next.js UI application.
 |----------|------------------|
 | `REQUIRE_AUTH` | `${REQUIRE_AUTH:-false}` |
 | `BACKEND_URL` | `${BACKEND_URL:-http://aiq-agent:8000}` |
-| `GRID_APP_DATABASE_URL` | `${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}` |
+| `GRID_APP_DATABASE_URL` | `${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}` — the least-privilege role, subject to row-level security (ADR-0041). Migrations use the owner credential in `GRID_APP_MIGRATION_DATABASE_URL`, set only on `grid-migrate`. |
 | `WORKOS_CLIENT_ID` | `${WORKOS_CLIENT_ID}` |
 | `WORKOS_API_KEY` | `${WORKOS_API_KEY}` |
 | `WORKOS_REDIRECT_URI` | `${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}` |
@@ -175,7 +194,7 @@ The Next.js UI application.
 
 **Healthcheck**: `curl -f http://localhost:3000/` — interval 30s, timeout 10s, start period 30s, retries 3.
 
-**Depends on**: `aiq-agent` (healthy), `seaweedfs` (healthy), `postgres` (healthy).
+**Depends on**: `grid-migrate` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `postgres` (healthy).
 
 **Restart**: `unless-stopped`.
 

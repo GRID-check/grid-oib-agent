@@ -11,7 +11,14 @@
 import 'server-only'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { s3Client, signingS3Client, bucketName, buildStorageKey } from '@/lib/s3'
+import {
+  s3Client,
+  signingS3Client,
+  bucketAdminS3Client,
+  buildStorageKey,
+  buildThumbnailStorageKey,
+} from '@/lib/s3'
+import { ensureTenantBucket, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { ForbiddenError } from '@/lib/api/errors'
@@ -22,7 +29,10 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
+import { assertWithinStorageQuota } from '@/lib/storage/service'
+import { admitOrDiscard } from '@/lib/storage/admission'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
@@ -31,7 +41,7 @@ import {
   deleteProjectDocument,
   findDocumentInOrg,
   findFolderPathInProject,
-  insertDocument,
+  findStorageKeyByCollectionAndFilename,
   listProjectDocuments,
   markDocumentIngestFailed,
   setDocumentIngestJob,
@@ -50,13 +60,26 @@ const PREVIEW_CONTENT_TYPES = [
   'image/tiff',
 ]
 
-const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
+/**
+ * Content types the signed image route hands to the Next optimizer.
+ *
+ * Deliberately narrower than {@link PREVIEW_CONTENT_TYPES}. SVG is excluded
+ * because the optimizer hard-fails on it (400) unless `dangerouslyAllowSVG` is
+ * on, which we will not enable — it would let an uploaded SVG carry script into
+ * a same-origin response. BMP and TIFF are excluded because sharp's support is
+ * patchier than the browsers' and a decode failure is a broken image, not a
+ * slow one. Everything excluded here still previews; it just renders straight
+ * from the object store as it does today.
+ */
+const OPTIMIZABLE_IMAGE_CONTENT_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+]
 
-/** Replace the filename segment of a storageKey with `_thumb.jpg`. */
-function buildThumbnailStorageKey(storageKey: string): string {
-  const idx = storageKey.lastIndexOf('/')
-  return idx > 0 ? `${storageKey.slice(0, idx)}/_thumb.jpg` : '_thumb.jpg'
-}
+const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
 
 /**
  * Bound every server-side call to the Python backend: an unreachable backend
@@ -106,15 +129,16 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  *
  *   - `project` documents → per-project FGA via `requireProjectAccess`.
  *   - `archiv` documents (org-wide, `projectId` NULL) → any org member may read
- *     (`view`); mutations (`edit`) require `org:archiv:manage`.
+ *     (read); writes require `org:archiv:manage`.
  *
- * Cross-tenant and no-access lookups both surface as 404. Reads default to
- * `project:view`; mutating actions (e.g. re-ingestion) pass `project:edit`.
+ * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
+ * `project:view` for reads and `project:documents:write` (accepting the legacy
+ * `project:edit` umbrella) for writes — ADR-0038.
  */
 async function getAccessibleDocument(
   session: AuthorizedSession,
   documentId: string,
-  permission: 'project:view' | 'project:edit' = 'project:view',
+  intent: 'read' | 'write' = 'read',
 ): Promise<Document> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
@@ -123,13 +147,17 @@ async function getAccessibleDocument(
     // The Archiv is org-scoped: findDocumentInOrg already confirmed the row
     // belongs to the caller's org (so any member may read it). Only mutations
     // need the manage permission.
-    if (permission === 'project:edit' && !canManageArchiv(session)) {
+    if (intent === 'write' && !canManageArchiv(session)) {
       throw new ForbiddenError()
     }
     return doc
   }
 
-  await requireProjectAccess(session, doc.projectId, permission)
+  await requireProjectAccess(
+    session,
+    doc.projectId,
+    intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
+  )
   return doc
 }
 
@@ -148,24 +176,39 @@ export async function dispatchIngest(
   collectionName: string,
   storageKey: string,
   organizationId: string,
+  /**
+   * The bucket the object was written to (ADR-0043). Passed rather than
+   * derived: the caller has just written the object and knows exactly where it
+   * went, and the two presigned URLs below must both name that same bucket —
+   * the download the backend reads from, and the thumbnail slot it writes back
+   * to. Defaults to the shared bucket so a caller predating per-org buckets
+   * keeps its old behaviour.
+   */
+  storageBucket: string | null = null,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
+  const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
-  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucketName, Key: storageKey }), {
+  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: storageKey }), {
     expiresIn: presignTtlSeconds(),
   })
 
-  // Generate presigned upload URL for a 200px JPEG thumbnail
+  // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
+  // generates. Null for a key with no directory segment: there is nowhere to
+  // put a sibling, and signing a bucket-root `_thumb.jpg` would hand out a
+  // write capability to a shared path rather than to this document's own.
   const thumbnailUploadKey = buildThumbnailStorageKey(storageKey)
-  const thumbnailUploadUrl = await getSignedUrl(
-    signingS3Client,
-    new PutObjectCommand({
-      Bucket: bucketName,
-      Key: thumbnailUploadKey,
-      ContentType: 'image/jpeg',
-    }),
-    { expiresIn: 3600 },
-  )
+  const thumbnailUploadUrl = thumbnailUploadKey
+    ? await getSignedUrl(
+        signingS3Client,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: thumbnailUploadKey,
+          ContentType: 'image/jpeg',
+        }),
+        { expiresIn: 3600 },
+      )
+    : null
 
   let ingestJobId: string | null = null
   let ingestFailed = false
@@ -197,13 +240,13 @@ export async function dispatchIngest(
   }
 
   if (ingestJobId) {
-    await setDocumentIngestJob(documentId, ingestJobId)
+    await setDocumentIngestJob(documentId, organizationId, ingestJobId)
     return { jobId: ingestJobId, status: 'pending' }
   }
   if (ingestFailed) {
     // Persist 'failed' so status reads stop rendering an unsearchable document
     // as a green "Ready" (it would otherwise sit at 'uploaded' forever).
-    await markDocumentIngestFailed(documentId, INGEST_DISPATCH_FAILED_MESSAGE)
+    await markDocumentIngestFailed(documentId, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
     return { jobId: null, status: 'failed' }
   }
   return { jobId: null, status: 'uploaded' }
@@ -226,7 +269,7 @@ export async function listDocuments(
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(rows)
+  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
 
   return reconciled.map(({ metadata: _metadata, ...row }) => row)
 }
@@ -420,6 +463,23 @@ export async function assertUploadTypeAllowed(session: AuthorizedSession, filena
 }
 
 /**
+ * Server-side file-size enforcement: guards the S3 upload against oversized
+ * payloads even when the client allows them (the client check is a UX courtesy).
+ * Reuses the env-based config that also drives the client-side max, so both
+ * layers are governed by one source of truth.
+ */
+export function assertFileSizeAllowed(sizeBytes: number): void {
+  const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
+  if (sizeBytes > maxFileSize) {
+    const maxSizeMB = maxFileSize / (1024 * 1024)
+    throw new BadRequestError(`File exceeds the maximum allowed size of ${maxSizeMB} MB`, {
+      fileSize: sizeBytes,
+      maxSizeBytes: maxFileSize,
+    })
+  }
+}
+
+/**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
  * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
@@ -431,12 +491,17 @@ export async function uploadDocument(
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
 
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
+  assertFileSizeAllowed(file.size)
+  // Org-wide ceiling, checked after the per-file one so the caller gets the
+  // more specific complaint first, and BEFORE any bytes reach SeaweedFS so a
+  // refusal leaves no orphan object behind (ADR-0042).
+  await assertWithinStorageQuota(session.organizationId, file.size)
 
   let folderPath: string | null = null
   if (folderId) {
-    folderPath = await findFolderPathInProject(folderId, projectId)
+    folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
     if (folderPath === null) throw new NotFoundError('Folder not found in project')
   }
 
@@ -447,17 +512,30 @@ export async function uploadDocument(
   const collectionName = project.collectionName
   const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
+  // Create the organization's bucket if this is its first upload (ADR-0043).
+  // A no-op — not even a round trip — when per-org buckets are off. Done before
+  // the PUT so a provisioning failure leaves nothing behind, same reasoning as
+  // the quota check above.
+  const storageBucket = await ensureTenantBucket(bucketAdminS3Client, session.organizationId)
+
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
     new PutObjectCommand({
-      Bucket: bucketName,
+      Bucket: storageBucket,
       Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
     }),
   )
 
-  await insertDocument({
+  // The quota's HARD ceiling: the usage is re-read inside the same transaction
+  // that inserts the row, under a per-organization lock, so concurrent uploads
+  // cannot jointly cross the limit the way the pre-check above allows (ADR-0042).
+  //
+  // The object is already written, so a refusal has to take it back — the row was
+  // not inserted, so nothing else will ever reference those bytes and leaving
+  // them would be an orphan that only a bucket-wide sweep could find.
+  await admitOrDiscard(storageBucket, storageKey, {
     id: documentId,
     organizationId: session.organizationId,
     projectId,
@@ -465,6 +543,9 @@ export async function uploadDocument(
     createdBy: session.userId,
     filename: file.name,
     storageKey,
+    // Recorded even when it IS the shared bucket, so only rows predating
+    // migration 0033 rely on the NULL-means-shared convention.
+    storageBucket,
     collectionName,
     fileSize: file.size,
     contentType: file.type || null,
@@ -476,6 +557,7 @@ export async function uploadDocument(
     collectionName,
     storageKey,
     session.organizationId,
+    storageBucket,
   )
 
   // Data-provenance event: who brought which file into which project.
@@ -514,14 +596,27 @@ export async function reingestDocument(
   session: AuthorizedSession,
   documentId: string,
 ): Promise<ReingestDocumentResult> {
-  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+  const doc = await getAccessibleDocument(session, documentId, 'write')
 
   if (doc.status !== 'failed') {
     throw new ConflictError('Only failed documents can be re-ingested', { status: doc.status })
   }
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
-  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.storageKey, session.organizationId)
+  // The bucket the object is ACTUALLY in — `doc.storageBucket`, not the bucket
+  // a new upload would go to. Both presigned URLs the dispatch mints name it:
+  // the download the backend reads from, and the thumbnail slot it writes back
+  // to. Omitting it defaulted both to the shared bucket, so retrying a
+  // per-organization document presigned a GET for an object that is not there
+  // (the retry can never succeed) and a PUT into the shared bucket for a
+  // thumbnail every read path then looks for in the tenant bucket.
+  const { jobId, status } = await dispatchIngest(
+    doc.id,
+    doc.collectionName,
+    doc.storageKey,
+    session.organizationId,
+    doc.storageBucket,
+  )
   return { id: doc.id, status, jobId }
 }
 
@@ -538,7 +633,7 @@ export async function updateDocumentTags(
   documentId: string,
   tags: string[],
 ): Promise<{ id: string; tags: string[] }> {
-  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+  const doc = await getAccessibleDocument(session, documentId, 'write')
 
   const offending = tags.filter((tag) => !ALLOWED_TAGS.has(tag))
   if (offending.length > 0) {
@@ -595,7 +690,7 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.projectId === null) throw new NotFoundError()
 
-  await requireProjectAccess(session, doc.projectId, 'project:edit')
+  await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
@@ -613,7 +708,20 @@ export async function deleteDocument(
 
   if (doc.storageKey) {
     try {
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.storageKey }))
+      const bucket = resolveDocumentBucket(doc.storageBucket)
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
+      // The ingest pipeline writes `_thumb.jpg` as a SIBLING of the object, in
+      // the same `doc/<id>/` directory. Deleting only the document left it
+      // behind: invisible to the UI, invisible to the quota ledger (which
+      // counts rows, not bytes), and reachable by anyone who could presign the
+      // key. The project-level purge swept it up eventually; a single-document
+      // delete never did.
+      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
+      if (thumbKey) {
+        await s3Client
+          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
+          .catch(() => undefined)
+      }
     } catch {
       // ignore — the object may already be gone; the row delete below is the record of intent
     }
@@ -652,7 +760,7 @@ export async function getDocumentVisualDetails(
   session: AuthorizedSession,
   documentId: string,
 ): Promise<{ id: string; details: DocumentVisualDetail[] }> {
-  const doc = await getAccessibleDocument(session, documentId, 'project:view')
+  const doc = await getAccessibleDocument(session, documentId, 'read')
 
   let res: Response
   try {
@@ -691,7 +799,7 @@ export async function getDocumentDownload(
   const downloadUrl = await getSignedUrl(
     signingS3Client,
     new GetObjectCommand({
-      Bucket: bucketName,
+      Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('attachment', doc.filename),
     }),
@@ -713,7 +821,7 @@ export async function getDocumentDownload(
 export async function getDocumentPreview(
   session: AuthorizedSession,
   documentId: string,
-): Promise<{ url: string; contentType: string; filename: string }> {
+): Promise<{ url: string; contentType: string; filename: string; imageUrl: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
@@ -725,7 +833,7 @@ export async function getDocumentPreview(
   const url = await getSignedUrl(
     signingS3Client,
     new GetObjectCommand({
-      Bucket: bucketName,
+      Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('inline', doc.filename),
       ResponseContentType: contentType,
@@ -733,10 +841,26 @@ export async function getDocumentPreview(
     { expiresIn: 3600 },
   )
 
-  return { url, contentType, filename: doc.filename }
+  // A same-origin, signature-authorized path for the raster image formats the
+  // optimizer can actually process — this is what lets `next/image` resize a
+  // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
+  // the exotic formats above, whose callers fall back to `url` unoptimized.
+  const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
+    ? buildDocumentImageUrl(session.organizationId, documentId, 'original')
+    : null
+
+  return { url, contentType, filename: doc.filename, imageUrl }
 }
 
-/** Presign a browser-facing thumbnail URL (null when no thumbnail exists). */
+/**
+ * Browser-facing thumbnail URL (null when no thumbnail exists).
+ *
+ * Prefers the signed same-origin route so the card's 124px well gets an
+ * optimizer-resized image, and falls back to a presigned object-store URL when
+ * signing is unavailable. The ingest pipeline already writes a 200px JPEG here,
+ * so the win is a format change (WebP/AVIF) rather than a resize — small, but it
+ * keeps every document image on one path instead of leaving this one special.
+ */
 export async function getDocumentThumbnail(
   session: AuthorizedSession,
   documentId: string,
@@ -744,13 +868,17 @@ export async function getDocumentThumbnail(
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
 
+  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
+  if (signedUrl) return { url: signedUrl }
+
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
+  if (!thumbnailKey) return { url: null }
 
   try {
     const url = await getSignedUrl(
       signingS3Client,
       new GetObjectCommand({
-        Bucket: bucketName,
+        Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: thumbnailKey,
         ResponseContentType: 'image/jpeg',
       }),
@@ -762,13 +890,79 @@ export async function getDocumentThumbnail(
   }
 }
 
+/**
+ * Stream a document image for a signed capability URL — the only document route
+ * that serves bytes without a session, because the Next image optimizer's
+ * internal fetch cannot carry one (see `@/lib/images/signed-image-url`).
+ *
+ * The signature is the authorization. It was minted by `getDocumentPreview` /
+ * `getDocumentThumbnail` AFTER `getAccessibleDocument` ran the real
+ * `project:view` check, and it is bound to the org, the document and the
+ * variant, so it cannot be walked onto another tenant's document or onto the
+ * full-size original when it was issued for a thumbnail. The org id is taken
+ * from the signed claims rather than the caller, so the row lookup stays
+ * tenant-scoped exactly as the session path is.
+ */
+export async function streamDocumentImage(
+  documentId: string,
+  params: URLSearchParams,
+): Promise<Response> {
+  const verified = verifyDocumentImageUrl(documentId, params)
+  if (!verified.ok) {
+    if (verified.reason === 'disabled') {
+      throw new ApiError(503, 'IMAGE_URLS_DISABLED', 'Signed image URLs are not configured')
+    }
+    // Expired, malformed and forged are one answer to the caller on purpose:
+    // distinguishing them tells an attacker which half of the token to work on.
+    throw new ForbiddenError('Invalid or expired image URL')
+  }
+
+  const { organizationId, variant } = verified.claims
+  const doc = await findDocumentInOrg(documentId, organizationId)
+  if (!doc?.storageKey) throw new NotFoundError()
+
+  const contentType = variant === 'thumb' ? 'image/jpeg' : doc.contentType || ''
+  // Belt and braces over the signing-side check: this route serves images and
+  // nothing else, so a token minted against a row that later changed type
+  // cannot turn into a download channel for an arbitrary upload.
+  if (!contentType.startsWith('image/')) throw new NotFoundError()
+
+  const key = variant === 'thumb' ? buildThumbnailStorageKey(doc.storageKey) : doc.storageKey
+  if (!key) throw new NotFoundError('Image not available')
+
+  let body
+  try {
+    const object = await s3Client.send(
+      new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key }),
+    )
+    body = object.Body
+  } catch {
+    // A document with no generated thumbnail lands here; the card reads the 404
+    // as "no thumbnail" and shows its warm placeholder.
+    throw new NotFoundError('Image not available')
+  }
+  if (!body) throw new NotFoundError('Image not available')
+
+  return new Response(body.transformToWebStream(), {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Disposition': 'inline',
+      // Private: the bytes are tenant data, and the optimizer keeps its own
+      // server-side cache regardless. Bounded by the signature's own lifetime.
+      'Cache-Control': 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
+}
+
 /** Read one document's status, lazily reconciled with the backend. */
 export async function getDocumentStatus(session: AuthorizedSession, documentId: string) {
   const doc = await getAccessibleDocument(session, documentId)
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const [reconciled] = await reconcileDocumentStatuses([doc])
+  const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
 
   return {
     id: reconciled.id,
@@ -787,4 +981,26 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
   }
+}
+
+/**
+ * Resolve a document's SeaweedFS storage key from the `(collectionName,
+ * filename)` pair the Python backend carries — the read side of the internal
+ * document-file lookup (`/api/internal/document-file`).
+ *
+ * There is deliberately no session / FGA here: the caller is the backend over
+ * the service-token-guarded internal network, and the collection name is the
+ * tenancy boundary (`proj_<uuid>` / `archiv_<orgId>` are unguessable). When the
+ * backend derives an `organizationId` from an `archiv_` collection prefix, it
+ * is forwarded to narrow the row lookup to that org; otherwise the lookup is
+ * collection-only. The backend uses the key to fetch the raw bytes from
+ * SeaweedFS for the `view_knowledge_image` tool (ADR-0039), so this is
+ * read-only metadata — it never returns the bytes themselves.
+ */
+export async function findDocumentStorageKey(
+  collectionName: string,
+  filename: string,
+  organizationId?: string,
+): Promise<{ storageKey: string; storageBucket: string | null; contentType: string | null } | null> {
+  return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }

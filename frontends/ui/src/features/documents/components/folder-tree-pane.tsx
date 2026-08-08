@@ -69,7 +69,7 @@ export function FolderTreePane({
   }
 
   const rowClass = (active: boolean) =>
-    `group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+    `group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors pointer-coarse:min-h-11 pointer-coarse:py-2 ${
       active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
     }`
 
@@ -118,7 +118,7 @@ export function FolderTreePane({
           <button
             onClick={() => onSelectFolder(folder.id)}
             aria-pressed={active}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm pointer-coarse:min-h-11"
           >
             <Icon className="size-4 shrink-0" aria-hidden />
             <span className="truncate">{folder.name}</span>
@@ -127,7 +127,7 @@ export function FolderTreePane({
             onClick={() => startCreate(folder.id)}
             aria-label={t('folders.addSubfolderIn', { name: folder.name })}
             title={t('folders.addSubfolder')}
-            className="shrink-0 rounded-sm p-0.5 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-hover:opacity-100"
+            className="flex size-7 shrink-0 items-center justify-center rounded-sm transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:size-11 md:opacity-0 md:group-hover:opacity-100"
           >
             <Plus className="size-3.5" aria-hidden />
           </button>
@@ -169,7 +169,7 @@ export function FolderTreePane({
       ) : (
         <button
           onClick={() => startCreate(null)}
-          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:py-2"
         >
           <Plus className="size-4 shrink-0" aria-hidden />
           <span>{t('folders.newFolder')}</span>

@@ -28,8 +28,8 @@ from .base import BaseRetriever
 from .schema import FileStatus
 
 if TYPE_CHECKING:
+    from .document_metadata_store import DocumentMetadataStore
     from .schema import AvailableDocument
-    from .summary_store import SummaryStore
 
 logger = logging.getLogger(__name__)
 
@@ -360,47 +360,64 @@ def clear_active_retriever() -> None:
 
 
 # =============================================================================
-# Summary Registry (SQLAlchemy-backed, Backend-Agnostic)
+# Document metadata store (SQLAlchemy-backed, Backend-Agnostic)
 # =============================================================================
-# Persistent storage for document summaries using configurable SQLite/PostgreSQL.
-# Backends call register_summary() after ingestion; agents call
-# get_available_documents() for prompt context.
+# Persistent per-document metadata (summary, tags, doc_class, display_title)
+# using configurable SQLite/PostgreSQL. Backends call register_summary() after
+# ingestion; agents call get_available_documents() for prompt context.
+#
+# Back-compat: the DB *file* (default ``summaries.db``), the ``AIQ_SUMMARY_DB``
+# env var, and the NAT ``summary_db`` config field keep their names so existing
+# databases/deployments are not orphaned — only the misnamed TABLE and store
+# CLASS were renamed to ``document_metadata`` (see document_metadata_store.py).
 
-_summary_store: "SummaryStore | None" = None
-# Guards lazy init of _summary_store. The default-init path is now reachable
-# from thread-pool workers (knowledge_search formats results via
+_document_metadata_store: "DocumentMetadataStore | None" = None
+# Guards lazy init of _document_metadata_store. The default-init path is now
+# reachable from thread-pool workers (knowledge_search formats results via
 # asyncio.to_thread), so double-check under this lock to prevent two concurrent
 # cold-start callers each constructing a store/engine and one clobbering the
 # other. Steady state re-checks without contention.
-_summary_store_lock = threading.Lock()
+_document_metadata_store_lock = threading.Lock()
 
-# Default DB URL (used if configure_summary_db not called)
-_DEFAULT_SUMMARY_DB = "sqlite+aiosqlite:///./summaries.db"
+# Default DB URL (used if configure_summary_db not called). The file keeps its
+# historical name so a default-path deployment's existing rows are migrated in
+# place, not orphaned.
+_DEFAULT_METADATA_DB = "sqlite+aiosqlite:///./summaries.db"
 
 
 def configure_summary_db(db_url: str) -> None:
-    """Initialize summary store with given DB URL."""
-    global _summary_store
-    from .summary_store import SummaryStore
+    """Initialize the document metadata store with the given DB URL."""
+    global _document_metadata_store
+    from .document_metadata_store import DocumentMetadataStore
 
-    with _summary_store_lock:
-        _summary_store = SummaryStore(db_url)
-    logger.info("Summary store configured: %s", redact_db_url(db_url))
+    with _document_metadata_store_lock:
+        _document_metadata_store = DocumentMetadataStore(db_url)
+    logger.info("Document metadata store configured: %s", redact_db_url(db_url))
 
 
-def _get_summary_store() -> "SummaryStore":
-    """Get or create the summary store (lazy init with default)."""
-    global _summary_store
-    if _summary_store is None:
-        from .summary_store import SummaryStore
+def _get_document_metadata_store() -> "DocumentMetadataStore":
+    """Get or create the document metadata store (lazy init with default)."""
+    global _document_metadata_store
+    if _document_metadata_store is None:
+        from .document_metadata_store import DocumentMetadataStore
 
-        with _summary_store_lock:
+        with _document_metadata_store_lock:
             # Double-checked: another caller may have initialized it while we
             # waited for the lock.
-            if _summary_store is None:
-                _summary_store = SummaryStore(_DEFAULT_SUMMARY_DB)
-                logger.info("Summary store initialized with default: %s", _DEFAULT_SUMMARY_DB)
-    return _summary_store
+            if _document_metadata_store is None:
+                # configure_summary_db() may not have run in this process (e.g. an
+                # ingestion thread/worker that never executed the NAT registration
+                # in sources/knowledge_layer/src/register.py). Resolve the DB from
+                # the environment the same way ingest_status_store/leader_lock do,
+                # instead of silently falling back to a local SQLite file that in a
+                # container often isn't writable ("unable to open database file")
+                # and, worse, would split summaries away from the real Postgres.
+                db_url = (
+                    os.environ.get("AIQ_SUMMARY_DB") or os.environ.get("NAT_JOB_STORE_DB_URL") or _DEFAULT_METADATA_DB
+                )
+                _document_metadata_store = DocumentMetadataStore(db_url)
+                logger.info("Document metadata store initialized (lazy env fallback): %s", redact_db_url(db_url))
+    return _document_metadata_store
 
 
 def register_summary(
@@ -416,7 +433,7 @@ def register_summary(
     """
     if not summary:
         return
-    _get_summary_store().register(collection, filename, summary, tags)
+    _get_document_metadata_store().register(collection, filename, summary, tags)
 
 
 def update_document_tags(collection: str, filename: str, tags: list[str] | None) -> bool:
@@ -429,7 +446,7 @@ def update_document_tags(collection: str, filename: str, tags: list[str] | None)
     is given, so every caller MUST validate against
     ``document_classification.ALLOWED_TAGS`` first.
     """
-    return _get_summary_store().update_tags(collection, filename, tags)
+    return _get_document_metadata_store().update_tags(collection, filename, tags)
 
 
 def set_document_doc_class(collection: str, filename: str, doc_class: str | None) -> bool:
@@ -439,12 +456,12 @@ def set_document_doc_class(collection: str, filename: str, doc_class: str | None
     exists for ``(collection, filename)``. The single factory seam behind the
     ingestion pre-fill and any future doc_class-edit endpoint.
     """
-    return _get_summary_store().set_doc_class(collection, filename, doc_class)
+    return _get_document_metadata_store().set_doc_class(collection, filename, doc_class)
 
 
 def get_document_doc_class(collection: str, filename: str) -> str | None:
     """Return the stored explicit ``doc_class`` for a document, or ``None``."""
-    return _get_summary_store().get_doc_class(collection, filename)
+    return _get_document_metadata_store().get_doc_class(collection, filename)
 
 
 def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str, str]:
@@ -453,25 +470,54 @@ def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str,
     Batched equivalent of :func:`get_document_doc_class`; only documents with a
     truthy stored ``doc_class`` appear in the map (same coercion).
     """
-    return _get_summary_store().get_doc_classes_batch(collection, filenames)
+    return _get_document_metadata_store().get_doc_classes_batch(collection, filenames)
+
+
+def set_document_display_title(collection: str, filename: str, display_title: str | None) -> bool:
+    """Set the user-facing ``display_title`` on an existing metadata row.
+
+    UPDATE-only (never creates a row): returns ``False`` when no metadata row
+    exists for ``(collection, filename)``. The single factory seam behind the
+    ingestion default-seed and the admin rename endpoint. A ``None`` clears the
+    override so the derived default (:func:`guess_display_title`) applies again.
+    """
+    return _get_document_metadata_store().set_display_title(collection, filename, display_title)
+
+
+def get_document_display_title(collection: str, filename: str) -> str | None:
+    """Return the stored ``display_title`` for a document, or ``None``."""
+    return _get_document_metadata_store().get_display_title(collection, filename)
+
+
+def get_document_display_titles(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Return stored ``display_title`` values for many documents in one query.
+
+    Batched equivalent of :func:`get_document_display_title`; only documents with
+    a truthy stored title appear in the map (same coercion).
+    """
+    return _get_document_metadata_store().get_display_titles_batch(collection, filenames)
 
 
 def list_summary_collections() -> list[str]:
     """List every collection that has at least one persisted summary."""
-    return _get_summary_store().list_collections()
+    return _get_document_metadata_store().list_collections()
 
 
 def get_available_documents(collection: str) -> list["AvailableDocument"]:
     """Get documents with summaries (sync)."""
-    return _get_summary_store().get_all(collection)
+    return _get_document_metadata_store().get_all(collection)
 
 
 async def get_available_documents_async(collection: str) -> list["AvailableDocument"]:
     """Get documents with summaries (async)."""
-    return await _get_summary_store().get_all_async(collection)
+    return await _get_document_metadata_store().get_all_async(collection)
 
 
-def reconcile_collection_summaries(ingestor: BaseIngestor, collection: str) -> int:
+def reconcile_collection_summaries(
+    ingestor: BaseIngestor,
+    collection: str,
+    file_names: list[str] | None = None,
+) -> int:
     """Backfill fallback summary rows for documents the vector index has but the summaries table doesn't.
 
     Structural backstop for "ingested ⇒ visible": ``available_documents`` (the
@@ -504,18 +550,26 @@ def reconcile_collection_summaries(ingestor: BaseIngestor, collection: str) -> i
     Args:
         ingestor: The backend ingestor to reconcile against.
         collection: Collection/index name to reconcile.
+        file_names: Optional scope. When given (the job's successfully ingested
+            files), only those names are checked — the caller already knows
+            they indexed successfully, so the full ``list_files`` metadata scan
+            (O(collection size) on every job) is skipped. When omitted, the
+            whole collection is diffed as before.
 
     Returns:
         The number of documents backfilled (0 when already consistent, or on
         any lookup failure — this never raises).
     """
-    try:
-        indexed_files = ingestor.list_files(collection)
-    except Exception as e:
-        logger.warning("Reconciliation: failed to list indexed files for %s: %s", collection, e)
-        return 0
+    if file_names is not None:
+        indexed_names = set(file_names)
+    else:
+        try:
+            indexed_files = ingestor.list_files(collection)
+        except Exception as e:
+            logger.warning("Reconciliation: failed to list indexed files for %s: %s", collection, e)
+            return 0
+        indexed_names = {f.file_name for f in indexed_files if f.status == FileStatus.SUCCESS}
 
-    indexed_names = {f.file_name for f in indexed_files if f.status == FileStatus.SUCCESS}
     if not indexed_names:
         return 0
 
@@ -564,17 +618,17 @@ def reconcile_collection_summaries(ingestor: BaseIngestor, collection: str) -> i
 
 def unregister_summary(collection: str, filename: str) -> None:
     """Delete a file's summary."""
-    _get_summary_store().unregister(collection, filename)
+    _get_document_metadata_store().unregister(collection, filename)
 
 
 def clear_collection_summaries(collection: str) -> None:
     """Delete all summaries in a collection."""
-    _get_summary_store().clear_collection(collection)
+    _get_document_metadata_store().clear_collection(collection)
 
 
 def clear_all_summaries() -> None:
     """Delete all summaries."""
-    _get_summary_store().clear_all()
+    _get_document_metadata_store().clear_all()
 
 
 def is_retriever_registered(name: str) -> bool:

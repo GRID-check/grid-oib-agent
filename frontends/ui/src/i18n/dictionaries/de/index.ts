@@ -11,9 +11,9 @@ import { nav } from './nav'
 import { profile } from './profile'
 import { settings } from './settings'
 import { errors } from './errors'
-import { landing } from './landing'
 import { projects } from './projects'
 import { chat } from './chat'
+import { collaboration } from './collaboration'
 import { files } from './files'
 import { archiv } from './archiv'
 import { knowledge } from './knowledge'
@@ -36,9 +36,9 @@ export const de: Dictionary = {
   shortcuts,
   settings,
   errors,
-  landing,
   projects,
   chat,
+  collaboration,
   files,
   archiv,
   knowledge,

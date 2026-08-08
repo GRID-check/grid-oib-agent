@@ -86,11 +86,80 @@ body {
 }
 
 /* Focus visible styles for accessibility — always a visible 2px ring,
-   offset so it never blends into the control's own edge */
+   offset so it never blends into the control's own edge. The outline follows
+   the element's own border-radius automatically; do NOT force
+   `border-radius: inherit` here — that overrides a control's own rounding with
+   its parent's (usually 0), squaring off rounded inputs/selects on focus. */
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-  border-radius: inherit;
+}
+
+/* Bottom edge of a scrollable list, made legibly intentional.
+   A list that simply clips its next row through the middle of the text reads as
+   broken rather than as "there is more below"; this dissolves the last few pixels
+   instead. It is a MASK, not an overlay gradient: masking composites against
+   whatever surface the list actually sits on (popover, card, dialog), so it needs
+   no colour at all and light/dark mode are free — an overlay would have to name a
+   surface token and would be wrong on the next surface that reuses the component.
+   Kept as a utility rather than a wrapper component on purpose: it is one paint
+   rule with no DOM, no state and no children, so a component would add an element
+   and force every caller to restructure its scroll container to gain nothing.
+   Used by the mention picker's list and the share dialog's body.
+
+   The fade RETRACTS at the bottom of the scroll, and that is the point rather
+   than a flourish. A dissolve that is always on carries no information: it looks
+   identical whether there are ten rows below or none, so it stops reading as
+   "more below" and starts reading as decoration — or, on the share dialog's last
+   line, as a sentence that has been cut off. Releasing it in the last 40px of
+   travel makes its PRESENCE the signal.
+
+   Scroll-driven, so it costs no JavaScript, no listener and no re-render.
+
+   The `@supports` wrapper is load-bearing, not belt and braces. A UA without
+   scroll-driven animations does not get an inactive timeline — it DROPS
+   `animation-timeline` as an unrecognised declaration and keeps the `animation`
+   shorthand, which then runs on the document timeline with `duration: auto`
+   (0s) and `fill: both`. That completes instantly and pins the fade at 0px
+   permanently: not broken, but absent everywhere, which is the opposite of the
+   intended degradation. Guarding the three declarations together leaves those
+   browsers with the plain 24px mask, exactly as before.
+
+   When the element does not overflow, the timeline is inactive and the mask
+   lands on the container's own bottom padding, where there is nothing to
+   dissolve. */
+@property --scroll-fade-size {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 24px;
+}
+
+@keyframes scroll-fade-settle {
+  to {
+    --scroll-fade-size: 0px;
+  }
+}
+
+@utility scroll-fade-bottom {
+  --scroll-fade-size: 24px;
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+  @supports (animation-timeline: scroll(self block)) {
+    animation: scroll-fade-settle linear both;
+    animation-timeline: scroll(self block);
+    /* The last 40px of travel, not a percentage: a percentage makes the release
+       take longer the longer the list is, so a long roster would spend the whole
+       bottom third half-faded. */
+    animation-range: calc(100% - 40px) 100%;
+  }
 }
 
 /* Hide scrollbar utility */
@@ -101,6 +170,60 @@ body {
     display: none;
   }
 }
+
+/* Grow a control's TOUCH area to 44px without growing the control.
+
+   Most undersized targets are fixed by sizing the control up (see the `size`
+   variants on Button) — but some are meant to be small. A 16px checkbox, a 20px
+   chip, a 12px remove-× read as small *because* they are secondary; inflating
+   them to 44px would make a settings list look like a row of buttons and a
+   chip row like a toolbar. What a finger needs is not a bigger box, it is a
+   bigger CATCHMENT.
+
+   So this leaves layout untouched and lays a centred, invisible 44×44
+   pseudo-element over the control. `position: absolute` against the element's
+   own containing block means it never occupies space, never shifts a
+   neighbour, and never changes a screenshot; it only widens what a tap resolves
+   to. Only under `pointer: coarse` — with a mouse the visible box is already
+   exactly as clickable as it looks, and an invisible overhang there would
+   swallow clicks meant for whatever sits next to it.
+
+   The element needs a positioning context (`relative`) for the overlay to
+   centre on it; every current caller is already `relative` or gets it here. */
+@utility touch-target {
+  @media (pointer: coarse) {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      translate: -50% -50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+    }
+  }
+}
+
+/* `pointer-coarse` is the ONE axis this codebase sizes touch targets on. The
+   first pass at it used `md:` (mobile-first size, desktop density restored at
+   the breakpoint), which is close but asks the wrong question: viewport width
+   is a proxy for input device, and it is wrong at both ends — a touch tablet
+   past `md` kept 28px rows, and a half-width desktop window got finger-sized
+   ones. Those sites (folder tree, view toggle, filter chips, the wizard's
+   inline link) are converted; `md:` is for LAYOUT, `pointer-coarse:` is for
+   what is driving the pointer. Keep them separate.
+
+   Two limits worth knowing before reaching for `touch-target`:
+
+   It covers the element's own children, so it belongs on LEAF controls. Put it
+   on a container that holds its own button (a chip with a remove-×) and the
+   overlay eats the inner control's taps — size that container up instead.
+
+   And the overhang is clipped by an ancestor with `overflow: hidden`, which
+   silently returns the target to its visible size. In a clipping row, give the
+   row the padding to hold the catchment. */
 
 /* =============================================================================
    Theme-aware text color utilities
@@ -199,8 +322,13 @@ body {
   background-color: var(--input-background);
 }
 
+/* The unchecked checkbox fill in dark mode. It is the same recessed well every
+   other field uses, so it resolves to the token rather than re-deriving it —
+   the inlined `color-mix(--input 30%, transparent)` this replaces mixed an
+   ALREADY transparent token down to ~4% paper alpha, leaving the box invisible
+   against the card until it was checked. */
 @utility bg-input-dark {
-  background-color: color-mix(in oklch, var(--input) 30%, transparent);
+  background-color: var(--input-background);
 }
 
 /* Opaque variant for chat bubbles - ensures full opacity to prevent bleed-through in light theme */
@@ -347,6 +475,50 @@ body {
   animation: grid-progress-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
+/* =============================================================================
+   Citation focus — "this one"
+
+   Clicking an inline [3] marks the chip that backs it. A ring was the wrong
+   instrument for that: a ring states a lasting condition (this has focus, this
+   is selected), so a chip wearing one for two seconds and then losing it reads
+   as a state that broke rather than as an answer. It also drew a hard line
+   whose radius argued with the chip's own.
+
+   What the moment wants is an EVENT — a tinted swell that arrives, says which
+   chip, and leaves the chip exactly as it found it. Two beats: the first is the
+   answer, the second is for a reader whose eye reached the row late.
+
+   The colour comes from `--citation-pulse`, set per chip, so the swell is the
+   colour of the source it points at. Under the global prefers-reduced-motion
+   rule above the animation collapses, which is why `--citation-pulse` also
+   paints a static outline — the connection must survive without the motion.
+   ============================================================================= */
+@keyframes grid-citation-pulse {
+  0% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklch, var(--citation-pulse, var(--ring)) 60%, transparent),
+      0 0 0 0 color-mix(in oklch, var(--citation-pulse, var(--ring)) 30%, transparent);
+  }
+  60% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklch, var(--citation-pulse, var(--ring)) 34%, transparent),
+      0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklch, var(--citation-pulse, var(--ring)) 26%, transparent),
+      0 0 0 0 transparent;
+  }
+}
+
+@utility animate-citation-pulse {
+  /* The outline is the floor the animation returns to, so the marked chip stays
+     legible between beats and when motion is off entirely. */
+  outline: 1.5px solid color-mix(in oklch, var(--citation-pulse, var(--ring)) 45%, transparent);
+  outline-offset: 1px;
+  animation: grid-citation-pulse 1.1s cubic-bezier(0.16, 1, 0.3, 1) 2;
+}
+
 @utility min-h-dvh {
   min-height: 100dvh;
 }
@@ -378,4 +550,84 @@ body {
 
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--background-color-accent-gray-hover);
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Chart color tokens — organization spend visualization (Agent D, dataviz).
+   ONE appended block; nothing above this line was touched.
+
+   These are the categorical slots the org "Usage & budgets" card paints its
+   per-model marks with, plus the two meter states. They live here rather than
+   in a component <style> tag so the light/dark pair is declared once, beside
+   the rest of the design tokens, and so the values are greppable.
+
+   The slot ORDER is the colorblind-safety mechanism, not a preference: it is
+   the documented order of the dataviz reference palette, and it is the order
+   the validator was run against. Never reorder, never cycle — a 9th model
+   folds into `--spend-other`.
+
+     node scripts/validate_palette.js "<the eight light hexes>" \
+       --mode light --surface "#ffffff"          → ALL CHECKS PASS
+     node scripts/validate_palette.js "<the eight dark hexes>"  \
+       --mode dark  --surface "#22211d"          → ALL CHECKS PASS
+
+   Surfaces are this app's real card surfaces (`--card`), not the validator's
+   generic defaults — contrast is only meaningful against the surface the chart
+   actually renders on. The dark column is SELECTED for the dark surface (same
+   eight hues, re-stepped and re-validated), never an automatic flip of light.
+   The dark surface hex tracks `--card` in tokens.css: when the dark ramp was
+   re-tuned it moved #232220 → #22211d, which lifts every dark series by roughly
+   +0.06:1 (lowest is green at 3.26:1), so the dark column still passes as-is.
+
+   Light mode carries a contrast WARN: aqua (2.82:1), yellow (2.17:1) and
+   magenta (2.69:1) sit below 3:1 on white. That is not dismissable — the card
+   discharges it by shipping the always-visible per-model table, so no value is
+   reachable only by matching a color.
+
+   The two meter states are STATUS colors, deliberately outside the categorical
+   slots so a meter can never impersonate a series. `--spend-meter-over` is the
+   critical step (4.80:1 on white, 3.31:1 on the dark card) and always ships
+   beside the over-limit icon + sentence. */
+.grid-spend-viz {
+  --spend-series-1: #2a78d6; /* blue */
+  --spend-series-2: #eb6834; /* orange */
+  --spend-series-3: #1baf7a; /* aqua */
+  --spend-series-4: #eda100; /* yellow */
+  --spend-series-5: #e87ba4; /* magenta */
+  --spend-series-6: #008300; /* green */
+  --spend-series-7: #4a3aa7; /* violet */
+  --spend-series-8: #e34948; /* red */
+  --spend-other: #767672; /* the folded tail — neutral on purpose */
+  --spend-meter: #2a78d6; /* under the limit */
+  --spend-meter-over: #d03b3b; /* at or over the limit */
+}
+
+.dark .grid-spend-viz {
+  --spend-series-1: #3987e5;
+  --spend-series-2: #d95926;
+  --spend-series-3: #199e70;
+  --spend-series-4: #c98500;
+  --spend-series-5: #d55181;
+  --spend-series-6: #008300;
+  --spend-series-7: #9085e9;
+  --spend-series-8: #e66767;
+  --spend-other: #8f8e89;
+  --spend-meter: #3987e5;
+  --spend-meter-over: #d03b3b;
+}
+
+/* Storage (ADR-0042) asks the same question as the spend meter — am I about to
+   be cut off — so it uses the same STATUS pair and the same values, in both
+   themes. Kept as its own scope rather than borrowing `.grid-spend-viz`: the
+   series slots there are for money by model and mean nothing here, and a card
+   that opts into a palette it only half-uses invites someone to colour storage
+   by category later. If one pair changes, change both. */
+.grid-storage-viz {
+  --storage-meter: #2a78d6; /* under the quota */
+  --storage-meter-over: #d03b3b; /* at or over the quota */
+}
+
+.dark .grid-storage-viz {
+  --storage-meter: #3987e5;
+  --storage-meter-over: #d03b3b;
 }

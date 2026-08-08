@@ -77,6 +77,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Bun is the INSTALLER and script runner; Node stays the runtime. Copied from
+# the official image rather than installed, so the layer is deterministic and
+# needs no network step.
+#
+# Do NOT switch the base to an `oven/bun` image and do NOT invoke bun with
+# `--bun`: Turbopack evaluates the Tailwind PostCSS loader in a spawned REAL
+# `node` process. A bun-only image has no `node` at all, and `--bun` exports
+# NODE_OPTIONS=--bun which that child then rejects. Either way `next build`
+# dies with a TurbopackInternalError.
+#
+# Tag choice: `-slim` (Debian bookworm, glibc — matches this node base), not
+# `-debian`. Bun does not publish a `-debian` alias for every release (1.3.11
+# has none), so that suffix breaks the build on an ordinary version bump.
+# Keep the version in lockstep with `.github/actions/setup-bun`.
+COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
+
 # =============================================================================
 # Stage 2: Dependencies
 # =============================================================================
@@ -84,9 +100,9 @@ FROM base AS deps
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json bun.lock ./
 
-RUN npm ci --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # =============================================================================
 # Stage 3: Builder
@@ -103,10 +119,10 @@ RUN rm -f .env .env.local .env.*.local .env.development .env.production 2>/dev/n
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN bun run build
 
 # Remove devDependencies — keeps dev-only packages out of the production image
-RUN npm ci --omit=dev --ignore-scripts
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 # =============================================================================
 # Stage 4: Production Runner
@@ -122,7 +138,7 @@ ENV HOSTNAME="0.0.0.0"
 
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/bun
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
@@ -132,7 +148,34 @@ COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./next.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 COPY --from=builder --chown=nextjs:nodejs /app/purger ./purger
 COPY --from=builder --chown=nextjs:nodejs /app/scheduler ./scheduler
+COPY --from=builder --chown=nextjs:nodejs /app/observability ./observability
+# Shared by purger/ and scheduler/ — both require ../workers/platform-scope to
+# step up to the BYPASSRLS role (ADR-0041). Without it neither worker starts.
+COPY --from=builder --chown=nextjs:nodejs /app/workers ./workers
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+# The only `src/` file the runtime needs: the audit action+schema registry the
+# deploy-time provisioning script reconciles into WorkOS. It is shared with the
+# app (which reaches it through the bundle, not from disk), so it lives in
+# lib/audit rather than being duplicated into scripts/.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/lib/audit/schemas.mjs
+# `next.config.ts` imports these at server start (AVATAR_IMAGE_PATTERNS,
+# LOCAL_IMAGE_PATTERNS); Next transpiles the config to
+# `next.config.compiled.js`, which then requires the files from disk — missing
+# from the image, `server.js` dies with MODULE_NOT_FOUND before ever listening
+# (avatar-hosts: update 67 CrashLoopBackOff; optimizable: update 83).
+# Both modules must stay import-free (see their file headers) — anything they
+# import needs a copy here too.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./src/lib/images/avatar-hosts.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/optimizable.ts ./src/lib/images/optimizable.ts
+# `server.js` requires these three at startup for WebSocket rate limiting
+# (ADR-0040 L2b). They are CommonJS precisely so the proxy can load them — the
+# same shared catalog the TypeScript side imports — which means they must be on
+# disk in the runtime image, not merely inside the Next bundle. Missing, the
+# gateway dies with MODULE_NOT_FOUND before it ever listens (the failure mode
+# that took the avatar-hosts copy above to learn).
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/rules.js ./src/lib/limits/rules.js
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/factory.js ./src/lib/limits/factory.js
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src/lib/limits/ws-frames.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
@@ -147,4 +190,9 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -f http://localhost:3000/api/healthz || exit 1
 
-CMD ["sh", "-c", "node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]
+# Provision the row-level-security roles, THEN migrate, then serve (ADR-0041).
+# The order is load-bearing: migration 0030 asserts the roles exist and aborts
+# if they do not, and `init-db.sql` only runs when Postgres initialises a FRESH
+# data directory — so on an upgraded stack nothing else would ever create them
+# and the container would never start. The step is idempotent and fail-soft.
+CMD ["sh", "-c", "node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]

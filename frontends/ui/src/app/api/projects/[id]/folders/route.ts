@@ -15,19 +15,25 @@ const createFolderSchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
 })
 
-export const GET = apiRoute<Params>(async ({ session, params }) => ({
-  folders: await listProjectFolders(params.id, session),
-}))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => ({
+    folders: await listProjectFolders(params.id, session),
+  }),
+  { authz: { enforcedBy: 'listProjectFolders (requireProjectAccess project:view)' } }
+)
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
     const { name, parentId } = await parseJsonBody(request, createFolderSchema)
     const result = await createProjectFolder(
       { projectId: params.id, name, parentId: parentId ?? null },
-      session,
+      session
     )
     if (!result.ok) throw new BadRequestError(result.error)
     return { folder: result.folder }
   },
-  { status: 201 },
+  {
+    status: 201,
+    authz: { enforcedBy: 'createProjectFolder (requireProjectAccess project:documents:write)' },
+  }
 )

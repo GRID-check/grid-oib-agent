@@ -1,14 +1,34 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import Image from 'next/image'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, ChevronDown, Download, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
+import {
+  AlertCircle,
+  ChevronDown,
+  Clock,
+  Download,
+  FileCode2,
+  FileText,
+  FileType2,
+  FolderOpen,
+  HardDrive,
+  Layers,
+  Maximize2,
+  Plus,
+  RotateCcw,
+  Shapes,
+  Sparkles,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
+import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -44,8 +64,12 @@ interface FilePreviewPaneProps {
    */
   showMetadataPanel?: boolean
   /**
-   * Extra action controls rendered under the download button (e.g. the Archiv's
-   * Delete affordance). Omitted for project documents, which have no delete.
+   * Extra action controls rendered in the right metadata column's action area,
+   * below the status/size rows and the re-ingest control (e.g. the Delete
+   * affordance, an authored full-width destructive button). A full-width control
+   * would misalign inside the icon-button header row, so it lives in the column
+   * where such buttons belong. Both the project Files and org Archiv workspaces
+   * supply a Delete here.
    */
   extraActions?: ReactNode
 }
@@ -67,6 +91,13 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  /**
+   * The same-origin signed path for the same bytes, when the optimizer can
+   * serve them. Separate from `previewUrl` rather than replacing it: the PDF
+   * iframe and the "open in new tab" link want the object-store URL, and a
+   * format the optimizer rejects still has to render.
+   */
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -107,11 +138,16 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
     fetch(`/api/documents/${file.id}/preview`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data?.url) setPreviewUrl(data.url)
-        else setPreviewFailed(true)
+        if (data?.url) {
+          setPreviewUrl(data.url)
+          // Absent for PDFs and for image formats the optimizer cannot process;
+          // the renderer falls back to `url` unoptimized in both cases.
+          setPreviewImageUrl(typeof data.imageUrl === 'string' ? data.imageUrl : null)
+        } else setPreviewFailed(true)
       })
       .catch(() => {
         setPreviewUrl(null)
+        setPreviewImageUrl(null)
         setPreviewFailed(true)
       })
       .finally(() => setIsLoading(false))
@@ -183,8 +219,11 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
 
   return (
     <div className="@container flex h-full flex-col bg-card">
-      {/* Header — extension tile, name/meta, download, expand, close. */}
-      <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
+      {/* Header — extension tile, name/meta, download, expand, close. The row
+          stays on one line (the name truncates); below `@md` the Download label
+          collapses to its icon so the controls never crowd a ~360px sheet. The
+          top padding grows past the safe-area inset on the full-screen sheet. */}
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] @md:gap-3 @md:px-4 sm:pt-3">
         <span
           className="flex size-8 shrink-0 items-center justify-center rounded-md text-[9.5px] font-bold uppercase leading-none"
           style={extChipTint(ext)}
@@ -194,26 +233,41 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
-          <p className="truncate text-[11.5px] text-muted-foreground">
-            {ext || file.contentType || t('preview.unknownType')}
-          </p>
+          {/* Type AND status on one line. The status badge used to live only in
+              the metadata column, below the fold on a narrow panel — so the one
+              question a reader has on opening a file ("is this actually indexed,
+              or am I looking at a document the agent cannot see?") was answered
+              further away than the answer to "what format is it". A document in
+              `failed` is the case that matters, and it must not require a
+              scroll. */}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-[11.5px] text-muted-foreground">
+              {ext || file.contentType || t('preview.unknownType')}
+            </p>
+            <span className="text-muted-foreground/40" aria-hidden>
+              ·
+            </span>
+            <DocumentStatusBadge status={file.status} className="shrink-0" />
+          </div>
         </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 shrink-0 gap-1.5"
+          className="h-8 shrink-0 gap-1.5 px-2 pointer-coarse:min-w-11 @md:px-3"
           onClick={handleDownload}
           disabled={isDownloading}
+          aria-label={t('preview.download')}
+          title={t('preview.download')}
         >
           <Download className="size-3.5" aria-hidden />
-          {t('preview.download')}
+          <span className="hidden @md:inline">{t('preview.download')}</span>
         </Button>
         {canExpandPreview && previewUrl && (
           <Button
             variant="ghost"
             size="icon"
-            className="size-7 shrink-0"
+            className="size-8 shrink-0"
             onClick={() => setIsLargePreviewOpen(true)}
             aria-label={t('preview.expandPreview')}
             title={t('preview.expandPreview')}
@@ -221,18 +275,31 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             <Maximize2 className="size-4" />
           </Button>
         )}
-        {extraActions}
         {onClose && (
-          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
+          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
             <X className="size-4" />
           </Button>
         )}
       </div>
 
       {downloadFailed && (
-        <p role="alert" className="shrink-0 border-b px-4 py-2 text-xs text-destructive">
-          {t('preview.downloadFailed')}
-        </p>
+        <div
+          role="alert"
+          className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-2"
+        >
+          <p className="text-xs text-destructive">{t('preview.downloadFailed')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5"
+            onClick={handleDownload}
+            disabled={isDownloading}
+          >
+            <RotateCcw className="size-3.5" aria-hidden />
+            {t('preview.tryAgain')}
+          </Button>
+        </div>
       )}
 
       {canExpandPreview && previewUrl && (
@@ -240,33 +307,77 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           open={isLargePreviewOpen}
           onOpenChange={setIsLargePreviewOpen}
           fileName={file.filename}
-          src={previewUrl}
+          // The enlarged view is the other place a full-size original used to
+          // cross the wire whole, so it gets the optimizable path too when there
+          // is one. PDFs keep the object-store URL — the iframe wants the real
+          // document, not an image.
+          src={(isImage ? previewImageUrl : null) ?? previewUrl}
           isImage={isImage}
+          // Asked of the src actually rendered, rather than inferred from
+          // "did we get a signed path": those are two spellings of one rule,
+          // and only `isOptimizerEligible` is checked against the optimizer's
+          // real allow-list (see `optimizable.ts`).
+          imageUnoptimized={!isOptimizerEligible((isImage ? previewImageUrl : null) ?? previewUrl)}
         />
       )}
 
       {/* Body split — document preview on the left, indexed metadata on the
-          right. Side-by-side in the wide Dateien modal; stacks in a narrow
-          container (e.g. a docked column) via container queries. */}
-      <div className="flex min-h-0 flex-1 flex-col @2xl:flex-row">
+          right. Two independently-scrolling columns side-by-side in the wide
+          Dateien modal (`@2xl`+); a SINGLE vertical scroll (preview capped, all
+          metadata flowing below) in a narrow container / mobile sheet.
+
+          The scroll chain matters: `min-h-0` lets this flex child actually
+          shrink below its content, and the overflow lives on the RIGHT layer for
+          each mode — the body itself scrolls when stacked, each column scrolls
+          when split. Without a bounded panel above (the dialog now gives one)
+          this used to overflow into the panel's `overflow-hidden` and clip the
+          metadata unreachably. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain @2xl:flex-row @2xl:overflow-hidden">
         {/* Left: live preview, or a decorative page mock while loading / when
-            there is no inline preview. The column claims a generous minimum
-            height so the document is readable inline — a comfortable fixed
-            floor when the pane is docked/stacked (narrow), scaling to the
-            viewport once the split goes side-by-side in the wide Dateien modal.
-            The Maximize2 affordance in the header still opens the full-screen
-            viewer for PDFs and images. */}
-        <div className="flex min-h-[420px] min-w-0 flex-1 justify-center overflow-y-auto bg-muted/40 p-5 @2xl:min-h-[65vh]">
+            there is no inline preview. Stacked (mobile): a capped ~50dvh block
+            that clips to itself so a tall document/image never pushes the
+            metadata off-screen. Split (@2xl+): an independently-scrollable
+            column. The Maximize2 affordance in the header still opens the
+            full-screen viewer for PDFs and images. */}
+        <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-muted/40 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain">
           {canPreview && isLoading ? (
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (
             file.contentType === 'application/pdf' ? (
               <iframe src={previewUrl} className="h-full w-full rounded border bg-background" title={file.filename} />
             ) : (
-              <img
-                src={previewUrl}
+              // This is where the bytes actually were: the preview URL serves
+              // the FULL-SIZE original into a column a few hundred pixels wide,
+              // so a 4000px scan used to cross the wire whole. `previewImageUrl`
+              // is the same-origin signed path the optimizer can resize; it is
+              // null for the formats the optimizer would choke on (SVG and the
+              // exotic ones), which then fall back to the object-store URL
+              // unoptimized — the old behaviour, kept as the safe default.
+              //
+              // Sizing stays with CSS either way: the well is only bounded on
+              // mobile (`h-[50dvh]`) and grows with its content at `@2xl`, where
+              // a `fill` child would collapse the column to nothing. Hence 0/0
+              // for the ratio next/image cannot know, plus an explicit `w-auto`
+              // so the browser sizes to the image and not to the width="0".
+              <Image
+                src={previewImageUrl ?? previewUrl}
                 alt={file.filename}
-                className="h-fit max-w-full rounded border bg-background object-contain shadow-sm"
+                width={0}
+                height={0}
+                sizes="(min-width: 1536px) 720px, 90vw"
+                unoptimized={!isOptimizerEligible(previewImageUrl ?? previewUrl)}
+                // Either URL can be expired or unreachable by the time the
+                // browser fetches the bytes — a presigned link on its own TTL,
+                // or a signed image path whose window has rolled over — and the
+                // fetch above only proves the BFF handed one out. Fall back to
+                // the same failed state the fetch path uses so the user gets the
+                // caption and the retry button instead of a broken-image glyph.
+                onError={() => {
+                  setPreviewUrl(null)
+                  setPreviewImageUrl(null)
+                  setPreviewFailed(true)
+                }}
+                className="h-fit w-auto max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"
               />
             )
           ) : (
@@ -284,11 +395,21 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           )}
         </div>
 
-        {/* Right: 250px indexed-metadata panel (files-metadata-panel flag, FB-8).
+        {/* Right: indexed-metadata panel (files-metadata-panel flag, FB-8).
             The AI summary that grounds the agent's answers, the ingestion-detected
             key-value props, and the user-correctable tags. Status/type/size sit
-            below it and are never gated (they predate the metadata panel). */}
-        <div className="flex w-full shrink-0 flex-col overflow-y-auto border-t bg-muted/30 p-4 @2xl:w-[250px] @2xl:border-l @2xl:border-t-0">
+            below it and are never gated (they predate the metadata panel).
+
+            Stacked (mobile): plain flow content inside the body's single scroll —
+            never `shrink-0` against an unbounded parent, which is what clipped it
+            before. Split (@2xl+): a fixed-width column that scrolls on its own. */}
+        {/* `scroll-fade-bottom` dissolves the last rows instead of guillotining
+            them. This column routinely overflows — summary, six metadata rows,
+            tags and the visual-details section — and a hard clip through the
+            middle of a value reads as broken rather than as "there is more".
+            The utility is scroll-driven, so the fade RETRACTS at the bottom of
+            travel: its presence is the signal, not decoration. */}
+        <div className="scroll-fade-bottom flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
           {showMetadataPanel && (
             <section className="space-y-3" aria-label={t('preview.indexed.title')}>
               <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
@@ -298,33 +419,33 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
               {file.summary && <p className="text-[12.5px] leading-relaxed text-foreground">{file.summary}</p>}
               <div className="space-y-2">
                 {detectedType && (
-                  <MetaRow label={t('preview.indexed.documentType')}>
+                  <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
                     <span className="text-xs font-medium text-foreground">{detectedType}</span>
                   </MetaRow>
                 )}
                 {projectName && (
-                  <MetaRow label={t('preview.indexed.project')}>
+                  <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
                     <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
                   </MetaRow>
                 )}
                 {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-                  <MetaRow label={t('preview.pages')}>
+                  <MetaRow label={t('preview.pages')} icon={FileText}>
                     <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
                   </MetaRow>
                 )}
                 {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-                  <MetaRow label={t('preview.chunks')}>
+                  <MetaRow label={t('preview.chunks')} icon={Layers}>
                     <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
                   </MetaRow>
                 )}
                 {hasRichContent && (
-                  <MetaRow label={t('preview.contents')}>
+                  <MetaRow label={t('preview.contents')} icon={Shapes}>
                     <span className="text-xs text-foreground">
                       {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
                     </span>
                   </MetaRow>
                 )}
-                <MetaRow label={t('preview.indexed.updated')}>
+                <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
                   <span className="text-xs font-medium tabular-nums text-foreground">
                     {formatAbsoluteTime(file.createdAt, locale)}
                   </span>
@@ -342,7 +463,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                     type="button"
                     onClick={toggleDetails}
                     aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground touch-target"
                   >
                     {t('preview.visualDetails.title')}
                     <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
@@ -374,13 +495,12 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           )}
 
           <div className={cn('space-y-2', showMetadataPanel && 'mt-4 border-t pt-4')}>
-            <MetaRow label={t('preview.status')}>
-              <DocumentStatusBadge status={file.status} />
-            </MetaRow>
-            <MetaRow label={t('preview.type')}>
+            {/* No status row here: the header badge already answers it, and
+                the same fact stated twice on one surface reads as two facts. */}
+            <MetaRow label={t('preview.type')} icon={FileCode2}>
               <span className="truncate font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
             </MetaRow>
-            <MetaRow label={t('preview.size')}>
+            <MetaRow label={t('preview.size')} icon={HardDrive}>
               <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
             </MetaRow>
           </div>
@@ -413,6 +533,10 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             </div>
           )}
 
+          {/* Extra actions (e.g. Delete) — a full-width destructive control that
+              belongs in this column, not the icon-button header row. */}
+          {extraActions}
+
           <div className="flex-1" />
           {showMetadataPanel && (
             <p className="mt-4 border-t pt-3 text-[11px] leading-relaxed text-muted-foreground/80">
@@ -424,8 +548,8 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
 
       {/* Footer page indicator — mirrors the click-dummy's "Seite 1 von N". */}
       {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-        <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 py-2 text-[11.5px] text-muted-foreground">
-          {t('preview.pageIndicator', { count: file.pageCount })}
+        <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11.5px] text-muted-foreground @2xl:pb-2">
+          {t('preview.pageCountOnly', { count: file.pageCount })}
         </div>
       )}
     </div>
@@ -549,7 +673,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -621,11 +745,35 @@ function DocumentTagsSection({
   )
 }
 
-function MetaRow({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * One label/value row in the indexed-metadata column.
+ *
+ * The icon is not decoration: this is a scan target, not prose, and a column of
+ * six plain text labels forces the reader to actually read each one to find the
+ * row they want. A glyph per row gives the eye something to land on, and the
+ * glyphs are chosen to mean the thing (a page for pages, layers for retrieval
+ * passages) rather than to fill the slot. `aria-hidden` throughout — the label
+ * beside it is already the accessible name, so the icon must not double it.
+ */
+function MetaRow({
+  label,
+  icon: Icon,
+  children,
+}: {
+  label: string
+  icon: LucideIcon
+  children: ReactNode
+}) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {children}
+    <div className="flex items-start justify-between gap-3">
+      {/* The LABEL never truncates — it is the key, and "Cont…" tells the
+          reader nothing. Long values wrap in the right column instead, which is
+          what a five-item content-type list actually needs. */}
+      <span className="flex shrink-0 items-center gap-1.5 pt-px text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+        {label}
+      </span>
+      <span className="min-w-0 text-right">{children}</span>
     </div>
   )
 }

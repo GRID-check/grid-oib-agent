@@ -24,7 +24,7 @@ breakage is not attributed to your change (and your change cannot hide behind it
 
 ```bash
 source .venv/bin/activate && python3 -m pytest tests/ -q | tail -5
-cd frontends/ui && npx vitest run --reporter=dot 2>&1 | tail -5
+cd frontends/ui && npx --no-install vitest run --reporter=dot 2>&1 | tail -5
 cd frontends/ui && npm run type-check 2>&1 | tail -20
 ```
 
@@ -36,15 +36,63 @@ baseline failure caused by a genuine product bug should be reported, not ignored
 | You changed… | You must run and show output of… |
 |---|---|
 | Python backend (`src/`, `sources/`, `frontends/aiq_api/`) | targeted pytest for the touched area, then the full `python3 -m pytest tests/ -q`; `ruff check` and `ruff format --check` on touched files |
-| Frontend (`frontends/ui/`) | targeted `npx vitest run <specs>`, then the full suite; `npm run type-check` (no new errors vs. baseline) |
+| Frontend (`frontends/ui/`) | targeted `npx --no-install vitest run <specs>`, then the full suite; `npm run type-check` (no new errors vs. baseline); **`npm run lint` must exit clean — zero problems, not "no new ones"** (see §2a) |
 | WS/SSE protocol or any message schema | both sides: backend emitter tests AND frontend Zod/parser tests for the same field names |
 | LLM behavior (prompts, models, structured output) | a live smoke call against the configured provider (OpenRouter key in env) proving the contract parses — or an explicit note that live validation was not possible and why |
-| User-visible UI | a screenshot from the screenshot harness (`cd frontends/ui && npm run screenshots [-- <id>]`, output in `frontends/ui/visual/screenshots/`) — add a `/dev/*` preview route + a `visual/registry.mjs` target for the new surface; see `docs/ux/visual-screenshots.md`. Quote the exact user-visible copy in the summary too. |
+| User-visible UI | a screenshot from the screenshot harness (`cd frontends/ui && npm run screenshots [-- <id>]`, output in `frontends/ui/visual/screenshots/`) — add a `/dev/*` preview route + a `visual/registry.mjs` target for the new surface; see `docs/ux/visual-screenshots.md`. **A NEW component without that evidence is not done** (the `visual-coverage` workflow nudges on the PR); opt genuinely non-visual components out with a `// no-visual: <reason>` marker. Quote the exact user-visible copy in the summary too. |
 | Anything long-running / a service | the actual logs showing the behavior, not an inference from code reading |
 
 New behavior needs a test that fails without the change. A bug fix needs a
 regression test that would have caught it — if the existing test suite passed
 while the bug existed, the suite was wrong too; fix both.
+
+## 2a. `any` is never done
+
+**`any` is not an accepted type anywhere in this repo — not in production code,
+not in test doubles, not "just for now".** `@typescript-eslint/no-explicit-any`
+is an **error** in `frontends/ui/eslint.config.mjs` and the suite is at zero.
+A change that adds one is not done, however green the tests are.
+
+This is not style. A test double typed `(s: any) => any` switches off checking
+for the *fixture* as well as the selector, so the fixture silently stops
+matching the code it stands in for. Clearing the original backlog turned up an
+`error` field and an `addStatusCard` action fixtured in a spec that exist
+nowhere in production, two `session` fixtures missing required members, and
+several DB-row fixtures missing `notNull` columns — none of which any test
+could have caught while the casts were there.
+
+Reach for, in order of preference:
+
+1. **The real type.** Usually it already fits — several `as any`s in the
+   backlog were simply unnecessary.
+2. **A narrowing of it** — `Partial<T>`, `Pick<T, …>`, `Omit<T, …>`, or a
+   documented wire type when the JSON shape genuinely differs from the
+   server type (dates arrive as strings).
+3. **`unknown`** plus a type guard, when the value really is unknown.
+4. **`as unknown as T` at ONE documented boundary**, named and commented, when
+   a stand-in cannot be fully typed (a drizzle query-builder stub, a mock
+   module with added test hooks). Never sprinkled at call sites.
+
+For spec fixtures, use the shared helpers rather than inventing a cast:
+
+- `@/test-utils/store-fixtures` — `DeepPartial<TState>` keeps a zustand fixture
+  partial while still checking every field against the real store;
+  `asStoreState<TState>()` confines the widening to one audited place;
+  `StoreSelector<TState>` types the mock with the hook's real signature.
+- `@/test-utils/db-fixtures` — `makeProject` / `makeDocument` /
+  `makeMemoryItem` return complete repository rows, so a repository mock
+  resolves to something the service can actually read; `asDb()` is the single
+  boundary where a partial drizzle query-builder stub widens to the `getDb`
+  handle, so that cast is not re-derived per spec.
+
+When typing a fixture surfaces an error, that is the point of the exercise:
+**fix the fixture, do not widen the type back.** If the fixture was wrong, the
+test was asserting against a shape that never existed — say so in the summary.
+
+`no-console` is the same deal: `warn`, `error` and `debug` are allowed
+(`console.debug` is the dev-only diagnostic channel, and its call sites are
+`NODE_ENV`-gated). A stray `console.log` shipping to production logs is a
+finding, not a warning to wave through.
 
 ## 3. Documentation is part of the change
 
@@ -95,7 +143,8 @@ explicit "not verified because …":
 ```
 - Baseline captured: <failing tests before work>
 - Tests: <suite results after change, new failures = 0>
-- Lint/typecheck: <ruff / tsc results>
+- Lint/typecheck: <ruff / tsc results; `npm run lint` exit code>
+- `any` introduced: NONE <or name each site and why no real type was reachable>
 - New/regression tests added: <names>
 - Live/LLM validation: <what was called, result | n/a because …>
 - UI evidence: <screenshot path / quoted copy | n/a because …>
@@ -109,6 +158,12 @@ explicit "not verified because …":
 Environment quirks that repeatedly cost time. Each points to the doc that owns
 the detail — read the doc, don't guess.
 
+- **`any` fails the build, and a spec is not exempt.** `no-explicit-any` is an
+  eslint **error** and the suite sits at zero — §2a has the ladder to reach for
+  instead (real type → narrowing → `unknown` → one documented
+  `as unknown as T`) and the `@/test-utils/{store,db}-fixtures` helpers that
+  cover the common spec cases. Do not reach for a cast because a fixture is
+  awkward to build; the awkwardness is usually the fixture being wrong.
 - **Frontend checks need `node_modules`.** Host `npm install` is flaky but works
   here; if `type-check` / `vitest` / generators fail with `ERR_MODULE_NOT_FOUND`,
   run `cd frontends/ui && npm install` first. The card generators also need it
@@ -123,8 +178,29 @@ the detail — read the doc, don't guess.
 - **Grid cards are generated backend→frontend.** Editing `src/aiq_agent/cards/models.py`
   is not enough: run `uv run python scripts/generate_card_schema.py` then
   `cd frontends/ui && npm run generate:cards`, and add the renderer branch in
-  `features/grid-cards/components/GridCards.tsx`. Full recipe:
+  `features/grid-cards/components/GridCards.tsx`. You must also classify the new
+  type in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) — that
+  map is exhaustive, so `type-check` fails until you do. Full recipe:
   **`docs/architecture/cards.md`**.
+- **A card with a button that writes something is not done until its answer
+  persists.** `project_profile_patch` and `memory_proposal` authorize a real
+  write, so the decision must be recorded on the `ChatMessage`
+  (`cardInteractions` via `useCardDecision`), never in component-local
+  `useState`. A lost decision re-offers a button that applies the patch / writes
+  the memory a second time — neither endpoint is idempotent. **ADR-0030.**
+- **CI workflows have their own traps, and they fail at deploy time, not review
+  time.** A shallow checkout with `persist-credentials: false` cannot diff a
+  push (paths-filter needs `fetch-depth: 0`); `/repos/{owner}/{repo}/packages/…`
+  is not a REST endpoint and 404s; GHCR paths are lowercase while
+  `$GITHUB_REPOSITORY_OWNER` is `GRID-check`, and a mixed-case image ref reaches
+  the cluster as an unpullable image rather than a workflow error. Details and
+  the reasons the current code looks the way it does: **`docs/deployment/cd.md`
+  § Workflow gotchas**.
+- **A workflow-only change is still verifiable — verify it.** Load the run's
+  actual logs (not the summary) to find the failing line, `yaml.safe_load` the
+  file, `bash -n` any `run:` block you edited, and exercise external calls
+  (registry/API) against the real service before claiming the fix works. Say
+  plainly which paths only run post-merge and are therefore unproven.
 - **Raw `sql<T>` results aren't runtime-validated** — coerce at the repository
   boundary (`new Date(...)`, `Number(...)`). See the AGENTS.md Conventions note.
 

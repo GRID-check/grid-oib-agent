@@ -21,6 +21,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
+from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
@@ -29,11 +30,16 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import begin_turn_capture
+from aiq_agent.common.citation_verification import end_turn_capture
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
+from aiq_agent.common.citation_verification import get_turn_captures
+from aiq_agent.common.citation_verification import record_turn_capture
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
@@ -44,6 +50,7 @@ from aiq_agent.common.norm_registry import render_block_for_prompt
 from ...common import LLMProvider
 from ...common import LLMRole
 from .dsml import strip_and_salvage_dsml_tool_calls
+from .markers import answer_confidence_capped_reason
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .models import ShallowResearchAgentState
@@ -496,6 +503,9 @@ class ShallowResearcherAgent:
                     sources = extract_sources_from_tool_result(tool_name, str(msg.content), source_id=source_id)
                     for source in sources:
                         active_registry.add(source)
+                    # The registry is cumulative across the conversation; the
+                    # citation-health ledger needs THIS turn's retrieval.
+                    record_turn_capture(sources)
                     if sources:
                         logger.info(
                             "[CitationRegistry] Captured %d source(s) from %s: %s",
@@ -546,9 +556,17 @@ class ShallowResearcherAgent:
         config = {"recursion_limit": recursion_limit}
         if self.callbacks:
             config["callbacks"] = self.callbacks
+        # What THIS turn's tool calls returned. The registry is cumulative
+        # across the conversation (so a later turn can still cite an earlier
+        # turn's document), which makes it the wrong denominator for a per-turn
+        # citation-health row — see ``get_turn_captures``.
+        turn_sources: list[SourceEntry] = []
+        turn_capture_token = begin_turn_capture()
         try:
             result = await self._graph.ainvoke(state, config=config)
+            turn_sources = get_turn_captures()
         finally:
+            end_turn_capture(turn_capture_token)
             if registry_token is not None:
                 reset_session_registry(registry_token)
 
@@ -564,6 +582,13 @@ class ShallowResearcherAgent:
         # ``quote_unverified`` reason. Fail-open default: no sources / no quotes
         # leaves it True.
         answer_quotes_verified = True
+        # Same signal as a count, for the citation-health ledger (how MANY spans
+        # failed, not just whether any did).
+        unverified_quote_count = 0
+        # Whether the single-source fallback below had to supply the citation
+        # because nothing the model wrote survived verification. Grounded, but
+        # not by the model's own choice — recorded as its own ledger event.
+        citation_fallback_used = False
         # Sources the model actually cited in THIS turn's answer (its own
         # relevance decision), resolved from ``verification.valid_citations``.
         # These — NOT the cumulative session registry — become the turn's
@@ -571,6 +596,11 @@ class ShallowResearcherAgent:
         # turn's RIS sources. Defaults to empty; populated in the verification
         # block below where ``verification`` is in scope.
         relevant_sources: list[SourceEntry] = []
+        # ``id(entry)`` → the ``[N]`` citation label that entry carries in the
+        # answer prose. Only the verifier knows this binding, so it travels on
+        # the wire; the FE renders one numbered provenance block from it instead
+        # of duplicating the written source list next to an unnumbered chip row.
+        citation_numbers: dict[int, int] = {}
         # Control-marker signals extracted from the model's answer. Populated
         # below and carried as STRUCTURED state so the chat node does not have to
         # re-parse the answer string (which also leaked the markers downstream).
@@ -579,10 +609,14 @@ class ShallowResearcherAgent:
         # detection". A bool means extraction ran and the value is authoritative.
         escalation_requested: bool | None = None
         answer_confidence_marker: str | None = None
+        answer_confidence_marker_reason: str | None = None
         # Transparency summary of any citations dropped by verify_citations this
         # turn. Populated in the verification block below; stays None when the
         # registry was empty or nothing was removed, so the field stays absent.
         citations_removed_summary: dict[str, Any] | None = None
+        # The raw drop records behind that summary. The ledger needs per-reason
+        # COUNTS (the wire summary only carries deduplicated reason keys).
+        removed_citations_detail: list[dict[str, Any]] = []
         messages_list = validated_result.get("messages") or []
         # Select the answer message with the SAME selector the chat node uses:
         # the last AIMessage that is not a tool call. Marker extraction, citation
@@ -613,7 +647,9 @@ class ShallowResearcherAgent:
                 # operate on clean prose.
                 content = strip_and_salvage_dsml_tool_calls(content)
                 content, escalation_requested = detect_and_strip_escalation_marker(content)
-                content, answer_confidence_marker = detect_and_strip_confidence_marker(content)
+                content, answer_confidence_marker, answer_confidence_marker_reason = detect_and_strip_confidence_marker(
+                    content
+                )
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
@@ -631,6 +667,7 @@ class ShallowResearcherAgent:
                     )
                     content = verification.verified_report
                     citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
+                    removed_citations_detail = list(verification.removed_citations)
                     # Quote verification: verify_citations only proves a cited
                     # SOURCE is real, not that a QUOTED sentence actually appears
                     # in it. Catch the weak model's "real section, fabricated
@@ -642,6 +679,7 @@ class ShallowResearcherAgent:
                     if unverified_quotes:
                         content = annotate_unverified_quotes(content, unverified_quotes)
                         answer_quotes_verified = False
+                        unverified_quote_count = len(unverified_quotes)
                         logger.info(
                             "Shallow researcher: %d quoted span(s) not verbatim in any retrieved "
                             "passage; annotated inline and capping confidence",
@@ -669,6 +707,14 @@ class ShallowResearcherAgent:
                                 if entry is not None and id(entry) not in seen_ids:
                                     seen_ids.add(id(entry))
                                     relevant_sources.append(entry)
+                                    # Keep the [N] label this source carries in the
+                                    # prose. The binding exists only here (the
+                                    # verifier resolved it); without it the FE
+                                    # cannot fold the written "## Sources" list
+                                    # and the chip row into one provenance block.
+                                    number = citation.get("number")
+                                    if isinstance(number, int):
+                                        citation_numbers[id(entry)] = number
                     elif len(sources) == 1:
                         # No model citation survived, but exactly one registry
                         # source is available: append it as the single minimal
@@ -677,8 +723,11 @@ class ShallowResearcherAgent:
                         # only surface it as a chip on a research turn.
                         content = _append_minimal_citation(content, sources[0])
                         citation_grounded = True
+                        citation_fallback_used = True
                         if state.requires_sources:
                             relevant_sources = [sources[0]]
+                            # ``_append_minimal_citation`` always writes "[1]".
+                            citation_numbers = {id(sources[0]): 1}
                 elif state.requires_sources:
                     # Distinguish "retrieval genuinely failed" from "the agent
                     # answered from conversation/project context without ever
@@ -699,6 +748,15 @@ class ShallowResearcherAgent:
                             self.tools,
                             research_type="shallow research",
                             enable_logging=False,
+                        )
+                        # Record the hardest citation failure there is — the turn
+                        # captured nothing to cite — before it becomes an error
+                        # the user sees, so it lands on the platform dashboard
+                        # beside the softer defects instead of only in the logs.
+                        citation_events.record_empty_registry(
+                            agent="shallow",
+                            unavailable_tools=unavailable,
+                            available_count=available_count,
                         )
                         raise EmptySourceRegistryError(
                             "shallow research",
@@ -724,6 +782,17 @@ class ShallowResearcherAgent:
                 # Step 2: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
                 sanitization = sanitize_report(content)
                 content = sanitization.sanitized_report
+                # Sanitization closes the gaps that verify_citations' removals
+                # left in the [N] sequence, so the numbers captured above (which
+                # the model wrote) can be stale by the time the reader sees the
+                # answer. Remap them or a chip is labelled [3] while the prose
+                # that points at it now says [2] — and the inline marker's anchor
+                # scrolls to a row that does not exist.
+                if sanitization.renumber_map:
+                    citation_numbers = {
+                        entry_id: sanitization.renumber_map.get(number, number)
+                        for entry_id, number in citation_numbers.items()
+                    }
 
                 # Emit verified/sanitized report so the frontend shows the
                 # cleaned version (overwrites the raw draft auto-emitted
@@ -749,6 +818,7 @@ class ShallowResearcherAgent:
         # real answer message and are authoritative (else it re-parses text).
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
+        validated_result["answer_confidence_marker_reason"] = answer_confidence_marker_reason
         # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
         # Emit ONLY the sources the model cited in THIS turn's answer
         # (``relevant_sources``), never the cumulative session registry — a
@@ -761,7 +831,7 @@ class ShallowResearcherAgent:
         wire_sources: list[dict[str, Any]] = []
         for entry in relevant_sources:
             try:
-                wire_sources.append(source_entry_to_wire(entry))
+                wire_sources.append(source_entry_to_wire(entry, number=citation_numbers.get(id(entry))))
             except Exception:
                 logger.warning(
                     "Skipping source that failed wire serialization: %s",
@@ -772,6 +842,38 @@ class ShallowResearcherAgent:
         # Transparency: only present when ≥1 citation was actually removed.
         if citations_removed_summary is not None:
             validated_result["citations_removed"] = citations_removed_summary
+
+        # Citation-health ledger: one batch per RESEARCH turn (a meta turn has
+        # nothing to cite, so counting it would inflate the clean rate). Gated
+        # on an answer message actually having been verified. Best-effort by
+        # construction — ``record_turn`` swallows everything.
+        if state.requires_sources and answer_index is not None:
+            # THIS turn's retrieval, not the cumulative conversation registry:
+            # the ledger's source_count is the denominator that cited_count is
+            # measured against, and cited_count has always been per-turn.
+            registry_sources = turn_sources
+            citation_events.record_turn(
+                agent="shallow",
+                source_count=len(registry_sources),
+                cited_count=len(wire_sources),
+                removed_citations=removed_citations_detail,
+                unverified_quote_count=unverified_quote_count,
+                grounded=citation_grounded,
+                fallback_used=citation_fallback_used,
+                confidence_capped_reason=answer_confidence_capped_reason(
+                    answer_confidence_marker, citation_grounded, answer_quotes_verified
+                ),
+                source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
+                source_lanes=[source.get("lane") for source in wire_sources],
+                source_tools=[entry.tool_name or None for entry in registry_sources],
+                # Source IDENTITIES (URL / document key) — never answer prose.
+                # They turn the platform export from "3 citations removed" into
+                # "these three documents were cited but never retrieved".
+                retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
+                cited_source_labels=[
+                    label for label in ((s.get("citation_key") or s.get("url")) for s in wire_sources) if label
+                ],
+            )
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

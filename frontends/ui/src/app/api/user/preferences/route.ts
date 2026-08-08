@@ -12,9 +12,14 @@ const updatePreferencesSchema = z.object({
   prefs: z.record(z.unknown()),
 })
 
-export const GET = apiRoute(async ({ session }) => ({ prefs: await getUserPreferences(session) }))
-
-export const POST = apiRoute(async ({ session, request }) => {
-  const { prefs } = await parseJsonBody(request, updatePreferencesSchema)
-  return { prefs: await mergeUserPreferences(session, prefs) }
+export const GET = apiRoute(async ({ session }) => ({ prefs: await getUserPreferences(session) }), {
+  authz: { sessionOnly: true, why: 'the caller’s own preferences, keyed to session.userId' },
 })
+
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const { prefs } = await parseJsonBody(request, updatePreferencesSchema)
+    return { prefs: await mergeUserPreferences(session, prefs) }
+  },
+  { authz: { sessionOnly: true, why: 'the caller’s own preferences, keyed to session.userId' } }
+)

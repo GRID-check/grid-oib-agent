@@ -1,20 +1,22 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, Archive, RotateCcw, Trash2, Upload, X } from 'lucide-react'
+import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
+import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
+import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { ArchivLibraryPane } from './archiv-library-pane'
-import { FilePreviewPane } from './file-preview-pane'
+import { FilePreviewDialog } from './file-preview-dialog'
+import { DeleteDocumentButton } from './delete-document-button'
+import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
-import { useIsMobile } from '@/hooks/use-is-mobile'
-import { cn } from '@/lib/utils'
 
 interface ArchivWorkspaceProps {
   /** Whether the viewer may upload/delete (holds `org:archiv:manage`). */
@@ -25,13 +27,9 @@ interface ArchivWorkspaceProps {
 
 /**
  * Gold Büroarchiv identity mark (spec §4, `--source-office`): icon + label
- * together so color is never the only carrier (a11y). Semantic tokens with
- * pre-retune fallbacks — no hex.
+ * together so color is never the only carrier (a11y).
  */
-const OFFICE_TINT: CSSProperties = {
-  backgroundColor: 'var(--source-office-tint, var(--background-color-feedback-warning-subtle))',
-  color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
-}
+const OFFICE_TINT = sourceTint('office')
 
 interface ArchivListResponse {
   documents?: Array<Record<string, unknown>>
@@ -114,6 +112,21 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     if (!error) lastToastedError.current = null
   }, [error])
 
+  // Confirm the instant a document finishes async ingestion and becomes citable.
+  // Provenance-correct for the office Archiv — gold + archive-box icon (spec §4,
+  // color never travels alone). Fires once per newly-completed file.
+  useIngestionCompleteToast(
+    files,
+    useCallback(
+      (file: FileItem) => {
+        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
+          icon: <Archive className="size-4" style={{ color: sourceBase('office') }} aria-hidden />,
+        })
+      },
+      [t]
+    )
+  )
+
   // Refetch the durable list when an upload batch settles.
   const wasUploading = useRef(false)
   useEffect(() => {
@@ -153,18 +166,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     disabled: isUploading || !canManage,
   })
 
-  useEffect(() => {
-    const prevent = (e: DragEvent) => e.preventDefault()
-    window.addEventListener('dragover', prevent)
-    window.addEventListener('drop', prevent)
-    return () => {
-      window.removeEventListener('dragover', prevent)
-      window.removeEventListener('drop', prevent)
-    }
-  }, [])
-
-  const isMobile = useIsMobile()
-  const showMobilePreviewDialog = isMobile && selectedFile !== null
+  useWindowDragGuard()
 
   const uploadButton = canManage ? (
     <ProjectUppyUpload onUpload={(f) => uploadFiles(f)} isUploading={isUploading} />
@@ -173,18 +175,12 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   return (
     <div className="relative flex h-full flex-col" {...(canManage ? dragHandlers : {})} data-testid="archiv-dropzone">
       {canManage && isDragging && (
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-center',
-            isUnsupportedDrag ? 'border-destructive bg-destructive/5' : 'border-ring bg-primary/5 backdrop-blur-sm',
-          )}
-          data-testid="archiv-drop-overlay"
-        >
-          <Upload className={cn('size-6', isUnsupportedDrag ? 'text-destructive' : 'text-primary')} aria-hidden />
-          <p className={cn('text-sm font-medium', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}>
-            {isUnsupportedDrag ? t('workspace.dropUnsupported') : t('workspace.dropToUpload')}
-          </p>
-        </div>
+        <FileDropOverlay
+          isUnsupported={isUnsupportedDrag}
+          uploadLabel={t('workspace.dropToUpload')}
+          unsupportedLabel={t('workspace.dropUnsupported')}
+          testId="archiv-drop-overlay"
+        />
       )}
 
       {/* Top action bar */}
@@ -228,7 +224,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       {/* Live upload progress */}
       <ActiveUploads files={activeUploads} onRetry={retryFile} />
 
-      {/* Two-pane layout (no folders): library grid + preview overlay/column. */}
+      {/* Library grid; the preview opens in the shared centered-modal dialog. */}
       <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         <div className="flex-1 overflow-y-auto">
           {loadError ? (
@@ -251,89 +247,25 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           )}
         </div>
 
-        {selectedFile && (
-          <div
-            className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0"
-            {...(showMobilePreviewDialog
-              ? { role: 'dialog', 'aria-modal': true, 'aria-label': selectedFile.filename }
-              : {})}
-          >
-            <FilePreviewPane
-              file={selectedFile}
-              canManage={canManage}
-              onClose={() => setSelectedFileId(null)}
-              onReingested={handleReingested}
-              onTagsUpdated={handleTagsUpdated}
-              showMetadataPanel={showMetadataPanel}
-              extraActions={
-                canManage ? (
-                  <DeleteDocumentButton fileId={selectedFile.id} filename={selectedFile.filename} onDeleted={handleDeleted} />
-                ) : undefined
-              }
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * Two-step Delete affordance for an Archiv document: the first click reveals an
- * inline Confirm/Cancel row so a stray tap can't purge a shared document.
- */
-function DeleteDocumentButton({
-  fileId,
-  filename,
-  onDeleted,
-}: {
-  fileId: string
-  filename: string
-  onDeleted: (fileId: string) => void
-}) {
-  const t = useTranslations('archiv')
-  const [confirming, setConfirming] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const handleDelete = useCallback(async () => {
-    setIsDeleting(true)
-    try {
-      const res = await fetch(`/api/archiv/documents/${fileId}`, { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`)
-      toast.success(t('delete.success', { name: filename }))
-      onDeleted(fileId)
-    } catch {
-      toast.error(t('delete.error'))
-      setIsDeleting(false)
-      setConfirming(false)
-    }
-  }, [fileId, filename, onDeleted, t])
-
-  if (!confirming) {
-    return (
-      <Button
-        type="button"
-        variant="ghost"
-        className="mt-2 w-full gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setConfirming(true)}
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t('delete.action')}
-      </Button>
-    )
-  }
-
-  return (
-    <div className="mt-2 space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-      <p className="text-xs text-muted-foreground">{t('delete.confirm')}</p>
-      <div className="flex gap-2">
-        <Button type="button" variant="destructive" size="sm" className="flex-1 gap-1.5" onClick={handleDelete} disabled={isDeleting}>
-          <Trash2 className="size-3.5" aria-hidden />
-          {isDeleting ? t('delete.deleting') : t('delete.confirmAction')}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={isDeleting}>
-          {t('delete.cancel')}
-        </Button>
+        <FilePreviewDialog
+          file={selectedFile}
+          canManage={canManage}
+          onClose={() => setSelectedFileId(null)}
+          onReingested={handleReingested}
+          onTagsUpdated={handleTagsUpdated}
+          showMetadataPanel={showMetadataPanel}
+          extraActions={
+            canManage && selectedFile ? (
+              <DeleteDocumentButton
+                fileId={selectedFile.id}
+                filename={selectedFile.filename}
+                onDeleted={handleDeleted}
+                deleteUrl={`/api/archiv/documents/${selectedFile.id}`}
+                namespace="archiv"
+              />
+            ) : undefined
+          }
+        />
       </div>
     </div>
   )

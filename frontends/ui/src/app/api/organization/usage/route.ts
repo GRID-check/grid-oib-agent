@@ -15,6 +15,7 @@ const querySchema = z.object({
   projectId: z.string().optional(),
 })
 
-export const GET = apiRoute(async ({ session, request }) =>
-  getUsageOverview(session, parseQuery(request, querySchema)),
+export const GET = apiRoute(
+  async ({ session, request }) => getUsageOverview(session, parseQuery(request, querySchema)),
+  { authz: { enforcedBy: 'getUsageOverview (canManageBudgets, else own usage only)' } }
 )

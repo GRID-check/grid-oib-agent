@@ -27,6 +27,8 @@ import { ThermalEnvelopeCard } from '@/features/grid-cards/schematics/ThermalEnv
 import { EnergyPerformanceCard } from '@/features/grid-cards/schematics/EnergyPerformanceCard'
 import { ElevatorRequirementCard } from '@/features/grid-cards/schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '@/features/grid-cards/schematics/ParkingRequirementCard'
+import { GridCards } from '@/features/grid-cards/components/GridCards'
+import type { GridCard } from '@/shared/cards/schemas'
 
 const OIB2 = { document: 'OIB-Richtlinie 2', section: 'Pkt. 3.1', edition: 'Ausgabe Mai 2023' }
 const OIB3 = { document: 'OIB-Richtlinie 3', section: 'Pkt. 9.1.1', edition: 'Ausgabe Mai 2023' }
@@ -354,6 +356,41 @@ export default function CardsGalleryPage() {
           bicycle_spaces={{ label: 'Fahrradabstellplätze', value: 28, required: 24, unit: 'Stpl.', comparator: '>=', status: 'pass' }}
           basis="1 Stellplatz je Wohneinheit (14 WE)"
           reference={{ document: 'Wiener Garagengesetz 2008', section: '§ 48' }}
+        />
+      </Section>
+
+      {/* The two INTERACTIVE cards (ADR-0030) go through the GridCards
+          dispatcher rather than being rendered directly, so the gallery
+          exercises the same `cardKey` wiring the chat uses. With no owning
+          message they fall back to local state — clickable here, deliberately
+          not durable. */}
+      <Section id="project_profile_patch">
+        <GridCards
+          cards={[
+            {
+              type: 'project_profile_patch',
+              title: 'Projektkontext aktualisieren: Fluchtniveau',
+              rationale:
+                'Sie haben angegeben, dass das oberste Fluchtniveau bei 25 m liegt — damit ist das Gebäude ein Hochhaus (> 22 m) und OIB-Richtlinie 2.3 wird anwendbar.',
+              patch: [{ op: 'add', path: '/facts/fluchtniveau', value: '>22m' }],
+            },
+          ] as GridCard[]}
+          projectId={null}
+        />
+      </Section>
+
+      <Section id="memory_proposal">
+        <GridCards
+          cards={[
+            {
+              type: 'memory_proposal',
+              title: 'Diese Erkenntnis merken?',
+              content: 'Das Büro setzt bei GK 4 durchgängig REI 90 an, auch wo REI 60 genügen würde.',
+              kind: 'preference',
+              confidence: 'high',
+            },
+          ] as GridCard[]}
+          projectId={null}
         />
       </Section>
     </main>

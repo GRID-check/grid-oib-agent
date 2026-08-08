@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -85,6 +88,7 @@ describe('collectFreeTextFields', () => {
 describe('collectStructuredContextFields', () => {
   it('renders applicable structured answers with option labels, excluding free text', () => {
     const answers: Answers = {
+      A2_country: 'at',
       A2_land: 'wien',
       A5: ['neubau'],
       G1: 'Ein Freitext, der nicht im strukturierten Kontext auftauchen darf.',

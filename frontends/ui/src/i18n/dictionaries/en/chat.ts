@@ -12,10 +12,21 @@ export const chat = {
     corpusDocument: 'Building law & guidelines',
     // Tinted box with the passage the answer cites.
     citedPassage: 'Cited passage',
+    // Marks a source the report actually cited (vs. merely discovered).
+    cited: 'Cited',
     loadFailed: 'The source preview could not be loaded. Please try again.',
     // Bindingness note (how a RIS source binds the project) in the info popover.
     bindingLabel: 'Binding effect',
     openExternal: 'Open in RIS',
+    // Coarse source kind (ADR-0026) shown in the info popover. Preferred
+    // over `origins` because the origin token is kb/ris/web only, so a
+    // knowledge-base copy of a legal text reads as project material.
+    kinds: {
+      baurecht: 'Building law & guidelines',
+      buero: 'Office archive',
+      projekt: 'Project knowledge',
+      web: 'Web source',
+    },
     // Origin line in the info popover (no openable document).
     origins: {
       kb: 'Project knowledge',
@@ -35,15 +46,20 @@ export const chat = {
       projekt: 'Project',
       buero: 'Office',
     },
-    // A surfaced file that no longer resolves to a readable document row.
-    unavailable: 'No longer available',
+    // A surfaced file that no longer resolves to a live document row — an honest,
+    // actionable card (the assistant referenced it; open the archive / project
+    // files) rather than a silent dead tile.
+    unresolvedHint: 'The assistant referenced this file.',
+    openInArchive: 'Open in archive',
+    openInFiles: 'Open in project files',
+    // The resolve fetch failed — a retry affordance, not a permanent dead tile.
+    loadError: 'Documents couldn’t be loaded.',
+    retry: 'Try again',
     openAria: 'Open document: {label}',
-    loadFailed: 'The document could not be opened. Please try again.',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
-    placeholder:
-      'Describe what you are working on — Piloti shows you, step by step, what is relevant …',
+    placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
     deepResearch: 'Deep Research',
@@ -57,6 +73,9 @@ export const chat = {
     scopeCurrent: 'Current project',
     scopeAll: 'All projects',
     scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} sources active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
   shortcuts: {
@@ -76,6 +95,16 @@ export const chat = {
     withName: '{greeting}, {name}.',
     subtitle: 'Ask about your project — answers cite their sources.',
   },
+  // Example Austrian Baurecht questions on the empty chat state — clicking one
+  // prefills the composer (does not auto-send) to break blank-page paralysis.
+  examples: {
+    label: 'Try asking',
+    questions: {
+      fluchtweg: 'Escape route length per OIB-2?',
+      barrierefreiheit: 'Accessibility in Vienna residential construction?',
+      brandabschnitte: 'Fire compartments for building class 4?',
+    },
+  },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
     private: 'Private workspace',
@@ -92,12 +121,51 @@ export const chat = {
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',
+    // Honest "Lücke" gap row: a substantive answer that cites nothing renders
+    // this in the neutral --source-auto family instead of hiding its lack of
+    // grounding (design language — first-class knowledge-gap treatment).
+    gapLabel: 'Without source citation',
+    gapAria: 'This answer cites no sources',
+    // The consolidated list numbers each source the way the answer's inline
+    // [N] markers do, and shows the cited page after the chip.
+    sourceNumber: 'Source {number}',
+    page: 'p. {page}',
+    pages: 'pp. {pages}',
+    // Citations the user can actually paste somewhere — per source (Fachtext)
+    // and for the whole answer in the formats external tools ingest.
+    copyCitation: 'Copy citation',
+    copied: 'Copied',
+    copyCitationAria: 'Copy citation for {label}',
+    copyFailed: 'The citation could not be copied.',
+    citeAll: 'Cite',
+    citeAsLabel: 'Copy all sources as',
+    formats: {
+      fachtext: { label: 'Citation text', hint: 'For a report or submission' },
+      apa: { label: 'APA', hint: 'Formatted bibliography' },
+      bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
+      ris: { label: 'EndNote/Zotero (.ris)', hint: 'Reference managers' },
+      'csl-json': { label: 'CSL-JSON', hint: 'Zotero, Word, pandoc' },
+    },
     // Note under the sources row when citation verification dropped one or more
     // unverifiable citations (WP-A `citations_removed`).
     citationsRemoved: '{count} citation(s) removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
   },
   // Thread-header breadcrumb (project / session title) with inline rename.
+  // The citation peek: what a Fundstelle IS, before you open it.
+  citationPeek: {
+    wholeDocument: 'Whole document',
+    openAtPage: 'Open at this passage',
+    copyLink: 'Copy link',
+    copyLinkAria: 'Copy a link to this passage: {label}',
+    markerAria: 'Source {number}: {label} — open preview',
+    lociLabel: '{count} passages',
+    lociAria: 'Passages in this document',
+    lociPosition: '{index}/{count}',
+    previousLocus: 'Previous passage',
+    nextLocus: 'Next passage',
+    retrievedOnly: 'Read',
+  },
   breadcrumb: {
     ariaLabel: 'Conversation breadcrumb',
     renameAria: 'Rename session — click to edit the title',
@@ -113,6 +181,14 @@ export const chat = {
   agentPrompt: {
     needsInput: 'Agent needs your input',
     receivedInput: 'Agent received your input',
+    /**
+     * Shown to a colleague in a shared thread instead of the buttons: the agent
+     * asked one person, and the agent tier refuses an answer from anybody else, so
+     * a button here would be offering a refusal. Without this line the card reads
+     * as broken rather than as somebody else's turn.
+     */
+    awaitingOther: 'Piloti is waiting for {name}',
+    awaitingSomeone: 'Piloti is waiting for another participant',
     approve: 'Approve',
     reject: 'Reject',
     approvePlan: 'Approve plan',
@@ -187,20 +263,40 @@ export const chat = {
       understanding: 'Understanding your question …',
       planning: 'Planning the approach …',
       searchingWeb: 'Searching the web …',
+      searchingKnowledge: 'Searching OIB knowledge …',
+      searchingRis: 'Searching RIS (Austrian law) …',
       searchingSources: 'Searching your sources …',
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
       runningNamed: '{name} …',
     },
+    // Compact "what actually ran" chips in the Herleitung basis — one chip per
+    // executed agent/tool, without the technical-steps opt-in.
+    executedSteps: 'Ran:',
+    stepName: {
+      understanding: 'Classification',
+      routing: 'Routing',
+      webSearch: 'Web search',
+      ris: 'RIS',
+      corpus: 'OIB corpus',
+      assistant: 'Assistant',
+      reading: 'Reading',
+    },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
     stepsHeading: 'Intermediate steps',
     sourcesFanOut: 'Sources',
     hitCount: '{count} hits',
+    hitCountOne: '1 hit',
     gapHit: 'Not in corpus',
+    // A document the research read but the answer never cited — a real
+    // research outcome, not a gap.
+    readNotUsed: 'read, not used',
     moreSources: '+{count} more',
     selectedDataSources: 'Selected Data Sources:',
     // "Why this path?" — the routing classification for this turn (WP-A
@@ -223,22 +319,27 @@ export const chat = {
       ris: 'RIS (Austrian Law)',
     },
     node: {
-      framingTab: 'Intermediate step',
+      framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
       findingsTab: 'Assessment',
-      findingsTitle: 'Backed by',
-      confidenceLabel: 'Confidence',
-      confidence: {
-        high: 'Well supported',
-        medium: 'Partly supported',
-        low: 'Weakly supported',
-      },
+      // Reasoning-only detail in the assessment node: which source lanes
+      // produced hits. NOT the answer's trust verdict (confidence/provenance) —
+      // that lives once, on the answer card.
+      findingsHits: 'Hits in: {lanes}',
+      // The proof-of-work tally, stated where the fan converges: what was
+      // actually read, before naming which strata it came from.
+      findingsTally: '{hits} hits across {docs} documents',
+      findingsTallyOne: '{hits} hits in 1 document',
+      // While the turn streams there is no assessment yet, but the graph still
+      // needs its converge point — otherwise the source columns dangle and the
+      // shape jumps when the answer lands.
+      findingsPendingTab: 'Assessment',
+      findingsPending: 'Weighing the sources …',
       branchesTab: 'Next steps',
-      branchesTitle: 'How do you want to proceed?',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
   },
@@ -280,6 +381,8 @@ export const chat = {
   error: {
     showDetails: 'Show details',
     hideDetails: 'Hide details',
+    // Retry action on an errored answer (design language: "helpful message + retry").
+    retry: 'Try again',
   },
   // Localized titles + default messages for the chat error registry
   // (features/chat/lib/error-registry.ts). Keyed by error code.
@@ -343,8 +446,6 @@ export const chat = {
     interrupted: 'Research was interrupted before completion.',
     reportUnavailable: 'This research report is no longer available.',
     serviceUnreachable: 'The service is currently unreachable. Please try again later.',
-    jobStillRunning:
-      'This research is still running. The report can be opened once it finishes.',
     loadFailed: 'Research data could not be loaded.',
   },
   // Toasts fired when a session is deleted but its deep-research job could not
@@ -403,6 +504,14 @@ export const chat = {
     ariaLabel: 'Assistant self-assessed confidence: {level}',
     tooltip:
       "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
+    // What each level MEANS, shown in the tooltip so the reader can interpret the chip.
+    levelMeanings: {
+      high: 'High: the answer is directly grounded in the retrieved sources, which support it clearly and consistently.',
+      medium: 'Medium: partially grounded — sources support parts, but a gap, an inference, or a minor ambiguity remains.',
+      low: 'Low: sources are missing, conflicting, or clearly insufficient; the answer extrapolates from general knowledge.',
+    },
+    // Label introducing the model's own one-clause justification (verbatim).
+    reasonLabel: "Assistant's reason",
     // Extra sentence appended to the tooltip explaining WHY the confidence was
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {

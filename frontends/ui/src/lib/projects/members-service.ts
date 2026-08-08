@@ -10,6 +10,7 @@ import { getWorkOS } from '@/lib/workos/client'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
+import { revokeCollaborationForProjectMember } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { findProjectWorkosResourceId } from './repository'
 
@@ -88,7 +89,7 @@ export async function listProjectMembers(
   session: AuthorizedSession,
   projectId: string,
 ): Promise<ProjectMember[]> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
   const workos = getWorkOS()
 
@@ -167,7 +168,7 @@ export async function setProjectMemberRole(
   input: { organizationMembershipId: string; roleSlug: ProjectMemberRole | '' },
   request: Request,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
   const workosResourceId = await findProjectWorkosResourceId(projectId, session.organizationId)
   if (!workosResourceId) throw new NotFoundError('Project resource not found.')
@@ -226,7 +227,7 @@ export async function removeProjectRoleAssignment(
   assignmentId: string,
   request: Request,
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
   const workosResourceId = await findProjectWorkosResourceId(projectId, session.organizationId)
   if (!workosResourceId) throw new NotFoundError()
@@ -246,6 +247,24 @@ export async function removeProjectRoleAssignment(
     organizationMembershipId: assignment.organizationMembershipId,
     roleAssignmentId: assignment.id,
   })
+
+  // Losing project access ends effective access to every conversation inside it
+  // (spec SH-4/SH-13), so collaboration state that depends on this person being
+  // able to READ those threads has to be settled now. Otherwise a thread waiting
+  // on them waits forever: they can no longer open it, so they can never answer.
+  // Grants are deliberately kept — they are inert while the container is
+  // unreachable, so re-adding the person restores their previous sharing state.
+  // Best-effort: an access-control change must not fail on notification bookkeeping.
+  try {
+    const membership = await workos.userManagement.getOrganizationMembership(
+      assignment.organizationMembershipId,
+    )
+    if (membership?.userId) {
+      await revokeCollaborationForProjectMember(session.organizationId, projectId, membership.userId)
+    }
+  } catch (error) {
+    console.warn('[members-service] collaboration cleanup after role removal failed:', error)
+  }
 
   await recordAuditEvent({
     organizationId: session.organizationId,

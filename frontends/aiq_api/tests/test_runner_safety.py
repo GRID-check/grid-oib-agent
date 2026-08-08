@@ -15,8 +15,11 @@ from unittest.mock import patch
 
 import pytest
 
+from aiq_api.jobs.runner import _GRAPH_RECURSION_ERROR_MSG
+from aiq_api.jobs.runner import _WALL_CLOCK_TIMEOUT_MSG
 from aiq_api.jobs.runner import CancellationMonitor
 from aiq_api.jobs.runner import _create_agent_instance
+from aiq_api.jobs.runner import _purge_deep_checkpoint
 from aiq_api.jobs.runner import _resolve_deep_research_checkpointer
 from aiq_api.jobs.runner import _update_status_if_not_terminal
 from aiq_api.jobs.runner import sanitize_job_error
@@ -293,3 +296,103 @@ class TestCreateAgentInstanceForwardsCheckpointer:
         )
 
         assert captured_kwargs["checkpointer"] is None
+
+    def test_deep_research_agent_receives_max_run_seconds(self):
+        """F5: max_run_seconds from fn_config is forwarded to DeepResearcherAgent."""
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+
+        fn_config = DeepResearchAgentConfig(orchestrator_llm="llm", max_run_seconds=999)
+        captured_kwargs = {}
+
+        def _agent_cls(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        _create_agent_instance(
+            agent_cls=_agent_cls,
+            llm_provider=MagicMock(),
+            llm=MagicMock(),
+            tools=[],
+            fn_config=fn_config,
+            verbose=False,
+            callbacks=[],
+            job_id="job-1",
+        )
+
+        assert captured_kwargs["max_run_seconds"] == 999
+
+    def test_deep_research_agent_receives_max_run_seconds_zero(self):
+        """F5: max_run_seconds=0 (disabled guard) is also forwarded."""
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+
+        fn_config = DeepResearchAgentConfig(orchestrator_llm="llm", max_run_seconds=0)
+        captured_kwargs = {}
+
+        def _agent_cls(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        _create_agent_instance(
+            agent_cls=_agent_cls,
+            llm_provider=MagicMock(),
+            llm=MagicMock(),
+            tools=[],
+            fn_config=fn_config,
+            verbose=False,
+            callbacks=[],
+            job_id="job-1",
+        )
+
+        assert captured_kwargs["max_run_seconds"] == 0
+
+
+class TestWallClockTimeout:
+    """F3: wall-clock budget timeout surfaces as a curated German message."""
+
+    def test_wall_clock_timeout_uses_curated_message(self):
+        """A TimeoutError with 'wall-clock' marker gets the correct message."""
+        message = sanitize_job_error(TimeoutError("deep research exceeded the 2400 s wall-clock budget"))
+        assert message == _WALL_CLOCK_TIMEOUT_MSG
+
+    def test_wall_clock_timeout_case_insensitive(self):
+        """The 'wall-clock' marker check is case-insensitive."""
+        message = sanitize_job_error(TimeoutError("WALL-CLOCK"))
+        assert message == _WALL_CLOCK_TIMEOUT_MSG
+
+    def test_generic_timeout_not_confused_with_wall_clock(self):
+        """A plain TimeoutError (external service) still gets the English message."""
+        message = sanitize_job_error(TimeoutError("connection to upstream timed out"))
+        assert message == "The job timed out while waiting on an external service."
+
+
+class TestGraphRecursionErrorClassification:
+    """F3: langgraph.GraphRecursionError gets a curated German message."""
+
+    def test_graph_recursion_uses_curated_message(self):
+        try:
+            from langgraph.errors import GraphRecursionError
+        except ImportError:
+            pytest.skip("langgraph not installed")
+
+        message = sanitize_job_error(GraphRecursionError("Recursion limit reached"))
+        assert message == _GRAPH_RECURSION_ERROR_MSG
+
+    def test_graph_recursion_not_confused_with_internal_error(self):
+        try:
+            from langgraph.errors import GraphRecursionError
+        except ImportError:
+            pytest.skip("langgraph not installed")
+
+        message = sanitize_job_error(GraphRecursionError("some error"))
+        assert "internal error" not in message
+
+
+class TestPurgeDeepCheckpointImportable:
+    """F7: _purge_deep_checkpoint lives in runner.py and is importable there."""
+
+    def test_purge_function_exists_in_runner(self):
+        assert callable(_purge_deep_checkpoint)
+
+    def test_purge_is_noop_without_dsn(self, monkeypatch):
+        monkeypatch.delenv("AIQ_DEEP_CHECKPOINT_DB", raising=False)
+        _purge_deep_checkpoint("job-x")  # must not raise

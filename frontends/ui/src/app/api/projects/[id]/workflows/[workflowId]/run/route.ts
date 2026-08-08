@@ -10,8 +10,11 @@ import { runWorkflowNow } from '@/lib/workflows/service'
 
 type Params = { id: string; workflowId: string }
 
-export const POST = apiRoute<Params>(async ({ session, params }) => {
-  const gated = requireWorkflowsEnabled(session)
-  if (gated) return gated
-  return { run: await runWorkflowNow(session, params.id, params.workflowId) }
-})
+export const POST = apiRoute<Params>(
+  async ({ session, params }) => {
+    const gated = requireWorkflowsEnabled(session)
+    if (gated) return gated
+    return { run: await runWorkflowNow(session, params.id, params.workflowId) }
+  },
+  { authz: { enforcedBy: 'runWorkflowNow (requireProjectAccess project:workflows:manage)' } }
+)

@@ -247,6 +247,42 @@ describe('loadServerConversations merge', () => {
     expect(merged.enabledDataSourceIds).toEqual([])
   })
 
+  /**
+   * A conversation someone ELSE created and shared with me (ADR-0032).
+   *
+   * `listVisibleConversations` returns it — visibility/grants are resolved
+   * server-side — but everything downstream of this merge filters the store on
+   * `conversation.userId === currentUserId`: the sessions panel, the
+   * `selectConversation` guard, storage protection, deep-research scoping. That
+   * field is a MEMBERSHIP marker ("belongs in this user's list"), never rendered
+   * as an author — authorship comes from the shared-thread participants. Stamping
+   * it with the creator therefore made every shared conversation invisible and
+   * unopenable for the person it was shared with, which is the entire feature.
+   */
+  it('claims a conversation shared by a colleague for the current user', async () => {
+    useChatStore.setState({ currentUserId: 'user-anna', conversations: [] })
+    mockConversationsClient.list.mockResolvedValue([
+      {
+        id: 's_shared_1',
+        title: 'Brandschutz Halle 3',
+        createdBy: 'user-matthias',
+        projectId: null,
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+    ])
+
+    await useChatStore.getState().loadServerConversations()
+
+    const merged = useChatStore.getState().conversations.find((c) => c.id === 's_shared_1')!
+    expect(merged.userId).toBe('user-anna')
+    // And it is therefore actually reachable — the assertion that matters.
+    expect(useChatStore.getState().getUserConversations().map((c) => c.id)).toContain('s_shared_1')
+
+    useChatStore.getState().selectConversation('s_shared_1')
+    expect(useChatStore.getState().currentConversation?.id).toBe('s_shared_1')
+  })
+
   it('repopulates the restored current conversation when its messages were pruned', async () => {
     const conv = makeConversation()
     useChatStore.setState({ conversations: [conv], currentConversation: conv })

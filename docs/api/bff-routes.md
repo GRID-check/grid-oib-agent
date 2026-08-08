@@ -72,10 +72,17 @@ Source: `frontends/ui/src/app/api/generate/route.ts`, `frontends/ui/src/app/api/
 | `DELETE` | `/api/conversations/{id}` | Required | Delete a conversation. | — | `204 No Content` |
 | `GET` | `/api/conversations/{id}/messages` | Required | List messages for a conversation, ordered by `createdAt` asc. Verifies org ownership. | — | `[{ id, role, content, metadata, createdAt }]` |
 | `POST` | `/api/conversations/{id}/messages` | Required | Create one or more messages. Accepts a single message or an array. | `{ id, role, content }` or `[{ id, role, content }, ...]` | `[{ id, role, content, ... }]` (201) |
+| `PATCH` | `/api/conversations/{id}/messages/{messageId}` | Required | Record the user's answers to that answer's interactive cards, merged **per card key** into `metadata.cardInteractions` (ADR-0030), so a settled `project_profile_patch` / `memory_proposal` cannot be re-offered after a server rehydrate. `decision` is validated against a closed union, `decidedAt` must be a UTC ISO-8601 instant (`…Z`; offset forms are rejected), keys are ≤64 chars and ≤64 entries; a non-uuid `messageId` is a 400. | `{ cardInteractions: { "<type>-<index>": { decision, decidedAt } } }` | `{ id, role, content, metadata, ... }` |
 
-All conversation routes access the PostgreSQL database directly (not proxied to Python). They enforce org-level scoping by filtering on `conversations.organizationId`.
+Two further per-conversation routes belong to the collaboration feature and are
+documented with the rest of it in
+[`collaboration-routes.md`](collaboration-routes.md): `POST /api/conversations/{id}/typing`
+(composing presence) and `GET /api/conversations/{id}/live` (watch a turn stream in).
+Both are gated on the collaboration flag.
 
-Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app/api/conversations/[id]/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/route.ts`
+All conversation routes access the PostgreSQL database directly (not proxied to Python). They enforce org-level scoping by filtering on `conversations.organizationId`. `messages` has no organization column, so message routes resolve the conversation org-scoped first and 404 on a mismatch.
+
+Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app/api/conversations/[id]/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/[messageId]/route.ts`
 
 ## Projects
 
@@ -155,6 +162,12 @@ Users only ever read/write their **own** votes; when a vote carries a
 | `POST` | `/api/feedback/answers` | Required | Upsert the caller's vote on one answer. `reason` (fixed keys `inaccurate`/`too_slow`/`wrong_source`/`other`) is only valid with `verdict: "down"`. | `{ messageId, verdict: 'up'\|'down', reason?, conversationId?, projectId? }` | `{ messageId, verdict, reason }` |
 | `DELETE` | `/api/feedback/answers?messageId=` | Required | Retract (toggle off) the caller's vote. Idempotent. | — | `204 No Content` |
 | `GET` | `/api/feedback/answers?conversationId=` | Required | The caller's own votes in one conversation (bounded to 200), for client hydration. | — | `{ feedback: [{ messageId, verdict, reason }] }` |
+
+These three routes are the whole of the tenant-facing surface — nobody in an
+organization can read anyone else's votes. The collected feedback is read back
+cross-organization by the platform owner only, through
+`/api/platform/answer-feedback` (and its `/export` and `/digest` siblings) in the
+platform-tier table below.
 
 Source: `frontends/ui/src/app/api/feedback/answers/route.ts`; `frontends/ui/src/lib/feedback/*`.
 
@@ -241,7 +254,7 @@ Source: `frontends/ui/src/app/api/organizations/route.ts`
 
 | Method | Path | Auth | Description | Request Body | Response |
 |--------|------|------|-------------|-------------|----------|
-| `GET` | `/api/organization/model-config` | Org admin | Agent-group registry + active model-config version (ADR-0014). | — | `{ agentGroups, activeVersion, updatedBy, updatedAt }` |
+| `GET` | `/api/organization/model-config` | Org admin | Agent-group registry + active model-config version (ADR-0014). `defaults` is what the org *inherits* per group — the platform default, or the workflow YAML where none is pinned. | — | `{ agentGroups, defaults, catalogSource, zdrOnly, activeVersion, updatedBy, updatedAt }` |
 | `PUT` | `/api/organization/model-config` | Org admin | Validate overrides against the live OpenRouter catalog, write a new immutable version, activate it. 422 = validation errors, 503 = catalog down. | `{ overrides: {group: {model}}, comment? }` | `{ activeVersion }` (201) |
 | `GET` | `/api/organization/model-config/versions` | Org admin | Version history. | — | `{ versions, activeVersionId }` |
 | `POST` | `/api/organization/model-config/versions/{id}/activate` | Org admin | Roll back / re-activate a version; `{id}` = `none` deactivates all overrides. | — | `{ activeVersion }` |
@@ -260,7 +273,17 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 | Method | Path | Auth | Description | Response |
 |--------|------|------|-------------|----------|
 | `GET` | `/api/platform/overview` | Platform owner | Cross-org directory (WorkOS) joined with Grid stats: project counts + LLM spend per org from the usage ledger, totals, and the platform-wide 30-day `dailyTrend`. | `{ organizations, dailyTrend, totals, eurPerUsd }` |
+| `GET` | `/api/platform/citation-health?days=` | Platform owner | Cross-org citation-quality rollup over the `citation_events` ledger: clean rate, defect mix, per-day trend, removal reasons, flagged-turn source mix, missing-source candidates, per-org table, recent findings, and the derived `findings` action list. `days` clamps to 1–90 (default 30). | `{ windowDays, totals, findings, byKind, dailyTrend, reasons, sourceMix, unavailableTools, missingSources, organizations, recent }` |
+| `GET` | `/api/platform/citation-health/export?days=` | Platform owner | Diagnostic bundle for the same window as a downloadable JSON file (`Content-Disposition: attachment`, `Cache-Control: no-store`): one record per flagged turn with the sources retrieval returned, the sources the answer cited, and which citation failed for which reason — plus a glossary so a human or an AI agent can interpret it without further context. | `grid.citation-health.export/v1` bundle |
+| `GET` | `/api/platform/model-defaults` | Platform owner | The agent-group registry, the current platform default per group (with `zdrSafe` from the save-time snapshot), and the workflow YAML model each group falls back to. | `{ agentGroups, defaults, workflowDefaults }` |
+| `PUT` | `/api/platform/model-defaults` | Platform owner | Replace the fleet defaults. Every model is revalidated against the live OpenRouter catalog + the group's capability requirements; groups omitted from `defaults` are cleared back to the YAML. 422 = validation errors, 503 = catalog down. Audited as `platform.model_defaults.updated`. | `{ defaults }` |
+| `GET` | `/api/platform/model-defaults/models?group&q` | Platform owner | Platform OpenRouter catalog search filtered to models appropriate for the group, each annotated with `zdrSafe`. | `{ group, models }` |
+| `GET` | `/api/platform/retrieval-settings` | Platform owner | The retrieval-count catalog (labels, bounds, defaults) and the effective value per key — a pinned platform value or the build-time config default. | `{ definitions, settings }` |
+| `PUT` | `/api/platform/retrieval-settings` | Platform owner | Replace the fleet retrieval counts. Every value is validated against the catalog bounds (422 with per-key errors); keys omitted from `settings` are cleared back to the config defaults. Audited as `platform.retrieval_settings.updated`. | `{ settings }` |
 | `POST` | `/api/platform/audit-portal` | Platform owner | Admin Portal audit-logs link for the GRID Platform org (platform trail incl. break-glass events). 404 = platform org not provisioned. | `{ link }` |
+| `GET` | `/api/platform/answer-feedback?days=&verdict=&reason=&org=&topic=&q=` | Platform owner | Cross-org rollup of the per-answer thumbs (`answer_feedback`), which were written since WS-7 and read by nobody until this surface: helpful/unhelpful totals with the DISTINCT voters behind them, the assistant-answer count in the window as a denominator, the down-vote reason mix, a per-day series, per-organization and per-topic rollups, and a drill-in of rated turns joined back to the question that produced them. `verdict` (`down` default, `up`) picks which half the drill-in lists; `reason`/`q` narrow the drill-in only, `org`/`topic` narrow the aggregates too. `days` coerces to 7/30/90 (default 30); the drill-in is capped at 50 rows. | `{ windowDays, answers, totals, reasons, daily, organizations, topics, turns }` |
+| `GET` | `/api/platform/answer-feedback/export?…` | Platform owner | The same drill-in, same filters and same gate, as a downloadable UTF-8 CSV with a BOM (`Content-Disposition: attachment`, `Cache-Control: no-store`). Carries `verdict` as both a column and part of the filename, so a praise export and a defect export are distinguishable once the file leaves the browser. | `text/csv` |
+| `GET` | `/api/platform/answer-feedback/digest?…&locale=&refresh=1` | Platform owner | The same window in sentences: an LLM-written headline plus separate `strengths`/`concerns` lists and one suggested next step (backend `POST /v1/feedback-digest`). Cached for 6 hours through the shared cache (`@/lib/cache`, Dragonfly when `REDIS_URL` is set), keyed by window + `org` + `topic` + locale — never by the drill-in filters, which do not change the sentences. `refresh=1` bypasses the cached value. Answers `200` with `digest: null` and a reason (`no_feedback`, `too_few_votes`, or a failure code) rather than an error status: a young window is an ordinary state. | `{ digest: { headline, strengths, concerns, recommendation, generatedAt, windowDays, votes } \| null, error }` |
 | `GET` | `/api/widgets/token?org=platform&scope=…` | Platform owner | Widget token minted against the GRID Platform organization (platform dashboard widgets). | `{ token }` |
 
 `POST /api/organizations` now returns stable error codes (`self-serve-disabled` 403 when `GRID_DISABLE_SELF_SERVE_ORGS=true`, `create-failed` 500) — never raw provider messages. Org routes are permission-gated per area (`org:models:manage`, `org:budgets:manage`, `org:compliance:manage`; see `lib/authz/permissions.ts`).
@@ -269,10 +292,14 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). |
+| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired. |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
+| `POST` | `/api/internal/citation-events` | `x-grid-internal-token` | Backend citation-health emitter's per-turn batches into the `citation_events` ledger (`src/aiq_agent/common/citation_events.py`). One row per `(turnId, kind)`; conflicts are ignored so a retried flush cannot double-count. |
 | `POST` | `/api/internal/workflows/fire` | `x-grid-internal-token` | Scheduler-fired workflow run (`{ workflowId }`). Re-checks `enabled` + the org's workflows gate, then submits through the shared fire path (ADR-0023). |
 | `GET` | `/api/internal/model-overrides?organizationId=` | `x-grid-internal-token` | **New 2026-07-16.** Just-in-time org model-override resolution (ADR-0014) for backend call sites whose request carries no `x-grid-model-overrides`/`X-Grid-Request-Context` header — `common/model_overrides.py`'s `resolve_org_model_overrides()` calls this, cached in-process. Returns `{ overrides: {group: modelId} \| null }`; reuses the write-invalidated cache inside `getActiveModelOverrides`, so a config save is visible on the next backend fetch. |
+| `GET` | `/api/internal/document-file?collection=&filename=` | `x-grid-internal-token` | **New 2026-08-03.** Just-in-time storage-key resolution for the backend's `view_knowledge_image` tool (ADR-0039): maps the `(collection, filename)` pair the backend carries to the SeaweedFS `storage_key` in the `documents` table. Returns `{ storageKey, contentType }` (404 when unknown); the backend fetches the bytes itself via boto3. Collection name is the tenancy boundary (`proj_<uuid>`/`archiv_<orgId>`), so no per-org FGA — read-only metadata. Declares `tenancy: { fromPayload }`; when the backend supplies no `organizationId` (every `proj_` collection) the lookup runs under an explicit platform scope, so row-level security does **not** constrain it — the unguessable collection name is still the only boundary on that path (ADR-0041). |
+| `GET` | `/api/internal/retrieval-settings` | `x-grid-internal-token` | **New 2026-07-31.** Just-in-time fleet retrieval-count resolution for backend tools (knowledge retrieval, surface documents, web/RIS search): `common/retrieval_settings.py`'s `get_retrieval_setting()` calls this, TTL-cached in-process (60s positive / 30s negative) and fail-open to the build-time YAML values. Returns `{ settings: {key: value} }` — only the pinned (non-default) keys. |
+| `POST` | `/api/internal/storage/alerts` | `x-grid-internal-token` | **New 2026-08-07.** Storage-quota alert sweep (ADR-0042), called hourly by the `storage-alerts` CronJob. One grouped cross-tenant aggregate finds each organization's stored bytes; the sweep then re-enters each org with `withTenant` (so the inbox writes stay under row-level security despite the route's `crossTenant` declaration) and raises a `storage.quota_warning` inbox item for every active holder of `org:settings:manage` once usage crosses the configured threshold (`GRID_STORAGE_ALERT_THRESHOLD_PERCENT`, default 80; auto-escalating at 90/100). **Idempotent across sequential calls** — an already-live row suppresses re-emission, which is what makes at-least-once CronJob delivery safe — while a drop below the threshold archives the outstanding rows and re-arms the next crossing. Returns `{ organizationsChecked, alerted, notified, retired, thresholdPercent }`. |
 
 ## User Preferences
 

@@ -3,6 +3,7 @@ import type { StateCreator } from 'zustand'
 import type {
   ChatStore,
   ChatMessage,
+  ComposerPrefill,
   ThinkingStep,
   StatusType,
   PromptType,
@@ -14,8 +15,12 @@ import type {
   AnswerTransparency,
   HumanPromptInputType,
 } from '../types'
+import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { GridCard } from '@/shared/cards/schemas'
-import { getErrorMeta } from '../lib/error-registry'
+import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
+import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
+import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
+import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
 import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
 
@@ -37,7 +42,7 @@ export type MessagesSlice = {
    * this flag. Store-backed because the composer draft itself lives in
    * component-local state with no cross-component setter.
    */
-  composerPrefill: string | null
+  composerPrefill: ComposerPrefill | null
   /**
    * Per-session composer drafts keyed by conversation id: the user's own
    * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
@@ -49,6 +54,14 @@ export type MessagesSlice = {
    * already scoped to one project + user) and cannot leak across contexts.
    */
   composerDrafts: Record<string, string>
+  /**
+   * Transient send callback registered by InputArea's WebSocket chat hook
+   * (mirrors `respondToInteractionFn`). Lets sibling components that do not own
+   * the socket — e.g. the "Erneut versuchen" retry action on an errored answer,
+   * rendered in ChatArea — resend a message through the live send path. Not
+   * persisted (see `partialize` in store.ts).
+   */
+  chatSendFn: ((content: string) => void) | null
 
   startAssistantMessage: () => ChatMessage
   appendToAssistantMessage: (content: string) => void
@@ -130,6 +143,7 @@ export type MessagesSlice = {
     messageId: string,
     patch: Partial<ChatMessage>
   ) => void
+  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => void
   addFileCard: (data: FileCardData) => void
   updateFileCard: (messageId: string, data: Partial<FileCardData>) => void
   addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
@@ -144,9 +158,50 @@ export type MessagesSlice = {
   ) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
-  consumeComposerPrefill: () => string | null
+  consumeComposerPrefill: () => ComposerPrefill | null
+  /** Register the live chat send callback (called by InputArea on mount). */
+  setChatSendFn: (fn: ((content: string) => void) | null) => void
+  /**
+   * Resend the last user message of the current conversation — the retry
+   * affordance on an errored answer. Sends through the registered `chatSendFn`
+   * when present; otherwise falls back to prefilling the composer with that
+   * text so the user can send it manually. No-op when there is no user message.
+   */
+  retryLastUserMessage: () => void
+
+  /**
+   * Splice messages that originated on the SERVER into a conversation — the
+   * write half of the ADR-0033 seam, used only for shared conversations.
+   *
+   * Everything else in this slice writes messages the local client just
+   * produced; this is the one action for messages a *colleague* (or this user on
+   * another device) produced. Three properties are load-bearing:
+   *
+   *   1. **Deduplicated by message id.** The push channel echoes your own write
+   *      back to you, and without this the optimistic bubble would render twice
+   *      (ADR-0033 §5). Where both copies exist the LOCAL object wins, because it
+   *      carries streaming/thinking state the server never stored — only the
+   *      server's facts (position, author, mentions) are folded in.
+   *   2. **No turn state is touched.** `isStreaming`, `isLoading`,
+   *      `thinkingSteps`, `streamingAssistantMessageId` and
+   *      `currentUserMessageId` all belong to THIS client's turn. A colleague's
+   *      message arriving must not disturb them.
+   *   3. **No persist POST.** These messages came FROM the server; mirroring them
+   *      back would be a write loop.
+   *
+   * With `replace` the server list is treated as authoritative for the thread
+   * (the load-on-open path): known ids keep their local object but take the
+   * server's ordering facts, and local-only messages ride at the tail because by
+   * definition they are not yet persisted — dropping an in-flight turn is the
+   * risk ADR-0033 explicitly warns about.
+   */
+  insertRemoteMessages: (
+    conversationId: string,
+    messages: ChatMessage[],
+    options?: { replace?: boolean }
+  ) => void
 
   /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
   setComposerDraft: (conversationId: string, text: string) => void
@@ -184,6 +239,130 @@ const updateConversationInList = (
   updatedConversation: Conversation
 ): Conversation[] => {
   return conversations.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
+}
+
+// ── Remote (server-originated) message merging — the ADR-0033 seam ────────────
+
+/** Milliseconds of a message's timestamp, which may be a Date or an ISO string. */
+const messageTime = (message: ChatMessage): number => {
+  const value = message.timestamp
+  const time = value instanceof Date ? value.getTime() : new Date(value).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+/**
+ * Thread order, identical for every participant (spec CC-11): server timestamp
+ * first, message id as the tiebreak. Ordering on the id rather than on arrival
+ * is what stops two clients showing the same two messages in different orders
+ * when they were written in the same millisecond.
+ */
+const compareThreadOrder = (a: ChatMessage, b: ChatMessage): number => {
+  const byTime = messageTime(a) - messageTime(b)
+  if (byTime !== 0) return byTime
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+/**
+ * Fold the server's facts about a message we already hold locally into the local
+ * object: its authoritative timestamp (so ordering is the server's, not this
+ * browser's clock) and the authorship/mention metadata the optimistic copy never
+ * had. Returns the SAME object when nothing differs, because message-object
+ * identity is what lets the message list skip re-rendering (see ChatArea's memo).
+ */
+const withServerFacts = (local: ChatMessage, remote: ChatMessage): ChatMessage => {
+  const patch: Partial<ChatMessage> = {}
+
+  if (messageTime(remote) !== messageTime(local)) patch.timestamp = remote.timestamp
+  if (remote.authorUserId && remote.authorUserId !== local.authorUserId) {
+    patch.authorUserId = remote.authorUserId
+  }
+  if (remote.authorName && remote.authorName !== local.authorName) patch.authorName = remote.authorName
+  if (remote.authorAvatarUrl && remote.authorAvatarUrl !== local.authorAvatarUrl) {
+    patch.authorAvatarUrl = remote.authorAvatarUrl
+  }
+  if (remote.mentions && !local.mentions) patch.mentions = remote.mentions
+  if (remote.addressees && !local.addressees) patch.addressees = remote.addressees
+
+  return Object.keys(patch).length === 0 ? local : { ...local, ...patch }
+}
+
+/**
+ * Merge server-originated messages into a conversation's list.
+ *
+ * Returns the ORIGINAL array when nothing changed, so a poll or focus refresh
+ * that learns nothing new costs no re-render, no conversation rebuild and no
+ * re-sort. `added` distinguishes "a message arrived" (new activity in the thread)
+ * from "an existing message was corrected" (resolved author names, the server's
+ * timestamp) — only the former is activity that may reorder the session list.
+ */
+const mergeRemoteMessages = (
+  local: ChatMessage[],
+  remote: ChatMessage[],
+  replace: boolean
+): { messages: ChatMessage[]; added: boolean } => {
+  const localById = new Map(local.map((message) => [message.id, message]))
+
+  // Known ids keep their local object (plus the server's facts); unknown ids are
+  // genuinely new — a colleague's message, or one of ours from another device.
+  let changed = false
+  let added = false
+  const reconciled = remote.map((message) => {
+    const existing = localById.get(message.id)
+    if (!existing) {
+      changed = true
+      added = true
+      return message
+    }
+    const merged = withServerFacts(existing, message)
+    if (merged !== existing) changed = true
+    return merged
+  })
+
+  const remoteIds = new Set(remote.map((message) => message.id))
+  const localOnly = local.filter((message) => !remoteIds.has(message.id))
+
+  // A local-only message is either (a) part of the turn happening right now, which
+  // the server has not been told about yet, or (b) a stale leftover of the
+  // local-first era. Incremental merges keep both — they are not claiming to know
+  // the whole thread. A `replace` load IS claiming that, so it keeps only what is
+  // demonstrably in flight: an open streaming bubble, or a message no older than
+  // the newest row the server returned. An empty server list never wipes a
+  // thread — a thread the server has no rows for is a thread we know nothing
+  // about, not an empty one.
+  const newestRemoteTime = remote.reduce((newest, message) => Math.max(newest, messageTime(message)), 0)
+  const keptLocalOnly =
+    replace && remote.length > 0
+      ? localOnly.filter((message) => message.isStreaming || messageTime(message) >= newestRemoteTime)
+      : localOnly
+  if (keptLocalOnly.length !== localOnly.length) changed = true
+
+  if (!changed) return { messages: local, added: false }
+
+  return { messages: [...reconciled, ...keptLocalOnly].sort(compareThreadOrder), added }
+}
+
+/**
+ * Apply a "Function Complete: X" payload to a step, carrying its retrieval over.
+ *
+ * The step is keyed by function name alone, so every call a ReAct-style agent
+ * makes to the SAME tool within one turn lands on the same step and replaces its
+ * `content` wholesale — which is correct for the visible step text (it shows the
+ * latest output) but silently threw away what the earlier calls had retrieved:
+ * the `## Trace-Lanes` block of call #1 was gone the moment call #2 completed,
+ * and with it the source card the Herleitung had already rendered for it. So
+ * before the overwrite we lift the lanes out of BOTH the outgoing and the
+ * incoming payload and fold them into `traceLanes`, the step's cumulative record
+ * of what the turn has read. `content` is still replaced exactly as before, and
+ * lanes are only attached once there is something to attach, so a step whose
+ * tool ships no structured block (web/RIS) keeps falling through to the URL scan
+ * in `deriveTraceLanes`.
+ */
+const withCompletedPayload = (step: ThinkingStep, content: string, isComplete: boolean): ThinkingStep => {
+  const carried = mergeTraceLaneCards(step.traceLanes, parseTraceLanesBlock(step.content))
+  const merged = mergeTraceLaneCards(carried, parseTraceLanesBlock(content))
+  return merged.length > 0
+    ? { ...step, content, isComplete, traceLanes: merged }
+    : { ...step, content, isComplete }
 }
 
 const createNewConversation = (userId: string): Conversation => ({
@@ -259,8 +438,9 @@ export const initialMessagesState = {
   reportContentCategory: null as 'research_notes' | 'final_report' | null,
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
-  composerPrefill: null as string | null,
+  composerPrefill: null as ComposerPrefill | null,
   composerDrafts: {} as Record<string, string>,
+  chatSendFn: null as ((content: string) => void) | null,
 }
 
 /**
@@ -340,6 +520,9 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.answerConfidenceCappedReason
       ? { answerConfidenceCappedReason: opts.transparency.answerConfidenceCappedReason }
       : {}),
+    ...(opts.transparency?.answerConfidenceReason
+      ? { answerConfidenceReason: opts.transparency.answerConfidenceReason }
+      : {}),
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
@@ -407,7 +590,20 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ? {
             ...msg,
             content: msg.content + text,
-            ...(meta.cards && meta.cards.length > 0 ? { cards: meta.cards } : {}),
+            // Replacing the card set can invalidate positional decision keys —
+            // re-anchor them (or drop them) rather than let one point at a
+            // different card. No-op in the common case (no cards, or the same
+            // set arriving again).
+            ...(meta.cards && meta.cards.length > 0
+              ? {
+                  cards: meta.cards,
+                  cardInteractions: reconcileCardInteractions(
+                    msg.cardInteractions,
+                    msg.cards,
+                    meta.cards
+                  ),
+                }
+              : {}),
             ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
             ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
           }
@@ -552,6 +748,10 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
 
     get()._appendMessage(updatedMessage)
+    // The turn has settled, so its provenance exists now and can be mirrored
+    // (ADR-0037). Fire-and-forget: the asker already sees the Herleitung from the
+    // store, and a failed mirror must not fail the turn.
+    void get()._persistTurnProvenance()
   },
 
   setLoading: (isLoading: boolean) => {
@@ -767,7 +967,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const updatedThinkingSteps = thinkingSteps.map((step) =>
       step.functionName === functionName && step.userMessageId === currentUserMessageId
-        ? { ...step, content, isComplete }
+        ? withCompletedPayload(step, content, isComplete)
         : step
     )
 
@@ -783,7 +983,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           return {
             ...msg,
             thinkingSteps: msg.thinkingSteps.map((s) =>
-              s.functionName === functionName ? { ...s, content, isComplete } : s
+              s.functionName === functionName ? withCompletedPayload(s, content, isComplete) : s
             ),
           }
         }
@@ -885,6 +1085,12 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'addAgentPrompt'
     )
+
+    // Persist it (ADR-0037). Without this the card lived only in the browser whose
+    // socket received the frame: an observer's server-authoritative load showed no
+    // card at all and the thread appeared to stop mid-question, and the asker's own
+    // reload lost it too.
+    void get()._appendMessage(promptMessage)
   },
 
   respondToPrompt: (messageId: string, response: string) => {
@@ -915,6 +1121,9 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'respondToPrompt'
     )
+
+    // The transcript should say what was DECIDED, not only that something was asked.
+    void get()._persistPromptState(messageId, response)
   },
 
   addUserMessage: (
@@ -1142,7 +1351,12 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         // Cards/sources/confidence ride the terminal frame when streaming; keep
         // whatever the delta already attached when the terminal omits them (the
         // legacy path attaches cards on the in_progress frame).
-        ...(cards && cards.length > 0 ? { cards } : {}),
+        ...(cards && cards.length > 0
+          ? {
+              cards,
+              cardInteractions: reconcileCardInteractions(msg.cardInteractions, msg.cards, cards),
+            }
+          : {}),
         ...(answerConfidence ? { answerConfidence } : {}),
         ...(citations && citations.length > 0 ? { citations } : {}),
         // Transparency extras ride the terminal frame; attach only what's present.
@@ -1151,6 +1365,9 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(transparency?.escalationReason ? { escalationReason: transparency.escalationReason } : {}),
         ...(transparency?.answerConfidenceCappedReason
           ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }
+          : {}),
+        ...(transparency?.answerConfidenceReason
+          ? { answerConfidenceReason: transparency.answerConfidenceReason }
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
         isStreaming: false,
@@ -1192,6 +1409,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     if (finalizedMessage) {
       get()._appendMessage(finalizedMessage)
+      void get()._persistTurnProvenance()
     }
   },
 
@@ -1303,6 +1521,50 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
   },
 
+  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => {
+    const { currentConversation, conversations } = get()
+
+    // A card is rendered from whichever conversation owns its message — usually
+    // the current one, but the deep-research report panel can outlive a session
+    // switch, so locate the owner rather than assuming.
+    const targetConversation =
+      currentConversation?.messages.some((m) => m.id === messageId)
+        ? currentConversation
+        : conversations.find((c) => c.messages.some((m) => m.id === messageId))
+    if (!targetConversation) return
+
+    let cardInteractions: CardInteractions | undefined
+    const updatedMessages = targetConversation.messages.map((msg) => {
+      if (msg.id !== messageId) return msg
+      cardInteractions = {
+        ...msg.cardInteractions,
+        [cardKey]: { decision, decidedAt: new Date().toISOString() },
+      }
+      return { ...msg, cardInteractions }
+    })
+    if (!cardInteractions) return
+
+    const updatedConversation: Conversation = {
+      ...targetConversation,
+      messages: updatedMessages,
+      // Deliberately NOT bumping `updatedAt`: answering a card is not new
+      // conversation activity and must not reshuffle the session list.
+    }
+
+    set(
+      {
+        conversations: updateConversationInList(conversations, updatedConversation),
+        ...(currentConversation?.id === targetConversation.id && {
+          currentConversation: updatedConversation,
+        }),
+      },
+      false,
+      'setCardDecision'
+    )
+
+    void get()._persistCardInteractions(targetConversation.id, messageId, cardInteractions)
+  },
+
   addFileCard: (data: FileCardData) => {
     const { currentConversation, conversations } = get()
     if (!currentConversation) return
@@ -1401,6 +1663,17 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'addErrorCard'
     )
+
+    // A failed turn is part of the thread's history (ADR-0037). Without this an
+    // observer in a shared conversation sees a thread that simply stops, with no way
+    // to tell "still working" from "gave up" once the turn banner ages out.
+    //
+    // Only errors that concern the CONVERSATION: a dropped socket or an expired
+    // token describes this browser's session, and publishing it would tell a
+    // colleague their connection failed when it did not.
+    if (errorConcernsTheThread(code)) {
+      void get()._appendMessage(errorMessage)
+    }
   },
 
   dismissErrorCard: (messageId: string) => {
@@ -1548,8 +1821,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     set({ projectId }, false, 'setProjectId')
   },
 
-  setComposerPrefill: (text: string) => {
-    set({ composerPrefill: text }, false, 'setComposerPrefill')
+  setComposerPrefill: (text: string, mentions?: DraftMention[]) => {
+    set({ composerPrefill: mentions && mentions.length > 0 ? { text, mentions } : { text } }, false, 'setComposerPrefill')
   },
 
   consumeComposerPrefill: () => {
@@ -1557,6 +1830,77 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (composerPrefill === null) return null
     set({ composerPrefill: null }, false, 'consumeComposerPrefill')
     return composerPrefill
+  },
+
+  setChatSendFn: (fn) => {
+    set({ chatSendFn: fn }, false, 'setChatSendFn')
+  },
+
+  retryLastUserMessage: () => {
+    const { currentConversation, chatSendFn, setComposerPrefill } = get()
+    const messages = currentConversation?.messages
+    if (!messages || messages.length === 0) return
+    // The errored answer is the last message; the question to resend is the
+    // most recent user turn preceding it.
+    const lastUser = [...messages]
+      .reverse()
+      .find((msg) => msg.messageType === 'user' || msg.role === 'user')
+    const text = lastUser?.content?.trim()
+    if (!text) return
+    // Prefer the live send path (a real resend, new user turn); degrade to
+    // prefilling the composer so the question is never silently lost.
+    if (chatSendFn) {
+      chatSendFn(text)
+    } else {
+      setComposerPrefill(text)
+    }
+  },
+
+  insertRemoteMessages: (
+    conversationId: string,
+    messages: ChatMessage[],
+    options?: { replace?: boolean }
+  ) => {
+    const { conversations, currentConversation } = get()
+
+    // The conversation may live only as `currentConversation` (a fresh session
+    // not yet in the list), so look in both places.
+    const target =
+      conversations.find((c) => c.id === conversationId) ??
+      (currentConversation?.id === conversationId ? currentConversation : undefined)
+    if (!target) return
+
+    const { messages: merged, added } = mergeRemoteMessages(
+      target.messages,
+      messages,
+      options?.replace ?? false
+    )
+    // Identity is the signal that nothing arrived: skip the write entirely rather
+    // than rebuild the conversation and re-render the whole thread.
+    if (merged === target.messages) return
+
+    const updatedConversation: Conversation = {
+      ...target,
+      messages: merged,
+      // A colleague's message IS new activity, so the session list may reorder —
+      // but merely resolving an author name on a message already on screen is not,
+      // and must not shuffle the sidebar every time a thread is opened.
+      ...(added ? { updatedAt: new Date() } : {}),
+    }
+
+    set(
+      {
+        conversations: updateConversationInList(conversations, updatedConversation),
+        ...(currentConversation?.id === conversationId && {
+          currentConversation: updatedConversation,
+        }),
+      },
+      false,
+      'insertRemoteMessages'
+    )
+
+    // Deliberately no `_appendMessage` and no turn-state writes: these messages
+    // came FROM the server, and the in-flight turn belongs to this client.
   },
 
   setComposerDraft: (conversationId: string, text: string) => {

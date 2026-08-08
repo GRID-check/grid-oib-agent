@@ -24,5 +24,5 @@ export const PUT = apiRoute(
     const zdrOnly = await setOrgZdrOnly(session, enabled, request)
     return { zdrOnly }
   },
-  { permission: ORG_PERMISSIONS.modelsManage },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )

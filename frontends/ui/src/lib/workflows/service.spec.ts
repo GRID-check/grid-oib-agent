@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/authz/projects', () => ({
@@ -13,7 +16,7 @@ vi.mock('@/lib/budgets/service', () => ({
 }))
 
 vi.mock('@/lib/model-config/service', () => ({
-  getActiveModelOverrides: vi.fn(),
+  getEffectiveModelOverrides: vi.fn(),
 }))
 
 vi.mock('@/lib/project-profile/prompt-view', () => ({
@@ -48,7 +51,7 @@ vi.mock('./backend-client', async (importActual) => {
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import * as repository from './repository'
@@ -68,12 +71,14 @@ import {
   runWorkflowNow,
   updateWorkflow,
 } from './service'
-import type { Workflow } from '@/lib/db/schema'
+import type { NewWorkflowRun, Workflow, WorkflowRun } from '@/lib/db/schema'
+import { makeProject } from '@/test-utils/db-fixtures'
+import type { AuthorizedSession } from '@/lib/auth/types'
 
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockFindProjectInOrg = vi.mocked(findProjectInOrg)
 const mockGetBudgetStatus = vi.mocked(getBudgetStatus)
-const mockGetModelOverrides = vi.mocked(getActiveModelOverrides)
+const mockGetModelOverrides = vi.mocked(getEffectiveModelOverrides)
 const mockLoadPromptView = vi.mocked(loadProjectPromptView)
 const mockLoadBundesland = vi.mocked(loadProjectBundesland)
 const mockSubmit = vi.mocked(submitWorkflowJob)
@@ -82,15 +87,35 @@ const repo = vi.mocked(repository)
 const PROJECT_ID = 'proj-1'
 const ORG_ID = 'org-1'
 
-const session = {
+const session: AuthorizedSession = {
   userId: 'user-1',
   email: 'owner@example.com',
+  name: 'Workflow Owner',
+  accessToken: 'test-access-token',
   organizationId: ORG_ID,
   organizationMembershipId: 'om-1',
   role: 'member',
   permissions: [],
   featureFlags: null,
-} as any
+}
+
+/**
+ * The row `insertWorkflowRun` returns for a given insert: the database fills in
+ * the id and created_at, and the nullable columns come back as explicit nulls
+ * rather than absent keys.
+ */
+const insertedRun = (
+  values: NewWorkflowRun,
+  id: string,
+  createdAt: Date = new Date(),
+): WorkflowRun => ({
+  ...values,
+  id,
+  createdAt,
+  jobId: values.jobId ?? null,
+  detail: values.detail ?? null,
+  triggeredBy: values.triggeredBy ?? null,
+})
 
 const workflow: Workflow = {
   id: 'wf-1',
@@ -115,8 +140,8 @@ const workflow: Workflow = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockRequireProjectAccess.mockResolvedValue({ role: 'project-admin' } as any)
-  mockFindProjectInOrg.mockResolvedValue({ id: PROJECT_ID, collectionName: 'proj_abc' } as any)
+  mockRequireProjectAccess.mockResolvedValue({ role: 'project-admin' })
+  mockFindProjectInOrg.mockResolvedValue(makeProject({ id: PROJECT_ID, organizationId: ORG_ID }))
   mockGetBudgetStatus.mockResolvedValue({
     blocked: false,
     blockedScope: null,
@@ -159,7 +184,7 @@ describe('createWorkflow', () => {
       name: 'New WF',
       definition: { version: 1, blocks: { objective: 'Do research', context: 'ctx' } },
     })
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, 'project:edit')
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, ['project:workflows:manage', 'project:edit'])
     expect(repo.insertWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: PROJECT_ID,
@@ -281,7 +306,7 @@ describe('always-on knowledge_layer data source', () => {
 
   it('fireWorkflow includes knowledge_layer for a legacy row whose stored array lacks it', async () => {
     mockSubmit.mockResolvedValue({ job_id: 'job-legacy' })
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-l', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-l'))
 
     const legacyRow = { ...workflow, dataSources: ['web_search'] }
     await fireWorkflow(legacyRow, 'schedule', 'scheduler')
@@ -291,7 +316,7 @@ describe('always-on knowledge_layer data source', () => {
 
   it('fireWorkflow keeps null (all sources) for a row with null dataSources', async () => {
     mockSubmit.mockResolvedValue({ job_id: 'job-null' })
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-n', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-n'))
 
     const nullRow = { ...workflow, dataSources: null }
     await fireWorkflow(nullRow, 'schedule', 'scheduler')
@@ -308,7 +333,7 @@ describe('updateWorkflow', () => {
       definition: { version: 1, blocks: { objective: 'Updated objective' } },
       scheduleCron: '0 * * * *',
     })
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, 'project:edit')
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, ['project:workflows:manage', 'project:edit'])
     const patch = repo.updateWorkflow.mock.calls[0][2]
     expect(patch.compiledPrompt).toBe('# Objective\n\nUpdated objective')
     expect(patch.nextRunAt).toBeInstanceOf(Date)
@@ -336,7 +361,7 @@ describe('fireWorkflow (single submission path)', () => {
   it('submits with owner identity + budget/model/collection context and records a submitted run', async () => {
     mockSubmit.mockResolvedValue({ job_id: 'job-123' })
     repo.insertWorkflowRun.mockImplementation(
-      async (v) => ({ ...v, id: 'run-1', createdAt: new Date('2026-07-16T10:00:00Z') }) as any,
+      async (v) => insertedRun(v, 'run-1', new Date('2026-07-16T10:00:00Z')),
     )
 
     const run = await fireWorkflow(workflow, 'schedule', 'scheduler')
@@ -401,12 +426,12 @@ describe('fireWorkflow (single submission path)', () => {
     mockLoadBundesland.mockResolvedValue('tirol')
     mockSubmit.mockResolvedValue({ job_id: 'job-bundesland' })
     repo.insertWorkflowRun.mockImplementation(
-      async (v) => ({ ...v, id: 'run-bundesland', createdAt: new Date() }) as any,
+      async (v) => insertedRun(v, 'run-bundesland'),
     )
 
     await fireWorkflow(workflow, 'schedule', 'scheduler')
 
-    expect(mockLoadBundesland).toHaveBeenCalledWith(PROJECT_ID)
+    expect(mockLoadBundesland).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
     const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
     const decodedEnvelope = JSON.parse(Buffer.from(contextHeaders['X-Grid-Request-Context'], 'base64url').toString())
     expect(decodedEnvelope.bundesland).toBe('tirol')
@@ -416,7 +441,7 @@ describe('fireWorkflow (single submission path)', () => {
     mockLoadBundesland.mockResolvedValue(null)
     mockSubmit.mockResolvedValue({ job_id: 'job-no-bundesland' })
     repo.insertWorkflowRun.mockImplementation(
-      async (v) => ({ ...v, id: 'run-no-bundesland', createdAt: new Date() }) as any,
+      async (v) => insertedRun(v, 'run-no-bundesland'),
     )
 
     await fireWorkflow(workflow, 'schedule', 'scheduler')
@@ -429,7 +454,7 @@ describe('fireWorkflow (single submission path)', () => {
   it('signs the context envelope when GRID_INTERNAL_API_TOKEN is configured', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
     mockSubmit.mockResolvedValue({ job_id: 'job-signed' })
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-signed', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-signed'))
 
     await fireWorkflow(workflow, 'schedule', 'scheduler')
 
@@ -439,7 +464,7 @@ describe('fireWorkflow (single submission path)', () => {
 
   it('records a 429 as a skipped run WITHOUT throwing', async () => {
     mockSubmit.mockRejectedValue(new WorkflowSubmitSkippedError('org cap reached', 120))
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-2', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-2'))
 
     const run = await fireWorkflow(workflow, 'manual', 'user-1')
 
@@ -454,7 +479,7 @@ describe('fireWorkflow (single submission path)', () => {
 
   it('records other backend failures as an error run', async () => {
     mockSubmit.mockRejectedValue(new WorkflowSubmitError('boom', 500))
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-3', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-3'))
 
     const run = await fireWorkflow(workflow, 'schedule', 'scheduler')
 
@@ -467,7 +492,7 @@ describe('fireWorkflow (single submission path)', () => {
     // the schedule already advanced past this occurrence, so an unrecorded
     // throw would lose it without a trace.
     mockFindProjectInOrg.mockRejectedValueOnce(new Error('db timeout'))
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-4', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-4'))
 
     const run = await fireWorkflow(workflow, 'schedule', 'scheduler')
 
@@ -491,7 +516,7 @@ describe('fireScheduledWorkflow (scheduler wrapper)', () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'false')
     vi.stubEnv('GRID_WORKFLOWS_ENABLED', 'true')
     mockSubmit.mockResolvedValue({ job_id: 'job-9' })
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-9', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-9'))
 
     const result = await fireScheduledWorkflow(workflow)
 
@@ -503,7 +528,7 @@ describe('fireScheduledWorkflow (scheduler wrapper)', () => {
   it('records a skipped run when the deployment gate is off (enforcement off, env unset)', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'false')
     vi.stubEnv('GRID_WORKFLOWS_ENABLED', 'false')
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-10', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-10'))
 
     const result = await fireScheduledWorkflow(workflow)
 
@@ -519,7 +544,7 @@ describe('fireScheduledWorkflow (scheduler wrapper)', () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     mockOrgFlag.mockResolvedValue(true)
     mockSubmit.mockResolvedValue({ job_id: 'job-11' })
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-11', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-11'))
 
     const result = await fireScheduledWorkflow(workflow)
 
@@ -530,7 +555,7 @@ describe('fireScheduledWorkflow (scheduler wrapper)', () => {
   it('records a skipped run when the org flag is revoked under enforcement (fail-closed)', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     mockOrgFlag.mockResolvedValue(false)
-    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-12', createdAt: new Date() }) as any)
+    repo.insertWorkflowRun.mockImplementation(async (v) => insertedRun(v, 'run-12'))
 
     const result = await fireScheduledWorkflow(workflow)
 

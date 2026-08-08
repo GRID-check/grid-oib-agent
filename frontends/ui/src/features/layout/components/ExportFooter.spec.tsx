@@ -2,22 +2,24 @@ import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ExportFooter } from './ExportFooter'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
 
 // Mock busy state — controls what useIsCurrentSessionBusy returns
 let mockIsBusy = false
 
 // Mock the chat store and the centralized busy hook
-let mockChatState: Record<string, unknown> = {
+let mockChatState: DeepPartial<ChatStoreWithHydration> = {
   reportContent: 'Some report content',
   isDeepResearchStreaming: false,
-  deepResearchStatus: null as 'submitted' | 'running' | 'success' | 'failure' | 'interrupted' | null,
+  deepResearchStatus: null,
   currentConversation: { title: 'AI Market Trends' },
 }
 
 vi.mock('@/features/chat', () => ({
-  useChatStore: (selector?: (state: any) => any) => {
+  useChatStore: (selector?: StoreSelector<ChatStoreWithHydration>) => {
     if (selector) {
-      return selector(mockChatState)
+      return selector(asStoreState<ChatStoreWithHydration>(mockChatState))
     }
     return mockChatState
   },

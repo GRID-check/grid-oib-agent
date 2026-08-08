@@ -1,0 +1,301 @@
+# Grid agent — single source of truth for "how do I run this?"
+#
+# Why this file exists
+# -------------------
+# The same commands were previously written down in three places that drifted
+# independently: `.github/workflows/ci.yml`, the verification table in
+# AGENTS.md, and the `ci:*` scripts in `frontends/ui/package.json` (which
+# pointed at a `scripts/ci-check.sh` that did not exist). Documented commands
+# also assumed a Windows venv layout (`.venv/Scripts/python.exe`) and so did not
+# run in CI, the devcontainer, or an agent session.
+#
+# Everything below is defined once and consumed by humans, agents and CI alike.
+# `task verify` IS the merge gate — if it passes locally it passes in CI, and if
+# it drifts, it drifts for everyone at once instead of silently for one of them.
+#
+# Install:  npm i -g @go-task/cli   (or see https://taskfile.dev/installation/)
+# Discover: task --list
+
+version: '3'
+
+vars:
+  UI: frontends/ui
+  WEB: frontends/web
+  # go-task ships its own POSIX shell, so command SYNTAX is already portable and
+  # nothing below needs an OS branch. These two are the exception, because they
+  # are Python packaging facts rather than shell facts: a virtualenv puts its
+  # executables in `Scripts/` on Windows and `bin/` everywhere else. Stated once
+  # here so no task has to know about it.
+  #
+  # `uv run` would sidestep the whole question, but not in this repo: it
+  # resolves an environment without the `sources/` workspace packages, so the
+  # knowledge-layer tests fail to import. The venv that `uv sync --group dev`
+  # builds is the one that works.
+  VENV_BIN: '{{if eq OS "windows"}}.venv/Scripts{{else}}.venv/bin{{end}}'
+  EXE: '{{if eq OS "windows"}}.exe{{end}}'
+  PY: '{{.VENV_BIN}}/python{{.EXE}}'
+  RUFF: '{{.VENV_BIN}}/ruff{{.EXE}}'
+
+env:
+  # The documented footgun, removed. Without this pytest resolves `aiq_agent`
+  # from whatever is installed in the venv rather than from this worktree, and
+  # validates the wrong code while appearing to pass.
+  PYTHONPATH: src
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # ── the gate ────────────────────────────────────────────────────────────────
+
+  verify:
+    desc: 'Full merge gate: everything CI runs. Passing here means passing in CI.'
+    cmds:
+      # Delegate to the same per-tier task groups CI invokes, so there is one
+      # definition of each tier's gate rather than a second list here that can
+      # drift from the workflow (that drift is exactly what this file removes).
+      - task: lint:repo
+      - task: be:verify
+      - task: fe:verify
+      - task: web:verify
+      - task: infra:types
+      - task: infra:test
+
+  verify:fast:
+    desc: Everything CI runs except the production builds (the slow step)
+    cmds:
+      - task: lint:repo
+      - task: be:verify
+      # `fe:verify` minus `fe:build` — the only UI check this task omits.
+      - task: fe:lint
+      - task: fe:types
+      - task: fe:test:ci
+      # `web:verify` minus `web:build` — the only web check this task omits.
+      - task: web:install
+      - task: web:check
+      - task: infra:types
+      - task: infra:test
+
+  setup:
+    desc: Install every toolchain this repo needs (backend venv + UI + web + infra)
+    cmds:
+      - uv venv .venv
+      - uv sync --group dev
+      - task: fe:install
+      - task: web:install
+      # The policy pack is its own Node program with its own lockfile; CI
+      # installs it separately and `infra:types` typechecks it.
+      - npm --prefix deploy/pulumi/policy ci
+
+  # ── frontend (frontends/ui) ─────────────────────────────────────────────────
+
+  fe:install:
+    desc: Install UI dependencies
+    dir: '{{.UI}}'
+    cmds:
+      # Bun is the INSTALLER and script runner only — never the runtime. Do not
+      # add `--bun`: it exports NODE_OPTIONS=--bun, and Turbopack's PostCSS step
+      # spawns a real `node`, which rejects the flag and fails the build.
+      - bun install --frozen-lockfile
+
+  fe:lint:
+    desc: ESLint the UI
+    dir: '{{.UI}}'
+    cmds:
+      - bun run lint
+
+  fe:types:
+    desc: Typecheck the UI (includes specs — a spec type error blocks next build)
+    dir: '{{.UI}}'
+    cmds:
+      - bun run type-check
+
+  fe:test:
+    desc: Run the UI test suite
+    dir: '{{.UI}}'
+    cmds:
+      - bun run test
+
+  fe:test:ci:
+    desc: UI tests with the coverage reporters CI's coverage comment consumes
+    dir: '{{.UI}}'
+    cmds:
+      - bun run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
+
+  db:test:rls:
+    desc: >-
+      Tenant-isolation suite against a throwaway Postgres, connected as the
+      restricted runtime role (ADR-0041). Needs PostgreSQL server binaries.
+    cmds:
+      - bash scripts/rls-test-db.sh
+
+  fe:test:shard:
+    desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
+    dir: '{{.UI}}'
+    cmds:
+      # `--reporter=blob` writes .vitest-reports/ instead of printing a summary;
+      # fe:test:merge stitches the shards back into one run + one coverage set.
+      # Coverage must be collected per shard — it cannot be recomputed at merge
+      # time, because each shard only ever loaded its own slice of the app.
+      - bun run test:shard -- --shard={{.SHARD}}
+
+  fe:test:merge:
+    desc: Merge sharded blob reports into one result + the coverage CI comments on
+    dir: '{{.UI}}'
+    cmds:
+      - >-
+        bun run test:merge --
+        --coverage.reporter=json-summary --coverage.reporter=json
+        --coverage.reporter=text-summary
+
+  fe:build:
+    desc: Production build of the UI
+    dir: '{{.UI}}'
+    cmds:
+      - bun run build
+
+  fe:screenshots:
+    desc: 'Capture UI screenshot evidence (optional: -- <registry id>)'
+    dir: '{{.UI}}'
+    cmds:
+      - bun run screenshots -- {{.CLI_ARGS}}
+
+  fe:provision:authz:
+    desc: 'Check WorkOS authz drift against the catalog (add `-- --apply` to reconcile)'
+    dir: '{{.UI}}'
+    cmds:
+      - bun run provision:authz {{.CLI_ARGS}}
+
+  fe:verify:
+    desc: Everything CI runs for the frontend tier
+    cmds:
+      - task: fe:lint
+      - task: fe:types
+      - task: fe:test:ci
+      - task: fe:build
+
+  # ── web (frontends/web — Piloti landing site + blog) ────────────────────────
+
+  web:install:
+    desc: Install web (landing site) dependencies
+    dir: '{{.WEB}}'
+    cmds:
+      # npm, not bun: the Astro toolchain ships its own lockfile and bundler.
+      - npm ci
+
+  web:check:
+    desc: Astro typecheck + content validation for the web service
+    dir: '{{.WEB}}'
+    cmds:
+      - npm run check
+
+  web:build:
+    desc: Production build of the web service
+    dir: '{{.WEB}}'
+    cmds:
+      - npm run build
+
+  web:verify:
+    desc: Everything CI runs for the web tier
+    cmds:
+      - task: web:install
+      - task: web:check
+      - task: web:build
+
+  web:preview:
+    desc: Build the web service with drafts rendered (blog preview only — never ship this)
+    dir: '{{.WEB}}'
+    env:
+      # Preview-only. `astro build` bakes the result into the image, so a release
+      # build with this set would publish every unfinished draft to the live site.
+      PUBLIC_INCLUDE_DRAFTS: '1'
+      PUBLIC_SITE_URL: '{{.PREVIEW_SITE_URL | default "http://localhost:4321"}}'
+    cmds:
+      - npm ci
+      - npm run build
+
+  # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
+
+  be:lint:
+    desc: Ruff lint + format check
+    cmds:
+      - '{{.RUFF}} check .'
+      - '{{.RUFF}} format --check .'
+
+  be:format:
+    desc: Apply ruff formatting and autofixes
+    cmds:
+      - '{{.RUFF}} check --fix .'
+      - '{{.RUFF}} format .'
+
+  be:test:
+    desc: Backend core suite
+    cmds:
+      - '{{.PY}} -X faulthandler -m pytest tests/ -q'
+
+  be:test:ci:
+    desc: Backend core suite with the coverage gate CI enforces
+    cmds:
+      - >-
+        {{.PY}} -X faulthandler -m pytest tests/ -v
+        --junitxml=report-core.xml
+        --cov=src/aiq_agent --cov-report=xml:coverage.xml --cov-report=term
+        --cov-fail-under=65
+
+  be:test:api:
+    desc: aiq_api plugin suite
+    cmds:
+      - '{{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q'
+
+  be:test:api:ci:
+    desc: aiq_api plugin suite with coverage reporting
+    cmds:
+      - >-
+        {{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -v
+        --junitxml=report-aiqapi.xml
+        --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml
+        --cov-report=term
+
+  be:verify:
+    desc: Everything CI runs for the backend tier
+    cmds:
+      - task: be:lint
+      - task: be:test:ci
+      - task: be:test:api:ci
+
+  # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
+
+  infra:types:
+    desc: Typecheck the Pulumi program and its policy pack
+    cmds:
+      - npm --prefix deploy/pulumi run typecheck
+      - npm --prefix deploy/pulumi/policy run typecheck
+
+  infra:test:
+    desc: Manifest tests for the Pulumi program (no cluster, no stack credentials)
+    # `typecheck` proves the program is well-typed; it proves nothing about the
+    # manifests, which is where every SeaweedFS bug in this repo's history has
+    # lived — a renamed flag, a Service missing the gRPC port `weed shell`
+    # needs, a liveness probe pointed at an endpoint that answers 423. All
+    # string-valued, all invisible to tsc. These run the program under
+    # `pulumi.runtime.setMocks` and assert the resource inputs directly.
+    cmds:
+      - npm --prefix deploy/pulumi test
+
+  infra:preview:
+    desc: 'Pulumi preview (needs stack credentials)'
+    dir: deploy/pulumi
+    cmds:
+      - npm run preview
+
+  # ── repo-wide ───────────────────────────────────────────────────────────────
+
+  lint:repo:
+    desc: pre-commit across the whole repo — the same scope CI lints
+    cmds:
+      # From the venv, not PATH: `uv sync --group dev` installs pre-commit into
+      # .venv and nothing puts it on PATH.
+      - '{{.VENV_BIN}}/pre-commit{{.EXE}} run --all-files'

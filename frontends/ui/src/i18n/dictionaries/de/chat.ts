@@ -11,9 +11,19 @@ export const chat: typeof en.chat = {
     projectDocument: 'Projektunterlage',
     corpusDocument: 'Baurecht & Richtlinien',
     citedPassage: 'Fundstelle',
+    cited: 'Zitiert',
     loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
     bindingLabel: 'Bindungswirkung',
     openExternal: 'Im RIS öffnen',
+    // Coarse source kind (ADR-0026) shown in the info popover. Preferred
+    // over `origins` because the origin token is kb/ris/web only, so a
+    // knowledge-base copy of a legal text reads as project material.
+    kinds: {
+      baurecht: 'Baurecht & Richtlinien',
+      buero: 'Büroarchiv',
+      projekt: 'Projektwissen',
+      web: 'Webquelle',
+    },
     origins: {
       kb: 'Projektwissen',
       ris: 'Recht & Richtlinien (RIS)',
@@ -30,13 +40,20 @@ export const chat: typeof en.chat = {
       projekt: 'Projekt',
       buero: 'Büro',
     },
-    unavailable: 'Nicht mehr verfügbar',
+    // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // Projektdateien öffnen) statt einer stummen toten Kachel.
+    unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
+    openInArchive: 'Im Archiv öffnen',
+    openInFiles: 'In den Projektdateien öffnen',
+    // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
+    // dauerhaft toten Kachel.
+    loadError: 'Dokumente konnten nicht geladen werden.',
+    retry: 'Erneut versuchen',
     openAria: 'Dokument öffnen: {label}',
-    loadFailed: 'Das Dokument konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
   },
   composer: {
-    placeholder:
-      'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',
+    placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
     deepResearch: 'Deep Research',
@@ -48,6 +65,9 @@ export const chat: typeof en.chat = {
     scopeCurrent: 'Aktuelles Projekt',
     scopeAll: 'Alle Projekte',
     scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} Quellen aktiv',
   },
   shortcuts: {
     label: 'Schnellzugriff',
@@ -65,6 +85,17 @@ export const chat: typeof en.chat = {
     withName: '{greeting}, {name}.',
     subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
   },
+  // Beispielhafte österreichische Baurecht-Fragen im leeren Chat — ein Klick
+  // füllt den Verfasser vor (sendet nicht automatisch), gegen die Blockade des
+  // leeren Blatts.
+  examples: {
+    label: 'Zum Beispiel',
+    questions: {
+      fluchtweg: 'Fluchtweglänge nach OIB-2?',
+      barrierefreiheit: 'Barrierefreiheit Wohnbau Wien?',
+      brandabschnitte: 'Brandabschnitte Gebäudeklasse 4?',
+    },
+  },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
     private: 'Privater Workspace',
@@ -80,10 +111,49 @@ export const chat: typeof en.chat = {
   answerSources: {
     label: 'Belegt durch',
     ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
+    // Ehrliche „Lücke“-Zeile: eine inhaltliche Antwort ohne Quellenangabe zeigt
+    // dies in der neutralen --source-auto-Familie, statt die fehlende Beleglage
+    // zu verbergen (Designsprache — erstklassige Wissenslücken-Behandlung).
+    gapLabel: 'Ohne Quellenbeleg',
+    gapAria: 'Diese Antwort nennt keine Quellen',
+    // Die zusammengeführte Liste nummeriert jede Quelle so, wie die [N]-Marker
+    // im Antworttext sie zitieren, und nennt die belegte Seite nach dem Chip.
+    sourceNumber: 'Quelle {number}',
+    page: 'S. {page}',
+    pages: 'S. {pages}',
+    // Zitate zum Weiterverwenden — je Quelle als Fachtext, für die ganze
+    // Antwort in den Formaten, die externe Werkzeuge einlesen.
+    copyCitation: 'Zitat kopieren',
+    copied: 'Kopiert',
+    copyCitationAria: 'Zitat kopieren: {label}',
+    copyFailed: 'Das Zitat konnte nicht kopiert werden.',
+    citeAll: 'Zitieren',
+    citeAsLabel: 'Alle Quellen kopieren als',
+    formats: {
+      fachtext: { label: 'Zitiertext', hint: 'Für Befund, Gutachten, Einreichung' },
+      apa: { label: 'APA', hint: 'Formatiertes Literaturverzeichnis' },
+      bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
+      ris: { label: 'EndNote/Zotero (.ris)', hint: 'Literaturverwaltung' },
+      'csl-json': { label: 'CSL-JSON', hint: 'Zotero, Word, pandoc' },
+    },
     // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
     // Quellenangaben entfernt hat (WP-A `citations_removed`).
     citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
     citationsRemovedReasonsLabel: 'Gründe',
+  },
+  // Der Zitat-Peek: was diese Fundstelle IST, bevor man sie öffnet.
+  citationPeek: {
+    wholeDocument: 'Gesamtes Dokument',
+    openAtPage: 'An dieser Stelle öffnen',
+    copyLink: 'Link kopieren',
+    copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
+    markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
+    lociLabel: '{count} Fundstellen',
+    lociAria: 'Fundstellen in diesem Dokument',
+    lociPosition: '{index}/{count}',
+    previousLocus: 'Vorherige Fundstelle',
+    nextLocus: 'Nächste Fundstelle',
+    retrievedOnly: 'Gelesen',
   },
   breadcrumb: {
     ariaLabel: 'Navigationspfad',
@@ -98,6 +168,8 @@ export const chat: typeof en.chat = {
     verifyRis: 'In RIS prüfen',
   },
   agentPrompt: {
+    awaitingOther: 'Piloti wartet auf {name}',
+    awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Der Agent benötigt Ihre Eingabe',
     receivedInput: 'Der Agent hat Ihre Eingabe erhalten',
     approve: 'Genehmigen',
@@ -161,11 +233,25 @@ export const chat: typeof en.chat = {
       understanding: 'Frage wird erfasst …',
       planning: 'Vorgehen wird geplant …',
       searchingWeb: 'Web wird durchsucht …',
+      searchingKnowledge: 'OIB-Wissen wird durchsucht …',
+      searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
       searchingSources: 'Quellen werden durchsucht …',
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
       composing: 'Antwort wird formuliert …',
       runningNamed: '{name} …',
+    },
+    // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
+    // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
+    executedSteps: 'Ausgeführt:',
+    stepName: {
+      understanding: 'Einordnung',
+      routing: 'Rechercheweg',
+      webSearch: 'Websuche',
+      ris: 'RIS',
+      corpus: 'OIB-Korpus',
+      assistant: 'Assistent',
+      reading: 'Lesen',
     },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
@@ -183,12 +269,18 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    herleitungSummary: 'Herleitung · {steps} Zwischenschritte · {sources} Quellen',
+    herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
     stepsHeading: 'Zwischenschritte',
     sourcesFanOut: 'Quellen',
     hitCount: '{count} Treffer',
+    hitCountOne: '1 Treffer',
     gapHit: 'Nicht im Bestand',
+    // Ein Dokument, das die Recherche gelesen, die Antwort aber nicht zitiert
+    // hat — ein echtes Rechercheergebnis, keine Lücke.
+    readNotUsed: 'gelesen, nicht verwendet',
     moreSources: '+{count} weitere',
     selectedDataSources: 'Ausgewählte Datenquellen:',
     // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A
@@ -211,22 +303,27 @@ export const chat: typeof en.chat = {
       ris: 'RIS (Österreichisches Recht)',
     },
     node: {
-      framingTab: 'Zwischenschritt',
+      framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Du fragst: „{question}“',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
       findingsTab: 'Einschätzung',
-      findingsTitle: 'Belegt durch',
-      confidenceLabel: 'Belegt',
-      confidence: {
-        high: 'Gut belegt',
-        medium: 'Teilweise belegt',
-        low: 'Schwach belegt',
-      },
+      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
+      // steht einmal auf der Antwortkarte.
+      findingsHits: 'Treffer in: {lanes}',
+      // Die Beleg-Bilanz, dort genannt, wo der Fächer zusammenläuft: was
+      // tatsächlich gelesen wurde, bevor die Quellenarten aufgezählt werden.
+      findingsTally: '{hits} Treffer in {docs} Dokumenten',
+      findingsTallyOne: '{hits} Treffer in 1 Dokument',
+      // Während der Zug streamt gibt es noch keine Einschätzung, der Graph
+      // braucht seinen Zusammenführungspunkt aber trotzdem — sonst hängen die
+      // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
+      findingsPendingTab: 'Einschätzung',
+      findingsPending: 'Quellen werden abgewogen …',
       branchesTab: 'Folgewege',
-      branchesTitle: 'Wie willst du weiter vorgehen?',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
     },
   },
@@ -269,6 +366,9 @@ export const chat: typeof en.chat = {
   error: {
     showDetails: 'Details anzeigen',
     hideDetails: 'Details ausblenden',
+    // Wiederholaktion bei einer fehlgeschlagenen Antwort (Designsprache:
+    // „hilfreiche Meldung + erneut versuchen“).
+    retry: 'Erneut versuchen',
   },
   errorRegistry: {
     connectionLost: {
@@ -332,8 +432,6 @@ export const chat: typeof en.chat = {
     reportUnavailable: 'Dieser Recherchebericht ist nicht mehr verfügbar.',
     serviceUnreachable:
       'Der Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.',
-    jobStillRunning:
-      'Die Recherche läuft noch. Der Bericht kann geöffnet werden, sobald sie abgeschlossen ist.',
     loadFailed: 'Recherchedaten konnten nicht geladen werden.',
   },
   sessionActions: {
@@ -390,6 +488,15 @@ export const chat: typeof en.chat = {
     ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
     tooltip:
       'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
+    // Was jede Stufe BEDEUTET — im Tooltip gezeigt, damit der Leser den Chip einordnen kann.
+    levelMeanings: {
+      high: 'Hoch: die Antwort ist direkt durch die abgerufenen Quellen belegt, die sie klar und konsistent stützen.',
+      medium:
+        'Mittel: teilweise belegt — Quellen stützen Teile, aber eine Lücke, eine Schlussfolgerung oder eine kleine Mehrdeutigkeit bleibt.',
+      low: 'Niedrig: Quellen fehlen, widersprechen sich oder reichen nicht aus; die Antwort extrapoliert aus Allgemeinwissen.',
+    },
+    // Label vor der eigenen Kurzbegründung des Modells (wortgetreu).
+    reasonLabel: 'Begründung des Assistenten',
     // Zusatzsatz, der im Tooltip erklärt, WARUM die Einschätzung gedeckelt
     // wurde, je nach `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {

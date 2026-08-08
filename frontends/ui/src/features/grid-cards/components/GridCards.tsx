@@ -1,5 +1,6 @@
 import { type FC } from 'react'
 import type { GridCard } from '@/shared/cards/schemas'
+import { cardKey } from '../card-decision'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
@@ -30,6 +31,12 @@ interface GridCardsProps {
   cards: GridCard[]
   /** Optional project ID for patch card API calls. */
   projectId?: string | null
+  /**
+   * The message these cards belong to. Interactive cards key their persisted
+   * decision on it (`features/grid-cards/card-decision.ts`); without it they
+   * still render and act, but the outcome doesn't survive a reload.
+   */
+  messageId?: string
 }
 
 /**
@@ -41,7 +48,7 @@ interface GridCardsProps {
  * acoustic_check, fire_compartment, thermal_envelope, energy_performance,
  * elevator_requirement, parking_requirement).
  */
-export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
+export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId }) => {
   if (cards.length === 0) {
     return null
   }
@@ -49,7 +56,9 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
   return (
     <div className="flex w-full flex-col gap-3">
       {cards.map((card, index) => {
-        const key = `${card.type}-${index}`
+        // Doubles as the React key and as the identity an interactive card's
+        // persisted decision is stored under, so the two cannot drift apart.
+        const key = cardKey(card, index)
 
         if (card.type === 'summary') {
           return (
@@ -341,6 +350,8 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
                 rationale={card.rationale || ''}
                 patch={card.patch || []}
                 projectId={projectId}
+                messageId={messageId}
+                cardKey={key}
               />
             </FadeIn>
           )
@@ -367,6 +378,8 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
                 content={card.content}
                 kind={card.kind}
                 confidence={card.confidence}
+                messageId={messageId}
+                cardKey={key}
               />
             </FadeIn>
           )

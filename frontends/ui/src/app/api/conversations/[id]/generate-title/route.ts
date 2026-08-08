@@ -17,13 +17,16 @@ const generateTitleSchema = z.object({
       z.object({
         role: z.enum(['user', 'assistant']),
         content: z.string(),
-      }),
+      })
     )
     .max(20),
   locale: z.string().optional(),
 })
 
-export const POST = apiRoute<Params>(async ({ session, params, request }) => {
-  const { messages, locale } = await parseJsonBody(request, generateTitleSchema)
-  return generateConversationTitle(session, params.id, { messages, locale })
-})
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const { messages, locale } = await parseJsonBody(request, generateTitleSchema)
+    return generateConversationTitle(session, params.id, { messages, locale })
+  },
+  { authz: { enforcedBy: 'generateConversationTitle (requireResourceAccess)' } }
+)

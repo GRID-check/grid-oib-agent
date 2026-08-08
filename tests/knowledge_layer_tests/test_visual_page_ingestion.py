@@ -12,7 +12,7 @@ Covers:
 - ``_parse_drawing_fields`` — parsing the structured drawing-VLM response.
 - ``_summary_from_drawing_fields`` — building a watermark-free document summary
   from rendered-page descriptions.
-- ``_render_visual_pdf_pages`` — the visual-page heuristic (text-sparse OR
+- ``processing.render_visual_pages_no_vlm`` — the visual-page heuristic (text-sparse OR
   path-heavy) with pypdfium2 mocked.
 - The ``_run_ingestion`` drawing branch end-to-end (heavy collaborators mocked):
   a watermark-only PDF is rendered, captioned, and summarised from the drawing
@@ -323,46 +323,38 @@ def _install_fake_pdf(monkeypatch, pages):
     monkeypatch.setattr(pdfium, "PdfDocument", _FakeDoc)
 
 
-class TestRenderVisualPdfPages:
+class TestRenderVisualPagesNoVlm:
     def test_watermark_only_vector_page_is_rendered(self, monkeypatch):
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
-        monkeypatch.setattr(
-            adapter,
-            "_analyze_drawing_page_with_vlm",
-            lambda *a, **k: (_VLM_DRAWING_RESPONSE, _parse_drawing_fields(_VLM_DRAWING_RESPONSE)),
-        )
+        from knowledge_layer.llamaindex import processing as _processing
+
         # Only a watermark as text, tens of thousands of vector paths.
         _install_fake_pdf(monkeypatch, [_FakePage("VECTORWORKS EDUCATIONAL VERSION", n_paths=5000)])
 
-        out = adapter._render_visual_pdf_pages("ignored.pdf")
+        out = _processing.render_visual_pages_no_vlm("ignored.pdf")
 
         assert len(out) == 1
         assert out[0]["page_number"] == 1
-        assert out[0]["fields"]["drawing_type"] == "perspektive"
+        assert len(out[0]["image_bytes"]) > 0
         # Rendered near the long-edge target (±2px for scale rounding).
-        assert abs(max(out[0]["width"], out[0]["height"]) - adapter.PAGE_RENDER_MAX_DIM) <= 2
+        assert abs(max(out[0]["width"], out[0]["height"]) - 2048) <= 2
 
     def test_text_page_is_skipped(self, monkeypatch):
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
-        vlm = MagicMock()
-        monkeypatch.setattr(adapter, "_analyze_drawing_page_with_vlm", vlm)
+        from knowledge_layer.llamaindex import processing as _processing
+
         # Plenty of text, no vector paths → not a visual page.
         _install_fake_pdf(monkeypatch, [_FakePage("A" * 5000, n_paths=0)])
 
-        out = adapter._render_visual_pdf_pages("ignored.pdf")
+        out = _processing.render_visual_pages_no_vlm("ignored.pdf")
 
         assert out == []
-        vlm.assert_not_called()
 
     def test_render_cap_is_respected(self, monkeypatch):
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
-        monkeypatch.setattr(
-            adapter, "_analyze_drawing_page_with_vlm", lambda *a, **k: ("cap", {"drawing_type": "detail"})
-        )
+        from knowledge_layer.llamaindex import processing as _processing
+
         pages = [_FakePage("", n_paths=1000) for _ in range(5)]
         _install_fake_pdf(monkeypatch, pages)
 
-        out = adapter._render_visual_pdf_pages("ignored.pdf", max_pages=2)
+        out = _processing.render_visual_pages_no_vlm("ignored.pdf", max_pages=2)
 
         assert len(out) == 2
 
@@ -377,10 +369,10 @@ def summary_db(tmp_path):
     from aiq_agent.knowledge import configure_summary_db
     from aiq_agent.knowledge import factory
 
-    factory._summary_store = None
+    factory._document_metadata_store = None
     configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
     yield
-    factory._summary_store = None
+    factory._document_metadata_store = None
 
 
 @pytest.fixture
@@ -437,14 +429,16 @@ class TestRunIngestionDrawingBranch:
             lambda *a, **k: (_VLM_DRAWING_RESPONSE, _parse_drawing_fields(_VLM_DRAWING_RESPONSE)),
         )
         # Force the page-render path without depending on a real vector PDF:
-        # report one visual page for any PDF.
+        # report one visual page for any PDF. The renderer returns raw pages
+        # (no VLM) — enrich_vlm_batch enriches them via the mocked VLM above.
+        import knowledge_layer.llamaindex.processing as processing_module
+
         monkeypatch.setattr(
-            adapter,
-            "_render_visual_pdf_pages",
+            processing_module,
+            "render_visual_pages_no_vlm",
             lambda *a, **k: [
                 {
-                    "caption": _VLM_DRAWING_RESPONSE,
-                    "fields": _parse_drawing_fields(_VLM_DRAWING_RESPONSE),
+                    "image_bytes": b"fake-rendered-page",
                     "page_number": 1,
                     "width": 2048,
                     "height": 1678,
@@ -476,8 +470,10 @@ class TestRunIngestionDrawingBranch:
         from aiq_agent.knowledge import get_available_documents
 
         _patch_vlm_credential(monkeypatch, "")
+        import knowledge_layer.llamaindex.processing as processing_module
+
         render = MagicMock()
-        monkeypatch.setattr(adapter, "_render_visual_pdf_pages", render)
+        monkeypatch.setattr(processing_module, "render_visual_pages_no_vlm", render)
         monkeypatch.setattr(
             adapter,
             "_extract_text_from_pdf",
@@ -570,11 +566,21 @@ class TestRunIngestionDrawingBranch:
 
         captured: dict[str, object] = {}
 
-        def fake_render(pdf_path, *, vlm_model, vlm_base_url, vlm_api_key, **k):
+        def fake_vlm_call(image_bytes, vlm_model, vlm_base_url, vlm_api_key, **k):
             captured.update(model=vlm_model, base_url=vlm_base_url, api_key=vlm_api_key)
-            return []
+            return ("ZEICHNUNGSTYP: grundriss\nMASSSTAB: keiner", {"drawing_type": "grundriss", "scale": "keiner"})
 
-        monkeypatch.setattr(adapter, "_render_visual_pdf_pages", fake_render)
+        monkeypatch.setattr(adapter, "_analyze_drawing_page_with_vlm", fake_vlm_call)
+
+        # render_visual_pages_no_vlm must return at least one raw page so
+        # enrich_vlm_batch fires the VLM call (where we capture the creds).
+        import knowledge_layer.llamaindex.processing as processing_module
+
+        monkeypatch.setattr(
+            processing_module,
+            "render_visual_pages_no_vlm",
+            lambda *a, **k: [{"image_bytes": b"fake", "page_number": 1, "width": 2048, "height": 1678}],
+        )
 
         pdf = tmp_path / "plan.pdf"
         pdf.write_bytes(b"%PDF-1.4\n% minimal\n")

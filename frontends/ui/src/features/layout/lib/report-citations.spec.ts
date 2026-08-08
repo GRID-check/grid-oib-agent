@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import {
   splitReportSources,
@@ -92,6 +95,38 @@ describe('splitReportSources', () => {
     expect(result.entries).toEqual([{ number: 1, markdown: 'Real source' }])
     expect(result.body).toContain('## Appendix')
     expect(result.body).toContain('2. Not a source')
+  })
+
+  test('parses bulleted entries — the form the backend actually writes', () => {
+    const markdown = [
+      'Antwort [1][2].',
+      '',
+      '## Quellen',
+      '- [1] [RIS] Wiener Garagengesetz 2008 — https://www.ris.bka.gv.at/x',
+      '- [2] [KB] oib-rl_4_ausgabe_mai_2023.pdf, p.9',
+    ].join('\n')
+
+    const result = splitReportSources(markdown)
+
+    expect(result.entries).toEqual([
+      {
+        number: 1,
+        markdown: 'Wiener Garagengesetz 2008 — https://www.ris.bka.gv.at/x',
+        sourceKind: 'ris',
+      },
+      { number: 2, markdown: 'oib-rl_4_ausgabe_mai_2023.pdf, p.9', sourceKind: 'kb' },
+    ])
+    expect(result.body).toBe('Antwort [1][2].')
+  })
+
+  test('recognizes the bold "**References:**" label the minimal-citation path writes', () => {
+    const markdown = ['Answer [1].', '', '**References:**', '- [1] [KB] plan.pdf, p.2'].join('\n')
+
+    const result = splitReportSources(markdown)
+
+    expect(result.heading).toBe('References')
+    expect(result.entries).toEqual([{ number: 1, markdown: 'plan.pdf, p.2', sourceKind: 'kb' }])
+    expect(result.body).toBe('Answer [1].')
   })
 
   test('parses leading origin tokens into sourceKind and strips them from the text', () => {

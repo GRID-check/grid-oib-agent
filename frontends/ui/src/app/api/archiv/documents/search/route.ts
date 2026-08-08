@@ -14,9 +14,17 @@ const searchBodySchema = z.object({
   topK: z.number().int().min(1).max(100).optional(),
 })
 
-export const POST = apiRoute(async ({ session, request }) => {
-  const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
-  if (gated) return gated
-  const { q, topK } = await parseJsonBody(request, searchBodySchema)
-  return searchArchivDocuments(session, q, topK)
-})
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
+    if (gated) return gated
+    const { q, topK } = await parseJsonBody(request, searchBodySchema)
+    return searchArchivDocuments(session, q, topK)
+  },
+  {
+    authz: {
+      sessionOnly: true,
+      why: "read-only search over the caller's own org Archiv collection; scoped by session.organizationId",
+    },
+  }
+)

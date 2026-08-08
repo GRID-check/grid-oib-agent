@@ -1,4 +1,5 @@
-import { handleAuth } from '@workos-inc/authkit-nextjs';
+import { handleAuth } from '@workos-inc/authkit-nextjs'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 
 /**
  * Post-login redirect base.
@@ -17,8 +18,10 @@ import { handleAuth } from '@workos-inc/authkit-nextjs';
  * runtime) over NEXT_PUBLIC_WORKOS_REDIRECT_URI, which Next can inline at build
  * time and would be empty when the value is only supplied at deploy time.
  */
-const redirectUri =
-  process.env.WORKOS_REDIRECT_URI ?? process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI;
-const baseURL = redirectUri ? new URL(redirectUri).origin : undefined;
+const redirectUri = process.env.WORKOS_REDIRECT_URI ?? process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
+const baseURL = redirectUri ? new URL(redirectUri).origin : undefined
 
-export const GET = handleAuth({ returnPathname: '/app/projects', baseURL });
+// Wrapped like every other route: this one runs BEFORE a session exists, so
+// inheriting a tenant from the previous request on this socket would be
+// especially wrong (ADR-0041).
+export const GET = tenantSlotRoute(handleAuth({ returnPathname: '/app/projects', baseURL }))

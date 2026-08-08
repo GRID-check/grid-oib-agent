@@ -14,9 +14,11 @@
  */
 
 import 'server-only'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { BadRequestError } from '@/lib/api/errors'
-import type { AuthorizedSession } from '@/lib/auth/types'
+import { requirePlatformOwner } from '@/lib/authz/platform'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import {
   ANSWER_FEEDBACK_REASONS,
   ANSWER_FEEDBACK_VERDICTS,
@@ -25,9 +27,17 @@ import {
 import type { AnswerFeedbackView, UpsertAnswerFeedbackInput } from './types'
 import {
   deleteAnswerFeedbackForUser,
+  getFeedbackHealth,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
+  type FeedbackHealth,
+  type FeedbackHealthFilters,
 } from './repository'
+import {
+  getFeedbackDigest,
+  type FeedbackDigestOptions,
+  type FeedbackDigestResult,
+} from './digest'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
@@ -86,4 +96,58 @@ export async function getOwnConversationFeedback(
 
 function toView(row: AnswerFeedback): AnswerFeedbackView {
   return { messageId: row.messageId, verdict: row.verdict, reason: row.reason ?? null }
+}
+
+/**
+ * The platform owner's cross-organization view of answer feedback.
+ *
+ * This is the one function in this service that is NOT tenant-scoped, and the
+ * gate is therefore the whole of its authorization: `requirePlatformOwner`
+ * throws `PlatformAccessDeniedError` for everyone else, and the repository read
+ * it wraps takes no `organizationId` at all. Keeping the guard here rather than
+ * in the route means a second caller cannot reach the data by forgetting it.
+ *
+ * Why a platform surface and not an org one: thumbs are collected everywhere and
+ * were, until now, readable nowhere — the product asked users for a signal and
+ * then had no way to look at it. The reader is whoever is answerable for answer
+ * quality across tenants, which is the same person the citation-health and
+ * profiler surfaces on this page already serve.
+ */
+export async function getAnswerFeedbackHealth(
+  session: GridSession | null,
+  filters: FeedbackHealthFilters = {},
+): Promise<FeedbackHealth> {
+  await requirePlatformOwner(session)
+  // The read groups BY organization across every tenant, so it must not run
+  // pinned to the owner's active one — row-level security would quietly return
+  // that org's rows, or none at all, and the page would look merely empty
+  // rather than broken (ADR-0041). The gate above is the authorization this
+  // bypass rests on; it sits here so no caller can reach the data without it.
+  return withPlatformAccess('answer feedback: cross-organization quality view', () =>
+    getFeedbackHealth(filters),
+  )
+}
+
+/**
+ * The same view, in sentences — see `./digest` for what is sent and why.
+ *
+ * Behind the SAME gate as the numbers, and for a sharper reason: the digest
+ * reads across every tenant's questions at once and hands a model a summary of
+ * all of them. Anyone who can read that can already read the underlying page.
+ *
+ * The aggregate is computed here and passed down rather than recomputed inside
+ * the digest, so the sentences and the figures beside them can never describe
+ * two different windows.
+ */
+export async function getAnswerFeedbackDigest(
+  session: GridSession | null,
+  filters: FeedbackHealthFilters = {},
+  options: FeedbackDigestOptions = {},
+): Promise<FeedbackDigestResult> {
+  await requirePlatformOwner(session)
+  const health = await withPlatformAccess(
+    'answer feedback digest: cross-organization quality view',
+    () => getFeedbackHealth({ ...filters, limit: 0 }),
+  )
+  return getFeedbackDigest(health, filters, options)
 }

@@ -23,6 +23,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { isAuthzError } from '@/lib/auth-utils'
 import {
@@ -50,7 +51,7 @@ import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
 async function filterDataSourcesResponse(
   path: string[],
   organizationId: string | null | undefined,
-  data: unknown,
+  data: unknown
 ): Promise<unknown> {
   if (path.length !== 1 || path[0] !== 'data_sources' || !organizationId) return data
   try {
@@ -60,14 +61,22 @@ async function filterDataSourcesResponse(
   }
   const dropWebSearch = (sources: unknown[]): unknown[] =>
     sources.filter(
-      (source) => !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search'),
+      (source) =>
+        !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search')
     )
   // The backend returns `{ data_sources, vlm_available }`; older/other shapes
   // may return a bare array. Filter web_search in either while preserving the
   // capability fields (e.g. vlm_available) untouched.
   if (Array.isArray(data)) return dropWebSearch(data)
-  if (data && typeof data === 'object' && Array.isArray((data as { data_sources?: unknown }).data_sources)) {
-    return { ...data, data_sources: dropWebSearch((data as { data_sources: unknown[] }).data_sources) }
+  if (
+    data &&
+    typeof data === 'object' &&
+    Array.isArray((data as { data_sources?: unknown }).data_sources)
+  ) {
+    return {
+      ...data,
+      data_sources: dropWebSearch((data as { data_sources: unknown[] }).data_sources),
+    }
   }
   return data
 }
@@ -101,7 +110,7 @@ const rejectBlockedPath = (path: string[]): NextResponse | null => {
   return null
 }
 
-export async function GET(
+export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -121,7 +130,9 @@ export async function GET(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'GET',
@@ -149,9 +160,9 @@ export async function GET(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
-export async function POST(
+export const POST = tenantSlotRoute(async function POST(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -192,7 +203,9 @@ export async function POST(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'POST',
@@ -221,9 +234,9 @@ export async function POST(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = tenantSlotRoute(async function DELETE(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -243,7 +256,9 @@ export async function DELETE(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     let body: string | undefined
     try {
@@ -284,4 +299,4 @@ export async function DELETE(
 
     return proxyErrorEnvelope(error)
   }
-}
+})

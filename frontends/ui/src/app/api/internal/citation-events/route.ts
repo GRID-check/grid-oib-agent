@@ -1,0 +1,71 @@
+/**
+ * INTERNAL service endpoint — the single write path into the `citation_events`
+ * ledger. The backend's citation-health emitter
+ * (src/aiq_agent/common/citation_events.py) POSTs one batch per research turn,
+ * mirroring `api/internal/agent-profiler-spans/route.ts`; grid_app stays
+ * single-writer.
+ */
+
+import { z } from 'zod'
+import {
+  CITATION_EVENT_AGENTS,
+  CITATION_EVENT_KINDS,
+  CITATION_EVENT_SEVERITIES,
+} from '@/lib/db/schema'
+import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
+import { recordCitationEvents } from '@/lib/citations/service'
+
+const eventSchema = z.object({
+  kind: z.enum(CITATION_EVENT_KINDS),
+  severity: z.enum(CITATION_EVENT_SEVERITIES),
+  count: z.number().int().min(1).max(10_000).default(1),
+  /** Machine reason key -> occurrences. Bounded so a pathological turn can't bloat a row. */
+  reasons: z.record(z.string().max(120), z.number().int().min(0).max(10_000)).nullable().optional(),
+  detail: z.record(z.string().max(120), z.unknown()).nullable().optional(),
+})
+
+const batchSchema = z.object({
+  // `.min(1)`: an empty string is falsy, so it took the org-less branch below
+  // and wrote `organization_id = ''` — a row that no tenant predicate can ever
+  // match and that is not the NULL the fail-closed design expects. Two
+  // different "no organization" values is one too many.
+  organizationId: z.string().min(1).max(120).nullable().optional(),
+  conversationId: z.string().max(255).nullable().optional(),
+  turnId: z.string().min(1).max(64),
+  jobId: z.string().max(255).nullable().optional(),
+  agent: z.enum(CITATION_EVENT_AGENTS),
+  events: z.array(eventSchema).min(1).max(50),
+})
+
+export const POST = internalApiRoute(
+  'Internal Citation Events',
+  async ({ request }) => {
+    const batch = await parseJsonBody(request, batchSchema)
+
+    // `organization_id` is nullable on this table: a turn from a session with
+    // no organization produces a row that belongs to no tenant and cannot
+    // satisfy any tenant predicate. Such rows are written outside the boundary
+    // and stay visible only to the platform tier.
+    const recorded = await withOptionalTenant(
+      batch.organizationId,
+      'citation telemetry from a turn with no organization selected belongs to no tenant',
+      () => recordCitationEvents(
+      batch.events.map((event) => ({
+        organizationId: batch.organizationId ?? null,
+        conversationId: batch.conversationId ?? null,
+        turnId: batch.turnId,
+        jobId: batch.jobId ?? null,
+        agent: batch.agent,
+        kind: event.kind,
+        severity: event.severity,
+        count: event.count,
+        reasons: event.reasons ?? null,
+        detail: (event.detail as Record<string, unknown> | null) ?? null,
+      }))
+      )
+    )
+    return { recorded }
+  },
+  { status: 202, tenancy: { fromPayload: 'body.organizationId (nullable)' } }
+)

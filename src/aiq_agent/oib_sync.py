@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,9 @@ class _ActiveIngestion:
     submitted_at: float
     last_status: FileStatus | None = None
     last_progress_logged_at: float = 0.0
+    # The per-basename lock held for this file's whole ingestion, released when
+    # it reaches a terminal state (see ``_file_lock``).
+    lock: "threading.Lock | None" = None
 
 
 def _file_hash(path: Path) -> str:
@@ -65,6 +69,41 @@ def _file_hash(path: Path) -> str:
 # a PDF happens to change. Stored under a reserved key in the sync registry.
 CHUNK_FORMAT_VERSION = 1
 _FORMAT_KEY = "__chunk_format_version__"
+
+
+# Serialises registry read-modify-write sequences. ZIP admin uploads ingest
+# members concurrently (the oib route's executor runs >1 thread) and a full
+# sync() can overlap with them — without the lock, two threads can each load
+# the registry, and the later save silently drops the other's new hash entry
+# (lost hashes cause a wasteful re-ingest next sync, never corruption).
+# Every write reloads the file INSIDE the lock and merges: the lock alone only
+# serialises the saves, it does not stop a stale in-memory snapshot (sync()
+# loads once, then runs for minutes) from clobbering a concurrent writer.
+_REGISTRY_LOCK = threading.Lock()
+
+# Same guarantee for the persisted exclusion set, which has its own file and is
+# read-modify-written by exclude/unexclude/prune.
+_EXCLUDED_LOCK = threading.Lock()
+
+# Single-flight guard for sync(): two concurrent syncs would build their work
+# lists from the same registry snapshot and ingest every changed file twice.
+_SYNC_LOCK = threading.Lock()
+
+# Per-basename locks. The collection keys chunks on the filename, so all corpus
+# mutations for ONE document (delete chunks + upload, or delete + unlink) must
+# not interleave: without this a delete can land between a concurrent ingest's
+# delete and upload, leaving the file indexed after a "successful" removal, or
+# two ingests of the same name can double-index it. Different documents stay
+# fully concurrent, which is the point of the multi-worker executor.
+_FILE_LOCKS: dict[str, threading.Lock] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+
+
+def _file_lock(name: str) -> threading.Lock:
+    """The lock serialising corpus mutations for one document basename."""
+    key = Path(name).name
+    with _FILE_LOCKS_GUARD:
+        return _FILE_LOCKS.setdefault(key, threading.Lock())
 
 
 def _load_registry() -> dict[str, str]:
@@ -208,38 +247,44 @@ def ingest_single(pdf: Path) -> "FileStatus | None":
     Same contract as sync(): existing chunks for the filename are replaced and
     the registry hash is recorded only on success. Returns the terminal
     FileStatus, or None on timeout.
+
+    Holds the document's per-basename lock for the whole delete → upload → poll
+    cycle, so a concurrent removal or sync of the same filename cannot interleave
+    with it (see ``_file_lock``).
     """
     current_hash = _file_hash(pdf)
-    ingestor = _get_oib_ingestor()
-    _ensure_collection(ingestor)
+    with _file_lock(pdf.name):
+        ingestor = _get_oib_ingestor()
+        _ensure_collection(ingestor)
 
-    try:
-        ingestor.delete_file(pdf.name, COLLECTION_NAME)
-    except Exception as exc:
-        logger.warning("Could not delete existing chunks for %s before ingest: %s", pdf.name, exc)
+        try:
+            ingestor.delete_file(pdf.name, COLLECTION_NAME)
+        except Exception as exc:
+            logger.warning("Could not delete existing chunks for %s before ingest: %s", pdf.name, exc)
 
-    file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
-    logger.info("Submitted OIB upload %s size=%d file_id=%s", pdf.name, pdf.stat().st_size, file_info.file_id)
+        file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
+        logger.info("Submitted OIB upload %s size=%d file_id=%s", pdf.name, pdf.stat().st_size, file_info.file_id)
 
-    deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        info = ingestor.get_file_status(file_info.file_id, COLLECTION_NAME)
-        status = info.status if info else None
-        if status == FileStatus.SUCCESS:
-            registry = _load_registry()
-            registry[str(pdf)] = current_hash
-            _save_registry(registry)
-            logger.info("OIB upload ingested: %s chunks=%s", pdf.name, info.chunk_count if info else "unknown")
-            return status
-        if status == FileStatus.FAILED:
-            logger.error(
-                "OIB upload failed: %s error=%s", pdf.name, info.error_message if info else "missing file status"
-            )
-            return status
-        time.sleep(_POLL_INTERVAL_SECONDS)
+        deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            info = ingestor.get_file_status(file_info.file_id, COLLECTION_NAME)
+            status = info.status if info else None
+            if status == FileStatus.SUCCESS:
+                with _REGISTRY_LOCK:
+                    registry = _load_registry()
+                    registry[str(pdf)] = current_hash
+                    _save_registry(registry)
+                logger.info("OIB upload ingested: %s chunks=%s", pdf.name, info.chunk_count if info else "unknown")
+                return status
+            if status == FileStatus.FAILED:
+                logger.error(
+                    "OIB upload failed: %s error=%s", pdf.name, info.error_message if info else "missing file status"
+                )
+                return status
+            time.sleep(_POLL_INTERVAL_SECONDS)
 
-    logger.error("OIB upload timed out: %s", pdf.name)
-    return None
+        logger.error("OIB upload timed out: %s", pdf.name)
+        return None
 
 
 def remove_uploaded_document(file_name: str) -> bool:
@@ -254,24 +299,29 @@ def remove_uploaded_document(file_name: str) -> bool:
     if not path.is_file():
         return False
 
-    ingestor = _get_oib_ingestor()
-    try:
-        ingestor.delete_file(name, COLLECTION_NAME)
-    except Exception as exc:
-        logger.warning("Could not delete chunks for %s: %s", name, exc)
+    # One lock for chunk delete + registry drop + unlink: a pending ingest of the
+    # same basename must not finish inside those gaps and leave the document
+    # indexed (or its hash recorded) after a "successful" removal.
+    with _file_lock(name):
+        ingestor = _get_oib_ingestor()
+        try:
+            ingestor.delete_file(name, COLLECTION_NAME)
+        except Exception as exc:
+            logger.warning("Could not delete chunks for %s: %s", name, exc)
 
-    registry = _load_registry()
-    if registry.pop(str(path), None) is not None:
-        _save_registry(registry)
+        with _REGISTRY_LOCK:
+            registry = _load_registry()
+            if registry.pop(str(path), None) is not None:
+                _save_registry(registry)
 
-    try:
-        from aiq_agent.knowledge.factory import unregister_summary
+        try:
+            from aiq_agent.knowledge.factory import unregister_summary
 
-        unregister_summary(COLLECTION_NAME, name)
-    except Exception as exc:
-        logger.debug("Could not unregister summary for %s: %s", name, exc)
+            unregister_summary(COLLECTION_NAME, name)
+        except Exception as exc:
+            logger.debug("Could not unregister summary for %s: %s", name, exc)
 
-    path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
     logger.info("Removed uploaded OIB document %s", name)
     return True
 
@@ -286,30 +336,36 @@ def exclude_document(name: str) -> None:
     """
     base = Path(name).name  # forbid path traversal
 
-    ingestor = _get_oib_ingestor()
-    try:
-        ingestor.delete_file(base, COLLECTION_NAME)
-    except Exception as exc:
-        logger.warning("Could not delete chunks for excluded %s: %s", base, exc)
+    with _file_lock(base):
+        ingestor = _get_oib_ingestor()
+        try:
+            ingestor.delete_file(base, COLLECTION_NAME)
+        except Exception as exc:
+            logger.warning("Could not delete chunks for excluded %s: %s", base, exc)
 
-    registry = _load_registry()
-    stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
-    if stale_keys:
-        for key in stale_keys:
-            registry.pop(key, None)
-        _save_registry(registry)
+        with _REGISTRY_LOCK:
+            registry = _load_registry()
+            stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
+            if stale_keys:
+                for key in stale_keys:
+                    registry.pop(key, None)
+                _save_registry(registry)
 
-    try:
-        from aiq_agent.knowledge.factory import unregister_summary
+        try:
+            from aiq_agent.knowledge.factory import unregister_summary
 
-        unregister_summary(COLLECTION_NAME, base)
-    except Exception as exc:
-        logger.debug("Could not unregister summary for %s: %s", base, exc)
+            unregister_summary(COLLECTION_NAME, base)
+        except Exception as exc:
+            logger.debug("Could not unregister summary for %s: %s", base, exc)
 
-    excluded = _load_excluded()
-    if base not in excluded:
-        excluded.add(base)
-        _save_excluded(excluded)
+        # Under the exclusion lock too: a concurrent removal of another document
+        # would otherwise load the same set and drop this basename on save, and
+        # the next sync would re-ingest the document an admin just removed.
+        with _EXCLUDED_LOCK:
+            excluded = _load_excluded()
+            if base not in excluded:
+                excluded.add(base)
+                _save_excluded(excluded)
     logger.info("Excluded OIB corpus document %s from the active corpus", base)
 
 
@@ -323,25 +379,27 @@ def _prune_excluded_uploads() -> None:
     """
     if not OIB_UPLOADS_DIR.exists():
         return
-    excluded = _load_excluded()
-    if not excluded:
-        return
     uploaded = {p.name for p in OIB_UPLOADS_DIR.rglob("*.pdf") if p.is_file()}
-    remaining = excluded - uploaded
-    if remaining != excluded:
-        _save_excluded(remaining)
-        logger.info("Pruned %d stale exclusion(s) now present as uploads", len(excluded) - len(remaining))
+    with _EXCLUDED_LOCK:
+        excluded = _load_excluded()
+        if not excluded:
+            return
+        remaining = excluded - uploaded
+        if remaining != excluded:
+            _save_excluded(remaining)
+            logger.info("Pruned %d stale exclusion(s) now present as uploads", len(excluded) - len(remaining))
 
 
 def unexclude_document(name: str) -> bool:
     """Reverse an exclusion so the file is re-discovered (and re-ingested by the
     next sync). Returns False when the basename was not excluded."""
     base = Path(name).name
-    excluded = _load_excluded()
-    if base not in excluded:
-        return False
-    excluded.discard(base)
-    _save_excluded(excluded)
+    with _EXCLUDED_LOCK:
+        excluded = _load_excluded()
+        if base not in excluded:
+            return False
+        excluded.discard(base)
+        _save_excluded(excluded)
     logger.info("Re-included OIB corpus document %s into the active corpus", base)
     return True
 
@@ -391,11 +449,25 @@ def remove_document(name: str) -> str | None:
 def sync() -> tuple[int, int]:
     """Incrementally ingest new/changed OIB PDFs into the persistent collection.
 
+    Single-flight: a second concurrent sync waits for the running one instead of
+    ingesting the same work list twice (the admin route's executor has >1 worker,
+    so a manual sync can land while one is already running).
+
     Returns:
         Tuple of (num_succeeded, num_total_tracked) where num_succeeded is the
         number of files that ingested successfully this run and num_total_tracked
         is the total number of OIB PDFs discovered on disk.
     """
+    if not _SYNC_LOCK.acquire(blocking=False):
+        logger.info("OIB sync already in progress; waiting for it to finish before syncing again")
+        _SYNC_LOCK.acquire()
+    try:
+        return _sync_locked()
+    finally:
+        _SYNC_LOCK.release()
+
+
+def _sync_locked() -> tuple[int, int]:
     if not OIB_DIR.exists() and not OIB_UPLOADS_DIR.exists():
         raise FileNotFoundError(f"OIB directory not found: {OIB_DIR}")
 
@@ -407,16 +479,18 @@ def sync() -> tuple[int, int]:
         logger.warning("No PDF files found in %s", OIB_DIR)
         return 0, 0
 
-    registry = _load_registry()
-    if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
-        logger.warning(
-            "OIB sync: chunk format version changed (stored=%s, current=%s) — forcing one full re-ingest of the corpus",
-            registry.get(_FORMAT_KEY),
-            CHUNK_FORMAT_VERSION,
-        )
-        registry = {}
-    registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
-    _save_registry(registry)
+    with _REGISTRY_LOCK:
+        registry = _load_registry()
+        if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
+            logger.warning(
+                "OIB sync: chunk format version changed (stored=%s, current=%s) — "
+                "forcing one full re-ingest of the corpus",
+                registry.get(_FORMAT_KEY),
+                CHUNK_FORMAT_VERSION,
+            )
+            registry = {}
+        registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
+        _save_registry(registry)
 
     # Reconcile the registry against the ACTUAL vector store. The registry (data
     # volume) and the vectors (embedded dir, or a shared Chroma-server volume)
@@ -433,8 +507,9 @@ def sync() -> tuple[int, int]:
             "(vector store reset or repointed) — forcing a full re-ingest",
             COLLECTION_NAME,
         )
-        registry = {_FORMAT_KEY: CHUNK_FORMAT_VERSION}
-        _save_registry(registry)
+        with _REGISTRY_LOCK:
+            registry = {_FORMAT_KEY: CHUNK_FORMAT_VERSION}
+            _save_registry(registry)
 
     new_or_changed: list[tuple[Path, str]] = []
     max_workers = _get_max_workers()
@@ -478,13 +553,22 @@ def sync() -> tuple[int, int]:
             pdf, current_hash = new_or_changed[next_index]
             queue_position = next_index + 1
 
-            if str(pdf) in registry:
-                try:
-                    ingestor.delete_file(pdf.name, COLLECTION_NAME)
-                except Exception as exc:
-                    logger.warning("Could not delete existing chunks for %s before reingest: %s", pdf.name, exc)
+            # Held until this file reaches a terminal state, so a concurrent
+            # upload or removal of the same basename cannot interleave with the
+            # delete → upload → poll cycle below (see _file_lock).
+            lock = _file_lock(pdf.name)
+            lock.acquire()
+            try:
+                if str(pdf) in registry:
+                    try:
+                        ingestor.delete_file(pdf.name, COLLECTION_NAME)
+                    except Exception as exc:
+                        logger.warning("Could not delete existing chunks for %s before reingest: %s", pdf.name, exc)
 
-            file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
+                file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
+            except BaseException:
+                lock.release()
+                raise
             active[file_info.file_id] = _ActiveIngestion(
                 pdf=pdf,
                 current_hash=current_hash,
@@ -492,6 +576,7 @@ def sync() -> tuple[int, int]:
                 queue_position=queue_position,
                 submitted_at=time.monotonic(),
                 last_status=file_info.status,
+                lock=lock,
             )
             next_index += 1
             logger.info(
@@ -504,6 +589,12 @@ def sync() -> tuple[int, int]:
                 len(active),
                 total_pending - next_index,
             )
+
+    def complete(file_id: str) -> None:
+        """Drop a finished item and release its per-basename lock."""
+        item = active.pop(file_id, None)
+        if item is not None and item.lock is not None:
+            item.lock.release()
 
     def log_progress(now: float, *, force: bool = False) -> None:
         nonlocal last_summary_logged_at
@@ -528,69 +619,83 @@ def sync() -> tuple[int, int]:
         )
         last_summary_logged_at = now
 
-    submit_until_capacity()
-    if active:
-        log_progress(time.monotonic(), force=True)
+    try:
+        submit_until_capacity()
+        if active:
+            log_progress(time.monotonic(), force=True)
 
-    while active:
-        now = time.monotonic()
-        made_progress = False
+        while active:
+            now = time.monotonic()
+            made_progress = False
 
-        for file_id, item in list(active.items()):
-            file_info = ingestor.get_file_status(file_id, COLLECTION_NAME)
-            status = file_info.status if file_info else None
+            for file_id, item in list(active.items()):
+                file_info = ingestor.get_file_status(file_id, COLLECTION_NAME)
+                status = file_info.status if file_info else None
 
-            if status != item.last_status:
-                item.last_status = status
-                made_progress = True
+                if status != item.last_status:
+                    item.last_status = status
+                    made_progress = True
 
-            elapsed = now - item.submitted_at
-            if status == FileStatus.SUCCESS:
-                registry[str(item.pdf)] = item.current_hash
-                _save_registry(registry)
-                succeeded += 1
-                active.pop(file_id, None)
-                made_progress = True
-                logger.info(
-                    "OIB ingestion succeeded: %s file_id=%s chunks=%s elapsed=%.1fs",
-                    item.pdf.name,
-                    file_id,
-                    file_info.chunk_count if file_info else "unknown",
-                    elapsed,
-                )
-            elif status == FileStatus.FAILED:
-                failed += 1
-                active.pop(file_id, None)
-                made_progress = True
-                logger.error(
-                    "OIB ingestion failed: %s file_id=%s status=%s error=%s elapsed=%.1fs; "
-                    "registry not updated, will retry next run",
-                    item.pdf.name,
-                    file_id,
-                    _status_label(status),
-                    file_info.error_message if file_info else "missing file status",
-                    elapsed,
-                )
-            elif elapsed >= _POLL_TIMEOUT_SECONDS:
-                timed_out += 1
-                active.pop(file_id, None)
-                made_progress = True
-                logger.error(
-                    "OIB ingestion timed out: %s file_id=%s elapsed=%.1fs last_status=%s; "
-                    "registry not updated, will retry next run",
-                    item.pdf.name,
-                    file_id,
-                    elapsed,
-                    _status_label(status),
-                )
+                elapsed = now - item.submitted_at
+                if status == FileStatus.SUCCESS:
+                    with _REGISTRY_LOCK:
+                        # Reload: `registry` was loaded before this (minutes-long)
+                        # run started, so saving it as-is would drop hashes another
+                        # ingestion recorded in the meantime.
+                        registry = _load_registry()
+                        registry[str(item.pdf)] = item.current_hash
+                        _save_registry(registry)
+                    succeeded += 1
+                    complete(file_id)
+                    made_progress = True
+                    logger.info(
+                        "OIB ingestion succeeded: %s file_id=%s chunks=%s elapsed=%.1fs",
+                        item.pdf.name,
+                        file_id,
+                        file_info.chunk_count if file_info else "unknown",
+                        elapsed,
+                    )
+                elif status == FileStatus.FAILED:
+                    failed += 1
+                    complete(file_id)
+                    made_progress = True
+                    logger.error(
+                        "OIB ingestion failed: %s file_id=%s status=%s error=%s elapsed=%.1fs; "
+                        "registry not updated, will retry next run",
+                        item.pdf.name,
+                        file_id,
+                        _status_label(status),
+                        file_info.error_message if file_info else "missing file status",
+                        elapsed,
+                    )
+                elif elapsed >= _POLL_TIMEOUT_SECONDS:
+                    timed_out += 1
+                    complete(file_id)
+                    made_progress = True
+                    logger.error(
+                        "OIB ingestion timed out: %s file_id=%s elapsed=%.1fs last_status=%s; "
+                        "registry not updated, will retry next run",
+                        item.pdf.name,
+                        file_id,
+                        elapsed,
+                        _status_label(status),
+                    )
 
-        if made_progress:
-            submit_until_capacity()
-            if active:
-                log_progress(time.monotonic(), force=True)
-        elif active:
-            log_progress(now)
-            time.sleep(_POLL_INTERVAL_SECONDS)
+            if made_progress:
+                submit_until_capacity()
+                if active:
+                    log_progress(time.monotonic(), force=True)
+            elif active:
+                log_progress(now)
+                time.sleep(_POLL_INTERVAL_SECONDS)
+
+    finally:
+        # A raise mid-flight (ingestor error, cancellation) must not leave a
+        # basename locked for the process's lifetime.
+        for item in active.values():
+            if item.lock is not None:
+                item.lock.release()
+        active.clear()
 
     skipped = len(pdf_paths) - total_pending
     logger.info(

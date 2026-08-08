@@ -9,14 +9,8 @@
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import {
-  createProjectMemoryItem,
-  listOrganizationMemory,
-} from '@/lib/projects/memory-service'
-import {
-  PROJECT_MEMORY_CONFIDENCES,
-  PROJECT_MEMORY_KINDS,
-} from '@/lib/db/schema'
+import { createProjectMemoryItem, listOrganizationMemory } from '@/lib/projects/memory-service'
+import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
 
 const createOrgMemorySchema = z.object({
   kind: z.enum(PROJECT_MEMORY_KINDS),
@@ -25,10 +19,18 @@ const createOrgMemorySchema = z.object({
   pinned: z.boolean().optional(),
 })
 
-export const GET = apiRoute(async ({ session, request }) => {
-  const includeArchived = new URL(request.url).searchParams.get('includeArchived') === 'true'
-  return { items: await listOrganizationMemory(session.organizationId, { includeArchived }) }
-})
+export const GET = apiRoute(
+  async ({ session, request }) => {
+    const includeArchived = new URL(request.url).searchParams.get('includeArchived') === 'true'
+    return { items: await listOrganizationMemory(session.organizationId, { includeArchived }) }
+  },
+  {
+    authz: {
+      sessionOnly: true,
+      why: 'org-wide memory is shared by every project in the tenant and scoped by session.organizationId; deliberately not admin-gated',
+    },
+  }
+)
 
 export const POST = apiRoute(
   async ({ session, request }) => {
@@ -47,5 +49,11 @@ export const POST = apiRoute(
     })
     return { item }
   },
-  { status: 201 },
+  {
+    status: 201,
+    authz: {
+      sessionOnly: true,
+      why: 'org-wide memory is shared by every project in the tenant and scoped by session.organizationId; deliberately not admin-gated',
+    },
+  }
 )

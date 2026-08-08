@@ -36,6 +36,11 @@ export const archiv = {
       document: 'Dokument',
     },
   },
+  toast: {
+    // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
+    // organisationsweit zitierbar wird.
+    ingestionComplete: '„{name}“ ist jetzt im Büroarchiv – zitierbar',
+  },
   workspace: {
     dropToUpload: 'Dateien hier ablegen, um sie ins Archiv aufzunehmen',
     dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',

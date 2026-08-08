@@ -39,12 +39,23 @@ than leaving the next person to trip over them.
 Run what your change touches before pushing (the full matrix is in the
 [definition-of-done skill](.claude/skills/definition-of-done/SKILL.md)):
 
-- Python backend: `ruff check .` and `ruff format --check .`, then `pytest tests/`.
-- Frontend (`frontends/ui/`): `npm ci`, `npm run lint`, `npm run type-check`,
-  `npm run test:ci`, `npm run build`.
-- Everything at once: `pre-commit run --all-files` — ruff, detect-secrets,
-  markdown-link-check and more, configured in
+All commands live in the root [`Taskfile.yml`](Taskfile.yml) and are run with
+[go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the same
+tasks, so there is no second copy to drift:
+
+- First time here: `task setup` (backend venv, UI deps, Pulumi deps).
+- Python backend: `task be:lint`, `task be:test`.
+- Frontend: `task fe:lint`, `task fe:types`, `task fe:test`, `task fe:build` —
+  or all four as `task fe:verify`.
+- Infra: `task infra:types`.
+- Everything at once: `task verify` — this is the merge gate: repo lint plus the
+  same per-tier groups CI runs (`be:verify` with its coverage gate, `fe:verify`,
+  `infra:types`). `task verify:fast` omits only the production build.
+- Repo-wide hooks: `task lint:repo` (`pre-commit run --all-files`) — ruff,
+  detect-secrets, markdown-link-check and more, configured in
   [`.pre-commit-config.yaml`](.pre-commit-config.yaml).
+
+`task --list` shows everything with descriptions.
 
 ## Commits and PR titles
 

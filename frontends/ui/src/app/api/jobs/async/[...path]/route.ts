@@ -26,12 +26,16 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
-import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
-import { buildGridRequestContextWireHeaders, type GridRequestContextInput } from '@/lib/request-context'
+import {
+  buildGridRequestContextWireHeaders,
+  type GridRequestContextInput,
+} from '@/lib/request-context'
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
@@ -68,7 +72,7 @@ import type { GridSession } from '@/lib/auth/types'
  */
 async function resolveGridContextHeaders(
   session: GridSession | null,
-  extra: { projectId?: string; collectionScope?: string[] },
+  extra: { projectId?: string; collectionScope?: string[] }
 ): Promise<Record<string, string>> {
   const input: GridRequestContextInput = {
     organizationId: session?.organizationId ?? null,
@@ -79,7 +83,7 @@ async function resolveGridContextHeaders(
 
   if (session?.organizationId) {
     try {
-      const overrides = await getActiveModelOverrides(session.organizationId)
+      const overrides = await getEffectiveModelOverrides(session.organizationId)
       if (overrides) {
         input.modelOverrides = overrides
       }
@@ -94,7 +98,7 @@ async function resolveGridContextHeaders(
     // a lookup failure must not block job submission; the backend falls back
     // to prompt-text parsing of `project_context` (unaffected either way).
     try {
-      const bundesland = await loadProjectBundesland(extra.projectId)
+      const bundesland = await loadProjectBundesland(extra.projectId, session?.organizationId)
       if (bundesland) {
         input.bundesland = bundesland
       }
@@ -107,12 +111,23 @@ async function resolveGridContextHeaders(
 }
 
 const LOG_LABEL = 'Deep Research API'
+
+/**
+ * Per-request proxy tracing. Dev-only: these fire on every deep-research
+ * request (including each SSE reconnect), so at production volume they are
+ * pure noise in the service log while telling an operator nothing an error
+ * path does not already report.
+ */
+const traceRequest = (...args: unknown[]): void => {
+  if (process.env.NODE_ENV !== 'development') return
+  console.debug(`[${LOG_LABEL}]`, ...args)
+}
 const JOBS_BASE_PATH = '/v1/jobs/async'
 
 /**
  * Handle GET requests (status, stream, state, report)
  */
-export async function GET(
+export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -138,13 +153,16 @@ export async function GET(
         : path
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath)
 
-    console.log('[Deep Research API] GET:', backendUrl, isStreamRequest ? '(SSE)' : '')
+    traceRequest('GET:', backendUrl, isStreamRequest ? '(SSE)' : '')
 
     const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
-    console.log('[Deep Research API] WorkOS access token present:', !!authHeaders.Authorization)
+    traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const { headerValue } = await buildCollectionScopeFromRequest(
+      session,
+      parseQueryContext(searchParams)
+    )
 
     // The token query param is consumed for auth and forwarded via headers.
     const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, searchParams, ['token'])
@@ -174,7 +192,14 @@ export async function GET(
         return noResponseBodyEnvelope('Backend returned no SSE stream body')
       }
 
-      // Stream the SSE response back to the client
+      // Stream the SSE response back to the client.
+      //
+      // NOTE: the body is piped AFTER this handler returns, so it runs outside
+      // the `runWithTenantSlot` scope this route opened. The pipeline only
+      // forwards upstream bytes, so nothing there touches the database today —
+      // but a database read added inside the stream would throw
+      // `MissingTenantContextError` at an awkward moment. Read what you need
+      // before returning, or open a fresh scope inside the stream.
       return sseStreamResponse(response.body, {
         'Cache-Control': 'no-cache, no-transform',
         'X-Accel-Buffering': 'no', // Disable nginx buffering
@@ -193,12 +218,12 @@ export async function GET(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
 /**
  * Handle POST requests (submit, cancel)
  */
-export async function POST(
+export const POST = tenantSlotRoute(async function POST(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -206,7 +231,7 @@ export async function POST(
     const { path } = await params
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
 
-    console.log('[Deep Research API] POST:', backendUrl)
+    traceRequest('POST:', backendUrl)
 
     // Get the request body (may be empty for cancel)
     let parsedBody: Record<string, unknown> | undefined
@@ -222,7 +247,7 @@ export async function POST(
 
     const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
-    console.log('[Deep Research API] POST WorkOS access token present:', !!authHeaders.Authorization)
+    traceRequest('POST WorkOS access token present:', !!authHeaders.Authorization)
 
     // Deep research is flag-gated (expensive workflow). Only the submit
     // entry point is gated — cancel/stream on running jobs stay available.
@@ -234,9 +259,12 @@ export async function POST(
 
     const { headerValue, scope, projectId } = await buildCollectionScopeFromRequest(
       session,
-      parseBodyContext(parsedBody),
+      parseBodyContext(parsedBody)
     )
-    const gridContextHeaders = await resolveGridContextHeaders(session, { projectId, collectionScope: scope })
+    const gridContextHeaders = await resolveGridContextHeaders(session, {
+      projectId,
+      collectionScope: scope,
+    })
 
     // Forward the request to the backend.
     //
@@ -277,12 +305,12 @@ export async function POST(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
 /**
  * Handle DELETE requests (cancel)
  */
-export async function DELETE(
+export const DELETE = tenantSlotRoute(async function DELETE(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -291,13 +319,16 @@ export async function DELETE(
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
     const { searchParams } = new URL(req.url)
 
-    console.log('[Deep Research API] DELETE:', backendUrl)
+    traceRequest('DELETE:', backendUrl)
 
     const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
-    console.log('[Deep Research API] DELETE WorkOS access token present:', !!authHeaders.Authorization)
+    traceRequest('DELETE WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const { headerValue } = await buildCollectionScopeFromRequest(
+      session,
+      parseQueryContext(searchParams)
+    )
 
     const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
 
@@ -328,4 +359,4 @@ export async function DELETE(
 
     return proxyErrorEnvelope(error)
   }
-}
+})

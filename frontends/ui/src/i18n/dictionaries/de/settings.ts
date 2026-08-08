@@ -3,6 +3,7 @@ import type { en } from '../en'
 /** The right-side settings panel + the project Settings page. */
 export const settings: typeof en.settings = {
   title: 'Einstellungen',
+  loading: 'Einstellungen werden geladen …',
   ariaLabel: 'Einstellungen',
   savedAutomatically: 'Einstellungen werden automatisch gespeichert.',
   appearance: {

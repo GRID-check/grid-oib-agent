@@ -2,10 +2,15 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { hardenedJobSecurityContext } from "../platform/security";
+import { BOOTSTRAP_JOB_RESOURCES, JOB_DEFAULTS, PORT, SEAWEED } from "../constants";
+import { secretChecksum } from "../platform/rollout";
+import { renderS3Config, s3ConfigSecret } from "./seaweedfs-identities";
+import { installSingleNodeSeaweedFS } from "./seaweedfs-single";
+import { filerToml, installSplitSeaweedFS, leveldbFilerToml } from "./seaweedfs-split";
+import type { SeaweedTopology } from "./seaweedfs-types";
 
-export interface SeaweedFS {
-  statefulSet: k8s.apps.v1.StatefulSet;
-  service: k8s.core.v1.Service;
+export interface SeaweedFS extends SeaweedTopology {
   bucketInitJob: k8s.batch.v1.Job;
   /** In-cluster S3 endpoint (backend/frontend/purger consume this). */
   internalEndpoint: pulumi.Output<string>;
@@ -16,181 +21,140 @@ export interface SeaweedFS {
 /**
  * SeaweedFS S3-compatible object storage.
  *
- * DESIGN DECISION (the flagged risk): we keep the exact single-node topology
- * that is already proven in Docker Compose — one `weed server -s3` process
- * running master + volume + filer + the S3 gateway — but move its data onto a
- * durable Lightbits-backed PVC (via a StatefulSet volumeClaimTemplate) instead
- * of an ephemeral local volume. This is the lowest-risk faithful migration for
- * the app's modest object load. The scale-out path (split master/volume/filer
- * into separate StatefulSets, filer store on Postgres, N volume servers via the
- * upstream SeaweedFS Helm chart/operator) is documented in
- * docs/deployment/kubernetes.md and intentionally NOT adopted here.
+ * This module owns the parts that do not depend on the layout — the S3 identity
+ * set and the bucket bootstrap — and dispatches the layout itself to one of two
+ * topologies (ADR-0043):
  *
- * S3 identities come from a Secret (mounted as s3.json), mirroring the compose
- * bootstrap that generates s3.json from access/secret keys.
+ * - `seaweedfs-single.ts` — one `weed server -s3` process on one PVC. What
+ *   every deployment ran before ADR-0043, kept intact so an existing stack sees
+ *   no change until its operator chooses one.
+ * - `seaweedfs-split.ts` — master / volume / filer as separate workloads, with
+ *   the filer namespace on Postgres. Volume capacity becomes a replica count,
+ *   and the per-chunk encryption keys stop sharing a disk with the ciphertext.
+ *
+ * **Switching between them is a data migration.** The topologies use different
+ * PVCs, so a stack that flips the knob without running the migration in
+ * `docs/deployment/kubernetes.md` comes up with an empty object store while the
+ * old data sits on a claim nothing mounts. Nothing errors, which is precisely
+ * what makes it dangerous — hence the runbook and the pinned value in each
+ * existing stack's own `Pulumi.<stack>.yaml`.
  */
 export function installSeaweedFS(
   cfg: GridConfig,
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
+  /** Extra buckets to pre-create alongside the documents bucket (e.g. PG backups). */
+  extraBuckets: string[] = [],
+  /** CNPG read/write host, for the split topology's Postgres filer store. */
+  postgresHost = "",
+  /** Gate the filer on the filer database and role existing. */
+  filerStoreDeps: pulumi.Resource[] = [],
 ): SeaweedFS {
-  const labels = commonLabels("seaweedfs");
+  // Buckets this stack creates and grants outright. Per-organization buckets
+  // are created at runtime by the application and are granted by prefix
+  // instead — see seaweedfs-identities.ts.
+  const platformBuckets = [cfg.seaweedfs.bucket, ...extraBuckets];
 
-  // S3 identities config. Same shape the compose entrypoint printf-generates.
-  const s3Config = pulumi
-    .all([pulumi.output(cfg.seaweedfs.accessKey), cfg.seaweedfs.secretKey])
-    .apply(([ak, sk]) =>
-      JSON.stringify({
-        identities: [
-          {
-            name: "grid",
-            credentials: [{ accessKey: ak, secretKey: sk }],
-            actions: ["Admin", "Read", "Write", "List", "Tagging"],
-          },
-        ],
-      }),
-    );
+  const identityInputs = {
+    platformBuckets,
+    // NOT gated on `perOrgBuckets`. The grant is a bucket-name PREFIX, so when
+    // the feature is off it covers nothing — and when the feature is turned off
+    // AFTER having been on, it covers exactly the tenant buckets that still
+    // hold objects. Gating it there would revoke read access to every document
+    // written while the flag was on, which is the opposite of the "flipping
+    // back is uneventful" property the row-recorded bucket exists to provide.
+    tenantBucketPrefix: cfg.seaweedfs.tenantBucketPrefix,
+    // The bucket-LIFECYCLE identity is gated, because creating buckets is the
+    // one thing that genuinely stops when the feature is off.
+    provisioning: cfg.seaweedfs.perOrgBuckets,
+  };
+  const s3Secret = s3ConfigSecret(cfg, provider, namespace, identityInputs);
 
-  const s3Secret = new k8s.core.v1.Secret(
-    "seaweedfs-s3-config",
-    {
-      metadata: { name: "seaweedfs-s3-config", namespace },
-      stringData: { "s3.json": s3Config },
-    },
-    { provider },
-  );
+  // Rotating a credential updates the Secret and restarts nothing: both config
+  // files are read ONCE, at process start, so `pulumi up` would report success
+  // while every pod kept using the value that had just been retired. Stamping a
+  // digest of the rendered content on the pod template turns a rotation into an
+  // ordinary gated rolling update (see platform/rollout.ts).
+  //
+  // BOTH files, not just `s3.json`. They are projected into the same volume and
+  // read by the same process, and `filer.toml` carries the Postgres password —
+  // whose rotation is the quieter of the two failures: the filer keeps its
+  // existing connection pool, so the auth errors begin a
+  // `connection_max_lifetime` later, an hour after the deploy that "succeeded".
+  const configChecksum = secretChecksum({
+    "s3.json": renderS3Config(cfg, identityInputs),
+    "filer.toml":
+      cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres"
+        ? filerToml(cfg, postgresHost)
+        : pulumi.output(leveldbFilerToml()),
+  });
 
-  // Headless service for the StatefulSet's stable network identity.
-  const headless = new k8s.core.v1.Service(
-    "seaweedfs-headless",
-    {
-      metadata: { name: "seaweedfs-headless", namespace, labels },
-      spec: {
-        clusterIP: "None",
-        selector: labels,
-        ports: [
-          { port: 8333, name: "s3" },
-          { port: 9333, name: "master" },
-          { port: 8888, name: "filer" },
-        ],
-      },
-    },
-    { provider },
-  );
+  const topology =
+    cfg.seaweedfs.topology === "split"
+      ? installSplitSeaweedFS(
+          cfg,
+          provider,
+          namespace,
+          s3Secret,
+          configChecksum,
+          postgresHost,
+          filerStoreDeps,
+        )
+      : installSingleNodeSeaweedFS(cfg, provider, namespace, s3Secret, configChecksum);
 
-  const statefulSet = new k8s.apps.v1.StatefulSet(
-    "seaweedfs",
-    {
-      metadata: { name: "seaweedfs", namespace, labels },
-      spec: {
-        serviceName: headless.metadata.name,
-        replicas: 1,
-        selector: { matchLabels: labels },
-        template: {
-          metadata: { labels },
-          spec: {
-            securityContext: { fsGroup: 1000 },
-            containers: [
-              {
-                name: "seaweedfs",
-                image: "chrislusf/seaweedfs:latest",
-                command: ["/bin/sh", "-c"],
-                args: [
-                  "exec weed server -dir=/data -volume.max=0 -s3 " +
-                    "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333",
-                ],
-                ports: [
-                  { containerPort: 8333, name: "s3" },
-                  { containerPort: 9333, name: "master" },
-                  { containerPort: 8888, name: "filer" },
-                ],
-                volumeMounts: [
-                  { name: "data", mountPath: "/data" },
-                  { name: "s3config", mountPath: "/etc/seaweedfs", readOnly: true },
-                ],
-                readinessProbe: {
-                  httpGet: { path: "/cluster/status", port: 9333 },
-                  initialDelaySeconds: 10,
-                  periodSeconds: 5,
-                  failureThreshold: 12,
-                },
-                livenessProbe: {
-                  httpGet: { path: "/cluster/status", port: 9333 },
-                  initialDelaySeconds: 30,
-                  periodSeconds: 15,
-                },
-                resources: {
-                  requests: { cpu: "100m", memory: "256Mi" },
-                  limits: { cpu: "1", memory: "1Gi" },
-                },
-              },
-            ],
-            volumes: [
-              { name: "s3config", secret: { secretName: s3Secret.metadata.name } },
-            ],
-          },
-        },
-        volumeClaimTemplates: [
-          {
-            metadata: { name: "data" },
-            spec: {
-              accessModes: ["ReadWriteOnce"],
-              storageClassName: cfg.storage.className,
-              resources: { requests: { storage: cfg.seaweedfs.storageSize } },
-            },
-          },
-        ],
-      },
-    },
-    { provider, dependsOn: s3Secret },
-  );
+  // Pre-create the platform buckets. SeaweedFS does not auto-create on PUT.
+  // Idempotent: bucket-already-exists is a no-op.
+  //
+  // `weed shell` exits 0 even when the command it ran FAILED (verified against
+  // a live server: bad bucket name → "error: …" on stdout, exit 0; unknown
+  // command → exit 0). Exit-code checks are therefore dead code. The only
+  // reliable contract is POSITIVE VERIFICATION: run the create, then require
+  // the bucket to appear in `s3.bucket.list` — that catches auth errors, filer
+  // errors, and races identically. `timeout 120` bounds weed shell's silent
+  // connect-block if a gRPC port regresses (also found live).
+  const master = topology.masterAddress;
+  const createBuckets = platformBuckets
+    .map(
+      (b) =>
+        `echo 's3.bucket.create -name ${b}' | timeout 120 weed shell -master=${master} 2>&1; ` +
+        `if ! echo 's3.bucket.list' | timeout 120 weed shell -master=${master} 2>&1 | grep -q '^ *${b}'; ` +
+        `then echo "FATAL: bucket ${b} missing after create"; exit 1; fi; ` +
+        `echo "bucket ${b} verified"`,
+    )
+    // "; " — a bare space would butt commands together and produce
+    // `/bin/sh: syntax error` (caught by the live smoke deploy).
+    .join("; ");
 
-  // Stable ClusterIP service clients resolve as `seaweedfs`.
-  const service = new k8s.core.v1.Service(
-    "seaweedfs",
-    {
-      metadata: { name: "seaweedfs", namespace, labels },
-      spec: {
-        selector: labels,
-        ports: [
-          { port: 8333, targetPort: 8333, name: "s3" },
-          { port: 9333, targetPort: 9333, name: "master" },
-          { port: 8888, targetPort: 8888, name: "filer" },
-        ],
-      },
-    },
-    { provider, dependsOn: statefulSet },
-  );
-
-  // Pre-create the documents bucket (SeaweedFS does not auto-create on PUT).
-  // Idempotent: bucket-already-exists is a successful no-op.
   const bucketInitJob = new k8s.batch.v1.Job(
     "seaweedfs-bucket-init",
     {
       metadata: { namespace },
       spec: {
-        backoffLimit: 10,
-        ttlSecondsAfterFinished: 300,
+        backoffLimit: JOB_DEFAULTS.backoffLimit,
+        ttlSecondsAfterFinished: JOB_DEFAULTS.ttlSecondsAfterFinished,
         template: {
           metadata: { labels: commonLabels("seaweedfs-init") },
           spec: {
+            enableServiceLinks: false,
             restartPolicy: "OnFailure",
             containers: [
               {
                 name: "bucket-init",
-                image: "chrislusf/seaweedfs:latest",
+                image: cfg.seaweedfs.image,
+                securityContext: hardenedJobSecurityContext(),
+                resources: BOOTSTRAP_JOB_RESOURCES,
                 command: ["/bin/sh", "-c"],
                 args: [
-                  // Wait for the master, create the bucket, then TOLERATE only
-                  // the idempotent "already exists" case — a blanket `|| true`
-                  // would hide a real failure (bad master/auth), report success,
-                  // and let the first upload 404 at runtime instead of failing
-                  // the deploy.
-                  "until wget -q -O /dev/null http://seaweedfs:9333/cluster/status; " +
-                    "do echo waiting for seaweedfs; sleep 3; done; " +
-                    `out=$(echo 's3.bucket.create -name ${cfg.seaweedfs.bucket}' | ` +
-                    "weed shell -master=seaweedfs:9333 2>&1); rc=$?; echo \"$out\"; " +
-                    'if [ $rc -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then exit $rc; fi',
+                  // Wait on the MASTER, which under the split topology is not
+                  // the same host as the S3 endpoint. `s3.bucket.create` writes
+                  // through the filer, so wait for that too — a master that is
+                  // up with no filer registered answers the shell command with
+                  // an error and (see above) exit 0.
+                  `until wget -q -O /dev/null http://${master}/cluster/status; ` +
+                    "do echo waiting for seaweedfs master; sleep 3; done; " +
+                    `until wget -q -O /dev/null http://${topology.filerAddress}/healthz; ` +
+                    "do echo waiting for seaweedfs filer; sleep 3; done; " +
+                    createBuckets,
                 ],
               },
             ],
@@ -198,14 +162,13 @@ export function installSeaweedFS(
         },
       },
     },
-    { provider, dependsOn: service },
+    { provider, dependsOn: [topology.service, topology.masterService] },
   );
 
   return {
-    statefulSet,
-    service,
+    ...topology,
     bucketInitJob,
-    internalEndpoint: pulumi.output("http://seaweedfs:8333"),
+    internalEndpoint: pulumi.output(`http://${SEAWEED.filer}:${PORT.seaweedS3}`),
     publicEndpoint: pulumi.output(`https://${cfg.ingress.s3Domain}`),
   };
 }

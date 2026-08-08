@@ -1,6 +1,8 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
+import { APP_DEFAULTS, PORT } from "../constants";
+import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -13,48 +15,147 @@ export interface AppWiring {
   seaweedPublicEndpoint: pulumi.Output<string>;
   /** Shared Chroma server URL (set when cfg.chroma.enabled). */
   chromaUrl?: pulumi.Output<string>;
-  dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
+  dsn: (opts: {
+    db: string;
+    driver?: string;
+    as?: { user: string; password: pulumi.Output<string> };
+  }) => pulumi.Output<string>;
+  /**
+   * imagePullSecrets for every app pod spec — references the registry pull
+   * Secret when the app images are private, empty when they are public.
+   */
+  imagePullSecrets: { name: string }[];
 }
 
 const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+export const PULL_SECRET_NAME = "grid-registry-pull"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+
+/**
+ * dockerconfigjson pull Secret for the app namespace, created only when
+ * registry credentials are configured (private app images). Every app pod
+ * spec references it via imagePullSecrets; the data tier pulls public
+ * upstream images and needs nothing.
+ */
+export function buildRegistryPullSecret(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+  namespace: pulumi.Input<string>,
+): k8s.core.v1.Secret | undefined {
+  const creds = cfg.images.pullCredentials;
+  if (!creds) return undefined;
+  // Registry server = first path segment of the image registry
+  // ("ghcr.io/grid-check" → "ghcr.io").
+  const server = cfg.images.registry.split("/")[0];
+  const dockerConfigJson = creds.password.apply((pw) =>
+    JSON.stringify({
+      auths: {
+        [server]: {
+          username: creds.username,
+          password: pw,
+          auth: Buffer.from(`${creds.username}:${pw}`).toString("base64"),
+        },
+      },
+    }),
+  );
+  return new k8s.core.v1.Secret(
+    "grid-registry-pull",
+    {
+      metadata: { name: PULL_SECRET_NAME, namespace },
+      type: "kubernetes.io/dockerconfigjson",
+      stringData: { ".dockerconfigjson": dockerConfigJson },
+    },
+    { provider },
+  );
+}
+
+/**
+ * The shared Secret plus the checksum every consumer stamps on its pod template.
+ *
+ * They travel together on purpose: a Secret without its checksum is the silent
+ * failure mode this pairing exists to remove (see `secretChecksum`), and
+ * computing the hash from the same object literal that becomes `stringData`
+ * makes it impossible for the two to drift apart.
+ */
+export interface AppSecrets {
+  secret: k8s.core.v1.Secret;
+  /** sha256 (truncated) over every value in `secret`. Not itself sensitive. */
+  checksum: pulumi.Output<string>;
+}
 
 /**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
  * BYOK KEK, S3 secret key, and the fully-formed DB DSNs — which embed the PG
  * password). Non-secret env is inlined directly on each workload. Values stay
  * encrypted in Pulumi state; this is the only place they are materialised.
+ *
+ * Consumers inject these with `secretKeyRef`, which is read ONCE at container
+ * start — so the returned `checksum` must be stamped on every consuming pod
+ * template, or a rotated credential updates this object and changes nothing
+ * that is actually running.
  */
-export function buildSecrets(w: AppWiring): k8s.core.v1.Secret {
+export function buildSecrets(w: AppWiring): AppSecrets {
   const { cfg } = w;
-  return new k8s.core.v1.Secret(
+  const values: Record<string, pulumi.Input<string>> = {
+    OPENROUTER_API_KEY: cfg.llm.openrouterApiKey,
+    TAVILY_API_KEY: cfg.llm.tavilyApiKey,
+    GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
+    GRID_ADMIN_TOKEN: cfg.internal.adminToken,
+    GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
+    WORKOS_API_KEY: cfg.auth.workosApiKey,
+    WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
+    GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
+    SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
+    // Dedicated READ-ONLY bucket-scoped identity for the aiq-agent tier — the
+    // backend must never hold the root `grid` Admin credential (ADR-0039).
+    SEAWEED_BACKEND_READ_SECRET_KEY: cfg.seaweedfs.backendReadSecretKey,
+    // Bucket LIFECYCLE credential (ADR-0043) — creates a tenant's bucket on its
+    // first upload, and drops it on erasure. Separate from the object
+    // credential above because SeaweedFS's `Admin:<bucket>` authorises
+    // CreateBucket and DeleteBucket together and cannot express one without the
+    // other, so the only way to keep "drop a tenant" off the request path is to
+    // keep it on a key the request path does not carry.
+    SEAWEED_TENANT_ADMIN_SECRET_KEY: cfg.seaweedfs.tenantAdminSecretKey,
+    // Embeds the Dragonfly password in its userinfo → secret, exactly like the
+    // DSNs below. Inlining it on each pod spec would publish the cache
+    // credential to anything with `get pod` in the namespace.
+    REDIS_URL: w.redisUrl,
+    // DSNs (embed the PG password → secret).
+    NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
+    AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
+    AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
+    AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
+    AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
+    // The app tier connects as the least-privilege role, so row-level security
+    // applies to it (ADR-0041). Migrations get the owner credential below —
+    // RLS does not apply to a table's owner, so DDL and backfills still work.
+    GRID_APP_DATABASE_URL: w.dsn({
+      db: "grid_app",
+      as: { user: "grid_app_rw", password: cfg.postgres.runtimePassword },
+    }),
+    GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app" }),
+  };
+
+  const secret = new k8s.core.v1.Secret(
     "grid-secrets",
     {
       metadata: { name: SECRET_NAME, namespace: w.namespace },
-      stringData: {
-        OPENROUTER_API_KEY: cfg.llm.openrouterApiKey,
-        TAVILY_API_KEY: cfg.llm.tavilyApiKey,
-        GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
-        GRID_ADMIN_TOKEN: cfg.internal.adminToken,
-        GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
-        WORKOS_API_KEY: cfg.auth.workosApiKey,
-        WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
-        GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
-        SEAWEED_SECRET_KEY: cfg.seaweedfs.secretKey,
-        // DSNs (embed the PG password → secret).
-        NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
-        AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-        AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
-        AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
-        AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-        GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
-      },
+      stringData: values,
     },
     { provider: w.provider },
   );
+
+  return { secret, checksum: secretChecksum(values) };
 }
 
-/** EnvVar sourced from the shared Secret. */
-function sref(key: string): EnvVar {
+/**
+ * EnvVar sourced from the shared Secret.
+ *
+ * Exported so a pod spec built outside this module (the storage-alert CronJob)
+ * references the Secret by the same constant rather than re-typing its name — a
+ * literal that drifted would surface as a pod stuck in CreateContainerConfigError
+ * at deploy time, not here.
+ */
+export function sref(key: string): EnvVar {
   return { name: key, valueFrom: { secretKeyRef: { name: SECRET_NAME, key } } };
 }
 
@@ -69,13 +170,13 @@ function srefAs(name: string, key: string): EnvVar {
  * worker/thread knobs and admission caps are the agent's VERTICAL scaling
  * levers (see docs/architecture/scaling-review-2026-07.md §4, §6).
  */
-export function backendEnv(w: AppWiring): EnvVar[] {
+export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): EnvVar[] {
   const { cfg } = w;
   const env: EnvVar[] = [
     { name: "APP_ENV", value: "production" },
     { name: "LOG_LEVEL", value: "INFO" },
     { name: "HOST", value: "0.0.0.0" },
-    { name: "PORT", value: "8000" },
+    { name: "PORT", value: String(PORT.backend) },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
     // Research execution backend (dask = per-pod; db = DB-claimed workers).
@@ -93,16 +194,31 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     sref("AIQ_LISTEN_DB_URL"),
     // Durable per-job LangGraph checkpointing for async deep-research runs.
     sref("AIQ_DEEP_CHECKPOINT_DB"),
-    // Shared cache.
-    { name: "REDIS_URL", value: w.redisUrl },
+    // Shared cache (authenticated: the URL carries the password).
+    sref("REDIS_URL"),
     // Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
     // ON by default — the intended architecture; uses REDIS_URL, fails open to
     // local delivery. Set conversationBus=false to fall back to affinity.
     { name: "GRID_CONVERSATION_BUS", value: cfg.conversationBus ? "1" : "0" },
     // Project-memory write path (backend → frontend BFF).
-    { name: "FRONTEND_INTERNAL_URL", value: "http://frontend:3000" },
+    { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
+    // OTLP tracing via the cluster collector (ADR-0029 amendment). Producers
+    // send plain OTLP in-cluster — the collector alone holds the Aspire API
+    // key. HTTP/protobuf to :4318 — the full /v1/traces path is required: the
+    // NAT exporter posts to the endpoint as-is (path appending only happens
+    // for SDK env-var defaults, not for an endpoint the config passes
+    // explicitly). OTEL_SERVICE_NAME becomes service.name on the spans so
+    // chat tier and worker tier are distinct resources in the dashboard.
+    // Injected only when the observability tier is deployed — otherwise every
+    // span export would retry against a Service that doesn't exist.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: otelServiceName },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318/v1/traces" },
+        ]
+      : []),
     // Dask (in-process research execution) — vertical scaling knobs.
     { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
     { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },
@@ -120,10 +236,19 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
-    // Object storage.
+    // Object storage for the `view_knowledge_image` tool (ADR-0039): the backend
+    // fetches project/Archiv document bytes directly from SeaweedFS (it resolves
+    // the storage key via the internal BFF lookup first). This OVERRIDES the
+    // earlier "no SEAWEED_* on the backend" separation — that held while the
+    // Python tree had zero S3 consumers (thumbnails went through presigned PUT
+    // URLs). The fetch is read-only (get_object only), so the credential is the
+    // DEDICATED read-only identity `grid-backend-read` (Read on the documents
+    // bucket only, distinct key material) — never the root `grid` Admin
+    // credential. The identity is provisioned in the SeaweedFS s3.json by
+    // deploy/pulumi/src/data/seaweedfs.ts.
     { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
-    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
-    sref("SEAWEED_SECRET_KEY"),
+    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.backendReadAccessKey },
+    srefAs("SEAWEED_SECRET_KEY", "SEAWEED_BACKEND_READ_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
   ];
   // Shared Chroma server (horizontal scaling): when set, the adapter uses an
@@ -142,7 +267,7 @@ export function backendEnv(w: AppWiring): EnvVar[] {
  */
 export function workerEnv(w: AppWiring): EnvVar[] {
   return [
-    ...backendEnv(w),
+    ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
   ];
@@ -154,7 +279,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
   return [
     { name: "APP_ENV", value: "production" },
     { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
-    { name: "BACKEND_URL", value: "http://aiq-agent:8000" },
+    { name: "GRID_LANDING_URL", value: `https://${cfg.ingress.webDomain}` },
+    { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
     // Conversation affinity for horizontal aiq-agent scaling (ADR-0028): the
     // WS proxy pins a conversation to `aiq-agent-<hash>.aiq-agent-headless` so
     // its in-process WS/HITL/task state is always on the same replica. With 1
@@ -163,7 +289,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // In-cluster headless-service pod address; traffic never leaves the pod
     // network, so the non-TLS ws scheme below is intentional.
     // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
-    { name: "BACKEND_POD_WS_TEMPLATE", value: "ws://aiq-agent-{i}.aiq-agent-headless:8000" },
+    { name: "BACKEND_POD_WS_TEMPLATE", value: `ws://aiq-agent-{i}.aiq-agent-headless:${PORT.backend}` },
     // Frontend replica baseline — lets server.js warn if a multi-replica deploy
     // is missing REDIS_URL (shared cache + WS rate limiter would diverge per pod).
     { name: "FRONTEND_REPLICAS", value: String(cfg.frontend.minReplicas) },
@@ -175,7 +301,12 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },
     sref("WORKOS_API_KEY"),
     sref("WORKOS_COOKIE_PASSWORD"),
+    // Set BOTH: authkit-nextjs reads the literal NEXT_PUBLIC_ var (works at
+    // runtime only while the image is built without it — Next.js would inline
+    // a build-time value); WORKOS_REDIRECT_URI is the first-party callback
+    // route's explicit runtime override and is immune to build-time inlining.
     { name: "NEXT_PUBLIC_WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
+    { name: "WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
     // BYOK.
     { name: "GRID_BYOK_SECRET_BACKEND", value: cfg.auth.byokSecretBackend },
     sref("GRID_BYOK_LOCAL_KEK"),
@@ -186,8 +317,15 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
-    { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: "600" },
-    { name: "PROJECT_PURGE_GRACE_DAYS", value: "7" },
+    // Per-organization buckets (ADR-0043). Off by default; the bucket each
+    // document actually lives in is recorded on its row, so flipping this
+    // changes where the NEXT object goes and nothing else.
+    { name: "SEAWEED_PER_ORG_BUCKETS", value: String(cfg.seaweedfs.perOrgBuckets) },
+    { name: "SEAWEED_TENANT_BUCKET_PREFIX", value: cfg.seaweedfs.tenantBucketPrefix },
+    { name: "SEAWEED_TENANT_ADMIN_ACCESS_KEY", value: cfg.seaweedfs.tenantAdminAccessKey },
+    sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
+    { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
+    { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
     // Model catalog + budgets.
     sref("OPENROUTER_API_KEY"),
     { name: "GRID_BUDGET_EUR_PER_USD", value: cfg.llm.budgetEurPerUsd },
@@ -197,11 +335,48 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_DISABLE_SELF_SERVE_ORGS", value: String(cfg.auth.disableSelfServeOrgs) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
-    { name: "REDIS_URL", value: w.redisUrl },
-    { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: "30" },
+    // Authenticated: the URL carries the password, so it comes from the Secret.
+    sref("REDIS_URL"),
+    { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: String(APP_DEFAULTS.wsUpgradeRateLimit) },
+    // Graceful shutdown: how long server.js keeps serving after SIGTERM before
+    // forcing exit. Chat WebSockets are long-lived, so the 2s dev default would
+    // drop every streaming answer in flight on each deploy. Must stay inside the
+    // pod's terminationGracePeriodSeconds (see ROLLOUT.frontend in rollout.ts).
+    { name: "GRID_SHUTDOWN_DRAIN_MS", value: String(FRONTEND_DRAIN_SECONDS * 1000) },
     // Workflows.
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },
+    // Collaboration (ADR-0032…0035). Frontend-only: the inbox, the share
+    // surfaces and the mention picker are BFF/UI concerns, so no worker or the
+    // backend needs this. Without it the feature is invisible even on a
+    // deployment carrying its code — which is exactly the dark-launch contract.
+    { name: "GRID_COLLABORATION_ENABLED", value: String(cfg.collaboration.enabled) },
+    // Storage-quota alerting (ADR-0042). Read by the sweep behind
+    // /api/internal/storage/alerts, which the storage-alerts CronJob calls — so
+    // it belongs to the frontend even though nothing renders it. Escalation to
+    // 90% and 100% above this value is automatic.
+    {
+      name: "GRID_STORAGE_ALERT_THRESHOLD_PERCENT",
+      value: String(cfg.storageAlerts.thresholdPercent),
+    },
+    // Memory reflection (project-memory-design.md §3.5). Frontend-only: the BFF
+    // consults it at the WS upgrade and forwards the decision to the backend as
+    // a header. Default-on like the feature itself — consulted only while
+    // enforceFeatureFlags is off; with enforcement on, the per-org
+    // `memory-reflection` WorkOS flag decides instead.
+    { name: "GRID_MEMORY_REFLECTION_ENABLED", value: String(cfg.memory.reflectionEnabled) },
+    // OTLP tracing via the cluster collector — injected only when the
+    // observability tier is deployed, which is what makes
+    // src/instrumentation.ts register @vercel/otel (it no-ops without the
+    // endpoint). NOTE the BASE URL here vs. the backend's full /v1/traces
+    // path: the JS OTLP HTTP exporter appends the signal path per the OTEL
+    // spec; the Python NAT exporter does not.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: "grid-ui" },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
+        ]
+      : []),
   ];
 }
 
@@ -210,14 +385,27 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
     sref("GRID_APP_DATABASE_URL"),
-    { name: "BACKEND_URL", value: "http://aiq-agent:8000" },
+    { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
+    // Deliberately no per-organization bucket variables. The purge reads which
+    // buckets a project's documents recorded rather than deriving them from the
+    // organization id (ADR-0043), so it needs neither the naming rule, the
+    // feature flag, nor the bucket-admin credential — and an unattended queue
+    // worker is the last process that should be able to drop a bucket.
     sref("WORKOS_API_KEY"),
-    { name: "PURGER_POLL_INTERVAL_MS", value: "60000" },
+    { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
+    // OTLP logs via the cluster collector (see frontendEnv for the gating
+    // rationale). Base URL - the JS exporter derives /v1/logs.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: "grid-purger" },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
+        ]
+      : []),
   ];
 }
 
@@ -226,17 +414,37 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
     sref("GRID_APP_DATABASE_URL"),
-    { name: "FRONTEND_INTERNAL_URL", value: "http://frontend:3000" },
+    { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
-    { name: "GRID_WORKFLOW_SCHEDULER_POLL_MS", value: "30000" },
-    { name: "GRID_WORKFLOW_SCHEDULER_BATCH", value: "20" },
-    { name: "GRID_WORKFLOW_RUNS_RETENTION_DAYS", value: "90" },
+    { name: "GRID_WORKFLOW_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
+    { name: "GRID_WORKFLOW_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
+    { name: "GRID_WORKFLOW_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.workflowRunsRetentionDays) },
+    // OTLP logs via the cluster collector (see frontendEnv for the gating
+    // rationale). Base URL - the JS exporter derives /v1/logs.
+    ...(cfg.observability.enabled
+      ? [
+          { name: "OTEL_SERVICE_NAME", value: "grid-workflow-scheduler" },
+          { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
+        ]
+      : []),
   ];
 }
 
 /** Minimal env for the drizzle migration Job. */
 export function migrationEnv(): EnvVar[] {
-  return [sref("GRID_APP_DATABASE_URL")];
+  // drizzle.config.ts prefers this over GRID_APP_DATABASE_URL: DDL needs the
+  // schema owner, and a backfill run as the RLS-bound runtime role would
+  // silently update zero rows (ADR-0041).
+  return [sref("GRID_APP_MIGRATION_DATABASE_URL")];
+}
+
+/**
+ * Minimal env for the WorkOS audit-schema reconciliation Job. The API key alone
+ * — the script talks to nothing else, and the environment it provisions is the
+ * one that key belongs to.
+ */
+export function auditSchemaEnv(): EnvVar[] {
+  return [sref("WORKOS_API_KEY")];
 }

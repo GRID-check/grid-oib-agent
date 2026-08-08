@@ -11,6 +11,7 @@ from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage
 from langchain_core.messages import ToolMessage
+from langgraph.errors import GraphBubbleUp
 
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
@@ -58,22 +59,35 @@ class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
         return request.tool.name if request.tool else request.tool_call["name"]
 
     def wrap_tool_call(self, request, handler):
-        """Run no-retry tools once, surfacing failures to the model immediately."""
+        """Run tools so failures reach the model as error ToolMessages, not crashes.
+
+        ``no_retry_tools`` are executed exactly once. Other tools go through the
+        base retry loop. In langchain>=1.x the base loop *re-raises* a
+        non-retryable tool error (one ``retry_on`` rejects, e.g. our deliberate
+        ValueError signal) instead of returning it as an error ToolMessage, so
+        we convert it here — the MODEL has to change its input, and it can only
+        do that if the error reaches it. Control-flow signals (``GraphBubbleUp``:
+        interrupts, parent Commands) must always propagate.
+        """
         tool_name = self._request_tool_name(request)
-        if tool_name not in self.no_retry_tools:
-            return super().wrap_tool_call(request, handler)
         try:
-            return handler(request)
+            if tool_name in self.no_retry_tools:
+                return handler(request)
+            return super().wrap_tool_call(request, handler)
+        except GraphBubbleUp:
+            raise
         except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
             return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
 
     async def awrap_tool_call(self, request, handler):
-        """Run no-retry tools once, surfacing failures to the model immediately."""
+        """Async mirror of :meth:`wrap_tool_call`."""
         tool_name = self._request_tool_name(request)
-        if tool_name not in self.no_retry_tools:
-            return await super().awrap_tool_call(request, handler)
         try:
-            return await handler(request)
+            if tool_name in self.no_retry_tools:
+                return await handler(request)
+            return await super().awrap_tool_call(request, handler)
+        except GraphBubbleUp:
+            raise
         except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
             return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
 
@@ -499,9 +513,10 @@ class ToolResultPruningMiddleware(AgentMiddleware):
 
     _TRUNCATION_SUFFIX = "\n\n[... truncated ...]"
 
-    def __init__(self, keep_last_n: int = 3, max_chars: int = 500):
+    def __init__(self, keep_last_n: int = 3, max_chars: int = 500, total_char_budget: int = 0):
         self.keep_last_n = keep_last_n
         self.max_chars = max_chars
+        self.total_char_budget = total_char_budget
         # message id -> permanently truncated content for that message.
         self._truncated_by_id: dict[str, str] = {}
 
@@ -522,6 +537,29 @@ class ToolResultPruningMiddleware(AgentMiddleware):
             msg = request.messages[i]
             if msg.id is not None and msg.id not in self._truncated_by_id:
                 self._truncated_by_id[msg.id] = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+
+        # Total-char budget: if the sum of all oversized tool-result chars
+        # within the last-N window exceeds the budget, monotonically truncate
+        # the oldest oversized ones until under budget. This prevents the
+        # writer's context from growing unbounded across many research notes.
+        if self.total_char_budget > 0:
+            kept_oversized_indices = (
+                oversized_indices[-self.keep_last_n :]
+                if len(oversized_indices) > self.keep_last_n
+                else list(oversized_indices)
+            )
+            total_chars = sum(
+                len(self._truncated_by_id.get(request.messages[i].id, str(request.messages[i].content)))
+                for i in kept_oversized_indices
+            )
+            for i in kept_oversized_indices:
+                if total_chars <= self.total_char_budget:
+                    break
+                msg = request.messages[i]
+                if msg.id is not None and msg.id not in self._truncated_by_id:
+                    truncated = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+                    self._truncated_by_id[msg.id] = truncated
+                    total_chars = total_chars - len(str(msg.content)) + len(truncated)
 
         if not self._truncated_by_id:
             return await handler(request)

@@ -70,6 +70,23 @@ export const FEATURE_FLAGS = {
    *  enforcement is off; provision it default-off in WorkOS and target the
    *  orgs that should collect feedback. */
   answerFeedback: 'answer-feedback',
+  /**
+   * Collaboration (ADR-0032/0033/0034/0035): shared chats, @-mentions with the
+   * agent hand-off, and the inbox. Dark-launched — gated by the per-org
+   * `collaboration` WorkOS flag when enforcement is on, else the
+   * `GRID_COLLABORATION_ENABLED` env opt-in (default off), mirroring workflows.
+   *
+   * Gates the inbox nav entry + page, the share surfaces, the mention picker, and
+   * every `/api/inbox/*`, `/api/sharing/*` and `/api/stream` route. With the flag
+   * off the product behaves exactly as it did before the feature existed
+   * (spec NF-8).
+   *
+   * Note there is deliberately NO paired capability gate: the feature works with
+   * the shared cache tier absent (live updates degrade to polling, spec RT-3), so
+   * it has no infrastructure dependency to derive a capability from — per the
+   * capability doctrine in AGENTS.md.
+   */
+  collaboration: 'collaboration',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -86,7 +103,7 @@ export function enforcementOn(): boolean {
 /** Whether the session's user+org context has the feature enabled. */
 export function isFeatureEnabled(
   session: Pick<GridSession, 'featureFlags'>,
-  flag: KnownFeatureFlag,
+  flag: KnownFeatureFlag
 ): boolean {
   if (!enforcementOn()) return true
   if (session.featureFlags === null) return false // stale token — re-auth picks flags up
@@ -122,14 +139,50 @@ export function isWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): 
 }
 
 /**
+ * Default-OFF gate for collaboration (ADR-0032…0035). Same dark-launch shape as
+ * `isWorkflowsEnabled`: with WorkOS flag enforcement it follows the per-org
+ * `collaboration` flag; without enforcement it requires an explicit deployment
+ * opt-in via `GRID_COLLABORATION_ENABLED=true`.
+ *
+ * Deliberately not fail-open like `isFeatureEnabled`: this feature changes who
+ * can see conversations, so it must not switch itself on in an environment whose
+ * operator has not chosen it.
+ */
+export function isCollaborationEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.collaboration)
+  }
+  return (process.env.GRID_COLLABORATION_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Route guard for collaboration: stable-coded 403 when off, null when allowed.
+ * Usage: `const gated = requireCollaborationEnabled(session); if (gated) return gated`
+ */
+export function requireCollaborationEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): Response | null {
+  if (isCollaborationEnabled(session)) return null
+  return NextResponse.json(
+    { error: 'feature-disabled', feature: FEATURE_FLAGS.collaboration },
+    { status: 403 }
+  )
+}
+
+/**
  * Route guard for the workflows feature: stable-coded 403 when off (matching
  * requireFeature's envelope), null when allowed. Distinct from requireFeature
  * because the gate is the dark-launch isWorkflowsEnabled(), not a plain flag
  * check. Usage: `const gated = requireWorkflowsEnabled(session); if (gated) return gated`
  */
-export function requireWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): Response | null {
+export function requireWorkflowsEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): Response | null {
   if (isWorkflowsEnabled(session)) return null
-  return NextResponse.json({ error: 'feature-disabled', feature: FEATURE_FLAGS.workflows }, { status: 403 })
+  return NextResponse.json(
+    { error: 'feature-disabled', feature: FEATURE_FLAGS.workflows },
+    { status: 403 }
+  )
 }
 
 /**
@@ -138,7 +191,7 @@ export function requireWorkflowsEnabled(session: Pick<GridSession, 'featureFlags
  */
 export function requireFeature(
   session: Pick<GridSession, 'featureFlags'>,
-  flag: KnownFeatureFlag,
+  flag: KnownFeatureFlag
 ): Response | null {
   if (isFeatureEnabled(session, flag)) return null
   return NextResponse.json({ error: 'feature-disabled', feature: flag }, { status: 403 })

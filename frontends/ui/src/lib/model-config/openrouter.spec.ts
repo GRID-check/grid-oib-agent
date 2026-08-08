@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * DRY-RUN NOTE: OpenRouter is not reachable from CI; these fixtures replay
  * the catalog shape documented at openrouter.ai/docs (GET /api/v1/models:
  * `context_length`, `supported_parameters`, `architecture.input_modalities`,
@@ -6,8 +9,9 @@
  * PUT route re-validates against the live catalog on every save.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { setCacheStore, type CacheStore } from '@/lib/cache'
 import { getAgentGroup } from './agent-groups'
 import {
   _clearCatalogCache,
@@ -249,7 +253,33 @@ describe('filterCatalogToZdr', () => {
   })
 })
 
+/** An in-memory `CacheStore` whose entries a test can seed or inspect. */
+const memoryCacheStore = (): { store: CacheStore; entries: Map<string, string> } => {
+  const entries = new Map<string, string>()
+  return {
+    entries,
+    store: {
+      get: async (key) => entries.get(key) ?? null,
+      set: async (key, value) => {
+        entries.set(key, value)
+      },
+      delete: async (key) => {
+        entries.delete(key)
+      },
+      deletePrefix: async (prefix) => {
+        for (const key of [...entries.keys()]) if (key.startsWith(prefix)) entries.delete(key)
+      },
+    },
+  }
+}
+
 describe('fetchZdrModelIds', () => {
+  // Every test in here drives the cache directly, so each starts on its own
+  // store — a swap left behind by one test must not leak into the next.
+  beforeEach(() => {
+    setCacheStore(memoryCacheStore().store)
+  })
+
   afterEach(async () => {
     await _clearCatalogCache()
     vi.unstubAllGlobals()
@@ -276,6 +306,86 @@ describe('fetchZdrModelIds', () => {
     ])
     // cached
     await fetchZdrModelIds()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * Regression (issue #242): the cache round-trips through JSON, so caching the
+   * `Set` itself returned a prototype-less `{}` on every HIT — `Set<string>` to
+   * the compiler, `TypeError: i.has is not a function` at runtime in the
+   * `.map()`/`.filter()` callbacks of the platform and org model surfaces.
+   *
+   * The miss path always looked right, which is why the assertion above never
+   * caught it: the type must be re-established on the way OUT of the cache.
+   */
+  it('returns a real Set on a cache HIT, not the JSON-flattened shape', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 'anthropic/claude-sonnet-4.5' }, { id: 'vendor/full-model' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchZdrModelIds() // miss — populates the cache
+    const cached = await fetchZdrModelIds()
+    expect(fetchMock).toHaveBeenCalledTimes(1) // ...so this one is a genuine HIT
+
+    expect(cached).toBeInstanceOf(Set)
+    expect(typeof cached.has).toBe('function')
+    expect(cached.has('anthropic/claude-sonnet-4.5')).toBe(true)
+    expect(cached.has('vendor/no-tools')).toBe(false)
+    // The consumer that crashed: a membership test inside an array callback.
+    expect(
+      filterCatalogToZdr([model({}), model({ id: 'vendor/no-tools' })], cached).map((m) => m.id),
+    ).toEqual(['vendor/full-model'])
+  })
+
+  it('fails CLOSED when the cached payload is not a usable id list', async () => {
+    // Exactly what a pre-fix replica left behind in a shared Dragonfly:
+    // `JSON.stringify(new Set([...]))` === '{}'.
+    const { store, entries } = memoryCacheStore()
+    setCacheStore(store)
+    entries.set('openrouter:zdr-endpoints:v2', '{}')
+    vi.stubGlobal('fetch', vi.fn())
+
+    // Refused outright rather than read as "nothing is ZDR-safe" — and never
+    // handed on as an object the callers would call `.has()` on.
+    await expect(fetchZdrModelIds()).rejects.toThrow('unusable')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('fails CLOSED when a cached entry is not a model id (the array shape is not enough)', async () => {
+    // `getCached` casts, so a nonempty array of the wrong element type reaches
+    // us as `string[]`. Unchecked, `new Set([null])` is a `Set<string>` that
+    // holds no string, and `has(baseModelId(...))` silently matches nothing.
+    const { store, entries } = memoryCacheStore()
+    setCacheStore(store)
+    entries.set('openrouter:zdr-endpoints:v2', JSON.stringify([null, 'anthropic/claude-sonnet-4.5']))
+    vi.stubGlobal('fetch', vi.fn())
+
+    await expect(fetchZdrModelIds()).rejects.toThrow('unusable')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A cache entry that is not even JSON is a different case from the two above:
+   * `getCached` cannot decode it, so it never becomes a value we could trust or
+   * distrust — it falls back to the loader, which IS the authoritative source
+   * and itself fails closed on upstream failure. Re-fetching the real listing
+   * is the correct outcome, so no strict cache-read mode is warranted here.
+   */
+  it('re-reads upstream when the cached payload is not decodable', async () => {
+    const { store, entries } = memoryCacheStore()
+    setCacheStore(store)
+    entries.set('openrouter:zdr-endpoints:v2', '{')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 'anthropic/claude-sonnet-4.5' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const ids = await fetchZdrModelIds()
+    expect(ids).toBeInstanceOf(Set)
+    expect([...ids]).toEqual(['anthropic/claude-sonnet-4.5'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

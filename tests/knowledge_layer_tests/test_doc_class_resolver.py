@@ -11,10 +11,10 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import configure_summary_db
 from aiq_agent.knowledge.factory import register_summary
 from aiq_agent.knowledge.factory import set_document_doc_class
-from aiq_agent.knowledge.summary_store import SummaryStore
 from sources.knowledge_layer.src.register import _format_results
 
 
@@ -35,7 +35,7 @@ def _chunk(*, file_name: str, collection: str, doc_class: str | None):
 def test_stored_doc_class_wins_over_chunk_metadata():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_url = f"sqlite:///{Path(tmpdir) / 'resolver.db'}"
-        SummaryStore._tables_initialized.discard(db_url)
+        DocumentMetadataStore._tables_initialized.discard(db_url)
         configure_summary_db(db_url)
 
         register_summary("oib_knowledge", "doc.pdf", "A document.")
@@ -59,7 +59,7 @@ def test_stored_doc_class_wins_over_chunk_metadata():
 def test_falls_back_to_chunk_metadata_when_store_empty():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_url = f"sqlite:///{Path(tmpdir) / 'resolver2.db'}"
-        SummaryStore._tables_initialized.discard(db_url)
+        DocumentMetadataStore._tables_initialized.discard(db_url)
         configure_summary_db(db_url)
 
         # No summary row / no stored doc_class for this document.
@@ -71,3 +71,63 @@ def test_falls_back_to_chunk_metadata_when_store_empty():
         text = _format_results(result, "q")
 
         assert "Dokumentart: oib_leitfaden" in text
+
+
+def test_stored_display_title_is_the_source_label():
+    """The stored display title (admin override) becomes the citation `Source:`."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_url = f"sqlite:///{Path(tmpdir) / 'title.db'}"
+        DocumentMetadataStore._tables_initialized.discard(db_url)
+        configure_summary_db(db_url)
+
+        register_summary("oib_knowledge", "oib-rl_2_ausgabe_mai_2023.pdf", "Brandschutz.")
+        from aiq_agent.knowledge.factory import set_document_display_title
+
+        assert set_document_display_title("oib_knowledge", "oib-rl_2_ausgabe_mai_2023.pdf", "Custom OIB Name")
+
+        result = SimpleNamespace(
+            success=True,
+            chunks=[_chunk(file_name="oib-rl_2_ausgabe_mai_2023.pdf", collection="oib_knowledge", doc_class=None)],
+            error_message=None,
+        )
+        text = _format_results(result, "q")
+
+        # The human name is the Source label; the raw filename only appears in the
+        # machine Citation (needed for preview/identity), never as the Source.
+        assert "Source: Custom OIB Name" in text
+        assert "Source: oib-rl_2_ausgabe_mai_2023.pdf" not in text
+        assert "Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.3" in text
+
+
+def test_display_title_falls_back_to_derived_default():
+    """With no stored title, the Source label is derived from the OIB filename."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_url = f"sqlite:///{Path(tmpdir) / 'title2.db'}"
+        DocumentMetadataStore._tables_initialized.discard(db_url)
+        configure_summary_db(db_url)
+
+        result = SimpleNamespace(
+            success=True,
+            chunks=[_chunk(file_name="oib-rl_2_ausgabe_mai_2023.pdf", collection="oib_knowledge", doc_class=None)],
+            error_message=None,
+        )
+        text = _format_results(result, "q")
+
+        assert "Source: OIB-Richtlinie 2, Ausgabe Mai 2023" in text
+
+
+def test_non_oib_upload_keeps_its_filename_as_source():
+    """A project upload with no derivable OIB name keeps its own filename."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_url = f"sqlite:///{Path(tmpdir) / 'title3.db'}"
+        DocumentMetadataStore._tables_initialized.discard(db_url)
+        configure_summary_db(db_url)
+
+        result = SimpleNamespace(
+            success=True,
+            chunks=[_chunk(file_name="Brandschutzkonzept.pdf", collection="s_session", doc_class=None)],
+            error_message=None,
+        )
+        text = _format_results(result, "q")
+
+        assert "Source: Brandschutzkonzept.pdf" in text

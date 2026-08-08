@@ -1194,6 +1194,43 @@ describe('useChatStore', () => {
     })
   })
 
+  describe('attachToDeepResearchJob', () => {
+    test('binds a run started elsewhere without claiming the open conversation', () => {
+      const conversation: Conversation = {
+        id: 'conv-open',
+        userId: 'user-1',
+        title: 'An unrelated chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      useChatStore.setState({
+        currentConversation: conversation,
+        conversations: [conversation],
+        reportContent: 'Report of a previous run',
+      })
+
+      useChatStore.getState().attachToDeepResearchJob('job-workflow-1')
+
+      const state = useChatStore.getState()
+      expect(state.deepResearchJobId).toBe('job-workflow-1')
+      expect(state.isDeepResearchStreaming).toBe(true)
+      // 'running' makes the SSE connect buffer the replayed backlog instead of
+      // writing every historical event straight into the store.
+      expect(state.deepResearchStatus).toBe('running')
+      // No thread owns it — that is what keeps its banner out of the open chat.
+      expect(state.deepResearchOwnerConversationId).toBeNull()
+      expect(state.activeDeepResearchMessageId).toBeNull()
+      // Unknown start time: the elapsed indicator stays hidden.
+      expect(state.deepResearchStartedAt).toBeNull()
+      // Artifacts of whatever was shown before are cleared.
+      expect(state.reportContent).toBe('')
+      expect(state.deepResearchTodos).toEqual([])
+      expect(state.deepResearchStreamLoaded).toBe(false)
+    })
+  })
+
   describe('thinking steps', () => {
     // Helper to set up a user message context for thinking steps tests
     const setupUserMessageContext = () => {
@@ -2485,7 +2522,22 @@ describe('useChatStore', () => {
     test('setComposerPrefill queues text for the composer', () => {
       useChatStore.getState().setComposerPrefill('Ask about OIB 2 fire resistance')
 
-      expect(useChatStore.getState().composerPrefill).toBe('Ask about OIB 2 fire resistance')
+      expect(useChatStore.getState().composerPrefill).toEqual({
+        text: 'Ask about OIB 2 fire resistance',
+      })
+    })
+
+    test('setComposerPrefill carries structured mentions alongside the text', () => {
+      // The hand-off banner's prefill renders `@Piloti …`: the mention must
+      // travel with the text or the send routes as a plain message (MN-3).
+      useChatStore
+        .getState()
+        .setComposerPrefill('@Piloti ', [{ targetId: 'agent:piloti', display: 'Piloti' }])
+
+      expect(useChatStore.getState().composerPrefill).toEqual({
+        text: '@Piloti ',
+        mentions: [{ targetId: 'agent:piloti', display: 'Piloti' }],
+      })
     })
 
     test('consumeComposerPrefill returns the queued text and clears it (one-shot)', () => {
@@ -2494,7 +2546,7 @@ describe('useChatStore', () => {
       const first = useChatStore.getState().consumeComposerPrefill()
       const second = useChatStore.getState().consumeComposerPrefill()
 
-      expect(first).toBe('Draft question')
+      expect(first).toEqual({ text: 'Draft question' })
       expect(second).toBeNull()
       expect(useChatStore.getState().composerPrefill).toBeNull()
     })
@@ -2508,7 +2560,7 @@ describe('useChatStore', () => {
       // with "nothing queued" -- consume returns it once, then null.
       useChatStore.getState().setComposerPrefill('')
 
-      expect(useChatStore.getState().consumeComposerPrefill()).toBe('')
+      expect(useChatStore.getState().consumeComposerPrefill()).toEqual({ text: '' })
       expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
     })
   })

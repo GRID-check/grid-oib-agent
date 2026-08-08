@@ -10,6 +10,7 @@ Documentation for the AI-powered OIB building regulation research assistant. See
 | [Projects](user-guides/projects.md) | Organizing documents and chats into projects with access control |
 | [Documents](user-guides/documents.md) | Uploading, tracking, and downloading documents through the UI |
 | [Knowledge Search](user-guides/knowledge-search.md) | How the AI searches OIB knowledge base and uploaded documents |
+| [Keyboard Shortcuts](user-guides/keyboard-shortcuts.md) | The command palette, `g …` section jumps, composer keys, and the two gates that enable them |
 
 ## Technical Reference
 

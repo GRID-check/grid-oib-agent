@@ -68,7 +68,7 @@ describe('AgentPrompt', () => {
     expect(screen.getByText('Option C')).toBeInTheDocument()
   })
 
-  test('hides options when responded', () => {
+  test('keeps the chosen option selected (locked) when responded', () => {
     const options = ['Option A', 'Option B']
 
     render(
@@ -82,8 +82,11 @@ describe('AgentPrompt', () => {
       />
     )
 
-    // Options list should be hidden when responded
-    expect(screen.queryByText('1.')).not.toBeInTheDocument()
+    // Branch cards stay visible after answering — the chosen one remains and
+    // every card is locked (disabled), so the picker doubles as the response.
+    expect(screen.getByText('Option A')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /option b/i })).toBeDisabled()
   })
 
   test('displays user response when responded', () => {
@@ -124,7 +127,7 @@ describe('AgentPrompt', () => {
       />
     )
 
-    await user.click(screen.getByRole('button', { name: /select option: option b/i }))
+    await user.click(screen.getByRole('button', { name: /option b/i }))
     expect(respond).toHaveBeenCalledTimes(1)
     expect(respond).toHaveBeenCalledWith('Option B')
   })
@@ -139,7 +142,7 @@ describe('AgentPrompt', () => {
     )
 
     await user.tab()
-    expect(screen.getByRole('button', { name: /select option: option a/i })).toHaveFocus()
+    expect(screen.getByRole('button', { name: /option a/i })).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(respond).toHaveBeenCalledWith('Option A')
   })
@@ -212,11 +215,12 @@ describe('AgentPrompt', () => {
     expect(screen.getByText('Option A')).toBeInTheDocument()
   })
 
-  test('options render read-only when no response callback is registered', () => {
+  test('options render read-only (disabled) when no response callback is registered', () => {
     render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
 
-    expect(screen.queryByRole('button', { name: /select option/i })).not.toBeInTheDocument()
+    // Branch cards still render, but locked (disabled) with no responder.
     expect(screen.getByText('Option A')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
   })
 
   test('replaces the English approval envelope with localized copy', () => {
@@ -275,5 +279,106 @@ describe('AgentPrompt', () => {
     expect(rejectButton).toHaveFocus()
     await user.tab()
     expect(approveButton).toHaveFocus()
+  })
+})
+
+/**
+ * A colleague reading somebody else's question (ADR-0037).
+ *
+ * Once prompts are persisted, an observer in a shared thread sees the card — and
+ * must NOT be offered the buttons: the agent tier refuses an answer from anybody but
+ * the person it asked (`_may_answer_interaction`), so a button here would be
+ * offering a refusal. Without a line explaining that, the card reads as broken
+ * rather than as somebody else's turn.
+ */
+describe('AgentPrompt — a question addressed to somebody else', () => {
+  beforeEach(() => {
+    useChatStore.setState({ respondToInteractionFn: vi.fn() })
+  })
+
+  test('says who is being waited for instead of offering the choice', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="choice"
+        content="Welcher Kern?"
+        options={['Nur Kern B', 'Beide Kerne']}
+        isAddressee={false}
+        addresseeName="Matthias Bigl"
+      />,
+    )
+
+    expect(screen.getByTestId('agent-prompt-awaiting-other')).toHaveTextContent(
+      'Piloti is waiting for Matthias Bigl',
+    )
+
+    // The options are still READABLE — a colleague should see what was asked — but
+    // pressing one must not answer for them.
+    await user.click(screen.getByText('Beide Kerne'))
+    expect(respond).not.toHaveBeenCalled()
+  })
+
+  test('falls back to a nameless line when the person cannot be resolved', () => {
+    render(
+      <AgentPrompt id="prompt-1" type="clarification" content="Frage?" isAddressee={false} />,
+    )
+
+    expect(screen.getByTestId('agent-prompt-awaiting-other')).toHaveTextContent(
+      'Piloti is waiting for another participant',
+    )
+  })
+
+  test('withholds the approve/reject buttons too', () => {
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="plan_approval"
+        content="Do you approve this plan?"
+        isAddressee={false}
+        addresseeName="Matthias Bigl"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument()
+  })
+
+  test('an ANSWERED prompt needs no waiting line — it shows the decision', () => {
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="choice"
+        content="Welcher Kern?"
+        options={['Nur Kern B', 'Beide Kerne']}
+        isResponded
+        response="Beide Kerne"
+        isAddressee={false}
+        addresseeName="Matthias Bigl"
+      />,
+    )
+
+    expect(screen.queryByTestId('agent-prompt-awaiting-other')).not.toBeInTheDocument()
+  })
+
+  test('the addressee still gets the full picker — the default is unchanged', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="choice"
+        content="Welcher Kern?"
+        options={['Nur Kern B', 'Beide Kerne']}
+      />,
+    )
+
+    await user.click(screen.getByText('Beide Kerne'))
+    expect(respond).toHaveBeenCalledWith('Beide Kerne')
   })
 })

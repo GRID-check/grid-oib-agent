@@ -10,4 +10,7 @@ import { getDocumentVisualDetails } from '@/lib/documents/service'
 
 type Params = { id: string }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getDocumentVisualDetails(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getDocumentVisualDetails(session, params.id),
+  { authz: { enforcedBy: 'getDocumentVisualDetails -> getAccessibleDocument (project:view)' } }
+)

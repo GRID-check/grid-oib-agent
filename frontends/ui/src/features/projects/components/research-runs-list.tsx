@@ -52,9 +52,6 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
     KNOWN_STATUSES.includes(status) ? t(`researchRuns.status.${status}`) : capitalize(status)
 
   const statusHint = (status: string): string => {
-    if (status === 'running' || status === 'submitted' || status === 'pending') {
-      return t('researchRuns.hint.reportPending')
-    }
     if (status === 'failed' || status === 'cancelled') {
       return t('researchRuns.hint.noReport')
     }
@@ -117,7 +114,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
           // Non-fatal — labels degrade gracefully without titles.
         })
     },
-    [projectCollection, projectId],
+    [projectCollection, projectId, t],
   )
 
   useEffect(() => {
@@ -185,6 +182,11 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
         {jobs.map((job) => {
           const isCompleted = job.status === 'completed'
           const isFailed = job.status === 'failed'
+          // A run still in flight is watchable: the research panel attaches to
+          // its live stream, which matters most for runs started outside chat
+          // (workflow runs) that have no thread to follow.
+          const isActive =
+            job.status === 'running' || job.status === 'submitted' || job.status === 'pending'
           const label = runLabel(job)
           return (
             <StaggerItem
@@ -209,7 +211,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                 </div>
               </div>
 
-              {isCompleted || isFailed ? (
+              {isCompleted || isFailed || isActive ? (
                 <Button
                   asChild
                   size="sm"
@@ -220,10 +222,16 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                     href={
                       isCompleted
                         ? `/app/projects/${projectId}/chat?job=${job.job_id}`
-                        : `/app/projects/${projectId}/chat?job=${job.job_id}&tab=thinking`
+                        : isActive
+                          ? `/app/projects/${projectId}/chat?job=${job.job_id}&tab=tasks`
+                          : `/app/projects/${projectId}/chat?job=${job.job_id}&tab=thinking`
                     }
                   >
-                    {isCompleted ? t('researchRuns.viewReport') : tr('runsList.viewThinking')}
+                    {isCompleted
+                      ? t('researchRuns.viewReport')
+                      : isActive
+                        ? t('researchRuns.viewProgress')
+                        : tr('runsList.viewThinking')}
                     <ArrowRight />
                   </Link>
                 </Button>

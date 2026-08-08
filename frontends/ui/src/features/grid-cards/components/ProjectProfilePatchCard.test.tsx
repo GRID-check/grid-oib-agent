@@ -4,12 +4,44 @@
  * written plus the current profile — never from a model-authored preview. A
  * prompt-injected context could otherwise show a benign preview while the patch
  * writes a different fact under `user_confirmed` provenance.
+ *
+ * Also covers decision persistence: Accept/Reject is recorded on the owning
+ * message, so a reload cannot re-offer an Accept that would apply the same
+ * patch to the brief a second time.
  */
 import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
+import type { CardInteractions } from '../card-decision'
 import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
+
+// Decisions already recorded on the message the card belongs to.
+let mockCardInteractions: CardInteractions | undefined
+const setCardDecision = vi.fn()
+
+interface MockStoreState {
+  currentConversation: { id: string; messages: Array<{ id: string; cardInteractions?: CardInteractions }> } | null
+  conversations: []
+  setCardDecision: typeof setCardDecision
+}
+
+const mockStoreState = (): MockStoreState => ({
+  currentConversation: {
+    id: 'conv-1',
+    messages: [{ id: 'msg-1', cardInteractions: mockCardInteractions }],
+  },
+  conversations: [],
+  setCardDecision,
+})
+
+vi.mock('@/features/chat/store', () => {
+  const useChatStore = (selector: (s: MockStoreState) => unknown) => selector(mockStoreState())
+  // `useCardDecision` re-reads the store imperatively after writing, to detect a
+  // write that could not land.
+  useChatStore.getState = () => mockStoreState()
+  return { useChatStore }
+})
 
 // The stored profile deliberately holds a value that CONFLICTS with anything a
 // model-supplied preview might have claimed, so we can prove the "Before" column
@@ -38,12 +70,16 @@ interface StubbedFetch {
   posts: Array<{ url: string; body: unknown }>
 }
 
-function stubFetch(): StubbedFetch {
+function stubFetch(postStatus = 200, postBody?: unknown): StubbedFetch {
   const posts: Array<{ url: string; body: unknown }> = []
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
       posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : undefined })
-      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+      return Promise.resolve({
+        ok: postStatus < 400,
+        status: postStatus,
+        json: async () => postBody ?? (postStatus < 400 ? {} : { error: 'Conflict' }),
+      })
     }
     return Promise.resolve({
       ok: true,
@@ -55,8 +91,21 @@ function stubFetch(): StubbedFetch {
   return { fetch, posts }
 }
 
+/** The card as rendered inside a real answer, minus title/rationale. */
+const cardProps = {
+  title: 'Update brief',
+  rationale: 'Learned the class.',
+  patch,
+  projectId: 'proj-1',
+  cardKey: 'project_profile_patch-0',
+}
+
+/** …owned by a message, so its decision is persisted. */
+const ownedProps = { ...cardProps, messageId: 'msg-1' }
+
 describe('ProjectProfilePatchCard', () => {
   beforeEach(() => {
+    mockCardInteractions = undefined
     vi.unstubAllGlobals()
     vi.clearAllMocks()
   })
@@ -67,7 +116,7 @@ describe('ProjectProfilePatchCard', () => {
   it('derives the rows from the patch and the fetched profile, not a model preview', async () => {
     stubFetch()
     render(
-      <ProjectProfilePatchCard title="Update brief" rationale="Learned the class." patch={patch} projectId="proj-1" />,
+      <ProjectProfilePatchCard {...cardProps} />,
     )
 
     // The field label and the "after" value come straight from the patch.
@@ -82,7 +131,7 @@ describe('ProjectProfilePatchCard', () => {
     const { posts } = stubFetch()
     const user = userEvent.setup()
     render(
-      <ProjectProfilePatchCard title="Update brief" rationale="Learned the class." patch={patch} projectId="proj-1" />,
+      <ProjectProfilePatchCard {...cardProps} />,
     )
 
     await user.click(screen.getByRole('button', { name: 'Accept' }))
@@ -97,12 +146,109 @@ describe('ProjectProfilePatchCard', () => {
     const { posts } = stubFetch()
     const user = userEvent.setup()
     render(
-      <ProjectProfilePatchCard title="Update brief" rationale="Learned the class." patch={patch} projectId="proj-1" />,
+      <ProjectProfilePatchCard {...cardProps} />,
     )
 
     await user.click(screen.getByRole('button', { name: 'Reject' }))
 
     expect(await screen.findByText('Changes discarded.')).toBeInTheDocument()
     expect(posts).toHaveLength(0)
+  })
+
+  // ── Decision persistence ──────────────────────────────────────────────────
+  // Regression: the outcome used to live in component-local state, so after a
+  // reload the card re-mounted as pending with a live Accept that would apply
+  // the same patch to the brief again.
+
+  it('records the acceptance on the owning message once the patch is applied', async () => {
+    stubFetch()
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    await waitFor(() =>
+      expect(setCardDecision).toHaveBeenCalledWith('msg-1', 'project_profile_patch-0', 'accepted')
+    )
+  })
+
+  /**
+   * The concurrent-accept case, which only exists once a thread is shared
+   * (ADR-0032): two collaborators press Accept and `updateProjectProfileIfVersion`
+   * compares `profileVersion`, so the loser's write is refused.
+   *
+   * Deciding that on the STATUS is what this guards against. A 409 is a generic
+   * optimistic-lock failure — it also fires when a colleague saved the wizard or
+   * applied a different patch, in which case these operations were dropped. The
+   * server tells the two apart (`isPatchAlreadyApplied`) and answers 200 with
+   * `alreadyApplied` only for the idempotent one; the card just trusts the status.
+   */
+  it('settles as accepted when the server reports the patch was already applied', async () => {
+    const { posts } = stubFetch(200, { alreadyApplied: true })
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(await screen.findByText('Project brief updated.')).toBeInTheDocument()
+    // Recorded, so a reload does not re-offer the button either.
+    expect(setCardDecision).toHaveBeenCalledWith('msg-1', 'project_profile_patch-0', 'accepted')
+  })
+
+  it('keeps a lost race retryable instead of claiming success', async () => {
+    // A 409 the server did NOT declare idempotent: this patch is not in the brief,
+    // so the user has to see it and the Accept button has to stay live.
+    stubFetch(409)
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    expect(await screen.findByRole('button', { name: 'Accept' })).toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
+  it('still surfaces a genuine failure rather than claiming success', async () => {
+    stubFetch(500)
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    expect(await screen.findByRole('button', { name: 'Accept' })).toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
+  it('records a rejection on the owning message', async () => {
+    stubFetch()
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+
+    expect(setCardDecision).toHaveBeenCalledWith('msg-1', 'project_profile_patch-0', 'rejected')
+  })
+
+  it('cannot re-apply a patch the message already records as accepted (post-reload)', () => {
+    mockCardInteractions = {
+      'project_profile_patch-0': { decision: 'accepted', decidedAt: '2026-07-28T09:00:00.000Z' },
+    }
+    stubFetch()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    expect(screen.getByText('Project brief updated.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Accept' })).not.toBeInTheDocument()
+  })
+
+  it('stays rejected across a remount when the message records a rejection', () => {
+    mockCardInteractions = {
+      'project_profile_patch-0': { decision: 'rejected', decidedAt: '2026-07-28T09:00:00.000Z' },
+    }
+    stubFetch()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    expect(screen.getByText('Changes discarded.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Accept' })).not.toBeInTheDocument()
   })
 })

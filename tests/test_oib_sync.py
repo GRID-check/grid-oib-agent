@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -424,3 +425,126 @@ class TestChunkFormatVersionGate:
 
         status = oib_status.get_status(ingestor=_NoopIngestor())
         assert all(e.file_name != "__chunk_format_version__" for e in status.files)
+
+
+class TestConcurrentCorpusMutations:
+    """The admin executor runs >1 worker, so a sync, an upload and a removal can
+    overlap. These guard the serialization that keeps that safe: a single-flight
+    sync, per-basename locks around every corpus mutation, and read-modify-write
+    of the registry / exclusion set strictly inside their locks.
+    """
+
+    class _BlockingIngestor(FakeIngestor):
+        """Parks every status poll until ``release`` is set."""
+
+        def __init__(self, terminal_statuses, *, polled, release) -> None:
+            super().__init__(terminal_statuses)
+            self.polled = polled
+            self.release = release
+
+        def get_file_status(self, file_id: str, collection_name: str) -> FakeFileInfo:
+            self.polled.set()
+            assert self.release.wait(10)
+            return super().get_file_status(file_id, collection_name)
+
+    def test_ingest_single_holds_the_file_lock_until_the_terminal_state(self, monkeypatch, tmp_path):
+        polled, release = threading.Event(), threading.Event()
+        ingestor = self._BlockingIngestor({"busy.pdf": FileStatus.SUCCESS}, polled=polled, release=release)
+        _configure_sync(monkeypatch, tmp_path, ingestor)
+        pdf = tmp_path / "oib_uploads" / "busy.pdf"
+        _write_pdf(pdf, b"busy")
+
+        worker = threading.Thread(target=oib_sync.ingest_single, args=(pdf,), daemon=True)
+        worker.start()
+        try:
+            assert polled.wait(10)
+            # A concurrent removal/sync of the same basename blocks here instead
+            # of interleaving with the delete → upload → poll cycle.
+            assert oib_sync._file_lock("busy.pdf").acquire(blocking=False) is False
+        finally:
+            release.set()
+        worker.join(10)
+
+        assert not worker.is_alive()
+        lock = oib_sync._file_lock("busy.pdf")
+        assert lock.acquire(blocking=False) is True
+        lock.release()
+
+    def test_sync_is_single_flight(self, monkeypatch, tmp_path):
+        polled, release = threading.Event(), threading.Event()
+        ingestor = self._BlockingIngestor({"a.pdf": FileStatus.SUCCESS}, polled=polled, release=release)
+        _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
+        _write_pdf(tmp_path / "oib" / "a.pdf", b"a")
+
+        results: list[tuple[int, int]] = []
+        first = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
+        first.start()
+        second = None
+        try:
+            assert polled.wait(10)
+            assert oib_sync._SYNC_LOCK.locked() is True
+            second = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
+            second.start()
+            # The second sync waits for the first instead of ingesting the same
+            # work list a second time.
+            second.join(0.2)
+            assert second.is_alive()
+        finally:
+            release.set()
+        first.join(10)
+        second.join(10)
+
+        assert not first.is_alive() and not second.is_alive()
+        assert ingestor.uploaded == ["a.pdf"]
+        # First run ingested the file; the second found nothing new.
+        assert results == [(1, 1), (0, 1)]
+        assert oib_sync._file_lock("a.pdf").acquire(blocking=False) is True
+        oib_sync._file_lock("a.pdf").release()
+
+    def test_sync_merges_a_registry_hash_written_while_it_ran(self, monkeypatch, tmp_path):
+        other_key = "/elsewhere/other.pdf"
+
+        class _ConcurrentWriterIngestor(FakeIngestor):
+            """Emulates another ingestion recording its hash mid-sync."""
+
+            def get_file_status(self, file_id: str, collection_name: str) -> FakeFileInfo:
+                info = super().get_file_status(file_id, collection_name)
+                if info.status == FileStatus.SUCCESS:
+                    with oib_sync._REGISTRY_LOCK:
+                        registry = oib_sync._load_registry()
+                        registry[other_key] = "other-hash"
+                        oib_sync._save_registry(registry)
+                return info
+
+        ingestor = _ConcurrentWriterIngestor({"a.pdf": FileStatus.SUCCESS})
+        registry_path = _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
+        pdf = tmp_path / "oib" / "a.pdf"
+        _write_pdf(pdf, b"a")
+
+        assert oib_sync.sync() == (1, 1)
+
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        # sync() reloads inside the lock, so its stale snapshot cannot clobber
+        # the hash the concurrent ingestion recorded.
+        assert registry[other_key] == "other-hash"
+        assert str(pdf) in registry
+
+    def test_exclusion_set_is_written_inside_its_lock(self, monkeypatch, tmp_path):
+        _configure_sync(monkeypatch, tmp_path, FakeIngestor({}))
+        _write_pdf(tmp_path / "oib" / "shipped.pdf", b"shipped")
+
+        held: list[bool] = []
+        real_save = oib_sync._save_excluded
+
+        def spy(names: set[str]) -> None:
+            held.append(oib_sync._EXCLUDED_LOCK.locked())
+            real_save(names)
+
+        monkeypatch.setattr(oib_sync, "_save_excluded", spy)
+
+        oib_sync.exclude_document("shipped.pdf")
+        assert oib_sync.unexclude_document("shipped.pdf") is True
+
+        # Both read-modify-writes ran inside the critical section; outside it a
+        # concurrent removal could drop the other's basename.
+        assert held == [True, True]

@@ -1,0 +1,436 @@
+name: Deploy (staging)
+
+# Deploys the `dev` (staging) Pulumi stack after the images for a develop commit
+# have been built + pushed. Chained off "Publish Images" (not a raw push) so the
+# stack never references a tag GHCR doesn't have yet, and it deploys the exact
+# commit's immutable SHA tag rather than the moving `latest`. An explicit gate
+# step additionally requires the commit's CI and Security workflows to be green
+# before anything touches the cluster (Publish Images runs in parallel with
+# them, so chaining alone would deploy untested code).
+#
+# Image pinning is PER-SERVICE, not global. Publish Images is incremental: on
+# a develop push it only rebuilds images whose inputs changed. A service
+# rebuilt at this commit gets the commit's immutable sha-<sha> tag; a service
+# that was NOT rebuilt keeps whatever the stack already deploys (per-service
+# stack config key → global imageTag → `latest`), so a partial publish never
+# points an unchanged service at a tag GHCR does not have (ImagePullBackOff).
+# A manual dispatch pins all three services to the operator-supplied tag,
+# preserving full-fleet rollback semantics; the workflow first verifies the
+# tag exists for all three images, so a rollback to a partially-built commit
+# fails fast instead of rolling the others into ImagePullBackOff.
+#
+# One-time setup (per environment). Stack config is FILE-BASED for plaintext
+# (committed deploy/pulumi/Pulumi.<stack>.yaml) and ESC-BASED for secrets (the
+# Pulumi Cloud environment `grid-oib/<stack>`, imported via the stack file's
+# `environment:` block — rationale in docs/deployment/pulumi-cloud-feature-audit.md).
+# The apply runs on this runner (`pulumi up`); because the state backend is
+# Pulumi Cloud, every update is recorded in the console (stack → Activity)
+# with full logs/diffs regardless of where the CLI runs:
+#   1. cd deploy/pulumi && pulumi stack init matthiasbigl/grid-oib/dev
+#   2. Edit Pulumi.dev.yaml: real baseDomain/letsEncryptEmail/
+#      workosClientId/storageClass (placeholders make the program fail closed).
+#   3. Move the secrets into ESC: `pulumi config env init --stack dev
+#      --keep-config` creates the `grid-oib/dev` environment with everything
+#      encrypted; then delete the duplicated `secure:` blocks from
+#      Pulumi.dev.yaml (full list in the file header). For the kubeconfig use a
+#      NON-EXPIRING ServiceAccount token, not the Control-Center download (dies
+#      in ≤2 weeks) — see docs/deployment/kubernetes.md §2b.
+#   4. COMMIT the updated Pulumi.dev.yaml (plaintext + `environment:` import) —
+#      without it every CI deploy fails its preflight.
+#   5. Add repo secret PULUMI_ACCESS_TOKEN (gate previews + the apply).
+# The "Preflight" step below verifies step 2/4 happened and fails with
+# instructions if not.
+on:
+  workflow_run:
+    workflows: ["Publish Images"]
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      imageTag:
+        description: >-
+          Image tag to deploy. Leave empty for the triggering commit's own
+          sha-<40-hex> tag. Set it to a PREVIOUS build's tag to roll the cluster
+          back without reverting code — the rollout is gated exactly like a
+          forward deploy (surge, soak, drain), so a rollback is just a deploy of
+          an older image.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read # poll CI / Security workflow conclusions for the gate step
+  packages: read # verify the rollback tag exists for all three images (dispatch)
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Pulumi up (dev)
+    # Only when the image build actually succeeded (skip on failed/cancelled).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # The image tag the cluster is pinned to for this run: normally the
+      # triggering commit's immutable tag, or an operator-supplied older tag
+      # when rolling back.
+      IMAGE_TAG: ${{ inputs.imageTag || format('sha-{0}', github.event.workflow_run.head_sha || github.sha) }}
+      # The triggering "Publish Images" run id — workflow_run only; empty on
+      # workflow_dispatch, where every service is treated as built/pinned.
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      # Manual dispatch only deploys develop: images are published only for
+      # develop/release/tags, so dispatching from a feature branch would pin a
+      # sha-<sha> tag that does not exist in GHCR and roll the cluster into
+      # ImagePullBackOff.
+      - name: Guard manual dispatch to develop
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/develop' }}
+        # Read the ref from the runner's built-in $GITHUB_REF env var rather than
+        # interpolating ${{ github.ref }} into the shell, so `github` context data
+        # never lands in the run script (Semgrep run-shell-injection).
+        run: |
+          echo "::error::workflow_dispatch deploys are only supported from develop (images for '$GITHUB_REF' are never published)."
+          exit 1
+
+      # IMAGE_TAG is interpolated into `pulumi config set`, so constrain it to
+      # the shapes publish-images actually produces before it reaches a command
+      # line. Rejecting anything else also catches the likelier operator error
+      # of typing a tag GHCR does not have (→ cluster-wide ImagePullBackOff).
+      - name: Validate image tag
+        run: |
+          case "$IMAGE_TAG" in
+            sha-[0-9a-f]*) [ "${#IMAGE_TAG}" -eq 44 ] || { echo "::error::sha- tag must be the full 40-hex commit sha"; exit 1; } ;;
+            latest) ;;
+            v[0-9]*) ;;
+            *) echo "::error::refusing image tag '$IMAGE_TAG' — expected sha-<40-hex>, v<version>, or latest."; exit 1 ;;
+          esac
+          echo "deploying image tag: $IMAGE_TAG"
+
+      # The upstream "Publish Images" workflow runs ONLY on push to
+      # develop/release and on tags (never on pull_request), so
+      # workflow_run.head_sha is always a trusted, already-merged commit, not
+      # fork PR code. This is the safe use of workflow_run + checkout, so the
+      # generic pwn-request rule is a false positive here.
+      # nosemgrep: yaml.github-actions.security.workflow-run-target-code-checkout.workflow-run-target-code-checkout
+      - uses: actions/checkout@v7
+        with:
+          # Deploy the exact commit whose images were just published.
+          ref: ${{ env.DEPLOY_SHA }}
+
+      # The stated invariant: staging only receives commits whose CI and
+      # Security workflows passed. Publish Images has no `needs` relationship
+      # to them, so enforce it here by polling both workflows' conclusions for
+      # the deploy SHA (they usually finish long before the image build).
+      - name: Require green CI + Security for this commit
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const required = ["CI", "Security"];
+            const sha = process.env.DEPLOY_SHA;
+            const deadline = Date.now() + 25 * 60 * 1000;
+            for (const name of required) {
+              for (;;) {
+                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head_sha: sha,
+                  per_page: 50,
+                })).data.workflow_runs.filter((r) => r.name === name);
+                const run = runs[0]; // most recent for this SHA
+                if (run && run.status === "completed") {
+                  if (run.conclusion !== "success") {
+                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
+                    return;
+                  }
+                  core.info(`${name}: success`);
+                  break;
+                }
+                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
+                else core.info(`${name}: ${run.status}, waiting…`);
+                if (Date.now() > deadline) {
+                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
+                  return;
+                }
+                await new Promise((r) => setTimeout(r, 30_000));
+              }
+            }
+
+      # Fail fast, with instructions, if the committed stack file is still the
+      # template — otherwise the failure surfaces as a cryptic preview error.
+      #
+      # The check walks the document structurally rather than grepping for
+      # substrings: the stack file's own header carries `pulumi config set
+      # --secret` examples and placeholder hostnames, so a plain grep matches
+      # documentation, and a bare `environment:` match would accept an import of
+      # the WRONG environment. Requirements, all position-aware:
+      #   * no placeholder values on a real (non-comment) config line;
+      #   * either a `secure:` key nested under `config:` (committed ciphertext)
+      #     or a top-level `environment:` block importing exactly `grid-oib/dev`.
+      - name: Preflight - stack file is configured, not the template
+        working-directory: deploy/pulumi
+        run: |
+          bad=0
+          awk -f - Pulumi.dev.yaml <<'AWK' || bad=1
+          # Documentation and blank lines carry no configuration.
+          /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+
+          # Track the current top-level key (column 0 = document root).
+          /^[^[:space:]]/ { top = $0; sub(/:.*$/, "", top) }
+
+          /REPLACE_ME|example\.com/ {
+            printf "placeholder value still in the stack file: %s\n", $0
+            placeholder = 1
+          }
+
+          # Committed ciphertext: a `secure:` mapping key inside the config tree.
+          top == "config" && /^[[:space:]]+secure:[[:space:]]*[^[:space:]]/ { encrypted = 1 }
+
+          # ESC import: `environment: [grid-oib/dev]` or a `- grid-oib/dev` item
+          # under a top-level `environment:` block. Any other value is a
+          # different environment and must not satisfy the check.
+          top == "environment" {
+            entry = $0
+            sub(/^[[:space:]]*environment:[[:space:]]*/, "", entry)
+            gsub(/[][,"]/, " ", entry)
+            sub(/^[[:space:]]*-[[:space:]]*/, " ", entry)
+            n = split(entry, fields, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+              if (fields[i] == "") continue
+              if (fields[i] == "grid-oib/dev") esc = 1
+              else other = fields[i]
+            }
+          }
+
+          END {
+            if (placeholder) exit 1
+            if (top == "") {
+              print "Pulumi.dev.yaml has no configuration at all."
+              exit 1
+            }
+            if (!encrypted && !esc) {
+              if (other != "") printf "environment: imports %s, not the grid-oib/dev ESC environment\n", other
+              else print "no encrypted config found - neither a committed secure: entry under config: nor an environment: import of grid-oib/dev"
+              exit 1
+            }
+          }
+          AWK
+          if [ "$bad" -ne 0 ]; then
+            echo "::error::deploy/pulumi/Pulumi.dev.yaml on develop is still the placeholder template."
+            echo "::error::Run the one-time setup in this workflow's header (edit values, set --secret config, COMMIT the file), then re-run."
+            exit 1
+          fi
+          echo "stack file preflight OK"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: deploy/pulumi/package-lock.json
+
+      - name: Install program deps
+        working-directory: deploy/pulumi
+        run: npm ci
+
+      # The CrossGuard policy pack is a separate Node program with its own deps.
+      - name: Install policy-pack deps
+        working-directory: deploy/pulumi/policy
+        run: npm ci
+
+      - name: Typecheck (cluster-free gate)
+        working-directory: deploy/pulumi
+        run: npx tsc --noEmit && (cd policy && npx tsc --noEmit)
+
+      # Plan + two independent gates on the SAME plan `pulumi up` will apply
+      # (the imageTag override is applied BEFORE previewing):
+      #   1. schema-validate every CustomResource against the upstream CRD
+      #      schemas — tsc can't check apiextensions.CustomResource fields;
+      #   2. the CrossGuard policy pack — rollout safety (surge-only rollouts,
+      #      readiness soaks, progress deadlines, shutdown budgets), resource
+      #      bounds, and image-pull correctness. A `mandatory` violation fails
+      #      the preview here, before anything touches the cluster.
+      - name: Install Pulumi
+        run: |
+          # Download the installer to a file first, then run it, rather than
+          # piping curl straight into a shell (curl|sh): a hijacked endpoint
+          # can't execute in one uninspectable stream.
+          curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
+          sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
+
+      # Publish Images is incremental: on a develop push it only rebuilds
+      # images whose inputs changed, so a single global imageTag for every
+      # service would pin unchanged services to a tag GHCR does not have
+      # (ImagePullBackOff). Resolve ONE ref per service and export it: a
+      # service rebuilt at this commit gets the commit's immutable sha-<sha>
+      # tag; a service that was NOT rebuilt keeps whatever the stack currently
+      # deploys — its per-service config key (the full image ref the last
+      # deploy pinned), then the global imageTag (all images were historically
+      # built at every develop sha), then `latest`. On
+      # workflow_dispatch (manual rollback) every service is pinned to
+      # $IMAGE_TAG, preserving full-fleet semantics.
+      - name: Resolve per-service image refs
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi stack select matthiasbigl/grid-oib/dev
+
+          # GHCR repository paths are lowercase (docker/metadata-action
+          # lowercases the image name when publish-images pushes), and an
+          # uppercase ref in a Pod spec is rejected outright by containerd
+          # ("repository name must be lowercase"). The owner login is mixed
+          # case, so fold it here — this is the same value the Pulumi program
+          # defaults to (`ghcr.io/grid-check`).
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          registry="ghcr.io/${owner}"
+
+          # Which images did the triggering publish run actually build? Job
+          # names are the contract with publish-images.yml; only successful
+          # jobs count. On dispatch RUN_ID is empty and every service is
+          # treated as built (pinned) below.
+          built_jobs=""
+          if [ -n "$RUN_ID" ]; then
+            built_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" --jq '.jobs[] | select(.conclusion == "success") | .name')"
+          fi
+
+          # Manual rollback pins ALL three services to $IMAGE_TAG, so verify
+          # that tag is published for every image before anything is pinned —
+          # a tag only some images were built at would roll the others into
+          # ImagePullBackOff. The workflow_run path never has this problem:
+          # rebuilt images carry the sha just pushed, non-rebuilt keep their
+          # stored ref.
+          #
+          # Ask GHCR itself, not the packages REST API: there is no
+          # `/repos/{owner}/{repo}/packages/...` endpoint (it 404s), the
+          # org/user variants differ by owner type, and listing versions would
+          # need pagination over every sha ever published. A manifest HEAD is
+          # exactly the lookup the kubelet will perform.
+          if [ -z "$RUN_ID" ]; then
+            for service in backend frontend web; do
+              image_path="${owner}/grid-oib-${service}"
+              pull_token="$(curl -sSL -u "${GITHUB_ACTOR}:${GH_TOKEN}" \
+                "https://ghcr.io/token?service=ghcr.io&scope=repository:${image_path}:pull" \
+                | jq -r '.token // empty')"
+              [ -n "$pull_token" ] || {
+                echo "::error::could not obtain a GHCR pull token for ${image_path} — the job token needs 'packages: read'."
+                exit 1
+              }
+              # $IMAGE_TAG is constrained to sha-<40-hex>/v*/latest by the
+              # "Validate image tag" step above, so it is safe in the URL.
+              status="$(curl -sSL -o /dev/null -w '%{http_code}' --head \
+                -H "Authorization: Bearer ${pull_token}" \
+                -H 'Accept: application/vnd.oci.image.index.v1+json' \
+                -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+                -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+                -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+                "https://ghcr.io/v2/${image_path}/manifests/${IMAGE_TAG}")"
+              [ "$status" = "200" ] || {
+                echo "::error::rollback tag '$IMAGE_TAG' is not published for grid-oib-${service} (ghcr.io/${image_path} returned HTTP $status). Pick a tag from a fully-built commit."
+                exit 1
+              }
+            done
+            echo "rollback tag '$IMAGE_TAG' verified for backend, frontend and web"
+          fi
+
+          is_built() {
+            if [ -n "$RUN_ID" ]; then
+              echo "$built_jobs" | grep -qx "Build & push $1 image"
+            else
+              return 0
+            fi
+          }
+
+          resolve_ref() {
+            service="$1"
+            if is_built "$service"; then
+              if [ -n "$RUN_ID" ]; then
+                # Rebuilt at this commit: publish-images just pushed its tag.
+                tag="sha-${DEPLOY_SHA}"
+              else
+                # Manual rollback: the operator's chosen tag.
+                tag="$IMAGE_TAG"
+              fi
+            else
+              # Not rebuilt: keep what the stack currently deploys. The
+              # per-service key already holds the FULL image ref the last
+              # deploy pinned (this workflow writes $*_IMAGE_REF verbatim), so
+              # echo it as-is — prefixing would double the registry/name.
+              deployed="$(pulumi config get "grid-oib:${service}Image" 2>/dev/null || true)"
+              if [ -n "$deployed" ]; then
+                if [[ "$deployed" == *:* ]]; then
+                  echo "$deployed"
+                  return 0
+                fi
+                # A bare tag (e.g. hand-set in the stack): normalize it.
+                tag="$deployed"
+              else
+                # Fallback for stacks that predate per-service pinning: the
+                # global imageTag (all images were historically built at every
+                # develop sha), then `latest`.
+                tag="$(pulumi config get grid-oib:imageTag 2>/dev/null || true)"
+                [ -n "$tag" ] || tag="latest"
+              fi
+            fi
+            echo "${registry}/grid-oib-${service}:${tag}"
+          }
+
+          BACKEND_IMAGE_REF="$(resolve_ref backend)"
+          FRONTEND_IMAGE_REF="$(resolve_ref frontend)"
+          WEB_IMAGE_REF="$(resolve_ref web)"
+
+          echo "backend  -> $BACKEND_IMAGE_REF"
+          echo "frontend -> $FRONTEND_IMAGE_REF"
+          echo "web      -> $WEB_IMAGE_REF"
+
+          echo "BACKEND_IMAGE_REF=$BACKEND_IMAGE_REF" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE_REF=$FRONTEND_IMAGE_REF" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE_REF=$WEB_IMAGE_REF" >> "$GITHUB_ENV"
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ github.token }} # gh api: built-job lookup + rollback-tag verification
+
+      - name: Validate plan (CRD schemas + policy pack)
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi stack select matthiasbigl/grid-oib/dev
+          pulumi config set grid-oib:imageTag "$IMAGE_TAG"
+          pulumi config set grid-oib:backendImage "$BACKEND_IMAGE_REF"
+          pulumi config set grid-oib:frontendImage "$FRONTEND_IMAGE_REF"
+          pulumi config set grid-oib:webImage "$WEB_IMAGE_REF"
+          # `--json` puts the plan on stdout, but policy-pack violations are NOT
+          # part of it — a mandatory CrossGuard failure shows up as a bare
+          # "error: preview failed" with the reason nowhere in the JSON. On
+          # failure, re-run in text mode (cheap: the plan is cached server-side)
+          # so the violating rule and resource are visible in the log.
+          if ! pulumi preview --policy-pack ./policy --json > .plan.json; then
+            echo "::error::pulumi preview failed — re-running in text mode to surface the reason"
+            pulumi preview --policy-pack ./policy || true
+            echo "::error::captured JSON plan follows"
+            cat .plan.json
+            exit 1
+          fi
+          node scripts/validate-crs.mjs .plan.json
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      # The apply runs on THIS runner, right after the gates, against the same
+      # pinned image refs. Because the state backend is Pulumi Cloud, the update
+      # is recorded in the console (stack → Activity) with full logs and diffs
+      # no matter where the CLI runs — no Pulumi-hosted runner needed. (The
+      # experimental `pulumi up --remote` / Deployments path was tried and
+      # reverted same-day; see docs/deployment/pulumi-cloud-feature-audit.md.)
+      - name: Pulumi up
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi stack select matthiasbigl/grid-oib/dev
+          pulumi config set grid-oib:imageTag "$IMAGE_TAG"
+          pulumi config set grid-oib:backendImage "$BACKEND_IMAGE_REF"
+          pulumi config set grid-oib:frontendImage "$FRONTEND_IMAGE_REF"
+          pulumi config set grid-oib:webImage "$WEB_IMAGE_REF"
+          pulumi up --yes
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextvars
 import dataclasses
 import difflib
+import hashlib
 import logging
 import os
 import re
@@ -25,6 +26,7 @@ import threading
 import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable
+from collections.abc import Iterator
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
@@ -36,7 +38,11 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
+from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
+from aiq_agent.common.source_kinds import collection_scope
 from aiq_agent.common.source_kinds import kind_for_lane
+from aiq_agent.common.source_kinds import scope_for_qualifier
 
 if TYPE_CHECKING:
     from aiq_agent.common.norm_registry import NormRegistry
@@ -145,11 +151,27 @@ def _normalize_url(url: str) -> str:
 _PAGE_RE = re.compile(r"[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))", re.IGNORECASE)
 
 
-def _parse_citation_key(key: str) -> tuple[str, int | None]:
-    """Extract (filename, page_number) from a citation key.
+# Optional scope qualifier a citation key carries when one filename was retrieved
+# from more than one collection in the same turn: `Plan.pdf (Projektwissen), p.3`.
+# Only the known qualifiers match, so a parenthetical that is part of a real
+# filename ("Bescheid (Kopie).pdf") is never mistaken for one.
+_SCOPE_QUALIFIER_ALTERNATION = "|".join(re.escape(label) for label in SCOPE_QUALIFIERS.values())
+#: The qualifier at the END of a key's filename part (parsing a whole key).
+_SCOPE_QUALIFIER_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)\s*$", re.IGNORECASE)
+#: The qualifier at the START of the text FOLLOWING a filename (scanning a line).
+_SCOPE_QUALIFIER_TOKEN_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)", re.IGNORECASE)
+
+
+def _parse_citation_ref(key: str) -> tuple[str, str | None, int | None]:
+    """Extract (filename, scope, page_number) from a citation key.
 
     Handles: "report.pdf, p.15", "report.pdf, page 15", "report.pdf",
-    "report.pdf, p.15, Table 1"
+    "report.pdf, p.15, Table 1", "Plan.pdf (Projektwissen), p.3"
+
+    ``scope`` is the coarse kind the key names (see
+    ``source_kinds.collection_scope``) or None when the key is unqualified —
+    which is the common case, because a filename is only qualified when the same
+    name was retrieved from two different collections in one turn.
     """
     page_match = _PAGE_RE.search(key)
     page = int(page_match.group(1)) if page_match else None
@@ -158,6 +180,21 @@ def _parse_citation_key(key: str) -> tuple[str, int | None]:
         filename = key[: page_match.start()].rstrip(", ").strip()
     else:
         filename = key.strip()
+    scope = None
+    qualifier_match = _SCOPE_QUALIFIER_RE.search(filename)
+    if qualifier_match:
+        scope = scope_for_qualifier(qualifier_match.group(1))
+        filename = filename[: qualifier_match.start()].rstrip(", ").strip()
+    return filename, scope, page
+
+
+def _parse_citation_key(key: str) -> tuple[str, int | None]:
+    """(filename, page) from a citation key — :func:`_parse_citation_ref` without the scope.
+
+    Kept as the narrow form for the many call sites that only ever needed the
+    document's name and page (wire serialization, chunk merging, display).
+    """
+    filename, _scope, page = _parse_citation_ref(key)
     return filename, page
 
 
@@ -191,12 +228,34 @@ class SourceRegistry:
         self._urls: dict[str, SourceEntry] = {}
         self._parsed_urls: dict[str, _ParsedURL] = {}
         self._citation_keys: list[SourceEntry] = []
-        # Dedup key is (filename, page): two chunks from the SAME document at
-        # DIFFERENT pages are distinct evidence and must both become chips.
-        # Keying on filename alone silently dropped every page after the first
-        # (and mismatched the page-aware Trace-Lanes fan-out — see ADR-0026).
-        self._citation_key_files: set[tuple[str, int | None]] = set()
+        # Dedup key is (collection, filename, page).
+        #
+        # `page`: two chunks from the SAME document at DIFFERENT pages are
+        # distinct evidence and must both become chips. Keying on filename alone
+        # silently dropped every page after the first (and mismatched the
+        # page-aware Trace-Lanes fan-out — see ADR-0026).
+        #
+        # `collection`: a document is `(collection, filename)` — the PRIMARY KEY
+        # of `document_metadata`, and the only pair that is unique. One search
+        # fans out across the base corpus, the session collection and the project
+        # collections at once, so a project `Plan.pdf` and an Archiv `Plan.pdf`
+        # can land in the same result set. Keying on the filename alone collapsed
+        # them onto whichever chunk arrived first and discarded the other
+        # document's evidence entirely.
+        self._citation_key_files: set[tuple[str | None, str, int | None]] = set()
         self._all: list[SourceEntry] = []
+
+    @staticmethod
+    def _identity(entry: SourceEntry) -> tuple[str | None, str, int | None]:
+        """The `(collection, filename, page)` a document entry is unique under.
+
+        The collection is kept RAW (not reduced to its scope): two projects'
+        `Plan.pdf` really are two documents, and dedup must never merge them even
+        though a citation key can only ever name the coarser scope.
+        """
+        filename, page = _parse_citation_key(entry.citation_key or "")
+        collection = (entry.collection or "").strip().lower() or None
+        return (collection, filename.lower(), page)
 
     def add(self, entry: SourceEntry) -> None:
         """Register a source entry. One entry per logical URL (dedup by normalized form).
@@ -224,8 +283,7 @@ class SourceRegistry:
             if raw != normalized:
                 self._urls[raw] = self._urls[normalized]
         if entry.citation_key:
-            filename, page = _parse_citation_key(entry.citation_key)
-            dedup_key = (filename.lower(), page)
+            dedup_key = self._identity(entry)
             if dedup_key not in self._citation_key_files:
                 self._citation_key_files.add(dedup_key)
                 self._citation_keys.append(entry)
@@ -233,13 +291,12 @@ class SourceRegistry:
                     added = True
             elif entry.chunk_text:
                 # A single page may hold >1 retrieved chunk; dedup collapses them
-                # onto one (filename, page) entry, but each chunk's body is
-                # distinct evidence for quote verification. Append the new body to
-                # the surviving entry so the whole-registry fuzzy match sees every
-                # chunk of the page rather than only the first.
+                # onto one (collection, filename, page) entry, but each chunk's
+                # body is distinct evidence for quote verification. Append the new
+                # body to the surviving entry so the whole-registry fuzzy match
+                # sees every chunk of the page rather than only the first.
                 for existing in self._citation_keys:
-                    existing_file, existing_page = _parse_citation_key(existing.citation_key)
-                    if (existing_file.lower(), existing_page) == dedup_key:
+                    if self._identity(existing) == dedup_key:
                         if not existing.chunk_text:
                             existing.chunk_text = entry.chunk_text
                         elif entry.chunk_text not in existing.chunk_text:
@@ -347,6 +404,31 @@ class SourceRegistry:
 
         return None
 
+    def _entries_for_key(self, key: str) -> tuple[list[SourceEntry], int | None]:
+        """Registry entries a citation key names, plus the page it asked for.
+
+        Filename (case-insensitive) is the match. A key that carries a scope
+        qualifier — `Plan.pdf (Projektwissen), p.3`, emitted only when one
+        filename was retrieved from several collections in the same turn —
+        narrows to the entries actually on that shelf.
+
+        The narrowing is FAIL-OPEN: a qualifier that matches no entry is
+        ignored rather than rejecting the key. Verification only ever removes
+        citations, so a stricter reading here would silently cost an answer its
+        source over a qualifier the model mistyped, and the unqualified filename
+        was already proof enough that the document was retrieved.
+        """
+        target_file, target_scope, target_page = _parse_citation_ref(key)
+        target_lower = target_file.lower()
+        matches = [
+            entry for entry in self._citation_keys if _parse_citation_key(entry.citation_key)[0].lower() == target_lower
+        ]
+        if target_scope:
+            scoped = [entry for entry in matches if collection_scope(entry.collection) == target_scope]
+            if scoped:
+                return scoped, target_page
+        return matches, target_page
+
     def has_citation_key(self, key: str) -> bool:
         """Lenient match of a citation key against registry entries.
 
@@ -355,13 +437,7 @@ class SourceRegistry:
         page than what the knowledge layer returned, and that's acceptable
         since the document itself was verified as a real source.
         """
-        target_file, _ = _parse_citation_key(key)
-        target_lower = target_file.lower()
-        for entry in self._citation_keys:
-            entry_file, _ = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() == target_lower:
-                return True
-        return False
+        return bool(self._entries_for_key(key)[0])
 
     def entry_for_url(self, url: str) -> SourceEntry | None:
         """Return the registry entry for a URL already resolved via ``resolve_url``.
@@ -376,18 +452,24 @@ class SourceRegistry:
         return self._urls.get(_normalize_url(url))
 
     def entry_for_citation_key(self, key: str) -> SourceEntry | None:
-        """Return the registry entry whose filename matches ``key`` (lenient).
+        """Return the registry entry best matching ``key`` (lenient on the page).
 
-        Mirrors :meth:`has_citation_key`'s filename-only, case-insensitive match
-        but returns the owning :class:`SourceEntry` for origin-token labeling.
+        Identity matches :meth:`has_citation_key` — same filename match, same
+        fail-open scope narrowing — but when the SAME document was retrieved at
+        several pages, the entry whose page the citation actually names wins.
+        The entry this returns is what supplies the wire's ``page``, and
+        therefore the page the UI opens the PDF at; returning "whichever chunk
+        landed in the registry first" made a citation to p.30 open at p.12
+        whenever both were retrieved. Falls back to the first match (so a page
+        the retrieval never returned still resolves to a real, retrieved page
+        rather than to nothing).
         """
-        target_file, _ = _parse_citation_key(key)
-        target_lower = target_file.lower()
-        for entry in self._citation_keys:
-            entry_file, _ = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() == target_lower:
-                return entry
-        return None
+        matches, target_page = self._entries_for_key(key)
+        if target_page is not None:
+            for entry in matches:
+                if _parse_citation_key(entry.citation_key)[1] == target_page:
+                    return entry
+        return matches[0] if matches else None
 
     def all_sources(self) -> list[SourceEntry]:
         """Return all registered sources."""
@@ -505,6 +587,66 @@ def get_or_create_session_registry(session_id: str | None) -> SourceRegistry:
         return registry
 
 
+# ---------------------------------------------------------------------------
+# Per-turn capture log (ContextVar)
+# ---------------------------------------------------------------------------
+#
+# The SourceRegistry is deliberately CUMULATIVE across a conversation, so a
+# later turn can still cite a document an earlier turn retrieved. That makes it
+# the wrong denominator for per-turn citation-health telemetry: reporting
+# ``len(registry.all_sources())`` as "sources retrieved" grew monotonically
+# while "sources cited" stayed per-turn, so the dashboard's implied efficiency
+# decayed over a long conversation for reasons that had nothing to do with
+# citation quality — and a turn that re-cited an earlier document could report
+# more citations than retrievals.
+#
+# This log records what THIS turn's tool calls actually returned. It is scoped
+# with a ContextVar (like the session registry) so concurrent turns cannot mix.
+
+_turn_captured_sources: contextvars.ContextVar[list[SourceEntry] | None] = contextvars.ContextVar(
+    "_turn_captured_sources", default=None
+)
+
+
+def begin_turn_capture() -> contextvars.Token:
+    """Start recording this turn's captured sources. Pair with :func:`end_turn_capture`."""
+    return _turn_captured_sources.set([])
+
+
+def end_turn_capture(token: contextvars.Token) -> None:
+    """Stop recording this turn's captured sources."""
+    _turn_captured_sources.reset(token)
+
+
+def record_turn_capture(entries: Sequence[SourceEntry]) -> None:
+    """Note sources a tool call returned during this turn. No-op when not recording."""
+    log = _turn_captured_sources.get()
+    if log is not None:
+        log.extend(entries)
+
+
+def get_turn_captures() -> list[SourceEntry]:
+    """Distinct sources this turn's tool calls returned, in first-seen order.
+
+    Deduplicated on the same identity the registry uses (URL / document key), so
+    a document returned by two queries in one turn counts once — but a document
+    retrieved again in a LATER turn counts again for that turn, which
+    ``registry.all_sources()`` could not express.
+    """
+    log = _turn_captured_sources.get()
+    if not log:
+        return []
+    seen: set[str] = set()
+    unique: list[SourceEntry] = []
+    for entry in log:
+        identity = _normalize_url(entry.url) if entry.url else (entry.citation_key or "").lower()
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(entry)
+    return unique
+
+
 def set_session_registry(registry: SourceRegistry | None) -> contextvars.Token:
     """Set the session-scoped SourceRegistry for the current async context."""
     return _session_source_registry.set(registry)
@@ -590,7 +732,7 @@ def extract_sources_from_tool_result(
     # this tool is eligible to contribute sources (typically by limiting
     # capture to the agent's loaded tool set).
     if content.strip():
-        return [SourceEntry(citation_key=tool_name, source_type="tool_result", tool_name=tool_name)]
+        return [SourceEntry(citation_key=tool_name, source_type=TOOL_RESULT_SOURCE_TYPE, tool_name=tool_name)]
 
     return []
 
@@ -776,32 +918,109 @@ _KL_TRACE_LANES_MARKER = "## Trace-Lanes"
 _KL_TRUNCATED_SUFFIX_RE = re.compile(r"\s*\.\.\.\s*\[truncated\]\s*$")
 
 
-def _extract_kl_chunk_bodies(content: str) -> list[str]:
-    """Extract the retrieved passage body for each ``--- Result N ---`` block.
+def _split_kl_result_blocks(content: str) -> list[str]:
+    """Split KB tool output into one text span per ``--- Result N ---`` block.
 
-    Returns one body per block in document order (aligned with the ``Citation:``
-    fields, since ``_format_results`` emits exactly one citation per block). An
-    empty string marks a block whose body could not be located. The trailing
-    ``## Trace-Lanes`` JSON summary and any ``... [truncated]`` marker are
-    stripped so only the real chunk text is returned.
+    Each span runs from just after its block marker to the start of the next
+    marker (or the ``## Trace-Lanes`` fan-out summary / end of content), so a
+    block contains exactly one hit's header fields AND its passage body. The
+    leading "Found N relevant document(s):" preamble is not a block and is
+    dropped. Returns ``[]`` when the output carries no block markers.
     """
     block_matches = list(_KL_RESULT_BLOCK_RE.finditer(content))
-    bodies: list[str] = []
+    blocks: list[str] = []
     for idx, block_match in enumerate(block_matches):
         block_start = block_match.end()
         block_end = block_matches[idx + 1].start() if idx + 1 < len(block_matches) else len(content)
         block = content[block_start:block_end]
-        relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
-        if relevance_match is None:
-            bodies.append("")
-            continue
-        body = block[relevance_match.end() :]
-        trace_lanes_at = body.find(_KL_TRACE_LANES_MARKER)
+        # The trailing Trace-Lanes JSON belongs to the whole result set, not to
+        # the last hit — cut it off so it can pollute neither the body nor the
+        # header-field scan below.
+        trace_lanes_at = block.find(_KL_TRACE_LANES_MARKER)
         if trace_lanes_at != -1:
-            body = body[:trace_lanes_at]
-        body = _KL_TRUNCATED_SUFFIX_RE.sub("", body.strip()).strip()
-        bodies.append(body)
-    return bodies
+            block = block[:trace_lanes_at]
+        blocks.append(block)
+    return blocks
+
+
+def _kl_block_body(block: str) -> str:
+    """The retrieved passage body of one result block.
+
+    ``_format_results`` puts the body after the ``Relevance Score:`` header line
+    and a blank line. Returns ``""`` when that header is absent (nothing to
+    anchor the body to). A very long body is truncated by the producer with a
+    trailing ``... [truncated]`` marker, which is stripped back off.
+    """
+    relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
+    if relevance_match is None:
+        return ""
+    return _KL_TRUNCATED_SUFFIX_RE.sub("", block[relevance_match.end() :].strip()).strip()
+
+
+def _kl_block_header(block: str) -> str:
+    """The HEADER region of one result block — everything above the passage body.
+
+    Header fields must be read from here, never from the whole block, because
+    the block also contains RETRIEVED DOCUMENT TEXT. ``_format_results`` omits
+    ``Dokumentart:``/``Collection:``/``Page:`` for a hit that has none, so a
+    passage whose own text contains such a line would otherwise supply the
+    missing field — and a scanned Einreichplan or Bescheid whose title block
+    carries a metadata table plausibly does. The result is the same user-visible
+    failure as positional misalignment: a private project plan classified as an
+    OIB Richtlinie, because ``doc_class`` is first priority in ``lane_for_hit``.
+
+    ``Source:``/``Citation:`` happen to be safe (the header always emits them,
+    so the header's own match wins), but scoping the region is what makes that
+    true by construction rather than by luck.
+
+    A block with no ``Relevance Score:`` line has no body to confuse us with, so
+    the whole block is its header.
+    """
+    relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
+    return block[: relevance_match.start()] if relevance_match else block
+
+
+def _extract_kl_chunk_bodies(content: str) -> list[str]:
+    """Retrieved passage body per ``--- Result N ---`` block, in document order."""
+    return [_kl_block_body(block) for block in _split_kl_result_blocks(content)]
+
+
+def _first(pattern: re.Pattern[str], text: str) -> str | None:
+    """First capture of ``pattern`` in ``text``, stripped; ``None`` when absent."""
+    match = pattern.search(text)
+    return match.group(1).strip() or None if match else None
+
+
+def _parse_kl_doc_class(raw: str | None) -> str | None:
+    """Machine doc_class key from a ``Dokumentart:`` value.
+
+    The line is emitted as ``<doc_class_key> — <German label>``; keep only the
+    leading machine key so lane placement gets a valid key.
+    """
+    if not raw:
+        return None
+    return raw.split("—")[0].split(" - ")[0].strip() or None
+
+
+def _kl_entry(
+    *,
+    citation_key: str,
+    title: str | None,
+    collection: str | None,
+    doc_class: str | None,
+    chunk_text: str | None,
+    tool_name: str,
+) -> SourceEntry:
+    """Build a knowledge-layer :class:`SourceEntry` from one hit's fields."""
+    return SourceEntry(
+        citation_key=citation_key.strip(),
+        title=title,
+        source_type="knowledge_layer",
+        tool_name=tool_name,
+        collection=collection or None,
+        doc_class=doc_class or None,
+        chunk_text=chunk_text or None,
+    )
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
@@ -809,37 +1028,62 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
 
     Extracts citation keys (filename + page), the retrieval ``Collection:``
     each hit came from (threaded by the KB tool so ``source_lane`` can place
-    the hit deterministically), AND any URLs present.
-    Falls back to generic URL extraction if no Citation: fields found.
+    the hit deterministically), the explicit ``Dokumentart:`` classification,
+    and the retrieved passage body. Falls back to generic URL extraction if no
+    Citation: fields found.
+
+    Fields are read PER ``--- Result N ---`` BLOCK, never by zipping separate
+    whole-document ``findall`` lists. ``_format_results`` emits ``Collection:``
+    and ``Dokumentart:`` only when the hit HAS one, so a result set mixing a
+    classified hit (OIB corpus) with an unclassified one (a project upload)
+    shifts every later value up by one under positional zipping — and because
+    ``doc_class`` is the FIRST-priority signal in ``lane_for_hit``, that
+    silently rendered a project plan as an OIB Richtlinie. Block-scoped parsing
+    makes the association structural rather than coincidental.
     """
+    blocks = _split_kl_result_blocks(content)
     entries: list[SourceEntry] = []
-    citations = _KL_CITATION_RE.findall(content)
-    sources = _KL_SOURCE_RE.findall(content)
-    collections = _KL_COLLECTION_RE.findall(content)
-    doc_classes = _KL_DOC_CLASS_RE.findall(content)
-    # Retrieved passage bodies, one per ``--- Result N ---`` block, aligned with
-    # the citation index. Threaded onto each entry so quote verification can
-    # check quoted spans against the actual evidence text.
-    chunk_bodies = _extract_kl_chunk_bodies(content)
-    for i, citation_key in enumerate(citations):
-        title = sources[i].strip() if i < len(sources) else None
-        collection = collections[i].strip() if i < len(collections) else None
-        # The Dokumentart line is emitted as ``<doc_class_key> — <German label>``;
-        # keep only the leading machine key so lane placement gets a valid key.
-        doc_class_raw = doc_classes[i].strip() if i < len(doc_classes) else None
-        doc_class = doc_class_raw.split("—")[0].split(" - ")[0].strip() if doc_class_raw else None
-        chunk_text = chunk_bodies[i] if i < len(chunk_bodies) else None
-        entries.append(
-            SourceEntry(
-                citation_key=citation_key.strip(),
-                title=title,
-                source_type="knowledge_layer",
-                tool_name=tool_name,
-                collection=collection or None,
-                doc_class=doc_class or None,
-                chunk_text=chunk_text or None,
+
+    if blocks:
+        for block in blocks:
+            # Header fields come from the header region ONLY; the rest of the
+            # block is retrieved document text and must never be able to supply
+            # a field the producer omitted. See ``_kl_block_header``.
+            header = _kl_block_header(block)
+            citation_key = _first(_KL_CITATION_RE, header)
+            if not citation_key:
+                # A block without a Citation: field identifies nothing citable.
+                continue
+            entries.append(
+                _kl_entry(
+                    citation_key=citation_key,
+                    title=_first(_KL_SOURCE_RE, header),
+                    collection=_first(_KL_COLLECTION_RE, header),
+                    doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
+                    chunk_text=_kl_block_body(block),
+                    tool_name=tool_name,
+                )
             )
-        )
+    else:
+        # No block markers (a non-``_format_results`` producer whose tool name
+        # still matches "knowledge"). Nothing delimits the hits, so fall back to
+        # the historical positional pairing rather than dropping the sources.
+        citations = _KL_CITATION_RE.findall(content)
+        sources = _KL_SOURCE_RE.findall(content)
+        collections = _KL_COLLECTION_RE.findall(content)
+        doc_classes = _KL_DOC_CLASS_RE.findall(content)
+        for i, citation_key in enumerate(citations):
+            entries.append(
+                _kl_entry(
+                    citation_key=citation_key,
+                    title=sources[i].strip() if i < len(sources) else None,
+                    collection=collections[i].strip() if i < len(collections) else None,
+                    doc_class=_parse_kl_doc_class(doc_classes[i] if i < len(doc_classes) else None),
+                    chunk_text=None,
+                    tool_name=tool_name,
+                )
+            )
+
     if not entries:
         return _parse_generic_urls(content, tool_name)
     return entries
@@ -891,35 +1135,194 @@ _URL_IN_LINE_RE = re.compile(r"https?://\S+")
 _KL_CITATION_PATTERN_RE = re.compile(r"^(.+\.\w{2,5})(?:,\s*(?:p\.?|page)\s*\d+)?$", re.IGNORECASE)
 
 
+# Characters that may appear INSIDE a filename token. Used to require that a
+# registry filename found in a reference line stands on its own rather than
+# being the tail of a longer name — without this, a registry holding `plan.pdf`
+# claims a citation to `bestandsplan.pdf` and the chip opens the wrong document.
+_FILENAME_INNER_CHARS = "_-."
+
+
+def _filename_token_ends(haystack_lower: str, needle_lower: str) -> Iterator[int]:
+    """Every index just past ``needle_lower`` where it occurs as a standalone token.
+
+    Yields nothing when the filename only occurs as part of a longer one. Each
+    occurrence is yielded because one source section can name the SAME filename
+    on two different shelves (`Plan.pdf (Büroarchiv)` and `Plan.pdf
+    (Projektwissen)`), and those are two citations, not one.
+    """
+    index = haystack_lower.find(needle_lower)
+    while index != -1:
+        end = index + len(needle_lower)
+        before_ok = index == 0 or not (
+            haystack_lower[index - 1].isalnum() or haystack_lower[index - 1] in _FILENAME_INNER_CHARS
+        )
+        # A trailing "." is allowed (sentence punctuation); a trailing word
+        # character would mean we matched a prefix of a longer filename.
+        after_ok = end >= len(haystack_lower) or not (haystack_lower[end].isalnum() or haystack_lower[end] in "_-")
+        if before_ok and after_ok:
+            yield end
+        index = haystack_lower.find(needle_lower, index + 1)
+
+
+def _filename_occurs_as_token(haystack_lower: str, needle_lower: str) -> int | None:
+    """Index just past ``needle_lower`` when it occurs as a standalone token.
+
+    Returns ``None`` when the filename only occurs as part of a longer one.
+    """
+    return next(_filename_token_ends(haystack_lower, needle_lower), None)
+
+
+def _document_identity(entry: SourceEntry) -> tuple[str | None, str]:
+    """The `(collection, filename)` a document is unique under, page aside.
+
+    Same identity :meth:`SourceRegistry._identity` dedups on, minus the page:
+    two pages of one document are one cited document.
+    """
+    collection, filename, _page = SourceRegistry._identity(entry)
+    return collection, filename
+
+
+def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | None:
+    """Resolve a reference line to a registered document key, page included.
+
+    Scans the line for any filename the registry actually holds and rebuilds a
+    canonical ``filename, p.N`` key from it: the registry's spelling of the
+    filename (so it always matches), the scope qualifier the line states (so two
+    same-named documents on different shelves stay apart), plus the page THE LINE
+    states (so a document retrieved at several pages resolves to the one the
+    answer is citing).
+
+    The longest match wins, so `bestandsplan.pdf` is never resolved to a
+    registered `plan.pdf`. ``None`` when the line names no registered document.
+
+    This runs on the RAW line, before any title/parenthetical trimming, because
+    those trims are exactly what used to lose the locator: a line written as
+    ``OIB-Richtlinie 2 (oib-rl_2.pdf, p.12)`` had its whole locator removed as
+    if it were an "(Internal)" annotation, and ``Titel - oib-rl_2.pdf, p.12``
+    had the title swallowed into the filename — both dropping a citation to a
+    document that was genuinely retrieved.
+    """
+    lowered = ref_text.lower()
+    best_name: str | None = None
+    best_end = 0
+    for entry in registry._citation_keys:
+        entry_file, _ = _parse_citation_key(entry.citation_key or "")
+        if not entry_file:
+            continue
+        end = _filename_occurs_as_token(lowered, entry_file.lower())
+        if end is None:
+            continue
+        if best_name is None or len(entry_file) > len(best_name):
+            best_name, best_end = entry_file, end
+    if best_name is None:
+        return None
+
+    tail = ref_text[best_end:]
+    # A scope qualifier stated right after the filename is part of the document's
+    # IDENTITY, not an annotation to trim: it is the only thing separating two
+    # same-named documents on different shelves. Canonicalize its spelling so the
+    # rebuilt key matches the registry regardless of how the line cased it.
+    qualifier = ""
+    qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(tail)
+    if qualifier_match:
+        scope = scope_for_qualifier(qualifier_match.group(1))
+        if scope:
+            qualifier = f" ({SCOPE_QUALIFIERS[scope]})"
+            tail = tail[qualifier_match.end() :]
+    # The page stated after the filename (and its qualifier), when there is one.
+    page_match = _PAGE_RE.search(tail)
+    name = f"{best_name}{qualifier}"
+    return f"{name}, p.{page_match.group(1)}" if page_match else name
+
+
+def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
+    """Registry documents the answer's SOURCE SECTION lists, in registry order.
+
+    The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
+    "which of the documents we retrieved does this answer cite?" without needing
+    a URL. Matching is the same standalone-token test the citation verifier uses,
+    so a registered ``plan.pdf`` is not claimed by a mention of
+    ``bestandsplan.pdf``.
+
+    Deep research had no such path — its "cited" signal was URL-only, so a
+    knowledge-base source could never be marked cited and was dropped from the
+    provenance row the moment any web source WAS cited.
+
+    A document is `(collection, filename)`, so the shelf a source line names is
+    part of what it cites: a line reading `Plan.pdf (Büroarchiv), p.3` marks the
+    Archiv document, not the project upload that happens to share the name and
+    to sit earlier in the registry. Unqualified lines keep the old, fail-open
+    reading (the first same-named entry), because a bare filename is proof the
+    document was retrieved but says nothing about which copy.
+
+    Only the source section is scanned, NEVER the prose. Citing is a claim the
+    answer makes in its source list; a filename appearing in body text is not
+    that claim, and may well be the opposite of it ("Ich konnte oib-rl_2.pdf
+    nicht abrufen"). This matters because the caller runs on intermediate agent
+    output too, where documents are discussed far more often than cited — the
+    URL path gets away with the looser rule only because URLs rarely appear in
+    prose, while filenames routinely do. No source section means no citation
+    claim yet, so nothing is marked. Fail-open: returns an empty list rather
+    than raising.
+    """
+    if not text:
+        return []
+    section_match = _REFERENCE_SECTION_RE.search(_normalize_citation_syntax(text))
+    if section_match is None:
+        return []
+    lowered = _normalize_citation_syntax(text)[section_match.start() :].lower()
+    seen: set[tuple[str | None, str]] = set()
+    cited: list[SourceEntry] = []
+    for entry in registry._citation_keys:
+        entry_file, _ = _parse_citation_key(entry.citation_key or "")
+        if not entry_file:
+            continue
+        for end in _filename_token_ends(lowered, entry_file.lower()):
+            # Resolve through the registry with the shelf this line states, so
+            # the entry marked cited is the document the line names. The
+            # qualifier regex is case-insensitive, hence matching the lowered
+            # section is safe.
+            qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(lowered[end:])
+            scope = scope_for_qualifier(qualifier_match.group(1)) if qualifier_match else None
+            key = f"{entry_file} ({SCOPE_QUALIFIERS[scope]})" if scope else entry_file
+            match = registry.entry_for_citation_key(key) or entry
+            identity = _document_identity(match)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            cited.append(match)
+    return cited
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 
-    Uses a lenient matching strategy:
-    1. Try exact pattern match (filename.ext, p.N) after stripping markdown
-    2. If a registry is provided, check if ANY registered citation key's
-       filename appears anywhere in the reference text (very lenient —
-       handles all formatting variations the LLM might produce)
+    Matching strategy:
+    1. If a registry is provided, resolve the line against the documents that
+       were actually retrieved (:func:`_match_registry_filename`). This is both
+       the most reliable signal and the most forgiving of LLM formatting, so it
+       runs first.
+    2. Otherwise fall back to the shape test (``filename.ext, p.N``) after
+       trimming a trailing parenthetical and markdown emphasis.
 
     Returns (is_kl, citation_key_or_none).
     """
+    # Strip markdown bold/italic markers only (*, **) — preserve underscores in
+    # filenames. Done before the registry scan so `**file.pdf**` still matches.
+    unemphasized = re.sub(r"\*+", "", ref_text).strip()
+
+    if registry is not None:
+        matched = _match_registry_filename(unemphasized, registry)
+        if matched:
+            return True, matched
+
     # Strip trailing "(Internal)" or similar parenthetical
-    cleaned = re.sub(r"\s*\(.*?\)\s*$", "", ref_text).strip()
-    # Strip markdown bold/italic markers only (*, **) — preserve underscores in filenames
-    cleaned = re.sub(r"\*+", "", cleaned).strip()
+    cleaned = re.sub(r"\s*\(.*?\)\s*$", "", unemphasized).strip()
     # Remove leading "Title - " or "Title: " prefix by taking last segment
     # if it contains a filename pattern
     for segment in [cleaned, cleaned.split(" - ")[-1].strip(), cleaned.split(": ")[-1].strip()]:
         if _KL_CITATION_PATTERN_RE.match(segment):
             return True, segment
-
-    # Lenient fallback: check if any registered knowledge-layer filename
-    # appears in the reference text (handles arbitrary LLM formatting)
-    if registry is not None:
-        ref_lower = cleaned.lower()
-        for entry in registry._citation_keys:
-            entry_file, _ = _parse_citation_key(entry.citation_key)
-            if entry_file.lower() in ref_lower:
-                return True, entry.citation_key
 
     return False, None
 
@@ -952,6 +1355,7 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     richer label from the structured source payloads instead.
     """
     from aiq_agent.common.norm_registry import lane_for_hit
+    from aiq_agent.common.norm_registry import lane_for_knowledge_hit
     from aiq_agent.common.norm_registry import load_registry
 
     file_name = None
@@ -962,20 +1366,14 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     # only for RIS URLs, so non-RIS entries still skip the load entirely.
     if registry is None:
         registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
-    lane = lane_for_hit(
+    classify = lane_for_knowledge_hit if entry.source_type == "knowledge_layer" else lane_for_hit
+    return classify(
         doc_class=entry.doc_class,
         file_name=file_name,
         source_url=entry.url,
         collection=entry.collection,
         registry=registry,
     )
-    if lane == ("web", "Web") and entry.source_type == "knowledge_layer":
-        # A knowledge-base hit without collection metadata (output produced
-        # before the `Collection:` field was threaded) is project/org
-        # material — the capture path carries the collection now, so this is
-        # only the legacy fallback.
-        return ("projekt", "Projektwissen")
-    return lane
 
 
 def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = None) -> str | None:
@@ -1004,6 +1402,66 @@ def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = N
     return None
 
 
+def document_key(entry: SourceEntry) -> str:
+    """Stable identity of the DOCUMENT an entry belongs to.
+
+    A captured source is a *locus* — a passage at one page of one document —
+    and the registry has always keyed it on ``(collection, filename, page)``.
+    This function drops the page, leaving the identity of the document itself,
+    which is what every consumer actually groups by: the chip row shows one chip
+    per document, the Herleitung one card per document, and the bibliography one
+    row per locus WITHIN a document.
+
+    Stamping it on the wire (``document_id``) means the frontend no longer has
+    to re-derive the grouping from filename heuristics. Precedence mirrors the
+    registry's own ``_identity``:
+
+      1. ``(collection, filename)`` — the primary key of ``document_metadata``
+         and the only pair that is unique. One search fans out across the base
+         corpus, the session collection and the project collections at once, so
+         two different ``Plan.pdf`` can arrive in one result set.
+      2. ``filename`` alone, when the collection is unknown.
+      3. the normalized URL, for web/RIS sources.
+      4. the title, so a source is never identity-less.
+      5. a content digest, when the entry has no human label at all. Falling
+         back to a bare ``label:`` made every anonymous entry share one key —
+         and because the frontend PREFERS a supplied ``document_id`` over its
+         own derivation, distinct sources would have been folded into a single
+         document downstream. The digest is deterministic (no clock, no
+         randomness), so the same entry keys the same way across processes and
+         across a registry rehydrated from cache.
+    """
+    filename = ""
+    if entry.citation_key:
+        filename, _page = _parse_citation_key(entry.citation_key)
+    filename = filename.strip().lower()
+    if filename:
+        collection = (entry.collection or "").strip().lower()
+        return f"doc:{collection}:{filename}" if collection else f"doc:{filename}"
+    if entry.url:
+        return f"url:{_normalize_url(entry.url)}"
+    label = (entry.title or entry.tool_name or "").strip().lower()[:120]
+    if label:
+        return f"label:{label}"
+    fingerprint = hashlib.sha256(
+        "\x1f".join(
+            (entry.source_type or "", entry.tool_name or "", entry.collection or "", entry.chunk_text or "")
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"anon:{fingerprint}"
+
+
+def source_label(entry: SourceEntry) -> str | None:
+    """Stable identity of a captured source for the citation-health ledger.
+
+    The document key or URL — an identifier, never the retrieved passage — so
+    the platform export can name WHICH source was in play without carrying any
+    answer or corpus prose across tenants. ``None`` when the entry has neither
+    (a bare tool-result source, which identifies nothing citable).
+    """
+    return entry.citation_key or entry.url or None
+
+
 def source_origin_token(entry: SourceEntry) -> str:
     """Return a stable leading origin token for a source line.
 
@@ -1022,13 +1480,21 @@ def source_origin_token(entry: SourceEntry) -> str:
     return ""
 
 
-def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
+def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> dict[str, Any]:
     """Serialize a :class:`SourceEntry` for the citation wire (SSE / WS).
 
     The frontend opens document previews from structured ``file_name`` /
     ``page`` / ``collection`` fields rather than inventing filenames from free
     text. ``content`` still carries a human-readable line (optional leading
     origin token + citation key or title) for legacy parsers and chip labels.
+
+    ``number`` is the citation's ``[N]`` label in the verified answer — the one
+    fact the frontend cannot recover on its own, because the ``[N]``→source
+    binding lives in ``verify_citations``' ``valid_citations`` and nowhere else.
+    Carrying it lets the UI render ONE provenance block (numbered, colored,
+    clickable) instead of the LLM-written "## Sources" list AND a chip row that
+    each hold half the truth. Omitted when unknown, so every existing caller and
+    every persisted message keeps working unchanged.
     """
     origin_token = source_origin_token(entry)
     origin = origin_token.strip("[]").lower() if origin_token else None
@@ -1058,6 +1524,14 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
     kind = kind_for_lane(lane_key)
 
     payload: dict[str, Any] = {
+        # The [N] marker this source carries in the answer prose (when known).
+        "number": number,
+        # Identity of the DOCUMENT this source is a passage of. A wire source is
+        # a locus, not a document — four pages of one Richtlinie are four
+        # sources — and every surface groups by document. Shipping the key the
+        # registry itself groups on means the frontend folds on the backend's
+        # identity instead of re-deriving one from the filename.
+        "document_id": document_key(entry),
         "content": content,
         "title": entry.title or file_name,
         "citation_key": entry.citation_key,
@@ -1185,7 +1659,12 @@ def _normalize_source_section_layout(ref_section: str) -> str:
     lines = ref_section.split("\n")
     if lines and _REFERENCE_HEADING_LINE_RE.match(lines[0]):
         # Keep German reports German: a "Quellen"-style heading is normalized
-        # to "## Quellen" instead of being anglicized to "## Sources".
+        # to "## Quellen" instead of being anglicized to "## Sources". This
+        # German-or-else binary mirrors the writer's contract, which allows the
+        # label exactly two forms: "**Quellen:**" for a German answer and
+        # "**References:**" for an answer in any other language, never a label
+        # translated into a third language (see researcher.j2 <language> and
+        # <output_contract>). A translated label would land on "## Sources".
         lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)
     return "\n".join(_split_collapsed_source_line(line) for line in ref_section.split("\n"))
@@ -1799,6 +2278,13 @@ _BARE_URL_RE = re.compile(r"https?://[^\s<>\"'\]]+")
 # Body URL patterns (used by sanitize_report)
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(\s*\w+://[^\s)]+\)")
 _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
+# Whatever gets removed from mid-sentence (a stripped URL, an empty pair of
+# parentheses, or an inline [N] that verification dropped) leaves the space that
+# preceded it stranded in front of the punctuation that followed, so
+# "eine jaehrliche Begehung [3]." reaches the reader as "Begehung .". Spaces and
+# tabs only, never a newline, so punctuation is never pulled up onto the
+# previous line.
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"[ \t]+(?=[.,;:!?])")
 
 
 @dataclass
@@ -1811,6 +2297,12 @@ class ReportSanitizationResult:
     shortened_urls_removed: list[str]
     truncated_urls_removed: list[str]
     unsafe_urls_removed: list[str]
+    # old ``[N]`` → new ``[N]`` for the gap-closing renumber this pass applied.
+    # ``verify_citations`` hands callers a ``[N]``→source binding computed BEFORE
+    # this renumbering, so a caller that puts those numbers on the wire has to
+    # remap them or the chips end up labelled with numbers the prose no longer
+    # uses. Empty when no source section was present or nothing moved.
+    renumber_map: dict[int, int] = field(default_factory=dict)
 
 
 def sanitize_report(report_text: str) -> ReportSanitizationResult:
@@ -1879,6 +2371,7 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
     # Clean up leftover empty parentheses and extra spaces
     cleaned_body = re.sub(r"\(\s*\)", "", cleaned_body)
     cleaned_body = re.sub(r"  +", " ", cleaned_body)
+    cleaned_body = _SPACE_BEFORE_PUNCTUATION_RE.sub("", cleaned_body)
 
     if body_urls_replaced:
         logger.debug("[ReportSanitize] Replaced %d body URL(s) with citation numbers", body_urls_replaced)
@@ -1970,8 +2463,9 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
             )
 
     # Renumber citations to close any gaps (from verify_citations and/or sanitize removals)
+    renumber_map: dict[int, int] = {}
     if ref_section:
-        cleaned_body, ref_section, _ = _renumber_citations(cleaned_body, ref_section)
+        cleaned_body, ref_section, renumber_map = _renumber_citations(cleaned_body, ref_section)
 
     sanitized_report = cleaned_body + ref_section
 
@@ -2002,4 +2496,5 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         shortened_urls_removed=shortened_urls_removed,
         truncated_urls_removed=truncated_urls_removed,
         unsafe_urls_removed=unsafe_urls_removed,
+        renumber_map=renumber_map,
     )

@@ -8,10 +8,7 @@
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { NotFoundError } from '@/lib/api/errors'
-import {
-  deleteProjectMemoryItem,
-  updateProjectMemoryItem,
-} from '@/lib/projects/memory-service'
+import { deleteProjectMemoryItem, updateProjectMemoryItem } from '@/lib/projects/memory-service'
 import {
   PROJECT_MEMORY_CONFIDENCES,
   PROJECT_MEMORY_KINDS,
@@ -32,15 +29,38 @@ const patchOrgMemorySchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: 'Empty patch' })
 
-export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
-  const patch = await parseJsonBody(request, patchOrgMemorySchema)
-  const item = await updateProjectMemoryItem({ organizationId: session.organizationId }, params.itemId, patch)
-  if (!item) throw new NotFoundError()
-  return { item }
-})
+export const PATCH = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const patch = await parseJsonBody(request, patchOrgMemorySchema)
+    const item = await updateProjectMemoryItem(
+      { organizationId: session.organizationId },
+      params.itemId,
+      patch
+    )
+    if (!item) throw new NotFoundError()
+    return { item }
+  },
+  {
+    authz: {
+      sessionOnly: true,
+      why: 'org-scoped memory edit, keyed by session.organizationId; deliberately open to members like the create path',
+    },
+  }
+)
 
-export const DELETE = apiRoute<Params>(async ({ session, params }) => {
-  const deleted = await deleteProjectMemoryItem({ organizationId: session.organizationId }, params.itemId)
-  if (!deleted) throw new NotFoundError()
-  // No body — apiRoute serializes this as a 204.
-})
+export const DELETE = apiRoute<Params>(
+  async ({ session, params }) => {
+    const deleted = await deleteProjectMemoryItem(
+      { organizationId: session.organizationId },
+      params.itemId
+    )
+    if (!deleted) throw new NotFoundError()
+    // No body — apiRoute serializes this as a 204.
+  },
+  {
+    authz: {
+      sessionOnly: true,
+      why: 'org-scoped memory delete, keyed by session.organizationId; deliberately open to members like the create path',
+    },
+  }
+)

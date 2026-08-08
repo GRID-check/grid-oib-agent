@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const session = {
@@ -18,7 +21,9 @@ vi.mock('@/lib/model-config/backend-defaults', () => ({
 }))
 
 vi.mock('@/lib/model-config/service', () => ({
-  getOrgModelConfig: vi.fn().mockResolvedValue({ activeVersion: null, updatedBy: null, updatedAt: null }),
+  getOrgModelConfig: vi
+    .fn()
+    .mockResolvedValue({ activeVersion: null, updatedBy: null, updatedAt: null }),
   createAndActivateVersion: vi.fn().mockImplementation(async (params: Record<string, unknown>) => ({
     id: 'version-1',
     version: 1,
@@ -107,14 +112,16 @@ describe('/api/organization/model-config', () => {
   })
 
   it('PUT saves a catalog-validated override as a new version', async () => {
-    const res = await PUT(put({ overrides: { deep_research: { model: 'vendor/capable' } }, comment: 'test' }))
+    const res = await PUT(
+      put({ overrides: { deep_research: { model: 'vendor/capable' } }, comment: 'test' })
+    )
     expect(res.status).toBe(201)
     expect(createAndActivateVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: 'org-1',
         overrides: { deep_research: { model: 'vendor/capable' } },
         actorUserId: 'user-1',
-      }),
+      })
     )
   })
 
@@ -127,7 +134,9 @@ describe('/api/organization/model-config', () => {
   })
 
   it('PUT rejects malformed model ids and unknown groups (400)', async () => {
-    expect((await PUT(put({ overrides: { deep_research: { model: 'model with spaces' } } }))).status).toBe(400)
+    expect(
+      (await PUT(put({ overrides: { deep_research: { model: 'model with spaces' } } }))).status
+    ).toBe(400)
     expect((await PUT(put({ overrides: { bogus: { model: 'vendor/capable' } } }))).status).toBe(400)
   })
 
@@ -165,7 +174,7 @@ describe('/api/organization/model-config', () => {
         modelSnapshot: expect.objectContaining({
           _catalog: { source: 'byok', provider: 'openai', validation: 'listed', zdrOnly: false },
         }),
-      }),
+      })
     )
   })
 

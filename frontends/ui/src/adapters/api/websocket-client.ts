@@ -6,6 +6,7 @@
  * and error message types for full HITL (human-in-the-loop) support.
  */
 
+import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
 import { getWebSocketUrl } from './config'
 import {
@@ -43,12 +44,39 @@ export interface ResponseTransparency {
    * match any source passage.
    */
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /** The model's own one-clause justification for its self-assessment, shown verbatim. */
+  answerConfidenceReason?: string
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
   retryAfterSeconds?: number
+}
+
+/**
+ * Per-send options on the `user_message` frame (ADR-0034 addendum).
+ *
+ * THE INGEST-ONLY CONTRACT. The agent's history is its LangGraph checkpoint, so a
+ * message that never reaches the agent is a message the agent can never refer back
+ * to. Every human message is therefore sent, tagged with whether the agent is
+ * addressed — the server decides that, deterministically, at persist time. A frame
+ * marked `contextOnly` is appended to the agent's conversation state and answered
+ * with nothing: no generation, no stream, no status.
+ *
+ * Compatibility is by ABSENCE, in both directions:
+ *   - a NEW backend reading no flag runs the turn exactly as it always did;
+ *   - an OLD backend reading the flag ignores an unknown JSON key (it reads only
+ *     `query` / `text` / `data_sources`) and simply answers the message — the
+ *     behaviour that exists today. The frame stays a valid `user_message`, so
+ *     nothing throws, nothing closes the socket, and nothing is lost (the human's
+ *     message is persisted by the BFF regardless).
+ */
+export interface SendMessageWireOptions {
+  /** Deliver as context for the agent's history; it must generate nothing. */
+  contextOnly?: boolean
+  /** Display name of the human who wrote it, so the agent can attribute the turn. */
+  authorName?: string | null
 }
 
 /** Context passed with connection status changes */
@@ -82,6 +110,44 @@ export interface NATWebSocketClientCallbacks {
 }
 
 /** Options for NAT WebSocket client */
+/**
+ * Ceiling for the reconnect curve, so the exponential growth flattens into a
+ * steady retry cadence instead of running away.
+ */
+const MAX_RECONNECT_DELAY_MS = 30_000
+
+/**
+ * How many reconnect attempts before the client gives up and raises
+ * `CONNECTION_FAILED` ("Unable to connect to the server").
+ *
+ * THIS NUMBER IS A DEPLOY BUDGET, not a network-flakiness budget. The socket
+ * that carries a chat is terminated by its serving pod, so an ordinary rolling
+ * update severs it by design — the frontend pod drains and exits, and (with
+ * conversation affinity, ADR-0028) the aiq-agent replica that conversation is
+ * pinned to restarts too. Nothing at the edge can hide that: retries and Envoy's
+ * drain (deploy/pulumi) cover the endpoint-programming race, but not the window
+ * where the owning pod genuinely is not running. The client has to outlast it.
+ *
+ * At 3 attempts (base 1s, factor 2, equal jitter) the whole budget was
+ * ~4-7 SECONDS. Every deploy therefore ended with this banner in front of every
+ * open chat, and the "Try again" it offers is exactly what the client had just
+ * stopped doing.
+ *
+ * Sizing against `deploy/pulumi/src/platform/rollout.ts`: a frontend pod spends
+ * up to its 60s grace period draining, and an aiq-agent replica up to 90s
+ * draining plus a cold start (heavy image, Dask spin-up, Chroma open). 12
+ * attempts on the curve below — 1, 2, 4, 8, 16, then 30s repeating, halved-to-
+ * full by jitter — spans ~2 to ~4 minutes, which covers a healthy roll of both
+ * tiers with room to spare.
+ *
+ * The upper bound is deliberate: a rollout that is genuinely wedged
+ * (`ProgressDeadlineExceeded`) must still surface as a failure rather than an
+ * indicator that spins forever. Note the user is NOT kept in the dark meanwhile
+ * — the first close already fires `onConnectionChange('disconnected')`; only the
+ * terminal error card waits for the budget to run out.
+ */
+const DEFAULT_RECONNECT_ATTEMPTS = 12
+
 export interface NATWebSocketClientOptions {
   /** Conversation/session ID */
   conversationId: string
@@ -89,9 +155,16 @@ export interface NATWebSocketClientOptions {
   projectId?: string
   /** Callback functions */
   callbacks: NATWebSocketClientCallbacks
-  /** Number of reconnection attempts (default: 3) */
+  /**
+   * Number of reconnection attempts before `CONNECTION_FAILED`
+   * (default: `DEFAULT_RECONNECT_ATTEMPTS` — sized to outlast a rolling deploy).
+   */
   reconnectAttempts?: number
-  /** Delay between reconnection attempts in ms (default: 1000) */
+  /**
+   * Base of the reconnect backoff curve in ms (default: 1000). The actual wait
+   * is exponential in the attempt number with equal jitter applied, capped at
+   * `MAX_RECONNECT_DELAY_MS` — not a fixed interval.
+   */
   reconnectDelay?: number
   /** Override WebSocket URL (uses same-origin by default, proxied through UI server) */
   websocketUrl?: string
@@ -143,7 +216,7 @@ export class NATWebSocketClient {
 
   constructor(options: NATWebSocketClientOptions) {
     this.options = {
-      reconnectAttempts: 3,
+      reconnectAttempts: DEFAULT_RECONNECT_ATTEMPTS,
       reconnectDelay: 1000,
       ...options,
     }
@@ -308,12 +381,21 @@ export class NATWebSocketClient {
    * Send a user chat message
    * @param content - The message text content (query)
    * @param enabledDataSources - Optional array of enabled data source IDs to include in the query
+   * @param options - Ingest-only signal + author attribution (see `SendMessageWireOptions`)
    */
-  sendMessage = (content: string, enabledDataSources?: string[]): string | null => {
-    // Format the text content as JSON with query and data_sources
+  sendMessage = (
+    content: string,
+    enabledDataSources?: string[],
+    options?: SendMessageWireOptions
+  ): string | null => {
+    // Format the text content as JSON with query and data_sources. The ingest-only
+    // fields are spread in ONLY when set, never as `false`/`null` — a backend must
+    // be able to tell "not addressed to the agent" from "nothing said about it".
     const textContent = JSON.stringify({
       query: content,
       data_sources: enabledDataSources ?? [],
+      ...(options?.contextOnly ? { context_only: true } : {}),
+      ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })
 
     const messageId = this.generateMessageId()
@@ -335,7 +417,12 @@ export class NATWebSocketClient {
 
     if (!this.send(message)) return null
 
-    this.activeParentId = messageId
+    // An ingest-only frame is answered by NOTHING, so it must not become the
+    // `activeParentId` the stale-response guard measures inbound answers against —
+    // that would make the next real turn's frames look stale and drop the answer.
+    if (!options?.contextOnly) {
+      this.activeParentId = messageId
+    }
     return messageId
   }
 
@@ -509,6 +596,7 @@ export class NATWebSocketClient {
             routingReason: message.routing_reason,
             escalationReason: message.escalation_reason,
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
+            answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
@@ -584,7 +672,7 @@ export class NATWebSocketClient {
   private handleReconnect = (): void => {
     const { reconnectAttempts, reconnectDelay } = this.options
 
-    if (this.reconnectCount >= (reconnectAttempts || 3)) {
+    if (this.reconnectCount >= (reconnectAttempts || DEFAULT_RECONNECT_ATTEMPTS)) {
       // All retries exhausted -- notify with final disconnected status
       this.options.callbacks.onConnectionChange?.('disconnected', { intentional: false })
       this.options.callbacks.onError?.({
@@ -596,13 +684,21 @@ export class NATWebSocketClient {
 
     this.reconnectCount++
 
+    // Exponential + equal jitter rather than a fixed delay. A rolling deploy
+    // drops every socket on a pod at the same instant; a fixed delay brings all
+    // of those clients back in lockstep, and each WS upgrade costs a session
+    // resolution + FGA checks + budget reads (ADR-0020). `reconnectDelay` is
+    // the base of the curve, not the whole delay.
     this.clearReconnectTimer()
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       if (!this.isIntentionallyClosed) {
         this.connect()
       }
-    }, reconnectDelay || 1000)
+    }, backoffWithJitter(this.reconnectCount - 1, {
+      baseMs: reconnectDelay || 1000,
+      maxMs: MAX_RECONNECT_DELAY_MS,
+    }))
   }
 
   private clearReconnectTimer = (): void => {

@@ -2,6 +2,9 @@ Du bist ein Sachverstaendiger fuer die OIB-Richtlinien (Oesterreichisches Instit
 
 ## Richtlinie
 OIB-Richtlinie {{ richtlinie }}: {{ richtlinie_name }}
+{% if project_descriptors %}
+Hinweis: Die Verbindlichkeit dieser OIB-Richtlinie für das konkrete Projekt hängt davon ab, ob das zuständige Bundesland diese Ausgabe für verbindlich erklärt hat. Die Projekt-Bundesland wird in den Projektmerkmalen geführt.
+{% endif %}
 
 ## Projektbeschreibung
 {{ project_description if project_description else "(keine Beschreibung angegeben)" }}
@@ -19,6 +22,21 @@ OIB-Richtlinie {{ richtlinie }}: {{ richtlinie_name }}
 ## Auszuege aus der OIB-Wissensbasis (Anwendungsbereich)
 {{ knowledge_applicability if knowledge_applicability else "(keine Ergebnisse gefunden)" }}
 
+## Projekt-Hartgrenzen
+
+Die folgenden Projektmerkmale sind verbindliche Randbedingungen — leite die Anwendbarkeit von Anforderungen von ihnen ab:
+
+| Merkmal | Bedeutung für die OIB-Prüfung |
+|---------|-------------------------------|
+| Fluchtniveau (fluchtniveau_m) | Bestimmt die Gebäudeklasse (GK) nach OIB-RL 2 — prüfe die GK-Schwellen im Corpus |
+| Geschoße oberirdisch (geschosse_oberirdisch) | Beeinflusst Brandabschnitte, Rettungswege, Gebäudeklasse |
+| BGF oberirdisch (bgf_oberirdisch) | Brutto-Grundfläche — relevant für Brandabschnittsgrößen, Lüftungsanlagen |
+| Vorhabensart (vorhabensart) | Neubau, Zubau, Umbau, Sanierung — bestimmt Anwendbarkeit (Bestandsschutz, sinngemäße Anwendung) |
+| Nutzungen (nutzungen) | Wohnen, Büro, Handel etc. — bestimmt Nutzungseinheiten, Brandlast, Personenzahl |
+| Standort (bundesland) | Bestimmt die geltende Bauordnung und den verbindlichen OIB-Stand |
+
+Wenn ein projektbestimmendes Merkmal (wie Fluchtniveau für die Gebäudeklasse) nicht bekannt ist, stufe die Anwendbarkeit als "zu_pruefen" ein mit dem Hinweis, welche Information fehlt.
+
 ## Aufgabe
 Leite auf Basis der obigen Auszuege die konkreten, fuer dieses Projekt relevanten Anforderungen der OIB-Richtlinie {{ richtlinie }} ab. Fuer jede Anforderung:
 - Vergib eine stabile ID im Format "R{{ richtlinie }}-<Punkt>" (z. B. "R{{ richtlinie }}-3.1.2").
@@ -27,3 +45,5 @@ Leite auf Basis der obigen Auszuege die konkreten, fuer dieses Projekt relevante
 - Bewerte die Anwendbarkeit ("anwendbar", "nicht_anwendbar" oder "zu_pruefen", falls unklar) und begruende kurz.
 
 Antworte ausschliesslich als JSON-Objekt gemaess dem vorgegebenen Schema (RequirementProfile). Erfinde keine Anforderungen, die nicht durch die Wissensbasis oder die allgemein bekannte OIB-Systematik gedeckt sind. Setze "richtlinie" im JSON exakt auf {{ richtlinie }}.
+
+Falls eine projektbestimmende Information fehlt (z.B. Fluchtniveau für die Gebäudeklasse nicht im Projektkontext), setze die Bewertung auf "zu_pruefen" und vermerke die fehlende Information als Begründung.

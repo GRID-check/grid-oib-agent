@@ -26,6 +26,7 @@ const initialState: LayoutState = {
   dataSourcesPanelTab: 'connections',
   enabledDataSourceIds: [], // Start empty, populated when data sources are fetched
   theme: 'system',
+  showTechnicalReasoning: false,
   availableDataSources: null,
   knowledgeLayerAvailable: false, // Default to false until API confirms availability
   vlmAvailable: false, // Default to false until API confirms the VLM capability
@@ -93,6 +94,9 @@ export const useLayoutStore = create<LayoutStore>()(
 
       setDeepResearchIntent: (on: boolean) =>
         set({ deepResearchIntent: on }, false, 'setDeepResearchIntent'),
+
+      setShowTechnicalReasoning: (on: boolean) =>
+        set({ showTechnicalReasoning: on }, false, 'setShowTechnicalReasoning'),
 
       applySourcePreset: (preset: SourcePresetId | null, enabledIds: string[]) =>
         set(
@@ -184,6 +188,7 @@ export const useLayoutStore = create<LayoutStore>()(
         partialize: (state) => ({
           theme: state.theme,
           deepResearchIntent: state.deepResearchIntent,
+          showTechnicalReasoning: state.showTechnicalReasoning,
         }),
       }
     ),

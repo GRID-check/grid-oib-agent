@@ -225,7 +225,7 @@ export const de: LegalContent = {
       {
         heading: 'Welche KI-Modelle eingesetzt werden',
         paragraphs: [
-          'Standardmäßig nutzt Piloti Modelle, die über das API-Gateway OpenRouter geleitet werden (Referenzmodell: DeepSeek). Verschiedene interne Funktionen (Intent-Erkennung, Rückfragen, Recherche, Tiefenrecherche, Memory-Reflexion) können unterschiedliche Modelle verwenden.',
+          'Standardmäßig nutzt Piloti Modelle, die über das API-Gateway OpenRouter geleitet werden (Referenzmodell: OpenAI GPT-5.6 Luna). Verschiedene interne Funktionen (Intent-Erkennung, Rückfragen, Recherche, Tiefenrecherche, Memory-Reflexion) können unterschiedliche Modelle verwenden.',
         ],
         notice:
           'Die Modellwahl ist dynamisch: Administratorinnen und Administratoren Ihrer Organisation können jede Funktion jederzeit auf ein anderes KI-Modell aus dem OpenRouter-Katalog umstellen, ohne dass eine neue Version des Dienstes erscheint. Jede Änderung wird gegen den Katalog validiert, versioniert, der handelnden Person zugeordnet und ist umkehrbar; für jede einzelne KI-Anfrage wird im Nutzungsledger festgehalten, welches Modell die Antwort tatsächlich erzeugt hat. Das Gateway (OpenRouter) und dessen Zugangsdaten können durch eine Modellauswahl niemals geändert werden — nur, welches Modell hinter diesem Gateway Ihre Organisation bedient.',

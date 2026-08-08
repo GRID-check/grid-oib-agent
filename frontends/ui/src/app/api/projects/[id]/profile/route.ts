@@ -26,10 +26,16 @@ function parseIfMatchVersion(header: string | null): number | undefined {
   return version
 }
 
-export const GET = apiRoute<Params>(async ({ session, params }) => getProjectProfile(session, params.id))
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getProjectProfile(session, params.id),
+  { authz: { enforcedBy: 'getProjectProfile (requireProjectAccess project:view)' } }
+)
 
-export const PUT = apiRoute<Params>(async ({ session, params, request }) => {
-  const profile = await parseJsonBody(request, ProjectProfileSchema)
-  const expectedVersion = parseIfMatchVersion(request.headers.get('if-match'))
-  return saveProjectProfile(session, params.id, profile, expectedVersion)
-})
+export const PUT = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const profile = await parseJsonBody(request, ProjectProfileSchema)
+    const expectedVersion = parseIfMatchVersion(request.headers.get('if-match'))
+    return saveProjectProfile(session, params.id, profile, expectedVersion)
+  },
+  { authz: { enforcedBy: 'saveProjectProfile (requireProjectAccess project:edit)' } }
+)

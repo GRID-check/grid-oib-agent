@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import {
   pruneMessageForStorage,
@@ -203,6 +206,9 @@ Citation: OIB-RL_2_Brandschutz.pdf, p.12
           label: 'OIB-Richtlinie',
           hitCount: 1,
           sources: [{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }],
+          // The coarse kind is persisted alongside the signal so a reloaded
+          // message renders through the same taxonomy as a live one.
+          kind: 'baurecht',
           signal: 'law',
         },
       ])

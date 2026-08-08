@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
-import { motion, springGentle } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { useChatStore } from '@/features/chat/store'
+import { useCardDecision } from '../hooks/use-card-decision'
+import { ProposalShell } from './ProposalShell'
 
 type MemoryKind = 'decision' | 'constraint' | 'open_question' | 'derived_fact' | 'preference'
 type MemoryConfidence = 'low' | 'medium' | 'high'
@@ -16,6 +16,10 @@ interface MemoryProposalCardProps {
   content: string
   kind: MemoryKind
   confidence?: MemoryConfidence
+  /** Message this card belongs to — keys its persisted decision. */
+  messageId?: string
+  /** Stable identity of this card within that message (`cardKey`). */
+  cardKey: string
 }
 
 /**
@@ -25,21 +29,28 @@ interface MemoryProposalCardProps {
  * write through their OWN authenticated session — org-wide (allowed for any org
  * member) or scoped to just this project. Mirrors ProjectProfilePatchCard:
  * propose, never auto-apply.
+ *
+ * The answer is recorded on the owning message (`useCardDecision`), not in
+ * local state: `/api/organization/memory` has no idempotency key, so a card
+ * that forgot it had been saved would write the same memory again on the next
+ * click after a reload.
  */
 export function MemoryProposalCard({
   title,
   content,
   kind,
   confidence = 'medium',
+  messageId,
+  cardKey,
 }: MemoryProposalCardProps) {
   const t = useTranslations('chat')
   // Same source as ProjectProfilePatchCard's projectId: the active chat store.
   const projectId = useChatStore((s) => s.projectId)
-  const [status, setStatus] = useState<'pending' | 'savedOrg' | 'savedProject' | 'dismissed'>('pending')
+  const { decision, decide } = useCardDecision(messageId, cardKey)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const save = async (url: string, savedStatus: 'savedOrg' | 'savedProject') => {
+  const save = async (url: string, savedDecision: 'savedOrg' | 'savedProject') => {
     setError(null)
     setIsSubmitting(true)
     try {
@@ -53,7 +64,7 @@ export function MemoryProposalCard({
         throw new Error(body.error || `${t('memoryProposal.error')} (${res.status})`)
       }
       setIsSubmitting(false)
-      setStatus(savedStatus)
+      decide(savedDecision)
     } catch (e) {
       setIsSubmitting(false)
       setError(e instanceof Error ? e.message : t('memoryProposal.error'))
@@ -66,34 +77,30 @@ export function MemoryProposalCard({
     void save(`/api/projects/${projectId}/memory`, 'savedProject')
   }
   const handleDismiss = () => {
-    setStatus('dismissed')
+    decide('dismissed')
     setError(null)
   }
 
-  if (status === 'savedOrg' || status === 'savedProject') {
+  if (decision === 'savedOrg' || decision === 'savedProject') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-success p-5 shadow-xs">
-          <p className="text-sm text-foreground">
-            {status === 'savedOrg' ? t('memoryProposal.savedOrg') : t('memoryProposal.savedProject')}
-          </p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="accepted">
+        <p className="text-sm text-foreground">
+          {decision === 'savedOrg' ? t('memoryProposal.savedOrg') : t('memoryProposal.savedProject')}
+        </p>
+      </ProposalShell>
     )
   }
 
-  if (status === 'dismissed') {
+  if (decision === 'dismissed') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-subtle p-5 shadow-xs">
-          <p className="text-sm text-muted-foreground">{t('memoryProposal.dismissed')}</p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="dismissed">
+        <p className="text-sm text-muted-foreground">{t('memoryProposal.dismissed')}</p>
+      </ProposalShell>
     )
   }
 
   return (
-    <Card className="gap-3 border-l-2 border-l-warning p-5 shadow-xs">
+    <ProposalShell tone="pending">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <Chip variant="muted" size="sm">
@@ -125,6 +132,6 @@ export function MemoryProposalCard({
           {t('memoryProposal.no')}
         </Button>
       </div>
-    </Card>
+    </ProposalShell>
   )
 }

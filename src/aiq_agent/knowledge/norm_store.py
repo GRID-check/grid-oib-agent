@@ -7,7 +7,7 @@ The store registers itself as ``norm_registry``'s runtime source via
 ``set_db_loader``; the registry stays fail-open (a broken store falls back to
 the YAML seed, never breaks the prompt-building hot path).
 
-Modeled on :mod:`aiq_agent.knowledge.summary_store` (URL normalization, engine
+Modeled on :mod:`aiq_agent.knowledge.document_metadata_store` (URL normalization, engine
 cache with TTL, lazy ``_ensure_table`` via ``inspect().has_table``, fail-open
 try/except → ``logger.warning``).
 
@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import Any
 
 from aiq_agent.common import norm_registry
+from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.common.norm_registry import NormsFile
 
@@ -48,18 +49,6 @@ DEFAULT_COUNTRY = "at"
 # cross-replica edit becomes visible within the TTL — indistinguishable from
 # today's DB-propagation delay (there is no push invalidation across replicas).
 NORM_STORE_CACHE_TTL_SECONDS = 30
-
-
-def _normalize_db_url(db_url: str) -> str:
-    """Normalize a database URL to a sync driver (mirrors summary_store, sync-only)."""
-    if db_url.startswith("postgresql") or db_url.startswith("postgres"):
-        base_url = db_url.replace("+asyncpg", "").replace("+psycopg2", "").replace("+psycopg", "")
-        if not base_url.startswith("postgresql://"):
-            base_url = base_url.replace("postgres://", "postgresql://")
-        return base_url.replace("postgresql://", "postgresql+psycopg://")
-    if db_url.startswith("sqlite"):
-        return db_url.replace("+aiosqlite", "")
-    return db_url
 
 
 class NormRegistryStore:
@@ -100,7 +89,7 @@ class NormRegistryStore:
 
             from sqlalchemy import create_engine
 
-            normalized_url = _normalize_db_url(db_url)
+            normalized_url = _normalize_db_url(db_url, async_mode=False)
             is_sqlite = normalized_url.startswith("sqlite")
             connect_args = {"check_same_thread": False, "timeout": 30} if is_sqlite else {}
 

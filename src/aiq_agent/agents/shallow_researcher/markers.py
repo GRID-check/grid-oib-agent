@@ -5,8 +5,10 @@ control markers:
 
 - ``[ESCALATE_TO_DEEP]`` — the model judged its own answer insufficient and
   asks to escalate to deep research.
-- ``[CONFIDENCE:low|medium|high]`` — the model's self-assessment of how well the
-  answer is grounded in its sources.
+- ``[CONFIDENCE:low|medium|high]`` (optionally ``[CONFIDENCE:low | Grund…]``)
+  — the model's self-assessment of how well the answer is grounded in its
+  sources, with an optional one-clause justification the UI surfaces so the
+  reader can see WHY the level was chosen.
 
 These helpers live in the shallow_researcher package (the layer that OWNS the
 marker contract) so both the shallow agent (which now extracts + strips them
@@ -25,12 +27,18 @@ ESCALATION_MARKER = "[ESCALATE_TO_DEEP]"
 _ESCALATION_MARKER_RE = re.compile(re.escape(ESCALATION_MARKER))
 
 # The model ends every research answer with a self-assessment marker of the
-# form ``[CONFIDENCE:low|medium|high]``. The value is bracketed and
-# case-insensitive; the capture group is validated against the enum below so a
-# malformed value ("certain", empty, …) is stripped from the text but yields no
-# signal.
+# form ``[CONFIDENCE:low|medium|high]``, optionally followed by ``| reason`` —
+# a one-clause justification (in the answer's language) the UI shows so the
+# reader understands WHY the level was chosen. The payload is bracketed and the
+# level case-insensitive; the level token is validated against the enum below so
+# a malformed value ("certain", empty, …) is stripped from the text but yields
+# no signal. A reason is only meaningful with a valid level.
 CONFIDENCE_MARKER_RE = re.compile(r"\[CONFIDENCE:\s*([^\]]*)\]", re.IGNORECASE)
 _VALID_CONFIDENCE_VALUES = frozenset({"low", "medium", "high"})
+
+# Hard bound on the surfaced justification: the prompt asks for one short
+# clause, but a rambling model must not bloat the wire payload or the chip.
+_CONFIDENCE_REASON_MAX_CHARS = 300
 
 ConfidenceLevel = Literal["low", "medium", "high"]
 
@@ -99,38 +107,120 @@ def detect_and_strip_escalation_marker(content: Any) -> tuple[Any, bool]:
     return stripped, True
 
 
-def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLevel | None]:
+def _parse_confidence_payload(payload: str) -> tuple[ConfidenceLevel | None, str | None]:
+    """Split a marker payload into its level and optional reason.
+
+    The payload is everything between ``[CONFIDENCE:`` and ``]``: a level token,
+    optionally followed by ``|`` and a one-clause justification
+    (``"high | Direkt durch OIB-RL 2 belegt"``). The level is the text before
+    the FIRST ``|`` (stripped, lowercased, enum-validated); the reason is the
+    remainder, trimmed and capped at :data:`_CONFIDENCE_REASON_MAX_CHARS`. A
+    payload without ``|`` yields no reason; a payload whose level token is not
+    one of the three valid values yields ``(None, None)`` — an unknown level
+    never invents a signal, and a reason without a valid level is meaningless.
+    """
+    level_token, _, raw_reason = payload.partition("|")
+    candidate = level_token.strip().lower()
+    if candidate not in _VALID_CONFIDENCE_VALUES:
+        return None, None
+    reason = raw_reason.strip()[:_CONFIDENCE_REASON_MAX_CHARS] or None
+    return candidate, reason  # type: ignore[return-value]
+
+
+def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLevel | None, str | None]:
     """Detect and remove the model's self-assessed confidence marker.
 
     Mirrors :func:`detect_and_strip_escalation_marker`: fail-open and
     tail-anchored. If ``content`` is not a string it is returned unchanged with
-    ``None``. Only ``[CONFIDENCE:...]`` markers inside the TAIL REGION (the last
-    :data:`_TAIL_REGION_LINES` non-empty lines, matched case-insensitively) are
-    treated as signals and stripped so the user never sees them; a marker quoted
-    earlier in the body is left intact and yields no signal. The parsed level is
-    returned as ``(stripped, level)``:
+    ``(content, None, None)``. Only ``[CONFIDENCE:...]`` markers inside the TAIL
+    REGION (the last :data:`_TAIL_REGION_LINES` non-empty lines, matched
+    case-insensitively) are treated as signals and stripped so the user never
+    sees them; a marker quoted earlier in the body is left intact and yields no
+    signal. The parsed signal is returned as ``(stripped, level, reason)``:
 
-    - ``level`` is the well-formed value ("low"/"medium"/"high") — the last valid
-      one within the tail when several appear (the answer's final marker wins).
-    - No tail marker, or a tail marker whose value is not one of the three,
-      yields ``None`` (no signal). Malformed tail markers are still stripped.
+    - ``level`` is the well-formed value ("low"/"medium"/"high") — the last
+      valid one within the tail when several appear (the answer's final marker
+      wins); ``reason`` is that marker's optional ``| …`` justification.
+    - No tail marker, or a tail marker whose level is not one of the three,
+      yields ``(stripped, None, None)`` (no signal). Malformed tail markers are
+      still stripped.
 
     Order-insensitive with respect to the escalation marker: each marker is
     detected and removed independently, so both may co-occur in any order.
     """
     if not isinstance(content, str):
-        return content, None
+        return content, None, None
 
     tail_start = _tail_region_start(content)
     matches = [m for m in CONFIDENCE_MARKER_RE.finditer(content) if m.start() >= tail_start]
     if not matches:
-        return content, None
+        return content, None, None
 
     level: ConfidenceLevel | None = None
+    reason: str | None = None
     for match in matches:
-        candidate = match.group(1).strip().lower()
-        if candidate in _VALID_CONFIDENCE_VALUES:
-            level = candidate  # type: ignore[assignment]
+        candidate, candidate_reason = _parse_confidence_payload(match.group(1))
+        if candidate is not None:
+            level = candidate
+            reason = candidate_reason
 
     stripped = _strip_matches(content, matches).rstrip()
-    return stripped, level
+    return stripped, level, reason
+
+
+# ---------------------------------------------------------------------------
+# Overconfidence guard
+# ---------------------------------------------------------------------------
+#
+# Pure functions over a parsed ``[CONFIDENCE:…]`` level: the deterministic cap
+# the platform applies to the model's self-assessment. They live here, beside
+# the marker contract they interpret, so every consumer shares one
+# implementation — the chat orchestrator (which surfaces the level) and the
+# research agents (which record the cap as a citation-health event) alike.
+
+
+def surface_answer_confidence(
+    self_reported: ConfidenceLevel | None,
+    citation_grounded: bool,
+    quotes_verified: bool = True,
+) -> ConfidenceLevel | None:
+    """Apply the deterministic overconfidence guard to a self-reported level.
+
+    Returns ``None`` when there is no self-assessment to surface. Otherwise caps
+    the surfaced value at "low" whenever the answer is not grounded in a verified
+    citation (empty registry or verification removed every citation) OR carries a
+    quoted span that could not be verified against a retrieved passage
+    (``quotes_verified`` is False — the weak model's "real section, fabricated
+    quote" pattern). A self-reported "high"/"medium" in either case is
+    untrustworthy and becomes "low"; a fully grounded answer with all quotes
+    verified surfaces the model's own level verbatim.
+    """
+    if self_reported is None:
+        return None
+    if not citation_grounded or not quotes_verified:
+        return "low"
+    return self_reported
+
+
+def answer_confidence_capped_reason(
+    self_reported: ConfidenceLevel | None,
+    citation_grounded: bool,
+    quotes_verified: bool = True,
+) -> Literal["ungrounded", "quote_unverified"] | None:
+    """Why the surfaced confidence was capped, or ``None`` when no cap applied.
+
+    Returns a reason only when a real downgrade happened: a self-reported
+    "medium"/"high" that got capped to "low". ``"ungrounded"`` when the answer is
+    not grounded in a verified citation (the more fundamental failure, so it wins
+    when both apply); ``"quote_unverified"`` when the answer is grounded but
+    carries a quoted span not verifiable against a retrieved passage. A missing
+    self-report, an already-"low" self-report, or a fully-verified grounded
+    answer is not a downgrade and yields ``None``.
+    """
+    if self_reported is None or self_reported == "low":
+        return None
+    if not citation_grounded:
+        return "ungrounded"
+    if not quotes_verified:
+        return "quote_unverified"
+    return None

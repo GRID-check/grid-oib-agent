@@ -23,6 +23,10 @@
 
 const { createSql, claimDue, pruneOldRuns } = require('./db')
 const { nextOccurrence } = require('./cron')
+const { initOtelLogs } = require('../observability/otel-logs')
+
+// No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
+initOtelLogs()
 
 const LOG = '[workflow-scheduler]'
 
