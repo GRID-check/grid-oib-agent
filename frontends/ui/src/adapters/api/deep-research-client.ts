@@ -595,7 +595,7 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
             break
           default:
             if (process.env.NODE_ENV === 'development') {
-              console.warn(`[SSE:artifact.update] Unknown artifact type: ${artifactData.type}`)
+              console.warn('[SSE:artifact.update] Unknown artifact type:', artifactData.type)
             }
         }
         break
@@ -604,7 +604,7 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       default:
         // Unknown event type - log in dev
         if (process.env.NODE_ENV === 'development') {
-          console.warn(`[SSE] Unknown event type: ${eventType}`, rawData)
+          console.warn('[SSE] Unknown event type:', eventType, rawData)
         }
         break
     }

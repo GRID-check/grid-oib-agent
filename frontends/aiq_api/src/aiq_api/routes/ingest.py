@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import tempfile
 from urllib.parse import unquote
 from urllib.parse import urlparse
@@ -71,8 +72,14 @@ def add_ingest_routes(router: APIRouter):
         temp_path: str | None = None
         submitted = False
         try:
+            _assert_object_store_url(file_ref)
+
             async with httpx.AsyncClient() as client:
-                response = await client.get(file_ref, follow_redirects=True)
+                # No redirects: a follow could land on a host outside the
+                # allowlist (e.g. a cloud metadata endpoint), which would make
+                # the host check above a no-op. Presigned object-store GETs
+                # never redirect; a 3xx is a failed download like any other.
+                response = await client.get(file_ref, follow_redirects=False)
                 response.raise_for_status()
 
             suffix = _infer_suffix(response.headers.get("content-type", ""), file_ref)
@@ -174,8 +181,48 @@ def add_ingest_routes(router: APIRouter):
                     pass
 
 
+def _object_store_hosts() -> frozenset[str]:
+    """Hostnames the ingest endpoint may download from: the object store itself.
+
+    ``file_ref`` is a presigned SeaweedFS URL, so a request that points
+    anywhere else is a server-side request forgery. The store is reachable
+    under up to two names — the in-network endpoint (``SEAWEED_ENDPOINT``,
+    what the backend itself uses) and the browser-facing one the BFF signs
+    presigned URLs against (``SEAWEED_PUBLIC_ENDPOINT``) — and both must be
+    trusted. An attacker with a user-level token could otherwise call this
+    route with a URL aimed at the Docker network's metadata service or any
+    other internal host, and the fetch would happen with the backend's trust
+    level. Strict host match, no substrings: ``evil-seaweedfs.com`` must not
+    pass for ``seaweedfs.com``.
+    """
+    hosts: set[str] = set()
+    for environment_variable in ("SEAWEED_ENDPOINT", "SEAWEED_PUBLIC_ENDPOINT"):
+        endpoint = os.environ.get(environment_variable, "")
+        host = urlparse(endpoint).hostname
+        if host:
+            hosts.add(host.casefold())
+    return frozenset(hosts)
+
+
+def _assert_object_store_url(file_ref: str) -> None:
+    """Reject a ``file_ref`` that is not an http(s) URL to the object store."""
+    parsed = urlparse(file_ref)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="file_ref must be an http(s) object-store URL")
+    if not parsed.hostname or parsed.hostname.casefold() not in _object_store_hosts():
+        raise HTTPException(status_code=400, detail="file_ref must point at the configured object store")
+
+
 def _infer_suffix(content_type: str, url: str) -> str:
-    """Infer file extension from content-type or URL path."""
+    """Infer file extension from content-type or URL path.
+
+    The suffix lands directly in the temp filename the ingestion job writes
+    (``NamedTemporaryFile(suffix=...)``), so it must be a plain extension and
+    nothing else. Two defences: it is derived from a fixed map when possible,
+    and the URL-path fallback is scrubbed to ``[a-zA-Z0-9.]`` with a length
+    cap — a hostile path segment (``.pdf/../../etc``, ``.exe%2f..``) can no
+    longer smuggle separators or traversal into the temp path.
+    """
     content_map = {
         "application/pdf": ".pdf",
         "text/plain": ".txt",
@@ -187,8 +234,8 @@ def _infer_suffix(content_type: str, url: str) -> str:
     }
     suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip(), "")
     if not suffix:
-        suffix = os.path.splitext(urlparse(url).path)[1] or ".bin"
-    return suffix
+        suffix = re.sub(r"[^a-zA-Z0-9.]", "", os.path.splitext(urlparse(url).path)[1])[:16]
+    return suffix or ".bin"
 
 
 def _extract_filename(url: str) -> str:

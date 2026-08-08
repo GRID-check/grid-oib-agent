@@ -94,9 +94,11 @@ function stabilizeStreamingMarkdown(raw: string): string {
     const hasDelimiterRow = tableLines.some((l) => /^\s*\|?\s*:?-{1,}/.test(l) && l.includes('-'))
     if (!hasDelimiterRow) {
       // Escape the leading pipes so react-markdown renders them as text, not a
-      // broken table, until the delimiter row streams in.
+      // broken table, until the delimiter row streams in. Backslashes first:
+      // a pipe that is already escaped (`\|`) must not have its escape
+      // re-escaped, which would leave the pipe unescaped (js/incomplete-sanitization).
       for (let i = start; i < end; i++) {
-        lines[i] = lines[i].replace(/\|/g, '\\|')
+        lines[i] = lines[i].replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
       }
       content = lines.join('\n')
     }

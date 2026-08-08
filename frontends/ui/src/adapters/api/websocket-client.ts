@@ -561,10 +561,10 @@ export class NATWebSocketClient {
             : '<no-type>'
         if (!this.warnedUnknownTypes.has(rawType)) {
           this.warnedUnknownTypes.add(rawType)
-          console.warn(
-            `[WS] Ignoring unrecognized NAT message type "${rawType}" (logged once)`,
-            validated.error
-          )
+          // The raw type is foreign payload text; interpolating it into the
+          // message would hand it to console's printf-style %-formatting
+          // (js/tainted-format-string). Pass it as data instead of a string.
+          console.warn('[WS] Ignoring unrecognized NAT message type (logged once):', rawType, validated.error)
         }
         return
       }

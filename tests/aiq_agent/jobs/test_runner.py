@@ -971,8 +971,7 @@ class TestDeepResearchEventCallbackAdvanced:
         text = "Check out https://example.com and http://test.org/page for more info."
         urls = callback._extract_urls(text)
 
-        assert "https://example.com" in urls
-        assert "http://test.org/page" in urls
+        assert urls == ["https://example.com", "http://test.org/page"]
 
     def test_extract_urls_cleans_trailing_punctuation(self):
         """Test URL extraction removes trailing punctuation."""

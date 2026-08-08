@@ -27,8 +27,16 @@ def mock_ingestor():
 
 
 @pytest.fixture
-def app(mock_ingestor):
-    """Create a FastAPI app with ingest routes registered."""
+def app(mock_ingestor, monkeypatch):
+    """Create a FastAPI app with ingest routes registered.
+
+    ``SEAWEED_PUBLIC_ENDPOINT`` is set to the test object-store host so the
+    SSRF allowlist in ``ingest._object_store_hosts`` accepts the file_refs
+    the tests hand the route — that allowlist is env-driven and would
+    otherwise be empty here.
+    """
+    monkeypatch.setenv("SEAWEED_PUBLIC_ENDPOINT", "http://seaweedfs.test")
+    monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweedfs.test")
     app = FastAPI()
     router = APIRouter()
     add_ingest_routes(router)
@@ -190,3 +198,95 @@ async def test_ingest_no_ingestor(app, mock_ingestor):
 
     assert response.status_code == 503
     assert "Knowledge API not configured" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_foreign_host(app, mock_ingestor):
+    """A file_ref aimed at anything but the configured object store is a
+    server-side request forgery — the route must refuse it with 400 before
+    any fetch happens. The allowlist is the object store's own endpoints,
+    and a user-level token is enough to reach this route, so this is the
+    whole point of the check."""
+    with patch("httpx.AsyncClient.get") as mock_get:
+        response = await _post(app, "http://metadata.internal/latest/meta-data")
+        mock_get.assert_not_called()
+    assert response.status_code == 400
+    assert "object store" in response.json()["detail"]
+    mock_ingestor.submit_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_non_http_scheme(app, mock_ingestor):
+    """Only http(s) URLs are fetchable at all; anything else (file:, gopher:)
+    is rejected before httpx could even attempt it."""
+    with patch("httpx.AsyncClient.get") as mock_get:
+        response = await _post(app, "file:///etc/passwd")
+        mock_get.assert_not_called()
+    assert response.status_code == 400
+    mock_ingestor.submit_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ingest_host_match_is_case_insensitive(app, mock_ingestor):
+    """Hostnames are case-insensitive; a presigner must not break a valid
+    file_ref just because it uppercased the host."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.content = b"test file content"
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": "http://SEAWEEDFS.TEST/bucket/key?X-Amz-Signature=abc",
+                    "collection": "proj_test123",
+                },
+            )
+    assert response.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_ingest_suffix_scrubbed(app, mock_ingestor):
+    """The URL-path extension lands in the temp filename; hostile segments
+    (separators, traversal, length bombs) must be scrubbed to a plain
+    short extension."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.content = b"pdf bytes"
+            mock_response.headers = {"content-type": "application/octet-stream"}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": "http://seaweedfs.test/bucket/a.pdf/../../etc/passwd",
+                    "collection": "proj_test123",
+                },
+            )
+
+    assert response.status_code == 202
+    call_args = mock_ingestor.submit_job.call_args
+    temp_path = call_args[0][0][0]
+    # The scrubbed suffix is a plain short extension: no separator and no
+    # traversal survived into the temp filename (the temp dir prefix is the
+    # OS's own, which is why only the basename is checked).
+    basename = temp_path.split("\\")[-1].split("/")[-1]
+    assert "/" not in basename
+    assert "\\" not in basename
+    assert basename.endswith(".bin")
+    assert len(basename) < 20  # tmp-prefix + short suffix, no length bomb
+
+
+async def _post(app, file_ref: str, collection: str = "proj_test123"):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.post(
+            "/v1/ingest",
+            json={"file_ref": file_ref, "collection": collection},
+        )

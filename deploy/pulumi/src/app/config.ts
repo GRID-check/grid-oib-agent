@@ -247,6 +247,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // credential. The identity is provisioned in the SeaweedFS s3.json by
     // deploy/pulumi/src/data/seaweedfs.ts.
     { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
+    { name: "SEAWEED_PUBLIC_ENDPOINT", value: w.seaweedPublicEndpoint },
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.backendReadAccessKey },
     srefAs("SEAWEED_SECRET_KEY", "SEAWEED_BACKEND_READ_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },

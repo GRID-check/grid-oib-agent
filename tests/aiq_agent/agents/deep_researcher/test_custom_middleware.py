@@ -480,8 +480,7 @@ class TestSourceRegistryMiddleware:
         await middleware.awrap_tool_call(self._make_request("paper_search_tool"), h2)
 
         urls = {s.url for s in middleware.registry.all_sources()}
-        assert "https://a.com" in urls
-        assert "https://b.com" in urls
+        assert urls == {"https://a.com", "https://b.com"}
 
     def test_get_verified_sources_defaults_to_research_note_compact_subset(self, middleware):
         """The writer-facing source list prefers sources carried forward by ResearchNotes."""

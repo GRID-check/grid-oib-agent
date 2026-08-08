@@ -349,7 +349,16 @@ function renderHtml(token: HtmlToken, index: number): React.ReactNode {
 }
 
 function stripHtml(text: string): string {
-  return text.replace(/<[^>]*>/g, '')
+  // A single <[^>]*> pass is not idempotent: `<<a>x` loses one tag and the
+  // remainder still ends in bare markup. Re-apply until no tag remains so
+  // nothing strikes-through into the PDF (js/incomplete-multi-character-sanitization).
+  let stripped = text
+  let next = text
+  do {
+    stripped = next
+    next = stripped.replace(/<[^>]*>/g, '')
+  } while (next !== stripped)
+  return stripped
 }
 
 /** Convert HTML <a> tags to markdown link syntax so they survive stripHtml. */
