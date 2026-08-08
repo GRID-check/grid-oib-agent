@@ -12,7 +12,8 @@
  * llm-credential and memory endpoints. The backend may additionally send an
  * optional `organizationId` (derived from an `archiv_` collection prefix),
  * which narrows the row lookup to that org when present. Read-only: returns the
- * storage key, not the bytes (the backend fetches those itself from SeaweedFS).
+ * storage key AND its bucket, not the bytes (the backend fetches those itself
+ * from SeaweedFS).
  */
 
 import { z } from 'zod'
@@ -40,7 +41,18 @@ export const GET = internalApiRoute(
       async () => {
         const document = await findDocumentStorageKey(collection, filename, organizationId)
         if (!document) throw new NotFoundError('Document not found')
-        return { storageKey: document.storageKey, contentType: document.contentType }
+        return {
+          storageKey: document.storageKey,
+          // The bucket, not just the key (ADR-0043). Per-organization buckets
+          // mean the key alone no longer locates an object, and the agent tier
+          // calls get_object directly rather than through a presigned URL — so
+          // it must be TOLD where the object is. Deriving it there would put a
+          // second implementation of the naming rule in a third language, in
+          // the one place a mismatch surfaces as a silent 404 rather than an
+          // error. NULL means the shared bucket, exactly as the column does.
+          storageBucket: document.storageBucket,
+          contentType: document.contentType,
+        }
       }
     )
   },

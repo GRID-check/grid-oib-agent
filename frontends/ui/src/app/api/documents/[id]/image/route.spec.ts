@@ -22,9 +22,16 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 
-vi.mock('@/lib/s3', () => ({
+// Only the CLIENTS are doubled. The key builders come through as the real
+// thing (`importOriginal`) so this spec exercises the production key
+// composition rather than a fixture's idea of it — the `_thumb.jpg` assertion
+// below is only worth anything if the key under test is the one production
+// would build.
+vi.mock('@/lib/s3', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/s3')>()),
   s3Client: { send: vi.fn() },
   signingS3Client: {},
+  bucketAdminS3Client: { send: vi.fn() },
   bucketName: 'grid-documents',
 }))
 

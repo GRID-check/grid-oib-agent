@@ -15,11 +15,16 @@ vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(),
 }))
 
-vi.mock('@/lib/s3', () => ({
+// Clients doubled, key builders real. `buildStorageKey` used to be stubbed to
+// a fabricated `'org/proj/doc/file.pdf'` that the production builder has never
+// produced, which meant this suite could not have caught a key-layout
+// regression — the exact class of bug that makes an object unreachable.
+vi.mock('@/lib/s3', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/s3')>()),
   s3Client: { send: vi.fn().mockResolvedValue(undefined) },
   signingS3Client: { send: vi.fn().mockResolvedValue(undefined) },
+  bucketAdminS3Client: { send: vi.fn().mockResolvedValue(undefined) },
   bucketName: 'test-bucket',
-  buildStorageKey: vi.fn().mockReturnValue('org/proj/doc/file.pdf'),
 }))
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({

@@ -26,6 +26,7 @@ const {
   releaseHeld,
 } = require('./db')
 const { createS3Client, deleteStoragePrefix } = require('./storage')
+const { tenantBucketName } = require('../src/lib/storage/tenant-bucket.js')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 const { initOtelLogs } = require('../observability/otel-logs')
 // The deletion queue spans every organization, so the purger's transactions
@@ -41,10 +42,22 @@ const sql = createSql()
 const s3 = createS3Client()
 const workos = new WorkOS(process.env.WORKOS_API_KEY)
 
+const sharedBucket = process.env.SEAWEED_BUCKET || 'grid-documents'
+const tenantPrefix = process.env.SEAWEED_TENANT_BUCKET_PREFIX || undefined
+
 const deps = {
   backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
   internalToken: process.env.GRID_INTERNAL_API_TOKEN || '',
-  bucket: process.env.SEAWEED_BUCKET || 'grid-documents',
+  bucket: sharedBucket,
+  // Which buckets an organization's objects can be in (ADR-0043). The naming
+  // rule itself lives in `src/lib/storage/tenant-bucket.js` — shared with the
+  // BFF rather than reimplemented here, because this is the process that
+  // ERASES a tenant and a naming disagreement would sweep a bucket that does
+  // not exist and report success.
+  bucketsForOrg: (orgId) =>
+    process.env.SEAWEED_PER_ORG_BUCKETS === 'true'
+      ? [sharedBucket, tenantBucketName(orgId, tenantPrefix)]
+      : [sharedBucket],
   workos,
   deleteStoragePrefix: (bucket, prefix) => deleteStoragePrefix(s3, bucket, prefix),
 }

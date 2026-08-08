@@ -40,6 +40,12 @@ async function assertNoHold(tx, entry) {
 
 async function purgeProject(tx, entry, deps) {
   const { backendUrl, internalToken, bucket, workos, deleteStoragePrefix } = deps
+  // Every bucket this organization's objects could be in (ADR-0043): the
+  // shared one, plus its own once per-organization buckets are enabled. Both,
+  // always — an organization that predates the flip has objects in the shared
+  // bucket AND in its own, and a sweep that visits only the current one leaves
+  // the older half behind. For an erasure request that IS the failure.
+  const bucketsFor = deps.bucketsForOrg || (() => [bucket])
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -84,8 +90,18 @@ async function purgeProject(tx, entry, deps) {
   // Re-check the hold before EACH external destructive step to keep the TOCTOU
   // window to a single step (see file header). Aborts release the row.
   await assertNoHold(tx, entry)
-  // 2. SeaweedFS objects under the project prefix.
-  await deleteStoragePrefix(bucket, `org/${orgId}/project/${projectId}/`)
+  // 2. SeaweedFS objects under the project prefix, in every bucket that could
+  //    hold them. `deleteStoragePrefix` throws on a partial delete, so a bucket
+  //    that has objects it cannot remove fails the whole purge and the queue
+  //    row retries — the prefix must be gone everywhere before the pointers
+  //    that name it are.
+  //
+  //    Sequential rather than concurrent on purpose: the prefix sweep is a
+  //    list-then-delete loop, and running several against one storage tier only
+  //    trades a rarely-hot latency for contention on the thing being erased.
+  for (const target of bucketsFor(orgId)) {
+    await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
+  }
 
   await assertNoHold(tx, entry)
   // 3. WorkOS FGA resource (+ role assignments). Already-gone is success.

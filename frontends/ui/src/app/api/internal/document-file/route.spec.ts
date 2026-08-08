@@ -56,6 +56,7 @@ describe('GET /api/internal/document-file', () => {
   it('forwards organizationId to the service when the query param is present', async () => {
     vi.mocked(findDocumentStorageKey).mockResolvedValue({
       storageKey: 'org/o1/archiv/doc/d1/plan.png',
+      storageBucket: null,
       contentType: 'image/png',
     })
     const res = await GET(request('?collection=archiv_org_1&filename=plan.png&organizationId=org_1'))
@@ -69,16 +70,32 @@ describe('GET /api/internal/document-file', () => {
     expect(vi.mocked(findDocumentStorageKey).mock.calls[0][2]).toBeUndefined()
   })
 
-  it('returns the storage key and content type for a known document', async () => {
+  it('returns the storage key, its bucket and the content type for a known document', async () => {
     vi.mocked(findDocumentStorageKey).mockResolvedValue({
       storageKey: 'org/o1/project/p1/doc/d1/plan.png',
+      storageBucket: null,
       contentType: 'image/png',
     })
     const res = await GET(request())
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       storageKey: 'org/o1/project/p1/doc/d1/plan.png',
+      storageBucket: null,
       contentType: 'image/png',
     })
+  })
+
+  // The agent tier calls get_object directly, so the bucket has to travel with
+  // the key. A response that dropped it would send every per-organization
+  // lookup to the shared bucket, where the object is not — a silent 404 that
+  // degrades to a text-only answer with nothing in any log to explain it.
+  it('passes a per-organization bucket through to the caller', async () => {
+    vi.mocked(findDocumentStorageKey).mockResolvedValue({
+      storageKey: 'org/o1/project/p1/doc/d1/plan.png',
+      storageBucket: 'grid-org-o1-abcdef123456',
+      contentType: 'image/png',
+    })
+    const res = await GET(request())
+    expect(await res.json()).toMatchObject({ storageBucket: 'grid-org-o1-abcdef123456' })
   })
 })

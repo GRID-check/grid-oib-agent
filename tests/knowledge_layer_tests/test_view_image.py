@@ -272,16 +272,17 @@ def _patch_seaweed_chain(
     monkeypatch,
     *,
     storage_key: str | None = "org/o1/project/p1/doc/d1/plan.png",
+    storage_bucket: str | None = None,
     fetched: bytes | None = b"image-bytes",
     normalized=(_JPEG_BYTES, 100, 50),
 ) -> None:
     async def _resolve(_collection, _file_name):
-        return storage_key
+        return None if storage_key is None else (storage_key, storage_bucket)
 
-    monkeypatch.setattr("sources.knowledge_layer.src.view_image._resolve_storage_key", _resolve)
+    monkeypatch.setattr("sources.knowledge_layer.src.view_image._resolve_storage_location", _resolve)
     monkeypatch.setattr(
         "sources.knowledge_layer.src.view_image._fetch_seaweed_bytes",
-        lambda _key: fetched,
+        lambda _key, _bucket=None: fetched,
     )
     monkeypatch.setattr(
         "sources.knowledge_layer.src.view_image._normalize_image_to_jpeg",
@@ -359,7 +360,7 @@ async def test_project_pdf_fetch_failure_returns_text_only(monkeypatch, tmp_path
 async def test_resolve_storage_key_fail_open(monkeypatch) -> None:
     import httpx
 
-    from sources.knowledge_layer.src.view_image import _resolve_storage_key
+    from sources.knowledge_layer.src.view_image import _resolve_storage_location as _resolve_storage_key
 
     # Unconfigured env -> None without any HTTP call.
     monkeypatch.delenv("FRONTEND_INTERNAL_URL", raising=False)
@@ -397,17 +398,20 @@ async def test_resolve_storage_key_fail_open(monkeypatch) -> None:
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
 
-    assert await _resolve_storage_key("proj_1", "plan.png") == "org/o1/k.png"
+    assert await _resolve_storage_key("proj_1", "plan.png") == ("org/o1/k.png", None)
     assert _Client.seen_params[-1] == {"collection": "proj_1", "filename": "plan.png"}
 
-    assert await _resolve_storage_key("archiv_org_1", "plan.png") == "org/o1/k.png"
+    assert await _resolve_storage_key("archiv_org_1", "plan.png") == ("org/o1/k.png", None)
     assert _Client.seen_params[-1] == {
         "collection": "archiv_org_1",
         "filename": "plan.png",
         "organizationId": "org_1",
     }
 
-    assert await _resolve_storage_key("proj_1", "plan.png", organization_id="org_2") == "org/o1/k.png"
+    assert await _resolve_storage_key("proj_1", "plan.png", organization_id="org_2") == (
+        "org/o1/k.png",
+        None,
+    )
     assert _Client.seen_params[-1] == {
         "collection": "proj_1",
         "filename": "plan.png",
@@ -419,6 +423,23 @@ async def test_resolve_storage_key_fail_open(monkeypatch) -> None:
 
     _Client.response = _Response(200, {"storageKey": ""})
     assert await _resolve_storage_key("proj_1", "plan.png") is None
+
+    # A per-organization bucket travels back with the key (ADR-0043). The tool
+    # calls get_object directly, so dropping it here would send every lookup to
+    # the shared bucket and 404 silently.
+    _Client.response = _Response(
+        200, {"storageKey": "org/o1/k.png", "storageBucket": "grid-org-o1-abcdef123456"}
+    )
+    assert await _resolve_storage_key("proj_1", "plan.png") == (
+        "org/o1/k.png",
+        "grid-org-o1-abcdef123456",
+    )
+
+    # An empty string is not a bucket. Treat it as "shared" rather than passing
+    # `Bucket=""` to boto3, which fails with a parameter-validation error rather
+    # than the fail-open None this tool promises.
+    _Client.response = _Response(200, {"storageKey": "org/o1/k.png", "storageBucket": ""})
+    assert await _resolve_storage_key("proj_1", "plan.png") == ("org/o1/k.png", None)
 
 
 def test_fetch_seaweed_bytes_fail_open(monkeypatch) -> None:
@@ -449,3 +470,17 @@ def test_fetch_seaweed_bytes_fail_open(monkeypatch) -> None:
 
     monkeypatch.setattr(boto3, "client", _boom_client)
     assert _fetch_seaweed_bytes("org/o1/k.png") is None
+
+    class _TenantS3:
+        def get_object(self, *, Bucket, Key):
+            import io
+
+            # The recorded bucket, NOT the SEAWEED_BUCKET default.
+            assert Bucket == "grid-org-o1-abcdef123456"
+            assert Key == "org/o1/k.png"
+            return {"Body": io.BytesIO(b"tenant-bytes")}
+
+    monkeypatch.setattr(boto3, "client", lambda *args, **kwargs: _TenantS3())
+    assert (
+        _fetch_seaweed_bytes("org/o1/k.png", "grid-org-o1-abcdef123456") == b"tenant-bytes"
+    )

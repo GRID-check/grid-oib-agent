@@ -11,7 +11,14 @@
 import 'server-only'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { s3Client, signingS3Client, bucketName, buildStorageKey } from '@/lib/s3'
+import {
+  s3Client,
+  signingS3Client,
+  bucketAdminS3Client,
+  buildStorageKey,
+  buildThumbnailStorageKey,
+} from '@/lib/s3'
+import { ensureTenantBucket, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { ForbiddenError } from '@/lib/api/errors'
@@ -73,12 +80,6 @@ const OPTIMIZABLE_IMAGE_CONTENT_TYPES = [
 ]
 
 const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
-
-/** Replace the filename segment of a storageKey with `_thumb.jpg`. */
-function buildThumbnailStorageKey(storageKey: string): string {
-  const idx = storageKey.lastIndexOf('/')
-  return idx > 0 ? `${storageKey.slice(0, idx)}/_thumb.jpg` : '_thumb.jpg'
-}
 
 /**
  * Bound every server-side call to the Python backend: an unreachable backend
@@ -175,24 +176,39 @@ export async function dispatchIngest(
   collectionName: string,
   storageKey: string,
   organizationId: string,
+  /**
+   * The bucket the object was written to (ADR-0043). Passed rather than
+   * derived: the caller has just written the object and knows exactly where it
+   * went, and the two presigned URLs below must both name that same bucket —
+   * the download the backend reads from, and the thumbnail slot it writes back
+   * to. Defaults to the shared bucket so a caller predating per-org buckets
+   * keeps its old behaviour.
+   */
+  storageBucket: string | null = null,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
+  const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
-  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucketName, Key: storageKey }), {
+  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: storageKey }), {
     expiresIn: presignTtlSeconds(),
   })
 
-  // Generate presigned upload URL for a 200px JPEG thumbnail
+  // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
+  // generates. Null for a key with no directory segment: there is nowhere to
+  // put a sibling, and signing a bucket-root `_thumb.jpg` would hand out a
+  // write capability to a shared path rather than to this document's own.
   const thumbnailUploadKey = buildThumbnailStorageKey(storageKey)
-  const thumbnailUploadUrl = await getSignedUrl(
-    signingS3Client,
-    new PutObjectCommand({
-      Bucket: bucketName,
-      Key: thumbnailUploadKey,
-      ContentType: 'image/jpeg',
-    }),
-    { expiresIn: 3600 },
-  )
+  const thumbnailUploadUrl = thumbnailUploadKey
+    ? await getSignedUrl(
+        signingS3Client,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: thumbnailUploadKey,
+          ContentType: 'image/jpeg',
+        }),
+        { expiresIn: 3600 },
+      )
+    : null
 
   let ingestJobId: string | null = null
   let ingestFailed = false
@@ -496,10 +512,16 @@ export async function uploadDocument(
   const collectionName = project.collectionName
   const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
+  // Create the organization's bucket if this is its first upload (ADR-0043).
+  // A no-op — not even a round trip — when per-org buckets are off. Done before
+  // the PUT so a provisioning failure leaves nothing behind, same reasoning as
+  // the quota check above.
+  const storageBucket = await ensureTenantBucket(bucketAdminS3Client, session.organizationId)
+
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
     new PutObjectCommand({
-      Bucket: bucketName,
+      Bucket: storageBucket,
       Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
@@ -514,6 +536,9 @@ export async function uploadDocument(
     createdBy: session.userId,
     filename: file.name,
     storageKey,
+    // Recorded even when it IS the shared bucket, so only rows predating
+    // migration 0033 rely on the NULL-means-shared convention.
+    storageBucket,
     collectionName,
     fileSize: file.size,
     contentType: file.type || null,
@@ -525,6 +550,7 @@ export async function uploadDocument(
     collectionName,
     storageKey,
     session.organizationId,
+    storageBucket,
   )
 
   // Data-provenance event: who brought which file into which project.
@@ -662,7 +688,20 @@ export async function deleteDocument(
 
   if (doc.storageKey) {
     try {
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.storageKey }))
+      const bucket = resolveDocumentBucket(doc.storageBucket)
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
+      // The ingest pipeline writes `_thumb.jpg` as a SIBLING of the object, in
+      // the same `doc/<id>/` directory. Deleting only the document left it
+      // behind: invisible to the UI, invisible to the quota ledger (which
+      // counts rows, not bytes), and reachable by anyone who could presign the
+      // key. The project-level purge swept it up eventually; a single-document
+      // delete never did.
+      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
+      if (thumbKey) {
+        await s3Client
+          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
+          .catch(() => undefined)
+      }
     } catch {
       // ignore — the object may already be gone; the row delete below is the record of intent
     }
@@ -740,7 +779,7 @@ export async function getDocumentDownload(
   const downloadUrl = await getSignedUrl(
     signingS3Client,
     new GetObjectCommand({
-      Bucket: bucketName,
+      Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('attachment', doc.filename),
     }),
@@ -774,7 +813,7 @@ export async function getDocumentPreview(
   const url = await getSignedUrl(
     signingS3Client,
     new GetObjectCommand({
-      Bucket: bucketName,
+      Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('inline', doc.filename),
       ResponseContentType: contentType,
@@ -813,12 +852,13 @@ export async function getDocumentThumbnail(
   if (signedUrl) return { url: signedUrl }
 
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
+  if (!thumbnailKey) return { url: null }
 
   try {
     const url = await getSignedUrl(
       signingS3Client,
       new GetObjectCommand({
-        Bucket: bucketName,
+        Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: thumbnailKey,
         ResponseContentType: 'image/jpeg',
       }),
@@ -868,10 +908,13 @@ export async function streamDocumentImage(
   if (!contentType.startsWith('image/')) throw new NotFoundError()
 
   const key = variant === 'thumb' ? buildThumbnailStorageKey(doc.storageKey) : doc.storageKey
+  if (!key) throw new NotFoundError('Image not available')
 
   let body
   try {
-    const object = await s3Client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+    const object = await s3Client.send(
+      new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key }),
+    )
     body = object.Body
   } catch {
     // A document with no generated thumbnail lands here; the card reads the 404
@@ -938,6 +981,6 @@ export async function findDocumentStorageKey(
   collectionName: string,
   filename: string,
   organizationId?: string,
-): Promise<{ storageKey: string; contentType: string | null } | null> {
+): Promise<{ storageKey: string; storageBucket: string | null; contentType: string | null } | null> {
   return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }

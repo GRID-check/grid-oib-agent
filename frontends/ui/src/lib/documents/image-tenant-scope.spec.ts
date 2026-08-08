@@ -78,12 +78,17 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
 vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
 
-vi.mock('@/lib/s3', () => ({
+// Clients doubled, key builders real. The thumbnail rule was previously
+// re-implemented here as `${key}.thumb.jpg` — a shape production has never
+// written, since the real builder REPLACES the filename segment with
+// `_thumb.jpg`. A spec that invents its own key cannot notice the day the
+// production one changes.
+vi.mock('@/lib/s3', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/s3')>()),
   s3Client: { send: vi.fn().mockResolvedValue({ Body: { transformToWebStream: () => new ReadableStream() } }) },
   signingS3Client: { send: vi.fn() },
+  bucketAdminS3Client: { send: vi.fn() },
   bucketName: 'test-bucket',
-  buildStorageKey: vi.fn(),
-  buildThumbnailStorageKey: (key: string) => `${key}.thumb.jpg`,
 }))
 
 // The signature itself is covered by `signed-image-url.spec.ts`; here it is a

@@ -139,6 +139,50 @@ describe('purgeProject', () => {
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })
 
+  // Per-organization buckets (ADR-0043). An organization that predates the flip
+  // has objects in the shared bucket AND in its own, so a purge that visits only
+  // one of them leaves half the tenant's files behind while deleting the rows
+  // that named them — an erasure that reports success and did not happen.
+  it('sweeps every bucket the organization could have objects in', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+    })
+    const deps = makeDeps({
+      bucketsForOrg: (orgId) => ['grid-documents', `grid-org-${orgId}-abcdef123456`],
+    })
+
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([
+      ['grid-documents', 'org/org1/project/p1/'],
+      ['grid-org-org1-abcdef123456', 'org/org1/project/p1/'],
+    ])
+  })
+
+  // The prefix delete throws on a partial failure so the queue row retries. That
+  // guarantee has to survive the loop: if the SECOND bucket cannot be cleared,
+  // the purge must still fail, or the pointers get deleted while the objects
+  // remain.
+  it('fails the purge when a later bucket cannot be cleared', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+    })
+    const deleteStoragePrefix = vi
+      .fn()
+      .mockResolvedValueOnce(3)
+      .mockRejectedValueOnce(new Error('SeaweedFS delete reported 2 error(s)'))
+    const deps = makeDeps({
+      deleteStoragePrefix,
+      bucketsForOrg: () => ['grid-documents', 'grid-org-org1-abcdef123456'],
+    })
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/SeaweedFS delete reported/)
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
   it('treats an already-deleted WorkOS resource as success (idempotency)', async () => {
     const { tx } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },

@@ -108,6 +108,13 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     // Dedicated READ-ONLY bucket-scoped identity for the aiq-agent tier — the
     // backend must never hold the root `grid` Admin credential (ADR-0039).
     SEAWEED_BACKEND_READ_SECRET_KEY: cfg.seaweedfs.backendReadSecretKey,
+    // Bucket LIFECYCLE credential (ADR-0043) — creates a tenant's bucket on its
+    // first upload, and drops it on erasure. Separate from the object
+    // credential above because SeaweedFS's `Admin:<bucket>` authorises
+    // CreateBucket and DeleteBucket together and cannot express one without the
+    // other, so the only way to keep "drop a tenant" off the request path is to
+    // keep it on a key the request path does not carry.
+    SEAWEED_TENANT_ADMIN_SECRET_KEY: cfg.seaweedfs.tenantAdminSecretKey,
     // Embeds the Dragonfly password in its userinfo → secret, exactly like the
     // DSNs below. Inlining it on each pod spec would publish the cache
     // credential to anything with `get pod` in the namespace.
@@ -310,6 +317,13 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
+    // Per-organization buckets (ADR-0043). Off by default; the bucket each
+    // document actually lives in is recorded on its row, so flipping this
+    // changes where the NEXT object goes and nothing else.
+    { name: "SEAWEED_PER_ORG_BUCKETS", value: String(cfg.seaweedfs.perOrgBuckets) },
+    { name: "SEAWEED_TENANT_BUCKET_PREFIX", value: cfg.seaweedfs.tenantBucketPrefix },
+    { name: "SEAWEED_TENANT_ADMIN_ACCESS_KEY", value: cfg.seaweedfs.tenantAdminAccessKey },
+    sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
     // Model catalog + budgets.
@@ -377,6 +391,13 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
+    // The purger needs the NAMING inputs so it can reconstruct which buckets an
+    // organization's objects can be in, but deliberately NOT the bucket-admin
+    // credential: it erases objects by prefix, and a process that runs
+    // unattended on a queue is the last one that should be able to drop a
+    // bucket outright.
+    { name: "SEAWEED_PER_ORG_BUCKETS", value: String(cfg.seaweedfs.perOrgBuckets) },
+    { name: "SEAWEED_TENANT_BUCKET_PREFIX", value: cfg.seaweedfs.tenantBucketPrefix },
     sref("WORKOS_API_KEY"),
     { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
     // OTLP logs via the cluster collector (see frontendEnv for the gating

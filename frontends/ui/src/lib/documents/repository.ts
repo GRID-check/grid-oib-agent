@@ -91,7 +91,7 @@ export async function findStorageKeyByCollectionAndFilename(
   collectionName: string,
   filename: string,
   organizationId?: string,
-): Promise<{ storageKey: string; contentType: string | null } | null> {
+): Promise<{ storageKey: string; storageBucket: string | null; contentType: string | null } | null> {
   const db = getDb()
   const [row] = await withOptionalTenant(
     organizationId,
@@ -99,7 +99,14 @@ export async function findStorageKeyByCollectionAndFilename(
       'unguessable collection name and carries no organization',
     () =>
       db
-        .select({ storageKey: documents.storageKey, contentType: documents.contentType })
+        .select({
+          storageKey: documents.storageKey,
+          // The agent tier calls get_object directly (ADR-0039), so it needs
+          // the bucket as well as the key — recomputing it there would be a
+          // second implementation of the naming rule in a third language.
+          storageBucket: documents.storageBucket,
+          contentType: documents.contentType,
+        })
         .from(documents)
         .where(
           and(
