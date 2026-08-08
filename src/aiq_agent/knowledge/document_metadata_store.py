@@ -23,6 +23,7 @@ import time
 from typing import TYPE_CHECKING
 from typing import Any
 
+from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 
 if TYPE_CHECKING:
@@ -45,23 +46,6 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
 _OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title")
-
-
-def _normalize_db_url(db_url: str, async_mode: bool = True) -> str:
-    """Normalize database URL to use consistent drivers."""
-    if db_url.startswith("postgresql") or db_url.startswith("postgres"):
-        base_url = db_url.replace("+asyncpg", "").replace("+psycopg2", "").replace("+psycopg", "")
-        if not base_url.startswith("postgresql://"):
-            base_url = base_url.replace("postgres://", "postgresql://")
-        return (
-            f"{base_url.replace('postgresql://', 'postgresql+psycopg://')}"
-            if async_mode
-            else base_url.replace("postgresql://", "postgresql+psycopg://")
-        )
-    elif db_url.startswith("sqlite"):
-        base_url = db_url.replace("+aiosqlite", "")
-        return base_url.replace("sqlite:///", "sqlite+aiosqlite:///") if async_mode else base_url
-    return db_url
 
 
 class DocumentMetadataStore:
