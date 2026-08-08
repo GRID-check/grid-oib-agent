@@ -24,7 +24,7 @@ import { installCertManager } from "./src/platform/cert-manager";
 import { installGatewayController, installGatewayResources } from "./src/platform/gateway";
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installNetworkPolicies } from "./src/platform/network-policies";
-import { installPostgres, type Postgres } from "./src/data/postgres";
+import { installPostgres, installScheduledBackup, type Postgres } from "./src/data/postgres";
 import { installDragonfly, installRateLimitStore } from "./src/data/dragonfly";
 import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
 import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
@@ -116,6 +116,13 @@ if (filerNeedsPostgres) {
     cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
   );
 }
+
+// The nightly Postgres base backup, created AFTER the archive bucket exists in
+// both branches. `immediate: true` fires one Backup on creation and CNPG does
+// not retry a failed one — so a schedule created before bucket-init leaves the
+// stack with archived WAL, no base backup, and a status page that says
+// archiving is healthy. That is not a recoverable PITR.
+installScheduledBackup(cfg, provider, namespace, [postgres.cluster, seaweed.bucketInitJob]);
 
 // Offsite backup for the documents bucket (ADR-0042). Gated on an EXTERNAL S3
 // target; `loadConfig` refuses an in-cluster endpoint, which would put the

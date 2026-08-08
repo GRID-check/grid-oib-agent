@@ -596,7 +596,20 @@ export async function reingestDocument(
   }
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
-  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.storageKey, session.organizationId)
+  // The bucket the object is ACTUALLY in — `doc.storageBucket`, not the bucket
+  // a new upload would go to. Both presigned URLs the dispatch mints name it:
+  // the download the backend reads from, and the thumbnail slot it writes back
+  // to. Omitting it defaulted both to the shared bucket, so retrying a
+  // per-organization document presigned a GET for an object that is not there
+  // (the retry can never succeed) and a PUT into the shared bucket for a
+  // thumbnail every read path then looks for in the tenant bucket.
+  const { jobId, status } = await dispatchIngest(
+    doc.id,
+    doc.collectionName,
+    doc.storageKey,
+    session.organizationId,
+    doc.storageBucket,
+  )
   return { id: doc.id, status, jobId }
 }
 

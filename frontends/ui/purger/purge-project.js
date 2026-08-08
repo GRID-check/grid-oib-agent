@@ -41,11 +41,23 @@ async function assertNoHold(tx, entry) {
 async function purgeProject(tx, entry, deps) {
   const { backendUrl, internalToken, bucket, workos, deleteStoragePrefix } = deps
   // Every bucket this organization's objects could be in (ADR-0043): the
-  // shared one, plus its own once per-organization buckets are enabled. Both,
-  // always — an organization that predates the flip has objects in the shared
-  // bucket AND in its own, and a sweep that visits only the current one leaves
-  // the older half behind. For an erasure request that IS the failure.
-  const bucketsFor = deps.bucketsForOrg || (() => [bucket])
+  // shared one, plus its own. Both, always — an organization that predates the
+  // flip has objects in the shared bucket AND in its own, and a sweep that
+  // visits only one leaves the other half behind. For an erasure request that
+  // IS the failure.
+  //
+  // Required, with no fallback to `[bucket]`. A default here would mean that
+  // dropping the wiring in `index.js` silently degrades erasure to
+  // shared-bucket-only — no error, no log line, and a purge that reports
+  // success. The whole reason the naming rule is a shared module is to make
+  // that class of drift impossible; a permissive default would put it back.
+  const bucketsFor = deps.bucketsForOrg
+  if (typeof bucketsFor !== 'function') {
+    throw new Error(
+      'purgeProject requires deps.bucketsForOrg — without it the object sweep would silently ' +
+        'skip per-organization buckets and report the erasure as complete.',
+    )
+  }
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id

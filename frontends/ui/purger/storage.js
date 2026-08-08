@@ -27,17 +27,40 @@ function createS3Client() {
   })
 }
 
+/**
+ * Is this "the bucket does not exist"?
+ *
+ * A bucket that does not exist holds no objects, so a prefix sweep over it has
+ * already achieved what it was asked to do. This is not defensive coding: per-
+ * organization buckets are created LAZILY, on an organization's first upload
+ * (ADR-0043), so any organization that has not uploaded since the feature was
+ * enabled — or ever — genuinely has no tenant bucket. Treating that as an error
+ * would fail the purge AFTER it had already destroyed the Python-side stores,
+ * retry ten times destroying them again, and then abandon the queue row
+ * forever with the tenant's `projects`, `conversations` and FGA rows intact.
+ */
+function isMissingBucket(error) {
+  const name = error?.name ?? error?.Code
+  return name === 'NoSuchBucket' || error?.$metadata?.httpStatusCode === 404
+}
+
 async function deleteStoragePrefix(s3, bucket, prefix) {
   let deleted = 0
   let continuationToken
   do {
-    const page = await s3.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: continuationToken,
-      }),
-    )
+    let page
+    try {
+      page = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      )
+    } catch (error) {
+      if (isMissingBucket(error)) return deleted
+      throw error
+    }
     const keys = (page.Contents || []).map((obj) => ({ Key: obj.Key }))
     if (keys.length > 0) {
       // Quiet:true returns ONLY per-key errors. A 200 response can still carry
@@ -65,4 +88,4 @@ async function deleteStoragePrefix(s3, bucket, prefix) {
   return deleted
 }
 
-module.exports = { createS3Client, deleteStoragePrefix }
+module.exports = { createS3Client, deleteStoragePrefix, isMissingBucket }

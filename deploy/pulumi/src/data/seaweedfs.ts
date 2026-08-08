@@ -4,7 +4,8 @@ import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedJobSecurityContext } from "../platform/security";
 import { BOOTSTRAP_JOB_RESOURCES, JOB_DEFAULTS, PORT, SEAWEED } from "../constants";
-import { s3ConfigSecret } from "./seaweedfs-identities";
+import { secretChecksum } from "../platform/rollout";
+import { renderS3Config, s3ConfigSecret } from "./seaweedfs-identities";
 import { installSingleNodeSeaweedFS } from "./seaweedfs-single";
 import { installSplitSeaweedFS } from "./seaweedfs-split";
 import type { SeaweedTopology } from "./seaweedfs-types";
@@ -54,17 +55,32 @@ export function installSeaweedFS(
   // instead — see seaweedfs-identities.ts.
   const platformBuckets = [cfg.seaweedfs.bucket, ...extraBuckets];
 
-  const s3Secret = s3ConfigSecret(cfg, provider, namespace, {
+  const identityInputs = {
     platformBuckets,
-    tenantBucketPrefix: cfg.seaweedfs.perOrgBuckets
-      ? cfg.seaweedfs.tenantBucketPrefix
-      : undefined,
-  });
+    // NOT gated on `perOrgBuckets`. The grant is a bucket-name PREFIX, so when
+    // the feature is off it covers nothing — and when the feature is turned off
+    // AFTER having been on, it covers exactly the tenant buckets that still
+    // hold objects. Gating it there would revoke read access to every document
+    // written while the flag was on, which is the opposite of the "flipping
+    // back is uneventful" property the row-recorded bucket exists to provide.
+    tenantBucketPrefix: cfg.seaweedfs.tenantBucketPrefix,
+    // The bucket-LIFECYCLE identity is gated, because creating buckets is the
+    // one thing that genuinely stops when the feature is off.
+    provisioning: cfg.seaweedfs.perOrgBuckets,
+  };
+  const s3Secret = s3ConfigSecret(cfg, provider, namespace, identityInputs);
+
+  // Rotating `seaweedfsSecretKey` updates the Secret and restarts nothing:
+  // `s3.json` is read once, at process start, so `pulumi up` would report
+  // success while every pod kept authenticating callers against the old key.
+  // Stamping the rendered content's digest on the pod template turns a rotation
+  // into an ordinary gated rolling update (see platform/rollout.ts).
+  const s3Checksum = secretChecksum({ "s3.json": renderS3Config(cfg, identityInputs) });
 
   const topology =
     cfg.seaweedfs.topology === "split"
-      ? installSplitSeaweedFS(cfg, provider, namespace, s3Secret, postgresHost, filerStoreDeps)
-      : installSingleNodeSeaweedFS(cfg, provider, namespace, s3Secret);
+      ? installSplitSeaweedFS(cfg, provider, namespace, s3Secret, s3Checksum, postgresHost, filerStoreDeps)
+      : installSingleNodeSeaweedFS(cfg, provider, namespace, s3Secret, s3Checksum);
 
   // Pre-create the platform buckets. SeaweedFS does not auto-create on PUT.
   // Idempotent: bucket-already-exists is a no-op.

@@ -48,6 +48,9 @@ function makeDeps(overrides = {}) {
     backendUrl: 'http://backend:8000',
     internalToken: 'tok',
     bucket: 'grid-documents',
+    // Required in production, so required here: a default would let a test
+    // pass against a wiring that erases half of what it claims to.
+    bucketsForOrg: (orgId) => ['grid-documents', `grid-org-${orgId}-abcdef123456`],
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     deleteStoragePrefix: vi.fn().mockResolvedValue(3),
     workos: {
@@ -148,9 +151,7 @@ describe('purgeProject', () => {
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
       conversationRows: [],
     })
-    const deps = makeDeps({
-      bucketsForOrg: (orgId) => ['grid-documents', `grid-org-${orgId}-abcdef123456`],
-    })
+    const deps = makeDeps()
 
     await purgeProject(tx, entry, deps)
 
@@ -173,13 +174,27 @@ describe('purgeProject', () => {
       .fn()
       .mockResolvedValueOnce(3)
       .mockRejectedValueOnce(new Error('SeaweedFS delete reported 2 error(s)'))
-    const deps = makeDeps({
-      deleteStoragePrefix,
-      bucketsForOrg: () => ['grid-documents', 'grid-org-org1-abcdef123456'],
-    })
+    const deps = makeDeps({ deleteStoragePrefix })
 
     await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/SeaweedFS delete reported/)
     expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  // A default here would mean that dropping the wiring in `index.js` silently
+  // degrades erasure to shared-bucket-only: no error, no log line, and a purge
+  // that deletes the rows naming a tenant's objects while the objects remain.
+  // The whole reason the naming rule is a shared module is to make that class
+  // of drift impossible; a permissive default would put it straight back.
+  it('refuses to run without an explicit bucket list rather than guessing one', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+    })
+    const deps = makeDeps({ bucketsForOrg: undefined })
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/bucketsForOrg/)
+    expect(deps.fetchImpl).not.toHaveBeenCalled()
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })
 

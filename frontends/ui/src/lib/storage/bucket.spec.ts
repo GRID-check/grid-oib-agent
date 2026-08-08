@@ -149,18 +149,18 @@ describe('bucket selection', () => {
     )
   })
 
-  // Erasure must visit both. An organization that predates the flip has objects
-  // in the shared bucket AND in its own; sweeping only the current one leaves
-  // the older half behind, which for a deletion request is the whole failure.
-  it('enumerates both buckets for an organization when the feature is on', () => {
-    vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', 'true')
-    expect(bucketsForOrganization(ORG)).toEqual(['grid-documents', tenantBucketName(ORG)])
-  })
-
-  it('enumerates only the shared bucket when the feature is off', () => {
-    vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', 'false')
-    expect(bucketsForOrganization(ORG)).toEqual(['grid-documents'])
-  })
+  // Erasure must visit both, in every state of the flag. The dangerous one is
+  // "was on, now off": objects are still in the tenant bucket, and a sweep that
+  // consulted the flag would skip it, delete the rows that named them, and
+  // report the erasure complete. A bucket that does not exist is a no-op, so
+  // visiting it unconditionally costs one list call.
+  it.each([['true'], ['false']])(
+    'enumerates both buckets regardless of the feature flag (%s)',
+    (flag) => {
+      vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', flag)
+      expect(bucketsForOrganization(ORG)).toEqual(['grid-documents', tenantBucketName(ORG)])
+    },
+  )
 })
 
 describe('ensureTenantBucket', () => {

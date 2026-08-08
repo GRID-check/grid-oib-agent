@@ -2,7 +2,12 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "../platform/namespaces";
-import { ROLLOUT, gracefulShutdown, orderedRollout } from "../platform/rollout";
+import {
+  ROLLOUT,
+  gracefulShutdown,
+  orderedRollout,
+  secretChecksumAnnotations,
+} from "../platform/rollout";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { DATA_RESOURCES, PORT, SEAWEED } from "../constants";
 import type { SeaweedTopology } from "./seaweedfs-types";
@@ -206,6 +211,8 @@ export function installSplitSeaweedFS(
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
   s3Secret: k8s.core.v1.Secret,
+  /** Digest of the rendered `s3.json`, so a key rotation rolls the pods. */
+  s3Checksum: pulumi.Output<string>,
   /** CNPG read/write host, for the Postgres filer store. */
   postgresHost: string,
   /** Gate the filer on the filer database and role existing. */
@@ -282,12 +289,32 @@ export function installSplitSeaweedFS(
                 env: IDENTITY_ENV,
                 ports: masterPorts.map((p) => ({ containerPort: p.port, name: p.name })),
                 volumeMounts: [{ name: "data", mountPath: "/data" }],
-                readinessProbe: {
-                  httpGet: { path: "/cluster/healthz", port: PORT.seaweedMaster },
-                  initialDelaySeconds: 5,
-                  periodSeconds: 5,
-                  failureThreshold: 12,
-                },
+                // `/cluster/healthz` answers 423 Locked while this master holds
+                // a topology child lock, and 503 while no leader is elected.
+                // Neither is self-scoped, which is why it is not the liveness
+                // probe — and with ONE master it should not be the readiness
+                // probe either: that master is the only endpoint of the
+                // `seaweedfs-master` Service, which the volume servers, the
+                // filer and every `weed shell` resolve. 60s of 423 during an
+                // ordinary admin operation would empty the Service and fail
+                // every new master connection in the cluster.
+                //
+                // With a quorum the calculus flips: a locked or leaderless
+                // member SHOULD leave the Service, because the others can serve.
+                readinessProbe:
+                  cfg.seaweedfs.masterReplicas > 1
+                    ? {
+                        httpGet: { path: "/cluster/healthz", port: PORT.seaweedMaster },
+                        initialDelaySeconds: 5,
+                        periodSeconds: 5,
+                        failureThreshold: 12,
+                      }
+                    : {
+                        tcpSocket: { port: PORT.seaweedMaster },
+                        initialDelaySeconds: 5,
+                        periodSeconds: 5,
+                        failureThreshold: 12,
+                      },
                 // TCP, not `/cluster/healthz`. That endpoint answers 423 Locked
                 // while this master is the leader and the topology holds a
                 // child lock — i.e. during an ordinary admin or volume
@@ -466,7 +493,7 @@ export function installSplitSeaweedFS(
         ...orderedRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: filerLabels },
         template: {
-          metadata: { labels: filerLabels },
+          metadata: { labels: filerLabels, annotations: secretChecksumAnnotations(s3Checksum) },
           spec: {
             enableServiceLinks: false,
             securityContext: { fsGroup: 1000 },
@@ -513,7 +540,24 @@ export function installSplitSeaweedFS(
                 resources: DATA_RESOURCES.seaweedfsFiler,
               },
             ],
-            volumes: [{ name: "config", secret: { secretName: filerConfigSecret.metadata.name } }],
+            volumes: [
+              // TWO Secrets, both mounted at CONFIG_DIR's children rather than
+              // one over the other: `filer.toml` (the store) and `s3.json` (the
+              // identities). The gateway runs inside this process, and
+              // `NewIdentityAccessManagement` calls `glog.Fatalf` when
+              // `-s3.config` names a file it cannot read — so a missing s3.json
+              // does not degrade the S3 API, it kills the filer. Kubernetes
+              // cannot merge two Secrets into one mount path, hence `projected`.
+              {
+                name: "config",
+                projected: {
+                  sources: [
+                    { secret: { name: filerConfigSecret.metadata.name } },
+                    { secret: { name: s3Secret.metadata.name } },
+                  ],
+                },
+              },
+            ],
           },
         },
         // Declared in BOTH store modes, and unused under `postgres`. That is

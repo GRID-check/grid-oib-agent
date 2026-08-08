@@ -99,15 +99,17 @@ export function resolveDocumentBucket(storageBucket: string | null | undefined):
  * Every bucket an organization's objects could be in, for operations that must
  * not miss any — tenant erasure, usage reconciliation.
  *
- * Both, always, when the flag is on. An organization that predates the flip has
- * objects in the shared bucket AND in its own, and a sweep that visits only the
- * current one leaves the older half behind — which for an erasure request is
- * the entire failure.
+ * Both, ALWAYS, and deliberately not gated on the feature flag: see the
+ * three-state argument on `bucketsForOrganization` in `./tenant-bucket.js`. The
+ * dangerous state is "the flag was on and has since been turned off", where a
+ * gated sweep skips the tenant bucket and reports success.
+ *
+ * The purger — the process that actually erases a tenant — calls the CommonJS
+ * function directly, because it cannot import TypeScript. This is the same
+ * function, re-exported, so the two cannot disagree.
  */
 export function bucketsForOrganization(organizationId: string): string[] {
-  return perOrgBucketsEnabled()
-    ? [sharedBucketName, tenantBucketName(organizationId)]
-    : [sharedBucketName]
+  return naming.bucketsForOrganization(organizationId, sharedBucketName, tenantPrefix())
 }
 
 /**

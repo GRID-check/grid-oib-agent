@@ -179,9 +179,21 @@ remains valid under either layout and moving between them is a bucket copy
 rather than a rewrite. Only the bucket moves.
 
 **Erasure visits every bucket an organization could have objects in** — the
-shared one AND its own — because an organization that predates the flip has
-objects in both, and a sweep that visits only the current one leaves the older
-half behind. For a deletion request that is the entire failure.
+shared one AND its own, unconditionally. Three states have to be correct and
+only one of them is "the flag is on": before it, the tenant bucket does not
+exist, and a prefix sweep over a bucket that does not exist is a no-op, because
+a bucket that does not exist holds no objects; during, objects are in both,
+because an organization that predates the flip kept everything it already had;
+after it is turned off again, objects are STILL in both — and that is the state
+that makes gating dangerous, because a sweep consulting the flag would skip the
+tenant bucket and report the erasure complete.
+
+The lazy-creation half of that matters too: tenant buckets are created on an
+organization's first upload, so an organization that has not uploaded since the
+flip has none. Treating a missing bucket as an error rather than as zero objects
+would fail the purge AFTER it had destroyed the Python-side stores, retry ten
+times destroying them again, and then abandon the queue row with the tenant's
+project and conversation rows intact.
 
 **The naming rule is ONE module**, CommonJS, shared by the BFF and the purger —
 the same pattern `lib/limits/rules.js` uses for the WebSocket proxy, and for the
@@ -195,9 +207,9 @@ Three static identities in `s3.json`:
 
 | identity | holder | grant |
 |---|---|---|
-| `grid` | BFF, purger, PG backups | object CRUD on the platform buckets and, when enabled, `Read/Write/List/Tagging:<prefix>*`. No `Admin` — it cannot create or drop a bucket. |
+| `grid` | BFF, purger, PG backups | object CRUD on the platform buckets, plus `Read/Write/List/Tagging:<prefix>*`. No `Admin` — it cannot create or drop a bucket. |
 | `grid-backend-read` | aiq-agent tier (ADR-0039) | `Read` on document buckets ONLY. Was a bare `Read`; see Context. |
-| `grid-tenant-admin` | provisioning path | `Admin:<prefix>*` and nothing else. |
+| `grid-tenant-admin` | bucket provisioning only | `Admin:<prefix>*` and nothing else. |
 
 The split between `grid` and `grid-tenant-admin` is forced by the SeaweedFS
 limitation above: since `Admin:<bucket>` authorises DeleteBucket as well as
@@ -206,6 +218,16 @@ of the upload path is to keep it on a credential the upload path does not hold.
 The purger is given the naming inputs but NOT that credential — it erases
 objects by prefix, and an unattended queue worker is the last thing that should
 be able to drop a bucket outright.
+
+**The tenant SCOPES are granted whether or not the feature is enabled; only the
+lifecycle identity is gated.** That asymmetry is the thing that makes turning
+the feature back off safe. The application layer is already flag-independent on
+reads — it resolves the bucket from the row — but a presigned URL is only worth
+what the credential signing it can do. Gate the grants on the flag and a
+rollback silently `AccessDenied`s every document written while it was on, and
+makes the purge skip the tenant bucket while reporting success. The grant is a
+bucket-name PREFIX, so when no tenant bucket exists it covers nothing; creating
+buckets is the one thing that genuinely stops.
 
 `loadConfig` refuses a tenant prefix that is a prefix of any platform bucket
 name. The grants are wildcard-scoped and matched by string prefix, so a prefix

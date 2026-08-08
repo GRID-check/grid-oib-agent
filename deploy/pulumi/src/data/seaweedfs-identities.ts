@@ -49,11 +49,21 @@ export interface S3IdentityInputs {
   /** Buckets this stack creates itself and grants `grid` outright. */
   platformBuckets: string[];
   /**
-   * Bucket-name prefix for per-organization buckets, or `undefined` when the
-   * deployment is still on one shared documents bucket. Must end in `-`; see
-   * the validation in `config.ts`.
+   * Bucket-name prefix for per-organization buckets. Always granted, whether or
+   * not the feature is currently enabled — the grant is a PREFIX, so it covers
+   * nothing when no tenant bucket exists, and covers exactly the right set when
+   * the feature was on and has since been turned off. Gating it there would
+   * revoke read access to every document written while it was on, which would
+   * make the rollback the row-recorded bucket exists to keep safe unsafe again.
    */
-  tenantBucketPrefix?: string;
+  tenantBucketPrefix: string;
+  /**
+   * Whether this deployment CREATES tenant buckets. Gates only the lifecycle
+   * identity, because creating buckets is the one thing that genuinely stops
+   * when the feature is off — reading and deleting the objects in buckets that
+   * already exist does not.
+   */
+  provisioning: boolean;
 }
 
 /**
@@ -62,14 +72,13 @@ export interface S3IdentityInputs {
  */
 export function renderS3Config(
   cfg: GridConfig,
-  { platformBuckets, tenantBucketPrefix }: S3IdentityInputs,
+  { platformBuckets, tenantBucketPrefix, provisioning }: S3IdentityInputs,
 ): pulumi.Output<string> {
   // `Read:grid-org-*` — the star is matched by prefix, so this covers every
   // bucket the tenant provisioner will ever create without covering
   // `grid-documents` or `grid-pg-backups`. config.ts refuses a prefix that
   // would overlap either.
-  const tenantScope = (action: string): string[] =>
-    tenantBucketPrefix ? [`${action}:${tenantBucketPrefix}*`] : [];
+  const tenantScope = (action: string): string[] => [`${action}:${tenantBucketPrefix}*`];
 
   const perBucket = (action: string): string[] => [
     ...platformBuckets.map((bucket) => `${action}:${bucket}`),
@@ -121,7 +130,7 @@ export function renderS3Config(
         },
       ];
 
-      if (tenantBucketPrefix) {
+      if (provisioning) {
         identities.push({
           name: "grid-tenant-admin",
           credentials: [{ accessKey: taak, secretKey: task }],

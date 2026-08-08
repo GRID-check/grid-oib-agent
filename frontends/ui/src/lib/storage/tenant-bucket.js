@@ -103,6 +103,18 @@ function assertValidBucketName(name) {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(name)) {
     throw new Error(`Invalid S3 bucket name "${name}": must not be formatted as an IP address.`)
   }
+  // SeaweedFS's own `VerifyS3BucketName` rejects both of these outright, so a
+  // name we accept and it does not is an upload that fails at bucket-creation
+  // time for one specific tenant, with an InvalidBucketName three layers down.
+  // `xn--` is reachable through a configured prefix; `-s3alias` is not, because
+  // every name ends in hex — checked anyway, since the suffix rule is the
+  // cheaper half of matching a validator we do not control.
+  if (name.startsWith('xn--')) {
+    throw new Error(`Invalid S3 bucket name "${name}": must not start with "xn--".`)
+  }
+  if (name.endsWith('-s3alias')) {
+    throw new Error(`Invalid S3 bucket name "${name}": must not end with "-s3alias".`)
+  }
   return name
 }
 
@@ -139,8 +151,37 @@ function tenantBucketName(organizationId, prefix = DEFAULT_TENANT_BUCKET_PREFIX)
   return assertValidBucketName(name)
 }
 
+/**
+ * Every bucket an organization's objects can be in, for operations that must
+ * not miss any: tenant erasure, and usage reconciliation.
+ *
+ * Both, ALWAYS — deliberately not gated on whether per-organization buckets are
+ * currently enabled. Three states have to work, and only one of them is "the
+ * flag is on":
+ *
+ *   - flag never on  → the tenant bucket does not exist, and listing a bucket
+ *     that does not exist is a no-op (`deleteStoragePrefix` treats NoSuchBucket
+ *     as zero objects, which is what it is);
+ *   - flag on        → objects in both, because an organization that predates
+ *     the flip kept everything it already had;
+ *   - flag turned OFF again → objects STILL in both, and this is the case that
+ *     makes gating dangerous. A sweep that consulted the flag would skip the
+ *     tenant bucket and report success, deleting the rows that name the objects
+ *     while the objects remain. For an erasure request that is not a bug that
+ *     surfaces later; it is the failure, silently.
+ *
+ * @param {string} organizationId
+ * @param {string} sharedBucket the deployment's shared bucket
+ * @param {string} [prefix]
+ * @returns {string[]}
+ */
+function bucketsForOrganization(organizationId, sharedBucket, prefix = DEFAULT_TENANT_BUCKET_PREFIX) {
+  return [sharedBucket, tenantBucketName(organizationId, prefix)]
+}
+
 module.exports = {
   DEFAULT_TENANT_BUCKET_PREFIX,
+  bucketsForOrganization,
   HASH_CHARS,
   MAX_BUCKET_NAME,
   assertValidBucketName,

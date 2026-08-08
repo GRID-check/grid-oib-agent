@@ -150,11 +150,18 @@ describe("split topology", () => {
     const cfg = makeConfig(overrides);
     const secret = identities.s3ConfigSecret(cfg, provider, "grid", {
       platformBuckets: [cfg.seaweedfs.bucket],
-      tenantBucketPrefix: cfg.seaweedfs.perOrgBuckets
-        ? cfg.seaweedfs.tenantBucketPrefix
-        : undefined,
+      tenantBucketPrefix: cfg.seaweedfs.tenantBucketPrefix,
+      provisioning: cfg.seaweedfs.perOrgBuckets,
     });
-    return mod.installSplitSeaweedFS(cfg, provider, "grid", secret, "grid-pg-rw", []);
+    return mod.installSplitSeaweedFS(
+      cfg,
+      provider,
+      "grid",
+      secret,
+      pulumi.output("checksum"),
+      "grid-pg-rw",
+      [],
+    );
   }
 
   it("addresses the master separately from the S3 endpoint", async () => {
@@ -289,10 +296,32 @@ describe("split topology", () => {
       expect((master.livenessProbe as Probe).tcpSocket?.port).toBe(9333);
       expect((volume.livenessProbe as Probe).httpGet).toBeUndefined();
       expect((volume.livenessProbe as Probe).tcpSocket?.port).toBe(8080);
-      // Readiness is where those endpoints belong: they take a pod out of the
-      // Service without restarting it.
-      expect((master.readinessProbe as Probe).httpGet?.path).toBe("/cluster/healthz");
+      // Readiness is where the volume endpoint belongs: it takes a pod out of
+      // the Service without restarting it, and with `000` replication it never
+      // probes a peer at all.
       expect((volume.readinessProbe as Probe).httpGet?.path).toBe("/healthz");
+      // The master's is different, and the reason is arithmetic rather than
+      // semantics — see the next test.
+      expect((master.readinessProbe as Probe).tcpSocket?.port).toBe(9333);
+    });
+
+    it("only puts the master's cluster health on readiness once there is a quorum", async () => {
+      // With ONE master, that pod is the only endpoint of the `seaweedfs-master`
+      // Service — which the volume servers, the filer and every `weed shell`
+      // resolve. `/cluster/healthz` answers 423 while it holds a topology lock,
+      // so 60s of an ordinary admin operation would empty the Service and fail
+      // every new master connection in the cluster. TCP is the honest check
+      // there: the only question a single master can answer is "am I up".
+      const solo = await install();
+      expect((container(await statefulSetSpec(solo.workloads[0]), "master").readinessProbe as Probe).tcpSocket?.port).toBe(9333);
+
+      // With a quorum the calculus flips: a locked or leaderless member SHOULD
+      // leave the Service, because the others can still serve.
+      const quorum = await install({ seaweedfs: { masterReplicas: 3 } });
+      expect(
+        (container(await statefulSetSpec(quorum.workloads[0]), "master").readinessProbe as Probe)
+          .httpGet?.path,
+      ).toBe("/cluster/healthz");
     });
 
     it("uses the filer's own store round-trip for both of its probes", async () => {
@@ -347,6 +376,39 @@ describe("split topology", () => {
     expect(volume.volumeClaimTemplates?.map((v) => v.metadata?.name)).toEqual(["data"]);
   });
 
+  // The defect this pins killed the whole filer process, not just the S3 API:
+  // `NewIdentityAccessManagement` calls `glog.Fatalf` when `-s3.config` names a
+  // file it cannot read. The split rewrite mounted only `filer.toml`, so every
+  // fresh `split` stack would have crash-looped from first boot — and the
+  // bucket-init Job waits on the filer's /healthz, so `pulumi up` would never
+  // converge and every downstream workload would block behind it.
+  it("mounts BOTH config Secrets at the path the filer reads", async () => {
+    const t = await install();
+    const spec = await statefulSetSpec(t.workloads[2]);
+    const volumes = (spec.template.spec as unknown as {
+      volumes: Array<{ name: string; projected?: { sources: Array<{ secret: { name: string } }> } }>;
+    }).volumes;
+    const config = volumes.find((v) => v.name === "config");
+    const mounted = config?.projected?.sources.map((src) => src.secret.name).sort();
+    expect(mounted).toEqual(["seaweedfs-filer-config", "seaweedfs-s3-config"]);
+
+    const mounts = container(spec, "filer").volumeMounts as Array<{ name: string; mountPath: string }>;
+    expect(mounts.find((m) => m.name === "config")?.mountPath).toBe("/etc/seaweedfs");
+  });
+
+  // `s3.json` is read once, at process start. Without a checksum on the pod
+  // template, rotating `seaweedfsSecretKey` updates the Secret, restarts
+  // nothing, and reports success while every pod keeps authenticating callers
+  // against the key that was just retired.
+  it("rolls the pods when the identity file changes", async () => {
+    const t = await install();
+    const spec = await statefulSetSpec(t.workloads[2]);
+    const annotations = (spec.template as unknown as {
+      metadata: { annotations?: Record<string, string> };
+    }).metadata.annotations;
+    expect(annotations?.["grid.bigls.net/secret-checksum"]).toBeTruthy();
+  });
+
   describe("policy-pack invariants", () => {
     it("holds for every workload", async () => {
       const t = await install({ seaweedfs: { masterReplicas: 3, volumeReplicas: 2, filerReplicas: 2 } });
@@ -393,8 +455,10 @@ describe("single-node topology", () => {
     const cfg = makeConfig({ seaweedfs: { topology: "single" } });
     const secret = identities.s3ConfigSecret(cfg, provider, "grid", {
       platformBuckets: [cfg.seaweedfs.bucket],
+      tenantBucketPrefix: "grid-org-",
+      provisioning: false,
     });
-    const t = installSingleNodeSeaweedFS(cfg, provider, "grid", secret);
+    const t = installSingleNodeSeaweedFS(cfg, provider, "grid", secret, pulumi.output("checksum"));
     expect(t.masterAddress).toBe("seaweedfs:9333");
     expect(t.filerAddress).toBe("seaweedfs:8888");
 
@@ -417,7 +481,8 @@ describe("s3 identities", () => {
     const json = await value(
       renderS3Config(cfg, {
         platformBuckets: ["grid-documents", "grid-pg-backups"],
-        tenantBucketPrefix: tenantPrefix,
+        tenantBucketPrefix: tenantPrefix ?? "grid-org-",
+        provisioning: tenantPrefix !== undefined,
       }),
     );
     return JSON.parse(json) as { identities: Array<{ name: string; actions: string[] }> };
@@ -438,8 +503,25 @@ describe("s3 identities", () => {
   it("keeps the agent tier off the Postgres backup bucket", async () => {
     const cfg = await render({});
     const backendRead = cfg.identities.find((i) => i.name === "grid-backend-read")!;
-    expect(backendRead.actions).toEqual(["Read:grid-documents"]);
+    // Document buckets only: the shared one and the tenant prefix. NOT the
+    // PITR archive, which a bare `Read` used to cover — i.e. every row of
+    // every database, readable by the agent tier.
+    expect(backendRead.actions).toEqual(["Read:grid-documents", "Read:grid-org-*"]);
     expect(backendRead.actions.join(" ")).not.toContain("grid-pg-backups");
+  });
+
+  // The property that makes turning the feature OFF safe. The application layer
+  // is already flag-independent on reads — it resolves the bucket from the row —
+  // but the S3 grants are what actually authorise the presigned URL. Gate them
+  // on the flag and a rollback silently AccessDenies every document written
+  // while it was on, and makes the purge skip the tenant bucket while reporting
+  // success.
+  it("grants the tenant scope even when provisioning is off", async () => {
+    const off = await render({});
+    const grid = off.identities.find((i) => i.name === "grid")!;
+    expect(grid.actions).toContain("Read:grid-org-*");
+    expect(grid.actions).toContain("Write:grid-org-*");
+    expect(grid.actions).toContain("List:grid-org-*");
   });
 
   it("gives the object-path identity no bucket lifecycle authority", async () => {
@@ -459,6 +541,9 @@ describe("s3 identities", () => {
   });
 
   it("creates no lifecycle identity at all when per-org buckets are off", async () => {
+    // Creating buckets is the one thing that genuinely stops. Reading and
+    // deleting objects in buckets that already exist does not — which is why
+    // only THIS identity is gated.
     const cfg = await render({});
     expect(cfg.identities.map((i) => i.name)).toEqual(["grid", "grid-backend-read"]);
   });

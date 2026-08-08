@@ -89,6 +89,9 @@ import type { DocumentListRow } from './repository'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
+import { s3Client, bucketAdminS3Client } from '@/lib/s3'
+import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
 const session: AuthorizedSession = {
@@ -191,6 +194,71 @@ describe('uploadDocument server-side type gate', () => {
       uploadDocument(session, makeInput({ name: 'malware.exe', type: 'application/octet-stream' }), new Request('http://x')),
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(insertDocument).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Per-organization buckets (ADR-0043). Three separate things have to hold, and
+ * all three were provably untested before this block existed: the bytes go to
+ * the tenant bucket, the ROW records which bucket that was, and the ingest
+ * dispatch presigns against the same one. Break any of them and the object is
+ * written somewhere no read path will ever look — with no error at write time.
+ */
+describe('uploadDocument bucket selection', () => {
+  beforeEach(() => {
+    __resetBucketCache()
+    vi.mocked(bucketAdminS3Client.send).mockResolvedValue(undefined as never)
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) })
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('writes to the shared bucket and records it when the feature is off', async () => {
+    vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', 'false')
+    await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    const put = vi.mocked(s3Client.send).mock.calls.at(-1)![0] as unknown as {
+      input: { Bucket: string }
+    }
+    expect(put.input.Bucket).toBe('test-bucket')
+    expect(insertDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ storageBucket: 'test-bucket' }),
+    )
+    // No bucket-lifecycle call at all — not even a HeadBucket.
+    expect(bucketAdminS3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('provisions and writes to the organization bucket when the feature is on', async () => {
+    vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', 'true')
+    await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    const expected = tenantBucketName('org-1')
+    // Provisioned with the LIFECYCLE credential, not the object one.
+    expect(vi.mocked(bucketAdminS3Client.send)).toHaveBeenCalled()
+    const put = vi.mocked(s3Client.send).mock.calls.at(-1)![0] as unknown as {
+      input: { Bucket: string }
+    }
+    expect(put.input.Bucket).toBe(expected)
+    expect(insertDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ storageBucket: expected }),
+    )
+  })
+
+  it('presigns the ingest download and the thumbnail slot against that same bucket', async () => {
+    vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', 'true')
+    vi.mocked(getSignedUrl).mockClear()
+    await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    const expected = tenantBucketName('org-1')
+    const buckets = vi
+      .mocked(getSignedUrl)
+      .mock.calls.map((call) => (call[1] as unknown as { input: { Bucket: string } }).input.Bucket)
+    // Both of them: the GET the backend reads from, and the PUT it writes the
+    // thumbnail back to. A thumbnail written to the wrong bucket is invisible
+    // to every read path AND survives the document's own deletion.
+    expect(buckets.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(buckets)).toEqual(new Set([expected]))
   })
 })
 
@@ -491,6 +559,34 @@ describe('reingestDocument', () => {
     expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-77' })
     expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-99', 'org-1', 'job-77')
     expect(markDocumentIngestFailed).not.toHaveBeenCalled()
+  })
+
+  // The row's bucket, NOT the bucket a new upload would go to. Both presigned
+  // URLs have to name where the object actually IS: a retry against the shared
+  // bucket 404s forever (the document can never be recovered through the UI),
+  // and the thumbnail PUT lands somewhere no read path looks and no delete
+  // sweeps.
+  it('presigns against the bucket the document is actually in', async () => {
+    vi.stubEnv('SEAWEED_PER_ORG_BUCKETS', 'true')
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-99',
+        status: 'failed',
+        storageKey: 'org/org-1/project/proj-1/doc/doc-99/plan.pdf',
+        storageBucket: 'grid-org-org-1-deadbeef1234',
+      }),
+    )
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) })
+    vi.mocked(getSignedUrl).mockClear()
+
+    await reingestDocument(session, 'doc-99')
+
+    const buckets = vi
+      .mocked(getSignedUrl)
+      .mock.calls.map((call) => (call[1] as unknown as { input: { Bucket: string } }).input.Bucket)
+    expect(buckets.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(buckets)).toEqual(new Set(['grid-org-org-1-deadbeef1234']))
+    vi.unstubAllEnvs()
   })
 
   it('rejects documents that are not in a failed state (409)', async () => {

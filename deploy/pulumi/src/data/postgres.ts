@@ -17,8 +17,6 @@ export interface Postgres {
   cluster: k8s.apiextensions.CustomResource;
   /** Job that ensures job/checkpoint tables exist (idempotent). */
   initJob: k8s.batch.v1.Job;
-  /** Nightly PITR base-backup schedule (only when backups are enabled). */
-  scheduledBackup?: k8s.apiextensions.CustomResource;
   /** Read/write service host (the CNPG primary), e.g. `grid-pg-rw`. */
   rwHost: string;
   /** Build a DSN for one of the three logical databases. */
@@ -392,10 +390,15 @@ export function installPostgres(
     },
     {
       provider,
-      // backupDeps gates the CLUSTER (not just the ScheduledBackup) on the
-      // backup bucket existing: WAL archiving starts the moment the cluster
+      // `backupDeps` gates the CLUSTER on the archive bucket existing, where
+      // the ordering allows it: WAL archiving starts the moment the cluster
       // boots and would otherwise race bucket-init into NoSuchBucket-degraded
-      // ContinuousArchiving on every first deploy.
+      // ContinuousArchiving on every first deploy. It is EMPTY in the one
+      // configuration where SeaweedFS depends on Postgres rather than the other
+      // way round (split topology, Postgres filer store), because there the
+      // gate would be a cycle. That is survivable for WAL — `archive_command`
+      // retries indefinitely — which is exactly why the one-shot base backup is
+      // NOT created here; see `installScheduledBackup`.
       dependsOn: [operator, webhookReady, ...(backupSecret ? [backupSecret] : []), ...backupDeps],
       // The single most destructive resource in the program. CloudNativePG OWNS
       // the cluster's PVCs, so unlike the StatefulSets (whose PVCs are pinned
@@ -432,7 +435,14 @@ export function installPostgres(
           apiVersion: "postgresql.cnpg.io/v1",
           kind: "Database",
           metadata: {
-            name: cfg.seaweedfs.filerDatabase,
+            // The CR's own object name, which must be a DNS-1123 subdomain —
+            // no underscores. The DATABASE and the ROLE keep the underscore
+            // (`spec.name` / `spec.owner` below), because those are Postgres
+            // identifiers and a hyphen there would need quoting everywhere it
+            // appears. Getting this wrong is not a subtle failure: the API
+            // server rejects the CR outright, `pg-init-tables` never runs
+            // because it waits on it, and the filer never starts.
+            name: cfg.seaweedfs.filerDatabase.replace(/_/g, "-"),
             namespace,
             labels: commonLabels("postgres"),
           },
@@ -595,35 +605,60 @@ export function installPostgres(
     },
   );
 
-  // 5. Nightly base backup (WAL is archived continuously by the cluster above).
-  //    Gated on the SeaweedFS bucket-init (passed via backupDeps) so the first
-  //    run has a bucket to write to.
-  const scheduledBackup = cfg.postgres.backups.enabled
-    ? new k8s.apiextensions.CustomResource(
-        "pg-scheduled-backup",
-        {
-          apiVersion: "postgresql.cnpg.io/v1",
-          kind: "ScheduledBackup",
-          metadata: { name: "grid-pg-nightly", namespace, labels: commonLabels("postgres") },
-          spec: {
-            schedule: cfg.postgres.backups.schedule,
-            backupOwnerReference: "self",
-            cluster: { name: CLUSTER_NAME },
-            method: "barmanObjectStore",
-            // Take the first base backup immediately on creation — without it
-            // PITR is impossible until the first scheduled (02:00) run.
-            immediate: true,
-          },
-        },
-        { provider, dependsOn: [cluster, ...backupDeps] },
-      )
-    : undefined;
-
   // The filer must not open its store until the role, the database and the
   // CONNECT lockdown are all in place. The init Job is the last of the three,
   // so it is the one to gate on — and it is also the step that proves the
   // database is actually reachable, not merely declared.
   const filerStoreDeps: pulumi.Resource[] = filerDatabase ? [filerDatabase, initJob] : [];
 
-  return { operator, cluster, initJob, scheduledBackup, rwHost, dsn, filerStoreDeps };
+  return { operator, cluster, initJob, rwHost, dsn, filerStoreDeps };
+}
+
+/**
+ * The nightly base backup, as a resource of its own rather than part of
+ * `installPostgres`.
+ *
+ * It is separated because of an ordering problem that only appears in one
+ * configuration and is invisible in the others. `immediate: true` fires a
+ * Backup the moment the CR is created, and CloudNativePG does **not** retry a
+ * failed `Backup` object — the next attempt is the cron, i.e. 02:00 the
+ * following day. So a first Backup that lands before the archive bucket exists
+ * leaves the stack with archived WAL and no base backup, which is not a
+ * recoverable PITR, while `kubectl cnpg status` reports continuous archiving as
+ * healthy.
+ *
+ * Under the split topology with the Postgres filer store, Postgres has to be
+ * created BEFORE SeaweedFS (the filer cannot open its store otherwise), so the
+ * bucket genuinely does not exist yet at that point. WAL archiving survives
+ * that — `archive_command` retries indefinitely and pg_wal buffers — but the
+ * one-shot base backup does not. Creating the schedule here, after
+ * `bucketInitJob`, is what makes the first backup succeed in every topology.
+ */
+export function installScheduledBackup(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+  namespace: pulumi.Input<string>,
+  /** The cluster, and the Job that proves the archive bucket exists. */
+  dependsOn: pulumi.Resource[],
+): k8s.apiextensions.CustomResource | undefined {
+  if (!cfg.postgres.backups.enabled) return undefined;
+  return new k8s.apiextensions.CustomResource(
+    "pg-scheduled-backup",
+    {
+      apiVersion: "postgresql.cnpg.io/v1",
+      kind: "ScheduledBackup",
+      metadata: { name: "grid-pg-nightly", namespace, labels: commonLabels("postgres") },
+      spec: {
+        schedule: cfg.postgres.backups.schedule,
+        backupOwnerReference: "self",
+        cluster: { name: CLUSTER_NAME },
+        method: "barmanObjectStore",
+        // Take the first base backup immediately on creation — without it there
+        // is no PITR at all until the first scheduled run. See the header for
+        // why that makes this resource's ordering load-bearing.
+        immediate: true,
+      },
+    },
+    { provider, dependsOn },
+  );
 }

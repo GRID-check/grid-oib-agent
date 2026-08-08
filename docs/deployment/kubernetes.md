@@ -458,9 +458,13 @@ same subsystem.
 Turning it on is NOT a cutover and NOT a migration. The bucket each document
 lives in is recorded on its row (`documents.storage_bucket`, migration 0033);
 NULL means the shared bucket. Enabling the flag changes where the NEXT object is
-written and nothing else, and disabling it again is equally uneventful. An
-organization therefore keeps objects in both buckets indefinitely, and every
-erasure path sweeps both.
+written and nothing else, and disabling it again is equally uneventful — which
+holds only because two things are deliberately NOT gated on the flag: the S3
+grants (`Read:grid-org-*` and friends are always issued, so a rollback does not
+revoke access to what was written while it was on) and the erasure sweep (which
+always visits both buckets, so a rollback cannot silently leave a tenant's
+objects behind). An organization keeps objects in both buckets indefinitely;
+that is the design, not a loose end.
 
 Requires `seaweedfsTenantAdminSecretKey`: bucket creation and deletion are a
 single `Admin` action in SeaweedFS and cannot be granted separately, so they get
