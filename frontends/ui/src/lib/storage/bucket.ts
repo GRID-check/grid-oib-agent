@@ -34,10 +34,14 @@ import * as naming from './tenant-bucket.js'
  * Worth being precise, because it is less than "isolation" and more than
  * cosmetic:
  *
- * - **Erasure becomes atomic.** Deleting a tenant is `DeleteBucket`, not a
- *   paginated list-and-delete that can fail halfway and leave objects behind
- *   after the rows that pointed at them are gone. With SeaweedFS's `postgres2`
- *   filer store, that drop is a `DROP TABLE` on the metadata side too.
+ * - **The container for a tenant's objects exists**, which is what makes
+ *   erasing one a single operation rather than a paginated list-and-delete
+ *   that can fail halfway and leave objects behind after the rows naming them
+ *   are gone. Not yet realised: the deletion pipeline (ADR-0011) implements
+ *   `project` and nothing else, and a project is a subset of an organization's
+ *   bucket, so it stays a prefix sweep — across both buckets now. When the
+ *   ORGANIZATION purger is built it can be `DeleteBucket`, and with SeaweedFS's
+ *   `postgres2` store the metadata side of that is a `DROP TABLE`.
  * - **A key-construction bug stops being a cross-tenant bug.** The tenant
  *   boundary moves from a string prefix inside a shared namespace to the
  *   container itself.

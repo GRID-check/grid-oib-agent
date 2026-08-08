@@ -255,14 +255,25 @@ operation would have restarted the only storage server in the deployment.
 - Object capacity is a replica count. `seaweedfsVolumeReplicas` scales the tier
   that actually grows, and `seaweedfsDefaultReplication` with per-node rack
   labels makes a second copy mean a second machine.
-- Chunk encryption becomes at-rest protection rather than crypto-erasure,
-  because the keys move to a different system on different disks.
+- Chunk encryption becomes at-rest protection rather than crypto-erasure —
+  **in the split topology with the Postgres store**, which is where the keys
+  move to a different system on different disks. Under `single`, and under
+  `split` with the embedded store, it remains crypto-erasure and `pulumi up`
+  says so on every deploy.
 - The filer namespace inherits Postgres backup, replication and PITR.
-- Tenant erasure is `DeleteBucket` plus a `DROP TABLE`, not a paginated sweep
-  that can half-finish.
-- A key-construction bug stops being a cross-tenant bug.
-- The agent tier can no longer read the Postgres PITR archive.
-- Per-document delete no longer orphans a thumbnail.
+- **The container for a tenant's objects exists**, which is the prerequisite
+  for erasing one as a single operation. Note what that is and is not today:
+  the deletion pipeline (ADR-0011) implements `project` and nothing else, and a
+  project is a subset of an organization's bucket, so it stays a prefix sweep —
+  now across both buckets. When the ORGANIZATION purger is built it can be
+  `DeleteBucket`, and with `postgres2` the metadata side of that is a
+  `DROP TABLE`. This ADR makes that possible; it does not deliver it.
+- A key-construction bug stops being a cross-tenant bug **once the feature is
+  enabled**. It is off by default, so today this is a property the deployment
+  can opt into rather than one it has.
+- The agent tier can no longer read the Postgres PITR archive. This one is
+  unconditional and applies to every existing deployment on the next deploy.
+- Per-document delete no longer orphans a thumbnail. Also unconditional.
 
 **Costs and things that are now true**
 
