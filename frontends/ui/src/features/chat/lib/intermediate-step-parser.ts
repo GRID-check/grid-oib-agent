@@ -187,12 +187,21 @@ export const formatPayload = (payload: string): string => {
   cleaned = cleaned.replace(/```(?:python|json)?\n?/gi, '')
   cleaned = cleaned.replace(/```/g, '')
 
-  // Decode HTML entities
-  cleaned = cleaned.replace(/&lt;/g, '<')
-  cleaned = cleaned.replace(/&gt;/g, '>')
-  cleaned = cleaned.replace(/&amp;/g, '&')
-  cleaned = cleaned.replace(/&quot;/g, '"')
-  cleaned = cleaned.replace(/&#39;/g, "'")
+  // Decode HTML entities in ONE regex pass. Sequential replaces decode
+  // `&amp;` before `&quot;`/`&#39;`, so an attacker-controlled `&amp;quot;`
+  // re-unescapes to `"` — the double-unescape the CodeQL rule forbids. A
+  // single pass replaces each entity exactly once; an entity that is itself
+  // encoded stays literal (`&amp;amp;` → `&amp;`).
+  cleaned = cleaned.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => {
+    const decodes: Record<string, string> = {
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&#39;': "'",
+    }
+    return decodes[entity]
+  })
 
   // Clean up Python repr formatting (e.g., "type=<ChatContentType.TEXT: 'text'>")
   cleaned = cleaned.replace(/<\w+\.\w+:\s*'[^']*'>/g, (match) => {

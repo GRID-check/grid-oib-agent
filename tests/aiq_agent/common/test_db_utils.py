@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from aiq_agent.common import redact_db_url
 from aiq_agent.common.db_utils import redact_db_url as redact_db_url_direct
 
@@ -11,7 +13,7 @@ def test_postgres_password_redacted_but_metadata_retained():
     out = redact_db_url(url)
     assert "supersecret" not in out
     assert "myuser" in out
-    assert "db.example.com" in out
+    assert urlparse(out).hostname == "db.example.com"
     assert "5432" in out
     assert "mydatabase" in out
 

@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { getDisplayName } from './intermediate-step-parser'
+import { formatPayload, getDisplayName } from './intermediate-step-parser'
 
 describe('getDisplayName', () => {
   test('relabels the shallow node neutrally as "Assistant"', () => {
@@ -27,5 +27,24 @@ describe('getDisplayName', () => {
 
   test('humanizes LLM model names by their last path segment', () => {
     expect(getDisplayName('google/gemini-3.6-flash')).toBe('Gemini 3.6 Flash')
+  })
+})
+
+describe('formatPayload', () => {
+  test('decodes each HTML entity exactly once', () => {
+    expect(formatPayload('a &lt; b &gt; c &amp; d &quot; e &#39; f')).toBe('a < b > c & d " e \' f')
+  })
+
+  test('never re-unescapes an entity that was itself encoded', () => {
+    // `&amp;quot;` is a literal `&quot;` after one decode round — it must not
+    // become a quote (the js/double-escaping regression this guards against).
+    expect(formatPayload('&amp;quot;')).toBe('&quot;')
+    expect(formatPayload('&amp;lt;')).toBe('&lt;')
+    expect(formatPayload('&amp;amp;')).toBe('&amp;')
+  })
+
+  test('still strips Function Input/Output headers and code fences', () => {
+    expect(formatPayload('**Function Input:** x')).toBe('x')
+    expect(formatPayload('```python\nprint(1)\n```')).toBe('print(1)')
   })
 })

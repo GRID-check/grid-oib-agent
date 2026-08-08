@@ -388,7 +388,7 @@ class TestArtifactHelpers:
         _process_artifact_update(event, data, metadata, outputs, sources_found, sources_cited)
 
         assert len(sources_found) == 1
-        assert "https://example.com" in sources_found
+        assert sources_found == {"https://example.com"}
         assert len(sources_cited) == 0
 
     def test_process_artifact_update_tracks_citation_use(self):
@@ -405,5 +405,5 @@ class TestArtifactHelpers:
         _process_artifact_update(event, data, metadata, outputs, sources_found, sources_cited)
 
         assert len(sources_cited) == 1
-        assert "https://example.com" in sources_cited
+        assert sources_cited == {"https://example.com"}
         assert len(sources_found) == 0

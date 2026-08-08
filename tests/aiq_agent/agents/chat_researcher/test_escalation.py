@@ -1,5 +1,7 @@
 """Tests for shallow-to-deep escalation marker detection and keyword matching."""
 
+from urllib.parse import urlparse
+
 from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import detect_and_strip_confidence_marker
 from aiq_agent.agents.chat_researcher.agent import detect_and_strip_escalation_marker
@@ -75,7 +77,7 @@ class TestDetectAndStripEscalationMarker:
         stripped, present = detect_and_strip_escalation_marker(content)
         assert present is True
         assert ESCALATION_MARKER not in stripped
-        assert stripped.endswith("https://example.com")
+        assert urlparse(stripped.split()[-1]).hostname == "example.com"
 
 
 class TestDetectAndStripConfidenceMarker:
@@ -171,7 +173,7 @@ class TestDetectAndStripConfidenceMarker:
         stripped, level, _reason = detect_and_strip_confidence_marker(content)
         assert level == "high"
         assert "[CONFIDENCE" not in stripped
-        assert stripped.endswith("https://example.com")
+        assert urlparse(stripped.split()[-1]).hostname == "example.com"
 
     def test_non_str_content_unchanged(self):
         content = [{"type": "text", "text": "structured content"}]
