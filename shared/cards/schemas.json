@@ -1364,6 +1364,121 @@
       "title": "GuardrailCheckCard",
       "type": "object"
     },
+    "IfcHighlight": {
+      "description": "One set of model elements to call out, with a verdict.",
+      "properties": {
+        "global_ids": {
+          "description": "IFC GlobalIds returned by ifc_query. NEVER invent these \u2014 an id you did not see is a wrong answer.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Global Ids",
+          "type": "array"
+        },
+        "label": {
+          "description": "What is being shown, e.g. 'Fluchtweg > 40 m'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "default": "info",
+          "description": "Verdict colour: pass=green, fail=red, warning=amber, info=neutral",
+          "enum": [
+            "pass",
+            "fail",
+            "warning",
+            "info"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "global_ids",
+        "label"
+      ],
+      "title": "IfcHighlight",
+      "type": "object"
+    },
+    "IfcViewerCard": {
+      "description": "The project's IFC model, rendered in 3D, with findings highlighted on it.\n\nUse when the answer is ABOUT specific parts of the building and seeing them\nbeats reading their names \u2014 a compliance finding on particular walls, the\nrooms that fall below a required area, the escape route being discussed.\nDo NOT use it as a decorative \"here is your building\": an unhighlighted\nviewer says nothing a sentence does not.",
+      "properties": {
+        "highlights": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/IfcHighlight"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Element groups to colour in the viewer, each with a verdict",
+          "title": "Highlights"
+        },
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name of the model, exactly as ifc_query reported it (e.g. 'haus-a.ifc'). Leave empty when the project has only one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification under the viewer",
+          "title": "Note"
+        },
+        "storey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Storey name to isolate on open, e.g. 'Erdgeschoss'",
+          "title": "Storey"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Brandabschnitte \u2013 EG'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_viewer",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcViewerCard",
+      "type": "object"
+    },
     "LegalBasisCard": {
       "description": "A legal norm, regulation, or OIB Richtlinie that grounds the answer.",
       "properties": {
@@ -2239,6 +2354,7 @@
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
       "fire_compartment": "#/$defs/FireCompartmentCard",
       "guardrail_check": "#/$defs/GuardrailCheckCard",
+      "ifc_viewer": "#/$defs/IfcViewerCard",
       "legal_basis": "#/$defs/LegalBasisCard",
       "memory_proposal": "#/$defs/MemoryProposalCard",
       "parking_requirement": "#/$defs/ParkingRequirementCard",
@@ -2317,6 +2433,9 @@
     },
     {
       "$ref": "#/$defs/DocumentGridCard"
+    },
+    {
+      "$ref": "#/$defs/IfcViewerCard"
     }
   ]
 }

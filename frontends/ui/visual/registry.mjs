@@ -551,4 +551,12 @@ export const SCREENSHOT_TARGETS = [
       'Organization → Access, Permissions: the catalog inverted — every permission with the roles that grant it, computed from `ROLES` at render rather than stored, so it cannot drift. Deprecated permissions (`project:edit`) and WorkOS-owned ones (`widgets:*`) are marked instead of hidden, because an admin auditing a role meets those slugs either way.',
     waitFor: '[data-testid="permission-reference"]',
   },
+  {
+    id: 'bim-model',
+    mobile: true,
+    path: '/dev/bim-model',
+    description:
+      'The IFC/BIM model page (ADR-0044): overview stats read from the model itself, the spatial tree with signed storey elevations, the element table filtered to the selected storey, the property panel for the selected wall (occurrence + type-inherited Pset merged), and — in place of the 3D viewport — the no-WebGPU fallback. Headless Chromium has no WebGPU adapter, so the fallback IS what this route captures, which is the right thing to pin: it is what a Safari or Firefox user sees, and it has to read as "the picture is missing", never as "the feature is broken".',
+    waitFor: '[data-testid="bim-model-preview"]',
+  },
 ]

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
-import { isWorkflowsEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled, isWorkflowsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjects } from '@/lib/projects/service'
 import { AppSidebar } from '@/components/shell'
@@ -96,6 +96,7 @@ export default async function ProjectLayout({
           canAccessArchiv={navFlags.canAccessArchiv}
           canAccessInbox={navFlags.canAccessInbox}
           showWorkflows={isWorkflowsEnabled(session)}
+          showModels={isFeatureEnabled(session, FEATURE_FLAGS.ifcModels)}
         />
         {/* tabIndex={-1} makes the landmark programmatically focusable so
             RouteFocus can move focus here on client-side section changes. */}

@@ -85,6 +85,13 @@ node -e '
   }
 done
 
-echo "==> running the isolation suite as grid_app_rw"
+# Both suites need the same cluster and the same restricted role. The BIM one
+# is here rather than in the unit shards because every claim it makes is a claim
+# about SQL — jsonb property filters, grouped aggregates, the element-to-model
+# tenancy join — and a mocked drizzle handle cannot disagree with the fixture
+# that mocked it.
+echo "==> running the isolation and BIM query suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
-  npx vitest run src/lib/db/tenant-isolation.integration.spec.ts
+  npx vitest run \
+    src/lib/db/tenant-isolation.integration.spec.ts \
+    src/lib/bim/query.integration.spec.ts

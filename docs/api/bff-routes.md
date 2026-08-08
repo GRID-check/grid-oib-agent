@@ -317,3 +317,53 @@ Source: `frontends/ui/src/app/api/user/preferences/route.ts`
 | `ws`/`wss` | `/websocket` | Varies | WebSocket gateway for real-time chat with HITL support. Proxied by `server.js` (not a Next.js API route). Headers (`X-Grid-Collection-Scope`, `Authorization`, etc.) are resolved via internal `GET /api/auth/websocket-scope` before forwarding to `ws://{BACKEND_WS_URL}/websocket`. |
 
 Source: `docs/technical-reference/websocket-gateway.md`
+
+## BIM / IFC models (ADR-0044)
+
+Every route is gated by the `ifc-models` WorkOS flag AND the document's own
+access rule: a project model goes through `requireProjectAccess(project:view)`,
+an Archiv model (no project) is readable by any member of the owning
+organization. Cross-tenant and no-access both surface as 404.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/projects/{id}/bim/models` | Models in scope for a project — its own plus the org Archiv's. |
+| `GET` | `/api/bim/models/{modelId}` | Model header + summary (spatial tree, storeys, type counts, totals, validation findings). |
+| `POST` | `/api/bim/models/{modelId}/query` | Run one structured query (below). A read, POSTed because the request is a nested filter object. |
+| `GET` | `/api/bim/models/{modelId}/source` | Short-lived presigned URL for the raw `.ifc` — the 3D viewport's input, signed against the browser-reachable endpoint. |
+| `POST` | `/api/internal/bim/query` | Service-token route for the agent's `ifc_query` tool. Resolves models by project + file name so no UUID travels through a conversation. |
+
+### The query contract
+
+`POST /api/bim/models/{modelId}/query` takes a discriminated union on `op`
+(`lib/bim/query.ts`, validated with zod before anything reaches SQL):
+
+| `op` | Answers |
+|---|---|
+| `overview` | What the model is: project/site/building, storeys, totals, areas. |
+| `health` | The validation report — see below. |
+| `types` | Element counts per IFC type, from the rows. |
+| `properties` | The model's own property vocabulary: which sets exist, which properties, and the values they actually take with counts. |
+| `elements` | Matching elements, paged. |
+| `element` | One element in full, by IFC GlobalId. |
+| `aggregate` | `count`/`sum`/`avg`/`min`/`max` over the filtered set, optionally grouped by `ifcType`, `storey`, `predefinedType`, `typeName`, `material` or a property. |
+| `compare` | What changed against another revision, matched by GlobalId. |
+
+Filters accept `ifcTypes`, `storeys` (name or GlobalId), `nameContains`,
+`material`, `classification`, `globalIds`, and up to ten property predicates
+(`set?`, `name`, `operator`, `value`, `source: property|quantity`) with
+operators `eq | neq | contains | gt | gte | lt | lte | exists | missing`.
+
+The vocabulary is **closed**: every field is an enum or a schema-validated
+string and every value is a bound parameter, so a model-authored filter cannot
+become model-authored SQL. String comparison is case-insensitive; numeric
+comparison is guarded by a `CASE` so a jsonb boolean beside a numeric property
+cannot fail the whole query.
+
+### The caveat field
+
+Results for `overview`, `types`, `elements` and `aggregate` carry a `caveat`
+string (or `null`) derived from the validation findings — for example
+`Hinweis zum Modell: 43 Bauteile sind keinem Geschoss zugeordnet …`. The agent
+is instructed to report it verbatim: a storey breakdown over a model with
+unplaced elements is a subset presented as a total.

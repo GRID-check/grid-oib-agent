@@ -20,7 +20,7 @@ import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { PRODUCT_NAME } from '@/lib/brand'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled, type KnownFeatureFlag } from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
 import { getDictionary } from '@/i18n'
 import './globals.css'
@@ -69,18 +69,23 @@ export const metadata: Metadata = {
  * session-lookup failure must never break the layout; it just falls back to the
  * flag's default (fail-open when enforcement is off, so images are offered).
  */
-const isImageUploadEnabled = async (): Promise<boolean> => {
+const isImageUploadEnabled = async (): Promise<boolean> => isSessionFlagEnabled(FEATURE_FLAGS.imageUpload)
+
+/** Whether IFC model upload is offered to this session (WorkOS `ifc-models`). */
+const isIfcUploadEnabled = async (): Promise<boolean> => isSessionFlagEnabled(FEATURE_FLAGS.ifcModels)
+
+const isSessionFlagEnabled = async (flag: KnownFeatureFlag): Promise<boolean> => {
   try {
     // Own slot, like every other entry point: the root layout gets no route
     // factory either, and `getGridSession` publishes the tenant into whatever
     // slot is open — with none, into an ambient binding that does not survive.
     return await runWithTenantSlot(async () => {
       const session = await getGridSession()
-      if (!session) return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
-      return isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+      if (!session) return isFeatureEnabled({ featureFlags: null }, flag)
+      return isFeatureEnabled(session, flag)
     })
   } catch {
-    return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
+    return isFeatureEnabled({ featureFlags: null }, flag)
   }
 }
 
@@ -89,12 +94,22 @@ const isImageUploadEnabled = async (): Promise<boolean> => {
  * These values can be changed at runtime without rebuilding the container.
  */
 const getAppConfig = async (): Promise<AppConfig> => {
-  // Image upload = flag AND capability. Resolve both server-side so the picker
-  // and validation share ONE accepted-types list with the upload allow-list.
-  const [imageUploadEnabled, vlmAvailable] = await Promise.all([isImageUploadEnabled(), isVlmConfigured()])
+  // Image upload = flag AND capability; IFC upload = flag alone (extraction runs
+  // in this process, so there is no capability to derive). Resolved server-side
+  // so the picker and validation share ONE accepted-types list with the upload
+  // allow-list.
+  const [imageUploadEnabled, vlmAvailable, ifcUploadEnabled] = await Promise.all([
+    isImageUploadEnabled(),
+    isVlmConfigured(),
+    isIfcUploadEnabled(),
+  ])
   return {
     authRequired: isAuthRequired(),
-    fileUpload: getFileUploadConfigFromEnv(process.env, { imageUploadEnabled, vlmAvailable }),
+    fileUpload: getFileUploadConfigFromEnv(process.env, {
+      imageUploadEnabled,
+      vlmAvailable,
+      ifcUploadEnabled,
+    }),
   }
 }
 

@@ -460,6 +460,15 @@ functions:
   surface_documents:
     _type: surface_documents
 
+  # BIM/IFC: deterministic structured queries over the project's uploaded IFC
+  # model (ADR-0044). Distinct from knowledge_search in kind, not degree — that
+  # tool retrieves text about REGULATIONS, this one runs SQL against THIS
+  # building's elements, so "how many external walls on the ground floor" comes
+  # back as a count rather than as a summary an LLM had to add up.
+  ifc_query:
+    _type: ifc_query
+    default_limit: 25
+
   # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
   # (requirement profile per Richtlinie -> batched evidence judgment ->
   # deterministic matrix + German report) — the structured alternative to
@@ -487,6 +496,7 @@ functions:
       - ris_fetch_tool
       - ris_catalog_lookup_tool
       - remember
+      - ifc_query
     verbose: true
 
   clarifier_agent:
@@ -512,6 +522,7 @@ functions:
       - remember
       - emit_card
       - surface_documents
+      - ifc_query
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5
@@ -537,6 +548,7 @@ functions:
       - advanced_web_search_tool
       - remember
       - emit_card
+      - ifc_query
     verbose: true
     # Durable checkpointing for async deep-research jobs (T3-8), mirroring
     # workflow.checkpoint_db below: re-invoking the same job_id resumes from

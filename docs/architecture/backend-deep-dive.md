@@ -915,6 +915,66 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   Projektwissen / Büroarchiv / Web via collection origin) for the research
   fan-out UI. Deterministic tagging only — no chunk-metadata dependency.
 
+## 6c. IFC/BIM models — the building as queryable data (ADR-0044, 2026-08-08)
+
+An uploaded `.ifc` does **not** go down the ingest path. A STEP physical file is
+tens of megabytes of `#412=IFCCARTESIANPOINT((1.2,0.,3.));`; embedding it
+produces chunks that match nothing and bury everything. It is parsed instead,
+in the BFF's Node process, with `@ifc-lite/parser`.
+
+```
+Upload .ifc → SeaweedFS  →  extractIfcModel()  ─┬─→ bim_models + bim_elements   (structured index)
+   (documents row,           lib/bim/extract     ├─→ _bim/index.json            (full index, object storage)
+    status=processing)                           └─→ _bim/<name>.ifc (markdown) ─→ /v1/ingest → RAG
+```
+
+The digest object keeps the ORIGINAL filename as its last path segment and
+carries `Content-Type: text/markdown`, so the backend reads it as text while
+`file_name` still resolves to the real `documents` row — citations open the
+model and deleting the document removes its chunks. Extraction is detached from
+the request (a 60 MB model takes tens of seconds) and every terminal outcome
+writes the document row: success → the digest dispatch sets `pending` + a job
+id, failure → `failed` with the reason, plus a `bim_models` row recording the
+same thing.
+
+### Two question shapes, two mechanisms
+
+| Question | Mechanism |
+|---|---|
+| "What is this model of?" | Retrieval over the ingested digest — a document-shaped question. |
+| "How many external walls on the ground floor?" | `lib/bim/query.ts` → SQL over `bim_elements`. A `COUNT(*)` with a `WHERE`; an LLM summing forty thousand elements from retrieved prose is a fact turned into a guess. |
+
+The agent reaches the second through the `ifc_query` tool
+(`src/aiq_agent/agents/bim/register.py`), which posts to
+`POST /api/internal/bim/query` with the shared service token — the same
+single-writer separation the `remember` tool uses. Models are addressed by
+project and file name; no UUID travels through a conversation.
+
+### Validation qualifies the answer
+
+`lib/bim/validate.ts` runs five stages over the extraction (schema, identity,
+spatial structure, property sets, completeness) and stores the findings in the
+model summary. The point is not a report card: every query whose numbers those
+defects distort comes back with a `caveat` string, and the tool description
+tells the agent to report it verbatim. A storey breakdown over a model with 43
+unplaced elements is a subset presented as a total, and this is the only place
+that can be fixed.
+
+### Revision comparison
+
+`lib/bim/compare.ts` diffs two models by IFC **GlobalId**, which survives
+re-export where express ids do not. Added / removed / changed with per-property
+deltas — the question ("what changed since the last submission") that no pair of
+PDFs can answer.
+
+### Geometry stays in the browser
+
+There is no server-side render and no cached mesh format. The viewport streams
+the source through a short-lived presigned URL and triangulates locally with
+ifc-lite's WASM kernel + WebGPU renderer. A browser without WebGPU loses only
+the picture: the structure, elements, properties, quantities and every agent
+answer are unaffected, and the fallback says so.
+
 ## 7. Deep research (async jobs)
 
 - The `deep_research` graph node submits a Dask job and returns the stub message

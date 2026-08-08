@@ -22,8 +22,17 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
 | `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
+| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0044) | `title`, `model_file`, `highlights[]` (`global_ids`, `label`, `status`), `storey`, `note` |
 
 `validate_cards()` validates against the union and drops null fields.
+
+`IfcViewerCard` is the only card that points at data the model did not supply:
+`global_ids` must be IFC GlobalIds returned by `ifc_query` in the same turn. The
+frontend resolves them against the loaded model and **reports how many did not
+resolve** — colouring two of three walls while saying nothing would turn a
+partly wrong answer into a confidently wrong picture. The model is named by FILE
+NAME (the string `ifc_query` reports), never by id, so a hallucinated UUID is
+not a failure mode it has.
 
 ## How generation works
 

@@ -23,6 +23,7 @@ import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
 import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
+import { IfcViewerCard } from './IfcViewerCard'
 import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-documents'
 import { FadeIn } from '@/components/motion'
 
@@ -365,6 +366,25 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId }) =
                 query={card.query}
                 documents={(card.documents ?? []) as SurfacedDocument[]}
                 projectId={projectId}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_viewer') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcViewerCard
+                title={card.title}
+                modelFile={card.model_file ?? null}
+                storey={card.storey ?? null}
+                note={card.note ?? null}
+                highlights={(card.highlights ?? []).map((highlight) => ({
+                  globalIds: highlight.global_ids,
+                  label: highlight.label,
+                  status: highlight.status,
+                }))}
+                projectId={projectId ?? null}
               />
             </FadeIn>
           )

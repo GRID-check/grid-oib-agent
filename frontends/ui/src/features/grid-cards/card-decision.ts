@@ -77,6 +77,10 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   energy_performance: 'presentational',
   elevator_requirement: 'presentational',
   parking_requirement: 'presentational',
+  // The 3D model viewer: orbiting, isolating a storey and selecting an element
+  // are view state, not decisions — nothing is written and nothing would be
+  // annoying to redo, so there is nothing to persist on the message.
+  ifc_viewer: 'presentational',
 }
 
 /** The card types whose user decisions must be persisted (see the map above). */

@@ -29,7 +29,17 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import { assertFileSizeAllowed, assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
+import {
+  assertFileSizeAllowed,
+  assertUploadTypeAllowed,
+  beginModelExtraction,
+  dispatchIngest,
+  fetchSemanticHits,
+  joinHitsToFiles,
+  type SearchedDocument,
+} from '@/lib/documents/service'
+import { deleteBimDerivedObjects } from '@/lib/bim/service'
+import { isIfcFilename } from '@/lib/bim/types'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
@@ -88,7 +98,8 @@ export async function searchArchivDocuments(
 export interface UploadArchivDocumentResult {
   documentId: string
   jobId: string | null
-  status: 'pending' | 'uploaded' | 'failed'
+  /** `processing` is the IFC path — see `UploadDocumentResult`. */
+  status: 'pending' | 'uploaded' | 'failed' | 'processing'
   filename: string
 }
 
@@ -149,13 +160,26 @@ export async function uploadArchivDocument(
     status: 'uploaded',
   })
 
-  const { jobId, status } = await dispatchIngest(
-    documentId,
-    collectionName,
-    storageKey,
-    session.organizationId,
-    storageBucket,
-  )
+  // Same IFC branch as the project path: the STEP source is never embedded, so
+  // an uploaded model is parsed here and its digest is what reaches the
+  // org-wide Archiv collection.
+  const { jobId, status } = isIfcFilename(file.name)
+    ? await beginModelExtraction({
+        organizationId: session.organizationId,
+        projectId: null,
+        documentId,
+        filename: file.name,
+        storageKey,
+        storageBucket,
+        collectionName,
+      })
+    : await dispatchIngest(
+        documentId,
+        collectionName,
+        storageKey,
+        session.organizationId,
+        storageBucket,
+      )
 
   // Data-provenance event: who brought which file into the org Archiv.
   await recordAuditEvent({
@@ -211,6 +235,10 @@ export async function deleteArchivDocument(
           .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
           .catch(() => undefined)
       }
+      // The IFC pipeline writes its digest and index under a `_bim/`
+      // subdirectory of the same document folder — nested, so the exact-key
+      // deletes above never reach them.
+      await deleteBimDerivedObjects(doc.storageKey, doc.storageBucket).catch(() => undefined)
     } catch {
       // ignore — the object may already be gone; the row delete below is the record of intent
     }

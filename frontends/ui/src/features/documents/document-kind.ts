@@ -7,13 +7,22 @@
  * notice (Bescheid), photo, or generic text document.
  *
  * Inference order (most trustworthy signal first):
+ *   0. File extension for formats that ARE their kind (an `.ifc` is a building
+ *      model whatever it is named and whatever tags it carries).
  *   1. Controlled ingestion tags (backend-classified, user-correctable).
  *   2. Content type (any `image/*` is a photo).
  *   3. Filename heuristics (German building-domain terms + image extensions).
  *   4. Fallback: generic document.
  */
 
-export type DocumentKind = 'floorplan' | 'section' | 'siteplan' | 'notice' | 'photo' | 'document'
+export type DocumentKind =
+  | 'floorplan'
+  | 'section'
+  | 'siteplan'
+  | 'notice'
+  | 'photo'
+  | 'model'
+  | 'document'
 
 /**
  * Controlled-vocabulary tag → kind. Keys are lowercase. Tags that have no
@@ -33,6 +42,7 @@ const TAG_KIND: Record<string, DocumentKind> = {
 }
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp|svg)$/
+const IFC_EXT = /\.(ifc|ifczip)$/
 
 export interface DocumentKindInput {
   filename: string
@@ -41,6 +51,12 @@ export interface DocumentKindInput {
 }
 
 export function inferDocumentKind({ filename, contentType, tags }: DocumentKindInput): DocumentKind {
+  // 0. An IFC file is a 3D building model by format, not by naming. This runs
+  //    BEFORE the tag rules because a model called "Grundriss EG.ifc" is still a
+  //    model — it opens in the viewer, not in a page preview — and before the
+  //    filename heuristics, which would otherwise read that name as a floor plan.
+  if (IFC_EXT.test(filename.toLowerCase())) return 'model'
+
   // 1. Ingestion tags are authoritative when present.
   for (const tag of tags ?? []) {
     const kind = TAG_KIND[tag.toLowerCase()]
@@ -115,6 +131,7 @@ const EXT_TINT: Record<string, ExtChipTint> = {
   dwg: TINTS.law,
   dxf: TINTS.law,
   ifc: TINTS.law,
+  ifczip: TINTS.law,
   jpg: TINTS.office,
   jpeg: TINTS.office,
   png: TINTS.office,

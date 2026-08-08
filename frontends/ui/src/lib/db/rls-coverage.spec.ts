@@ -26,7 +26,11 @@ import { ORGANIZATION_SETTING, PLATFORM_ROLE, USER_SETTING } from './tenant-cont
  * the parent subquery onto their own column), so "secured twice" must mean
  * "twice in the same migration", not "changed later".
  */
-const BOUNDARY_MIGRATIONS = ['0031_row_level_security.sql', '0032_messages_organization_id.sql']
+const BOUNDARY_MIGRATIONS = [
+  '0031_row_level_security.sql',
+  '0032_messages_organization_id.sql',
+  '0034_bim_models.sql',
+]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
   readFileSync(join(process.cwd(), 'drizzle', file), 'utf8')

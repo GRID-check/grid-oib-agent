@@ -130,12 +130,31 @@ function PhotoSketch(props: SvgProps) {
   )
 }
 
+/**
+ * BIM model: an axonometric box with a hinted storey slab and an opening.
+ *
+ * Deliberately reads as a VOLUME rather than as a sheet — an IFC file is the
+ * one document in the library that is not a drawing of the building but the
+ * building itself, and the thumbnail is where a user first learns that.
+ */
+function ModelSketch(props: SvgProps) {
+  return (
+    <Frame {...props}>
+      <path d="M60 12 90 27v30L60 72 30 57V27z" />
+      <path d="M60 12v30l30 15M60 42 30 27" strokeOpacity={0.5} />
+      <path d="M30 42l30 15 30-15" strokeOpacity={0.35} />
+      <rect x={52} y={50} width={12} height={14} strokeOpacity={0.6} />
+    </Frame>
+  )
+}
+
 const SKETCHES: Record<DocumentKind, (props: SvgProps) => JSX.Element> = {
   floorplan: FloorPlanSketch,
   section: SectionSketch,
   siteplan: SitePlanSketch,
   notice: NoticeSketch,
   photo: PhotoSketch,
+  model: ModelSketch,
   document: DocumentSketch,
 }
 
@@ -245,6 +264,33 @@ function NoticeFill() {
   )
 }
 
+/**
+ * BIM model, full-bleed: an axonometric massing with a storey line.
+ *
+ * Its own drawing rather than the generic document fill, because the whole
+ * point of the model card is that it is NOT a sheet — a page-shaped placeholder
+ * would say the opposite of what the file is.
+ */
+function ModelFill() {
+  return (
+    <FillSvg>
+      <path d="M100 8 168 42v38L100 114 32 80V42z" strokeWidth={1.6} strokeOpacity={0.85} />
+      <path d="M100 8v42l68 30M100 50 32 42" strokeWidth={1.5} strokeOpacity={0.5} />
+      <path d="M32 62l68 34 68-34" strokeWidth={1.3} strokeOpacity={0.3} strokeDasharray="4 4" />
+      <rect
+        x={86}
+        y={66}
+        width={28}
+        height={26}
+        fill="currentColor"
+        fillOpacity={0.07}
+        strokeWidth={1.4}
+        strokeOpacity={0.55}
+      />
+    </FillSvg>
+  )
+}
+
 const FILLS: Record<DocumentKind, () => JSX.Element> = {
   floorplan: FloorPlanFill,
   section: SectionFill,
@@ -254,6 +300,7 @@ const FILLS: Record<DocumentKind, () => JSX.Element> = {
   // with a format chip); this entry keeps the record type-complete but is never
   // reached for `variant="fill"`.
   photo: DocumentFill,
+  model: ModelFill,
   document: DocumentFill,
 }
 
@@ -264,6 +311,7 @@ const FILL_PADDED: Record<DocumentKind, boolean> = {
   siteplan: true,
   notice: false,
   photo: false,
+  model: true,
   document: false,
 }
 

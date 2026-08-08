@@ -87,6 +87,21 @@ export const FEATURE_FLAGS = {
    * capability doctrine in AGENTS.md.
    */
   collaboration: 'collaboration',
+  /**
+   * IFC/BIM models (ADR-0044): `.ifc` upload, in-browser model viewer, and the
+   * agent's deterministic `ifc_query` tool.
+   *
+   * Gates the `.ifc` entry in the upload accept-list (client and the BFF
+   * allow-list), the model surfaces, and every `/api/**\/bim/*` route.
+   *
+   * Like `collaboration`, there is deliberately NO paired capability gate.
+   * Extraction runs in the BFF process with `@ifc-lite/parser` and the viewer
+   * runs in the browser, so the feature has no infrastructure dependency to
+   * derive a capability from — per the capability doctrine in AGENTS.md. The
+   * viewer's WebGPU requirement is a per-BROWSER fact, detected at render time
+   * and degraded to the data explorer, not a deployment capability.
+   */
+  ifcModels: 'ifc-models',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

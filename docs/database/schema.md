@@ -639,3 +639,34 @@ the write volume.
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 Primary key: `conversation_reads_pk (conversation_id, user_id)`.
+
+## `bim_models` / `bim_elements` (migration 0034, ADR-0044)
+
+What an uploaded `.ifc` document turned out to contain.
+
+### `bim_models`
+
+One row per IFC document, unique on `document_id` — a model is not a separate
+upload, it is what the document *is*, so deleting the document deletes the
+model. Carries `organization_id` and the nullable `project_id` (org-wide Archiv
+models have none), the extraction `status`
+(`pending | extracting | ready | failed`), the declared `schema_version`, an
+`index_storage_key` pointing at the full JSON index in object storage, and a
+`summary` jsonb holding the spatial tree, storeys, type counts, totals and the
+validation findings.
+
+### `bim_elements`
+
+One row per element (wall, door, room). Identifying attributes are columns so
+they can be indexed and grouped; property sets, quantities, materials and
+classifications are `jsonb`, because their keys are chosen by whichever
+application exported the model and cannot be columns. Indexed on
+`(model_id, express_id)` (unique), `(model_id, ifc_type)`,
+`(model_id, storey_name)`, `(model_id, global_id)`, and
+`gin (properties jsonb_path_ops)` for the containment operator the query layer
+uses.
+
+Deliberately **no** `organization_id`: the parent model's column is the truth
+and the RLS policy joins it, per the child-table rule in ADR-0041. The join is
+asserted against a live Postgres in `src/lib/bim/query.integration.spec.ts`,
+which runs under `task db:test:rls`.

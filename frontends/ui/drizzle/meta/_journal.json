@@ -239,6 +239,13 @@
       "when": 1785542400003,
       "tag": "0033_documents_storage_bucket",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785542400004,
+      "tag": "0034_bim_models",
+      "breakpoints": true
     }
   ]
 }

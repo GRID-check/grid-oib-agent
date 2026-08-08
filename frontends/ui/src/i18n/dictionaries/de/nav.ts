@@ -12,6 +12,7 @@ export const nav: typeof en.nav = {
   sections: {
     chat: 'Frag Piloti',
     files: 'Dateien',
+    model: 'Modell',
     knowledge: 'Wissen',
     research: 'Recherche',
     workflows: 'Workflows',

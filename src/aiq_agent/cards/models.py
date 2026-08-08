@@ -631,6 +631,61 @@ class DocumentGridCard(BaseModel):
     documents: list[SurfacedDocument] = Field(min_length=1, description="The surfaced files, best match first")
 
 
+# ---------------------------------------------------------------------------
+# IFC/BIM viewer card
+# ---------------------------------------------------------------------------
+# The one card that renders the architect's ACTUAL building rather than a
+# schematic of it. Everything else in this catalog is drawn from numbers the
+# model supplies; this one points at geometry that already exists, so the model
+# supplies only WHICH elements to look at and why.
+#
+# The model never invents an element: `global_ids` must be IFC GlobalIds that
+# came back from the `ifc_query` tool in the same turn. An id that does not
+# exist in the model simply does not highlight — the viewer shows the building
+# and says how many highlights it could not resolve, rather than pretending.
+
+
+class IfcHighlight(BaseModel):
+    """One set of model elements to call out, with a verdict."""
+
+    global_ids: list[str] = Field(
+        min_length=1,
+        description=(
+            "IFC GlobalIds returned by ifc_query. NEVER invent these — an id you did not see is a wrong answer."
+        ),
+    )
+    label: str = Field(min_length=1, description="What is being shown, e.g. 'Fluchtweg > 40 m'")
+    status: Literal["pass", "fail", "warning", "info"] = Field(
+        default="info", description="Verdict colour: pass=green, fail=red, warning=amber, info=neutral"
+    )
+
+
+class IfcViewerCard(BaseModel):
+    """The project's IFC model, rendered in 3D, with findings highlighted on it.
+
+    Use when the answer is ABOUT specific parts of the building and seeing them
+    beats reading their names — a compliance finding on particular walls, the
+    rooms that fall below a required area, the escape route being discussed.
+    Do NOT use it as a decorative "here is your building": an unhighlighted
+    viewer says nothing a sentence does not.
+    """
+
+    type: Literal["ifc_viewer"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Brandabschnitte – EG'")
+    model_file: str | None = Field(
+        default=None,
+        description=(
+            "File name of the model, exactly as ifc_query reported it (e.g. 'haus-a.ifc'). "
+            "Leave empty when the project has only one model."
+        ),
+    )
+    highlights: list[IfcHighlight] | None = Field(
+        default=None, description="Element groups to colour in the viewer, each with a verdict"
+    )
+    storey: str | None = Field(default=None, description="Storey name to isolate on open, e.g. 'Erdgeschoss'")
+    note: str | None = Field(default=None, description="Optional one-line clarification under the viewer")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -654,6 +709,7 @@ GridCard = (
     | ParkingRequirementCard
     | MemoryProposalCard
     | DocumentGridCard
+    | IfcViewerCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
@@ -665,6 +721,8 @@ __all__ = [
     "ComparisonTableCard",
     "DocumentGridCard",
     "GridCard",
+    "IfcHighlight",
+    "IfcViewerCard",
     "LegalBasisCard",
     "MemoryProposalCard",
     "SurfacedDocument",

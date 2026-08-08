@@ -1,5 +1,6 @@
 export * from './agent-profiler'
 export * from './answer-feedback'
+export * from './bim'
 export * from './budgets'
 export * from './citation-events'
 export * from './conversation-reads'

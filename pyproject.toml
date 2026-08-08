@@ -82,6 +82,7 @@ aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.agents.project_memory.register"
 aiq_cards = "aiq_agent.cards.register"
 aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
+aiq_bim = "aiq_agent.agents.bim.register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]
