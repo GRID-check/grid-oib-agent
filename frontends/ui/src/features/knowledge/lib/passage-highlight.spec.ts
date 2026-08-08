@@ -56,6 +56,18 @@ describe('normalizePassage', () => {
     expect(normalizePassage('Seiten 3 - 5')).toBe('seiten 3 5')
   })
 
+  it('folds precomposed and decomposed accents to the same form', () => {
+    // The retriever and pdf.js do not agree on which form they emit, and a word
+    // that folds two ways is a word no matcher tier can find.
+    expect(normalizePassage('erf\u00fcllen')).toBe(normalizePassage('erfu\u0308llen'))
+    // End to end: a page carrying the precomposed form is found by a snippet
+    // carrying the decomposed one.
+    expect(
+      locatePassage(page('Die Auflage ist zu erf\u00fcllen'), 'die auflage ist zu erfu\u0308llen')
+        ?.matcher,
+    ).toBe('exact')
+  })
+
   it('drops soft hyphens and zero-width characters without splitting the word', () => {
     expect(normalizePassage('Ver­waltung​sakt')).toBe('verwaltungsakt')
   })

@@ -119,14 +119,28 @@ describe('GET /api/documents/[id]/file', () => {
     expect((await call()).status).toBe(404)
   })
 
-  /**
-   * The same gate the presigned preview applies. Without it this route would be
-   * a second, unfiltered download path for every content type in the bucket.
-   */
-  it('refuses a content type that is not previewable', async () => {
+  it('refuses a content type that is not a PDF', async () => {
     withRow({ ...PDF_ROW, contentType: 'application/zip', filename: 'archive.zip' })
     expect((await call()).status).toBe(415)
     expect(send).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The one that matters. `PREVIEW_CONTENT_TYPES` — the gate the presigned
+   * preview uses — admits `image/svg+xml`, and an SVG is a script carrier:
+   * served inline from THIS origin it would execute in the app's origin with
+   * the user's session. Widening this route back to that list is stored XSS,
+   * so the narrower gate is pinned here rather than left to a comment.
+   */
+  it('refuses an SVG, which would otherwise run script in this origin', async () => {
+    withRow({ ...PDF_ROW, contentType: 'image/svg+xml', filename: 'logo.svg' })
+    expect((await call()).status).toBe(415)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('refuses a raster image — nothing needs to fetch image bytes same-origin', async () => {
+    withRow({ ...PDF_ROW, contentType: 'image/png', filename: 'foto.png' })
+    expect((await call()).status).toBe(415)
   })
 
   it('strips non-ASCII and quotes from the filename header', async () => {
