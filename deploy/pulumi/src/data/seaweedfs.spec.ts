@@ -329,6 +329,24 @@ describe("split topology", () => {
     });
   });
 
+  it("does not claim the PVC the single-node topology leaves behind", async () => {
+    const t = await install();
+    const filer = await statefulSetSpec(t.workloads[2]);
+    // A StatefulSet's PVC is `<template>-<statefulset>-<ordinal>`, and the
+    // filer deliberately keeps the workload name `seaweedfs`. A template named
+    // `data` would therefore claim `data-seaweedfs-0` — the exact PVC the
+    // single-node StatefulSet retains, holding every object in the deployment.
+    // The new filer would adopt it silently, and the migration would find its
+    // source already mounted by its destination.
+    expect(filer.volumeClaimTemplates?.map((v) => v.metadata?.name)).toEqual(["filer-data"]);
+    const master = await statefulSetSpec(t.workloads[0]);
+    const volume = await statefulSetSpec(t.workloads[1]);
+    // These two carry distinct workload names, so `data` is unambiguous there
+    // and their PVCs cannot collide with the retained one either.
+    expect(master.volumeClaimTemplates?.map((v) => v.metadata?.name)).toEqual(["data"]);
+    expect(volume.volumeClaimTemplates?.map((v) => v.metadata?.name)).toEqual(["data"]);
+  });
+
   describe("policy-pack invariants", () => {
     it("holds for every workload", async () => {
       const t = await install({ seaweedfs: { masterReplicas: 3, volumeReplicas: 2, filerReplicas: 2 } });

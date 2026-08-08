@@ -402,21 +402,43 @@ metadata dump and the object copy lands in neither.
    pulumi up
    ```
    The three new workloads come up empty. The old `seaweedfs` StatefulSet is
-   replaced by the filer; its PVC is retained (`whenDeleted: Retain`), so the
-   old data is still on disk and still reachable — mount it read-only from a
-   debug pod if you need to.
+   replaced by the filer of the same name, but **its PVC is not adopted**: the
+   single-node claim is `data-seaweedfs-0` and the split filer's is
+   `filer-data-seaweedfs-0`, deliberately (see the note on the
+   `volumeClaimTemplate` in `src/data/seaweedfs-split.ts`). Retained by policy
+   and unclaimed by anything, `data-seaweedfs-0` is what step 6 reads from.
 
-6. **Copy the objects across.** The bucket name and the key layout are
-   unchanged, so this is a straight S3-to-S3 sync from the retained old PVC's
-   endpoint to the new one — `rclone sync`, or `scripts/migrate-storage.mjs`,
-   the same pattern as the MinIO→SeaweedFS cutover in
-   [`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md).
+6. **Move the data.** Two ways, and the right one depends on how much there
+   is. Whichever you pick, the bucket name and the object-key layout are
+   unchanged, so nothing about the application has to know a migration
+   happened.
 
-   **Objects written with `seaweedfsEncryptVolumeData` on cannot be copied at
-   the volume level.** Their chunk keys live in the OLD filer's metadata, so a
-   file-level copy of the volume PVC produces ciphertext nobody can open. The
-   S3-level sync is not optional for those — it decrypts on read and re-encrypts
-   on write, under the new store's keys.
+   **6a — S3-to-S3 sync (default).** Run a throwaway single-node `weed server`
+   with `data-seaweedfs-0` mounted read-write at `/data` and its S3 port under
+   a different Service name (`seaweedfs-legacy`), then `rclone sync` or
+   `scripts/migrate-storage.mjs` from that endpoint to `seaweedfs:8333` — the
+   same pattern as the MinIO→SeaweedFS cutover in
+   [`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md). It
+   needs its own `s3.json`; the simplest source is the existing
+   `seaweedfs-s3-config` Secret.
+
+   Simple, verifiable object by object, and it re-encrypts every chunk under
+   the new store's keys as a side effect. Cost: it reads and rewrites every
+   byte, so it scales with corpus size.
+
+   **6b — metadata load, keeping the volume files (large corpora).** SeaweedFS's
+   own store-migration path: `fs.meta.save` from the old filer,
+   `fs.meta.load` into the new one, with the volume `.dat`/`.idx` files moved
+   across (rebind the retained PV to `seaweedfs-volume-0`'s claim, or copy the
+   files into it). O(metadata) rather than O(bytes).
+
+   **The two are not interchangeable under encryption.** With
+   `seaweedfsEncryptVolumeData` on, each chunk's AES key lives in the FILER
+   metadata, not with the chunk. So 6b is only correct if the metadata load
+   actually happens — volume files moved WITHOUT their metadata are ciphertext
+   nobody can open, and there is no master key and no escrow. If you take 6b,
+   verify the load before you delete anything: open a document written before
+   the migration, not just one written after.
 
 7. **Compare counts** against step 4. Not "the sync finished" — the count.
 

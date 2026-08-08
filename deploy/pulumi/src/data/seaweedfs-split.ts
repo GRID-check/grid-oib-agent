@@ -490,7 +490,7 @@ export function installSplitSeaweedFS(
                 ports: filerPorts.map((p) => ({ containerPort: p.port, name: p.name })),
                 volumeMounts: [
                   { name: "config", mountPath: CONFIG_DIR, readOnly: true },
-                  { name: "data", mountPath: "/data" },
+                  { name: "filer-data", mountPath: "/data" },
                 ],
                 // The one self-scoped health endpoint in the cluster: it
                 // round-trips the filer's OWN store (a lookup of /topics), so a
@@ -521,9 +521,19 @@ export function installSplitSeaweedFS(
         // appears only in leveldb mode would make switching stores a
         // StatefulSet REPLACE — deleting the running filer — rather than a
         // rolling update. One shape, one Gi, no replace.
+        //
+        // Named `filer-data`, NOT `data`, and that is load-bearing during the
+        // single→split migration. A StatefulSet's PVC is named
+        // `<template>-<statefulset>-<ordinal>`, and this workload deliberately
+        // keeps the name `seaweedfs` — so a template called `data` would claim
+        // `data-seaweedfs-0`, which is EXACTLY the PVC the single-node
+        // StatefulSet leaves behind (retained on purpose, because it holds
+        // every object in the deployment). The new filer would silently adopt
+        // 20 Gi of old volume files it has no use for, and the migration would
+        // find its source PVC already mounted by the thing it is migrating to.
         volumeClaimTemplates: [
           {
-            metadata: { name: "data" },
+            metadata: { name: "filer-data" },
             spec: {
               accessModes: ["ReadWriteOnce"],
               storageClassName: cfg.storage.className,
