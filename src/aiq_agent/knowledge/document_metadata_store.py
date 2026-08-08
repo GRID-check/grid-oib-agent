@@ -47,6 +47,17 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: exact same set — a new column is introduced by appending one entry here.
 _OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title")
 
+# Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
+# SQL identifiers: the table/index name constants above, and column names drawn
+# from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
+# ``"tags"``/``"doc_class"``/``"display_title"`` passed by the typed accessors).
+# SQL identifiers cannot be bound parameters, so they must live in the statement
+# text. Every caller-supplied *value* (collection, filename, summary, tags,
+# display_title, …) is always passed as a bound ``:param`` and never interpolated.
+# The interpolation is therefore not attacker-reachable, which is why each
+# ``sqlalchemy.text()`` call below carries a ``# nosemgrep: …avoid-sqlalchemy-text``
+# marker for the taint-based SAST rule.
+
 
 class DocumentMetadataStore:
     """SQLAlchemy-based store for per-document metadata.
@@ -214,6 +225,7 @@ class DocumentMetadataStore:
             if not has_current and has_legacy:
                 # Preserve every existing row: rename the table in place rather
                 # than recreating it. Postgres and SQLite both support this.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 conn.execute(text(f"ALTER TABLE {LEGACY_TABLE_NAME} RENAME TO {TABLE_NAME}"))
                 logger.info("Migrated legacy '%s' table to '%s' (rows preserved)", LEGACY_TABLE_NAME, TABLE_NAME)
             elif not has_current:
@@ -234,6 +246,7 @@ class DocumentMetadataStore:
         from sqlalchemy import text
 
         conn.execute(
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(
                 f"CREATE TABLE {TABLE_NAME} ("
                 "collection VARCHAR(256) NOT NULL, "
@@ -257,17 +270,22 @@ class DocumentMetadataStore:
         from sqlalchemy import text
 
         if self._is_postgres():
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             conn.execute(text(f"ALTER TABLE {TABLE_NAME} ADD COLUMN IF NOT EXISTS {column} {ddl_type}"))
             return
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({TABLE_NAME})")).fetchall()}
         if column not in existing:
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             conn.execute(text(f"ALTER TABLE {TABLE_NAME} ADD COLUMN {column} {ddl_type}"))
 
     def _ensure_index(self, conn) -> None:
         """Create the collection index under the new name; drop the legacy one."""
         from sqlalchemy import text
 
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         conn.execute(text(f"CREATE INDEX IF NOT EXISTS {_INDEX_NAME} ON {TABLE_NAME} (collection)"))
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         conn.execute(text(f"DROP INDEX IF EXISTS {_LEGACY_INDEX_NAME}"))
 
     def register(self, collection: str, filename: str, summary: str, tags: list[str] | None = None) -> None:
@@ -284,6 +302,7 @@ class DocumentMetadataStore:
             with self._sync_engine.connect() as conn:
                 if is_postgres:
                     conn.execute(
+                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                         text(
                             f"INSERT INTO {TABLE_NAME} (collection, filename, summary, tags) "
                             "VALUES (:collection, :filename, :summary, :tags) "
@@ -295,6 +314,7 @@ class DocumentMetadataStore:
                 else:
                     # SQLite uses INSERT OR REPLACE
                     conn.execute(
+                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                         text(
                             f"INSERT OR REPLACE INTO {TABLE_NAME} (collection, filename, summary, tags) "
                             "VALUES (:collection, :filename, :summary, :tags)"
@@ -382,6 +402,7 @@ class DocumentMetadataStore:
         try:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         f"UPDATE {TABLE_NAME} SET {column} = :value "
                         "WHERE collection = :collection AND filename = :filename"
@@ -405,6 +426,7 @@ class DocumentMetadataStore:
         try:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(f"SELECT {column} FROM {TABLE_NAME} WHERE collection = :collection AND filename = :filename"),
                     {"collection": collection, "filename": filename},
                 )
@@ -424,6 +446,7 @@ class DocumentMetadataStore:
         try:
             with self._sync_engine.connect() as conn:
                 rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         f"SELECT filename, {column} FROM {TABLE_NAME} "
                         "WHERE collection = :collection AND filename IN :filenames"
@@ -449,6 +472,7 @@ class DocumentMetadataStore:
 
         try:
             with self._sync_engine.connect() as conn:
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 result = conn.execute(text(f"SELECT DISTINCT collection FROM {TABLE_NAME} ORDER BY collection"))
                 return [row[0] for row in result]
         except Exception as e:
@@ -489,6 +513,7 @@ class DocumentMetadataStore:
         try:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         f"SELECT filename, summary, tags, doc_class, display_title FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
@@ -509,6 +534,7 @@ class DocumentMetadataStore:
             engine = self._get_or_create_async_engine(self.db_url)
             async with engine.connect() as conn:
                 result = await conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         f"SELECT filename, summary, tags, doc_class, display_title FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
@@ -528,6 +554,7 @@ class DocumentMetadataStore:
         try:
             with self._sync_engine.connect() as conn:
                 conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(f"DELETE FROM {TABLE_NAME} WHERE collection = :collection AND filename = :filename"),
                     {"collection": collection, "filename": filename},
                 )
@@ -543,6 +570,7 @@ class DocumentMetadataStore:
         try:
             with self._sync_engine.connect() as conn:
                 conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(f"DELETE FROM {TABLE_NAME} WHERE collection = :collection"),
                     {"collection": collection},
                 )
@@ -557,6 +585,7 @@ class DocumentMetadataStore:
 
         try:
             with self._sync_engine.connect() as conn:
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 conn.execute(text(f"DELETE FROM {TABLE_NAME}"))
                 conn.commit()
                 logger.debug("Cleared all document metadata")
