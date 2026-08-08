@@ -66,6 +66,37 @@ class TestNormalizeDbUrl:
         result = _normalize_db_url(url, async_mode=True)
         assert "psycopg" in result
 
+    def test_asyncpg_ssl_param_translated_to_sslmode(self):
+        """asyncpg's `ssl` query param must become psycopg's `sslmode` on driver rewrite."""
+        url = "postgresql+asyncpg://user:pass@localhost:5432/db?ssl=require"  # pragma: allowlist secret
+        result = _normalize_db_url(url, async_mode=False)
+        assert result == "postgresql+psycopg://user:pass@localhost:5432/db?sslmode=require"  # pragma: allowlist secret
+
+    def test_asyncpg_ssl_param_translated_mid_query(self):
+        """The translation also applies when `ssl` is not the first query parameter."""
+        url = "postgresql+asyncpg://u:p@localhost:5432/db?application_name=x&ssl=require"  # pragma: allowlist secret
+        result = _normalize_db_url(url, async_mode=False)
+        expected = (
+            "postgresql+psycopg://u:p@localhost:5432/db"  # pragma: allowlist secret
+            "?application_name=x&sslmode=require"
+        )
+        assert result == expected
+
+    def test_asyncpg_ssl_boolean_values_mapped(self):
+        """asyncpg's boolean ssl values map to libpq's require/disable."""
+        url = "postgresql+asyncpg://u:p@localhost:5432/db?ssl=true"  # pragma: allowlist secret
+        result = _normalize_db_url(url)
+        assert result == "postgresql+psycopg://u:p@localhost:5432/db?sslmode=require"  # pragma: allowlist secret
+        url = "postgresql+asyncpg://u:p@localhost:5432/db?ssl=false"  # pragma: allowlist secret
+        result = _normalize_db_url(url)
+        assert result == "postgresql+psycopg://u:p@localhost:5432/db?sslmode=disable"  # pragma: allowlist secret
+
+    def test_sslmode_param_passes_through(self):
+        """A libpq-style `sslmode` param is already correct and stays untouched."""
+        url = "postgresql+psycopg://user:pass@localhost:5432/db?sslmode=require"  # pragma: allowlist secret
+        result = _normalize_db_url(url, async_mode=True)
+        assert result == "postgresql+psycopg://user:pass@localhost:5432/db?sslmode=require"  # pragma: allowlist secret
+
     def test_unknown_url_passthrough(self):
         """Test unknown database URLs pass through unchanged."""
         url = "mysql://user:pass@localhost/db"  # pragma: allowlist secret
