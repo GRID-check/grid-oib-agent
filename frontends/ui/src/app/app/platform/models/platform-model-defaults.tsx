@@ -427,7 +427,10 @@ export const PlatformModelDefaults: FC = () => {
                     native select: six fixed options with nothing to search, and
                     it stays keyboard- and screen-reader-native for free. */}
                 <select
-                  className="h-8 w-full min-w-0 rounded-md border bg-background px-2 text-xs sm:w-48"
+                  // text-base below md keeps iOS Safari from zooming on focus,
+                  // and 32px is under the touch floor — the same two rules the
+                  // shared Input/Select primitives carry.
+                  className="h-8 w-full min-w-0 rounded-md border bg-background px-2 text-base pointer-coarse:h-11 md:text-xs sm:w-48"
                   aria-label={t('models.effortSelectLabel', { group: group.label })}
                   value={pinnedEffort ?? INHERIT}
                   onChange={(event) => {

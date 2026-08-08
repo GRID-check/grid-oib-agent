@@ -36,7 +36,7 @@ const APP_DIR = join(process.cwd(), 'src', 'app')
  *
  * They are a real violation of the same rule — `bff-service-architecture.md`
  * has forbidden `getDb()` in a route handler since ADR-0017 — but they are not
- * what took login down, and moving thirteen endpoints into services belongs in
+ * what took login down, and moving the remaining endpoints into services belongs in
  * its own change with its own review. Listed rather than skipped so the number
  * is visible and can only go down: a new route added to this list should be a
  * question in review, and anything not on it fails immediately.
@@ -51,8 +51,6 @@ const PRE_EXISTING_ROUTE_HANDLERS = [
   'app/api/organization/memory/route.ts',
   'app/api/projects/[id]/memory/[itemId]/route.ts',
   'app/api/projects/[id]/memory/route.ts',
-  'app/api/sharing/[resourceType]/[resourceId]/candidates/route.ts',
-  'app/api/sharing/[resourceType]/[resourceId]/grants/[subjectUserId]/route.ts',
   'app/api/sharing/[resourceType]/[resourceId]/grants/route.ts',
   'app/api/sharing/[resourceType]/[resourceId]/route.ts',
 ]

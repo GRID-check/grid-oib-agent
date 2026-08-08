@@ -860,6 +860,34 @@ describe('InputArea', () => {
     expect(screen.getByRole('textbox')).toBeDisabled()
   })
 
+  test('unlocks the composer when a later run failed after an earlier success', () => {
+    // The converse of the case above, and the one the composer used to get
+    // wrong: an "any message ever succeeded" scan saw job-1 and locked the
+    // composer for good, so a user whose most recent run FAILED was told
+    // "Research completed. Create a new session." and could not retry in place
+    // (UX-12). The latest job is the one that describes the session.
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'success',
+      },
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-2',
+        deepResearchJobStatus: 'failure',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).not.toBeDisabled()
+    expect(
+      screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /start new session/i })).not.toBeInTheDocument()
+  })
+
   test('shows research in progress send button when deep research is active and streaming', () => {
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
     mockIsDeepResearchStreaming = true

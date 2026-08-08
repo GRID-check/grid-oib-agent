@@ -20,8 +20,8 @@ import { getTranslations } from '@/i18n/server'
 import type { Translator } from '@/i18n'
 import { getOrgSettings, getOrganizationOverview } from '@/lib/organizations/service'
 import { ProfileControls } from './profile-controls'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 const KNOWN_ROLE_SLUGS = new Set(['org-platform-owner', 'admin', 'member'])
 
@@ -89,7 +89,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
         <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">
           <Link
             href="/app/projects"
-            className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none touch-target"
           >
             <ArrowLeft className="size-4" aria-hidden />
             {t('backToApp')}

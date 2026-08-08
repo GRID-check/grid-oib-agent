@@ -184,7 +184,10 @@ export const PlatformRetrievalSettings: FC = () => {
                 {definition.allowedValues ? (
                   <select
                     disabled={saving}
-                    className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                    // text-base below md keeps iOS Safari from zooming on focus,
+                    // and 36px is under the touch floor — the same two rules the
+                    // shared Input/Select primitives carry.
+                    className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-base focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none pointer-coarse:h-11 md:text-sm"
                     aria-label={definition.label}
                     value={value ?? definition.defaultValue}
                     onChange={(event) =>

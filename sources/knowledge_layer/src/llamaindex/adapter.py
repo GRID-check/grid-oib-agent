@@ -44,7 +44,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from aiq_agent.common.credential_resolution import read_api_key_env
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
@@ -474,21 +473,6 @@ def _to_metadata_filters(filters: dict[str, Any] | None):
     return _translate_filter_node(filters)
 
 
-# ``read_api_key_env`` (the ${...}-placeholder guard) was promoted to the shared
-# resolver (aiq_agent.common.credential_resolution) so every credential path
-# applies it identically. Kept aliased under the historical private name for
-# back-compat with any caller that still imports ``_read_api_key_env``.
-_read_api_key_env = read_api_key_env
-
-
-def _get_nvidia_api_key() -> str:
-    """Get NVIDIA API key from environment."""
-    key = read_api_key_env("NVIDIA_API_KEY")
-    if not key:
-        logger.warning("NVIDIA_API_KEY not set - embeddings may fail")
-    return key
-
-
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
     """Resolve the embeddings API key through the shared credential resolver.
 
@@ -499,9 +483,12 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     base). With the default deployment (NVIDIA base, ``NVIDIA_API_KEY`` set) this
     is byte-identical to the old ``_get_nvidia_api_key()`` behaviour.
 
-    BYOK is intentionally NOT wired here: ingestion is org-agnostic today (no org
-    id crosses ``/v1/ingest``; the ingest thread pool loses request context), so
-    there is no org id to resolve. Known follow-up — see docs.
+    BYOK is intentionally NOT wired here, but no longer for want of an org id:
+    ``/v1/ingest`` forwards ``x-grid-organization-id`` into the ingest thread's
+    job config, which is what lets :func:`resolve_vlm_credential` reach BYOK on
+    the same pipeline. The blocker is the endpoint — a BYOK credential names a
+    chat-completions base URL, and embeddings need an embeddings-capable one, so
+    there is nothing to point this at yet. Known follow-up — see docs.
     """
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 

@@ -502,7 +502,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
               onClick={() => setIsDeepResearchOpen((open) => !open)}
               aria-expanded={isDeepResearchOpen}
               data-testid="deep-research-toggle"
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2"
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2 pointer-coarse:min-h-11"
             >
               <ChevronRight
                 className={cn(

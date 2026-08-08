@@ -116,10 +116,27 @@ documented `text-xl` title-size question becomes a single knob.
   card/switcher, or delete the write-only recording. Not guessed here.
 - **[backlog] P1 · Collapsed rail erases project identity** (switcher hidden when
   collapsed); **Archiv is a context-ejecting doorway** with no divider.
-- **[backlog] M · Mobile touch targets < 44px** on the core loop (chat-toolbar
-  hamburger/history 32px, drawer gear 24px); **mobile drawer has no focus trap**;
-  top bar shows the section but not the project; **dead `heading` prop on
-  `OrgTopbar`**; two shell frames differ in height (h-16 vs h-14).
+- **[done] M · Mobile touch targets < 44px** — this was never only the core
+  loop. An audit of all 67 preview surfaces at 390×844 with touch emulation
+  found ~210 controls under the floor, 92 of them at exactly 32px, because the
+  shared primitives are sized for a cursor (Button `h-9`/`h-8`/`size-9`, Select
+  `h-10`/`h-8`, dialog close `size-8`, menu rows `py-1.5`, tabs `h-9`) and every
+  surface inherits it. Fixed in the primitives on a `pointer-coarse` axis, with
+  a `touch-target` utility (globals.css) for controls that must STAY small — a
+  16px checkbox, a 20px chip — which get a 44px catchment instead of a 44px box.
+  The five earlier `md:`-based sites are converted onto the same axis, so
+  `md:` means layout and `pointer-coarse:` means input device. 15 of 67 surfaces
+  still report, all deliberate: inline mention pills and citation markers in
+  running prose (the WCAG 2.2 inline exception), a 24×24 source chip that meets
+  the AA minimum, and one chip-internal icon button capped at 36px by its chip.
+  Guarded by `src/components/ui/touch-target.spec.ts`.
+- **[done] M · Mobile drawer focus trap** — `app-sidebar.tsx` cycles Tab and
+  Shift-Tab inside the panel, restores focus to the opener on close, closes on
+  Escape and locks background scroll. (Noted here because the line above claimed
+  otherwise long after it shipped.)
+- **[backlog] M · Shell chrome leftovers** — top bar shows the section but not
+  the project; **dead `heading` prop on `OrgTopbar`**; two shell frames differ
+  in height (h-16 vs h-14).
 
 ## Project intake wizard
 

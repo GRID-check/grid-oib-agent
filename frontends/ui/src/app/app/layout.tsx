@@ -23,8 +23,8 @@ import {
 } from '@/lib/authz/feature-flags'
 import { getNavFlags } from '@/lib/authz/nav'
 import { KeyboardShortcuts } from '@/components/shell'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 interface AppLayoutProps {
   children: ReactNode

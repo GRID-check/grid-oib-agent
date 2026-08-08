@@ -41,8 +41,12 @@ const chipVariants = cva(
         sm: 'h-5 px-2 text-[11px] [&>svg]:size-3',
         md: 'h-6 px-2.5 text-xs [&>svg]:size-3.5',
       },
+      // A chip that can be tapped needs a finger-sized catchment, but a 44px-tall
+      // chip is not a chip any more — the small size IS the signal that it is a
+      // secondary affordance. `touch-target` widens the hit area and leaves the
+      // pill alone; a non-interactive chip is not a target and gets nothing.
       interactive: {
-        true: 'cursor-pointer hover:brightness-95 active:brightness-90 dark:hover:brightness-125',
+        true: 'cursor-pointer hover:brightness-95 active:brightness-90 dark:hover:brightness-125 touch-target',
         false: '',
       },
     },

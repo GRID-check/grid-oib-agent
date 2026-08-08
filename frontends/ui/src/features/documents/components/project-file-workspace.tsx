@@ -476,7 +476,7 @@ export function ViewToggleButton({
       aria-label={label}
       title={label}
       className={cn(
-        'flex size-10 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:size-7',
+        'flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:size-11',
         active ? 'bg-accent text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
       )}
     >

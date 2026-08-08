@@ -28,6 +28,7 @@ import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/t
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
+import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -253,7 +254,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 shrink-0 gap-1.5 px-2 @md:px-3"
+          className="h-8 shrink-0 gap-1.5 px-2 pointer-coarse:min-w-11 @md:px-3"
           onClick={handleDownload}
           disabled={isDownloading}
           aria-label={t('preview.download')}
@@ -312,7 +313,11 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           // document, not an image.
           src={(isImage ? previewImageUrl : null) ?? previewUrl}
           isImage={isImage}
-          imageUnoptimized={!previewImageUrl}
+          // Asked of the src actually rendered, rather than inferred from
+          // "did we get a signed path": those are two spellings of one rule,
+          // and only `isOptimizerEligible` is checked against the optimizer's
+          // real allow-list (see `optimizable.ts`).
+          imageUnoptimized={!isOptimizerEligible((isImage ? previewImageUrl : null) ?? previewUrl)}
         />
       )}
 
@@ -360,7 +365,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                 width={0}
                 height={0}
                 sizes="(min-width: 1536px) 720px, 90vw"
-                unoptimized={!previewImageUrl}
+                unoptimized={!isOptimizerEligible(previewImageUrl ?? previewUrl)}
                 // Either URL can be expired or unreachable by the time the
                 // browser fetches the bytes — a presigned link on its own TTL,
                 // or a signed image path whose window has rolled over — and the
@@ -458,7 +463,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                     type="button"
                     onClick={toggleDetails}
                     aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground touch-target"
                   >
                     {t('preview.visualDetails.title')}
                     <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
@@ -668,7 +673,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target"
               >
                 <X className="size-3" aria-hidden />
               </button>
