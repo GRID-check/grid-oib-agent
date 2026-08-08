@@ -1,10 +1,13 @@
 'use client'
 
 /**
- * In-app source PDF viewer — a wide dialog with the browser's native PDF
- * rendering in an iframe. Used by clicked chat citations and the knowledge
- * pages so users can read the actual document the assistant grounded on.
- * `page` deep-links via the standard `#page=N` viewer fragment.
+ * In-app source PDF viewer — a wide dialog around `PdfDocumentView`. Used by
+ * clicked chat citations and the knowledge pages so users can read the actual
+ * document the assistant grounded on.
+ *
+ * `page` opens the document there; `highlight` additionally lights up the cited
+ * passage ON that page (see `pdf-document-view.tsx` for why the browser's own
+ * viewer could never do the second thing).
  */
 
 import type { ReactNode } from 'react'
@@ -18,6 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useTranslations } from '@/i18n'
+import { PdfDocumentView } from './pdf-document-view'
 
 export interface PdfViewerDialogProps {
   open: boolean
@@ -37,10 +41,22 @@ export interface PdfViewerDialogProps {
   src?: string
   /**
    * Render the source as an image (next/image in a scrollable frame) instead of
-   * the PDF iframe. Lets the Files preview pane reuse this dialog to enlarge
-   * standalone image uploads (FB-15a). The `#page=N` fragment does not apply.
+   * the PDF view. Lets the Files preview pane reuse this dialog to enlarge
+   * standalone image uploads (FB-15a). `page`/`highlight` do not apply.
    */
   isImage?: boolean
+  /**
+   * The cited passage's own text. When set, the viewer finds it on `page` and
+   * marks it — the difference between "your evidence is on page 12" and "your
+   * evidence is this sentence". Callers that only know a page leave it unset
+   * and the viewer opens exactly as it always did.
+   */
+  highlight?: string | null
+  /**
+   * CSS colour for that mark, so it wears the provenance tint of the chip that
+   * opened the dialog (e.g. `var(--source-law)`).
+   */
+  highlightColor?: string
   /**
    * Skip the Next image optimizer for `isImage` mode. Defaults to TRUE, which
    * is the safe answer for any caller that has not thought about it: `src` here
@@ -71,9 +87,13 @@ export interface PdfViewerDialogProps {
   aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, headerChip, children, aside }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, headerChip, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
+  // The fragment is for the "open in new tab" link and the image branch, which
+  // both hand the URL to the BROWSER's viewer. The in-app view takes `page` as
+  // a prop instead — it scrolls itself, and to the passage rather than the page
+  // when it can find one.
   const src = page && !isImage ? `${baseSrc}#page=${page}` : baseSrc
 
   return (
@@ -132,10 +152,12 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
                 />
               </div>
             ) : (
-              <iframe
-                src={src}
+              <PdfDocumentView
+                src={baseSrc}
                 title={title ?? fileName}
-                className="min-h-0 w-full flex-1 rounded-lg border border-border bg-surface-sunken"
+                page={page}
+                highlight={highlight}
+                highlightColor={highlightColor}
               />
             ))}
         </div>

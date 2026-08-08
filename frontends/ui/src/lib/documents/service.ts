@@ -853,6 +853,75 @@ export async function getDocumentPreview(
 }
 
 /**
+ * Stream a stored document's bytes from THIS origin, under the session's own
+ * `project:view` check.
+ *
+ * The presigned URL `getDocumentPreview` mints points at the object store's own
+ * domain, and that is fine for anything the browser NAVIGATES to — a new tab, a
+ * download, an iframe. It is not fine for anything the browser FETCHES: the
+ * in-app PDF viewer reads the file with XHR to build a text layer, which makes
+ * the request cross-origin and subject to CORS, and the S3 gateway this deploys
+ * against (SeaweedFS, `deploy/compose/docker-compose.coolify.yaml`) publishes no
+ * CORS policy at all. Every project upload and every org-Archiv document would
+ * therefore fail to load in the viewer and silently drop to the fallback frame —
+ * losing the cited-passage highlight on exactly the documents users uploaded
+ * themselves, while the base corpus (already same-origin) kept it.
+ *
+ * So stored documents get the same shape the corpus route has. The presigned
+ * URL is not replaced: it still serves the "open in new tab" link and the image
+ * branch, where a navigation is what happens and an expiring URL is the point.
+ */
+export async function streamDocumentFile(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<Response> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  const contentType = doc.contentType || 'application/octet-stream'
+  // Same gate as the presigned preview: this route exists to display a file
+  // inline, not to become a second, unfiltered download path.
+  if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', {
+      contentType,
+    })
+  }
+
+  let body
+  try {
+    const object = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: doc.storageKey,
+      }),
+    )
+    body = object.Body
+  } catch {
+    throw new NotFoundError('File not available')
+  }
+  if (!body) throw new NotFoundError('File not available')
+
+  // ASCII-safe filename for the header; this route only ever displays inline.
+  const asciiName = doc.filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
+  return new Response(body.transformToWebStream(), {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${asciiName}"`,
+      // Private: these bytes are tenant data.
+      'Cache-Control': 'private, max-age=300',
+      // The viewer's fallback renders this stream in a same-origin iframe, and
+      // the global next.config rule stamps X-Frame-Options: DENY on every
+      // route. Override it here, with a matching CSP directive for modern
+      // browsers — the same pairing `streamKnowledgeBaseDocument` carries, and
+      // next.config carries a route-scoped override to match.
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy': "frame-ancestors 'self'",
+    },
+  })
+}
+
+/**
  * Browser-facing thumbnail URL (null when no thumbnail exists).
  *
  * Prefers the signed same-origin route so the card's 124px well gets an

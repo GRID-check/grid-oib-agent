@@ -120,6 +120,45 @@ direction: `## Trace-Lanes` knows a RIS norm only as "Bauordnung für Wien" whil
 the answer's citation of it arrives with a real RIS URL. Same document, two
 identities — it used to render twice, once cited and once "read, not used".
 
+## Resolving a locus to a passage
+
+The wire stops at the PAGE. `SourceRegistry` keys on `(collection, filename,
+page)` and carries the retrieved passage as an opaque snippet string — there is
+no bounding box, no character offset, and no plan to add one: geometry would
+have to be produced at ingest, stored per chunk, and kept in step with a
+re-ingest, and it would still only cover documents this pipeline ingested.
+
+The viewer resolves the last step CLIENT-SIDE instead, at open time:
+
+```text
+locus.page      → open the document there
+locus.snippet   → match against pdf.js's text layer for that page
+                  → rectangles → scroll to them, pulse, leave a mark
+```
+
+`features/knowledge/lib/passage-highlight.ts` does the matching and
+`pdf-text-chunks.ts` the PDF→CSS geometry; both are pure and unit-tested, so
+neither needs a PDF to exercise. The two extractors involved — whatever ingested
+the document, and pdf.js — disagree about hyphenation, ligatures, punctuation
+and whitespace, so the matcher normalises both sides to letters, digits and
+single spaces and then tries exact, end-anchored, and stemmed word-overlap
+matching in that order.
+
+Two properties are load-bearing and are what the tests pin:
+
+- **Ambiguity withdraws the answer.** An anchor phrase that occurs twice on the
+  page, or two windows that score alike and lie apart, produce NO mark. A page
+  that says nearly the same thing twice is common in legal text; marking the
+  earlier occurrence would point the reader at the wrong clause with exactly the
+  confidence of a real hit.
+- **No match is a supported outcome, not an error.** A scanned page has no text
+  layer at all. The viewer then behaves exactly as it did before the highlight
+  existed — open at the page, no mark, no error surface.
+
+This is also why the viewer renders the PDF itself rather than framing the
+browser's. `#page=N` was the entire vocabulary an `<iframe>` offered; a text
+layer is not reachable through it at any price.
+
 ## Contract tests
 
 `tests/aiq_agent/common/test_citation_pipeline_contract.py` drives the **real**
@@ -174,6 +213,11 @@ when the format changes; they are the cheapest part of that change.
   storage path writes the envelope and one does not.
 - `/api/archiv/documents` is fetched on every preview-index load even when the
   org-archiv flag is off (403, degrades cleanly), and `listArchiv` is unpaginated.
+- **The passage highlight has no telemetry.** How often the matcher finds
+  nothing, and on which documents, is exactly the signal that would say whether
+  the thresholds are set right — and nothing currently records it. The matcher
+  already returns its tier (`exact` / `anchored` / `windowed`), so the field to
+  report is there.
 
 ## Corrections to the original audit
 

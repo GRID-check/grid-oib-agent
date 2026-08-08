@@ -44,6 +44,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'pdf-passage',
+    path: '/dev/pdf-passage',
+    description:
+      'Cited passage lit up inside the in-app PDF viewer, over a real one-page Bescheid rendered by pdf.js. Left pane freezes the arrival pulse mid-swell, right pane shows the resting mark. The quoted passage spans two printed lines and is cited without the line-break hyphen, so both the de-hyphenation and the per-line rectangle merge are visible.',
+    waitFor: '[data-testid="passage-mark"]',
+  },
+  {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',
