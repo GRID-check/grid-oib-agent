@@ -192,7 +192,7 @@ describe('buildCitationModel', () => {
 })
 
 describe('splitAnswerBody', () => {
-  test('lifts the written sources section out and linkifies the inline markers', () => {
+  test('lifts the written sources section out and reports its numbers', () => {
     const answer = [
       'Garagen brauchen zwei Fluchtwege [1] und 2,50 m Stellplatzbreite [2].',
       '',
@@ -201,18 +201,24 @@ describe('splitAnswerBody', () => {
       '- [2] [KB] oib-rl_4_ausgabe_mai_2023.pdf, p.9',
     ].join('\n')
 
-    const { body, entries } = splitAnswerBody(answer, 'answer-source-m1-')
+    const { body, entries, numbers } = splitAnswerBody(answer)
 
     expect(entries).toHaveLength(2)
     expect(body).not.toContain('## Quellen')
     expect(body).not.toContain('oib-rl_4_ausgabe_mai_2023.pdf')
-    expect(body).toContain('[\\[1\\]](#answer-source-m1-1)')
-    expect(body).toContain('[\\[2\\]](#answer-source-m1-2)')
+    // The markers stay as written; `remarkCitationMarkers` links them on the
+    // parsed body, so the numbers are what this hands over.
+    expect(body).toContain('[1]')
+    expect(body).toContain('[2]')
+    expect([...numbers]).toEqual([1, 2])
   })
 
   test('leaves an answer without a sources section untouched', () => {
     const answer = 'Kurze Antwort ohne Quellenteil.'
-    expect(splitAnswerBody(answer, 'p-')).toEqual({ body: answer, entries: [] })
+    const split = splitAnswerBody(answer)
+    expect(split.body).toBe(answer)
+    expect(split.entries).toEqual([])
+    expect(split.numbers.size).toBe(0)
   })
 
   test('anchor prefixes are per message so two answers never collide', () => {

@@ -16,10 +16,36 @@ vi.mock('@/features/chat', () => ({
   }),
 }))
 
+// The `[N]` markers are linked by a remark plugin inside the real renderer, so
+// a stand-in has to expose the OTHER half of what ReportTab hands over: which
+// numbers it licensed the prose to link. (That the plugin then links them is
+// citation-markers.spec's job, against the real parser.)
+const { markerNumbers } = vi.hoisted(() => ({
+  markerNumbers: (plugins?: unknown[]): number[] => {
+    for (const plugin of plugins ?? []) {
+      const options = Array.isArray(plugin) ? (plugin[1] as { numbers?: Set<number> }) : null
+      if (options?.numbers) return [...options.numbers]
+    }
+    return []
+  },
+}))
+
 // Mock MarkdownRenderer
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content, isStreaming }: { content: string; isStreaming?: boolean }) => (
-    <div data-testid="markdown" data-streaming={isStreaming}>
+  MarkdownRenderer: ({
+    content,
+    isStreaming,
+    remarkPlugins,
+  }: {
+    content: string
+    isStreaming?: boolean
+    remarkPlugins?: unknown[]
+  }) => (
+    <div
+      data-testid="markdown"
+      data-streaming={isStreaming}
+      data-citation-numbers={markerNumbers(remarkPlugins).join(',')}
+    >
       {content}
       {isStreaming && <span data-testid="streaming-indicator">Generating report...</span>}
     </div>
@@ -109,7 +135,7 @@ describe('ReportTab', () => {
     expect(screen.getByTestId('export-footer')).toBeInTheDocument()
   })
 
-  test('extracts a markdown sources section into an anchored list and linkifies [N] markers', () => {
+  test('extracts a markdown sources section into an anchored list and licenses its [N] markers', () => {
     vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
       const state: DeepPartial<ChatStoreWithHydration> = {
         reportContent:
@@ -125,9 +151,11 @@ describe('ReportTab', () => {
 
     render(<ReportTab />)
 
-    // Body markdown now carries an anchor link for the [1] marker…
+    // The body keeps the marker as written and carries the number that may be
+    // linked…
     const body = screen.getAllByTestId('markdown')[0]
-    expect(body).toHaveTextContent('[\\[1\\]](#report-source-1)')
+    expect(body).toHaveTextContent('Duties differ [1].')
+    expect(body).toHaveAttribute('data-citation-numbers', '1')
     // …and the sources section is rendered as a list entry with a matching DOM id.
     expect(document.getElementById('report-source-1')).toBeInTheDocument()
     expect(screen.getByText('Quellen')).toBeInTheDocument()
