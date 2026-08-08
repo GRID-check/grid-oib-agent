@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { resumableSessionId, RESUME_WINDOW_MS, type ResumableSession } from './resume-session'
 

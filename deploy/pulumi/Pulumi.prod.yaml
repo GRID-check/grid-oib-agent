@@ -8,6 +8,9 @@
 #   pulumi stack init prod
 #   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
 #   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+#   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
+#   # Required, no fallback — a stack without it fails at `pulumi preview`:
+#   pulumi config set --secret grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)"
 #   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
 #   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
 #   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
@@ -19,6 +22,14 @@
 #   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
 #   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 #   pulumi config set --secret grid-oib:jobPayloadKek          "$(openssl rand -base64 32)"
+#   # `requirepass` for the two Dragonfly instances (cache + edge counter store).
+#   # REQUIRED — the deploy fails closed without them; set
+#   # grid-oib:allowUnauthenticatedRedis=true to run without authentication
+#   # deliberately. The two MUST DIFFER: every app pod carries the cache password
+#   # in its REDIS_URL, and sharing it would let the app tier flush the edge
+#   # rate-limit counters.
+#   pulumi config set --secret grid-oib:dragonflyPassword      "$(openssl rand -base64 32)"
+#   pulumi config set --secret grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)"
 #   # Optional (only if using the local BYOK backend):
 #   pulumi config set --secret grid-oib:byokLocalKek          "$(openssl rand -base64 32)"
 #
@@ -80,6 +91,19 @@ config:
   # surprise storage-engine upgrades are the one class of update you want to
   # control. 3.80 is the compose-proven version; bump deliberately.
   grid-oib:seaweedfsImage: chrislusf/seaweedfs:3.80
+  # PINNED to the pre-ADR-0043 layout because this stack already holds objects.
+  # The split topology (master/volume/filer as separate workloads, filer
+  # namespace on Postgres) uses different PVCs, so flipping this is a DATA
+  # MIGRATION, not a config change: without the runbook in
+  # `docs/deployment/kubernetes.md` § "Migrating SeaweedFS to the split
+  # topology", the cluster comes up empty while every existing object sits on a
+  # PersistentVolumeClaim that nothing mounts. Nothing errors — which is exactly
+  # why this is pinned rather than left to the default.
+  #
+  # Rehearse on dev first. The split topology is what makes volume capacity a
+  # replica count and moves the per-chunk encryption keys off the disk holding
+  # the ciphertext they open.
+  grid-oib:seaweedfsTopology: single
   grid-oib:seaweedfsStorageSize: 20Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid

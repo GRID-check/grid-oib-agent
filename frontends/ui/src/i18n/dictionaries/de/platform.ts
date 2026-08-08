@@ -6,6 +6,9 @@ export const platform: typeof en.platform = {
   subtitle: 'Organisationsübergreifende Übersicht für den Plattform-Inhaber.',
   loading: 'Plattform wird geladen…',
   loadError: 'Die Plattform-Übersicht konnte nicht geladen werden.',
+  empty: {
+    title: 'Hier gibt es noch nichts',
+  },
   loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
   retry: 'Erneut versuchen',
   /**
@@ -514,6 +517,7 @@ export const platform: typeof en.platform = {
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
     workflows: 'Workflow-Vorlagen',
+    storage: 'Speicher',
     maintenance: 'Wartung',
   },
   answerFeedback: {
@@ -625,6 +629,11 @@ export const platform: typeof en.platform = {
       title: 'Workflow-Vorlagen',
       subtitle: 'Vorlagen, die in der Galerie jeder Organisation erscheinen.',
     },
+    storage: {
+      title: 'Speicher',
+      subtitle:
+        'Belegter Speicher je Organisation und das jeweils begrenzende Kontingent.',
+    },
     maintenance: {
       title: 'Wartung',
       subtitle: 'Pflege des Vektorspeichers. Nur nötig, wenn Retrieval und Korpus auseinanderlaufen.',
@@ -644,6 +653,28 @@ export const platform: typeof en.platform = {
     zdrWarning:
       'Kein Zero-Data-Retention-Endpunkt — Organisationen mit dieser Richtlinie bleiben bei ihrem eigenen Modell.',
     noZdr: 'Kein Zero-Data-Retention-Endpunkt',
+    // Denkstufe je Bereich — der zweite Hebel derselben Zeile.
+    effortPinnedBadge: 'Plattform-Stufe',
+    effortInherit: 'Workflow-Konfig.',
+    effortClear: 'Denkstufe zurück zur Workflow-Konfiguration',
+    effortSelectLabel: 'Denkstufe für {group}',
+    effortSaveError: 'Die Denkstufen konnten nicht gespeichert werden.',
+    // Die Stufen selbst (OpenRouter-Vokabular). Der Hinweis nennt die Kosten,
+    // nicht nur den Namen — Denk-Tokens sind unsichtbar, bis die Rechnung kommt.
+    levels: {
+      none: {
+        label: 'Aus',
+        hint: 'Kein verstecktes Nachdenken. Für reines Routing und Einzeiler. Modelle mit Denkpflicht lehnen diese Stufe ab.',
+      },
+      minimal: { label: 'Minimal', hint: 'Kürzestes Nachdenken. Schnell und günstig.' },
+      low: { label: 'Niedrig', hint: 'Wenig Nachdenken. Für schnelle Antworten mit etwas Abwägung.' },
+      medium: { label: 'Mittel', hint: 'Ausgewogen — die Voreinstellung der meisten Rollen.' },
+      high: { label: 'Hoch', hint: 'Viel Nachdenken. Deutlich mehr versteckte Tokens und Laufzeit.' },
+      xhigh: {
+        label: 'Sehr hoch',
+        hint: 'Maximales Nachdenken. Vervielfacht Kosten und Laufzeit über hunderte Agentenschritte.',
+      },
+    },
     // Auswahl.
     searchPlaceholder: 'Modelle suchen…',
     contextWindow: 'Kontext',
@@ -660,7 +691,7 @@ export const platform: typeof en.platform = {
     loadError: 'Die Standardmodelle konnten nicht geladen werden.',
     confirmTitle: 'Standard für alle Organisationen ändern?',
     confirmDescription:
-      'Jede Organisation, die für diese Teile des Agenten kein eigenes Modell gewählt hat, wechselt mit ihrer nächsten Nachricht. Organisationen mit eigener Wahl bleiben unberührt.',
+      'Jede Organisation, die für diese Teile des Agenten kein eigenes Modell gewählt hat, wechselt mit ihrer nächsten Nachricht. Organisationen mit eigener Wahl bleiben unberührt. Geänderte Denkstufen gelten für JEDE Organisation — höhere Stufen vervielfachen versteckte Denk-Tokens und Laufzeit.',
     confirmSave: 'Standards ändern',
   },
   /** Plattform → Abruf: die flottenweiten Abruf-Tiefen (Chunks/Ergebnisse je Suche). */
@@ -995,4 +1026,37 @@ export const platform: typeof en.platform = {
       deep: 'Tiefenrecherche',
     },
   },
+  /** Speicher: Verbrauch je Mandant und das begrenzende Kontingent. */
+  storage: {
+    title: 'Dokumentenspeicher',
+    description:
+      'Belegter Speicher je Organisation und das Kontingent, das weitere Uploads ablehnt. Kontingente sind eine Plattformsteuerung — Mandanten sehen ihren Wert, ändern ihn aber nie.',
+    totals: '{used} belegt in {orgs} Organisationen',
+    columnOrg: 'Organisation',
+    columnUsed: 'Belegt',
+    columnQuota: 'Kontingent',
+    unlimited: 'Unbegrenzt',
+    inherited: 'Plattform-Standard',
+    /** Count-neutral: die Vorlage wird auch bei genau einem Dokument gerendert. */
+    rowDocuments: 'Dokumente: {count}',
+    rowOver: 'Kontingent erreicht — Uploads abgelehnt',
+    rowNear: 'Fast voll',
+    edit: 'Kontingent für {org} bearbeiten',
+    save: 'Kontingent speichern',
+    cancel: 'Abbrechen',
+    saved: 'Kontingent aktualisiert.',
+    saveError: 'Kontingent konnte nicht aktualisiert werden.',
+    belowUsage:
+      'Dieses Kontingent liegt unter dem bereits belegten Speicher. Geben Sie zuerst Platz frei.',
+    invalidQuota:
+      'Geben Sie ein Kontingent in GB über null ein oder lassen Sie das Feld leer für kein Limit.',
+    quotaTooLarge:
+      'Dieses Kontingent ist größer als das System darstellen kann. Geben Sie höchstens 9.000.000 GB ein oder lassen Sie das Feld leer für kein Limit.',
+    truncated:
+      'Es werden die ersten 1000 Organisationen angezeigt. Für den Rest bitte einen Flottenbericht anfordern.',
+    loadError: 'Speichernutzung konnte nicht geladen werden.',
+    empty: 'Noch keine Organisation hat Daten gespeichert.',
+    hint: 'Feld leer lassen, um das Limit zu entfernen. Ein Kontingent unter der aktuellen Belegung wird abgelehnt — es würde den Mandanten handlungsunfähig machen.',
+  },
+
 }

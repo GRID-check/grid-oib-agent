@@ -1458,7 +1458,7 @@ function WhyDisclosure({ why }: { why: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="-my-2 inline-flex min-h-11 items-center gap-1 py-2 font-mono text-[11px] text-primary transition-colors hover:text-primary/80 md:my-0 md:min-h-0 md:py-0"
+        className="inline-flex items-center gap-1 font-mono text-[11px] text-primary transition-colors hover:text-primary/80 pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:py-2"
       >
         <ChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} aria-hidden />
         {t('intake.why')}

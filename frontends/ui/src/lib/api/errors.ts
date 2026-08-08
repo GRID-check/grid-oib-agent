@@ -7,6 +7,8 @@
  * guaranteeing every route returns consistent, non-leaky error responses.
  */
 
+import type { RateLimitDecision } from '@/lib/limits/types'
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -76,6 +78,55 @@ export class UnprocessableError extends ApiError {
   constructor(message = 'Unprocessable', details?: unknown) {
     super(422, 'UNPROCESSABLE', message, details)
   }
+}
+
+/**
+ * 507 — the organization's storage quota would be exceeded by this write.
+ *
+ * Distinct from 400 "file exceeds the maximum size", which judges the ONE file:
+ * this one says the file is acceptable but the tenant has no room left, so the
+ * remedy is different (delete something, or raise the quota) and the UI has to
+ * say so. RFC 4918's Insufficient Storage is exactly this case.
+ *
+ * NOT a rate limit: 429 means come back later, this means nothing changes until
+ * someone acts.
+ */
+export class InsufficientStorageError extends ApiError {
+  constructor(
+    message = 'Storage quota exceeded',
+    details?: { quotaBytes: number; usedBytes: number; requestedBytes: number }
+  ) {
+    super(507, 'STORAGE_QUOTA_EXCEEDED', message, details)
+  }
+}
+
+/**
+ * 429 — an abuse bound was reached (ADR-0040 L2).
+ *
+ * Carries the decision itself rather than a bare message, because the three
+ * things a client needs — which policy bit, how much is left, when to come back
+ * — are all in it, and `@/lib/api/handler` turns them into the `Retry-After` and
+ * `X-RateLimit-*` headers. `retryAfterSeconds` comes from the limiter's own
+ * arithmetic (GCRA knows exactly when the request would be admitted), so it is
+ * a fact rather than the usual "try again in a window".
+ *
+ * NOT the error for a budget refusal: running out of euros is ADR-0015's
+ * business and has its own, fail-closed path.
+ */
+export class TooManyRequestsError extends ApiError {
+  readonly retryAfterSeconds: number
+
+  constructor(decision: RateLimitDecision, message = 'Too many requests') {
+    super(429, 'RATE_LIMITED', message, {
+      policy: decision.rule,
+      retryAfterSeconds: decision.retryAfterSeconds,
+    })
+    this.retryAfterSeconds = decision.retryAfterSeconds
+    this.decision = decision
+  }
+
+  /** The full decision, for `rateLimitHeaders`. */
+  readonly decision: RateLimitDecision
 }
 
 /** 502 — an upstream dependency (backend, WorkOS, SeaweedFS) failed. */

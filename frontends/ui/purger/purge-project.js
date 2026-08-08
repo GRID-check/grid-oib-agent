@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Ordered, idempotent purge steps for one project.
  *
@@ -16,6 +17,10 @@
 
 const { hasActiveHold } = require('./db')
 
+/** @typedef {import('./types').Tx} Tx */
+/** @typedef {import('./types').QueueEntry} QueueEntry */
+/** @typedef {import('./types').PurgeDeps} PurgeDeps */
+
 /** error.code used to signal "hold appeared after claim" to the caller. */
 const LEGAL_HOLD_CODE = 'LEGAL_HOLD_ACTIVE'
 
@@ -23,13 +28,28 @@ const LEGAL_HOLD_CODE = 'LEGAL_HOLD_ACTIVE'
 // "not found" anywhere in a message wrongly swallowed errors like WorkOS's
 // "Organization not found" or a proxy "upstream host not found", leaking the
 // resource while the row was marked purged.
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
 function isNotFound(error) {
-  return error != null && error.status === 404
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    /** @type {{ status?: unknown }} */ (error).status === 404
+  )
 }
 
-/** Throw LEGAL_HOLD_ACTIVE if a hold now covers this entry. */
+/**
+ * Throw LEGAL_HOLD_ACTIVE if a hold now covers this entry.
+ *
+ * @param {Tx} tx
+ * @param {QueueEntry} entry
+ * @returns {Promise<void>}
+ */
 async function assertNoHold(tx, entry) {
   if (await hasActiveHold(tx, entry)) {
+    /** @type {import('./types').LegalHoldError} */
     const error = new Error(
       `legal hold active for ${entry.entity_type} ${entry.entity_id} — aborting purge`,
     )
@@ -38,6 +58,12 @@ async function assertNoHold(tx, entry) {
   }
 }
 
+/**
+ * @param {Tx} tx
+ * @param {QueueEntry} entry
+ * @param {PurgeDeps} deps
+ * @returns {Promise<void>}
+ */
 async function purgeProject(tx, entry, deps) {
   const { backendUrl, internalToken, bucket, workos, deleteStoragePrefix } = deps
   const fetchImpl = deps.fetchImpl || fetch
@@ -56,7 +82,11 @@ async function purgeProject(tx, entry, deps) {
   const collectionName = project
     ? project.collection_name
     : (entry.payload && entry.payload.collectionName) || null
-  const conversations = await tx`SELECT id FROM conversations WHERE project_id = ${projectId}`
+  // Narrowed at the boundary, where the SQL shape is known — the same rule
+  // AGENTS.md sets for raw `sql<T>` results in the repositories.
+  const conversations = /** @type {{ id: string }[]} */ (
+    await tx`SELECT id FROM conversations WHERE project_id = ${projectId}`
+  )
 
   // 1. Python-side stores: Chroma collection, summaries, job rows, checkpoints.
   const res = await fetchImpl(`${backendUrl}/v1/maintenance/purge-project-resources`, {
@@ -84,8 +114,42 @@ async function purgeProject(tx, entry, deps) {
   // Re-check the hold before EACH external destructive step to keep the TOCTOU
   // window to a single step (see file header). Aborts release the row.
   await assertNoHold(tx, entry)
-  // 2. SeaweedFS objects under the project prefix.
-  await deleteStoragePrefix(bucket, `org/${orgId}/project/${projectId}/`)
+  // 2. SeaweedFS objects under the project prefix, in every bucket that holds
+  //    them.
+  //
+  //    READ from the ledger rather than DERIVED from the organization id. Under
+  //    ADR-0043 each document records the bucket it was written to precisely so
+  //    that nothing has to recompute it — and a purge that recomputed it would
+  //    be the one place where a naming disagreement is invisible: it would
+  //    sweep a bucket that does not exist, find nothing, and report the erasure
+  //    complete. Asking the rows is also strictly more complete than deriving,
+  //    because it finds buckets written under a PREVIOUS prefix configuration,
+  //    which no current-rule derivation can.
+  //
+  //    Read here, before step 4 deletes the rows that answer it. The shared
+  //    bucket is always included: NULL means shared (migration 0033), and an
+  //    orphaned object from an upload whose row insert failed can only be
+  //    there or in a bucket a sibling document names.
+  //
+  //    Sequential rather than concurrent on purpose: the prefix sweep is a
+  //    list-then-delete loop, and running several against one storage tier only
+  //    trades a rarely-hot latency for contention on the thing being erased.
+  const recorded = /** @type {{ storage_bucket: string }[]} */ (
+    await tx`
+      SELECT DISTINCT storage_bucket FROM documents
+       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+  )
+  const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
+  for (const target of targets) {
+    // Re-checked per BUCKET, not once for the loop. The hold check above bounds
+    // the window to a single step, and this loop is now N destructive steps —
+    // one sweep per bucket, each of which can take a while. A hold placed after
+    // the first sweep began would otherwise be ignored for every bucket after
+    // it, which is precisely the case a legal hold exists to stop: the erasure
+    // continues past the moment someone said stop, and reports success.
+    await assertNoHold(tx, entry)
+    await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
+  }
 
   await assertNoHold(tx, entry)
   // 3. WorkOS FGA resource (+ role assignments). Already-gone is success.

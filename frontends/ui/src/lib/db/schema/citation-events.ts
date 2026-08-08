@@ -37,6 +37,12 @@ export const CITATION_EVENT_KINDS = [
   'citation_fallback',
   /** The overconfidence guard capped the surfaced confidence to "low". */
   'confidence_capped',
+  /**
+   * Info-only retrieval-precision row: how many retrieved sources the answer
+   * actually cited vs. retrieved-but-unused. Not a defect — excluded from
+   * every defect/clean-rate query (see CITATION_PRECISION_KIND).
+   */
+  'retrieval_precision',
 ] as const
 export type CitationEventKind = (typeof CITATION_EVENT_KINDS)[number]
 
@@ -49,6 +55,9 @@ export type CitationEventAgent = (typeof CITATION_EVENT_AGENTS)[number]
 
 /** The only kind that is not a defect — everything else counts against a turn. */
 export const CITATION_BASELINE_KIND: CitationEventKind = 'turn_verified'
+
+/** Info-only kind: retrieved-vs-cited precision per turn. Not a defect. */
+export const CITATION_PRECISION_KIND: CitationEventKind = 'retrieval_precision'
 
 export const citationEvents = pgTable(
   'citation_events',

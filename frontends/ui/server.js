@@ -179,34 +179,82 @@ const TRANSIENT_UPSTREAM_CODES = new Set([
 
 const isTransientUpstreamFailure = (err) => TRANSIENT_UPSTREAM_CODES.has(err?.code)
 
-// ── WS-upgrade rate limiter (ADR-0020) ──
-// Every upgrade triggers session resolution, FGA checks, and budget reads in
-// the BFF, so a reconnect storm amplifies straight into WorkOS and Postgres.
-// Fixed window per client IP; counters live in the shared cache (Dragonfly)
-// so the limit holds across replicas, with a per-process fallback. Fails
-// open — a cache outage must never take chat down. 0 disables.
-const WS_RATE_LIMIT = parseInt(process.env.GRID_WS_UPGRADE_RATE_LIMIT || '30', 10)
-const WS_RATE_WINDOW_SECONDS = 60
+// ── WebSocket rate limiting (ADR-0020, ADR-0040 layers L2 / L2b) ──
+//
+// Two limits live here, and the second is the reason this file matters:
+//
+//   1. **Upgrades, per client.** Every upgrade triggers session resolution, FGA
+//      checks and budget reads in the BFF, so a reconnect storm amplifies
+//      straight into WorkOS and Postgres. The edge now carries the same budget
+//      (`rateLimitAppWsUpgrade`); this one keeps working while that policy is
+//      in shadow mode, and covers anything that never crossed the gateway.
+//   2. **Frames on an ALREADY-OPEN socket.** Chat is WebSocket-only (ADR-0009),
+//      so from the edge's point of view a whole session — every turn, every
+//      agent run — is the single upgrade request above. No gateway policy can
+//      ever see a chat turn. This process owns the socket, so it is the only
+//      place that can count them.
+//
+// Both use the shared catalog and the shared `rate-limiter-flexible` wiring
+// (`src/lib/limits/`), so the WS proxy and the BFF cannot drift into different
+// budgets, key prefixes or failure behaviour. Fails open — an abuse bound must
+// never be the thing that takes chat down.
+const { WS_UPGRADE_LIMIT, CHAT_TURN_LIMIT, WS_CONTROL_LIMIT } = require('./src/lib/limits/rules.js')
+const { createLimiter, consumeLimiter } = require('./src/lib/limits/factory.js')
+const { createFrameObserver, classifyFrame } = require('./src/lib/limits/ws-frames.js')
 
-let rateLimitRedis = null
-if (process.env.REDIS_URL && WS_RATE_LIMIT > 0) {
+// `GRID_WS_UPGRADE_RATE_LIMIT` predates the catalog and stays honoured: an
+// operator who tuned it should not have it silently reverted by this refactor.
+// 0 still disables the upgrade limit entirely.
+const parsedUpgradeOverride = parseInt(
+  process.env.GRID_WS_UPGRADE_RATE_LIMIT || String(WS_UPGRADE_LIMIT.limit),
+  10
+)
+if (!Number.isFinite(parsedUpgradeOverride)) {
+  console.warn(
+    '[Gateway] invalid GRID_WS_UPGRADE_RATE_LIMIT=%s, using catalog default %d',
+    process.env.GRID_WS_UPGRADE_RATE_LIMIT,
+    WS_UPGRADE_LIMIT.limit
+  )
+}
+// A typo must not silently switch the limit off. `parseInt('thirty')` is NaN,
+// and `NaN > 0` is false — so without this guard a malformed value took the
+// `upgradeLimiter = null` path and disabled upgrade limiting with nothing in the
+// logs. Only an explicit 0 disables it.
+const WS_UPGRADE_OVERRIDE = Number.isFinite(parsedUpgradeOverride)
+  ? parsedUpgradeOverride
+  : WS_UPGRADE_LIMIT.limit
+// Frames per session. 0 disables, for an operator who needs the old behaviour
+// back in a hurry.
+const WS_MESSAGE_LIMITS_ENABLED = process.env.GRID_WS_MESSAGE_LIMITS !== '0'
+
+let limitStoreClient = null
+if (process.env.REDIS_URL) {
   try {
     const IORedis = require('ioredis')
-    rateLimitRedis = new IORedis(process.env.REDIS_URL, {
+    limitStoreClient = new IORedis(process.env.REDIS_URL, {
       connectTimeout: 1000,
       commandTimeout: 500,
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
     })
-    rateLimitRedis.on('error', (error) => {
-      console.warn('[Gateway] rate-limit cache error:', error.message)
+    limitStoreClient.on('error', (error) => {
+      console.warn('[Gateway] rate-limit store error:', error.message)
     })
   } catch (error) {
-    console.warn('[Gateway] shared rate limiter unavailable, using per-process fallback:', error.message)
+    console.warn('[Gateway] shared rate limiter unavailable, using per-process buckets:', error.message)
   }
 }
 
-const localRateWindows = new Map()
+const upgradeLimiter =
+  WS_UPGRADE_OVERRIDE > 0
+    ? createLimiter({ ...WS_UPGRADE_LIMIT, limit: WS_UPGRADE_OVERRIDE }, limitStoreClient)
+    : null
+const frameLimiters = WS_MESSAGE_LIMITS_ENABLED
+  ? {
+      'chat-turn': createLimiter(CHAT_TURN_LIMIT, limitStoreClient),
+      control: createLimiter(WS_CONTROL_LIMIT, limitStoreClient),
+    }
+  : null
 
 const getClientKey = (req) => {
   const forwarded = req.headers['x-forwarded-for']
@@ -216,32 +264,64 @@ const getClientKey = (req) => {
   return req.socket?.remoteAddress || 'unknown'
 }
 
+/**
+ * Bucket key for frames on one socket.
+ *
+ * The session cookie, hashed — the same idiom `scopeCacheKey` uses below, and
+ * for the same reason: it identifies the session stably without putting a
+ * credential in a key. Deliberately NOT the client IP: several tabs of one user
+ * share a budget (they share an account), while two users behind one NAT do
+ * not.
+ */
+const sessionKey = (req) =>
+  crypto.createHash('sha256').update(req.headers.cookie || getClientKey(req)).digest('hex')
+
 async function wsUpgradeAllowed(clientKey) {
-  if (WS_RATE_LIMIT <= 0) return true
-  const windowId = Math.floor(Date.now() / (WS_RATE_WINDOW_SECONDS * 1000))
-  const key = `ratelimit:ws:${clientKey}:${windowId}`
-  if (rateLimitRedis) {
-    try {
-      const results = await rateLimitRedis
-        .multi()
-        .incr(key)
-        .expire(key, WS_RATE_WINDOW_SECONDS, 'NX')
-        .exec()
-      const count = Number(results?.[0]?.[1] ?? 0)
-      return count <= WS_RATE_LIMIT
-    } catch {
-      return true // fail open
-    }
-  }
-  // Per-process fallback (only sees this process's traffic).
-  if (localRateWindows.size > 10000) localRateWindows.clear()
-  const entry = localRateWindows.get(clientKey)
-  if (!entry || entry.windowId !== windowId) {
-    localRateWindows.set(clientKey, { windowId, count: 1 })
-    return true
-  }
-  entry.count += 1
-  return entry.count <= WS_RATE_LIMIT
+  if (!upgradeLimiter) return true
+  const outcome = await consumeLimiter(upgradeLimiter, clientKey)
+  return outcome.allowed
+}
+
+/**
+ * Watch one client socket and close it if it exceeds its frame budget.
+ *
+ * Passive: the observer is an extra `data` listener, so nothing about what gets
+ * forwarded changes. Enforcement is necessarily *after the fact* — the frame
+ * has already been spliced upstream by the time we finish parsing it — so the
+ * action on refusal is to close the connection rather than to drop a message.
+ * That is the standard answer for WebSockets, where there is no 429 to send,
+ * and it is safe: the client reconnects on its jittered backoff and the
+ * upgrade limiter above then paces it.
+ */
+function watchClientFrames(socket, key) {
+  if (!frameLimiters) return null
+
+  let closing = false
+  const observer = createFrameObserver((frame) => {
+    const kind = classifyFrame(frame)
+    // The close handshake is never throttled, or a socket cannot shut down.
+    if (kind === 'ignore' || closing) return
+
+    consumeLimiter(frameLimiters[kind], `${kind}:${key}`)
+      .then((outcome) => {
+        if (outcome.allowed || closing) return
+        closing = true
+        console.warn('[WS Proxy] frame budget exceeded (%s), closing socket', kind)
+        try {
+          // Opcode 8, status 1008 "policy violation" — the close reason that
+          // tells an honest client this was a rule and not a crash.
+          socket.end(Buffer.from([0x88, 0x02, 0x03, 0xf0]))
+        } catch {
+          socket.destroy()
+        }
+      })
+      .catch(() => {
+        // Fail open: a store failure must not sever a live chat.
+      })
+  })
+
+  socket.on('data', (chunk) => observer.push(chunk))
+  return observer
 }
 
 // In production, we run Next.js in the same process
@@ -665,6 +745,18 @@ const startServer = async () => {
         socket.destroy()
         return
       }
+
+      // Count what this client sends once the socket is live (ADR-0040 L2b).
+      // Attached BEFORE the splice so no frame is missed, and passive, so the
+      // proxying below is unchanged.
+      const frameObserver = watchClientFrames(socket, sessionKey(req))
+      // `head` holds bytes already read off the socket during the upgrade —
+      // Node hands them to us rather than leaving them in the stream, and
+      // `backendProxy.ws` forwards them upstream. They never arrive as a 'data'
+      // event, so an observer that only listens for 'data' would miss them. A
+      // partial frame there desynchronises the parser for the life of the
+      // connection, and the chat-turn limiter silently stops counting.
+      if (frameObserver && head && head.length > 0) frameObserver.push(head)
 
       // Guard the proxy call itself: http-proxy can throw SYNCHRONOUSLY from
       // ws() (e.g. an invalid header value) and an uncaught throw in the

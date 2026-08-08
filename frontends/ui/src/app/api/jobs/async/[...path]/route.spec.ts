@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Break the authkit-nextjs import chain (pulls in next/cache) at load time.
@@ -346,7 +349,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     )
 
     expect(res.status).toBe(200)
-    expect(loadProjectBundesland).toHaveBeenCalledWith('proj-1')
+    expect(loadProjectBundesland).toHaveBeenCalledWith('proj-1', 'org-1')
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
     const decoded = JSON.parse(

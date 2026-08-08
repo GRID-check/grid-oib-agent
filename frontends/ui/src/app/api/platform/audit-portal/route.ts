@@ -5,24 +5,16 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getGridSession } from '@/lib/auth/session'
-import {
-  getPlatformOrganizationId,
-  PlatformAccessDeniedError,
-  requirePlatformOwner,
-} from '@/lib/authz/platform'
+import { platformApiRoute } from '@/lib/api/platform-handler'
+import { getPlatformOrganizationId } from '@/lib/authz/platform'
 import { generateAuditPortalLink, trustedAppOrigin } from '@/lib/audit/service'
 
-export async function POST(request: Request): Promise<Response> {
-  const session = await getGridSession()
-  try {
-    await requirePlatformOwner(session)
-  } catch (error) {
-    if (error instanceof PlatformAccessDeniedError) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: error.status })
-    }
-    throw error
-  }
+// `tenantSlotRoute` is a tenancy wrapper, not an authorization declaration, and
+// pairing it with a hand-rolled owner gate re-implemented what
+// `platformApiRoute` already does: the slot, `requirePlatformOwner`, the
+// platform scope and the 403 mapping, in one place that cannot be edited out of
+// the handler body.
+export const POST = platformApiRoute(async ({ request }) => {
   const platformOrgId = await getPlatformOrganizationId()
   if (!platformOrgId) {
     // Break-glass owner before provisioning — nothing to link to yet.
@@ -36,4 +28,4 @@ export async function POST(request: Request): Promise<Response> {
     console.error('[Platform Audit Portal] WorkOS link generation failed:', error)
     return NextResponse.json({ error: 'portal-unavailable' }, { status: 502 })
   }
-}
+})

@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The bound on what a client may write into a message's jsonb column (ADR-0037).
  *
  * This is the only thing between an untrusted browser payload and the database, so

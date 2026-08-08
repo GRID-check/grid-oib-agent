@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 import { PLATFORM_TEMPLATE_ID_PREFIX, resolveGalleryTemplate } from './templates'
 import type { GalleryTemplate } from '@/adapters/api/platform-workflow-templates-client'

@@ -12,7 +12,7 @@ import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { EDGE_SHUTDOWN, SURGE_ONLY_STRATEGY } from "./rollout";
-import { EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
+import { EDGE_RATE_LIMIT, EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
 export const GATEWAY_NAME = "grid-gateway";
@@ -30,12 +30,31 @@ export const GATEWAY_CLASS = "eg";
  * startup to enable its Gateway integration — so install the controller FIRST,
  * then cert-manager, then the Gateway/GatewayClass resources.
  */
-export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Release {
+export function installGatewayController(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+): k8s.helm.v3.Release {
   const ns = new k8s.core.v1.Namespace(
     "envoy-gateway-ns",
     { metadata: { name: "envoy-gateway-system" } },
     { provider },
   );
+
+  // The counter store's `requirepass`, for the rate limit service that talks to
+  // it. It lives HERE, not in the app namespace, because the rate limit
+  // Deployment the Envoy Gateway controller generates runs here — a
+  // `secretKeyRef` cannot cross namespaces.
+  const redisAuthSecret =
+    cfg.rateLimit.enabled && cfg.rateLimit.storePassword
+      ? new k8s.core.v1.Secret(
+          "ratelimit-redis-auth",
+          {
+            metadata: { name: RATE_LIMIT_REDIS_AUTH_SECRET, namespace: ns.metadata.name },
+            stringData: { [RATE_LIMIT_REDIS_AUTH_KEY]: cfg.rateLimit.storePassword },
+          },
+          { provider, dependsOn: ns },
+        )
+      : undefined;
 
   return new k8s.helm.v3.Release(
     "envoy-gateway",
@@ -43,14 +62,103 @@ export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Re
       chart: "oci://docker.io/envoyproxy/gateway-helm",
       // Unpinned: track the latest Envoy Gateway release.
       namespace: ns.metadata.name,
-      // Install CRDs + controller with the chart's defaults. DO NOT override
-      // `values.crds` or set `skipAwait`: cert-manager (installed next with
-      // enableGatewayAPI) hard-fails at startup if the Gateway API CRDs aren't
-      // Established first, and the default release-await guarantees that order.
-      values: {},
+      // Install CRDs + controller with the chart's defaults, plus (optionally)
+      // the global rate limit service. DO NOT override `values.crds` or set
+      // `skipAwait`: cert-manager (installed next with enableGatewayAPI)
+      // hard-fails at startup if the Gateway API CRDs aren't Established first,
+      // and the default release-await guarantees that order. Touching
+      // `config.envoyGateway` does not disturb any of that.
+      //
+      // Helm DEEP-merges these over the chart's own `config.envoyGateway`, so
+      // adding `provider.kubernetes` below keeps the chart's
+      // `provider.type: Kubernetes` rather than replacing the block.
+      values: cfg.rateLimit.enabled
+        ? { config: { envoyGateway: rateLimitConfig(cfg, redisAuthSecret !== undefined) } }
+        : {},
     },
-    { provider, dependsOn: ns },
+    { provider, dependsOn: [ns, ...(redisAuthSecret ? [redisAuthSecret] : [])] },
   );
+}
+
+/** Secret (in `envoy-gateway-system`) holding the counter store's password. */
+const RATE_LIMIT_REDIS_AUTH_SECRET = "grid-ratelimit-redis-auth"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+/**
+ * Env var the upstream `envoyproxy/ratelimit` service reads its Redis password
+ * from (`RedisAuth string \`envconfig:"REDIS_AUTH"\``). Also the Secret key, so
+ * the two can never drift.
+ */
+const RATE_LIMIT_REDIS_AUTH_KEY = "REDIS_AUTH"; // pragma: allowlist secret (env var name, not a credential)
+
+/**
+ * The `EnvoyGateway` config fragment that turns on global rate limiting
+ * (ADR-0040 layer L1).
+ *
+ * Without this the `BackendTrafficPolicy` rules in `app/httproutes.ts` are inert
+ * — Envoy Gateway accepts them and the rate limit service they need is simply
+ * not deployed. The two must move together, which is why the same
+ * `cfg.rateLimit.enabled` flag gates both.
+ *
+ * `backend.type: Redis` names the DEDICATED counter store, never the ADR-0020
+ * cache (`data/dragonfly.ts` explains why at length). The store lives in the
+ * app namespace while the rate limit service runs here in
+ * `envoy-gateway-system`, so this crosses a namespace boundary — and `grid` is
+ * default-deny for ingress, so `platform/network-policies.ts` carries the allow
+ * that makes this address reachable. Miss that rule and every lookup fails; the
+ * fail-open default then means the limits silently do nothing.
+ *
+ * **The password does not go in `redis.url`.** `RateLimitRedisSettings` has
+ * exactly three fields — `url`, `urlRef` and `tls` — and no password member;
+ * Envoy Gateway renders `url` verbatim into the rate limit Deployment's
+ * `REDIS_URL`, which the upstream `envoyproxy/ratelimit` service uses as a bare
+ * `host:port` dial address, not as a URI. A `redis://:pw@host` there would be
+ * parsed as a hostname. The password instead reaches the same container as
+ * `REDIS_AUTH` (`envconfig:"REDIS_AUTH"`), injected through
+ * `provider.kubernetes.rateLimitDeployment.container.env` — the one supported
+ * seam for extra env on that generated Deployment.
+ *
+ * Getting this wrong is FAIL-OPEN, not an outage: an AUTH failure makes the
+ * rate limit service error, and `failClosed` is false, so traffic flows
+ * unlimited while the ADR-0029 pane shows the errors. Worth knowing when
+ * reading a "limits stopped enforcing" report.
+ */
+function rateLimitConfig(cfg: GridConfig, withRedisAuth: boolean): Record<string, unknown> {
+  return {
+    rateLimit: {
+      backend: {
+        type: "Redis",
+        redis: { url: `${EDGE_RATE_LIMIT.storeService}.${cfg.namespace}.svc.cluster.local:6379` },
+      },
+      // Fail open: a counter-store blip must degrade to "not limited", never to
+      // "down". See the knob's comment for when to reconsider.
+      failClosed: cfg.rateLimit.failClosed,
+      // Short — this sits in front of every request.
+      timeout: EDGE_RATE_LIMIT.timeout,
+    },
+    ...(withRedisAuth
+      ? {
+          provider: {
+            type: "Kubernetes",
+            kubernetes: {
+              rateLimitDeployment: {
+                container: {
+                  env: [
+                    {
+                      name: RATE_LIMIT_REDIS_AUTH_KEY,
+                      valueFrom: {
+                        secretKeyRef: {
+                          name: RATE_LIMIT_REDIS_AUTH_SECRET,
+                          key: RATE_LIMIT_REDIS_AUTH_KEY,
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }
+      : {}),
+  };
 }
 
 /**
@@ -234,6 +342,36 @@ export function installGatewayResources(
   const clientTrafficPolicySpec: IClientTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME }],
     timeout: { http: { idleTimeout: EDGE_TIMEOUT, streamIdleTimeout: EDGE_TIMEOUT } },
+    // ── ADR-0040 layer L0 ──
+    //
+    // Client-IP detection FIRST, because everything per-IP rests on it: the edge
+    // rate limit rules (`app/httproutes.ts`), the WS-upgrade limiter in
+    // `server.js`, and any access log anyone ever reads. Leaving it unset does
+    // not disable per-IP limiting — it silently redefines "client" as whatever
+    // address Envoy's downstream connection carries. If a SNATing load balancer
+    // sits in front, that is ONE address for the entire internet, and a limit
+    // meant as "30 per client" becomes "30 for everybody" with nothing to show
+    // for it but a fail-open counter.
+    //
+    // `numTrustedHops: 0` (the default) keeps Envoy's own downstream address,
+    // which is correct when the LoadBalancer preserves the source IP. The knob
+    // exists so a stack that sits behind a proxy can say so. Confirm against a
+    // live cluster before believing any per-IP number.
+    clientIPDetection: { xForwardedFor: { numTrustedHops: cfg.ingress.xffNumTrustedHops } },
+    // A blunt backstop under the request-rate limits: bounds file descriptors
+    // and memory when a client opens connections it never drives. 0 disables.
+    ...(cfg.ingress.maxConnectionsPerProxy > 0
+      ? {
+          connection: {
+            connectionLimit: {
+              value: cfg.ingress.maxConnectionsPerProxy,
+              // Delay the close a touch so a burst of rejects cannot become a
+              // tight accept/close loop against the proxy.
+              closeDelay: "1s",
+            },
+          },
+        }
+      : {}),
   };
   new k8s.apiextensions.CustomResource(
     "grid-client-traffic-policy",

@@ -11,6 +11,7 @@ export const organization = {
     access: 'People & access',
     models: 'Models',
     budgets: 'Usage & budgets',
+    storage: 'Storage',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -35,6 +36,11 @@ export const organization = {
       title: 'Usage & budgets',
       subtitle:
         'LLM spend against the limits it is checked against. Admins see the whole organization, everyone else their own.',
+    },
+    storage: {
+      title: 'Storage',
+      subtitle:
+        'How much document storage this organization uses, and the quota that bounds it.',
     },
     compliance: {
       title: 'Compliance',
@@ -250,6 +256,23 @@ export const organization = {
     revokeError: 'Could not revoke the key.',
     history: 'Key history',
     revokedOn: 'created {date}',
+  },
+  /** Storage: bytes stored against the quota that stops new uploads. */
+  storage: {
+    title: 'Document storage',
+    description:
+      'Every uploaded document is kept so it can be re-read, re-embedded and audited. The quota is what stops one organization filling the shared disk.',
+    used: 'Used',
+    ofQuota: '{used} of {quota}',
+    noQuota: '{used} stored (no quota set)',
+    overQuota: 'Quota reached — new uploads are refused until space is freed',
+    nearQuota: 'Almost full — new uploads will soon be refused',
+    projectDocuments: 'Project documents',
+    archivDocuments: 'Organization Archiv',
+    /** Count-neutral: a scope with exactly one document renders this too. */
+    documentCount: 'Documents: {count}',
+    setByPlatform: 'Your storage quota is set by Piloti. Contact support if you need more room.',
+    loadError: 'Could not load storage usage.',
   },
   budgets: {
     title: 'Usage & budgets',

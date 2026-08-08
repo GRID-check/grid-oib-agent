@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/authz/projects', () => ({
@@ -185,15 +188,15 @@ describe('profile writes invalidate both profile-derived cache keys (Fix 1)', ()
   it('saveProjectProfile drops promptview: AND bundesland:', async () => {
     await saveProjectProfile(session, 'proj-1', storedProfile, 5)
 
-    expect(invalidateCached).toHaveBeenCalledWith('promptview:proj-1')
-    expect(invalidateCached).toHaveBeenCalledWith('bundesland:proj-1')
+    expect(invalidateCached).toHaveBeenCalledWith('promptview:org-1:proj-1')
+    expect(invalidateCached).toHaveBeenCalledWith('bundesland:org-1:proj-1')
   })
 
   it('patchProjectProfile drops promptview: AND bundesland:', async () => {
     await patchProjectProfile(session, 'proj-1', [])
 
-    expect(invalidateCached).toHaveBeenCalledWith('promptview:proj-1')
-    expect(invalidateCached).toHaveBeenCalledWith('bundesland:proj-1')
+    expect(invalidateCached).toHaveBeenCalledWith('promptview:org-1:proj-1')
+    expect(invalidateCached).toHaveBeenCalledWith('bundesland:org-1:proj-1')
   })
 })
 

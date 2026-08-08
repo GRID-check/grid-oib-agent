@@ -14,10 +14,20 @@ const de = {
     description: 'Die KI-Plattform für Architektur- und Planungsbüros',
   },
   skipLink: 'Zum Inhalt springen',
+  // Drawing-set index shown in the page margin (see SheetIndex.astro).
+  sheets: {
+    hero: '01 Start',
+    story: '02 Problem und Lösung',
+    nutzung: '03 Nutzung',
+    daten: '04 Datengrundlage',
+    ki: '05 Daten und Transparenz',
+    kontakt: '06 Kontakt',
+  },
   nav: {
     ariaLabel: 'Hauptnavigation',
     logoLabel: 'Piloti — Startseite',
     signIn: 'Anmelden',
+    signInPending: 'Weiterleitung…',
     cta: 'Demo anfragen',
     langLabel: 'Sprache wählen',
   },
@@ -225,10 +235,20 @@ const en: typeof de = {
     description: 'The AI platform for architecture and planning firms',
   },
   skipLink: 'Skip to content',
+  // Drawing-set index shown in the page margin (see SheetIndex.astro).
+  sheets: {
+    hero: '01 Start',
+    story: '02 Problem and solution',
+    nutzung: '03 Usage',
+    daten: '04 Data foundation',
+    ki: '05 Data and transparency',
+    kontakt: '06 Contact',
+  },
   nav: {
     ariaLabel: 'Main navigation',
     logoLabel: 'Piloti — homepage',
     signIn: 'Sign in',
+    signInPending: 'Redirecting…',
     cta: 'Request a demo',
     langLabel: 'Choose language',
   },

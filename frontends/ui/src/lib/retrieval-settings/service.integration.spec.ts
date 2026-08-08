@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Opt-in integration test: the platform retrieval settings against a real
  * Postgres with migration 0029 applied. Skipped unless GRID_TEST_DATABASE_URL
  * is set (CI has no database).

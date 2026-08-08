@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const check = vi.fn()
@@ -109,6 +112,6 @@ describe('listProjects', () => {
 
     await listProjects(session({ organizationId: 'org_1' }))
 
-    expect(listProjectsInOrg).toHaveBeenCalledWith('org_1')
+    expect(listProjectsInOrg).toHaveBeenCalledWith('org_1', { order: 'newest' })
   })
 })

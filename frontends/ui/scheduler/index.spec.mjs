@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shouldStart, readConfig, fireOne, INTERNAL_TOKEN_HEADER } from './index.js'
 

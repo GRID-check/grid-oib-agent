@@ -233,6 +233,10 @@ export const collaboration: typeof en.collaboration = {
         titleNone: 'Nachrichten',
         body: 'in {subject}',
       },
+      storageQuotaWarning: {
+        title: 'Der Speicherplatz Ihrer Organisation wird knapp',
+        body: '{subject} des Speicherkontingents sind belegt. Sobald es voll ist, schlagen Uploads fehl – löschen Sie nicht mehr benötigte Dokumente oder bitten Sie den Betreiber Ihrer Piloti-Installation, das Kontingent zu erhöhen.',
+      },
       unknown: {
         title: 'Es gab Aktivität',
         body: 'in {subject}',

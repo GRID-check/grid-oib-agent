@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Collaboration lifecycle: deletion, modification, revocation (spec SH-13, IB-14,
  * IB-15, MN-9.4).
  *
@@ -135,9 +138,9 @@ vi.mock('@/lib/sharing/directory', async (importActual) => ({
 }))
 
 // The real bounds are part of the rules under test; only the counter is stubbed.
-vi.mock('@/lib/sharing/rate-limit', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/sharing/rate-limit')>()),
-  consumeRateLimit: vi.fn(),
+vi.mock('@/lib/limits', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/limits')>()),
+  consumeLimit: vi.fn(),
 }))
 
 import { drizzle as proxyDrizzle } from 'drizzle-orm/pg-proxy'
@@ -201,7 +204,8 @@ import {
   revokeResourceAccess,
   setResourceVisibility,
 } from '@/lib/sharing/service'
-import { consumeRateLimit } from '@/lib/sharing/rate-limit'
+import { SHARE_LIMIT, consumeLimit } from '@/lib/limits'
+import { allowedDecision } from '@/test-utils/limit-fixtures'
 
 const CONVERSATION_ID = 'conv_1'
 const PROJECT_ID = 'proj_1'
@@ -316,7 +320,7 @@ beforeEach(() => {
   stubMyGrant(null)
   stubGrants([])
   vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
-  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, current: 1, limit: 60 })
+  vi.mocked(consumeLimit).mockResolvedValue(allowedDecision(SHARE_LIMIT))
   vi.mocked(countGrantsForResource).mockResolvedValue(0)
   vi.mocked(countPendingInboxItems).mockResolvedValue(0)
   vi.mocked(canUserAccessProject).mockResolvedValue(true)

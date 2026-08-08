@@ -3,6 +3,8 @@ import os
 
 from pydantic import Field
 
+from aiq_agent.common.log_redaction import PresignedUrlFilter
+from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
 from nat.builder.builder import Builder
 from nat.cli.register_workflow import register_logging_method
 from nat.data_models.logging import LoggingBaseConfig
@@ -86,6 +88,16 @@ async def otlp_logging_method(config: OtlpLoggingMethodConfig, _builder: Builder
     level = getattr(logging, config.level.upper(), logging.INFO)
     handler = LoggingHandler(level=level, logger_provider=provider)
     handler.addFilter(_OtelSdkFilter())
+    # Exported logs leave the cluster and are retained by whatever is on the
+    # other end, so this is the sink where a leaked presigned URL is hardest to
+    # take back. Attached here rather than trusted to every call site — see
+    # aiq_agent.common.log_redaction.
+    handler.addFilter(PresignedUrlFilter())
+
+    # Every other handler already on the root logger (stdout, and anything the
+    # host added) gets the same treatment, so the guarantee does not depend on
+    # which sink a record happens to reach.
+    install_presigned_url_scrubbing()
 
     yield handler
 

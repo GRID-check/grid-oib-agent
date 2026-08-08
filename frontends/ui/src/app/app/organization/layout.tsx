@@ -16,7 +16,7 @@
 
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
-import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { withPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
 import {
   canManageMembers,
@@ -30,59 +30,63 @@ import {
   OrganizationNav,
   type OrganizationSectionKey,
 } from '@/features/organization/components/organization-nav'
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 export default async function OrganizationLayout({
   children,
 }: {
   children: React.ReactNode
 }): Promise<JSX.Element> {
-  const session = await requireAuthorizedPageSession()
-  const navFlags = await getNavFlags(session)
-  const t = await getTranslations('organization')
+  return withPageSession(async (session) => {
+    const navFlags = await getNavFlags(session)
+    const t = await getTranslations('organization')
 
-  // Capability flags decide the nav, exactly as they decide each route: a custom
-  // role holding a single granular permission (e.g. org:models:manage) sees that
-  // one section and nothing else. Order is irrelevant here — the nav owns it.
-  const sections: OrganizationSectionKey[] = ['overview', 'budgets']
-  if (canManageMembers(session)) sections.push('access')
-  if (canManageModels(session)) sections.push('models')
-  // Audit-view ONLY, matching `/api/organization/audit-portal`, which gates on
-  // `org:audit:view`. The compliance section is currently just that viewer, so
-  // admitting `org:compliance:manage` here would show a button whose API answers
-  // 403. Widen this the day the section grows holds/deletion UI of its own.
-  if (canViewAuditLogs(session)) sections.push('compliance')
-  if (isOrgAdmin(session)) sections.push('enterprise')
+    // Capability flags decide the nav, exactly as they decide each route: a custom
+    // role holding a single granular permission (e.g. org:models:manage) sees that
+    // one section and nothing else. Order is irrelevant here — the nav owns it.
+    // Storage joins the overview and budgets as a section every member sees:
+    // a member whose upload was just refused needs to be able to find out why,
+    // and the quota itself is only editable with `org:settings:manage`.
+    const sections: OrganizationSectionKey[] = ['overview', 'budgets', 'storage']
+    if (canManageMembers(session)) sections.push('access')
+    if (canManageModels(session)) sections.push('models')
+    // Audit-view ONLY, matching `/api/organization/audit-portal`, which gates on
+    // `org:audit:view`. The compliance section is currently just that viewer, so
+    // admitting `org:compliance:manage` here would show a button whose API answers
+    // 403. Widen this the day the section grows holds/deletion UI of its own.
+    if (canViewAuditLogs(session)) sections.push('compliance')
+    if (isOrgAdmin(session)) sections.push('enterprise')
 
-  return (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <OrgTopbar
-        user={{ name: session.name, email: session.email }}
-        authRequired={isAuthRequired()}
-        heading={t('title')}
-        canManageOrganization={navFlags.canManageOrganization}
-        canViewOrganization={navFlags.canViewOrganization}
-        canManagePlatform={navFlags.canManagePlatform}
-        canAccessArchiv={navFlags.canAccessArchiv}
-        canCollaborate={navFlags.canCollaborate}
-      />
-      <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10">
-        <Link
-          href="/app/projects"
-          className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          {t('backToApp')}
-        </Link>
-        {/* Rail beside the content from `lg`; stacked strip below that. */}
-        <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-          <div className="lg:w-52 lg:shrink-0">
-            <OrganizationNav sections={sections} />
+    return (
+      <div className="flex min-h-dvh flex-col bg-background text-foreground">
+        <OrgTopbar
+          user={{ name: session.name, email: session.email }}
+          authRequired={isAuthRequired()}
+          heading={t('title')}
+          canManageOrganization={navFlags.canManageOrganization}
+          canViewOrganization={navFlags.canViewOrganization}
+          canManagePlatform={navFlags.canManagePlatform}
+          canAccessArchiv={navFlags.canAccessArchiv}
+          canAccessInbox={navFlags.canAccessInbox}
+        />
+        <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10">
+          <Link
+            href="/app/projects"
+            className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none touch-target"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            {t('backToApp')}
+          </Link>
+          {/* Rail beside the content from `lg`; stacked strip below that. */}
+          <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
+            <div className="lg:w-52 lg:shrink-0">
+              <OrganizationNav sections={sections} />
+            </div>
+            <div className="min-w-0 flex-1">{children}</div>
           </div>
-          <div className="min-w-0 flex-1">{children}</div>
-        </div>
-      </main>
-    </div>
-  )
+        </main>
+      </div>
+    )
+  })
 }

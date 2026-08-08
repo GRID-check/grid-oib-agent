@@ -1,5 +1,22 @@
-const postgres = require('postgres')
+// @ts-check
+/**
+ * Queue access for the purger (ADR-0011).
+ *
+ * CommonJS because the purger runs as `node purger/index.js` with no build step
+ * — see the note in `./storage.js`. Checked all the same: `// @ts-check` plus
+ * the shapes in `./types.d.ts` put this file under the same compiler as the
+ * rest of the repo, with nothing different at runtime.
+ */
+/** @typedef {import('./types').Tx} Tx */
+/** @typedef {import('./types').QueueEntry} QueueEntry */
+/** @typedef {import('postgres').Sql} Sql */
 
+const postgres = require('postgres')
+// Every statement below spans tenants (the queue covers all organizations),
+// so each runs under the platform step-up — see workers/platform-scope.js.
+const { withPlatformScope } = require('../workers/platform-scope')
+
+/** @returns {Sql} */
 function createSql() {
   const url = process.env.GRID_APP_DATABASE_URL
   if (!url) throw new Error('GRID_APP_DATABASE_URL is not defined')
@@ -19,6 +36,10 @@ const STALE_CLAIM_MINUTES = 15
  *   64m. Never-claimed rows (claimed_at IS NULL) are eligible immediately.
  * The row lock (FOR UPDATE SKIP LOCKED) serializes competing purgers and
  * purge-vs-restore races.
+ */
+/**
+ * @param {Tx} tx
+ * @returns {Promise<QueueEntry | null>}
  */
 async function claimNext(tx) {
   const rows = await tx`
@@ -48,7 +69,7 @@ async function claimNext(tx) {
     LIMIT 1
   `
   if (rows.length === 0) return null
-  const entry = rows[0]
+  const entry = /** @type {QueueEntry} */ (/** @type {unknown} */ (rows[0]))
   await tx`
     UPDATE deletion_queue
     SET status = 'purging', claimed_at = now(), attempts = attempts + 1
@@ -62,6 +83,11 @@ async function claimNext(tx) {
  * but a hold can be created between claim and purge (TOCTOU); every purger
  * MUST call this inside the purge transaction before its first destructive
  * step. Same predicate as claimNext's NOT EXISTS guard.
+ */
+/**
+ * @param {Tx} tx
+ * @param {QueueEntry} entry
+ * @returns {Promise<boolean>}
  */
 async function hasActiveHold(tx, entry) {
   const rows = await tx`
@@ -83,31 +109,53 @@ async function hasActiveHold(tx, entry) {
  * drift toward MAX_ATTEMPTS. claimNext skips the row while the hold is active
  * and picks it up again once the hold is released.
  */
+/**
+ * @param {Sql} sql
+ * @param {string} entryId
+ * @returns {Promise<void>}
+ */
 async function releaseHeld(sql, entryId) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'pending',
         attempts = GREATEST(attempts - 1, 0),
         last_error = 'blocked by active legal hold at purge time'
     WHERE id = ${entryId}
-  `
+  `)
 }
 
+/** Mark an entry done: nothing left in object storage or the database. */
+/**
+ * @param {Sql} sql
+ * @param {string} entryId
+ * @returns {Promise<void>}
+ */
 async function markPurged(sql, entryId) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'purged', purged_at = now(), last_error = NULL
     WHERE id = ${entryId}
-  `
+  `)
 }
 
+/**
+ * Record a failed attempt. Back to `pending` for another pass until the attempt
+ * count reaches MAX_ATTEMPTS, then `failed` so it stops consuming the queue and
+ * becomes visible as something needing a human.
+ */
+/**
+ * @param {Sql} sql
+ * @param {string} entryId
+ * @param {unknown} message
+ * @returns {Promise<void>}
+ */
 async function markFailed(sql, entryId, message) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = CASE WHEN attempts >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'pending' END,
         last_error = ${String(message).slice(0, 2000)}
     WHERE id = ${entryId}
-  `
+  `)
 }
 
 /**
@@ -115,13 +163,19 @@ async function markFailed(sql, entryId, message) {
  * entity_type with no registered purger) so the row cannot poison the queue
  * with pointless retry loops.
  */
+/**
+ * @param {Sql} sql
+ * @param {string} entryId
+ * @param {unknown} message
+ * @returns {Promise<void>}
+ */
 async function markFailedPermanent(sql, entryId, message) {
-  await sql`
+  await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'failed',
         last_error = ${String(message).slice(0, 2000)}
     WHERE id = ${entryId}
-  `
+  `)
 }
 
 /**
@@ -136,8 +190,13 @@ async function markFailedPermanent(sql, entryId, message) {
  * in-progress final attempt is never prematurely failed. Existing last_error
  * (from the preceding attempts) is preserved. Returns the number reaped.
  */
+/**
+ * @param {Sql} sql
+ * @returns {Promise<number>}
+ */
 async function reapStranded(sql) {
-  const rows = await sql`
+  const rows = /** @type {{ id: string }[]} */ (
+    await withPlatformScope(sql, (tx) => tx`
     UPDATE deletion_queue
     SET status = 'failed',
         last_error = COALESCE(
@@ -148,7 +207,8 @@ async function reapStranded(sql) {
       AND attempts >= ${MAX_ATTEMPTS}
       AND claimed_at < now() - make_interval(mins => ${STALE_CLAIM_MINUTES})
     RETURNING id
-  `
+  `)
+  )
   return rows.length
 }
 

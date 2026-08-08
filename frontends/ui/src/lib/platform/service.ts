@@ -10,6 +10,7 @@
 import 'server-only'
 import { count, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { projects } from '@/lib/db/schema'
 import { getWorkOS } from '@/lib/workos/client'
 import { getDailySpendTrend, getSpendAcrossOrganizations, type DailySpendPoint } from '@/lib/budgets/service'
@@ -43,11 +44,13 @@ export interface PlatformOverview {
 
 async function projectCountsByOrganization(): Promise<Map<string, number>> {
   const db = getDb()
-  const rows = await db
-    .select({ organizationId: projects.organizationId, projectCount: count() })
-    .from(projects)
-    .where(isNull(projects.deletedAt))
-    .groupBy(projects.organizationId)
+  const rows = await withPlatformAccess('platform overview: project counts for every organization', () =>
+    db
+      .select({ organizationId: projects.organizationId, projectCount: count() })
+      .from(projects)
+      .where(isNull(projects.deletedAt))
+      .groupBy(projects.organizationId),
+  )
   return new Map(rows.map((row) => [row.organizationId, Number(row.projectCount)]))
 }
 

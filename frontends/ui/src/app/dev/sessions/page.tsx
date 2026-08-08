@@ -185,6 +185,10 @@ export default function SessionsPreviewPage() {
           projects={PROJECTS}
           user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}
           authRequired={false}
+          // The state a signed-in member is actually in. Omitting this used to
+          // default it to `false`, so the preview — whose entire job is to show
+          // what the rail looks like — showed it without the Inbox entry.
+          canAccessInbox
         />
       </div>
 

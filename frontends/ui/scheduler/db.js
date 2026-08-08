@@ -6,6 +6,12 @@
 
 const postgres = require('postgres')
 
+/**
+ * The scheduler's own postgres-js client, connecting as `grid_app_rw` like the
+ * BFF. Its work spans tenants, so every transaction steps up to the platform
+ * role explicitly (see `withPlatformScope`) rather than this connection being
+ * privileged (ADR-0041).
+ */
 function createSql() {
   const url = process.env.GRID_APP_DATABASE_URL
   if (!url) throw new Error('GRID_APP_DATABASE_URL is not defined')
@@ -14,6 +20,12 @@ function createSql() {
 
 const LOG = '[workflow-scheduler]'
 const PRUNE_BATCH = 1000
+
+// The scheduler scans every organization's workflows for the ones due now, so
+// its statements run under the shared platform step-up (ADR-0041). Without it
+// the due-scan returns zero rows and the scheduler goes quiet rather than
+// failing — the worst way for a timer to break.
+const { PLATFORM_ROLE, enterPlatformScope } = require('../workers/platform-scope')
 
 /**
  * Claim due workflows and advance their schedules — the whole thing in ONE
@@ -35,6 +47,7 @@ const PRUNE_BATCH = 1000
  */
 async function claimDue(sql, batch, computeNext) {
   return sql.begin(async (tx) => {
+    await enterPlatformScope(tx)
     const rows = await tx`
       SELECT id, schedule_cron, schedule_timezone
       FROM workflows
@@ -80,20 +93,26 @@ async function claimDue(sql, batch, computeNext) {
 async function pruneOldRuns(sql, retentionDays) {
   let total = 0
   for (;;) {
-    const deleted = await sql`
-      DELETE FROM workflow_runs
-      WHERE id IN (
-        SELECT id FROM workflow_runs
-        WHERE created_at < now() - make_interval(days => ${retentionDays})
-        ORDER BY created_at
-        LIMIT ${PRUNE_BATCH}
-      )
-      RETURNING id
-    `
+    // One transaction per batch: the platform scope has to be re-entered for
+    // each, and keeping them separate preserves the existing batching contract
+    // (a long backlog is worked off without one long lock).
+    const deleted = await sql.begin(async (tx) => {
+      await enterPlatformScope(tx)
+      return tx`
+        DELETE FROM workflow_runs
+        WHERE id IN (
+          SELECT id FROM workflow_runs
+          WHERE created_at < now() - make_interval(days => ${retentionDays})
+          ORDER BY created_at
+          LIMIT ${PRUNE_BATCH}
+        )
+        RETURNING id
+      `
+    })
     total += deleted.length
     if (deleted.length < PRUNE_BATCH) break
   }
   return total
 }
 
-module.exports = { createSql, claimDue, pruneOldRuns, PRUNE_BATCH }
+module.exports = { createSql, claimDue, pruneOldRuns, PRUNE_BATCH, PLATFORM_ROLE }

@@ -168,7 +168,7 @@ function Preview(): JSX.Element {
                     <TableCell>
                       <button
                         type="button"
-                        className="text-left hover:underline focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                        className="text-left hover:underline focus-visible:ring-2 pointer-coarse:min-h-11 focus-visible:ring-ring/60 focus-visible:outline-none"
                         onClick={() => setDetail(row)}
                       >
                         <span className="block truncate text-sm font-medium">{row.title}</span>

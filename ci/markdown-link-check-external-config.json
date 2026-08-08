@@ -1,0 +1,24 @@
+{
+    "_comment": [
+        "EXTERNAL link config, used only by .github/workflows/docs-links.yml.",
+        "The sibling markdown-link-check-config.json — the one the pre-commit hook",
+        "uses on every PR — ignores '^https?://', so the merge gate validates only",
+        "relative links inside the repo. That split is deliberate: a broken relative",
+        "link is the author's own doing and deterministic, so it belongs on the gate;",
+        "a dead external URL means someone else's site moved, which is neither.",
+        "This file drops that ignore so the weekly sweep covers what the gate cannot.",
+        "The retry/timeout settings below only ever mattered for HTTP, which is why",
+        "they exist in the shared config at all."
+    ],
+    "replacementPatterns": [
+        {
+            "pattern": "^/",
+            "replacement": "{{BASEURL}}/"
+        }
+    ],
+    "timeout": "20s",
+    "retryOn429": true,
+    "retryCount": 3,
+    "fallbackRetryDelay": "30s",
+    "aliveStatusCodes": [200, 206, 999]
+}

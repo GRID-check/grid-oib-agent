@@ -85,6 +85,14 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { fields: 'string' },
   },
+  // Storage quota (ADR-0042). Separate from `org.settings.updated` because it
+  // is the one org setting that can stop every upload in the tenant, so "who
+  // shrank the disk, and to what" has to be answerable on its own. `0` is the
+  // wire form of "unlimited" — the metadata map admits primitives only.
+  'org.storage_quota.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: { quotaBytes: 'number' },
+  },
   'budget.policy.set': {
     targets: [{ type: 'budget_policy' }],
     metadata: {
@@ -143,6 +151,21 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // has not chosen its own model, so it belongs in the platform org's trail.
   'platform.model_defaults.updated': {
     targets: [{ type: 'platform_model_defaults' }],
+    metadata: MODEL_GROUP_METADATA,
+  },
+  // The same fleet-wide decision, taken by the app on first boot rather than by
+  // an owner (`lib/model-config/bootstrap-defaults.ts`). A distinct action so the
+  // trail distinguishes "nobody chose this yet, the system did" from a
+  // deliberate save — the actor is `system:bootstrap`, not a WorkOS user.
+  'platform.model_defaults.bootstrapped': {
+    targets: [{ type: 'platform_model_defaults' }],
+    metadata: MODEL_GROUP_METADATA,
+  },
+  // A fleet-wide reasoning-effort change: it re-tunes how many hidden thinking
+  // tokens every organization spends per turn, so it belongs in the platform
+  // org's trail next to the model decision it sits beside in the UI.
+  'platform.reasoning_efforts.updated': {
+    targets: [{ type: 'platform_reasoning_efforts' }],
     metadata: MODEL_GROUP_METADATA,
   },
   'platform.norm_registry.updated': {

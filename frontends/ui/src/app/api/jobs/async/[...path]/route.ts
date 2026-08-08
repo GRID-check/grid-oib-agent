@@ -26,6 +26,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
@@ -97,7 +98,7 @@ async function resolveGridContextHeaders(
     // a lookup failure must not block job submission; the backend falls back
     // to prompt-text parsing of `project_context` (unaffected either way).
     try {
-      const bundesland = await loadProjectBundesland(extra.projectId)
+      const bundesland = await loadProjectBundesland(extra.projectId, session?.organizationId)
       if (bundesland) {
         input.bundesland = bundesland
       }
@@ -126,7 +127,7 @@ const JOBS_BASE_PATH = '/v1/jobs/async'
 /**
  * Handle GET requests (status, stream, state, report)
  */
-export async function GET(
+export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -191,7 +192,14 @@ export async function GET(
         return noResponseBodyEnvelope('Backend returned no SSE stream body')
       }
 
-      // Stream the SSE response back to the client
+      // Stream the SSE response back to the client.
+      //
+      // NOTE: the body is piped AFTER this handler returns, so it runs outside
+      // the `runWithTenantSlot` scope this route opened. The pipeline only
+      // forwards upstream bytes, so nothing there touches the database today —
+      // but a database read added inside the stream would throw
+      // `MissingTenantContextError` at an awkward moment. Read what you need
+      // before returning, or open a fresh scope inside the stream.
       return sseStreamResponse(response.body, {
         'Cache-Control': 'no-cache, no-transform',
         'X-Accel-Buffering': 'no', // Disable nginx buffering
@@ -210,12 +218,12 @@ export async function GET(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
 /**
  * Handle POST requests (submit, cancel)
  */
-export async function POST(
+export const POST = tenantSlotRoute(async function POST(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -297,12 +305,12 @@ export async function POST(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
 /**
  * Handle DELETE requests (cancel)
  */
-export async function DELETE(
+export const DELETE = tenantSlotRoute(async function DELETE(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
@@ -351,4 +359,4 @@ export async function DELETE(
 
     return proxyErrorEnvelope(error)
   }
-}
+})

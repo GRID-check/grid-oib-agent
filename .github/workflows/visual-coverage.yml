@@ -109,7 +109,7 @@ jobs:
           echo "--- visual evidence in PR: $COVERED ---"
 
       - name: Upsert the sticky nudge comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           # Via env, not `${{ }}`: the file paths come from the PR and must not be
           # interpolated into this script's source.

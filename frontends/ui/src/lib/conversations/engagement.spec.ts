@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The engagement mode (ADR-0036) — when the agent answers a message that tags
  * nobody.
  *
@@ -66,12 +69,12 @@ describe('suggestEngagement', () => {
 describe('countDistinctHumanAuthors', () => {
   it('reads the distinct-author count', async () => {
     stubSelect([{ count: 3 }])
-    await expect(countDistinctHumanAuthors('conv_1')).resolves.toBe(3)
+    await expect(countDistinctHumanAuthors('conv_1', 'org-1')).resolves.toBe(3)
   })
 
   it('treats an empty thread as nobody rather than throwing', async () => {
     stubSelect([])
-    await expect(countDistinctHumanAuthors('conv_1')).resolves.toBe(0)
+    await expect(countDistinctHumanAuthors('conv_1', 'org-1')).resolves.toBe(0)
   })
 })
 
@@ -80,7 +83,7 @@ describe('resolveEngagement', () => {
     // THE rule. A five-person thread still answers to Piloti until a human says
     // otherwise; what the count buys is the suggestion beside it.
     stubSelect([{ count: 5 }])
-    await expect(resolveEngagement('conv_1', null, { withSuggestion: true })).resolves.toEqual({
+    await expect(resolveEngagement('conv_1', 'org-1', null, { withSuggestion: true })).resolves.toEqual({
       mode: 'ask',
       stored: null,
       suggestion: 'mention',
@@ -89,7 +92,7 @@ describe('resolveEngagement', () => {
 
   it('suggests nothing while one person is talking', async () => {
     stubSelect([{ count: 1 }])
-    await expect(resolveEngagement('conv_1', null, { withSuggestion: true })).resolves.toEqual({
+    await expect(resolveEngagement('conv_1', 'org-1', null, { withSuggestion: true })).resolves.toEqual({
       mode: 'ask',
       stored: null,
       suggestion: null,
@@ -99,7 +102,7 @@ describe('resolveEngagement', () => {
   it('obeys a stored mode, and stops suggesting once somebody has chosen', async () => {
     // A thread that has chosen is not nagged about the alternative — and the
     // aggregate is not run to tell it something it already decided.
-    await expect(resolveEngagement('conv_1', 'mention', { withSuggestion: true })).resolves.toEqual(
+    await expect(resolveEngagement('conv_1', 'org-1', 'mention', { withSuggestion: true })).resolves.toEqual(
       { mode: 'mention', stored: 'mention', suggestion: null },
     )
     expect(mockDb.select).not.toHaveBeenCalled()
@@ -108,7 +111,7 @@ describe('resolveEngagement', () => {
   it('counts nothing on the write path, where the suggestion is irrelevant', async () => {
     // Routing does not care whether another mode would suit, and this runs per
     // message — so the aggregate must not.
-    await expect(resolveEngagement('conv_1', null)).resolves.toEqual({
+    await expect(resolveEngagement('conv_1', 'org-1', null)).resolves.toEqual({
       mode: 'ask',
       stored: null,
       suggestion: null,
@@ -120,13 +123,13 @@ describe('resolveEngagement', () => {
 describe('findStoredEngagement', () => {
   it('returns the column, and null for a thread that has none', async () => {
     stubSelect([{ engagement: 'mention' }])
-    await expect(findStoredEngagement('conv_1')).resolves.toBe('mention')
+    await expect(findStoredEngagement('conv_1', 'org-1')).resolves.toBe('mention')
 
     stubSelect([{ engagement: null }])
-    await expect(findStoredEngagement('conv_1')).resolves.toBeNull()
+    await expect(findStoredEngagement('conv_1', 'org-1')).resolves.toBeNull()
 
     stubSelect([])
-    await expect(findStoredEngagement('conv_1')).resolves.toBeNull()
+    await expect(findStoredEngagement('conv_1', 'org-1')).resolves.toBeNull()
   })
 })
 

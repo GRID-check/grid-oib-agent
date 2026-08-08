@@ -171,6 +171,60 @@ body {
   }
 }
 
+/* Grow a control's TOUCH area to 44px without growing the control.
+
+   Most undersized targets are fixed by sizing the control up (see the `size`
+   variants on Button) — but some are meant to be small. A 16px checkbox, a 20px
+   chip, a 12px remove-× read as small *because* they are secondary; inflating
+   them to 44px would make a settings list look like a row of buttons and a
+   chip row like a toolbar. What a finger needs is not a bigger box, it is a
+   bigger CATCHMENT.
+
+   So this leaves layout untouched and lays a centred, invisible 44×44
+   pseudo-element over the control. `position: absolute` against the element's
+   own containing block means it never occupies space, never shifts a
+   neighbour, and never changes a screenshot; it only widens what a tap resolves
+   to. Only under `pointer: coarse` — with a mouse the visible box is already
+   exactly as clickable as it looks, and an invisible overhang there would
+   swallow clicks meant for whatever sits next to it.
+
+   The element needs a positioning context (`relative`) for the overlay to
+   centre on it; every current caller is already `relative` or gets it here. */
+@utility touch-target {
+  @media (pointer: coarse) {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      translate: -50% -50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+    }
+  }
+}
+
+/* `pointer-coarse` is the ONE axis this codebase sizes touch targets on. The
+   first pass at it used `md:` (mobile-first size, desktop density restored at
+   the breakpoint), which is close but asks the wrong question: viewport width
+   is a proxy for input device, and it is wrong at both ends — a touch tablet
+   past `md` kept 28px rows, and a half-width desktop window got finger-sized
+   ones. Those sites (folder tree, view toggle, filter chips, the wizard's
+   inline link) are converted; `md:` is for LAYOUT, `pointer-coarse:` is for
+   what is driving the pointer. Keep them separate.
+
+   Two limits worth knowing before reaching for `touch-target`:
+
+   It covers the element's own children, so it belongs on LEAF controls. Put it
+   on a container that holds its own button (a chip with a remove-×) and the
+   overlay eats the inner control's taps — size that container up instead.
+
+   And the overhang is clipped by an ancestor with `overflow: hidden`, which
+   silently returns the target to its visible size. In a clipping row, give the
+   row the padding to hold the catchment. */
+
 /* =============================================================================
    Theme-aware text color utilities
    Using KUI Foundations theme CSS variables for light/dark theme support
@@ -560,4 +614,20 @@ body {
   --spend-other: #8f8e89;
   --spend-meter: #3987e5;
   --spend-meter-over: #d03b3b;
+}
+
+/* Storage (ADR-0042) asks the same question as the spend meter — am I about to
+   be cut off — so it uses the same STATUS pair and the same values, in both
+   themes. Kept as its own scope rather than borrowing `.grid-spend-viz`: the
+   series slots there are for money by model and mean nothing here, and a card
+   that opts into a palette it only half-uses invites someone to colour storage
+   by category later. If one pair changes, change both. */
+.grid-storage-viz {
+  --storage-meter: #2a78d6; /* under the quota */
+  --storage-meter-over: #d03b3b; /* at or over the quota */
+}
+
+.dark .grid-storage-viz {
+  --storage-meter: #3987e5;
+  --storage-meter-over: #d03b3b;
 }

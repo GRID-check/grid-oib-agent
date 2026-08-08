@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   IMAGE_URL_WINDOW_SECONDS,

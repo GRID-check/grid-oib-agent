@@ -193,7 +193,7 @@ async function persistProfile(
   // change must not leave a stale jurisdiction on the WS handshake for up to
   // the 5-min TTL. This is the single choke point for the wizard save and agent
   // patches, so both write paths are covered here.
-  await invalidateProjectProfileCaches(projectId)
+  await invalidateProjectProfileCaches(projectId, organizationId)
   return updated
 }
 

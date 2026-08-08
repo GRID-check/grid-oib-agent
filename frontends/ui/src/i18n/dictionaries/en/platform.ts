@@ -4,6 +4,12 @@ export const platform = {
   subtitle: 'Cross-organization overview for the platform owner.',
   loading: 'Loading platform…',
   loadError: 'Could not load the platform overview.',
+  // Generic empty state for `SectionCard`, whose `emptyTitle` prop is optional.
+  // Every caller happens to pass one today, which is why the fallback pointing
+  // at a key that did not exist went unnoticed.
+  empty: {
+    title: 'Nothing here yet',
+  },
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
   /**
@@ -501,6 +507,7 @@ export const platform = {
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
     workflows: 'Workflow templates',
+    storage: 'Storage',
     maintenance: 'Maintenance',
   },
   answerFeedback: {
@@ -612,6 +619,11 @@ export const platform = {
       title: 'Workflow templates',
       subtitle: 'Templates published into every organization’s gallery.',
     },
+    storage: {
+      title: 'Storage',
+      subtitle:
+        'Stored bytes per organization, and the quota that bounds each one.',
+    },
     maintenance: {
       title: 'Maintenance',
       subtitle: 'Vector-store upkeep. Only needed when retrieval and the corpus have drifted apart.',
@@ -631,6 +643,28 @@ export const platform = {
     zdrWarning:
       'No zero-data-retention endpoint — organizations with that policy on keep their own model instead.',
     noZdr: 'No zero-data-retention endpoint',
+    // Thinking level per group — the second lever on the same row.
+    effortPinnedBadge: 'Platform level',
+    effortInherit: 'Workflow config',
+    effortClear: 'Thinking level back to the workflow configuration',
+    effortSelectLabel: 'Thinking level for {group}',
+    effortSaveError: 'The thinking levels could not be saved.',
+    // The levels themselves (OpenRouter vocabulary). The hint names the cost,
+    // not just the name — reasoning tokens are invisible until the bill arrives.
+    levels: {
+      none: {
+        label: 'Off',
+        hint: 'No hidden thinking. For pure routing and one-liners. Models that must reason reject this level.',
+      },
+      minimal: { label: 'Minimal', hint: 'The shortest thinking. Fast and cheap.' },
+      low: { label: 'Low', hint: 'Little thinking. For quick answers with some deliberation.' },
+      medium: { label: 'Medium', hint: 'Balanced — the default for most roles.' },
+      high: { label: 'High', hint: 'A lot of thinking. Noticeably more hidden tokens and runtime.' },
+      xhigh: {
+        label: 'Very high',
+        hint: 'Maximum thinking. Multiplies cost and runtime across hundreds of agent steps.',
+      },
+    },
     // Picker.
     searchPlaceholder: 'Search models…',
     contextWindow: 'Context',
@@ -647,7 +681,7 @@ export const platform = {
     loadError: 'Could not load the default models.',
     confirmTitle: 'Change the default for every organization?',
     confirmDescription:
-      'Every organization that has not picked its own model for these parts of the agent switches over on its next message. Organizations with their own choice are unaffected.',
+      'Every organization that has not picked its own model for these parts of the agent switches over on its next message. Organizations with their own choice are unaffected. Changed thinking levels apply to EVERY organization — higher levels multiply hidden reasoning tokens and runtime.',
     confirmSave: 'Change defaults',
   },
   /** Platform → retrieval: the fleet-wide retrieval depths (chunks/results per search). */
@@ -986,4 +1020,34 @@ export const platform = {
       deep: 'Deep research',
     },
   },
+  /** Storage: every tenant's consumption and the quota that bounds it. */
+  storage: {
+    title: 'Document storage',
+    description:
+      'Stored bytes per organization, and the quota that refuses further uploads. Quotas are a platform control — tenants can see their own number but never change it.',
+    totals: '{used} stored across {orgs} organizations',
+    columnOrg: 'Organization',
+    columnUsed: 'Used',
+    columnQuota: 'Quota',
+    unlimited: 'Unlimited',
+    inherited: 'Platform default',
+    /** Count-neutral: the template also renders at a count of one. */
+    rowDocuments: 'Documents: {count}',
+    rowOver: 'Quota reached — uploads refused',
+    rowNear: 'Almost full',
+    edit: 'Edit quota for {org}',
+    save: 'Save quota',
+    cancel: 'Cancel',
+    saved: 'Quota updated.',
+    saveError: 'Could not update the quota.',
+    belowUsage: 'That quota is below what the organization already stores. Free space first.',
+    invalidQuota: 'Enter a quota in GB above zero, or leave the field empty for no limit.',
+    quotaTooLarge:
+      'That quota is larger than this system can represent. Enter at most 9,000,000 GB, or leave the field empty for no limit.',
+    truncated: 'Showing the first 1000 organizations. Ask for a fleet report if you need the rest.',
+    loadError: 'Could not load storage usage.',
+    empty: 'No organization has stored anything yet.',
+    hint: 'Leave the field empty to remove the limit. A quota below current usage is refused — it would strand the tenant with no way to fix it.',
+  },
+
 }

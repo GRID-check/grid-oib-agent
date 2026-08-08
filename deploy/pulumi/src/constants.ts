@@ -41,6 +41,35 @@ export const PORT = {
   seaweedMasterGrpc: 19333,
   seaweedFiler: 8888,
   seaweedFilerGrpc: 18888,
+  /** `weed volume` default http port. The filer reads and writes chunks here
+   *  directly, using the address each volume server registers with the master. */
+  seaweedVolume: 8080,
+  seaweedVolumeGrpc: 18080,
+} as const;
+
+/**
+ * SeaweedFS service names. The topology is three workloads (ADR-0043), and
+ * every one of them is addressed by name from somewhere else — the filer from
+ * the app tier, the master from `weed shell`, the volume servers from the
+ * filer — so the names are a contract, not an implementation detail.
+ *
+ * `filer` deliberately keeps the bare name `seaweedfs`. It is the workload the
+ * S3 gateway runs in, so `SEAWEED_ENDPOINT=http://seaweedfs:8333` continues to
+ * resolve exactly as it did before the split, and the edge NetworkPolicy
+ * (`allow-edge-to-seaweedfs`, which selects `app.kubernetes.io/name=seaweedfs`)
+ * keeps selecting the pods that actually serve S3.
+ */
+export const SEAWEED = {
+  /** Filer + S3 gateway. The name the app tier and the edge already know. */
+  filer: "seaweedfs",
+  /** Headless peer service backing the filer StatefulSet's stable DNS. */
+  filerPeer: "seaweedfs-filer-peer",
+  master: "seaweedfs-master",
+  /** Headless peer service backing the master StatefulSet's stable DNS. */
+  masterPeer: "seaweedfs-master-peer",
+  volume: "seaweedfs-volume",
+  /** Headless peer service backing the volume StatefulSet's stable DNS. */
+  volumePeer: "seaweedfs-volume-peer",
 } as const;
 
 /**
@@ -120,9 +149,80 @@ export const DATA_RESOURCES = {
     requests: { cpu: "250m", memory: "512Mi" },
     limits: { cpu: "2", memory: "4Gi" },
   },
+  /**
+   * The single-node topology: one process doing all three jobs. Left exactly as
+   * it was before ADR-0043 so that `seaweedfsTopology: single` stays a true
+   * no-op for the stacks still on it — a resource change here would restart the
+   * only storage server in those deployments for no reason.
+   */
   seaweedfs: {
     requests: { cpu: "100m", memory: "256Mi" },
     limits: { cpu: "1", memory: "1Gi" },
+  },
+  /**
+   * SeaweedFS, per role (ADR-0043). The old single `weed server` process did
+   * all three jobs inside one envelope; splitting the workloads means splitting
+   * the budget, and the three roles are not alike:
+   *
+   * - **master** is a Raft node holding the topology and the volume-id
+   *   sequence. Tiny and steady — it never touches object bytes.
+   * - **volume** is where the bytes land. Its memory is dominated by the
+   *   in-memory needle index (`-index=memory`), which scales with object
+   *   COUNT, not object size.
+   * - **filer** carries the S3 gateway and every object's metadata round trip.
+   *   With the store on Postgres it holds no index of its own, but it does
+   *   stream object bodies through, so it is the one that wants headroom.
+   */
+  seaweedfsMaster: {
+    requests: { cpu: "50m", memory: "128Mi" },
+    limits: { cpu: "500m", memory: "512Mi" },
+  },
+  seaweedfsVolume: {
+    requests: { cpu: "100m", memory: "256Mi" },
+    limits: { cpu: "1", memory: "2Gi" },
+  },
+  seaweedfsFiler: {
+    requests: { cpu: "100m", memory: "256Mi" },
+    limits: { cpu: "1", memory: "1Gi" },
+  },
+} as const;
+
+/**
+ * Edge rate limiting (ADR-0040, layer L1) — the fixed parts.
+ *
+ * The per-route budgets themselves are knobs (`config.ts` → `rateLimit.limits`)
+ * because they are the numbers an operator retunes from observed traffic. What
+ * lives here is the machinery that must not drift: where the counter store is,
+ * how long Envoy waits for a verdict, and the path prefixes the rules select on.
+ *
+ * Every limit is per client IP and per route. They are ABUSE BOUNDS, never
+ * accounting — anything that must be exact belongs in the ADR-0015 ledger.
+ */
+export const EDGE_RATE_LIMIT = {
+  /**
+   * Service name of the DEDICATED counter store. Deliberately not the ADR-0020
+   * cache: that instance runs `--cache_mode=true` and evicts under memory
+   * pressure, so a burst of ordinary cache traffic would quietly drop rate-limit
+   * counters and reset the limits with nothing in any log to say so.
+   */
+  storeService: "dragonfly-ratelimit",
+  /**
+   * How long Envoy waits for the rate limit service before giving up. Short on
+   * purpose: this sits in front of EVERY request, so a slow store must cost
+   * milliseconds, not seconds. Combined with fail-open (see `failClosed` in
+   * `config.ts`), a dead store degrades to "not limited", never to "down".
+   */
+  timeout: "250ms",
+  /** Request-path prefixes the per-route rules select on. */
+  paths: {
+    /** Session/login endpoints — the credential-stuffing surface. */
+    auth: "/api/auth",
+    /**
+     * The chat WebSocket (`frontends/ui/server.js` upgrade handler). One upgrade
+     * here fans out into agent runs — and it is the LAST thing the edge sees of
+     * that session, because every later turn rides the open socket (ADR-0009).
+     */
+    ws: "/websocket",
   },
 } as const;
 

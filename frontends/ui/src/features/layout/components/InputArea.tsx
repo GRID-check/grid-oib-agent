@@ -59,8 +59,12 @@ import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
+import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
+import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
+import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activity'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
+import { researchSessionState } from '../lib/research-session-state'
 import type { SourcePresetId } from '../types'
 import type { DataSource } from '../data-sources'
 import { SourceSignalChip, SourceSignalChipToggle } from './SourceSignalChip'
@@ -88,9 +92,7 @@ import {
 import { useTypingBroadcast } from '@/features/collaboration/hooks/use-typing-broadcast'
 import {
   findMentionQuery,
-  humanMentions,
   insertMention,
-  reconcileMentions,
   type DraftMention,
   type MentionQuery,
 } from '@/features/collaboration/lib/mention-text'
@@ -378,6 +380,10 @@ const FileChip: FC<{
     <span
       className={cn(
         'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        // A finger has to be able to hit the remove-x, and that button can only
+        // grow inside a taller chip — the strip scrolls horizontally, so the
+        // extra height costs nothing but a slightly shorter filename.
+        'pointer-coarse:h-11',
         // `border-error` is a static `@utility` in globals.css with no
         // `--modifier()`, so the slash form (`border-error/50`) matched nothing
         // and this chip kept the neutral default border — a failed upload was
@@ -392,7 +398,7 @@ const FileChip: FC<{
           type="button"
           onClick={() => onOpen(file)}
           aria-label={t('inputArea.openFile', { name: file.fileName })}
-          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11"
         >
           {statusIcon}
           <span className="min-w-0 truncate">{file.fileName}</span>
@@ -409,7 +415,7 @@ const FileChip: FC<{
           onClick={() => onRetry(file.id)}
           aria-label={t('inputArea.retryUpload')}
           title={t('inputArea.retryUpload')}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:size-9"
         >
           <RotateCw className="size-3" aria-hidden="true" />
         </button>
@@ -420,7 +426,7 @@ const FileChip: FC<{
           onClick={() => onRemove(file.id)}
           aria-label={t('inputArea.removeFile', { name: file.fileName })}
           title={t('inputArea.removeFile', { name: file.fileName })}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:size-9"
         >
           <X className="size-3" aria-hidden="true" />
         </button>
@@ -563,63 +569,36 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (state) => state.deepResearchOwnerConversationId
   )
 
-  // Check for active deep research in conversation messages (persisted state)
-  // This handles the case where ephemeral state has been reset (page refresh, session switch)
-  const hasActiveDeepResearch = useChatStore((state) => {
-    if (!state.currentConversation?.messages) return false
-    return state.currentConversation.messages.some(
-      (m) =>
-        m.messageType === 'agent_response' &&
-        m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'submitted' || m.deepResearchJobStatus === 'running')
-    )
+  /*
+    The persisted half of the research state, so the lock survives a reload or a
+    session switch that clears the ephemeral fields above.
+
+    This is the LATEST research job's status, via the same scan the session
+    store, the busy hook and `MainLayout` use — not "did any message ever report
+    X". The composer used to run three of its own `.some()` scans here, which
+    disagreed with the rest of the codebase precisely when a session ran
+    research twice: a failure after an earlier success still matched the
+    "successful" scan and locked the composer over a session with no report.
+    See `lib/research-session-state`, which owns the rule and tests it.
+
+    Selecting a primitive rather than the message array also means the composer
+    re-renders when the outcome changes, not on every streamed token.
+  */
+  const latestResearchJobStatus = useChatStore((state) =>
+    latestDeepResearchJobStatus(state.currentConversation?.messages ?? [])
+  )
+
+  const {
+    isSuccessful: isResearchSessionSuccessful,
+    isFailed: isResearchSessionFailed,
+    isInProgress: isResearchSessionInProgress,
+  } = researchSessionState({
+    latestJobStatus: latestResearchJobStatus,
+    ephemeralStatus: deepResearchStatus,
+    isStreaming: isDeepResearchStreaming,
+    streamOwnerConversationId: deepResearchOwnerConversationId,
+    conversationId: currentConversation?.id,
   })
-
-  // Check for a SUCCESSFUL deep research in conversation messages (persisted state).
-  // This handles the case where ephemeral state has been reset (page refresh, session switch).
-  const hasSuccessfulDeepResearch = useChatStore((state) => {
-    if (!state.currentConversation?.messages) return false
-    return state.currentConversation.messages.some(
-      (m) =>
-        m.messageType === 'agent_response' &&
-        m.deepResearchJobId &&
-        m.deepResearchJobStatus === 'success'
-    )
-  })
-
-  // Check for a FAILED/INTERRUPTED deep research in conversation messages (persisted state).
-  const hasFailedDeepResearch = useChatStore((state) => {
-    if (!state.currentConversation?.messages) return false
-    return state.currentConversation.messages.some(
-      (m) =>
-        m.messageType === 'agent_response' &&
-        m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'failure' || m.deepResearchJobStatus === 'interrupted')
-    )
-  })
-
-  // The composer is locked ONLY after a SUCCESSFUL research run: the finished
-  // report defines the session's context, so follow-up questions belong in a
-  // fresh session (this is the product rationale behind the lock). A failed or
-  // interrupted run produced no report to protect, so the user must be able to
-  // retry or follow up in place — do NOT lock those (UX-12).
-  const isResearchSessionSuccessful =
-    (!isDeepResearchStreaming && deepResearchStatus === 'success') || hasSuccessfulDeepResearch
-
-  // A terminal failure/interruption that is NOT superseded by a later success.
-  // Drives contextual placeholder copy while keeping the composer unlocked.
-  const isResearchSessionFailed =
-    !isResearchSessionSuccessful &&
-    ((!isDeepResearchStreaming &&
-      (deepResearchStatus === 'failure' || deepResearchStatus === 'interrupted')) ||
-      hasFailedDeepResearch)
-
-  // Research session is in progress when:
-  // 1. Ephemeral state is streaming, OR
-  // 2. Persisted message has an active deep research job status
-  const isResearchSessionInProgress =
-    (isDeepResearchStreaming && deepResearchOwnerConversationId === currentConversation?.id) ||
-    hasActiveDeepResearch
 
   // File upload hook - provides session files and handles validation internally
   const {
@@ -749,37 +728,52 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // server-side, so the composer is read-only BEFORE the attempt (a ghost bubble
   // only the viewer would see is the alternative).
   const myThreadRole = useThreadRole(canCollaborate ? currentSessionId : null)
-  const isViewerInSharedThread = myThreadRole === 'viewer'
+  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
+
+  /*
+    One gate for "may this person change anything about this conversation", and
+    one for "may they type right now".
+
+    `disabled` used to reach only the textarea and the send button, so a viewer
+    in a shared thread — whose whole point is that they may read and not write —
+    still had a live paperclip, a live drop zone, and a live *Datengrundlage*
+    popover whose toggles persist onto the conversation. They could not send a
+    message but they could rewrite which sources the next person's turn would
+    use, and upload files into the thread. Hence two capabilities, not one flag.
+
+    The decision moved to `collaboration/lib/composer-capabilities` because it
+    was a role-NAME comparison (`myThreadRole === 'viewer'`) where the rest of
+    the codebase ranks a ladder, and because every denial was anonymous. Both
+    are ADR-0038 requirements. Behaviour is unchanged, including the
+    allow-while-the-role-is-unknown window, which is now a named field with a
+    test on it instead of a consequence of `null !== 'viewer'`.
+  */
+  const capabilities = composerCapabilities({
+    isAuthenticated,
+    canCollaborate,
+    sharing: threadSharing,
+    myRole: myThreadRole,
+    isBusy,
+    isResponseMode,
+    researchLocked: isResearchSessionSuccessful,
+    otherPersonsTurn: Boolean(otherPersonsTurnName),
+  })
 
   // Composing presence. Only where somebody could actually see it: a shared
   // thread, collaboration on, and a role that may contribute — a viewer's draft
   // will never become a message, so announcing it would be a claim about
   // something that cannot happen. The server enforces all three regardless; this
   // is what keeps a private thread from issuing the request at all (spec NF-8).
-  const threadSharing = useThreadSharing(canCollaborate ? currentSessionId : null)
   const { onTyping, onStoppedTyping } = useTypingBroadcast({
     conversationId: currentSessionId ?? null,
-    enabled: canCollaborate && threadSharing === 'shared' && !isViewerInSharedThread,
+    enabled: capabilities.canBroadcastTyping,
   })
 
   const isDisabledByAuth = !isAuthenticated
-  /*
-    One gate for "may this person change anything about this conversation".
-
-    `disabled` below only ever reached the textarea and the send button, so a
-    viewer in a shared thread — whose whole point is that they may read and not
-    write — still had a live paperclip, a live drop zone, and a live
-    *Datengrundlage* popover whose toggles persist onto the conversation. They
-    could not send a message but they could rewrite which sources the next
-    person's turn would use, and upload files into the thread.
-  */
-  const cannotContribute = isDisabledByAuth || isViewerInSharedThread
-  const disabled =
-    isDisabledByAuth ||
-    (isBusy && !isResponseMode) ||
-    isResearchSessionSuccessful ||
-    Boolean(otherPersonsTurnName) ||
-    isViewerInSharedThread
+  /** Read-only because of the role specifically — drives the viewer notice. */
+  const isViewerInSharedThread = capabilities.deniedBy === 'read-only-role'
+  const cannotContribute = !capabilities.canContribute
+  const disabled = !capabilities.canCompose
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
@@ -975,12 +969,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Mentions that survive the current text, in text order — the single source for
   // what gets sent, what the hint says, and whether the agent will stay quiet.
-  const activeMentions = useMemo(() => reconcileMentions(message, mentions), [message, mentions])
-  const taggedHumans = useMemo(() => humanMentions(activeMentions), [activeMentions])
-  // `@Piloti` alongside a person addresses BOTH (spec MN-1), so the "Piloti stays
-  // quiet" hint below would be a false statement — the addressee line names them
-  // both instead.
-  const agentTagged = activeMentions.length > taggedHumans.length
 
   /*
     The thread's hand-off state, read from the server (never computed here — the
@@ -1001,6 +989,27 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate && threadSharing === 'shared',
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
+
+  // ONE resolution, shared with the send below: `resolveAddressee` is the only
+  // place the three-way decision is written. `@Piloti` alongside a person
+  // addresses BOTH (spec MN-1), so the "Piloti stays quiet" hint would be a false
+  // statement there; the addressee line names them both instead.
+  //
+  // Memoised so `activeMentions` keeps a stable identity across keystrokes —
+  // AddresseeIndicator takes it by reference.
+  const addressee = useMemo(
+    () =>
+      resolveAddressee({
+        text: message,
+        mentions,
+        awaitingHuman: threadAwaitsHuman,
+        canCollaborate,
+      }),
+    [message, mentions, threadAwaitsHuman, canCollaborate],
+  )
+  const activeMentions = addressee.mentions
+  const taggedHumans = addressee.humans
+  const agentTagged = addressee.agentTagged
 
   /**
    * The picker opens only where collaboration is on, and then only once the
@@ -1042,8 +1051,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // Mentions are structured, and reconciled against the text at the last
     // possible moment: whatever token the user deleted while editing is not sent
     // (spec MN-3).
-    const sentMentions = reconcileMentions(currentMessage, mentions)
-    const sentHumans = humanMentions(sentMentions)
+    // The SAME function the addressee line used, over the same inputs — so what
+    // the user was told and what happens cannot disagree by construction, rather
+    // than by two expressions being kept in step by tests.
+    const sent = resolveAddressee({
+      text: currentMessage,
+      mentions,
+      awaitingHuman: threadAwaitsHuman,
+      canCollaborate,
+    })
+    const sentHumans = sent.humans
 
     // Files may still be uploading/ingesting — we no longer gate the send behind
     // a double-submit banner. The send button surfaces a subtle inline hint
@@ -1065,14 +1082,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         // `awaitingHuman` is what makes a plain message go through the server's
         // ruling too: while a named person is awaited it is a remark to the thread,
         // not a question for Piloti (ADR-0034 addendum), and the agent must be given
-        // it as context rather than as a turn. It reads the SAME hand-off state the
-        // addressee line above states to the user, so what they were told and what
-        // happens cannot disagree.
-        sentMentions.length > 0
-          ? await sendMessage(currentMessage, { mentions: sentMentions })
-          : threadAwaitsHuman
-            ? await sendMessage(currentMessage, { awaitingHuman: true })
-            : await sendMessage(currentMessage),
+        // it as context rather than as a turn.
+        //
+        // The shape comes from `sendMessageArgs`, so the fast path stays the
+        // literal one-argument call it always was — an explicit `undefined` would
+        // push plain messages down the server's ruling path.
+        await (() => {
+          // One ternary, not a re-derivation: `sendMessageOptions` already chose
+          // the case. Omitting the argument entirely is what keeps the fast path
+          // the literal single-argument call it has always been.
+          const options = sendMessageOptions(sent.routing)
+          return options
+            ? sendMessage(currentMessage, options)
+            : sendMessage(currentMessage)
+        })(),
       )
       if (!ok) {
         // Restore the text so nothing the user wrote is lost, and keep the picked
@@ -1098,7 +1121,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         did nothing at all: no waiting banner, no explanation for Piloti's
         silence, no way back short of reloading the page.
       */
-      if (sentMentions.length > 0 && submittingSessionId) {
+      if (sent.mentions.length > 0 && submittingSessionId) {
         bumpThreadRevision(submittingSessionId)
       }
     } catch (error) {
@@ -1119,6 +1142,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     sendMessage,
     noteSendIntent,
     threadAwaitsHuman,
+    // handleSubmit resolves the addressee, which reads the flag — a stale value
+    // would route a send against a state the user is no longer in.
+    canCollaborate,
     currentConversation,
     clearComposerDraft,
     onStoppedTyping,
@@ -1374,7 +1400,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <button
             type="button"
             onClick={() => setManageFilesOpen(true)}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:hidden"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
           >
             {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
           </button>
@@ -1390,7 +1416,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // its own. `outline-hidden!` beats the app's global :focus-visible
           // outline (globals.css, unlayered) with an important utility — otherwise
           // focus is drawn twice: a nested box inside the card's ring.
-          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 md:text-[14.5px]"
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
@@ -1463,7 +1489,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 disabled={cannotContribute}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
                   <span className="bg-status-active size-[5px] rounded-full" />
@@ -1520,7 +1546,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   total: totalSourcesCount,
                 })}
                 title={t('inputArea.selectedConnections')}
-                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 text-[12.5px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Layers className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="hidden sm:inline">{tChat('composer.sources')}</span>
@@ -1559,7 +1585,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             disabled={cannotContribute}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
+              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
               'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
               deepResearchIntent
                 ? 'border-primary bg-primary text-primary-foreground shadow-xs'
@@ -1610,7 +1636,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 // (browse + upload zone) remains available on wider viewports.
                 // Mobile reaches the same dialog via the "manage" text entry
                 // under the chip strip.
-                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
+                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 pointer-coarse:h-11 sm:inline-flex"
                 disabled={cannotContribute || !knowledgeLayerAvailable}
                 onClick={() => setManageFilesOpen(true)}
                 aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
@@ -1938,7 +1964,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               signal={signal}
               active={activeSourcePreset === id}
               onClick={() => handlePresetClick(id)}
-              className="h-8 gap-[7px] rounded-[10px] px-[13px] text-[12.5px]"
+              className="h-8 gap-[7px] rounded-[10px] px-[13px] text-[12.5px] pointer-coarse:h-11"
               aria-label={tChat('shortcuts.presetAria', {
                 label: tChat(`shortcuts.presets.${id}`),
               })}

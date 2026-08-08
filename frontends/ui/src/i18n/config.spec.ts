@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import { isLocale, resolveLocale, defaultLocale, locales } from './config'
 

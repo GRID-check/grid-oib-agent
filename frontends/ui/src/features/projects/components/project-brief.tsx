@@ -102,7 +102,7 @@ export function ProjectBrief({
         {canEdit && (
           <Link
             href={intakeHref}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground touch-target"
           >
             <PencilLine className="size-3.5" aria-hidden />
             {t('overview.brief.edit')}
@@ -315,7 +315,7 @@ function SummaryControl({
         type="button"
         onClick={() => void generate()}
         disabled={pending}
-        className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+        className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60 touch-target"
       >
         {pending ? (
           <Loader2 className="size-3 animate-spin" aria-hidden />

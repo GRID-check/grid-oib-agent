@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * The conversations service is where the collaboration feature's security fix
  * lives: a conversation used to be resolved **org-scoped only**, so any signed-in
  * colleague holding an id could read the thread and the unfiltered list returned
@@ -824,6 +827,7 @@ describe('read state (spec CC-18, IB-9)', () => {
     stubConversation({ visibility: 'project', createdBy: 'user_other' })
     vi.mocked(upsertConversationRead).mockResolvedValue({
       conversationId: CONVERSATION_ID,
+      organizationId: 'org_1',
       userId: 'user_me',
       lastReadAt: new Date('2026-07-02T12:00:00Z'),
       lastReadMessageId: 'msg_9',
