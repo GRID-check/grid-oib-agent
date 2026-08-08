@@ -729,3 +729,93 @@ describe("config checksum", () => {
     expect(await checksumFor({})).toBe(await checksumFor({}));
   });
 });
+
+/**
+ * The compose stacks build `s3.json` with a shell `printf`, which is a SECOND
+ * definition of the authorization model — and it had drifted. It declared two
+ * identities where the catalogue declares three, so `grid-backend-read` did not
+ * exist there and the agent tier ran on the write-capable `grid` credential: a
+ * strictly weaker model than production, in the environment people develop
+ * against.
+ *
+ * The old defence was a comment claiming the two were "the same shape, so a
+ * developer can diff the two". Nothing made that true. These tests do: the
+ * catalogue is the source, and a divergence fails the build.
+ */
+describe("compose stacks match the identity catalogue", () => {
+  const COMPOSE_FILES = [
+    "../compose/docker-compose.yaml",
+    "../compose/docker-compose.coolify.yaml",
+  ];
+
+  /**
+   * Pull the identity JSON out of a compose file's `printf` and parse it.
+   *
+   * The `%s` placeholders are the credentials, which differ per stack by design —
+   * they are replaced with a marker so the JSON parses and only the NAMES and
+   * ACTIONS are compared. Those are the authorization model; the credentials are
+   * not.
+   */
+  async function composeIdentities(relativePath: string) {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+
+    const match = /printf '(\{"identities".*?\})\\n'/s.exec(source);
+    if (!match) throw new Error(`no identity printf found in ${relativePath}`);
+
+    const parsed = JSON.parse(match[1].replace(/%s/g, "placeholder")) as {
+      identities: Array<{ name: string; actions: string[] }>;
+    };
+    return parsed.identities;
+  }
+
+  it.each(COMPOSE_FILES)("%s declares the same identities and grants", async (file) => {
+    const { s3IdentityCatalog } = await import("./seaweedfs-identities");
+    // Compose runs one bucket and creates tenant buckets, so this is the
+    // catalogue's shape for that configuration.
+    const expected = s3IdentityCatalog({
+      documentsBucket: "grid-documents",
+      platformBuckets: ["grid-documents"],
+      tenantBucketPrefix: "grid-org-",
+      provisioning: true,
+    });
+
+    const actual = await composeIdentities(file);
+
+    expect(actual.map((i) => i.name)).toEqual(expected.map((i) => i.name));
+    for (const identity of expected) {
+      const found = actual.find((i) => i.name === identity.name);
+      // Sorted: `canDo` does not care about order, and pinning it would make
+      // this test fail for a reason that is not a security change.
+      expect(found?.actions.slice().sort()).toEqual(identity.actions.slice().sort());
+    }
+  });
+
+  it.each(COMPOSE_FILES)("%s gives every identity a distinct credential", async (file) => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(process.cwd(), file), "utf8");
+    const printf = /printf '\{"identities".*?> \/etc\/seaweedfs\/s3\.json/s.exec(source)![0];
+
+    // One `$$VAR` pair per identity, all different. Reusing a variable would
+    // make two identities the same credential, which silently collapses the
+    // split this whole model rests on.
+    const vars = [...printf.matchAll(/"\$\$([A-Z_]+)"/g)].map((m) => m[1]);
+    expect(vars).toHaveLength(6);
+    expect(new Set(vars).size).toBe(6);
+  });
+
+  // The agent tier is the one that must NOT hold a write credential.
+  it.each(COMPOSE_FILES)("%s points the agent tier at the read-only identity", async (file) => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(process.cwd(), file), "utf8");
+    const agentBlock = source.slice(
+      source.indexOf("  aiq-agent:"),
+      source.indexOf("SEAWEED_BUCKET", source.indexOf("  aiq-agent:")),
+    );
+    expect(agentBlock).toContain("SEAWEED_READONLY_ACCESS_KEY");
+    expect(agentBlock).not.toMatch(/SEAWEED_ACCESS_KEY=\$\{SEAWEED_ACCESS_KEY/);
+  });
+});

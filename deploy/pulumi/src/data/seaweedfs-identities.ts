@@ -66,14 +66,41 @@ export interface S3IdentityInputs {
   provisioning: boolean;
 }
 
+/** One identity's name and grants, with no credential attached. */
+export interface S3IdentityShape {
+  name: string;
+  actions: string[];
+}
+
 /**
- * Render `s3.json`. Same shape the compose entrypoint printf-generates, so a
- * developer can diff the two.
+ * THE authorization model for object storage, as data.
+ *
+ * Extracted from `renderS3Config` because this file was not the only definition
+ * of it. The compose stacks build `s3.json` with a shell `printf`, and that copy
+ * had drifted: it declared two identities where this declares three, so
+ * `grid-backend-read` did not exist there at all and the agent tier ran on the
+ * write-capable `grid` credential — a strictly weaker authorization model than
+ * production, in the environment where people develop against it.
+ *
+ * The header comment used to say the two were "the same shape, so a developer
+ * can diff the two". Nothing made that true. Now this function is the source and
+ * `seaweedfs.spec.ts` asserts the compose files against it, so a divergence is a
+ * failing test rather than something a reader has to notice.
+ *
+ * Deliberately pure and Pulumi-free: the spec calls it with plain strings, and
+ * credentials are zipped on afterwards by {@link renderS3Config}.
  */
-export function renderS3Config(
-  cfg: GridConfig,
-  { platformBuckets, tenantBucketPrefix, provisioning }: S3IdentityInputs,
-): pulumi.Output<string> {
+export function s3IdentityCatalog({
+  documentsBucket,
+  platformBuckets,
+  tenantBucketPrefix,
+  provisioning,
+}: {
+  documentsBucket: string;
+  platformBuckets: string[];
+  tenantBucketPrefix: string;
+  provisioning: boolean;
+}): S3IdentityShape[] {
   // `Read:grid-org-*` — the star is matched by prefix, so this covers every
   // bucket the tenant provisioner will ever create without covering
   // `grid-documents` or `grid-pg-backups`. config.ts refuses a prefix that
@@ -85,6 +112,57 @@ export function renderS3Config(
     ...tenantScope(action),
   ];
 
+  const identities: S3IdentityShape[] = [
+    {
+      name: "grid",
+      // NOT `Admin`, and never bucket-unscoped. `Admin` would grant every
+      // action on every bucket including DeleteBucket, and this credential
+      // is on the hot path of every upload, preview and purge. Bucket
+      // creation goes through `grid-tenant-admin` instead; the platform
+      // buckets are created by the init Job over `weed shell`, which talks
+      // gRPC to the master and never passes through S3 auth at all.
+      actions: OBJECT_ACTIONS.flatMap(perBucket),
+    },
+    {
+      name: "grid-backend-read",
+      // This used to be a bare `["Read"]` with a separate `buckets` field.
+      // The `buckets` field is not consulted by `canDo` — only `actions` is
+      // — so the bare `Read` matched every bucket in the deployment,
+      // including `grid-pg-backups`: the aiq-agent tier could read the
+      // Postgres PITR archive, i.e. every row of every database. ADR-0039
+      // described this identity as scoped to the documents bucket; it now
+      // actually is.
+      //
+      // `List` is deliberately absent. `view_knowledge_image` fetches an object
+      // by the key its caller already holds (ADR-0039); enumerating a bucket is
+      // not something the agent tier ever needs, and it is the one grant that
+      // turns a leaked read credential into a map of the tenant.
+      actions: [
+        ...platformBuckets
+          .filter((bucket) => bucket === documentsBucket)
+          .map((bucket) => `Read:${bucket}`),
+        ...tenantScope("Read"),
+      ],
+    },
+  ];
+
+  if (provisioning) {
+    identities.push({
+      name: "grid-tenant-admin",
+      // `Admin:<prefix>*` and nothing else: may create and drop tenant
+      // buckets, may not touch `grid-documents` or `grid-pg-backups`.
+      actions: [`Admin:${tenantBucketPrefix}*`],
+    });
+  }
+
+  return identities;
+}
+
+/** Render `s3.json` by zipping this stack's credentials onto the catalogue. */
+export function renderS3Config(
+  cfg: GridConfig,
+  { platformBuckets, tenantBucketPrefix, provisioning }: S3IdentityInputs,
+): pulumi.Output<string> {
   return pulumi
     .all([
       pulumi.output(cfg.seaweedfs.accessKey),
@@ -95,50 +173,22 @@ export function renderS3Config(
       cfg.seaweedfs.tenantAdminSecretKey,
     ])
     .apply(([ak, sk, brak, brsk, taak, task]) => {
-      const identities: Array<{
-        name: string;
-        credentials: Array<{ accessKey: string; secretKey: string }>;
-        actions: string[];
-      }> = [
-        {
-          name: "grid",
-          // NOT `Admin`, and never bucket-unscoped. `Admin` would grant every
-          // action on every bucket including DeleteBucket, and this credential
-          // is on the hot path of every upload, preview and purge. Bucket
-          // creation goes through `grid-tenant-admin` instead; the platform
-          // buckets are created by the init Job over `weed shell`, which talks
-          // gRPC to the master and never passes through S3 auth at all.
-          credentials: [{ accessKey: ak, secretKey: sk }],
-          actions: OBJECT_ACTIONS.flatMap(perBucket),
-        },
-        {
-          name: "grid-backend-read",
-          credentials: [{ accessKey: brak, secretKey: brsk }],
-          // This used to be a bare `["Read"]` with a separate `buckets` field.
-          // The `buckets` field is not consulted by `canDo` — only `actions` is
-          // — so the bare `Read` matched every bucket in the deployment,
-          // including `grid-pg-backups`: the aiq-agent tier could read the
-          // Postgres PITR archive, i.e. every row of every database. ADR-0039
-          // described this identity as scoped to the documents bucket; it now
-          // actually is.
-          actions: [
-            ...platformBuckets
-              .filter((bucket) => bucket === cfg.seaweedfs.bucket)
-              .map((bucket) => `Read:${bucket}`),
-            ...tenantScope("Read"),
-          ],
-        },
-      ];
+      const credentials: Record<string, { accessKey: string; secretKey: string }> = {
+        grid: { accessKey: ak, secretKey: sk },
+        "grid-backend-read": { accessKey: brak, secretKey: brsk },
+        "grid-tenant-admin": { accessKey: taak, secretKey: task },
+      };
 
-      if (provisioning) {
-        identities.push({
-          name: "grid-tenant-admin",
-          credentials: [{ accessKey: taak, secretKey: task }],
-          // `Admin:<prefix>*` and nothing else: may create and drop tenant
-          // buckets, may not touch `grid-documents` or `grid-pg-backups`.
-          actions: [`Admin:${tenantBucketPrefix}*`],
-        });
-      }
+      const identities = s3IdentityCatalog({
+        documentsBucket: cfg.seaweedfs.bucket,
+        platformBuckets,
+        tenantBucketPrefix,
+        provisioning,
+      }).map((identity) => ({
+        name: identity.name,
+        credentials: [credentials[identity.name]],
+        actions: identity.actions,
+      }));
 
       return JSON.stringify({ identities });
     });

@@ -65,8 +65,13 @@ services:
       # anyone would look at. The Kubernetes tier holds a dedicated read-only
       # identity here; compose has one identity, so it uses that.
       - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
-      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
-      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
+      # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object,
+      # and this tier used to carry the `grid` credential — which holds
+      # Write and Tagging on every document bucket, so a compromise here could
+      # overwrite or delete any tenant document. AGENTS.md already described this
+      # tier as read-only; now it is.
+      - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:-seaweedreadonly}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
@@ -135,12 +140,25 @@ services:
       - "8888:8888" # Filer (browse/debug)
       - "9333:9333" # Master (admin/status)
     environment:
-      SEAWEED_ACCESS_KEY: seaweedadmin
-      SEAWEED_SECRET_KEY: seaweedadmin
-      # A SECOND identity, and a DISTINCT credential, for bucket lifecycle.
+      # Interpolated from `deploy/.env`, exactly as the CLIENTS read them. These
+      # used to be literals here while the frontend and agent read
+      # `${SEAWEED_ACCESS_KEY:-seaweedadmin}` — so setting the variable changed
+      # the clients and not the generated `s3.json`, and the first request failed
+      # `InvalidAccessKeyId`. One variable per credential, both sides.
+      SEAWEED_ACCESS_KEY: ${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:-seaweedadmin}
+      # The READ-ONLY identity the agent tier uses (ADR-0039). It was missing
+      # from this file entirely, so `aiq-agent` and `agent-worker` ran on the
+      # write-capable `grid` credential — able to overwrite or delete any
+      # document object in any bucket, for a tool that only ever calls
+      # get_object. That made the compose stack a weaker authorization model than
+      # production, in the environment people develop against.
+      SEAWEED_READONLY_ACCESS_KEY: ${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      SEAWEED_READONLY_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:-seaweedreadonly}
+      # A THIRD identity, and a DISTINCT credential, for bucket lifecycle.
       # SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket
-      # together, so the only way to keep "drop a tenant's bucket" out of reach
-      # of the upload path is to keep it on a key the upload path does not hold.
+      # together, so the two can only be separated by putting them on different
+      # credentials.
       #
       # These must be on THIS service, not only on the frontend: the printf
       # below runs inside this container, and an undefined variable there
@@ -148,13 +166,13 @@ services:
       # access key without complaint, so the failure is a silent
       # InvalidAccessKeyId on the first tenant upload rather than anything at
       # boot.
-      SEAWEED_TENANT_ADMIN_ACCESS_KEY: grid-tenant-admin
-      SEAWEED_TENANT_ADMIN_SECRET_KEY: seaweedtenantadmin # pragma: allowlist secret (local dev)
+      SEAWEED_TENANT_ADMIN_ACCESS_KEY: ${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      SEAWEED_TENANT_ADMIN_SECRET_KEY: ${SEAWEED_TENANT_ADMIN_SECRET_KEY:-seaweedtenantadmin} # pragma: allowlist secret (local dev only; overridden by deploy/.env)
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
         mkdir -p /etc/seaweedfs &&
-        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Write:grid-documents","List:grid-documents","Tagging:grid-documents","Read:grid-org-*","Write:grid-org-*","List:grid-org-*","Tagging:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*","Write:grid-documents","Write:grid-org-*","List:grid-documents","List:grid-org-*","Tagging:grid-documents","Tagging:grid-org-*"]},{"name":"grid-backend-read","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_READONLY_ACCESS_KEY" "$$SEAWEED_READONLY_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" > /etc/seaweedfs/s3.json &&
         exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
       - seaweedfs-data:/data
@@ -266,8 +284,8 @@ services:
       # the internal `seaweedfs` hostname above is not. Defaults to the published
       # localhost port for local dev; set to your public SeaweedFS/S3 URL in prod.
       - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
-      - SEAWEED_ACCESS_KEY=seaweedadmin
-      - SEAWEED_SECRET_KEY=seaweedadmin
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
       - SEAWEED_BUCKET=grid-documents
       # Per-organization buckets (ADR-0043). Off here: compose is the
       # single-node development stack, and the bucket a document lives in is
@@ -357,8 +375,8 @@ services:
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
-      - SEAWEED_ACCESS_KEY=seaweedadmin
-      - SEAWEED_SECRET_KEY=seaweedadmin
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
       - SEAWEED_BUCKET=grid-documents
       # No per-organization bucket variables here on purpose: the purge reads
       # the buckets its documents recorded rather than deriving them, so it
