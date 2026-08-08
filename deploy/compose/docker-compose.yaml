@@ -57,6 +57,17 @@ services:
       # API (single-writer separation — the backend never touches grid_app).
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
+      # BFF where a document is and then reads the bytes from SeaweedFS itself.
+      # These were only ever wired in the Kubernetes deployment, so in compose
+      # the tool failed its credential guard and silently degraded every
+      # project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at. The Kubernetes tier holds a dedicated read-only
+      # identity here; compose has one identity, so it uses that.
+      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
+      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
@@ -245,6 +256,16 @@ services:
       - SEAWEED_ACCESS_KEY=seaweedadmin
       - SEAWEED_SECRET_KEY=seaweedadmin
       - SEAWEED_BUCKET=grid-documents
+      # Per-organization buckets (ADR-0043). Off here: compose is the
+      # single-node development stack, and the bucket a document lives in is
+      # recorded on its row, so this can be flipped later without a migration.
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      # Bucket LIFECYCLE credential. Separate from the object credential in
+      # Kubernetes because SeaweedFS cannot grant CreateBucket without also
+      # granting DeleteBucket; compose has one identity, so it reuses it.
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SEAWEED_TENANT_ADMIN_SECRET_KEY:-seaweedadmin}
       - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
@@ -326,6 +347,12 @@ services:
       - SEAWEED_ACCESS_KEY=seaweedadmin
       - SEAWEED_SECRET_KEY=seaweedadmin
       - SEAWEED_BUCKET=grid-documents
+      # The purger needs the bucket NAMING inputs so it can reconstruct which
+      # buckets an organization's objects can be in, but deliberately not the
+      # bucket-admin credential: it erases objects by prefix, and an unattended
+      # queue worker is the last thing that should be able to drop a bucket.
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     networks:
@@ -362,6 +389,17 @@ services:
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
+      # BFF where a document is and then reads the bytes from SeaweedFS itself.
+      # These were only ever wired in the Kubernetes deployment, so in compose
+      # the tool failed its credential guard and silently degraded every
+      # project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at. The Kubernetes tier holds a dedicated read-only
+      # identity here; compose has one identity, so it uses that.
+      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:-seaweedadmin}
+      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # Deployment start gate: the scheduler refuses to run (clean exit 0) unless
       # workflows are enabled here or feature-flag enforcement is on.
       - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}

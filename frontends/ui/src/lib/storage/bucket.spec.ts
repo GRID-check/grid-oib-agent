@@ -20,7 +20,7 @@ import {
  * data cannot be erased. Each block below pins one of those properties.
  */
 
-const ORG = 'org_01H8XYZABCDEFGHJKMNPQRSTV'
+const ORG = 'org_01H8XYZABCDEFGHJKMNPQRSTV' // pragma: allowlist secret (a WorkOS org id, not a credential)
 
 describe('tenantBucketName', () => {
   it('is deterministic', () => {
@@ -34,7 +34,7 @@ describe('tenantBucketName', () => {
   it('keeps the organization recognisable in the name', () => {
     // The operator-facing half of the contract: an incident should not start
     // with a lookup table.
-    expect(tenantBucketName(ORG)).toContain('01h8xyzabcdefghjkmnpqrstv')
+    expect(tenantBucketName(ORG)).toContain('01h8xyzabcdefghjkmnpqrstv') // pragma: allowlist secret
   })
 
   it('ends in a truncated SHA-256 of the ORIGINAL id, not of the slug', () => {

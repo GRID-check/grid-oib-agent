@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-08-07
 - **Deciders:** Grid Agent team
+- **Superseded in part by:** [ADR-0043](0043-seaweedfs-split-topology-and-per-tenant-buckets.md) — the topology split this ADR deferred, which is what turns chunk encryption from crypto-erasure into at-rest protection.
 - **Related:** [ADR-0005](0005-object-storage-for-documents-minio.md), [ADR-0011](0011-deletion-pipeline.md), [ADR-0024](0024-org-wide-document-archiv.md), [ADR-0041](0041-row-level-security-for-tenant-isolation.md), [`../deployment/kubernetes.md`](../deployment/kubernetes.md)
 
 ## Context

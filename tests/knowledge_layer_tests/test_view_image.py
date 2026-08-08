@@ -427,9 +427,7 @@ async def test_resolve_storage_key_fail_open(monkeypatch) -> None:
     # A per-organization bucket travels back with the key (ADR-0043). The tool
     # calls get_object directly, so dropping it here would send every lookup to
     # the shared bucket and 404 silently.
-    _Client.response = _Response(
-        200, {"storageKey": "org/o1/k.png", "storageBucket": "grid-org-o1-abcdef123456"}
-    )
+    _Client.response = _Response(200, {"storageKey": "org/o1/k.png", "storageBucket": "grid-org-o1-abcdef123456"})
     assert await _resolve_storage_key("proj_1", "plan.png") == (
         "org/o1/k.png",
         "grid-org-o1-abcdef123456",
@@ -481,6 +479,4 @@ def test_fetch_seaweed_bytes_fail_open(monkeypatch) -> None:
             return {"Body": io.BytesIO(b"tenant-bytes")}
 
     monkeypatch.setattr(boto3, "client", lambda *args, **kwargs: _TenantS3())
-    assert (
-        _fetch_seaweed_bytes("org/o1/k.png", "grid-org-o1-abcdef123456") == b"tenant-bytes"
-    )
+    assert _fetch_seaweed_bytes("org/o1/k.png", "grid-org-o1-abcdef123456") == b"tenant-bytes"

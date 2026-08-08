@@ -283,9 +283,7 @@ def _fetch_seaweed_bytes(storage_key: str, storage_bucket: str | None = None) ->
         response = client.get_object(Bucket=bucket, Key=storage_key)
         return response["Body"].read()
     except Exception:  # noqa: BLE001 - fail-open contract
-        logger.warning(
-            "view_knowledge_image: SeaweedFS fetch failed for %s/%s", bucket, storage_key, exc_info=True
-        )
+        logger.warning("view_knowledge_image: SeaweedFS fetch failed for %s/%s", bucket, storage_key, exc_info=True)
         return None
 
 

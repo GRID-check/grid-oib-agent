@@ -13,7 +13,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | Layer | Resources |
 |-------|-----------|
 | Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), (metrics-server only on bare clusters) |
-| Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
+| Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 
@@ -70,6 +70,13 @@ pulumi config set --secret grid-oib:jobPayloadKek      "$(openssl rand -base64 3
 # sharing it would let the app tier flush the edge rate-limit counters.
 pulumi config set --secret grid-oib:dragonflyPassword       "$(openssl rand -base64 32)"
 pulumi config set --secret grid-oib:rateLimitStorePassword  "$(openssl rand -base64 32)"
+# REQUIRED with seaweedfsTopology=split + seaweedfsFilerStore=postgres (both
+# defaults on a new stack): the login for the dedicated `seaweedfs_filer` role
+# that owns the filer namespace. Deploy fails closed without it.
+pulumi config set --secret grid-oib:seaweedfsFilerDbPassword "$(openssl rand -base64 24)"
+# REQUIRED with seaweedfsPerOrgBuckets=true: the credential for the only
+# identity allowed to create and drop tenant buckets.
+pulumi config set --secret grid-oib:seaweedfsTenantAdminSecretKey "$(openssl rand -base64 24)"
 
 pulumi preview
 pulumi up
@@ -159,6 +166,22 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `seaweedfsStorageSize` | `20Gi` | Object-store volume (grow via PVC patch) |
 | `seaweedfsBucket` | `grid-documents` | Documents bucket (auto-created + verified) |
 | `seaweedfsAccessKey` / 🔒 **`seaweedfsSecretKey`** | `grid` / — | S3 identity |
+| **SeaweedFS topology** (ADR-0043) | | |
+| `seaweedfsTopology` | `split` | `single` runs master, volume, filer and S3 gateway as one `weed server` process on one PVC; `split` runs master, volume and filer+gateway as separate StatefulSets, which is what turns capacity into a replica count and lets the filer store live off the disk holding the chunks it decrypts. **Flipping this on a stack that already holds objects is a data migration, not a config change** — the two topologies use different PVCs, so the new cluster comes up empty while the old volumes sit on a claim nothing mounts, and nothing errors. Both stack templates pin `single`; `split` is the default only for stacks that do not exist yet |
+| `seaweedfsMasterReplicas` | `1` | Masters in the Raft quorum (`split` only). Rejected unless odd: two voters tolerate no more failures than one and add a way to deadlock, so "adding HA" that way reduces availability. `1` = no HA |
+| `seaweedfsVolumeReplicas` | `1` | Volume servers (`split` only). **The capacity knob** — growing the object store is adding a replica, not patching a PVC |
+| `seaweedfsFilerReplicas` | `1` | Filer + S3 gateway pods (`split` only). Rejected above `1` while `seaweedfsFilerStore` is `leveldb`: each replica would keep its own namespace on its own PVC, so the same object would exist or not depending on which pod the Service picked |
+| `seaweedfsMasterStorageSize` | `1Gi` | PVC for the master's raft log and volume-id sequence. No object data lands here, so it stays small regardless of how big the store grows |
+| `seaweedfsFilerStore` | `postgres` | Where the filer keeps the namespace (`split` only). `postgres` gives it a dedicated database and role on the CNPG cluster, so the per-chunk AES keys stop sharing a disk with the ciphertext they open and inherit Postgres' backups; `leveldb` embeds it on the filer's own PVC — fewer moving parts, single replica only, keys back beside the chunks |
+| 🔒 `seaweedfsFilerDbPassword` | — | Login for the dedicated `seaweedfs_filer` Postgres role. REQUIRED when `seaweedfsTopology=split` and `seaweedfsFilerStore=postgres`; without it the deploy fails at plan time instead of shipping a filer that boots and cannot reach its store |
+| `seaweedfsVolumeSizeLimitMB` | `1024` | Cap on one volume file. A volume server derives its writable-slot count from `free / limit`, so SeaweedFS's own `30000` default computes **one** slot on a 20Gi PVC and zero on 10Gi — which surfaces as "No writable volumes and no free volumes left" on every upload. Volumes grow lazily, so a small limit costs nothing. Ceiling `30000` (`weed master` fatals above it) |
+| `seaweedfsVolumeMaxCount` | `64` | Writable volume slots a volume server will hold open (`-max`) |
+| `seaweedfsVolumeMinFreeSpace` | `2GiB` | Free space at which a volume server marks all of its volumes read-only. Rejected below one `seaweedfsVolumeSizeLimitMB`: the brake has to engage before a growing volume can hit ENOSPC mid-write, not after. A bare number means *percent* to SeaweedFS and is left unchecked |
+| `seaweedfsDefaultReplication` | `000` | Copy placement, `<diffDataCenter><diffRack><sameRack>`. Each volume pod reports its Kubernetes **node** as its rack, so `010` is what actually lands the two copies on two machines. Refused when it asks for more copies than there are volume servers — otherwise volume growth starts failing once the first volume fills, which reads as uploads spontaneously breaking rather than as a config error |
+| **SeaweedFS per-organization buckets** (ADR-0043) | | |
+| `seaweedfsPerOrgBuckets` | `false` | Put each organization's objects in its own bucket instead of a key prefix inside the shared one: erasing a tenant becomes one `DeleteBucket` rather than a paginated sweep that can half-finish, a key-construction bug stops crossing tenants, and usage becomes readable per tenant at the storage layer. Not a cutover — the bucket is recorded on each document row (`documents.storage_bucket`, NULL = the shared bucket), so turning it on changes where the *next* object goes and moves nothing. Reaches the frontend and purger as `SEAWEED_PER_ORG_BUCKETS` |
+| `seaweedfsTenantBucketPrefix` | `grid-org-` | Leading segment of every tenant bucket name — and the string the tenant grants are wildcarded on (`Read:<prefix>*`), matched by plain string prefix. Refused when it is also a prefix of a platform bucket: `grid-` would hand `grid-documents` **and** `grid-pg-backups`, the Postgres PITR archive, to every identity holding a tenant scope. Must be lowercase alphanumeric/hyphen, ≤32 chars, ending in `-`. Reaches the frontend and purger as `SEAWEED_TENANT_BUCKET_PREFIX` |
+| `seaweedfsTenantAdminAccessKey` / 🔒 `seaweedfsTenantAdminSecretKey` | `grid-tenant-admin` / — | The one identity scoped `Admin:<prefix>*`, i.e. the only one that can create or drop a tenant bucket. Separate from the object credential because SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket together and cannot express one without the other — a distinct key is the only way to keep "drop a tenant" off the request path, and it is why the purger never receives it. The secret is REQUIRED when `seaweedfsPerOrgBuckets` is `true` |
 | **Agent (backend web tier)** | | |
 | `backendRequestsCpu/Memory`, `backendLimitsCpu/Memory` | 1 / 2Gi / 4 / 8Gi | Vertical scaling |
 | `backendDaskWorkers` / `backendDaskThreads` | 1 / 4 | In-process research parallelism (dask mode) |
@@ -287,5 +310,9 @@ src/app/                 config (Secret + env), migrations Job,
   out (issues #255/#256). The script reads before it writes, so a deploy that
   changes nothing writes nothing. Nothing depends on the Job — an audit outage
   must not block a release. See `docs/deployment/workos-provisioning.md` §5.
-- **SeaweedFS** is intentionally the proven single-node topology on a durable
-  PVC; the scale-out path is documented in the operator guide.
+- **SeaweedFS** ships two topologies (`seaweedfsTopology`, ADR-0043). A new
+  stack defaults to `split` — separate master, volume and filer workloads, so
+  capacity is a replica count. Both stack templates pin `single`, the
+  single-process topology every deployment ran before ADR-0043, because moving
+  an existing stack across is a data migration: the two use different PVCs, so
+  a flip without the runbook starts an empty cluster and reports healthy.

@@ -104,6 +104,13 @@ services:
       # ── Single-writer memory bridge to the frontend BFF ──
       - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      # Object storage for `view_knowledge_image` (ADR-0039). Without these the
+      # tool fails its credential guard and every project/Archiv image silently
+      # degrades to a text-only block — no error anyone would look at.
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      - SEAWEED_BUCKET=grid-documents
       # ── Knowledge base (shared Chroma server, ADR-0021) ──
       # Every replica and the agent-worker talk to ONE Chroma server over HTTP
       # (the `chroma` service below), so the vector store is no longer pinned to a
@@ -293,12 +300,19 @@ services:
       - SERVICE_FQDN_SEAWEEDFS_8333
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+    # The identity below is bucket-scoped, not `Admin`. SeaweedFS compares a
+    # BARE action before it ever looks at the bucket, so `"Admin"` on its own
+    # matched every bucket that will ever exist here — and authorised
+    # DeleteBucket from the credential the upload path carries. The buckets
+    # themselves are created by `weed shell` over gRPC (below), which does not
+    # pass through S3 auth at all, so scoping costs nothing. `grid-org-*` covers
+    # the per-organization buckets the app creates at runtime (ADR-0043).
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
         apk add --no-cache curl >/dev/null 2>&1 &&
         mkdir -p /etc/seaweedfs &&
-        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Write:grid-documents","List:grid-documents","Tagging:grid-documents","Admin:grid-org-*","Read:grid-org-*","Write:grid-org-*","List:grid-org-*","Tagging:grid-org-*"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
         exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
       - seaweedfs-data:/data
@@ -401,6 +415,13 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
       - SEAWEED_BUCKET=grid-documents
+      # Per-organization buckets (ADR-0043). Off by default; the bucket each
+      # document lives in is recorded on its row, so this can be turned on later
+      # without moving anything.
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
       - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
@@ -463,6 +484,11 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
       - SEAWEED_BUCKET=grid-documents
+      # The naming inputs so the purge can reconstruct which buckets an
+      # organization's objects are in — deliberately NOT the bucket-admin
+      # credential (ADR-0043).
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     depends_on:

@@ -85,6 +85,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0040](0040-layered-rate-limiting-and-load-protection.md) | Layered rate limiting — the edge limits traffic, the app limits consumption | Accepted |
 | [0041](0041-row-level-security-for-tenant-isolation.md) | Row-level security for tenant isolation | Accepted |
 | [0042](0042-object-storage-durability-and-quota.md) | Object-storage durability — backup, quota, and least privilege | Proposed |
+| [0043](0043-seaweedfs-split-topology-and-per-tenant-buckets.md) | SeaweedFS split topology, a Postgres filer store, and a bucket per tenant | Proposed |
 
 > Note: two ADRs were independently numbered 0027, and two more were
 > independently numbered 0039. All are Accepted and in effect; each collision is

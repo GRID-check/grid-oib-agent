@@ -183,6 +183,7 @@ export const documents = pgTable('documents', {
 | `created_by` | `text` | NOT NULL | Uploading user ID |
 | `filename` | `text` | NOT NULL | Original filename |
 | `storage_key` | `text` | NOT NULL | Object storage key |
+| `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
 | `collection_name` | `text` | NOT NULL | Milvus collection for the vectorized content |
 | `file_size` | `integer` | | Size in bytes |
 | `content_type` | `text` | | MIME type |

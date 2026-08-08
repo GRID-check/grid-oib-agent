@@ -24,7 +24,9 @@ their own namespaces.
 | `workflow-scheduler` | Deployment (only when `workflowsEnabled`) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
-| `seaweedfs` (S3) | StatefulSet | 1 | RWO PVC `/data` | See §4 |
+| `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
+| `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
+| `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
 
 Platform add-ons installed by Pulumi: **cert-manager** (+ Let's Encrypt issuer,
 Gateway-API-enabled), **Envoy Gateway** (Gateway API controller), and the
@@ -294,27 +296,154 @@ fly.
 
 ---
 
-## 4. SeaweedFS — decision and scale-out path
+## 4. SeaweedFS — two topologies, and the migration between them
 
-**What we run:** the exact single-node topology proven in Docker Compose — one
-`weed server -s3` process running master + volume + filer + the S3 gateway — as
-a 1-replica StatefulSet, but with its data on a durable Lightbits PVC instead of
-an ephemeral local volume. S3 identities come from a Kubernetes Secret (mounted
-as `s3.json`); a one-shot Job pre-creates the `grid-documents` bucket.
+`grid-oib:seaweedfsTopology` selects one of two layouts (ADR-0043). New stacks
+default to `split`; both existing stacks pin `single` in their own
+`Pulumi.<stack>.yaml`, because switching is a data migration.
 
-**Why:** it is the lowest-risk, faithful migration of a battle-tested setup, and
-the app's object load (PDFs, presigned preview/download) is modest. Fewer moving
-parts than a modular cluster.
+### `single` — one process, one PVC
 
-**When to scale out** (any of: volume-server disk pressure, throughput ceiling,
-you want HA object storage): migrate to the upstream **SeaweedFS Helm chart**
-(or operator), which splits master / volume / filer into separate StatefulSets
-and lets you run N volume servers and move the filer metadata store onto
-Postgres. Because the bucket name (`grid-documents`) and object-key layout are
-unchanged, this is a data-preserving migration (an `rclone sync` or the existing
-`scripts/migrate-storage.mjs` between the old and new S3 endpoints — the same
-pattern used for the MinIO→SeaweedFS cutover in
-[`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md)).
+One `weed server -s3` running master + volume + filer + gateway as a 1-replica
+StatefulSet on a durable Lightbits PVC. This is the layout every deployment ran
+before ADR-0043 and it remains the right choice for a small one: fewer moving
+parts, nothing to coordinate, no Postgres on the storage path.
+
+What it cannot do: grow by adding replicas, and put the chunk encryption keys
+anywhere other than the disk holding the chunks they open. The filer's embedded
+leveldb store lives at `/data`, beside the volume files, so
+`seaweedfsEncryptVolumeData` buys crypto-erasure there and not at-rest
+protection. See § Encryption posture.
+
+### `split` — master, volume and filer as separate workloads
+
+```
+  app tier ──S3:8333──►  seaweedfs (filer + gateway)  ──gRPC:19333──►  seaweedfs-master
+                              │      │                                       ▲
+                              │      └──filer.toml──► grid-pg (seaweedfs_filer DB)
+                              └──HTTP:8080──► seaweedfs-volume ────heartbeat──┘
+```
+
+- **`seaweedfs-master`** — Raft topology and the volume-id sequence, on a small
+  PVC (`seaweedfsMasterStorageSize`, default 1Gi). `seaweedfsMasterReplicas`
+  must be odd; 1 means no HA, 3 is the HA value and **has not been exercised on
+  a live cluster** — treat it as untested.
+- **`seaweedfs-volume`** — the bytes. `seaweedfsVolumeReplicas` is the capacity
+  knob. Each replica gets its own `seaweedfsStorageSize` PVC and reports its
+  Kubernetes node as its SeaweedFS *rack*, which is what lets
+  `seaweedfsDefaultReplication: "010"` mean "two copies on two machines" rather
+  than "two copies on two pods".
+- **`seaweedfs`** — the filer, carrying the S3 gateway in-process. Keeps the
+  bare name so `SEAWEED_ENDPOINT=http://seaweedfs:8333` and the edge
+  NetworkPolicy are unchanged.
+
+**Volume sizing.** `seaweedfsVolumeSizeLimitMB` defaults to 1024, not
+SeaweedFS's own 30000. The volume server derives its writable-slot count from
+`free / volumeSizeLimit`, so a 30 GB limit on a 20 Gi PVC computes ONE slot and
+on a 10 Gi PVC computed zero — which showed up live as "No writable volumes and
+no free volumes left" on every upload. `seaweedfsVolumeMinFreeSpace` must exceed
+one volume, or the disk can hit ENOSPC mid-growth before the read-only brake
+engages; `loadConfig` refuses the combination.
+
+**Filer store.** `seaweedfsFilerStore: postgres` (the default) puts the
+namespace in a dedicated `seaweedfs_filer` database on the existing CNPG
+cluster, owned by its own role with `CONNECT` revoked from `PUBLIC`. That
+database holds an AES key for every chunk in the object store, which is why it
+is neither one of the three application databases nor reachable with the
+application login. `leveldb` keeps the embedded store on the filer's own PVC and
+is single-replica only — each replica would keep a private namespace and the
+same object would exist or not depending on which pod answered.
+
+**Health probes.** The master's `/cluster/healthz` and the volume server's
+`/healthz` are readiness ONLY. The master answers `423 Locked` while the leader
+holds a topology child lock, and the volume server answers 503 when a *peer*
+holding a replica is unreachable — as liveness probes, the second would turn one
+node going away into a restart cascade across every surviving replica holder.
+TCP liveness sits underneath both. The filer's `/healthz` round-trips its own
+store and does both jobs.
+
+### Migrating SeaweedFS to the split topology
+
+**Read this before flipping the knob.** The two topologies use different PVCs.
+A stack that switches without migrating comes up with an EMPTY object store
+while every existing object sits on a PersistentVolumeClaim nothing mounts —
+and nothing errors. The endpoint answers, the probes pass, and the app reports
+that the tenant has no files. That is why both existing stacks pin `single`.
+
+Rehearse the whole thing on dev first. Budget a maintenance window: step 3
+requires writes to be stopped, because SeaweedFS cannot take a consistent
+point-in-time copy of a bucket (ADR-0042) and a document written between the
+metadata dump and the object copy lands in neither.
+
+1. **Verify the backup is real.** `seaweedfsBackupEnabled: true`, and the object
+   count in the offsite bucket matches the source. "The pod is running" is not
+   evidence — `filer.backup` has no initial full-copy phase.
+
+2. **Take a metadata snapshot and keep it off-cluster.**
+   ```
+   kubectl -n grid exec deploy/seaweedfs-backup -- \
+     sh -c 'echo "fs.meta.save -o /tmp/pre-split.meta /" | weed shell -master=seaweedfs:9333'
+   kubectl -n grid cp seaweedfs-backup-<pod>:/tmp/pre-split.meta ./pre-split.meta
+   ```
+   This is the only artefact that makes a botched migration reversible. Check it
+   is non-empty; `weed shell` exits 0 even when the command inside it failed.
+
+3. **Stop writes.** Scale the frontend, purger and agent-worker to zero.
+
+4. **Record the object inventory**, so step 8 has something to check against:
+   ```
+   aws --endpoint-url http://seaweedfs:8333 s3 ls --recursive s3://grid-documents | wc -l
+   ```
+
+5. **Set the filer store credential and the topology**, then apply:
+   ```
+   pulumi config set --secret grid-oib:seaweedfsFilerDbPassword "$(openssl rand -base64 24)"
+   pulumi config set grid-oib:seaweedfsTopology split
+   pulumi up
+   ```
+   The three new workloads come up empty. The old `seaweedfs` StatefulSet is
+   replaced by the filer; its PVC is retained (`whenDeleted: Retain`), so the
+   old data is still on disk and still reachable — mount it read-only from a
+   debug pod if you need to.
+
+6. **Copy the objects across.** The bucket name and the key layout are
+   unchanged, so this is a straight S3-to-S3 sync from the retained old PVC's
+   endpoint to the new one — `rclone sync`, or `scripts/migrate-storage.mjs`,
+   the same pattern as the MinIO→SeaweedFS cutover in
+   [`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md).
+
+   **Objects written with `seaweedfsEncryptVolumeData` on cannot be copied at
+   the volume level.** Their chunk keys live in the OLD filer's metadata, so a
+   file-level copy of the volume PVC produces ciphertext nobody can open. The
+   S3-level sync is not optional for those — it decrypts on read and re-encrypts
+   on write, under the new store's keys.
+
+7. **Compare counts** against step 4. Not "the sync finished" — the count.
+
+8. **Bring the app back up**, upload one document, preview it, download it, and
+   delete it. Then confirm the offsite mirror picked up all four events.
+
+**Rolling back** is step 5 with `single`, plus an S3 sync in the other
+direction. The old PVC is still there; nothing in this procedure deletes it.
+Delete it deliberately, later, once you are sure.
+
+### Per-organization buckets
+
+Off by default (`seaweedfsPerOrgBuckets`). Independent of the topology knob —
+either layout can run either way — but they land together because they are the
+same subsystem.
+
+Turning it on is NOT a cutover and NOT a migration. The bucket each document
+lives in is recorded on its row (`documents.storage_bucket`, migration 0033);
+NULL means the shared bucket. Enabling the flag changes where the NEXT object is
+written and nothing else, and disabling it again is equally uneventful. An
+organization therefore keeps objects in both buckets indefinitely, and every
+erasure path sweeps both.
+
+Requires `seaweedfsTenantAdminSecretKey`: bucket creation and deletion are a
+single `Admin` action in SeaweedFS and cannot be granted separately, so they get
+an identity of their own rather than living on the credential the upload path
+carries.
 
 ---
 
@@ -443,14 +572,17 @@ schema.
   `pulumi up` warns on every deploy where encryption is on and
   `seaweedfsBackupEnabled` is false. Treat that warning as a to-do, not noise.
 
-  Note what this does and does not protect against **today**. It protects
-  against someone obtaining volume disks *without* the filer store. In the
-  current single-node topology the filer's leveldb store sits on the same PVC as
-  the volume data, so that separation does not exist yet — the real gain right
-  now is GDPR erasure (drop the metadata and the bytes become undecryptable).
-  Moving the filer store to Postgres, part of the deferred topology split, is
-  what turns this into disk-theft protection. Provider-level PVC encryption
-  remains the control that matches "the disks are encrypted".
+  Note what this protects against, which depends on where the filer store is.
+  It protects against someone obtaining volume disks *without* the filer store.
+  Under `seaweedfsTopology: single` — and under `split` with
+  `seaweedfsFilerStore: leveldb` — that separation does not exist: on `single`
+  the filer's leveldb sits on the SAME PVC as the volume data, so the gain is
+  GDPR erasure (drop the metadata and the bytes become undecryptable) and not
+  disk theft. Under `split` with the Postgres store the keys move to a separate
+  database on separate disks behind a different credential, which is what turns
+  it into at-rest protection (ADR-0043, § 4). `pulumi up` warns on every deploy
+  in the configurations where it is the weaker property. Provider-level PVC
+  encryption remains the control that matches "the disks are encrypted".
 
 - **Volume snapshots — still worth adding.** A `VolumeSnapshotClass`
   (`lightbits`) exists but nothing schedules it. CSI snapshots are not consistent
@@ -850,10 +982,11 @@ Three things are true of this whole table and are easy to miss:
 |---|---|---|
 | BYOK LLM credentials | **Yes** | WorkOS Vault (`byokSecretBackend`), or AES-256-GCM under `GRID_BYOK_LOCAL_KEK` in the local backend. ADR-0022. |
 | DB-claimed job payloads | **Yes** | AES-256-GCM under `GRID_JOB_PAYLOAD_KEK`; they carry the user auth token. `jobExecution=db` refuses to deploy without the KEK unless `allowPlaintextJobPayloads` opts out. |
-| SeaweedFS chunk data | **Yes, with a caveat** | `-filer.encryptVolumeData` (`seaweedfsEncryptVolumeData`, default **on**). Per-chunk AES-256-GCM, **new writes only** — objects written before it was enabled stay plaintext, and there is no bulk-encrypt tool. The per-chunk keys live in the **filer metadata store**, which in the current single-node topology sits on the *same* PVC as the volume data — so this is not disk-theft protection today; its real value is the GDPR-erasure property. ADR-0042. |
+| SeaweedFS chunk data | **Yes — and what it protects depends on the topology** | `-filer.encryptVolumeData` (`seaweedfsEncryptVolumeData`, default **on**). Per-chunk AES-256-GCM, **new writes only** — objects written before it was enabled stay plaintext, and there is no bulk-encrypt tool. The per-chunk keys live in the **filer metadata store**, so where that store is decides what the feature is worth. Under `seaweedfsTopology: single` (and under `split` with `seaweedfsFilerStore: leveldb`) the store sits on a PVC in the same cluster — on `single`, the *same* PVC as the volume data — so anyone who obtains the volume obtains the keys beside it: this is crypto-erasure, not disk-theft protection. Under `split` with the Postgres store the keys move to a separate database on separate disks reachable with a different credential, which is what makes it at-rest protection. `pulumi up` warns in the configurations where it is not. ADR-0042, ADR-0043. |
 | Postgres data files (tables, indexes, WAL on disk) | **No** | Postgres has no native TDE. Confidentiality at rest here is entirely the PVC's (see below). |
 | **Postgres PITR archive** (`pgBackupsEnabled`) | **No by default** | The archive is a byte-for-byte copy of all three databases — every conversation, every LangGraph checkpoint, the whole `grid_app` schema, WAL included. `pgBackupEncryption` (`AES256` \| `aws:kms`) sets CloudNativePG's `barmanObjectStore.{wal,data}.encryption`, which becomes an SSE request header. **It is refused when the destination is the in-cluster SeaweedFS**, because SeaweedFS has no SSE at all on the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this program configures no KMS for them on any image): it would answer `200` and store plaintext while the Cluster spec read `encryption: AES256`. So the archive is encrypted **only** when it goes to an external S3 destination that documents SSE support *and* `pgBackupEncryption` is set. With the default in-cluster destination it is as protected as the SeaweedFS volumes under it, and no more. `pulumi up` warns on every deploy in that state. |
 | SeaweedFS offsite documents backup (`seaweedfsBackupEnabled`) | **Destination's problem** | The mirror is pushed over `https://` (enforced at config load), so it is encrypted in transit. Whether the target bucket encrypts at rest is a property of that bucket, which this program does not configure. |
+| **SeaweedFS filer namespace** (`split` + `seaweedfsFilerStore: postgres`) | **No — and it is the key store** | The `seaweedfs_filer` database holds a decryption key for every encrypted chunk in the object store, in ordinary Postgres rows with no application-level encryption. Confidentiality at rest is the PVC's, exactly as for the three application databases. It is separated by *credential* rather than by encryption: its own role, its own database, `CONNECT` revoked from `PUBLIC`, so the application logins cannot reach it and it cannot reach `grid_app`. Its inclusion in the PITR archive is the reason the `pgBackupEncryption` row above matters more than it used to. ADR-0043. |
 | Chroma vector store | **No** | Persisted on a PVC, no application-level encryption. Embeddings are derived from document text and should be treated as sensitive. |
 | Kubernetes Secrets in etcd | **Unknown to this repo — operator action** | Every credential above (DSNs, S3 keys, the KEKs themselves, the Dragonfly passwords) is a Kubernetes Secret, which is **base64, not encryption**. Encrypting them at rest needs an `EncryptionConfiguration` on the API server, which is a control-plane file on a managed cluster and is not reachable from this program. **Ask the provider whether etcd encryption-at-rest is enabled**, and treat the answer as the ceiling on every "encrypted" row in this table — the KEKs are stored there. |
 | **PVCs (all of them)** | **Unknown to this repo — operator action** | The StorageClass is provider-supplied (`grid-oib:storageClass`, e.g. `premium` / `single-replica`, Lightbits NVMe/TCP) and **nothing in this repo creates a StorageClass**. Kubernetes has no per-PVC encryption field: whether volumes are encrypted is decided by the StorageClass's `parameters`, which are fixed when the class is created. There is therefore no config key here that could enable it, and adding one would be a setting that does nothing. **Operator action:** obtain (or have the provider create) an encrypted StorageClass and point `grid-oib:storageClass` at it; `kubectl get storageclass <name> -o yaml` shows the parameters actually in force. This remains the control that actually matches "encrypted at rest", and it is the one ADR-0042 named as the better answer than volume-chunk encryption. |
@@ -1128,8 +1261,18 @@ required on the Python tiers.
 
 ## 10. Out of scope (deliberate follow-ups)
 
-- SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
-  loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
+- **A rehearsed SeaweedFS split-topology cutover.** The `split` layout exists
+  and is the default for new stacks (§4, ADR-0043), but no `pulumi up` has
+  applied it and both existing stacks pin `single`. Multi-master Raft
+  (`seaweedfsMasterReplicas: 3`) is likewise wired and unexercised. Until dev
+  has been migrated and a restore rehearsed, treat both as untested. Under
+  `single`, the PVC survives node loss (NVMe/TCP re-attach), so a node drain is
+  a brief reschedule, not data loss.
+- **Per-ORGANIZATION S3 credentials.** Per-organization *buckets* ship here;
+  the credential reaching them is still one wildcard-scoped identity. The
+  blocker is that SeaweedFS's runtime IAM store lives under `/etc` in the
+  filer, which the offsite mirror deliberately excludes — see ADR-0043
+  § Alternatives.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
 - **In-namespace mTLS (a service mesh).** The plaintext channels in §7e —
   `ws://` chat, `http://aiq-agent`, `http://chroma`, plaintext RESP to
