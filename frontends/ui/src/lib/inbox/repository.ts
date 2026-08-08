@@ -103,12 +103,12 @@ export interface ListInboxOptions {
   pendingOnly?: boolean
   limit?: number
   /**
-   * Restrict to these item types. The caller decides the set from the registry's
-   * per-type gate (`visibleInboxTypes`); this layer only applies it in SQL, so a
-   * type the reader may not see is never fetched and then filtered in JS.
-   * Omitted = every type.
+   * Restrict to these item types. REQUIRED — see {@link InboxTypeScope}. The
+   * caller decides the set from the registry's per-type gate
+   * (`visibleInboxTypes`); this layer only applies it in SQL, so a type the
+   * reader may not see is never fetched and then filtered in JS.
    */
-  types?: readonly InboxItemType[]
+  types: InboxTypeScope
 }
 
 /**
@@ -119,8 +119,30 @@ export interface ListInboxOptions {
  * relying on that implicitly is the kind of thing that changes under you, so it
  * is stated here once instead of at three call sites.
  */
-function typeFilter(types: readonly InboxItemType[] | undefined) {
-  if (!types) return undefined
+/**
+ * Which item types a recipient-facing query may touch.
+ *
+ * `EVERY_INBOX_TYPE` rather than `undefined` for the unrestricted case, and every
+ * recipient-facing function below takes this REQUIRED. The gate used to be an
+ * optional parameter the caller was trusted to pass, and the three reads passed
+ * it while `markInboxItemsRead`, `archiveInboxItem` and the realtime badge count
+ * did not — so a caller holding an item id from before collaboration was
+ * switched off could still archive or read that now-hidden item, and the badge
+ * counted rows the list refuses to show.
+ *
+ * Required means a new query cannot omit it silently: it does not compile. The
+ * unrestricted value is spelled out so that using it reads as a decision, and so
+ * the callers that legitimately have no reader to scope to (the emitter, the
+ * cleanup jobs) are findable by searching for one identifier.
+ */
+export const EVERY_INBOX_TYPE = 'every-type' as const
+
+export type InboxTypeScope = readonly InboxItemType[] | typeof EVERY_INBOX_TYPE
+
+function typeFilter(types: InboxTypeScope | undefined) {
+  if (!types || types === EVERY_INBOX_TYPE) return undefined
+  // An empty set is not "no filter" — it is a reader who may see nothing, and
+  // matching everything there would be the exact inversion of the gate.
   if (types.length === 0) return sql`false`
   return inArray(inboxItems.type, [...types])
 }
@@ -129,7 +151,7 @@ function typeFilter(types: readonly InboxItemType[] | undefined) {
 export async function listInboxItems(
   organizationId: string,
   recipientUserId: string,
-  options: ListInboxOptions = {},
+  options: ListInboxOptions,
 ): Promise<InboxItem[]> {
   const { pendingOnly = false, limit = INBOX_LIST_LIMIT, types } = options
   const db = getDb()
@@ -163,7 +185,7 @@ function pendingPredicate() {
 export async function countPendingInboxItems(
   organizationId: string,
   recipientUserId: string,
-  types?: readonly InboxItemType[],
+  types: InboxTypeScope,
 ): Promise<number> {
   const db = getDb()
   const [row] = await db
@@ -198,6 +220,7 @@ export async function markInboxItemsRead(
   organizationId: string,
   recipientUserId: string,
   itemIds: string[],
+  types: InboxTypeScope,
 ): Promise<number> {
   if (itemIds.length === 0) return 0
   const db = getDb()
@@ -210,6 +233,10 @@ export async function markInboxItemsRead(
         eq(inboxItems.recipientUserId, recipientUserId),
         inArray(inboxItems.id, itemIds),
         isNull(inboxItems.readAt),
+        // Recipient scoping alone does not enforce the type gate: an id kept
+        // from before collaboration was switched off still belongs to this
+        // recipient, so it still matched.
+        typeFilter(types),
       ),
     )
     .returning({ id: inboxItems.id })
@@ -220,7 +247,7 @@ export async function markInboxItemsRead(
 export async function markAllInboxItemsRead(
   organizationId: string,
   recipientUserId: string,
-  types?: readonly InboxItemType[],
+  types: InboxTypeScope,
 ): Promise<number> {
   const db = getDb()
   const rows = await db
@@ -242,6 +269,7 @@ export async function archiveInboxItem(
   organizationId: string,
   recipientUserId: string,
   itemId: string,
+  types: InboxTypeScope,
 ): Promise<boolean> {
   const db = getDb()
   const rows = await db
@@ -252,6 +280,11 @@ export async function archiveInboxItem(
         eq(inboxItems.organizationId, organizationId),
         eq(inboxItems.recipientUserId, recipientUserId),
         eq(inboxItems.id, itemId),
+        // See `markInboxItemsRead`: the row belongs to this recipient either
+        // way, so the type gate has to be in the WHERE clause too. A miss
+        // becomes the same NotFoundError as any other, which is what keeps the
+        // endpoint from confirming that a hidden item exists.
+        typeFilter(types),
       ),
     )
     .returning({ id: inboxItems.id })

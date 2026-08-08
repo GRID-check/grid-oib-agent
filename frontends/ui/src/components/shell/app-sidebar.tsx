@@ -77,8 +77,14 @@ export interface AppSidebarProps {
    * Not the collaboration flag since ADR-0042: the inbox also carries
    * operational alerts, and hiding the entry from a tenant without
    * collaboration hid the warning that its storage was filling up.
+   *
+   * REQUIRED, unlike its neighbours. It used to default to `false`, and two of
+   * the three callers — the dev preview and the spec fixture — omitted it, so
+   * both silently exercised the HIDDEN state: the entry was missing and the badge
+   * subscription never opened, in exactly the two places whose job is to show
+   * what the rail looks like. A required prop turns that into a compile error.
    */
-  canAccessInbox?: boolean
+  canAccessInbox: boolean
 }
 
 export function AppSidebar({
@@ -91,7 +97,7 @@ export function AppSidebar({
   canManagePlatform = false,
   canAccessArchiv = false,
   showWorkflows = false,
-  canAccessInbox = false,
+  canAccessInbox,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`

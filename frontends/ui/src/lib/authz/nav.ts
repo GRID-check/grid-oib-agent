@@ -67,6 +67,12 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
     canManagePlatform: await isPlatformOwner(session),
     canAccessArchiv: isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv),
     canCollaborate: collaboration,
-    canAccessInbox: inboxIsReachable(collaboration),
+    // Also gated on there BEING an organization. A break-glass session carries a
+    // user and no `organizationId`, and the inbox is organization-scoped
+    // throughout: `/app/inbox` redirects and `/api/inbox/summary` answers 403.
+    // Rendering the entry anyway offered a link that cannot work and fired a
+    // badge request that cannot succeed — a broken affordance in exactly the
+    // session someone is using to diagnose something else.
+    canAccessInbox: Boolean(session.organizationId) && inboxIsReachable(collaboration),
   }
 }

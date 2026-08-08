@@ -96,8 +96,26 @@ export async function emitInboxItems(emissions: InboxEmission[]): Promise<number
     [...new Set(rows.map((row) => row.recipientUserId))].map(async (recipientUserId) => {
       const emission = rows.find((row) => row.recipientUserId === recipientUserId)
       if (!emission) return
-      const pending = await countPendingInboxItems(emission.organizationId, recipientUserId)
-      await publishToUser(recipientUserId, { kind: 'inbox.changed', pending, itemType: emission.type })
+      // `pending: -1` — the event's own "unknown, go and read the summary"
+      // convention (see CollaborationEvent), and the client already honours it
+      // by refetching.
+      //
+      // This is not a shortcut. The emitter has no session, so it cannot know
+      // which item types the RECIPIENT may see: a count taken here would include
+      // collaboration rows that a collaboration-disabled recipient will never be
+      // shown, and the badge would disagree with the list. The previous code
+      // computed an untyped count and published it as fact.
+      //
+      // The alternative — resolve each recipient's feature flags here — means a
+      // WorkOS lookup per recipient on the emit path, to produce a number the
+      // client is documented as being allowed to distrust. So the event stays a
+      // nudge, and `getInboxSummary` (session-scoped, type-gated) remains the
+      // one place the badge number is authoritative.
+      await publishToUser(recipientUserId, {
+        kind: 'inbox.changed',
+        pending: -1,
+        itemType: emission.type,
+      })
     }),
   )
 
@@ -408,7 +426,12 @@ export async function markRead(
   session: AuthorizedSession,
   itemIds: readonly string[],
 ): Promise<InboxMutationResult> {
-  const affected = await markInboxItemsRead(session.organizationId, session.userId, [...itemIds])
+  const affected = await markInboxItemsRead(
+    session.organizationId,
+    session.userId,
+    [...itemIds],
+    typesVisibleTo(session),
+  )
   return publishPending(session, affected)
 }
 
@@ -437,7 +460,12 @@ export async function markAllRead(session: AuthorizedSession): Promise<InboxMuta
  * another user", so the endpoint cannot be used to probe for item ids.
  */
 export async function archiveItem(session: AuthorizedSession, itemId: string): Promise<InboxMutationResult> {
-  const archived = await archiveInboxItem(session.organizationId, session.userId, itemId)
+  const archived = await archiveInboxItem(
+    session.organizationId,
+    session.userId,
+    itemId,
+    typesVisibleTo(session),
+  )
   if (!archived) throw new NotFoundError()
   return publishPending(session, 1)
 }

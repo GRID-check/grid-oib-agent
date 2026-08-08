@@ -30,6 +30,7 @@ const proxyDb = drizzle(async (sql, params) => {
 vi.mock('@/lib/db', () => ({ getDb: () => proxyDb }))
 
 import {
+  EVERY_INBOX_TYPE,
   archiveInboxItemsOfType,
   findLiveInboxGroupKeys,
   markAllInboxItemsRead,
@@ -81,8 +82,14 @@ beforeEach(() => {
 
 describe('mark-read — reading a group spends its counter', () => {
   const paths: ReadonlyArray<{ name: string; run: () => Promise<number> }> = [
-    { name: 'markInboxItemsRead', run: () => markInboxItemsRead('org_1', 'user_me', ['item_1']) },
-    { name: 'markAllInboxItemsRead', run: () => markAllInboxItemsRead('org_1', 'user_me') },
+    {
+      name: 'markInboxItemsRead',
+      run: () => markInboxItemsRead('org_1', 'user_me', ['item_1'], EVERY_INBOX_TYPE),
+    },
+    {
+      name: 'markAllInboxItemsRead',
+      run: () => markAllInboxItemsRead('org_1', 'user_me', EVERY_INBOX_TYPE),
+    },
     {
       name: 'markResourceItemsRead',
       run: () => markResourceItemsRead('org_1', 'user_me', 'conversation', 'c1'),

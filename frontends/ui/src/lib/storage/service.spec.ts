@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 
 const getOrgSettings = vi.fn()
-const updateOrgSettings = vi.fn()
+const updatePlatformOwnedOrgSettings = vi.fn()
 const aggregateStorageUsage = vi.fn()
 const sumStorageBytes = vi.fn()
 const recordAuditEvent = vi.fn()
@@ -25,7 +25,7 @@ const findOrganization = vi.fn()
 
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: (...args: unknown[]) => getOrgSettings(...args),
-  updateOrgSettings: (...args: unknown[]) => updateOrgSettings(...args),
+  updatePlatformOwnedOrgSettings: (...args: unknown[]) => updatePlatformOwnedOrgSettings(...args),
 }))
 
 vi.mock('@/lib/organizations/repository', () => ({
@@ -83,7 +83,7 @@ describe('storage quota', () => {
     delete process.env.GRID_DEFAULT_STORAGE_QUOTA_BYTES
     getOrgSettings.mockResolvedValue(settingsWith(undefined))
     sumStorageBytes.mockResolvedValue(0)
-    updateOrgSettings.mockResolvedValue(undefined)
+    updatePlatformOwnedOrgSettings.mockResolvedValue(undefined)
     aggregateStorageUsage.mockResolvedValue({
       project: { bytes: 0, documents: 0 },
       archiv: { bytes: 0, documents: 0 },
@@ -153,7 +153,7 @@ describe('storage quota', () => {
     it('refuses a quota below what is already stored', async () => {
       usedBytes(8 * GB)
       await expect(setStorageQuota(platformSession(), 'org-1', 5 * GB)).rejects.toMatchObject({ status: 422 })
-      expect(updateOrgSettings).not.toHaveBeenCalled()
+      expect(updatePlatformOwnedOrgSettings).not.toHaveBeenCalled()
     })
 
     // The organization is looked up once and the reading reused, rather than
@@ -174,7 +174,7 @@ describe('storage quota', () => {
       await expect(setStorageQuota(platformSession(), 'org-typo', 10 * GB)).rejects.toMatchObject({
         status: 404,
       })
-      expect(updateOrgSettings).not.toHaveBeenCalled()
+      expect(updatePlatformOwnedOrgSettings).not.toHaveBeenCalled()
       expect(recordAuditEvent).not.toHaveBeenCalled()
     })
 
@@ -185,7 +185,7 @@ describe('storage quota', () => {
       findOrganization.mockResolvedValue(null)
       usedBytes(3 * GB, 12)
       await setStorageQuota(platformSession(), 'org-busy', 10 * GB)
-      expect(updateOrgSettings).toHaveBeenCalledWith('org-busy', expect.anything())
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-busy', expect.anything())
     })
 
     it('refuses a non-positive quota', async () => {
@@ -196,7 +196,7 @@ describe('storage quota', () => {
       usedBytes(1 * GB)
       await setStorageQuota(platformSession(), 'org-1', 10 * GB)
 
-      expect(updateOrgSettings).toHaveBeenCalledWith('org-1', {
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-1', {
         settings: { [STORAGE_QUOTA_SETTING]: 10 * GB },
       })
       expect(recordAuditEvent).toHaveBeenCalledWith(
@@ -211,7 +211,7 @@ describe('storage quota', () => {
     it('clears the quota with null, and records it as unlimited', async () => {
       await setStorageQuota(platformSession(), 'org-1', null)
 
-      expect(updateOrgSettings).toHaveBeenCalledWith('org-1', {
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-1', {
         settings: { [STORAGE_QUOTA_SETTING]: null },
       })
       expect(recordAuditEvent).toHaveBeenCalledWith(
@@ -224,7 +224,7 @@ describe('storage quota', () => {
       // Reading the target off the session instead of the argument would let a
       // quota land on whichever tenant the operator happened to be browsing.
       await setStorageQuota(platformSession(), 'org-other', 10 * GB)
-      expect(updateOrgSettings).toHaveBeenCalledWith('org-other', expect.anything())
+      expect(updatePlatformOwnedOrgSettings).toHaveBeenCalledWith('org-other', expect.anything())
       expect(recordAuditEvent).toHaveBeenCalledWith(
         expect.objectContaining({ organizationId: 'org-other' })
       )

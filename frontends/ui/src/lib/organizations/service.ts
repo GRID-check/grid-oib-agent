@@ -10,7 +10,8 @@ import 'server-only'
 import { findOrganization, upsertOrganization } from './repository'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached, invalidateCached } from '@/lib/cache'
-import type { Organization } from '@/lib/db/schema'
+import { PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
+import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { isOrgFeatureEnabled, WEB_SEARCH_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -180,8 +181,53 @@ export interface OrgSettingsPatch {
   settings?: Record<string, unknown>
 }
 
-/** Upsert Grid settings for an org, merging the `settings` bag. */
+/**
+ * Upsert Grid settings for an org, merging the `settings` bag.
+ *
+ * REFUSES platform-owned keys (see `PLATFORM_OWNED_SETTINGS`). Every tenant-facing
+ * write reaches the bag through here, so this is the one place the refusal has to
+ * live — putting it in the settings route would leave the next route to remember
+ * it, and the reason this guard exists is that `PUT /api/organization/settings`
+ * accepted `storageQuotaBytes` and let a tenant raise its own quota.
+ *
+ * Platform-tier writers call {@link updatePlatformOwnedOrgSettings} instead. That
+ * is a distinct exported name rather than a boolean argument on this function
+ * precisely so `grep` finds every platform write, and so nothing reaches the
+ * bypass by passing `true`.
+ */
 export async function updateOrgSettings(
+  organizationId: string,
+  patch: OrgSettingsPatch
+): Promise<OrgSettings> {
+  const offending = Object.keys(patch.settings ?? {}).filter((key) =>
+    (PLATFORM_OWNED_SETTINGS as readonly string[]).includes(key)
+  )
+  if (offending.length > 0) {
+    throw new ForbiddenError(
+      `${offending.join(', ')} ${offending.length === 1 ? 'is' : 'are'} set by the platform ` +
+        'operator, not by the organization.'
+    )
+  }
+  return writeOrgSettings(organizationId, patch)
+}
+
+/**
+ * Upsert Grid settings INCLUDING platform-owned keys. PLATFORM TIER ONLY.
+ *
+ * Carries no authorization of its own: the callers are reached through
+ * `platformApiRoute`, whose `requirePlatformOwner` runs before the handler.
+ * Named for what it permits so that the audit question — "what can write the
+ * quota?" — is answerable by searching for one identifier.
+ */
+export async function updatePlatformOwnedOrgSettings(
+  organizationId: string,
+  patch: OrgSettingsPatch
+): Promise<OrgSettings> {
+  return writeOrgSettings(organizationId, patch)
+}
+
+/** The merge itself. Private: every caller goes through one of the two above. */
+async function writeOrgSettings(
   organizationId: string,
   patch: OrgSettingsPatch
 ): Promise<OrgSettings> {

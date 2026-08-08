@@ -32,7 +32,26 @@ const baseProps = {
   projectId: 'p1',
   projects: [{ id: 'p1', name: 'Project One' }],
   authRequired: false,
+  // Explicit, and `true`, because these tests are about the nav a real user sees.
+  // This prop used to default to `false` and this fixture omitted it, so every
+  // test below silently asserted the rail with the Inbox entry HIDDEN — the state
+  // no signed-in member of an org is in.
+  canAccessInbox: true,
 }
+
+describe('the Inbox entry follows canAccessInbox, in both directions', () => {
+  // Both states, because the prop was optional and defaulting to `false` meant
+  // the disabled state was the only one this file ever covered.
+  test('shows the entry when the reader may reach the inbox', () => {
+    render(<AppSidebar {...baseProps} canAccessInbox />)
+    expect(screen.getAllByText('Inbox').length).toBeGreaterThan(0)
+  })
+
+  test('hides it when they may not', () => {
+    render(<AppSidebar {...baseProps} canAccessInbox={false} />)
+    expect(screen.queryByText('Inbox')).not.toBeInTheDocument()
+  })
+})
 
 describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
   test('renders the core nav set: Ask Piloti, Files, History', () => {
@@ -123,7 +142,18 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     const nav = container.querySelector('aside nav')
     expect(nav).not.toBeNull()
     const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
-    expect(labels).toEqual(['Ask Piloti', 'Workflows', 'Files', 'History', 'Archiv'])
+    // Inbox last, per the documented rail order in `project-sections.ts`
+    // ("Ask Piloti · Workflows* · Files · History · Archiv* · Inbox*"). This
+    // expectation omitted it because the fixture omitted `canAccessInbox` and the
+    // prop defaulted to `false` — the test was pinning the hidden state.
+    expect(labels).toEqual([
+      'Ask Piloti',
+      'Workflows',
+      'Files',
+      'History',
+      'Archiv',
+      'Inbox',
+    ])
   })
 })
 

@@ -335,9 +335,15 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
 
     const result = await markRead(session, ['item_of_another_user'])
 
-    expect(repository.markInboxItemsRead).toHaveBeenCalledWith('org_1', 'user_1', [
-      'item_of_another_user',
-    ])
+    // The type scope travels with the mutation, not just with the reads: an id
+    // kept from before collaboration was disabled belongs to this recipient
+    // either way, so recipient scoping alone did not enforce the gate.
+    expect(repository.markInboxItemsRead).toHaveBeenCalledWith(
+      'org_1',
+      'user_1',
+      ['item_of_another_user'],
+      [...ALL_TYPES],
+    )
     // Quietly a no-op: saying "not yours" would confirm the item exists.
     expect(result).toEqual({ affected: 0, pending: 3 })
   })
@@ -370,9 +376,36 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
 
     await expect(archiveItem(session, 'item_of_another_user')).rejects.toBeInstanceOf(NotFoundError)
 
-    expect(repository.archiveInboxItem).toHaveBeenCalledWith('org_1', 'user_1', 'item_of_another_user')
+    expect(repository.archiveInboxItem).toHaveBeenCalledWith(
+      'org_1',
+      'user_1',
+      'item_of_another_user',
+      [...ALL_TYPES],
+    )
     // No badge event for a mutation that did not happen.
     expect(publishToUser).not.toHaveBeenCalled()
+  })
+
+  // The gap the type scope closes. A caller who kept an item id from before
+  // collaboration was switched off could still archive or read that now-hidden
+  // item: the row is theirs, so recipient scoping matched it, and the gate lived
+  // only on the read paths. Both mutations now carry the same scope the list
+  // does, and the repository takes it as a REQUIRED argument so a new query
+  // cannot omit it silently.
+  it('narrows both mutations to the types the caller may see', async () => {
+    // Collaboration off, the way the rest of this file does it.
+    vi.stubEnv('GRID_COLLABORATION_ENABLED', 'false')
+    vi.mocked(repository.markInboxItemsRead).mockResolvedValue(0)
+    vi.mocked(repository.archiveInboxItem).mockResolvedValue(false)
+
+    await markRead(session, ['collab_item'])
+    const readScope = vi.mocked(repository.markInboxItemsRead).mock.calls[0]![3]
+    expect(readScope).not.toContain('mention.requested')
+    expect(readScope).toContain('storage.quota_warning')
+
+    await expect(archiveItem(session, 'collab_item')).rejects.toBeInstanceOf(NotFoundError)
+    const archiveScope = vi.mocked(repository.archiveInboxItem).mock.calls[0]![3]
+    expect(archiveScope).toEqual(readScope)
   })
 
   it('archives the caller\'s own item and refreshes the badge', async () => {
@@ -426,7 +459,10 @@ describe('the SQL predicates behind the filters', () => {
     vi.mocked(getDb).mockReturnValue({ select: vi.fn(() => ({ from: vi.fn(() => ({ where })) })) } as never)
 
     const real = await realRepository()
-    await real.listInboxItems('org_1', 'user_1', { pendingOnly: true })
+    await real.listInboxItems('org_1', 'user_1', {
+      pendingOnly: true,
+      types: real.EVERY_INBOX_TYPE,
+    })
     const { sql, params } = render(condition)
 
     expect(sql).toContain('"inbox_items"."organization_id" = $1')

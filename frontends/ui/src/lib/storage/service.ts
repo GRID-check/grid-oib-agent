@@ -17,7 +17,7 @@
  */
 
 import 'server-only'
-import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
+import { getOrgSettings, updatePlatformOwnedOrgSettings } from '@/lib/organizations/service'
 import { findOrganization } from '@/lib/organizations/repository'
 import {
   aggregateStorageUsage,
@@ -234,7 +234,10 @@ export async function setStorageQuota(
     }
   }
 
-  await updateOrgSettings(organizationId, {
+  // The platform-tier write. `updateOrgSettings` REFUSES this key — that refusal
+  // is what closed the hole where `PUT /api/organization/settings` let an
+  // `org:settings:manage` holder raise its own quota.
+  await updatePlatformOwnedOrgSettings(organizationId, {
     settings: { [STORAGE_QUOTA_SETTING]: quotaBytes === null ? null : Math.floor(quotaBytes) },
   })
 
