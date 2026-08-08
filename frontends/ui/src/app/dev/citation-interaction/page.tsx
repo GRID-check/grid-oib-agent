@@ -78,12 +78,18 @@ const citations: CitationSource[] = [
 /**
  * An answer whose prose cites the SAME Richtlinie at three pages plus a legal
  * source — the shape that made the old interaction impossible to follow.
+ *
+ * It also carries one claim backed by TWO sources, written `[2][3]` as the
+ * report writers are instructed to write it. That pair used to reach the reader
+ * as the literal characters "[2][3]" beside neighbours that got their pill, so
+ * it is on film here: two pills, side by side, each its own citation.
  */
 const answer = [
   'Für eine Garage dieser Größe sind zwei Fluchtwege erforderlich [1]. Der zweite',
   'darf als Außentreppe ausgeführt werden [2], sofern die Rauchableitung den',
-  'Anforderungen der Richtlinie entspricht [3]. In Wien ist diese Richtlinie über',
-  'die Bauordnung verbindlich gestellt [4].',
+  'Anforderungen der Richtlinie entspricht [3]. Beide Anforderungen stehen in',
+  'derselben Richtlinie [2][3]. In Wien ist diese Richtlinie über die Bauordnung',
+  'verbindlich gestellt [4].',
   '',
   '## Quellen',
   `- [1] [KB] ${OIB}, p.5`,
@@ -173,7 +179,7 @@ export default function CitationInteractionPreview() {
       <OpenOnLoad />
       <Block
         title="Inline markers are citations"
-        note="Each [N] is tinted by the provenance family of the source it names — three OIB passages and one binding legal source, distinguishable mid-sentence. Clicking one previews the document, its authority, its page and the passage itself, and marks the chip it belongs to."
+        note="Each [N] is tinted by the provenance family of the source it names — three OIB passages and one binding legal source, distinguishable mid-sentence. Clicking one previews the document, its authority, its page and the passage itself, and marks the chip it belongs to. A claim carried by two sources is written [2][3] and renders as two pills, not as text."
       >
         <AgentResponse
           content={answer}

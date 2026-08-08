@@ -631,3 +631,12 @@ body {
   --storage-meter: #3987e5;
   --storage-meter-over: #d03b3b;
 }
+
+/* Two sources behind one claim is written `[2][3]`, so two citation pills can
+   land side by side. Their tint blocks would touch and read as one wide chip
+   holding a two-digit number; a hair of space keeps them two citations. Scoped
+   to marker-after-marker so a single pill's spacing — tuned against the
+   sentence's own punctuation — is untouched. */
+[data-citation-marker] + [data-citation-marker] {
+  margin-left: 0.18em;
+}

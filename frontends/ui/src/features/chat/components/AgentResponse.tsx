@@ -13,8 +13,10 @@ import { Check, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
+import type { PluggableList } from 'unified'
 import { useLocale, useTranslations } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCards } from '@/features/grid-cards/components/GridCards'
@@ -211,9 +213,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
-  const { body, entries: sourceEntries } = useMemo(
-    () => splitAnswerBody(content, anchorPrefix),
-    [content, anchorPrefix]
+  const {
+    body,
+    entries: sourceEntries,
+    numbers: citationNumbers,
+  } = useMemo(() => splitAnswerBody(content), [content])
+  // The markers are linked while the body is PARSED, not before: `[2][3]` — two
+  // sources behind one claim, the shape the backend is told to write — is
+  // indistinguishable from reference-link syntax in raw text, and used to reach
+  // the reader as literal "[2][3]" beside neighbours that got their pill.
+  const markerPlugins = useMemo(
+    (): PluggableList => [[remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }]],
+    [citationNumbers, anchorPrefix]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -328,7 +339,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               : undefined
           }
         >
-          <MarkdownRenderer content={body} isStreaming={isStreaming} />
+          <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
           {isStreaming && <StreamingCaret />}
         </div>
 
@@ -451,7 +462,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 : undefined
             }
           >
-            <MarkdownRenderer content={body} isStreaming={isStreaming} />
+            <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
             {isStreaming && <StreamingCaret />}
           </div>
 
