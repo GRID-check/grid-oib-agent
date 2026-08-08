@@ -14,7 +14,7 @@ import 'server-only'
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders, type Document, type NewDocument } from '@/lib/db/schema'
+import { documents, projectFolders, type Document } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
 export const DOCUMENT_LIST_LIMIT = 500

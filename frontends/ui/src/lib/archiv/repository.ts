@@ -12,7 +12,7 @@
 import 'server-only'
 import { and, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { documents, type Document, type NewDocument } from '@/lib/db/schema'
+import { documents, type Document } from '@/lib/db/schema'
 import { DOCUMENT_LIST_LIMIT, type DocumentListRow } from '@/lib/documents/repository'
 
 /** List an organization's Archiv documents, most-recent first (bounded). */
