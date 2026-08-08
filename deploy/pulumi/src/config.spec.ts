@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 import { loadConfig } from "./config";
+import { baseStackConfig } from "./test-support/stack-config";
 
 // `new pulumi.Config()` (config.ts:873) namespaces every key by the PROJECT
 // name, which the runtime reads from the mock context. Without this the keys
@@ -37,27 +38,12 @@ pulumi.runtime.setMocks(
  */
 function loadWith(values: Record<string, string>, omit: string[] = []): Error | null {
   const config: Record<string, string> = {
-    // Every `requireSecret` key, so a test about one knob is not defeated by a
-    // different missing one.
-    "grid-oib:kubeconfig": "apiVersion: v1",
-    "grid-oib:baseDomain": "example.test",
-    "grid-oib:storageClass": "premium",
-    "grid-oib:letsEncryptEmail": "ops@example.test",
-    "grid-oib:seaweedfsSecretKey": "s3-secret", // pragma: allowlist secret
-    "grid-oib:seaweedfsBackendReadSecretKey": "read-secret", // pragma: allowlist secret
-    "grid-oib:pgAppPassword": "pg-secret", // pragma: allowlist secret
-    "grid-oib:pgRuntimePassword": "rw-secret", // pragma: allowlist secret
-    "grid-oib:workosApiKey": "workos", // pragma: allowlist secret
-    "grid-oib:workosClientId": "client",
-    "grid-oib:workosCookiePassword": "cookie-cookie-cookie-cookie-cookie-x", // pragma: allowlist secret
-    "grid-oib:gridInternalApiToken": "internal", // pragma: allowlist secret
-    "grid-oib:gridAdminToken": "admin", // pragma: allowlist secret
-    "grid-oib:tavilyApiKey": "tavily", // pragma: allowlist secret
-    "grid-oib:openrouterApiKey": "or", // pragma: allowlist secret
-    "grid-oib:dragonflyPassword": "df", // pragma: allowlist secret
-    "grid-oib:rateLimitStorePassword": "rl", // pragma: allowlist secret
-    "grid-oib:seaweedfsFilerDbPassword": "filer", // pragma: allowlist secret
-    "grid-oib:seaweedfsTenantAdminSecretKey": "tenant", // pragma: allowlist secret
+    // Every `require` / `requireSecret` key, so a test about one knob is not
+    // defeated by a different missing one. Shared with `index.spec.ts` rather
+    // than copied: two copies drift the moment `loadConfig` gains another
+    // required key, and the drift surfaces as an unrelated failure in whichever
+    // suite was not updated.
+    ...baseStackConfig(),
     ...values,
   };
   for (const key of omit) delete config[key];
@@ -172,6 +158,51 @@ describe("SeaweedFS topology", () => {
     expect(
       loadWith({ "grid-oib:seaweedfsPerOrgBuckets": "false" }, [
         "grid-oib:seaweedfsTenantAdminSecretKey",
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe("documents backup credentials", () => {
+  const enable = {
+    "grid-oib:seaweedfsBackupEnabled": "true",
+    "grid-oib:seaweedfsBackupEndpoint": "https://offsite.example.test",
+    "grid-oib:seaweedfsBackupAccessKey": "offsite-key", // pragma: allowlist secret
+    "grid-oib:seaweedfsBackupSecretKey": "offsite-secret", // pragma: allowlist secret
+  };
+
+  // The guard's message named both keys and its condition tested one. A stack
+  // that set the access key and omitted the secret planned clean, substituted
+  // `pulumi.secret("")`, and `weed filer.backup` then signed every request with
+  // an empty secret — `SignatureDoesNotMatch` against a mirror the operator
+  // believes is running, which is the exact silent backup-to-nowhere this refuses.
+  it.each([
+    ["the secret key", "grid-oib:seaweedfsBackupSecretKey"],
+    ["the access key", "grid-oib:seaweedfsBackupAccessKey"],
+  ])("refuses a mirror missing %s", (_label, omitted) => {
+    const error = loadWith(enable, [omitted]);
+    expect(error?.message).toContain(omitted);
+    expect(error?.message).toMatch(/required when seaweedfsBackupEnabled is true/);
+  });
+
+  it("names every missing key at once, so one plan reports the whole gap", () => {
+    const error = loadWith(enable, [
+      "grid-oib:seaweedfsBackupAccessKey",
+      "grid-oib:seaweedfsBackupSecretKey",
+    ]);
+    expect(error?.message).toContain("grid-oib:seaweedfsBackupAccessKey");
+    expect(error?.message).toContain("grid-oib:seaweedfsBackupSecretKey");
+  });
+
+  it("accepts a fully configured mirror", () => {
+    expect(loadWith(enable)).toBeNull();
+  });
+
+  it("asks for neither key while the mirror is off", () => {
+    expect(
+      loadWith({}, [
+        "grid-oib:seaweedfsBackupAccessKey",
+        "grid-oib:seaweedfsBackupSecretKey",
       ]),
     ).toBeNull();
   });

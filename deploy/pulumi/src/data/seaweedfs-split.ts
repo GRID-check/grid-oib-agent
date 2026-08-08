@@ -585,7 +585,14 @@ export function installSplitSeaweedFS(
             spec: {
               accessModes: ["ReadWriteOnce"],
               storageClassName: cfg.storage.className,
-              resources: { requests: { storage: cfg.seaweedfs.masterStorageSize } },
+              // The filer's OWN knob, not the master's. This claim used to
+              // request `masterStorageSize` — a key documented and defaulted
+              // (1Gi) for a raft log — while under `filerStore: "leveldb"` it
+              // holds the metadata entry and the per-chunk AES key for every
+              // object in the deployment. An operator whose filer store was
+              // filling had nothing to raise but the master's claim, and a full
+              // filer store stops every write.
+              resources: { requests: { storage: cfg.seaweedfs.filerStorageSize } },
             },
           },
         ],

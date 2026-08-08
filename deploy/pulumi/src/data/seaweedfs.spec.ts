@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 
 /**
@@ -25,8 +25,8 @@ import * as pulumi from "@pulumi/pulumi";
  * ADR-0043 says so.
  */
 
-// Mocks must be installed before any Pulumi resource is constructed, so the
-// modules under test are imported lazily inside `beforeAll`.
+// Mocks must be installed before any Pulumi resource is constructed, so every
+// module under test is imported lazily, inside the helpers below.
 /** Every Secret the program creates, and the file names inside it. */
 const SECRET_KEYS: Array<{ name: string; keys: string[] }> = [];
 
@@ -93,7 +93,10 @@ interface ResolvedStatefulSet {
   updateStrategy?: { type?: string };
   podManagementPolicy?: string;
   serviceName?: string;
-  volumeClaimTemplates?: Array<{ metadata?: { name?: string } }>;
+  volumeClaimTemplates?: Array<{
+    metadata?: { name?: string };
+    spec?: { resources?: { requests?: { storage?: string } } };
+  }>;
   template: { spec: ResolvedPodSpec };
 }
 
@@ -160,36 +163,61 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
   } as unknown as import("../config").GridConfig;
 }
 
-describe("split topology", () => {
-  let mod: typeof import("./seaweedfs-split");
-  let identities: typeof import("./seaweedfs-identities");
-  let provider: import("@pulumi/kubernetes").Provider;
-  let k8s: typeof import("@pulumi/kubernetes");
+/**
+ * Build either topology's workloads.
+ *
+ * Module scope rather than inside a `describe`, because one of the rules below
+ * ("never probe a non-self-scoped endpoint") has to hold across BOTH topologies
+ * — and a helper scoped to one describe is how that rule came to be asserted for
+ * the split topology only while the single-node one broke it.
+ *
+ * Each provider gets a distinct name: Pulumi rejects two resources with the same
+ * URN, so a shared one would make the second install in any test throw.
+ */
+let providerSeq = 0;
+function nextProvider(k8s: typeof import("@pulumi/kubernetes"), label: string) {
+  providerSeq += 1;
+  return new k8s.Provider(`test-${label}-${providerSeq}`, {});
+}
 
-  beforeAll(async () => {
-    k8s = await import("@pulumi/kubernetes");
-    mod = await import("./seaweedfs-split");
-    identities = await import("./seaweedfs-identities");
-    provider = new k8s.Provider("test", {});
+async function installSplit(overrides: Record<string, unknown> = {}) {
+  const k8s = await import("@pulumi/kubernetes");
+  const mod = await import("./seaweedfs-split");
+  const identities = await import("./seaweedfs-identities");
+  const provider = nextProvider(k8s, "split");
+  const cfg = makeConfig(overrides);
+  const secret = identities.s3ConfigSecret(cfg, provider, "grid", {
+    platformBuckets: [cfg.seaweedfs.bucket],
+    tenantBucketPrefix: cfg.seaweedfs.tenantBucketPrefix,
+    provisioning: cfg.seaweedfs.perOrgBuckets,
   });
+  return mod.installSplitSeaweedFS(
+    cfg,
+    provider,
+    "grid",
+    secret,
+    pulumi.output("checksum"),
+    "grid-pg-rw",
+    [],
+  );
+}
 
-  async function install(overrides: Record<string, unknown> = {}) {
-    const cfg = makeConfig(overrides);
-    const secret = identities.s3ConfigSecret(cfg, provider, "grid", {
-      platformBuckets: [cfg.seaweedfs.bucket],
-      tenantBucketPrefix: cfg.seaweedfs.tenantBucketPrefix,
-      provisioning: cfg.seaweedfs.perOrgBuckets,
-    });
-    return mod.installSplitSeaweedFS(
-      cfg,
-      provider,
-      "grid",
-      secret,
-      pulumi.output("checksum"),
-      "grid-pg-rw",
-      [],
-    );
-  }
+async function installSingle(overrides: Record<string, unknown> = {}) {
+  const k8s = await import("@pulumi/kubernetes");
+  const { installSingleNodeSeaweedFS } = await import("./seaweedfs-single");
+  const identities = await import("./seaweedfs-identities");
+  const provider = nextProvider(k8s, "single");
+  const cfg = makeConfig({ seaweedfs: { topology: "single", ...overrides } });
+  const secret = identities.s3ConfigSecret(cfg, provider, "grid", {
+    platformBuckets: [cfg.seaweedfs.bucket],
+    tenantBucketPrefix: "grid-org-",
+    provisioning: false,
+  });
+  return installSingleNodeSeaweedFS(cfg, provider, "grid", secret, pulumi.output("checksum"));
+}
+
+describe("split topology", () => {
+  const install = installSplit;
 
   it("addresses the master separately from the S3 endpoint", async () => {
     const t = await install();
@@ -403,6 +431,24 @@ describe("split topology", () => {
     expect(volume.volumeClaimTemplates?.map((v) => v.metadata?.name)).toEqual(["data"]);
   });
 
+  it("sizes each role's disk from its own knob", async () => {
+    const t = await installSplit({
+      seaweedfs: { masterStorageSize: "1Gi", filerStorageSize: "40Gi", storageSize: "500Gi" },
+    });
+    const size = async (i: number) =>
+      (await statefulSetSpec(t.workloads[i])).volumeClaimTemplates?.[0]?.spec?.resources?.requests
+        ?.storage;
+
+    // The filer's claim used to request `masterStorageSize` — a key documented
+    // and defaulted (1Gi) for a raft log — while under `filerStore: "leveldb"`
+    // it holds the metadata entry and the per-chunk AES key for every object in
+    // the deployment. An operator whose filer store was filling had nothing to
+    // raise but the master's claim, and a full filer store stops every write.
+    expect(await size(0)).toBe("1Gi");
+    expect(await size(1)).toBe("500Gi");
+    expect(await size(2)).toBe("40Gi");
+  });
+
   // The defect this pins killed the whole filer process, not just the S3 API:
   // `NewIdentityAccessManagement` calls `glog.Fatalf` when `-s3.config` names a
   // file it cannot read. The split rewrite mounted only `filer.toml`, so every
@@ -494,18 +540,59 @@ describe("split topology", () => {
 });
 
 describe("single-node topology", () => {
+  /**
+   * The rule that was written down and broken anyway.
+   *
+   * `/cluster/healthz` answers `423 Locked` while a master holds a topology
+   * child lock — an ordinary admin or volume operation — and a kubelet reads 423
+   * as a failed probe. The single-node comment explained exactly this, three
+   * lines above a READINESS probe that used it. Readiness is the worse place for
+   * it: this pod is the only endpoint of the `seaweedfs` Service, so a lock
+   * removes the last endpoint and object storage goes offline for the app tier,
+   * the purger, the edge and bucket-init at once, with nothing restarting and no
+   * failing container to point at.
+   *
+   * Asserted as a rule over EVERY workload in BOTH topologies rather than as
+   * three per-container assertions, because the defect was not a missing check —
+   * it was a paragraph where a test belonged.
+   */
+  it("never probes /cluster/healthz outside a master quorum, in either topology", async () => {
+    const solo = await installSingle();
+    const split = await installSplit();
+
+    const workloads = [...solo.workloads, ...split.workloads];
+    for (const workload of workloads) {
+      const spec = await statefulSetSpec(workload);
+      for (const c of spec.template.spec.containers) {
+        for (const probe of [c.readinessProbe, c.livenessProbe]) {
+          expect((probe as Probe | undefined)?.httpGet?.path).not.toBe("/cluster/healthz");
+        }
+      }
+    }
+
+    // The one legitimate use, kept honest by the same test: with a quorum a
+    // locked or leaderless member SHOULD leave the Service, because the others
+    // can still serve. Readiness only — never liveness.
+    const quorum = await installSplit({ seaweedfs: { masterReplicas: 3 } });
+    const master = container(await statefulSetSpec(quorum.workloads[0]), "master");
+    expect((master.readinessProbe as Probe).httpGet?.path).toBe("/cluster/healthz");
+    expect((master.livenessProbe as Probe).httpGet).toBeUndefined();
+  });
+
+  it("reports readiness from the S3 gateway, which is the port every consumer uses", async () => {
+    const t = await installSingle();
+    const c = container(await statefulSetSpec(t.workloads[0]), "seaweedfs");
+    // `/healthz` on 8333 is registered before any auth wrapper in 3.80
+    // (`s3api_server.go`, under upstream's own "// Readiness Probe" comment) and
+    // returns an unconditional 200 — so it answers for this process alone.
+    expect((c.readinessProbe as Probe).httpGet).toEqual({ path: "/healthz", port: 8333 });
+    // Liveness stays TCP: a restart here is a full storage outage.
+    expect((c.livenessProbe as Probe).httpGet).toBeUndefined();
+    expect((c.livenessProbe as Probe).tcpSocket?.port).toBe(9333);
+  });
+
   it("still answers the master on the S3 host, because it is one process", async () => {
-    const k8s = await import("@pulumi/kubernetes");
-    const { installSingleNodeSeaweedFS } = await import("./seaweedfs-single");
-    const identities = await import("./seaweedfs-identities");
-    const provider = new k8s.Provider("test-single", {});
-    const cfg = makeConfig({ seaweedfs: { topology: "single" } });
-    const secret = identities.s3ConfigSecret(cfg, provider, "grid", {
-      platformBuckets: [cfg.seaweedfs.bucket],
-      tenantBucketPrefix: "grid-org-",
-      provisioning: false,
-    });
-    const t = installSingleNodeSeaweedFS(cfg, provider, "grid", secret, pulumi.output("checksum"));
+    const t = await installSingle();
     expect(t.masterAddress).toBe("seaweedfs:9333");
     expect(t.filerAddress).toBe("seaweedfs:8888");
 

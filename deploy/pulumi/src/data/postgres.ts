@@ -88,6 +88,28 @@ CREATE TABLE IF NOT EXISTS checkpoint_writes (
 const seaweedFilerSql = (database: string): string =>
   `REVOKE CONNECT ON DATABASE "${database}" FROM PUBLIC;\n`;
 
+/**
+ * Which TLS query parameter this driver understands.
+ *
+ * A named function rather than an inline ternary because the two names are not
+ * interchangeable and the failure is not a downgrade — it is a refusal to
+ * connect, at runtime, on a stack that planned and deployed cleanly.
+ *
+ * `asyncpg` takes `ssl`. SQLAlchemy's asyncpg dialect passes the URL's query
+ * keys straight through — `opts.update(url.query)`, with no translation
+ * (verified against the installed SQLAlchemy 2.0.51,
+ * `dialects/postgresql/asyncpg.py`) — and `asyncpg.connect()` has an `ssl`
+ * parameter and no `**kwargs`, so a `sslmode` key arrives as an unexpected
+ * keyword argument and the job store dies on its first connection.
+ *
+ * Everything else here is libpq or postgres-js (psycopg, psql, barman, node),
+ * all of which take `sslmode`. `ssl=require` means to asyncpg what
+ * `sslmode=require` means to them: encrypt, do not verify the CA.
+ */
+export function sslParamFor(driver: string): "ssl" | "sslmode" {
+  return driver.includes("asyncpg") ? "ssl" : "sslmode";
+}
+
 export function installPostgres(
   cfg: GridConfig,
   provider: k8s.Provider,
@@ -490,9 +512,13 @@ export function installPostgres(
     // barman) and rotating it in lockstep. `require` closes the passive-sniff
     // hole today with no moving parts; `verify-full` closes active MITM and is
     // the documented follow-up.
+    //
+    // The parameter NAME is driver-specific — see `sslParamFor`.
+    const sslParam = sslParamFor(scheme);
     return password.apply(
       (pw) =>
-        `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}?sslmode=require`,
+        `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}` +
+        `?${sslParam}=require`,
     );
   };
 

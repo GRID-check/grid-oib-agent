@@ -126,17 +126,35 @@ export function installSingleNodeSeaweedFS(
                   { name: "data", mountPath: "/data" },
                   { name: "s3config", mountPath: "/etc/seaweedfs", readOnly: true },
                 ],
+                // The S3 gateway's own handler, on the port every consumer
+                // actually uses — NOT the master's `/cluster/healthz`.
+                //
+                // `/cluster/healthz` answers `423 Locked` while the master holds
+                // a topology child lock, which is an ordinary admin/volume
+                // operation, and a kubelet reads 423 as a failed probe. The
+                // liveness probe below already avoided it for that reason; the
+                // readiness probe did not, and readiness is the WORSE place for
+                // it: this pod is the only endpoint of the `seaweedfs` Service,
+                // so a 423 removes the last endpoint and takes object storage
+                // offline for the app tier, the purger, the edge and
+                // `seaweedfs-bucket-init` at once — with nothing restarting and
+                // no failing container to point at.
+                //
+                // `/healthz` on the S3 port is registered before any auth
+                // wrapper in SeaweedFS 3.80 (`s3api_server.go`, under upstream's
+                // own "// Readiness Probe" comment) and returns an unconditional
+                // 200, so it reports this process's own ability to serve S3 and
+                // nothing about its peers. `seaweedfs.spec.ts` asserts this rule
+                // across both topologies, because it was already written down
+                // here and still got broken.
                 readinessProbe: {
-                  httpGet: { path: "/cluster/healthz", port: PORT.seaweedMaster },
+                  httpGet: { path: "/healthz", port: PORT.seaweedS3 },
                   initialDelaySeconds: 10,
                   periodSeconds: 5,
                   failureThreshold: 12,
                 },
-                // TCP rather than `/cluster/healthz`. That handler answers
-                // `423 Locked` while this master holds a topology child lock —
-                // an ordinary admin/volume operation — and a kubelet reads 423
-                // as a failed probe. On a single-node topology that restart is
-                // a full storage outage, triggered by SeaweedFS doing its job.
+                // TCP, for the same reason readiness avoids the master: a
+                // liveness failure here restarts the only storage pod there is.
                 livenessProbe: {
                   tcpSocket: { port: PORT.seaweedMaster },
                   initialDelaySeconds: 30,

@@ -422,6 +422,22 @@ export interface GridConfig {
     /** PVC size for the master's `-mdir` (raft log + volume-id sequence). */
     masterStorageSize: string;
     /**
+     * PVC size for the filer's `-defaultStoreDir` (split only).
+     *
+     * Its own knob rather than the master's, which it used to borrow. The two
+     * disks hold nothing alike: the master's is a raft log and a volume-id
+     * sequence and is genuinely tiny, while under `filerStore: "leveldb"` the
+     * filer's holds the metadata entry AND the per-chunk AES key for every
+     * object in the deployment. Sharing the knob meant an operator whose filer
+     * store was filling had nothing to raise but the master's claim, and a full
+     * filer store stops every write.
+     *
+     * The default is deliberately larger than the master's for that reason. Under
+     * `filerStore: "postgres"` the namespace lives in Postgres and this claim
+     * holds almost nothing — but it is still mounted, so it still needs a size.
+     */
+    filerStorageSize: string;
+    /**
      * Size cap for a single volume file, in MB (master `-volumeSizeLimitMB`).
      *
      * SeaweedFS's own default is 30000 (≈30 GB), which is sized for bare-metal
@@ -869,6 +885,34 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
   return v === undefined ? fallback : v;
 }
 
+/**
+ * Require a SET of secrets together, naming the ones that are missing.
+ *
+ * Credentials arrive in pairs — an access key and a secret key — and a guard
+ * written from the error message rather than from the requirement tests one of
+ * them. That is not a hypothetical: the documents-backup guard named both keys
+ * and checked only the access key, so a stack that set one and omitted the other
+ * planned clean, substituted `pulumi.secret("")`, and `weed filer.backup` signed
+ * every request with an empty secret — `SignatureDoesNotMatch`, i.e. exactly the
+ * silent backup-to-nowhere the guard existed to refuse.
+ *
+ * Reporting ALL the missing keys rather than the first also matters: a plan that
+ * fails once per missing key is three plans.
+ */
+function requireSecretsTogether(
+  cfg: pulumi.Config,
+  keys: string[],
+  because: string,
+): void {
+  const missing = keys.filter((key) => cfg.getSecret(key) === undefined);
+  if (missing.length === 0) return;
+  throw new Error(
+    `${missing.map((k) => `grid-oib:${k}`).join(", ")} ${missing.length === 1 ? "is" : "are"} ` +
+      `required ${because}. Set ${missing.length === 1 ? "it" : "them"} with ` +
+      `\`pulumi config set --secret\`.`,
+  );
+}
+
 export function loadConfig(): GridConfig {
   const cfg = new pulumi.Config();
 
@@ -1179,12 +1223,14 @@ export function loadConfig(): GridConfig {
           "That stores the backup on the same volumes as the data. Use an external S3 endpoint.",
       );
     }
-    if (cfg.getSecret("seaweedfsBackupAccessKey") === undefined) {
-      throw new Error(
-        "grid-oib:seaweedfsBackupAccessKey and seaweedfsBackupSecretKey are required when " +
-          "seaweedfsBackupEnabled is true (set with `pulumi config set --secret`).",
-      );
-    }
+    // BOTH keys. Half a credential is worse than none: the plan succeeds, the
+    // sidecar starts, and every request fails `SignatureDoesNotMatch` against a
+    // mirror the operator believes is running.
+    requireSecretsTogether(
+      cfg,
+      ["seaweedfsBackupAccessKey", "seaweedfsBackupSecretKey"],
+      "when seaweedfsBackupEnabled is true",
+    );
   }
 
   // Encryption on + no metadata backup is the one combination that loses data
@@ -1580,6 +1626,10 @@ export function loadConfig(): GridConfig {
       volumeReplicas: num(cfg, "seaweedfsVolumeReplicas", 1),
       filerReplicas: seaweedFilerReplicas,
       masterStorageSize: cfg.get("seaweedfsMasterStorageSize") ?? "1Gi",
+      // 10Gi, not the master's 1Gi: under the leveldb store this claim is the
+      // key store for every object in the deployment, and it is the one PVC
+      // whose exhaustion stops all writes.
+      filerStorageSize: cfg.get("seaweedfsFilerStorageSize") ?? "10Gi",
       volumeSizeLimitMB: seaweedVolumeSizeLimitMB,
       volumeMaxCount: num(cfg, "seaweedfsVolumeMaxCount", 64),
       volumeMinFreeSpace: cfg.get("seaweedfsVolumeMinFreeSpace") ?? "2GiB",
