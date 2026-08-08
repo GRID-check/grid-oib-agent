@@ -1077,30 +1077,51 @@ export function loadConfig(): GridConfig {
   // ── Per-organization buckets (ADR-0043) ───────────────────────────────────
   const seaweedPerOrgBuckets = bool(cfg, "seaweedfsPerOrgBuckets", false);
   const seaweedTenantPrefix = (cfg.get("seaweedfsTenantBucketPrefix") ?? "grid-org-").trim();
-  if (seaweedPerOrgBuckets) {
-    // S3 bucket names: 3–63 chars, lowercase alphanumeric and hyphens, must
-    // start with a letter or digit. The prefix is only part of a name, so the
-    // length floor does not apply to it — but every other rule does, and the
-    // trailing hyphen is what keeps `grid-org-*` from also matching a
-    // hypothetical `grid-organizations` bucket.
-    if (!/^[a-z0-9][a-z0-9-]*-$/.test(seaweedTenantPrefix)) {
-      throw new Error(
-        `grid-oib:seaweedfsTenantBucketPrefix must be lowercase alphanumeric/hyphen, start with a ` +
-          `letter or digit, and end with "-" (got "${seaweedTenantPrefix}").`,
-      );
-    }
-    if (seaweedTenantPrefix.length > 32) {
-      throw new Error(
-        `grid-oib:seaweedfsTenantBucketPrefix is ${seaweedTenantPrefix.length} chars. S3 caps a ` +
-          "bucket name at 63, and the organization id plus a collision-proof hash needs the rest.",
-      );
-    }
-    // THE load-bearing check. The S3 identities are scoped with
-    // `<Action>:<prefix>*`, matched by string prefix — so a prefix that is
-    // itself a prefix of a platform bucket name silently re-grants that bucket
-    // to every identity holding a tenant scope, including the read-only agent
-    // credential. `grid-` as a prefix would hand out `grid-documents` AND
-    // `grid-pg-backups`, i.e. the entire Postgres PITR archive.
+
+  // Validated UNCONDITIONALLY, not only when the feature is on, because the
+  // grants are issued unconditionally. `Read:<prefix>*` is emitted whether or
+  // not per-organization buckets are enabled — that is what keeps a rollback
+  // from revoking access to everything written while they were — so the prefix
+  // is load-bearing even in a deployment that has never created a tenant
+  // bucket. Gating these checks on the flag would let
+  // `seaweedfsTenantBucketPrefix: grid-` sail through with the feature off and
+  // hand `grid-documents` AND `grid-pg-backups` to every identity holding a
+  // tenant scope, including the read-only agent credential. That is the exact
+  // bug ADR-0043 exists to fix, re-entered through a side door.
+  //
+  // S3 bucket names: 3–63 chars, lowercase alphanumeric and hyphens, must start
+  // with a letter or digit. The prefix is only part of a name, so the length
+  // floor does not apply to it — but every other rule does, and the trailing
+  // hyphen is what keeps `grid-org-*` from also matching a hypothetical
+  // `grid-organizations` bucket.
+  if (!/^[a-z0-9][a-z0-9-]*-$/.test(seaweedTenantPrefix)) {
+    throw new Error(
+      `grid-oib:seaweedfsTenantBucketPrefix must be lowercase alphanumeric/hyphen, start with a ` +
+        `letter or digit, and end with "-" (got "${seaweedTenantPrefix}").`,
+    );
+  }
+  if (seaweedTenantPrefix.length > 32) {
+    throw new Error(
+      `grid-oib:seaweedfsTenantBucketPrefix is ${seaweedTenantPrefix.length} chars. S3 caps a ` +
+        "bucket name at 63, and the organization id plus a collision-proof hash needs the rest.",
+    );
+  }
+  // Reserved by S3 and rejected by SeaweedFS's own `VerifyS3BucketName`, so a
+  // prefix starting with it produces names that fail at CreateBucket time for
+  // every tenant.
+  if (seaweedTenantPrefix.startsWith("xn--")) {
+    throw new Error(
+      `grid-oib:seaweedfsTenantBucketPrefix must not start with "xn--" (got "${seaweedTenantPrefix}") — ` +
+        "S3 reserves that prefix and SeaweedFS rejects such a bucket name outright.",
+    );
+  }
+  // THE load-bearing check. The S3 identities are scoped with
+  // `<Action>:<prefix>*`, matched by string prefix — so a prefix that is itself
+  // a prefix of a platform bucket name silently re-grants that bucket to every
+  // identity holding a tenant scope, including the read-only agent credential.
+  // `grid-` as a prefix would hand out `grid-documents` AND `grid-pg-backups`,
+  // i.e. the entire Postgres PITR archive.
+  {
     const platformBuckets = [
       cfg.get("seaweedfsBucket") ?? "grid-documents",
       cfg.get("pgBackupBucket") ?? "grid-pg-backups",
@@ -1116,13 +1137,15 @@ export function loadConfig(): GridConfig {
         );
       }
     }
-    if (cfg.getSecret("seaweedfsTenantAdminSecretKey") === undefined) {
-      throw new Error(
-        "grid-oib:seaweedfsTenantAdminSecretKey is required when seaweedfsPerOrgBuckets is true. " +
-          "It is the credential for the only identity allowed to create and drop tenant buckets — " +
-          'set it with `pulumi config set --secret grid-oib:seaweedfsTenantAdminSecretKey "$(openssl rand -base64 24)"`.',
-      );
-    }
+  }
+  // Only the CREDENTIAL is gated, because creating buckets is the one thing
+  // that genuinely stops when the feature is off.
+  if (seaweedPerOrgBuckets && cfg.getSecret("seaweedfsTenantAdminSecretKey") === undefined) {
+    throw new Error(
+      "grid-oib:seaweedfsTenantAdminSecretKey is required when seaweedfsPerOrgBuckets is true. " +
+        "It is the credential for the only identity allowed to create and drop tenant buckets — " +
+        'set it with `pulumi config set --secret grid-oib:seaweedfsTenantAdminSecretKey "$(openssl rand -base64 24)"`.',
+    );
   }
 
   // Fail fast: a documents backup that writes back into this cluster's own
