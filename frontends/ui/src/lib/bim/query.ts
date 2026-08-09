@@ -39,6 +39,14 @@ import {
 import { compareModels, renderComparison, type BimComparison } from './compare'
 import { deriveProfileSuggestions, renderProfileSuggestions, type BimProfileSuggestion } from './profile'
 import {
+  missingPropertyShoppingList,
+  renderBimRules,
+  runBimRules,
+  summarizeBimRules,
+  type BimComplianceSummary,
+  type BimRuleResult,
+} from './rules'
+import {
   buildQuantityTakeoff,
   buildRoomSchedule,
   type BimQuantityRow,
@@ -131,6 +139,19 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('overview') }),
   z.object({ op: z.literal('health') }),
   z.object({ op: z.literal('schedule') }),
+  z.object({
+    op: z.literal('compliance'),
+    /**
+     * The project facts some rules depend on, supplied by the caller.
+     *
+     * Optional on purpose: a rule that needs a fact it was not given reports
+     * `not applicable` WITH the reason rather than assuming a value. Assuming
+     * the mildest Gebaeudeklasse would turn a GK5 building's missing R 90 into
+     * a pass, which is the exact failure this subsystem exists to prevent.
+     */
+    gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
+    hauptnutzung: z.string().trim().max(64).nullish(),
+  }),
   z.object({ op: z.literal('profile') }),
   z.object({
     op: z.literal('takeoff'),
@@ -192,6 +213,11 @@ export interface BimQueryResult {
   caveat?: string | null
   comparison?: BimComparison
   schedule?: BimRoomSchedule
+  /** Per-rule verdicts from the OIB rule catalog (`lib/bim/rules.ts`). */
+  compliance?: BimRuleResult[]
+  complianceSummary?: BimComplianceSummary
+  /** What to author in the CAD to make the undecidable rules decidable. */
+  complianceShoppingList?: Array<{ path: string; elements: number; rules: string[] }>
   takeoff?: BimQuantityRow[]
   profileSuggestions?: BimProfileSuggestion[]
   types?: Array<{ ifcType: string; elements: number }>
@@ -466,6 +492,8 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
         )
         .join('; ')}.`
     }
+    case 'compliance':
+      return renderBimRules(result.compliance ?? [])
     case 'profile':
       return renderProfileSuggestions(result.profileSuggestions ?? [])
     case 'compare':
@@ -609,6 +637,23 @@ export async function runBimQuery(
       return finish({ ...modelBase, schedule: buildRoomSchedule(model.summary, elements) })
     }
 
+    case 'compliance': {
+      // Over the FULL element set, like every other derived table: a rule run
+      // against a capped page would report "0 nicht erfuellt" for a building
+      // whose failures all sat past the cap.
+      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
+      const compliance = runBimRules(elements, {
+        gebaeudeklasse: request.gebaeudeklasse ?? null,
+        hauptnutzung: request.hauptnutzung ?? null,
+      })
+      return finish({
+        ...modelBase,
+        compliance,
+        complianceSummary: summarizeBimRules(compliance),
+        complianceShoppingList: missingPropertyShoppingList(compliance),
+      })
+    }
+
     case 'takeoff': {
       const { elements } = await loadBimElementsForSchedule(
         context.modelId,
@@ -679,6 +724,8 @@ export async function runBimQuery(
 }
 
 export type {
+  BimComplianceSummary,
+  BimRuleResult,
   BimElementListRow,
   BimGroupedCount,
   BimPropertyCatalogEntry,

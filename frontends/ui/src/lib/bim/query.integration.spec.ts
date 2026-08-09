@@ -486,6 +486,35 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     expect(buildBimPredicate({})).toBeUndefined()
   })
 
+  it('runs the OIB rule catalog over the whole element set', async () => {
+    // The rules read published values, so this is the only place that proves
+    // they read the values as STORED — a Pset merged occurrence-over-type and
+    // round-tripped through jsonb, not a hand-made record.
+    const result = await run(bimQuerySchema.parse({ op: 'compliance', gebaeudeklasse: 3 }))
+    const rules = result.compliance ?? []
+    expect(rules.length).toBeGreaterThan(0)
+    // Every rule reports SOME state; none may silently vanish.
+    for (const rule of rules) {
+      expect(typeof rule.applicable).toBe('boolean')
+      expect(rule.thresholdDe.length).toBeGreaterThan(0)
+    }
+    // The fixture's walls carry Pset_WallCommon.FireRating REI 90, so the
+    // fire rule must actually decide rather than fall through to undecidable.
+    const fire = rules.find((rule) => rule.ruleId === 'oib2-feuerwiderstand-tragend')
+    expect(fire?.applicable).toBe(true)
+    expect((fire?.passed ?? 0) + (fire?.failed ?? 0)).toBeGreaterThan(0)
+    expect(result.summary).toContain('keine Rechtsauskunft')
+  })
+
+  it('stands a rule down rather than assuming a Gebaeudeklasse it was not given', async () => {
+    const result = await run(bimQuerySchema.parse({ op: 'compliance' }))
+    const fire = (result.compliance ?? []).find(
+      (rule) => rule.ruleId === 'oib2-feuerwiderstand-tragend'
+    )
+    expect(fire?.applicable).toBe(false)
+    expect(fire?.notApplicableReason).toContain('Gebäudeklasse')
+  })
+
   it('derives project facts from the model, each with its evidence', async () => {
     const result = await run({ op: 'profile' })
     const suggestions = result.profileSuggestions ?? []
