@@ -268,12 +268,33 @@ function compareFireRating(declared: string, required: string): 'meets' | 'short
  * `undecidable` rather than assuming the mildest class — assuming GK1 would
  * turn a GK5 building's missing R90 into a pass.
  */
-const FIRE_RESISTANCE_BY_CLASS: Record<number, string> = {
-  1: 'R 30',
-  2: 'REI 30',
-  3: 'REI 60',
-  4: 'REI 60',
-  5: 'REI 90',
+/** Required fire-resistance DURATION in minutes, by Gebäudeklasse. */
+const FIRE_RESISTANCE_MINUTES_BY_CLASS: Record<number, number> = {
+  1: 30,
+  2: 30,
+  3: 60,
+  4: 60,
+  5: 90,
+}
+
+/**
+ * Which criteria a component must satisfy, from what the component IS.
+ *
+ * R is load-bearing capacity, E is integrity, I is insulation. A wall or a
+ * slab separates as well as carries, so it needs REI. A column or a beam is a
+ * linear member with no separating function — it needs R alone, and demanding
+ * E and I of it is demanding something the component cannot have.
+ *
+ * Getting this from the Gebäudeklasse alone (the previous shape of this table)
+ * reported every correctly-declared `R 90` column as NICHT ERFÜLLT, because
+ * `compareFireRating` requires the declared letters to cover the required
+ * ones. A false failure on a fire-safety rule is not a cosmetic defect: it
+ * sends an architect to argue with a Brandschutzplaner about a column that was
+ * right all along, and it teaches them to distrust the whole Prüfbuch.
+ */
+function fireCriteriaFor(ifcType: string): 'R' | 'REI' {
+  const type = ifcType.toLowerCase()
+  return type.includes('column') || type.includes('beam') || type.includes('member') ? 'R' : 'REI'
 }
 
 // ---------------------------------------------------------------------------
@@ -299,8 +320,18 @@ interface RuleDefinition {
   ) => { status: BimCheckStatus; reading: string; missing?: string }
 }
 
-const isLoadBearing = (element: BimElement): boolean =>
-  property(element, ['LoadBearing']) === true
+/**
+ * Could this element be load-bearing?
+ *
+ * Scope is deliberately WIDER than `LoadBearing === true`. An element that
+ * never published the property is not "not load-bearing" — it is unknown, and
+ * the previous predicate dropped it out of the rule's scope entirely, so a
+ * wall with no `LoadBearing` simply vanished from a fire-resistance check
+ * instead of showing up as something nobody had established. The judge then
+ * settles it: `true` gets judged, missing becomes `undecidable`.
+ */
+const mayBeLoadBearing = (element: BimElement): boolean =>
+  property(element, ['LoadBearing']) !== false
 
 const isExternal = (element: BimElement): boolean => property(element, ['IsExternal']) === true
 
@@ -455,15 +486,26 @@ export const BIM_RULES: RuleDefinition[] = [
     richtlinie: 'OIB 2',
     clause: '3',
     titleDe: 'Tragende Bauteile — Feuerwiderstand',
-    thresholdDe: 'Feuerwiderstand nach Gebäudeklasse (GK1 R 30 … GK5 REI 90)',
+    thresholdDe:
+      'Feuerwiderstand nach Gebäudeklasse (GK1 30 … GK5 90 Minuten); REI für Wände und Decken, R für Stützen und Träger',
     ifcTypes: ['IfcWall', 'IfcWallStandardCase', 'IfcColumn', 'IfcBeam', 'IfcSlab'],
-    scope: isLoadBearing,
+    scope: mayBeLoadBearing,
     notApplicable: (facts) =>
       facts.gebaeudeklasse === undefined || facts.gebaeudeklasse === null
         ? 'Gebäudeklasse in den Projektangaben nicht gesetzt — die Anforderung hängt daran'
         : null,
     judge: (element, facts) => {
-      const required = FIRE_RESISTANCE_BY_CLASS[facts.gebaeudeklasse ?? 0]
+      // Scope admits elements whose load-bearing role is unstated; a rule
+      // about tragende Bauteile cannot decide one of those either way.
+      if (property(element, ['LoadBearing']) !== true) {
+        return {
+          status: 'undecidable',
+          reading: 'Nicht angegeben, ob das Bauteil tragend ist — Anforderung nicht bestimmbar',
+          missing: 'Pset_WallCommon.LoadBearing (bzw. Pset_*Common.LoadBearing)',
+        }
+      }
+      const minutes = FIRE_RESISTANCE_MINUTES_BY_CLASS[facts.gebaeudeklasse ?? 0]
+      const required = minutes ? `${fireCriteriaFor(element.ifcType)} ${minutes}` : undefined
       // Guarded by notApplicable, but a rule must never read a threshold it
       // does not have: assuming the mildest class would turn a GK5 building's
       // missing R 90 into a pass.
@@ -519,6 +561,16 @@ export const BIM_RULES: RuleDefinition[] = [
           missing: 'Pset_WallCommon.ThermalTransmittance',
         }
       }
+      // U = 0 is not a wall, it is an unset field an exporter wrote as zero.
+      // Treating it as the best possible envelope is the single most
+      // dangerous direction this rule can fail in.
+      if (uValue <= 0) {
+        return {
+          status: 'undecidable',
+          reading: `U = ${round(uValue)} W/m²K ist kein physikalisch möglicher Wert — vermutlich nicht gesetzt`,
+          missing: 'Pset_WallCommon.ThermalTransmittance (echter Wert, nicht 0)',
+        }
+      }
       return {
         status: uValue <= 0.35 ? 'pass' : 'fail',
         reading: `U = ${round(uValue)} W/m²K — Schwellwert ≤ 0,35 W/m²K`,
@@ -543,6 +595,13 @@ export const BIM_RULES: RuleDefinition[] = [
           status: 'undecidable',
           reading: 'Kein U-Wert am Fenster hinterlegt',
           missing: 'Pset_WindowCommon.ThermalTransmittance',
+        }
+      }
+      if (uValue <= 0) {
+        return {
+          status: 'undecidable',
+          reading: `U = ${round(uValue)} W/m²K ist kein physikalisch möglicher Wert — vermutlich nicht gesetzt`,
+          missing: 'Pset_WindowCommon.ThermalTransmittance (echter Wert, nicht 0)',
         }
       }
       return {
@@ -574,6 +633,17 @@ export const BIM_RULES: RuleDefinition[] = [
           // model, not a proven breach of the Richtlinie.
           reading: 'Kein bewertetes Schalldämm-Maß am Bauteil hinterlegt',
           missing: 'Pset_WallCommon.AcousticRating',
+        }
+      }
+      // `0` reaches here as the string "0": present, non-empty, and meaningless.
+      // A rule whose whole claim is "a value was declared" must not accept the
+      // value an exporter writes when nobody declared one.
+      const numeric = numericProperty(element, ['AcousticRating'])
+      if (numeric !== null && numeric <= 0) {
+        return {
+          status: 'undecidable',
+          reading: `Schalldämm-Maß ${String(rating)} ist kein bewertetes Maß — vermutlich nicht gesetzt`,
+          missing: 'Pset_WallCommon.AcousticRating (echter Wert, nicht 0)',
         }
       }
       return { status: 'pass', reading: `Schalldämm-Maß ${String(rating)} hinterlegt` }

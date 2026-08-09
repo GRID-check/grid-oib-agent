@@ -57,6 +57,146 @@ const ruleOf = (results: ReturnType<typeof runBimRules>, id: string) => {
   return found
 }
 
+describe('false verdicts a reviewer found by running the catalogue', () => {
+  const facts = { gebaeudeklasse: 4 as const }
+
+  it('asks R of a column, not REI — a linear member cannot separate', () => {
+    // `R 90` on a column is a correct declaration. Requiring REI of it (the
+    // criteria a WALL needs) reported it as nicht erfüllt, sending an
+    // architect to argue with a Brandschutzplaner about a column that was
+    // right, and teaching them to distrust the whole Prüfbuch.
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcColumn',
+          name: 'Stuetze EG',
+          properties: { Pset_ColumnCommon: { LoadBearing: true, FireRating: 'R 90' } },
+        }),
+      ],
+      facts
+    ).filter((r) => r.ruleId === 'oib2-feuerwiderstand-tragend')
+
+    expect(rule.failed).toBe(0)
+    expect(rule.passed).toBe(1)
+  })
+
+  it('still asks REI of a wall', () => {
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWall',
+          name: 'Wand',
+          properties: { Pset_WallCommon: { LoadBearing: true, FireRating: 'R 90' } },
+        }),
+      ],
+      facts
+    ).filter((r) => r.ruleId === 'oib2-feuerwiderstand-tragend')
+
+    // R 90 does not cover E and I; a wall separates as well as carries.
+    expect(rule.passed).toBe(0)
+  })
+
+  it('does not let a wall vanish because nobody said whether it is load-bearing', () => {
+    // The scope predicate used to be `LoadBearing === true`, so an unstated
+    // wall left the rule's scope entirely — not undecidable, not counted,
+    // simply absent from a fire-resistance check.
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWall',
+          name: 'Wand ohne Angabe',
+          properties: { Pset_WallCommon: { FireRating: 'REI 90' } },
+        }),
+      ],
+      facts
+    ).filter((r) => r.ruleId === 'oib2-feuerwiderstand-tragend')
+
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0].reading).toMatch(/tragend/i)
+    expect(rule.missing.some((m) => m.path.includes('LoadBearing'))).toBe(true)
+  })
+
+  it('keeps a wall that says it is NOT load-bearing out of scope', () => {
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWall',
+          name: 'Trennwand',
+          properties: { Pset_WallCommon: { LoadBearing: false } },
+        }),
+      ],
+      facts
+    ).filter((r) => r.ruleId === 'oib2-feuerwiderstand-tragend')
+
+    expect(rule.passed + rule.failed + rule.undecidable).toBe(0)
+  })
+
+  it('refuses U = 0 rather than calling it the best wall ever built', () => {
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWall',
+          name: 'Aussenwand',
+          properties: { Pset_WallCommon: { IsExternal: true, ThermalTransmittance: 0 } },
+        }),
+      ],
+      { hauptnutzung: 'wohnen' }
+    ).filter((r) => r.ruleId === 'oib6-u-wert-aussenwand')
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+  })
+
+  it('refuses a window U of 0 the same way', () => {
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWindow',
+          name: 'Fenster',
+          properties: { Pset_WindowCommon: { ThermalTransmittance: 0 } },
+        }),
+      ],
+      { hauptnutzung: 'wohnen' }
+    ).filter((r) => r.ruleId === 'oib6-u-wert-fenster')
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+  })
+
+  it('refuses a declared Schalldämm-Maß of 0', () => {
+    // The rule only claims "a value was declared" — so it must not accept the
+    // value an exporter writes when nobody declared one.
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWall',
+          name: 'Wohnungstrennwand',
+          properties: { Pset_WallCommon: { AcousticRating: 0 } },
+        }),
+      ],
+      { hauptnutzung: 'wohnen' }
+    ).filter((r) => r.ruleId === 'oib5-schalldaemmung-deklariert')
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+  })
+
+  it('still accepts a real Schalldämm-Maß', () => {
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWall',
+          name: 'Wohnungstrennwand',
+          properties: { Pset_WallCommon: { AcousticRating: 55 } },
+        }),
+      ],
+      { hauptnutzung: 'wohnen' }
+    ).filter((r) => r.ruleId === 'oib5-schalldaemmung-deklariert')
+
+    expect(rule.passed).toBe(1)
+  })
+})
+
 describe('the catalog itself', () => {
   it('has a unique id, a Richtlinie and a visible threshold on every rule', () => {
     const ids = BIM_RULES.map((rule) => rule.id)
