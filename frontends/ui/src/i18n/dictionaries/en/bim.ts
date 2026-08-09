@@ -130,6 +130,7 @@ export const bim = {
     removed: 'Removed',
     changed: 'Changed',
     unchanged: 'Unchanged',
+    more: '… {count} more',
     truncated: 'At least one revision is capped — the comparison may be incomplete.',
     empty: 'No differences between these two revisions.',
   },
@@ -170,10 +171,11 @@ export const bim = {
       noteLabel: 'Why this is settled',
       notePlaceholder: 'e.g. checked against the plan, agreed with the fire-safety consultant …',
     },
-      card: {
-        unresolved: '{count} of the requested rule ids are not in the catalogue.',
-        none: 'None of the requested requirements are in the catalogue.',
-      },
+    card: {
+      export: 'Open items as BCF',
+      unresolved: '{count} of the requested rule ids are not in the catalogue.',
+      none: 'None of the requested requirements are in the catalogue.',
+    },
     shoppingList: {
       title: 'What the model is missing',
       description:
@@ -182,7 +184,7 @@ export const bim = {
     },
     export: {
       action: '{count} open items as BCF',
-      hint: 'BCF 2.1 — opens in ArchiCAD, Revit, Solibri or BIMcollab as a task list and selects the affected elements in the model.',
+      hint: 'BCF 2.1 — opens in ArchiCAD, Revit, Solibri or BIMcollab as a task list and selects the affected elements in the model. Requirements you have confirmed arrive marked done.',
     },
   },
   complianceDiff: {

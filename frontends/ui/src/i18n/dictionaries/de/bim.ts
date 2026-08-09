@@ -132,6 +132,7 @@ export const bim: typeof en.bim = {
     removed: 'Entfallen',
     changed: 'Geändert',
     unchanged: 'Unverändert',
+    more: '… {count} weitere',
     truncated: 'Mindestens ein Stand ist gekürzt indiziert — der Vergleich kann unvollständig sein.',
     empty: 'Keine Unterschiede zwischen diesen beiden Ständen.',
   },
@@ -172,10 +173,11 @@ export const bim: typeof en.bim = {
       noteLabel: 'Warum das geklärt ist',
       notePlaceholder: 'z. B. anhand des Plans geprüft, mit dem Brandschutzplaner abgestimmt …',
     },
-      card: {
-        unresolved: '{count} der angeforderten Regel-IDs sind nicht im Katalog.',
-        none: 'Keine der angeforderten Anforderungen ist im Katalog.',
-      },
+    card: {
+      export: 'Offene Punkte als BCF',
+      unresolved: '{count} der angeforderten Regel-IDs sind nicht im Katalog.',
+      none: 'Keine der angeforderten Anforderungen ist im Katalog.',
+    },
     shoppingList: {
       title: 'Was dem Modell fehlt',
       description:
@@ -184,7 +186,7 @@ export const bim: typeof en.bim = {
     },
     export: {
       action: '{count} offene Punkte als BCF',
-      hint: 'BCF 2.1 — öffnet in ArchiCAD, Revit, Solibri oder BIMcollab als Aufgabenliste und markiert die betroffenen Bauteile im Modell.',
+      hint: 'BCF 2.1 — öffnet in ArchiCAD, Revit, Solibri oder BIMcollab als Aufgabenliste und markiert die betroffenen Bauteile im Modell. Bereits bestätigte Anforderungen sind darin als erledigt markiert.',
     },
   },
   complianceDiff: {

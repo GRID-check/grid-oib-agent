@@ -60,7 +60,18 @@ was summarised then.
 
 Every row that names an element links into the model page at that element
 (`buildModelHref`), so a card is a way *into* the building rather than a
-screenshot of it. All five are `presentational` in `CARD_INTERACTIVITY`: sorting
+screenshot of it. That includes both sides of a revision delta: the diff card
+lists what was ADDED and what was REMOVED as openable rows, not only as counts
+— a delta you cannot open is a number rather than an answer — and a removed
+element links into the BASE revision, since it has no GlobalId in the new one.
+
+The requirement card runs the catalogue with the project brief's facts
+(`useProjectRuleFacts`), the same ones the model page uses. Without them the
+fire-resistance rules stand down in chat and produce a verdict on the model
+page, and the same building answers two ways depending on which surface it is
+read from. It also renders the BCF download itself rather than leaving the path
+to the answer text: the agent is told to repeat that URL, and a model asked to
+reproduce a URL will eventually reproduce a wrong one. All five are `presentational` in `CARD_INTERACTIVITY`: sorting
 a schedule, downloading its CSV or orbiting the viewport starts no commitment,
 so there is nothing to persist on the message.
 

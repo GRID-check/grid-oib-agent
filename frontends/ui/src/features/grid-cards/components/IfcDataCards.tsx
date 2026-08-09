@@ -23,13 +23,14 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import type { BimComparison } from '@/lib/bim/compare'
-import type { BimRuleResult } from '@/lib/bim/rules'
+import { rulesWithOpenWork, type BimRuleResult } from '@/lib/bim/rules'
 import type { BimRoomSchedule } from '@/lib/bim/schedule'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import { shortIfcType } from '@/features/bim/lib/model-index'
 import {
   pickDefaultModel,
   useProjectBimModels,
+  useProjectRuleFacts,
   type BimElementDetail,
   type BimModelHeaderView,
 } from '@/features/bim/hooks/use-bim-model'
@@ -427,11 +428,19 @@ export function IfcComplianceCard({
 }: IfcComplianceCardProps): JSX.Element {
   const t = useTranslations('bim')
   const { model } = useResolvedModel(projectId, modelFile)
-  const { data: rules, isLoading, error } = useModelQuery(
-    model?.id ?? null,
-    { op: 'compliance' },
-    pickCompliance
+  // The SAME facts the model page runs the catalogue with. Without them the
+  // fire-resistance rules stand down here and produce a verdict on the model
+  // page, so the chat and the page disagreed about the same building.
+  const facts = useProjectRuleFacts(projectId)
+  const request = useMemo(
+    () => ({
+      op: 'compliance' as const,
+      ...(facts.gebaeudeklasse === null ? {} : { gebaeudeklasse: facts.gebaeudeklasse }),
+      ...(facts.hauptnutzung === null ? {} : { hauptnutzung: facts.hauptnutzung }),
+    }),
+    [facts.gebaeudeklasse, facts.hauptnutzung]
   )
+  const { data: rules, isLoading, error } = useModelQuery(model?.id ?? null, request, pickCompliance)
 
   const selected = useMemo(() => {
     if (!rules) return null
@@ -446,18 +455,40 @@ export function IfcComplianceCard({
     return ruleIds.filter((id) => !known.has(id)).length
   }, [rules, ruleIds])
 
+  // Rendered here rather than left to the answer text: the agent is told to
+  // repeat the export path, and a model asked to reproduce a URL will
+  // eventually reproduce a wrong one. The card composes it from the model it
+  // actually resolved.
+  const bcfHref = useMemo(() => {
+    if (!model || !projectId || !selected || rulesWithOpenWork(selected).length === 0) return null
+    const query = new URLSearchParams({ modelId: model.id })
+    if (facts.gebaeudeklasse !== null) query.set('gebaeudeklasse', String(facts.gebaeudeklasse))
+    if (facts.hauptnutzung !== null) query.set('hauptnutzung', facts.hauptnutzung)
+    return `/api/projects/${projectId}/bim/checks/export?${query.toString()}`
+  }, [model, projectId, selected, facts.gebaeudeklasse, facts.hauptnutzung])
+
   return (
     <CardShell
       title={title}
       icon={ShieldCheck}
       action={
         model && projectId ? (
-          <Button asChild size="sm" variant="ghost">
-            <Link href={buildModelHref(projectId, { model: model.filename, tab: 'compliance' })}>
-              {t('card.openModel')}
-              <ArrowRight className="size-3.5" aria-hidden="true" />
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1">
+            {bcfHref && (
+              <Button asChild size="sm" variant="ghost">
+                <a href={bcfHref} download>
+                  <Download className="size-3.5" aria-hidden="true" />
+                  {t('compliance.card.export')}
+                </a>
+              </Button>
+            )}
+            <Button asChild size="sm" variant="ghost">
+              <Link href={buildModelHref(projectId, { model: model.filename, tab: 'compliance' })}>
+                {t('card.openModel')}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -514,6 +545,89 @@ export function IfcComplianceCard({
 
 const pickComparison = (payload: Record<string, unknown>) =>
   payload.comparison as BimComparison | undefined
+
+/** Rows shown per group before the badge count speaks for the rest. */
+const DIFF_ROWS = 6
+
+interface DiffEntry {
+  globalId: string
+  ifcType: string
+  name: string | null
+  storeyName?: string | null
+  changes?: Array<{ field: string; before: unknown; after: unknown }>
+}
+
+/**
+ * One side of a revision delta, as rows that open the element.
+ *
+ * Renders nothing when the group is empty, so a revision that only added
+ * something does not carry two empty headings.
+ */
+function DiffGroup({
+  label,
+  entries,
+  status,
+  projectId,
+  filename,
+}: {
+  label: string
+  entries: readonly DiffEntry[]
+  status: 'info' | 'fail' | 'warning'
+  projectId: string | null
+  /** The revision this group's elements exist in. */
+  filename: string
+}): JSX.Element | null {
+  const t = useTranslations('bim')
+  if (entries.length === 0) return null
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <ul className="space-y-1">
+        {entries.slice(0, DIFF_ROWS).map((entry) => {
+          const caption = `${shortIfcType(entry.ifcType)} · ${entry.name ?? entry.globalId}`
+          return (
+            <li key={entry.globalId}>
+              <p>
+                {projectId ? (
+                  <Link
+                    href={buildModelHref(projectId, {
+                      model: filename,
+                      element: entry.globalId,
+                      highlights: [{ status, globalIds: [entry.globalId] }],
+                    })}
+                    className="underline-offset-2 hover:underline"
+                  >
+                    {caption}
+                  </Link>
+                ) : (
+                  caption
+                )}
+                {entry.storeyName && (
+                  <span className="text-xs text-muted-foreground"> · {entry.storeyName}</span>
+                )}
+              </p>
+              {entry.changes && entry.changes.length > 0 && (
+                <ul className="ml-3 text-xs text-muted-foreground">
+                  {entry.changes.slice(0, 3).map((change) => (
+                    <li key={change.field}>
+                      {change.field}: {String(change.before ?? '—')} → {String(change.after ?? '—')}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {entries.length > DIFF_ROWS && (
+        <p className="text-xs text-muted-foreground">
+          {t('compare.more', { count: entries.length - DIFF_ROWS })}
+        </p>
+      )}
+    </div>
+  )
+}
 
 export interface IfcDiffCardProps {
   title: string
@@ -576,35 +690,32 @@ export function IfcDiffCard({
             </Badge>
           </div>
           {comparison.truncated && <p className="text-xs text-warning">{t('compare.truncated')}</p>}
-          <ul className="space-y-1">
-            {comparison.changed.slice(0, 6).map((entry) => (
-              <li key={entry.globalId}>
-                <p>
-                  {projectId ? (
-                    <Link
-                      href={buildModelHref(projectId, {
-                        model: model.filename,
-                        element: entry.globalId,
-                        highlights: [{ status: 'warning', globalIds: [entry.globalId] }],
-                      })}
-                      className="underline-offset-2 hover:underline"
-                    >
-                      {shortIfcType(entry.ifcType)} · {entry.name ?? entry.globalId}
-                    </Link>
-                  ) : (
-                    `${shortIfcType(entry.ifcType)} · ${entry.name ?? entry.globalId}`
-                  )}
-                </p>
-                <ul className="ml-3 text-xs text-muted-foreground">
-                  {entry.changes.slice(0, 3).map((change) => (
-                    <li key={change.field}>
-                      {change.field}: {String(change.before ?? '—')} → {String(change.after ?? '—')}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
+          {/* Added and removed used to be counts and nothing else — the card
+              said "Added 1" and gave no way to find out what. A delta you
+              cannot open is a number, not an answer. Removed elements link
+              into the BASE revision: they have no GlobalId in the new one, so
+              a link into it would select nothing. */}
+          <DiffGroup
+            label={t('compare.added')}
+            entries={comparison.added}
+            status="info"
+            projectId={projectId}
+            filename={model.filename}
+          />
+          <DiffGroup
+            label={t('compare.removed')}
+            entries={comparison.removed}
+            status="fail"
+            projectId={projectId}
+            filename={baseModel.filename}
+          />
+          <DiffGroup
+            label={t('compare.changed')}
+            entries={comparison.changed}
+            status="warning"
+            projectId={projectId}
+            filename={model.filename}
+          />
           {note && <p className="text-muted-foreground">{note}</p>}
         </div>
       )}

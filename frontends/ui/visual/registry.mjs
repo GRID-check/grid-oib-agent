@@ -575,4 +575,12 @@ export const SCREENSHOT_TARGETS = [
       'The Prüfbuch: OIB requirements evaluated against the values the model publishes. The fixture is deliberately a MESSY project, because a green list would prove nothing — two failing doors with the reading that produced each verdict, thirty-four walls whose fire rating the model never published, a wall declared "F 90" that the catalogue refuses to score against REI 60 rather than raising a false alarm, a rule that stood down because the brief carries no Gebäudeklasse, and a rule with no affected elements. Every row prints the threshold it applied so the architect checks the rule and not only the result, "not decidable" carries the same visual weight as a failure, and the missing-property list is rendered as actions to take in the CAD rather than as a score. The header carries a BCF 2.1 download of exactly the rules that leave work behind, so the open items land back in ArchiCAD or Revit as an issue list with the affected elements selected.',
     waitFor: '[data-testid="bim-compliance-preview"]',
   },
+  {
+    id: 'bim-cards',
+    mobile: true,
+    path: '/dev/bim-cards',
+    description:
+      'The four model-backed chat cards — Raumbuch, Bauteil, Anforderungen, Revisionsvergleich. Each carries an identifier and fetches its own numbers, so the agent can point at the wrong table but can never state a floor area the model does not publish. The fixtures show the hard states rather than the happy ones: a storey where two rooms publish no area so the total is visibly a subset, a wall whose Pset and Qto come from the model, one requirement nothing can decide (34 walls with no fire rating) beside the BCF download that turns it into work, and a revision whose single added door is only meaningful against the 99 unchanged elements behind it.',
+    waitFor: '[data-testid="bim-cards-preview"]',
+  },
 ]
