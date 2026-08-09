@@ -404,6 +404,68 @@ class TestComplianceOperation:
         assert "Breite 0.7 m — Schwellwert ≥ 0,80 m" in rendered
         assert "element=0GridFixtureDoor00001" in rendered
 
+    def test_the_open_items_come_back_as_a_bcf_download(self):
+        # The list of open requirements is the answer; the BCF file is what the
+        # architect DOES with it, and a chat answer that cannot hand it over
+        # leaves the loop open.
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "compliance",
+                "model": {"filename": "Haus-A_V3.ifc"},
+                "summary": "…",
+                "compliance": [],
+            },
+            "p1",
+            4,
+            "wohnen",
+        )
+        assert (
+            "BCF-Export der offenen Punkte: /api/projects/p1/bim/checks/export"
+            "?model=Haus-A_V3.ifc&gebaeudeklasse=4&hauptnutzung=wohnen" in rendered
+        )
+
+    def test_the_bcf_link_carries_no_fact_the_run_did_not_have(self):
+        # A Gebäudeklasse in the URL that the catalogue never applied would
+        # build the archive against thresholds nobody chose.
+        rendered = _render(
+            {"resolved": True, "op": "compliance", "model": {"filename": "haus.ifc"}, "summary": "…"},
+            "p1",
+        )
+        assert "/api/projects/p1/bim/checks/export?model=haus.ifc" in rendered
+        assert "gebaeudeklasse" not in rendered
+        assert "hauptnutzung" not in rendered
+
+    def test_no_bcf_link_without_a_project_to_hang_it_on(self):
+        rendered = _render(
+            {"resolved": True, "op": "compliance", "model": {"filename": "haus.ifc"}, "summary": "…"},
+            None,
+        )
+        assert "checks/export" not in rendered
+
+    def test_only_the_compliance_operations_offer_the_export(self):
+        # An element lookup that offered a compliance export would be inviting
+        # the model to hand over a file for a question nobody asked.
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "elements",
+                "model": {"filename": "haus.ifc"},
+                "summary": "…",
+                "elements": [],
+            },
+            "p1",
+            4,
+        )
+        assert "checks/export" not in rendered
+
+    def test_the_tool_description_tells_the_model_to_offer_the_file(self):
+        from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
+
+        assert "BCF-Export der offenen Punkte:" in _TOOL_DESCRIPTION
+        # Naming the tools is what makes "BCF" mean something to the reader.
+        assert "ArchiCAD, Revit, Solibri or BIMcollab" in _TOOL_DESCRIPTION
+
     def test_the_tool_description_forbids_declaring_the_building_compliant(self):
         from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
 

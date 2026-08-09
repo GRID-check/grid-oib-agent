@@ -20,18 +20,30 @@ type Params = { id: string }
  * that will not parse arrives as `null` so the rules that need it stand down
  * with a reason, rather than running against a guessed Gebäudeklasse.
  */
-const paramsSchema = z.object({
-  modelId: z.string().uuid(),
-  gebaeudeklasse: z.coerce.number().int().min(1).max(5).nullish().catch(null),
-  hauptnutzung: z.string().trim().min(1).max(80).nullish().catch(null),
-})
+const paramsSchema = z
+  .object({
+    modelId: z.string().uuid().optional(),
+    /**
+     * The model's file name, the way the rest of the app addresses one
+     * (`buildModelHref`, the agent's `ifc_query`). Accepted so a link can be
+     * composed in a conversation, where a UUID is a reliable source of
+     * hallucinated identifiers.
+     */
+    model: z.string().trim().min(1).max(255).optional(),
+    gebaeudeklasse: z.coerce.number().int().min(1).max(5).nullish().catch(null),
+    hauptnutzung: z.string().trim().min(1).max(80).nullish().catch(null),
+  })
+  .refine((value) => Boolean(value.modelId ?? value.model), {
+    message: 'modelId or model is required',
+  })
 
 export const GET = apiRoute<Params>(
   async ({ session, params, request }) => {
     const input = parseQuery(request, paramsSchema)
 
     const bcf = await exportAccessibleComplianceBcf(session, params.id, {
-      modelId: input.modelId,
+      modelId: input.modelId ?? null,
+      modelName: input.model ?? null,
       gebaeudeklasse: input.gebaeudeklasse ?? null,
       hauptnutzung: input.hauptnutzung ?? null,
     })

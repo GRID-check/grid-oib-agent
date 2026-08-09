@@ -201,6 +201,34 @@ export async function confirmAccessibleCheck(
 }
 
 /**
+ * Find one readable model in a project by its file name.
+ *
+ * An exact match wins over a substring, and the NEWEST wins when several
+ * still match: a project carrying `Haus-A_V3.ifc` and `Haus-A_V3 (1).ifc`
+ * should answer for the one the architect uploaded last, not for whichever
+ * row the database happened to return first. `listBimModels` already orders
+ * newest-first, so the first hit is that one.
+ *
+ * The caller has already passed `project:view`; this narrows within what that
+ * check allowed and never widens it.
+ */
+async function resolveModelByName(
+  session: AuthorizedSession,
+  projectId: string,
+  name: string
+): Promise<BimModelHeader> {
+  const models = (await listBimModels(session.organizationId, { projectId, includeArchiv: true })).filter(
+    (model) => model.status === 'ready'
+  )
+  const needle = name.trim().toLowerCase()
+  const model =
+    models.find((entry) => entry.filename.toLowerCase() === needle) ??
+    models.find((entry) => entry.filename.toLowerCase().includes(needle))
+  if (!model) throw new NotFoundError('Model not found in this project')
+  return model
+}
+
+/**
  * The Prüfbuch's open items as a BCF 2.1 archive.
  *
  * Runs the SAME query op the panel reads (`compliance`) rather than a second
@@ -215,12 +243,20 @@ export async function confirmAccessibleCheck(
 export async function exportAccessibleComplianceBcf(
   session: AuthorizedSession,
   projectId: string,
-  input: { modelId: string; gebaeudeklasse: number | null; hauptnutzung: string | null }
+  input: {
+    modelId: string | null
+    /** File name, for the callers that address models the way people do. */
+    modelName?: string | null
+    gebaeudeklasse: number | null
+    hauptnutzung: string | null
+  }
 ): Promise<BcfExport> {
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const model = await getAccessibleModel(session, input.modelId)
+  const model = input.modelId
+    ? await getAccessibleModel(session, input.modelId)
+    : await resolveModelByName(session, projectId, input.modelName ?? '')
   if (model.projectId !== null && model.projectId !== projectId) {
     throw new NotFoundError('Model not found in this project')
   }

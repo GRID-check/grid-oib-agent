@@ -1009,6 +1009,15 @@ both sides — `_element_link` in the Python tool mirrors `buildModelHref`, and 
 drifted parameter name would otherwise fail silently as a link that opens a
 model with nothing selected.
 
+A compliance answer carries one more path: `_bcf_link` appends a
+`/api/projects/{id}/bim/checks/export?model=…` URL, so the chat turn that lists
+the open requirements can also hand over the BCF file that puts them back in
+ArchiCAD or Revit. It is addressed by file NAME for the same reason the tool
+itself is — a UUID carried through a conversation is a reliable source of
+hallucinated identifiers — and it carries the same `gebaeudeklasse` /
+`hauptnutzung` the run used, so the archive can never be built against
+thresholds the answer did not apply.
+
 ### Geometry stays in the browser
 
 There is no server-side render and no cached mesh format. The viewport streams

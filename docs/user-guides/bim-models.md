@@ -105,7 +105,9 @@ an *orientierende Prüfung* — not a Nachweis and not legal advice.
 Ask in chat too: *"Prüfe das Modell gegen die OIB-Anforderungen"*, or
 *"Was hat sich seit dem letzten Stand am Erfüllungsgrad geändert?"* — the second
 reports only the requirements whose status moved, including one that stopped
-being checkable because a re-export dropped a property.
+being checkable because a re-export dropped a property. The first ends with a
+link to the same BCF download, so you never have to come back to this page to
+get the file.
 
 ### Struktur
 

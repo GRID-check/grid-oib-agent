@@ -63,7 +63,7 @@ describe('GET /api/projects/[id]/bim/checks/export', () => {
     expect(exportAccessibleComplianceBcf).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org-1' }),
       'proj-1',
-      { modelId: MODEL_ID, gebaeudeklasse: 4, hauptnutzung: 'wohnen' }
+      { modelId: MODEL_ID, modelName: null, gebaeudeklasse: 4, hauptnutzung: 'wohnen' }
     )
   })
 
@@ -76,11 +76,25 @@ describe('GET /api/projects/[id]/bim/checks/export', () => {
     expect(exportAccessibleComplianceBcf).toHaveBeenCalledWith(
       expect.anything(),
       'proj-1',
-      { modelId: MODEL_ID, gebaeudeklasse: null, hauptnutzung: null }
+      { modelId: MODEL_ID, modelName: null, gebaeudeklasse: null, hauptnutzung: null }
     )
   })
 
-  it('rejects a request that names no model', async () => {
+  it('accepts a model addressed by file name, the way a chat answer links one', async () => {
+    // A UUID carried through a conversation is a reliable source of
+    // hallucinated identifiers; the file name is how the rest of the app
+    // addresses a model.
+    await call('?model=Haus-A_V3.ifc&gebaeudeklasse=4')
+
+    expect(exportAccessibleComplianceBcf).toHaveBeenCalledWith(expect.anything(), 'proj-1', {
+      modelId: null,
+      modelName: 'Haus-A_V3.ifc',
+      gebaeudeklasse: 4,
+      hauptnutzung: null,
+    })
+  })
+
+  it('rejects a request that names no model at all', async () => {
     expect((await call('')).status).toBe(400)
     expect(exportAccessibleComplianceBcf).not.toHaveBeenCalled()
   })

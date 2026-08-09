@@ -120,6 +120,12 @@ _TOOL_DESCRIPTION = (
     "model with that element selected and highlighted, which is the difference between telling "
     "someone about a wall and showing it to them. Copy the path verbatim — never invent one.\n"
     "\n"
+    "When a compliance result comes back with a 'BCF-Export der offenen Punkte:' path, OFFER it as "
+    "a link at the end of the answer — [offene Punkte als BCF](/api/projects/…/bim/checks/export?…) "
+    "using that exact path. It downloads the open requirements as a BCF 2.1 file that opens in "
+    "ArchiCAD, Revit, Solibri or BIMcollab with the affected elements selected, which is how the "
+    "missing properties actually get authored. Copy the path verbatim.\n"
+    "\n"
     "model_name selects one model when the project has several (a substring of the file name); "
     "leave it empty when there is only one. Report the numbers this tool returns as they are — "
     "do not recompute, round differently, or extrapolate them."
@@ -144,6 +150,33 @@ def _element_link(project_id: str | None, filename: str | None, global_id: str |
     if filename:
         query = f"model={quote(filename, safe='')}&{query}"
     return f"/app/projects/{quote(project_id, safe='')}/model?{query}"
+
+
+def _bcf_link(
+    project_id: str | None,
+    filename: str | None,
+    gebaeudeklasse: int = 0,
+    hauptnutzung: str = "",
+) -> str:
+    """The download path for the open items as a BCF 2.1 file.
+
+    Addressed by file NAME rather than by model id, like every other link this
+    tool emits: a UUID carried through a conversation is a reliable source of
+    hallucinated identifiers, and the route resolves the name within the
+    project the same way `ifc_query` does.
+
+    The facts are carried along so the archive is built against the same
+    Gebäudeklasse the answer was — an export whose fire-resistance thresholds
+    belong to a different building would be worse than no export.
+    """
+    if not project_id or not filename:
+        return ""
+    query = f"model={quote(filename, safe='')}"
+    if gebaeudeklasse:
+        query = f"{query}&gebaeudeklasse={gebaeudeklasse}"
+    if hauptnutzung:
+        query = f"{query}&hauptnutzung={quote(hauptnutzung, safe='')}"
+    return f"/api/projects/{quote(project_id, safe='')}/bim/checks/export?{query}"
 
 
 def _build_query(
@@ -245,7 +278,12 @@ def _entry_label(entry: dict[str, Any], storey: bool = True) -> str:
     return f"{label} · {entry.get('storeyName') or '—'}" if storey else label
 
 
-def _render(result: dict[str, Any], project_id: str | None = None) -> str:
+def _render(
+    result: dict[str, Any],
+    project_id: str | None = None,
+    gebaeudeklasse: int = 0,
+    hauptnutzung: str = "",
+) -> str:
     """Turn the endpoint's body into the string the model reads.
 
     Deliberately compact. The `summary` line is the answer; the structured
@@ -344,6 +382,12 @@ def _render(result: dict[str, Any], project_id: str | None = None) -> str:
                     f"  ✗ {rule.get('richtlinie')} {verdict.get('name') or verdict.get('globalId')}: "
                     f"{verdict.get('reading')}{suffix}"
                 )
+        # The list of open items is the answer; this is what the architect DOES
+        # with it. Emitted as a path rather than described as a template, for
+        # the same reason the element links are.
+        bcf = _bcf_link(project_id, filename, gebaeudeklasse, hauptnutzung)
+        if bcf:
+            lines.append(f"BCF-Export der offenen Punkte: {bcf}")
 
     elif op == "profile":
         for suggestion in result.get("profileSuggestions") or []:
@@ -441,6 +485,6 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
                 "the model could not be read."
             )
 
-        return _render(result, project_id)
+        return _render(result, project_id, gebaeudeklasse or 0, (hauptnutzung or "").strip().lower())
 
     yield FunctionInfo.from_fn(_ifc_query, description=_TOOL_DESCRIPTION)
