@@ -42,7 +42,7 @@
  * parsing does not resurrect itself into a detached canvas.
  */
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
 import { rendererPreset, type BimCameraView, type BimSection } from '../lib/viewer-camera'
 
@@ -73,20 +73,19 @@ export interface IfcViewerCanvasProps {
   section?: BimSection | null
   /** Reports the model's vertical extent once loaded, for the cut slider. */
   onBounds?: (bounds: { minMetres: number; maxMetres: number } | null) => void
+  /**
+   * Bumped every time the reader ASKS for {@link view} — including when they
+   * ask for the one already active.
+   *
+   * A named view cannot be expressed by the name alone. Orbit away from the
+   * plan and press "Grundriss" again: the name has not changed, so an effect
+   * keyed on `[view]` never re-runs and the button sits visibly pressed and
+   * inert. A counter makes "do it again" a state change.
+   */
+  viewNonce?: number
+  /** Bumped to re-frame the model. Same reason: fitting twice is two events. */
+  fitNonce?: number
   className?: string
-}
-
-/**
- * What the page may ask the viewport to do imperatively.
- *
- * Only actions with no state of their own belong here. `fit` used to be
- * expressed by remounting the component, which re-downloaded the presigned URL
- * and re-triangulated the entire building through the WASM kernel — seconds of
- * work and a full GPU-buffer churn to move a camera. Everything else stays
- * declarative.
- */
-export interface IfcViewerHandle {
-  fit: () => void
 }
 
 export interface IfcViewerStatus {
@@ -137,8 +136,7 @@ interface RendererLike {
   getPipeline(): unknown
 }
 
-export const IfcViewerCanvas = forwardRef<IfcViewerHandle, IfcViewerCanvasProps>(function IfcViewerCanvas(
-  {
+export function IfcViewerCanvas({
     sourceUrl,
     elements,
     colorOverrides,
@@ -151,10 +149,10 @@ export const IfcViewerCanvas = forwardRef<IfcViewerHandle, IfcViewerCanvasProps>
     orthographic = false,
     section = null,
     onBounds,
+    viewNonce = 0,
+    fitNonce = 0,
     className,
-  },
-  handleRef
-) {
+}: IfcViewerCanvasProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<RendererLike | null>(null)
   const [ready, setReady] = useState(false)
@@ -358,17 +356,23 @@ export const IfcViewerCanvas = forwardRef<IfcViewerHandle, IfcViewerCanvasProps>
    * reach it. Guarded on `ready` because a fit before the first batch lands
    * frames an empty scene and leaves the camera there.
    */
-  useImperativeHandle(
-    handleRef,
-    () => ({
-      fit: () => {
-        if (!ready) return
-        rendererRef.current?.fitToView()
-        requestFrame()
-      },
-    }),
-    [ready, requestFrame]
-  )
+  // This used to be a `useImperativeHandle`, which never worked. The parent
+  // reaches this component through `next/dynamic`, whose `LoadableComponent`
+  // is a plain function component, so on React 18 the JSX runtime strips `ref`
+  // out of props before it can arrive. `ref.current` was React's internal
+  // lazy-retry object — truthy, so the parent's `?.fit()` did not
+  // short-circuit; it threw a TypeError on every click. A nonce crosses
+  // `dynamic` because it is an ordinary prop.
+  //
+  // The initial value is skipped: the load path fits once on its own, and
+  // fitting before the first batch lands frames an empty scene.
+  const fittedRef = useRef(fitNonce)
+  useEffect(() => {
+    if (!ready || fitNonce === fittedRef.current) return
+    fittedRef.current = fitNonce
+    rendererRef.current?.fitToView()
+    requestFrame()
+  }, [fitNonce, ready, requestFrame])
 
   // Report the model's vertical extent once, so the cut slider has a range
   // that belongs to this building rather than an arbitrary one. Y is up in the
@@ -395,7 +399,7 @@ export const IfcViewerCanvas = forwardRef<IfcViewerHandle, IfcViewerCanvasProps>
     if (preset === null) renderer.fitToView()
     else renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
     requestFrame()
-  }, [view, ready, requestFrame])
+  }, [view, viewNonce, ready, requestFrame])
 
   useEffect(() => {
     if (!ready) return
@@ -471,6 +475,6 @@ export const IfcViewerCanvas = forwardRef<IfcViewerHandle, IfcViewerCanvasProps>
       aria-label="3D-Ansicht des IFC-Modells"
     />
   )
-})
+}
 
 export default IfcViewerCanvas

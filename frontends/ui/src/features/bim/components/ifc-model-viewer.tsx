@@ -13,7 +13,7 @@
  * place of the canvas, and the rest of the page carries on.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Layers, MonitorX } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
@@ -36,7 +36,7 @@ import {
   type BimViewerCameraState,
 } from '../lib/viewer-camera'
 import { IfcViewerToolbar } from './ifc-viewer-toolbar'
-import type { IfcViewerHandle, IfcViewerStatus } from './ifc-viewer-canvas'
+import type { IfcViewerStatus } from './ifc-viewer-canvas'
 
 /**
  * `ssr: false` is not an optimisation here, it is a correctness requirement:
@@ -103,7 +103,16 @@ export function IfcModelViewer({
   const t = useTranslations('bim')
   const [status, setStatus] = useState<IfcViewerStatus>({ phase: 'idle', percent: null, meshCount: 0 })
   const [bounds, setBounds] = useState<{ minMetres: number; maxMetres: number } | null>(null)
-  const canvasRef = useRef<IfcViewerHandle | null>(null)
+  /**
+   * Counters, not a ref.
+   *
+   * The canvas is behind `next/dynamic`, and a `ref` cannot cross that on
+   * React 18 — see the note in `ifc-viewer-canvas.tsx`. These are ordinary
+   * props, and they also give "press the view you are already on" a state
+   * change to hang off, which a bare view name cannot.
+   */
+  const [viewNonce, setViewNonce] = useState(0)
+  const [fitNonce, setFitNonce] = useState(0)
 
   /**
    * Controlled when the page passes `camera` + `onCameraChange`, local
@@ -140,11 +149,16 @@ export function IfcModelViewer({
   )
 
   const handleView = useCallback(
-    (view: BimCameraView) =>
+    (view: BimCameraView) => {
+      // The counter is bumped even when the view is unchanged: re-selecting
+      // the active view has to re-snap a camera the reader has orbited away
+      // from, and the name alone cannot express that.
+      setViewNonce((n) => n + 1)
       // Choosing a plan or an elevation implies parallel projection, because a
       // perspective plan is a picture rather than a drawing. Choosing the free
       // view hands perspective back.
-      setCamera({ view, orthographic: view !== 'iso' }),
+      setCamera({ view, orthographic: view !== 'iso' })
+    },
     [setCamera]
   )
   const handleSection = useCallback((next: BimSection | null) => setCamera({ section: next }), [setCamera])
@@ -204,7 +218,6 @@ export function IfcModelViewer({
   return (
     <div className={cn('relative overflow-hidden rounded-xl border bg-muted/30', className)}>
       <IfcViewerCanvas
-        ref={canvasRef}
         key={sourceUrl}
         sourceUrl={sourceUrl}
         elements={elements}
@@ -213,6 +226,8 @@ export function IfcModelViewer({
         selectedExpressId={selectedExpressId}
         xrayContextIds={xrayContextIds}
         view={cameraState.view}
+        viewNonce={viewNonce}
+        fitNonce={fitNonce}
         orthographic={cameraState.orthographic}
         section={section}
         onBounds={setBounds}
@@ -241,7 +256,7 @@ export function IfcModelViewer({
             }
             xray={xray}
             onXrayChange={onXrayChange}
-            onFit={() => canvasRef.current?.fit()}
+            onFit={() => setFitNonce((n) => n + 1)}
             disabled={status.phase !== 'ready'}
           />
         )}
