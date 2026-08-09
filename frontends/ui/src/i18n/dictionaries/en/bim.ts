@@ -177,6 +177,24 @@ export const bim = {
       count: 'on {count} elements',
     },
   },
+  complianceDiff: {
+    title: 'What this revision changed',
+    description:
+      'Runs the requirement check on both revisions and lists only what moved, against {previous}.',
+    run: 'Compare requirement status',
+    running: 'Comparing…',
+    failed: 'The comparison could not be run.',
+    unchanged: 'No requirement changed its status between these two revisions.',
+    counts:
+      '{beforePassed}/{beforeFailed}/{beforeUndecidable} → {afterPassed}/{afterFailed}/{afterUndecidable} met/not met/not decidable',
+    trend: {
+      broken: 'newly not met',
+      undecidable: 'no longer decidable',
+      moved: 'still not met, different count',
+      decidable: 'now decidable and met',
+      resolved: 'now met',
+    },
+  },
   schedule: {
     title: 'Room schedule',
     download: 'CSV',

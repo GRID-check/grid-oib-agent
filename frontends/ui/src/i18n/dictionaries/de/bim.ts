@@ -179,6 +179,24 @@ export const bim: typeof en.bim = {
       count: 'an {count} Bauteilen',
     },
   },
+  complianceDiff: {
+    title: 'Was dieser Stand verändert hat',
+    description:
+      'Führt die Anforderungsprüfung auf beiden Ständen aus und listet nur, was sich bewegt hat — gegenüber {previous}.',
+    run: 'Erfüllungsgrad vergleichen',
+    running: 'Wird verglichen…',
+    failed: 'Der Vergleich konnte nicht durchgeführt werden.',
+    unchanged: 'Keine Anforderung hat ihren Status zwischen diesen beiden Ständen geändert.',
+    counts:
+      '{beforePassed}/{beforeFailed}/{beforeUndecidable} → {afterPassed}/{afterFailed}/{afterUndecidable} erfüllt/nicht erfüllt/nicht entscheidbar',
+    trend: {
+      broken: 'neu nicht erfüllt',
+      undecidable: 'nicht mehr entscheidbar',
+      moved: 'weiterhin nicht erfüllt, andere Anzahl',
+      decidable: 'jetzt entscheidbar und erfüllt',
+      resolved: 'jetzt erfüllt',
+    },
+  },
   schedule: {
     title: 'Raumbuch',
     download: 'CSV',

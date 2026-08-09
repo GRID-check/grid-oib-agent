@@ -13,6 +13,7 @@ import type { BimProfileSuggestion } from '@/lib/bim/profile'
 import {
   attachConfirmations,
   type BimCheckConfirmation,
+  type BimComplianceChange,
   type BimComplianceSummary,
   type BimRuleResult,
   type BimRuleResultWithConfirmation,
@@ -407,6 +408,40 @@ export function useBimCompliance(
     ),
     withdraw: useCallback((ruleId: string) => write('DELETE', { ruleId }), [write]),
   }
+}
+
+/**
+ * What a revision changed about the building's standing.
+ *
+ * Explicitly triggered rather than fetched on mount: it reads both revisions'
+ * full element sets, which is worth doing when asked and not worth doing
+ * because somebody opened a tab.
+ */
+export function useBimComplianceDiff(
+  modelId: string | null,
+  baseModelId: string | null,
+  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null }
+): AsyncState<BimComplianceChange[]> & { run: () => void } {
+  const [state, setState] = useState<AsyncState<BimComplianceChange[]>>(IDLE)
+
+  const run = useCallback(() => {
+    if (!modelId || !baseModelId) return
+    setState({ data: null, isLoading: true, error: null })
+    getJson<{ complianceChanges?: BimComplianceChange[] }>(`/api/bim/models/${modelId}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        op: 'compliance-diff',
+        baseModelId,
+        ...(facts.gebaeudeklasse === null ? {} : { gebaeudeklasse: facts.gebaeudeklasse }),
+        ...(facts.hauptnutzung === null ? {} : { hauptnutzung: facts.hauptnutzung }),
+      }),
+    })
+      .then((body) => setState({ data: body.complianceChanges ?? [], isLoading: false, error: null }))
+      .catch(() => setState({ data: null, isLoading: false, error: 'load-failed' }))
+  }, [modelId, baseModelId, facts.gebaeudeklasse, facts.hauptnutzung])
+
+  return { ...state, run }
 }
 
 /**

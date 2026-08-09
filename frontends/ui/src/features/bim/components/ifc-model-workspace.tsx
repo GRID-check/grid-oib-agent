@@ -37,6 +37,7 @@ import {
   useBimElements,
   useBimModelSource,
   useBimCompliance,
+  useBimComplianceDiff,
   useBimProfileSuggestions,
   useBimRoomSchedule,
   useBimTakeoff,
@@ -53,6 +54,7 @@ import {
 } from './ifc-model-explorer'
 import { IfcModelCompare } from './ifc-model-compare'
 import { IfcCompliancePanel } from './ifc-compliance-panel'
+import { IfcComplianceDiff } from './ifc-compliance-diff'
 import {
   IfcProfileSuggestions,
   IfcQuantityTakeoff,
@@ -165,6 +167,15 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
   // carry arrives as null and the rules that need it stand down, visibly.
   const ruleFacts = useProjectRuleFacts(projectId)
   const compliance = useBimCompliance(projectId, tab === 'compliance' ? modelId : null, ruleFacts)
+
+  // The revision immediately before the one on screen — the only base a
+  // "what did this change break" question has a natural answer for.
+  const previousRevision = useMemo(() => {
+    if (!series || !model) return null
+    const index = series.revisions.findIndex((entry) => entry.model.id === model.id)
+    return index > 0 ? series.revisions[index - 1].model : null
+  }, [series, model])
+  const complianceDiff = useBimComplianceDiff(modelId, previousRevision?.id ?? null, ruleFacts)
   // Only mint the presigned source URL when a viewport can actually use it.
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const sourceUrl = useBimModelSource(modelId, webGpu)
@@ -398,6 +409,13 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
                   })
                   setCompareRequest({ baseModelId: previous.id, at: compareToken() })
                 }}
+              />
+              <IfcComplianceDiff
+                baseModel={previousRevision}
+                changes={complianceDiff.data}
+                isLoading={complianceDiff.isLoading}
+                error={complianceDiff.error}
+                onRun={complianceDiff.run}
               />
               <IfcModelCompare
                 modelId={model.id}
