@@ -37,6 +37,7 @@ import {
   type BimModelHeader,
   type BimPropertyCatalogEntry,
 } from './repository'
+import { readComplianceCache, writeComplianceCache } from './compliance-cache'
 import { compareModels, renderComparison, type BimComparison } from './compare'
 import { deriveProfileSuggestions, renderProfileSuggestions, type BimProfileSuggestion } from './profile'
 import {
@@ -266,6 +267,22 @@ export class BimModelNotReadyError extends ApiError {
     this.name = 'BimModelNotReadyError'
     this.modelStatus = status
   }
+}
+
+/**
+ * Storey names and elevations for the rule catalogue.
+ *
+ * OIB 2 Tabelle 1b asks a different fire-resistance duration of a
+ * Kellergeschoß wall than of a ground-floor one; without this a rule cannot
+ * tell them apart and has to report the requirement as undetermined.
+ */
+function storeyFacts(
+  summary: BimModelHeader['summary']
+): Array<{ name: string; elevation: number | null }> | undefined {
+  return summary?.storeys.map((storey) => ({
+    name: storey.name ?? '',
+    elevation: storey.elevation,
+  }))
 }
 
 /**
@@ -678,6 +695,16 @@ export async function runBimQuery(
       // Over the FULL element set, like every other derived table: a rule run
       // against a capped page would report "0 nicht erfuellt" for a building
       // whose failures all sat past the cap.
+      // A `ready` model is immutable, so this is a pure function of the model
+      // id and the two facts — see `compliance-cache.ts` for what recomputing
+      // it costs (~1.5 s and ~126 MB per call on a 400k-element model).
+      const cached = readComplianceCache(
+        context.modelId,
+        request.gebaeudeklasse ?? null,
+        request.hauptnutzung ?? null
+      )
+      if (cached) return finish({ ...modelBase, ...cached })
+
       // `truncated` is NOT optional here. The loader caps at 50 000 rows, and
       // a catalogue run over a capped page reports verdict counts for part of
       // a building as though they covered all of it — the Prüfbuch, the BCF
@@ -693,14 +720,23 @@ export async function runBimQuery(
         // The model declares its length unit; a rule that guessed could be
         // wrong by a factor of a thousand.
         lengthScale: model.summary?.units.length?.siScale ?? null,
+        // OIB 2 Tabelle 1b asks a different duration of a Kellergeschoß wall
+        // than of a ground-floor one; without the elevations no rule can tell.
+        storeys: storeyFacts(model.summary),
       })
-      return finish({
-        ...modelBase,
+      const computed = {
         truncated,
         compliance,
         complianceSummary: summarizeBimRules(compliance),
         complianceShoppingList: missingPropertyShoppingList(compliance),
-      })
+      }
+      writeComplianceCache(
+        context.modelId,
+        request.gebaeudeklasse ?? null,
+        request.hauptnutzung ?? null,
+        computed
+      )
+      return finish({ ...modelBase, ...computed })
     }
 
     case 'takeoff': {
@@ -738,13 +774,18 @@ export async function runBimQuery(
       // Each side is judged with ITS OWN declared unit: a revision re-exported
       // from millimetres to metres would otherwise register as every dimension
       // changing by a factor of a thousand.
+      // Storeys come from each side's OWN summary for the same reason the
+      // length scale does: a revision that renamed or re-levelled a storey
+      // must be judged as it is, not as the other revision was.
       const before = runBimRules(beforeRows.elements, {
         ...ruleFacts,
         lengthScale: base.summary?.units.length?.siScale ?? null,
+        storeys: storeyFacts(base.summary),
       })
       const after = runBimRules(afterRows.elements, {
         ...ruleFacts,
         lengthScale: model.summary?.units.length?.siScale ?? null,
+        storeys: storeyFacts(model.summary),
       })
       return finish({
         ...modelBase,

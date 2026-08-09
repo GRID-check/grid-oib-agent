@@ -52,6 +52,15 @@ export interface BimRuleFacts {
   /** Intake use token: `wohnen`, `buero`, `beherbergung`, … */
   hauptnutzung?: string | null
   /**
+   * The model's storeys with their elevations, from `summary.storeys`.
+   *
+   * OIB 2 Tabelle 1b asks a different fire-resistance duration of a basement
+   * wall than of a ground-floor one, and a third of a top-floor one. Without
+   * this list a rule cannot tell them apart, and every basement wall in the
+   * country was being judged against the above-ground row.
+   */
+  storeys?: Array<{ name: string; elevation: number | null }>
+  /**
    * Metres per model length unit, from `summary.units.length.siScale`
    * (millimetres → 0.001).
    *
@@ -268,34 +277,70 @@ function compareFireRating(declared: string, required: string): 'meets' | 'short
  * `undecidable` rather than assuming the mildest class — assuming GK1 would
  * turn a GK5 building's missing R90 into a pass.
  */
-/** Required fire-resistance DURATION in minutes, by Gebäudeklasse. */
-const FIRE_RESISTANCE_MINUTES_BY_CLASS: Record<number, number> = {
-  1: 30,
-  2: 30,
-  3: 60,
-  4: 60,
-  5: 90,
+/**
+ * OIB-Richtlinie 2 (Ausgabe Mai 2023), Tabelle 1b, ROW 1 — "tragende Bauteile
+ * (ausgenommen Decken und brandabschnittsbildende Wände)".
+ *
+ * Two things the earlier version of this file got wrong, both visible the
+ * moment the actual table is read:
+ *
+ * 1. **Row 1 asks for R, never REI** — for load-bearing WALLS as much as for
+ *    columns. `REI` appears in rows 2 (Trennwände) and 3
+ *    (brandabschnittsbildende Wände), which are different requirements about
+ *    different components. Demanding REI of a load-bearing wall reported a
+ *    correctly declared `R 90` as nicht erfüllt.
+ * 2. **Decken are row 4, not row 1** — the row title excludes them
+ *    explicitly, so `IfcSlab` does not belong in this rule at all.
+ *
+ * Minutes by Gebäudeklasse and storey position. GK5 splits by `> 6
+ * oberirdische Geschoße`, which only changes the accompanying A2 material
+ * requirement and not the duration, and A2 is not something a FireRating
+ * string can settle — so the duration is the same either way.
+ */
+const FIRE_RESISTANCE_R_MINUTES: Record<'top' | 'above' | 'below', Record<number, number | null>> = {
+  // 1.1 im obersten Geschoß — GK1 carries no requirement at all.
+  top: { 1: null, 2: 30, 3: 30, 4: 30, 5: 60 },
+  // 1.2 in sonstigen oberirdischen Geschoßen.
+  above: { 1: 30, 2: 30, 3: 60, 4: 60, 5: 90 },
+  // 1.3 in unterirdischen Geschoßen — the row that was missing entirely, and
+  // the one where a Kellergeschoß wall was being passed at the above-ground
+  // threshold. GK3 upward it doubles.
+  below: { 1: 60, 2: 60, 3: 90, 4: 90, 5: 90 },
+}
+
+/** Where a storey sits, which decides which row of Tabelle 1b applies. */
+export type BimStoreyPosition = 'top' | 'above' | 'below'
+
+const STOREY_LABEL: Record<BimStoreyPosition, string> = {
+  top: 'oberstes Geschoß',
+  above: 'oberirdisches Geschoß',
+  below: 'Kellergeschoß',
 }
 
 /**
- * Which criteria a component must satisfy, from what the component IS.
+ * Classify the storey an element sits on.
  *
- * R is load-bearing capacity, E is integrity, I is insulation. A wall or a
- * slab separates as well as carries, so it needs REI. A column or a beam is a
- * linear member with no separating function — it needs R alone, and demanding
- * E and I of it is demanding something the component cannot have.
- *
- * Getting this from the Gebäudeklasse alone (the previous shape of this table)
- * reported every correctly-declared `R 90` column as NICHT ERFÜLLT, because
- * `compareFireRating` requires the declared letters to cover the required
- * ones. A false failure on a fire-safety rule is not a cosmetic defect: it
- * sends an architect to argue with a Brandschutzplaner about a column that was
- * right all along, and it teaches them to distrust the whole Prüfbuch.
+ * Returns `null` when the model does not say — no storey name on the element,
+ * no matching storey in the summary, or a storey with no published elevation.
+ * The judge then reports `undecidable` rather than picking a row: the
+ * above-ground row would pass a Kellergeschoß wall that needs twice the
+ * duration, and the top-storey row would fail a top-floor wall that is
+ * correct. Neither guess is safe, and "the model does not say which storey
+ * this is" is exactly what the third state is for.
  */
-function fireCriteriaFor(ifcType: string): 'R' | 'REI' {
-  const type = ifcType.toLowerCase()
-  return type.includes('column') || type.includes('beam') || type.includes('member') ? 'R' : 'REI'
+export function classifyStorey(
+  storeyName: string | null,
+  storeys: BimRuleFacts['storeys']
+): BimStoreyPosition | null {
+  if (!storeyName || !storeys || storeys.length === 0) return null
+  const known = storeys.filter((entry) => typeof entry.elevation === 'number')
+  const match = known.find((entry) => entry.name === storeyName)
+  if (!match || typeof match.elevation !== 'number') return null
+  if (match.elevation < 0) return 'below'
+  const highest = Math.max(...known.map((entry) => entry.elevation as number))
+  return match.elevation === highest ? 'top' : 'above'
 }
+
 
 // ---------------------------------------------------------------------------
 // The catalog
@@ -487,8 +532,10 @@ export const BIM_RULES: RuleDefinition[] = [
     clause: '3',
     titleDe: 'Tragende Bauteile — Feuerwiderstand',
     thresholdDe:
-      'Feuerwiderstand nach Gebäudeklasse (GK1 30 … GK5 90 Minuten); REI für Wände und Decken, R für Stützen und Träger',
-    ifcTypes: ['IfcWall', 'IfcWallStandardCase', 'IfcColumn', 'IfcBeam', 'IfcSlab'],
+      'R nach Gebäudeklasse und Geschoßlage (OIB 2, Tabelle 1b, Zeile 1): oberirdisch GK1/2 R 30 … GK5 R 90, unterirdisch GK1/2 R 60 … GK3+ R 90',
+    // No IfcSlab: Tabelle 1b row 1 excludes Decken by its own title, and
+    // they carry the different requirements of row 4.
+    ifcTypes: ['IfcWall', 'IfcColumn', 'IfcBeam', 'IfcMember'],
     scope: mayBeLoadBearing,
     notApplicable: (facts) =>
       facts.gebaeudeklasse === undefined || facts.gebaeudeklasse === null
@@ -504,8 +551,25 @@ export const BIM_RULES: RuleDefinition[] = [
           missing: 'Pset_WallCommon.LoadBearing (bzw. Pset_*Common.LoadBearing)',
         }
       }
-      const minutes = FIRE_RESISTANCE_MINUTES_BY_CLASS[facts.gebaeudeklasse ?? 0]
-      const required = minutes ? `${fireCriteriaFor(element.ifcType)} ${minutes}` : undefined
+      // Which ROW of Tabelle 1b applies depends on where the storey sits.
+      const position = classifyStorey(element.storeyName, facts.storeys)
+      if (position === null) {
+        return {
+          status: 'undecidable',
+          reading:
+            'Geschoßlage des Bauteils nicht bestimmbar — die geforderte Feuerwiderstandsdauer ' +
+            'hängt davon ab (oberirdisch, oberstes Geschoß oder Kellergeschoß)',
+          missing: 'IfcBuildingStorey.Elevation (Höhenlage der Geschoße)',
+        }
+      }
+      const minutes = FIRE_RESISTANCE_R_MINUTES[position][facts.gebaeudeklasse ?? 0]
+      if (minutes === null) {
+        return {
+          status: 'pass',
+          reading: `Im obersten Geschoß der Gebäudeklasse ${facts.gebaeudeklasse} wird kein Feuerwiderstand gefordert`,
+        }
+      }
+      const required = minutes ? `R ${minutes}` : undefined
       // Guarded by notApplicable, but a rule must never read a threshold it
       // does not have: assuming the mildest class would turn a GK5 building's
       // missing R 90 into a pass.
@@ -536,7 +600,9 @@ export const BIM_RULES: RuleDefinition[] = [
       }
       return {
         status: verdict === 'meets' ? 'pass' : 'fail',
-        reading: `Feuerwiderstand ${declared} — erforderlich ${required} (Gebäudeklasse ${facts.gebaeudeklasse})`,
+        reading:
+          `Feuerwiderstand ${declared} — erforderlich ${required} ` +
+          `(Gebäudeklasse ${facts.gebaeudeklasse}, ${STOREY_LABEL[position]})`,
       }
     },
   },
