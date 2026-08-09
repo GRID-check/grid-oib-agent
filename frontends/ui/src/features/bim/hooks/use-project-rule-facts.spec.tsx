@@ -79,4 +79,32 @@ describe('useProjectRuleFacts', () => {
     renderHook(() => useProjectRuleFacts(null))
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('reports itself unsettled until the brief has been read', async () => {
+    // The facts start as {null, null} and settle after /profile resolves. A
+    // query keyed on them fires twice per page load and the first run applies
+    // no Gebäudeklasse — a measured ~1.5s and ~126MB of server work discarded.
+    const { result } = renderHook(() => useProjectRuleFacts('p1'))
+
+    expect(result.current.ready).toBe(false)
+    await waitFor(() => expect(result.current.ready).toBe(true))
+  })
+
+  it('settles even when the brief cannot be read', async () => {
+    // Otherwise a failed profile parks the catalogue behind a spinner forever.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+    )
+    const { result } = renderHook(() => useProjectRuleFacts('p1'))
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.gebaeudeklasse).toBeNull()
+  })
+
+  it('is settled immediately when there is no project', () => {
+    const { result } = renderHook(() => useProjectRuleFacts(null))
+
+    expect(result.current.ready).toBe(true)
+  })
 })

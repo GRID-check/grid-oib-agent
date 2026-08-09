@@ -57,6 +57,89 @@ const ruleOf = (results: ReturnType<typeof runBimRules>, id: string) => {
   return found
 }
 
+describe('rules that never matched, and ticks that were not earned', () => {
+  it('checks an IFC4 IfcDoorStandardCase like any other door', () => {
+    // ArchiCAD writes this routinely. The catalogue listed `IfcDoor` only, so
+    // the door rule matched zero elements and the Prüfbuch had nothing to say
+    // about any door in the building — silence, not a verdict.
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcDoorStandardCase',
+          name: 'T-14',
+          quantities: { Qto_DoorBaseQuantities: { Width: 700 } },
+        }),
+      ],
+      {}
+    ).filter((r) => r.ruleId === 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.passed + rule.failed + rule.undecidable).toBe(1)
+    expect(rule.failed).toBe(1)
+  })
+
+  it('checks an ElementedCase wall too', () => {
+    const [rule] = runBimRules(
+      [
+        element({
+          ifcType: 'IfcWallElementedCase',
+          name: 'Aussenwand',
+          properties: { Pset_WallCommon: { IsExternal: true, ThermalTransmittance: 0.5 } },
+        }),
+      ],
+      { hauptnutzung: 'wohnen' }
+    ).filter((r) => r.ruleId === 'oib6-u-wert-aussenwand')
+
+    expect(rule.failed).toBe(1)
+  })
+
+  it('does not count a requirement with unknowns left as erfüllt', () => {
+    // 9 passed + 2 undecidable rendered a green "Erfüllt" badge. The two
+    // unknowns are the reason the requirement is not settled.
+    const summary = summarizeBimRules([
+      {
+        ruleId: 'r',
+        richtlinie: 'OIB 3',
+        clause: '2',
+        titleDe: 't',
+        thresholdDe: 's',
+        applicable: true,
+        passed: 9,
+        failed: 0,
+        undecidable: 2,
+        failures: [],
+        unknowns: [],
+        truncated: false,
+        missing: [],
+      },
+    ])
+
+    expect(summary.rulesPassing).toBe(0)
+    expect(summary.rulesUndecidable).toBe(1)
+  })
+
+  it('still counts a fully settled requirement as erfüllt', () => {
+    const summary = summarizeBimRules([
+      {
+        ruleId: 'r',
+        richtlinie: 'OIB 3',
+        clause: '2',
+        titleDe: 't',
+        thresholdDe: 's',
+        applicable: true,
+        passed: 9,
+        failed: 0,
+        undecidable: 0,
+        failures: [],
+        unknowns: [],
+        truncated: false,
+        missing: [],
+      },
+    ])
+
+    expect(summary.rulesPassing).toBe(1)
+  })
+})
+
 describe('false verdicts a reviewer found by running the catalogue', () => {
   const facts = { gebaeudeklasse: 4 as const }
 

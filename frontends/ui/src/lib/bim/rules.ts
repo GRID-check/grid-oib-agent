@@ -655,8 +655,23 @@ export const BIM_RULES: RuleDefinition[] = [
 // Running the catalog
 // ---------------------------------------------------------------------------
 
+/**
+ * IFC4 split several entities into `…StandardCase` / `…ElementedCase`
+ * subtypes, and exporters pick whichever fits the component.
+ *
+ * The catalogue listed `IfcWall` and `IfcWallStandardCase` by hand and no
+ * other pair, so an IFC4 model whose doors are `IfcDoorStandardCase` — which
+ * ArchiCAD writes routinely — matched the door rule ZERO times and the
+ * Prüfbuch simply had nothing to say about any door in the building. Silence
+ * is the one output this product must never produce by accident, and
+ * enumerating variants rule by rule guarantees the next one gets missed too.
+ */
+const CASE_SUFFIX = /(standardcase|elementedcase)$/
+
+const normaliseType = (ifcType: string): string => ifcType.toLowerCase().replace(CASE_SUFFIX, '')
+
 const matchesType = (element: BimElement, types: readonly string[]): boolean =>
-  types.some((type) => type.toLowerCase() === element.ifcType.toLowerCase())
+  types.some((type) => normaliseType(type) === normaliseType(element.ifcType))
 
 /**
  * Evaluate every rule over the element set.
@@ -780,7 +795,13 @@ export function summarizeBimRules(results: readonly BimRuleResult[]): BimComplia
     const checked = result.passed + result.failed + result.undecidable
     if (checked === 0) summary.rulesEmpty += 1
     else if (result.failed > 0) summary.rulesFailing += 1
-    else if (result.passed === 0) summary.rulesUndecidable += 1
+    // ANY undecidable element keeps the rule out of the "erfüllt" count, even
+    // when most of its elements passed. 9 erfüllt + 2 nicht entscheidbar used
+    // to render as a green tick, which is precisely the reading this whole
+    // three-state design exists to prevent: the two unknowns are the reason
+    // the requirement is not settled, and averaging them away behind the nine
+    // is what a two-state checker would do.
+    else if (result.undecidable > 0) summary.rulesUndecidable += 1
     else summary.rulesPassing += 1
   }
   return summary

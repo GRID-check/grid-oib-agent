@@ -350,7 +350,7 @@ const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
 export function useBimCompliance(
   projectId: string | null,
   modelId: string | null,
-  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null }
+  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null; ready?: boolean }
 ): AsyncState<BimComplianceView> & {
   confirm: (ruleId: string, note: string) => Promise<void>
   withdraw: (ruleId: string) => Promise<void>
@@ -363,7 +363,9 @@ export function useBimCompliance(
     }),
     [facts.gebaeudeklasse, facts.hauptnutzung]
   )
-  const run = useModelQuery(modelId, request, selectCompliance)
+  // Held until the brief has settled: running now would spend a full
+  // catalogue pass on facts we are about to replace.
+  const run = useModelQuery(facts.ready === false ? null : modelId, request, selectCompliance)
   const [confirmations, setConfirmations] = useState<BimCheckConfirmation[]>([])
   const [tick, setTick] = useState(0)
 
@@ -466,14 +468,31 @@ export function useProjectRuleFacts(projectId: string | null): {
   gebaeudeklasse: number | null
   hauptnutzung: string | null
   missing: string[]
+  /**
+   * The brief has been read (or there is none to read).
+   *
+   * Callers that spend real work per run must WAIT for this. The facts start
+   * as `{null, null}` and settle after `/profile` resolves, so a query keyed
+   * on them fires twice per page load — and the first run is both discarded
+   * and wrong, because it applied no Gebäudeklasse. On a large model that is a
+   * measured ~1.5 s and ~126 MB of server work thrown away every time
+   * somebody opens the tab.
+   */
+  ready: boolean
 } {
+  const [ready, setReady] = useState(false)
   const [facts, setFacts] = useState<{ gebaeudeklasse: number | null; hauptnutzung: string | null }>({
     gebaeudeklasse: null,
     hauptnutzung: null,
   })
 
   useEffect(() => {
-    if (!projectId) return
+    // No project means no brief to wait for; the rules stand down either way.
+    if (!projectId) {
+      setReady(true)
+      return
+    }
+    setReady(false)
     let cancelled = false
     getJson<{ facts?: Record<string, { value?: unknown }> }>(`/api/projects/${projectId}/profile`)
       .then((profile) => {
@@ -490,6 +509,11 @@ export function useProjectRuleFacts(projectId: string | null): {
         // A profile that cannot be read is the same situation as a profile that
         // does not carry the fact: the rules stand down and say so.
       })
+      .finally(() => {
+        // Settled either way — a brief that failed to load must not park the
+        // catalogue forever behind a spinner.
+        if (!cancelled) setReady(true)
+      })
     return () => {
       cancelled = true
     }
@@ -502,7 +526,7 @@ export function useProjectRuleFacts(projectId: string | null): {
     return gaps
   }, [facts])
 
-  return { ...facts, missing }
+  return { ...facts, missing, ready }
 }
 
 /** The first ready model, or the first model at all — the page's default. */
