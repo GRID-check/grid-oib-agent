@@ -962,9 +962,44 @@ question about a small part of it.
 |---|---|---|---|
 | `compliance` (first request) | ~1.5 s, ~60 MB of JSON parsed on the event loop | ~0.3 s | `bim_models.rule_inputs` — the thirteen keys the catalogue reads, pruned at extraction time (`lib/bim/rule-inputs.ts`). 1 409 → 219 bytes per element. |
 | `compliance` (repeat) | ~1.5 s again | ~0 | A 64-entry, 1 h memo keyed by model id + Gebäudeklasse + Hauptnutzung (`lib/bim/compliance-cache.ts`). A `ready` model is immutable, so the key is the whole input. |
-| a filtered element page | 6 474 ms | **4 ms** | `bim_elements.search_keys` + its GIN index, AND-ed in as a pre-filter (0038). |
-| its `count(*)` | 4 719 ms | **2 ms** | The same pre-filter, plus counting through a subquery capped at `COUNT_CEILING` so the total becomes an honest lower bound instead of a full scan. |
+| a filtered element page, 1 match | 6 474 ms | **9 ms** | `bim_elements.search_keys` + its GIN index, AND-ed in as a pre-filter (0038). |
+| a filtered element page, 50 000 matches | 1 277 ms | **315 ms** | The pre-filter DROPPED, and `(model_id, ifc_type, express_id)` walked in order until the page is full (0039). |
 | `properties` | past the 30 s timeout → **HTTP 500** | ~0.6 s | A scan bounded at ~5 000 elements, stratified by IFC type, reported as a sample. |
+
+#### Two plans, and why the application picks
+
+Those two element-page rows are the same query, and their plans are each
+catastrophic in the other's regime:
+
+| | matches 1 | matches 50 000 |
+|---|---|---|
+| GIN pre-filter, bitmap plan | 5 ms | 1 692 ms |
+| ordered walk, no pre-filter | 5 877 ms | 3 ms |
+
+A thousandfold either way, and **Postgres picks the bitmap in both cases**:
+jsonb containment has no statistics, so `@>` is costed at a hardcoded 0.5 %
+selectivity — it estimated 1 988 rows where 50 000 matched. No amount of
+`ANALYZE` fixes that.
+
+So `listBimElements` measures instead of guessing. One statement returns two
+bounded counts — how many elements match (needed for `total` anyway) and how
+many the pre-filter would hand to the bitmap plan, capped at
+`PLAN_ROW_BUDGET` — and the page query is planned from them. Both plans cost
+about the same per row they examine (33 µs and 29 µs measured), so the choice
+is only "which reads fewer rows".
+
+The rule is deliberately asymmetric: the walk is taken **only when it is
+provably cheap and the pre-filter is provably not narrow.** The bitmap plan's
+worst case is bounded by how many candidates exist; the walk's worst case is
+the whole model. So everything uncertain lands on the bitmap — in particular a
+filter with many candidates and few matches (`FireRating > 900` where 50 000
+elements carry a FireRating and none exceed it), which stays expensive in both
+plans because proving a negative means examining every candidate.
+
+The choice can only ever be wrong about SPEED. The pre-filter is a necessary
+condition, never part of the answer, so `assisted` and `unassisted` are the
+same question — and the integration suite runs both against a live Postgres and
+asserts they return the same elements.
 
 Two of those carry a correctness obligation, and the obligation is what most of
 the code is:

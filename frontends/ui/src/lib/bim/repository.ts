@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
@@ -303,47 +303,193 @@ function elementScope(modelId: string, organizationId: string) {
  */
 export const COUNT_CEILING = 10_000
 
+/**
+ * One filter, compiled three ways, because there is no single fastest way.
+ *
+ * A property filter can be served by two completely different plans and the
+ * right one depends on how many elements match — which is exactly what nobody
+ * knows in advance. Measured on a seeded 200 000-element model:
+ *
+ *                                    matches 1      matches 50 000
+ *   GIN pre-filter, bitmap plan          5 ms            1 692 ms
+ *   ordered walk, no pre-filter      5 877 ms                3 ms
+ *
+ * A thousandfold either way. Postgres cannot pick between them: jsonb
+ * containment has no statistics, so `@>` is costed at a hardcoded 0.5 %
+ * selectivity and the planner took the bitmap in both cases above. So the
+ * choice is made in {@link listBimElements}, from counts it measures — and
+ * these are the three shapes it picks from.
+ */
+export interface BimElementQueryPlan {
+  /** The predicate as written: GIN pre-filter AND the exact unnest. */
+  assisted: SQL | undefined
+  /**
+   * The same question with the pre-filter removed. Identical results — the
+   * pre-filter is a necessary condition, never part of the answer — but it
+   * leaves the planner free to walk `(model_id, ifc_type, express_id)` in
+   * order and stop at the last row of the page.
+   */
+  unassisted: SQL | undefined
+  /**
+   * The indexable half alone: a SUPERSET of what `assisted` matches, used to
+   * count candidates. `null` when there is nothing to count, either because
+   * the model is not indexed or because no property filter contributes a
+   * pre-filter — in which case there is no choice to make.
+   */
+  candidates: SQL | undefined | null
+}
+
+/**
+ * Rows either plan is allowed to touch before it counts as the wrong one.
+ *
+ * Both plans cost roughly the same per row they examine — a heap fetch plus a
+ * `jsonb_each` unnest, measured at 33 µs (bitmap) and 29 µs (ordered walk) —
+ * so "which plan" is just "which reads fewer rows", and this is the budget
+ * that answers it. At 2 000 rows either plan lands around 60 ms, and the
+ * candidate probe that measures against it costs 66 ms at its cap.
+ */
+export const PLAN_ROW_BUDGET = 2_000
+
+/**
+ * Which of the two plans reads fewer rows.
+ *
+ * Both cost about the same per row examined — a heap fetch plus a `jsonb_each`
+ * unnest, 33 µs on the bitmap side and 29 µs on the walk — so the comparison is
+ * just row counts, and the only judgement in it is the budget.
+ *
+ * Deliberately conservative in one direction: the walk is taken only when it is
+ * PROVABLY cheap and the pre-filter is PROVABLY not narrow. Everything
+ * uncertain keeps the pre-filter, which is the plan that cannot be catastrophic
+ * — its worst case is bounded by how many candidates exist, whereas the walk's
+ * worst case is the whole model.
+ *
+ * @param matched      Elements the filter matches, capped at `COUNT_CEILING`.
+ * @param candidates   Elements the pre-filter admits, capped at the budget + 1;
+ *                     `null` when no pre-filter exists and there is no choice.
+ * @param rowsNeeded   `limit + offset` — how far into the ordering the page ends.
+ * @param elementCount Rows the model has.
+ */
+export function shouldWalkOrdered(input: {
+  matched: number
+  candidates: number | null
+  rowsNeeded: number
+  elementCount: number
+}): boolean {
+  if (input.candidates === null || input.candidates <= PLAN_ROW_BUDGET) return false
+  // Matches are spread through the ordering, so the walk reads about one page's
+  // worth for every `matched / elementCount` of the table. None at all means it
+  // reads the table.
+  const walkRows =
+    input.matched > 0
+      ? Math.ceil((input.rowsNeeded * input.elementCount) / input.matched)
+      : input.elementCount
+  return walkRows <= PLAN_ROW_BUDGET
+}
+
+/** What a page cost, for the caller that wants to know which plan ran. */
+export interface BimElementPage {
+  rows: BimElementListRow[]
+  total: number
+  totalIsLowerBound: boolean
+  /** `true` when the ordered walk served the page instead of the GIN index. */
+  walked: boolean
+}
+
+/**
+ * One page of elements, plus its total, planned rather than guessed.
+ *
+ * The GIN pre-filter and the ordered `(model_id, ifc_type, express_id)` walk
+ * are each catastrophic in the other's regime — 5 ms vs 5 877 ms for a filter
+ * matching one element, 1 692 ms vs 3 ms for one matching a quarter of the
+ * model — and Postgres picks the bitmap plan in BOTH cases, because jsonb
+ * containment has no statistics and `@>` is costed at a flat 0.5 %.
+ *
+ * So the two numbers the choice needs are measured first, in one round trip:
+ * how many elements MATCH (bounded, and needed for `total` anyway) and how
+ * many the pre-filter would hand to the bitmap plan (bounded at
+ * {@link PLAN_ROW_BUDGET}). The walk is taken only when it is provably cheap —
+ * fewer than the budget's worth of rows to reach the end of the page — and the
+ * pre-filter is provably not narrow. Everything else keeps the pre-filter.
+ *
+ * The choice can only ever be wrong about SPEED: `assisted` and `unassisted`
+ * are the same question, and the integration suite asserts they return the
+ * same elements.
+ */
 export async function listBimElements(input: {
   modelId: string
   organizationId: string
-  where?: ReturnType<typeof and>
+  plan: BimElementQueryPlan
+  /** Rows this model has, for estimating how far an ordered walk must read. */
+  elementCount: number
   limit: number
   offset: number
-}): Promise<{ rows: BimElementListRow[]; total: number; totalIsLowerBound: boolean }> {
+}): Promise<BimElementPage> {
   const db = getDb()
   const limit = Math.min(Math.max(1, Math.trunc(input.limit)), BIM_ELEMENT_PAGE_LIMIT)
   const offset = Math.max(0, Math.trunc(input.offset))
-  const predicate = and(elementScope(input.modelId, input.organizationId), input.where)
+  const scope = elementScope(input.modelId, input.organizationId)
+  const assisted = and(scope, input.plan.assisted)
+  const candidates = input.plan.candidates ? and(scope, input.plan.candidates) : null
 
   return withTenant({ organizationId: input.organizationId }, async () => {
-    const [rows, totals] = await Promise.all([
-      db
-        .select(ELEMENT_LIST_COLUMNS)
-        .from(bimElements)
-        .where(predicate)
-        .orderBy(asc(bimElements.ifcType), asc(bimElements.expressId))
-        .limit(limit)
-        .offset(offset),
-      // Counted through a bounded subquery, not `count(*)` over the whole
-      // predicate. The row half stops at `limit`; an exact total cannot, so
-      // on a filtered 400 000-element model it was the slower half of the
-      // pair by an order of magnitude — 15.8 s warm, 21.9 s cold, holding a
-      // second pool slot the entire time. Nothing in the UI needs an exact
-      // figure past the cap; it needs to know there are more.
-      db.execute<{ value: number }>(sql`
-        SELECT count(*)::int AS value
-        FROM (
-          SELECT 1 FROM ${bimElements} WHERE ${predicate} LIMIT ${COUNT_CEILING + 1}
-        ) bounded
-      `),
-    ])
-    const counted = Number(Array.from(totals)[0]?.value ?? 0)
+    // Counted through a bounded subquery, not `count(*)` over the whole
+    // predicate. The row half stops at `limit`; an exact total cannot, so on a
+    // filtered 400 000-element model it was the slower half of the pair by an
+    // order of magnitude — 15.8 s warm, 21.9 s cold, holding a second pool slot
+    // the entire time. Nothing in the product needs an exact figure past the
+    // cap; it needs to know there are more.
+    //
+    // The candidate count rides along in the same statement as a second scalar
+    // subquery, so measuring the plan costs a subquery rather than a round
+    // trip. Both counts always use the pre-filter: a bounded count stops early
+    // in either regime, so it has no two-plan problem of its own.
+    const counts = await db.execute<{ matches: number; candidates: number | null }>(sql`
+      SELECT
+        (
+          SELECT count(*)::int
+          FROM (SELECT 1 FROM ${bimElements} WHERE ${assisted} LIMIT ${COUNT_CEILING + 1}) m
+        ) AS matches,
+        ${
+          candidates
+            ? sql`(
+                SELECT count(*)::int
+                FROM (SELECT 1 FROM ${bimElements} WHERE ${candidates} LIMIT ${PLAN_ROW_BUDGET + 1}) c
+              )`
+            : sql`NULL::int`
+        } AS candidates
+    `)
+    const row = Array.from(counts)[0]
+    const matched = Number(row?.matches ?? 0)
+    const candidateRows = row?.candidates === null || row?.candidates === undefined
+      ? null
+      : Number(row.candidates)
+
+    const walked = shouldWalkOrdered({
+      matched,
+      candidates: candidateRows,
+      rowsNeeded: limit + offset,
+      elementCount: input.elementCount,
+    })
+
+    const rows = await db
+      .select(ELEMENT_LIST_COLUMNS)
+      .from(bimElements)
+      .where(walked ? and(scope, input.plan.unassisted) : assisted)
+      .orderBy(asc(bimElements.ifcType), asc(bimElements.expressId))
+      .limit(limit)
+      .offset(offset)
+
     // The subquery is allowed one row past the ceiling purely so the two cases
     // are distinguishable; reporting that row would put a `total` of 10 001 on
     // a model with 400 000 matches, which is wrong twice over. Past the ceiling
     // the number means "at least this many" and the flag says so.
-    const totalIsLowerBound = counted > COUNT_CEILING
-    return { rows, total: totalIsLowerBound ? COUNT_CEILING : counted, totalIsLowerBound }
+    const totalIsLowerBound = matched > COUNT_CEILING
+    return {
+      rows,
+      total: totalIsLowerBound ? COUNT_CEILING : matched,
+      totalIsLowerBound,
+      walked,
+    }
   })
 }
 

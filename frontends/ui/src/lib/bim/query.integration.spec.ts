@@ -619,6 +619,67 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     expect(result.summary).not.toMatch(/^10000 Bauteile/)
   })
 
+  it('returns the same elements whichever plan serves the page', async () => {
+    // The two plans are a thousandfold apart in speed and must be identical in
+    // result — the pre-filter is a necessary condition, never part of the
+    // answer, so removing it can only change the plan. If it ever changes the
+    // rows, one of the two is silently wrong and no user could tell which.
+    const repository = await import('./repository')
+    const { buildBimElementPlan } = await import('./query')
+
+    const plan = buildBimElementPlan(
+      { properties: [{ name: 'FireRating', operator: 'eq', value: 'REI 90', source: 'property' }] },
+      { searchKeysIndexed: true }
+    )
+    const page = (over: Partial<Parameters<typeof repository.listBimElements>[0]>) =>
+      repository.listBimElements({
+        modelId: bigModelId,
+        organizationId: ORG,
+        plan,
+        elementCount: BIG_MODEL_ELEMENTS,
+        limit: 25,
+        offset: 50,
+        ...over,
+      })
+
+    // Half of the 10 100 elements carry `REI 90`, so the pre-filter admits far
+    // more than the budget while the walk reaches the end of the page in ~150
+    // rows: exactly the regime the walk exists for.
+    const walked = await page({})
+    expect(walked.walked).toBe(true)
+
+    // `candidates: null` is how a caller says "there is nothing to weigh", so
+    // it pins the same request to the pre-filter plan.
+    const assisted = await page({ plan: { ...plan, candidates: null } })
+    expect(assisted.walked).toBe(false)
+
+    expect(walked.rows).toEqual(assisted.rows)
+    expect(walked.rows).toHaveLength(25)
+    expect(walked.total).toBe(assisted.total)
+  })
+
+  it('does not walk for a filter the pre-filter already answers narrowly', async () => {
+    // One element out of 10 100. Walking would read the whole model to find
+    // it; the GIN index finds it outright.
+    const repository = await import('./repository')
+    const { buildBimElementPlan } = await import('./query')
+
+    const result = await repository.listBimElements({
+      modelId: bigModelId,
+      organizationId: ORG,
+      plan: buildBimElementPlan(
+        { properties: [{ name: 'Reference', operator: 'eq', value: 'R7777', source: 'property' }] },
+        { searchKeysIndexed: true }
+      ),
+      elementCount: BIG_MODEL_ELEMENTS,
+      limit: 25,
+      offset: 0,
+    })
+
+    expect(result.walked).toBe(false)
+    expect(result.total).toBe(1)
+  })
+
   it('reports an exact total below the ceiling', async () => {
     const result = await run({ op: 'elements', filter: { ifcTypes: ['IfcWall'] }, limit: 25, offset: 0 })
 

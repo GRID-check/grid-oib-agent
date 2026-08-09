@@ -37,6 +37,7 @@ import {
   type BimElementListRow,
   type BimGroupedCount,
   type BimModelHeader,
+  type BimElementQueryPlan,
   type BimPropertyCatalogEntry,
 } from './repository'
 import { readComplianceCache, writeComplianceCache } from './compliance-cache'
@@ -431,7 +432,11 @@ export function buildBimPredicate(
   filter: BimFilter | undefined,
   options: { searchKeysIndexed: boolean } = { searchKeysIndexed: false }
 ): SQL | undefined {
-  if (!filter) return undefined
+  return buildBimElementPlan(filter, options).assisted
+}
+
+/** Conditions that are the same however the query is planned. */
+function sharedConditions(filter: BimFilter): SQL[] {
   const conditions: Array<SQL | undefined> = []
 
   if (filter.ifcTypes?.length) {
@@ -470,12 +475,36 @@ export function buildBimPredicate(
       sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${bimElements.classifications}) AS c(entry) WHERE (c.entry ->> 'identification') ILIKE ${pattern} OR (c.entry ->> 'name') ILIKE ${pattern} OR (c.entry ->> 'system') ILIKE ${pattern})`
     )
   }
-  for (const property of filter.properties ?? []) {
-    conditions.push(propertyPredicate(property, options.searchKeysIndexed))
-  }
 
-  const present = conditions.filter((condition): condition is SQL => condition !== undefined)
-  return present.length === 0 ? undefined : and(...present)
+  return conditions.filter((condition): condition is SQL => condition !== undefined)
+}
+
+const join = (conditions: SQL[]): SQL | undefined =>
+  conditions.length === 0 ? undefined : and(...conditions)
+
+export function buildBimElementPlan(
+  filter: BimFilter | undefined,
+  options: { searchKeysIndexed: boolean } = { searchKeysIndexed: false }
+): BimElementQueryPlan {
+  if (!filter) return { assisted: undefined, unassisted: undefined, candidates: null }
+
+  const shared = sharedConditions(filter)
+  const properties = filter.properties ?? []
+  const prefilters = options.searchKeysIndexed
+    ? properties.map(searchKeyPrefilter).filter((condition): condition is SQL => condition !== null)
+    : []
+
+  return {
+    assisted: join([
+      ...shared,
+      ...properties.map((property) => propertyPredicate(property, options.searchKeysIndexed)),
+    ]),
+    unassisted: join([
+      ...shared,
+      ...properties.map((property) => propertyPredicate(property, false)),
+    ]),
+    candidates: prefilters.length === 0 ? null : join([...shared, ...prefilters]),
+  }
 }
 
 /** The expression a `groupBy` selects, or `null` for no grouping. */
@@ -730,7 +759,10 @@ export async function runBimQuery(
       const { rows, total, totalIsLowerBound } = await listBimElements({
         modelId: context.modelId,
         organizationId: context.organizationId,
-        where: buildBimPredicate(request.filter, { searchKeysIndexed: model.searchKeysIndexed }),
+        plan: buildBimElementPlan(request.filter, {
+          searchKeysIndexed: model.searchKeysIndexed,
+        }),
+        elementCount: model.elementCount,
         limit: request.limit,
         offset: request.offset,
       })

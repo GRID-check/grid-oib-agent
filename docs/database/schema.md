@@ -668,9 +668,18 @@ One row per element (wall, door, room). Identifying attributes are columns so
 they can be indexed and grouped; property sets, quantities, materials and
 classifications are `jsonb`, because their keys are chosen by whichever
 application exported the model and cannot be columns. Indexed on
-`(model_id, express_id)` (unique), `(model_id, ifc_type)`,
+`(model_id, express_id)` (unique), `(model_id, ifc_type, express_id)`,
 `(model_id, storey_name)`, `(model_id, global_id)`, and
 `gin (search_keys jsonb_ops)`.
+
+`express_id` is the third column of the type index (0039) so that it satisfies
+the element list's `ORDER BY ifc_type, express_id` outright — with only
+`(model_id, ifc_type)` a page could be produced only by reading a whole type
+group and sorting it, which with a `jsonb_each` predicate in the WHERE means
+unnesting tens of thousands of elements to return twenty-five (1 277 ms → 3 ms
+measured on a 200 000-element model). It is the fast plan for a filter matching
+MANY elements, where the GIN index below is the fast plan for one matching few;
+`listBimElements` chooses between them.
 
 `search_keys` (0038) is a flat, lowercased shadow of `properties` and
 `quantities` — `{"p:firerating": ["rei 90"], "p:pset_wallcommon.firerating":

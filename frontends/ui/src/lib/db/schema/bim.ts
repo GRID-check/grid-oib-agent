@@ -124,7 +124,15 @@ export const bimElements = pgTable(
   },
   (table) => ({
     modelExpressIdx: uniqueIndex('bim_elements_model_express_idx').on(table.modelId, table.expressId),
-    modelTypeIdx: index('bim_elements_model_type_idx').on(table.modelId, table.ifcType),
+    // `express_id` is the third column so the index satisfies the element
+    // list's `ORDER BY ifc_type, express_id` outright and a page can stop at
+    // the twenty-fifth match instead of sorting a whole type group — see
+    // `0039_bim_elements_type_order_idx.sql`.
+    modelTypeIdx: index('bim_elements_model_type_idx').on(
+      table.modelId,
+      table.ifcType,
+      table.expressId
+    ),
     modelStoreyIdx: index('bim_elements_model_storey_idx').on(table.modelId, table.storeyName),
     globalIdIdx: index('bim_elements_global_id_idx').on(table.modelId, table.globalId),
     searchKeysIdx: index('bim_elements_search_keys_idx').using('gin', table.searchKeys),
