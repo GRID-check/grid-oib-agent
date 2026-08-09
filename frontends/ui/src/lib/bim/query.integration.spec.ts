@@ -557,6 +557,42 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     expect(result.summary).toContain('1 neu, 1 entfallen, 1 geändert')
   })
 
+  it('diffs the requirement status between two revisions', async () => {
+    // The v2 fixture downgrades `Aussenwand Nord` from REI 90 to REI 30, which
+    // at Gebäudeklasse 5 turns a passing rule into a failing one. This is the
+    // only place that proves the op reads BOTH revisions from real SQL rather
+    // than comparing a model against itself.
+    const result = await runBimQuery(
+      bimQuerySchema.parse({ op: 'compliance-diff', baseModelId: modelId, gebaeudeklasse: 5 }),
+      { modelId: revisionModelId, organizationId: ORG }
+    )
+    const fire = (result.complianceChanges ?? []).find(
+      (change) => change.ruleId === 'oib2-feuerwiderstand-tragend'
+    )
+    expect(fire?.trend).toBe('broken')
+    expect(fire?.before.failed).toBeLessThan(fire?.after.failed ?? 0)
+    expect(result.comparedWith).toBe('sample-building.ifc')
+    expect(result.summary).toContain('neu nicht erfüllt')
+  })
+
+  it('reports nothing moved when a revision is compared with itself', async () => {
+    const result = await runBimQuery(
+      bimQuerySchema.parse({ op: 'compliance-diff', baseModelId: modelId, gebaeudeklasse: 5 }),
+      { modelId, organizationId: ORG }
+    )
+    expect(result.complianceChanges).toEqual([])
+    expect(result.summary).toContain('Keine Anforderung')
+  })
+
+  it('refuses a compliance diff against another tenant’s revision', async () => {
+    await expect(
+      runBimQuery(
+        bimQuerySchema.parse({ op: 'compliance-diff', baseModelId: otherModelId }),
+        { modelId, organizationId: ORG }
+      )
+    ).rejects.toBeInstanceOf(BimModelNotReadyError)
+  })
+
   it('stores a human confirmation against the revision it was made on', async () => {
     const repository = await import('./repository')
     const { attachConfirmations, outstandingRules } = await import('./rules')
