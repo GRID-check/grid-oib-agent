@@ -176,6 +176,21 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
     return index > 0 ? series.revisions[index - 1].model : null
   }, [series, model])
   const complianceDiff = useBimComplianceDiff(modelId, previousRevision?.id ?? null, ruleFacts)
+
+  /**
+   * The BCF download, as a URL rather than a fetch.
+   *
+   * Carries the same facts the panel ran the catalogue with, so the archive
+   * cannot be built against a different Gebäudeklasse than the verdicts the
+   * architect just read.
+   */
+  const bcfHref = useMemo(() => {
+    if (!modelId) return null
+    const query = new URLSearchParams({ modelId })
+    if (ruleFacts.gebaeudeklasse !== null) query.set('gebaeudeklasse', String(ruleFacts.gebaeudeklasse))
+    if (ruleFacts.hauptnutzung !== null) query.set('hauptnutzung', ruleFacts.hauptnutzung)
+    return `/api/projects/${projectId}/bim/checks/export?${query.toString()}`
+  }, [modelId, projectId, ruleFacts.gebaeudeklasse, ruleFacts.hauptnutzung])
   // Only mint the presigned source URL when a viewport can actually use it.
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const sourceUrl = useBimModelSource(modelId, webGpu)
@@ -344,6 +359,7 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
                 askHref={profileQuestionHref}
                 onConfirm={compliance.confirm}
                 onWithdraw={compliance.withdraw}
+                bcfHref={bcfHref}
               />
             </TabsContent>
 

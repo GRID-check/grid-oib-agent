@@ -73,6 +73,31 @@ Two rules about it worth knowing:
   of the building you checked and says nothing about the one that replaced it.
   Re-confirm to carry it forward deliberately.
 
+**Offene Punkte als BCF** hands the whole thing back to the tool the model
+came from. The button downloads a BCF 2.1 file — the format ArchiCAD, Revit,
+Solibri and BIMcollab all read — with one topic per requirement that still
+has work in it. Open it in your CAD and each topic selects the elements it is
+about: the two doors that are too narrow, the thirty-four walls with no fire
+rating. The topic carries the threshold, the clause, what was read, and the
+exact property paths to author.
+
+Three details that matter in practice:
+
+- **One topic per requirement, not per element.** Thirty-four walls missing a
+  fire rating is one piece of work, and thirty-four issues would bury every
+  other requirement.
+- **Re-exporting after a new revision updates the same topics** rather than
+  duplicating the list, because a topic's identity comes from the project and
+  the requirement — not from the file you exported it from.
+- **A requirement you confirmed manually arrives closed**, with your note as a
+  comment. If the confirmation was made about an older revision it arrives
+  open, and the comment says so — a signature does not silently follow the
+  building into its next version.
+
+There is no snapshot image in the file. GRID renders your model in the
+browser, so the server has no camera to take one with, and a blank thumbnail
+would read as "nothing to see here".
+
 It reads **no geometry**. Fluchtweglängen, Geländerhöhen, Brandabschnittsgrößen
 and Belichtung per room are not checked at all, and the screen says so. This is
 an *orientierende Prüfung* — not a Nachweis and not legal advice.

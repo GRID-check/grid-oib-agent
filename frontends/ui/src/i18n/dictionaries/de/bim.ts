@@ -182,6 +182,10 @@ export const bim: typeof en.bim = {
         'Diese Werte im CAD ergänzen, dann werden die Anforderungen oben entscheidbar. Das ist die Liste, keine Note.',
       count: 'an {count} Bauteilen',
     },
+    export: {
+      action: '{count} offene Punkte als BCF',
+      hint: 'BCF 2.1 — öffnet in ArchiCAD, Revit, Solibri oder BIMcollab als Aufgabenliste und markiert die betroffenen Bauteile im Modell.',
+    },
   },
   complianceDiff: {
     title: 'Was dieser Stand verändert hat',

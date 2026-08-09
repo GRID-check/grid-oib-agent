@@ -180,6 +180,10 @@ export const bim = {
         'Add these in your CAD and the requirements above become decidable. This is the list, not a score.',
       count: 'on {count} elements',
     },
+    export: {
+      action: '{count} open items as BCF',
+      hint: 'BCF 2.1 — opens in ArchiCAD, Revit, Solibri or BIMcollab as a task list and selects the affected elements in the model.',
+    },
   },
   complianceDiff: {
     title: 'What this revision changed',

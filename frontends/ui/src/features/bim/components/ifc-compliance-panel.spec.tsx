@@ -110,12 +110,43 @@ function panel(overrides: Partial<React.ComponentProps<typeof IfcCompliancePanel
       modelFilename="haus-a.ifc"
       missingFacts={[]}
       askHref="/app/projects/p1/chat?ask=x"
+      bcfHref="/api/projects/p1/bim/checks/export?modelId=m1"
       {...overrides}
     />
   )
 }
 
 describe('IfcCompliancePanel', () => {
+  it('offers the open items as a BCF download, counting only the rules with work left', () => {
+    // The count must match what the archive actually carries: `FAILING` has
+    // failures and `UNDECIDABLE` has unknowns; `STOOD_DOWN` is out of scope
+    // and never becomes a topic.
+    panel()
+
+    const link = screen.getByRole('link', { name: /2 open items as BCF/ })
+    expect(link).toHaveAttribute('href', '/api/projects/p1/bim/checks/export?modelId=m1')
+    expect(link).toHaveAttribute('download')
+  })
+
+  it('names the tools the file opens in, because BCF means nothing on its own', () => {
+    panel()
+
+    expect(screen.getByText(/opens in ArchiCAD, Revit, Solibri or BIMcollab/)).toBeInTheDocument()
+  })
+
+  it('hides the download when the ledger has nothing to export', () => {
+    // A BCF with no topics is a valid file and a confusing button.
+    panel({ rules: [STOOD_DOWN] })
+
+    expect(screen.queryByRole('link', { name: /as BCF/ })).not.toBeInTheDocument()
+  })
+
+  it('hides the download before the catalogue has run', () => {
+    panel({ rules: null, bcfHref: null })
+
+    expect(screen.queryByRole('link', { name: /as BCF/ })).not.toBeInTheDocument()
+  })
+
   it('shows the threshold beside every rule, not just the verdict', () => {
     panel()
     // The architect checks the RULE, not only the result.

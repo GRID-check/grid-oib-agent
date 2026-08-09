@@ -19,6 +19,7 @@ import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { extractIfcModel } from './extract'
 import type { BimModelIndex } from './types'
+import { readZipEntries } from '@/test-utils/read-zip'
 
 vi.mock('server-only', () => ({}))
 
@@ -660,6 +661,42 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       ruleId: 'oib2-feuerwiderstand-tragend',
     })
     expect(await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)).toEqual([])
+  })
+
+  it('exports the catalogue’s open items as a BCF an unzip can read', async () => {
+    // The BCF unit tests build from hand-written verdicts. This one starts at
+    // the fixture IFC and ends at bytes, so an element the catalogue flags but
+    // the exporter cannot name would surface here and nowhere else.
+    const { buildComplianceBcf } = await import('./bcf')
+    const { attachConfirmations } = await import('./rules')
+
+    const rules = await run(bimQuerySchema.parse({ op: 'compliance', gebaeudeklasse: 5 }))
+    const bcf = buildComplianceBcf({
+      projectId: FIXTURE_PROJECT,
+      projectName: 'Integrationsfixture',
+      model: {
+        id: modelId,
+        filename: 'sample-building.ifc',
+        ifcProjectGlobalId: null,
+        updatedAt: new Date('2026-05-04T09:30:15.400Z'),
+      },
+      results: attachConfirmations(rules.compliance ?? [], [], modelId),
+      author: 'planer@example.at',
+    })
+
+    expect(bcf.topics).toBeGreaterThan(0)
+    const archive = readZipEntries(bcf.bytes)
+    expect([...archive.keys()][0]).toBe('bcf.version')
+
+    // Every GlobalId the viewpoints select must be an element that really
+    // exists in this model — a selection naming something else opens an empty
+    // topic in the CAD.
+    const known = new Set(index.elements.map((element) => element.globalId))
+    const selected = [...archive.values()]
+      .flatMap((content) => [...content.matchAll(/IfcGuid="([^"]+)"/g)])
+      .map((match) => match[1])
+    expect(selected.length).toBeGreaterThan(0)
+    expect(selected.filter((id) => !known.has(id))).toEqual([])
   })
 
   it('refuses to answer for another tenant, even with the right model id', async () => {

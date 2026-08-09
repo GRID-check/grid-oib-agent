@@ -24,6 +24,7 @@ import { useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   HelpCircle,
   MinusCircle,
   ShieldCheck,
@@ -36,6 +37,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useLocale, useTranslations } from '@/i18n'
+import { rulesWithOpenWork } from '@/lib/bim/rules'
 import type { BimComplianceSummary, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
 import { buildModelHref } from '../lib/model-link'
 
@@ -60,6 +62,15 @@ export interface IfcCompliancePanelProps {
    */
   onConfirm?: (ruleId: string, note: string) => Promise<void>
   onWithdraw?: (ruleId: string) => Promise<void>
+  /**
+   * Download URL for the BCF archive of the open items, or `null` while the
+   * catalogue has not run.
+   *
+   * A plain link rather than a fetch-and-blob: the browser's own download path
+   * shows progress, survives a slow export, and gives the architect a URL they
+   * can send to the person who actually owns the model.
+   */
+  bcfHref: string | null
 }
 
 /** Rows before a rule's list folds — the counts always speak for the rest. */
@@ -91,16 +102,34 @@ export function IfcCompliancePanel({
   askHref,
   onConfirm,
   onWithdraw,
+  bcfHref,
 }: IfcCompliancePanelProps): JSX.Element {
   const t = useTranslations('bim')
+  const openWork = rules === null ? 0 : rulesWithOpenWork(rules).length
 
   return (
     <section aria-labelledby="bim-compliance-heading" className="space-y-3">
-      <h2 id="bim-compliance-heading" className="flex items-center gap-2 text-sm font-semibold">
-        <ShieldCheck className="size-4 text-muted-foreground" aria-hidden="true" />
-        {t('compliance.title')}
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="bim-compliance-heading" className="flex items-center gap-2 text-sm font-semibold">
+          <ShieldCheck className="size-4 text-muted-foreground" aria-hidden="true" />
+          {t('compliance.title')}
+        </h2>
+        {bcfHref && openWork > 0 && (
+          <Button asChild variant="outline" size="sm">
+            {/* `download` without a value: the filename comes from the
+                response's Content-Disposition, which is the only place that
+                knows which revision was exported. */}
+            <a href={bcfHref} download>
+              <Download className="size-3.5" aria-hidden="true" />
+              {t('compliance.export.action', { count: openWork })}
+            </a>
+          </Button>
+        )}
+      </div>
       <p className="text-xs text-muted-foreground">{t('compliance.description')}</p>
+      {bcfHref && openWork > 0 && (
+        <p className="text-xs text-muted-foreground">{t('compliance.export.hint')}</p>
+      )}
 
       {isLoading && <Spinner className="size-4" />}
       {error && <p className="text-sm text-destructive">{t('compliance.failed')}</p>}

@@ -795,6 +795,18 @@ export function attachConfirmations(
 }
 
 /**
+ * Rules that leave work behind — a failure or an unknown, in scope.
+ *
+ * Distinct from {@link outstandingRules}, which asks the narrower question
+ * "what still needs a HUMAN". This one ignores confirmations: a rule somebody
+ * has signed off still describes something in the model that is wrong or
+ * unstated, which is exactly what belongs in an export to the authoring tool.
+ */
+export function rulesWithOpenWork<T extends BimRuleResult>(results: readonly T[]): T[] {
+  return results.filter((result) => result.applicable && (result.failed > 0 || result.undecidable > 0))
+}
+
+/**
  * What still needs a human before the Prüfbuch can be signed.
  *
  * A rule counts as outstanding when the catalogue could not settle it (or

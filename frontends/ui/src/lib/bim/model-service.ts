@@ -18,7 +18,10 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { buildComplianceBcf, type BcfExport } from './bcf'
+import { attachConfirmations } from './rules'
 import {
   deleteBimCheckConfirmation,
   findBimModelByDocument,
@@ -194,6 +197,73 @@ export async function confirmAccessibleCheck(
     modelId: model.id,
     confirmedBy: session.userId,
     note: input.note,
+  })
+}
+
+/**
+ * The Prüfbuch's open items as a BCF 2.1 archive.
+ *
+ * Runs the SAME query op the panel reads (`compliance`) rather than a second
+ * path to the same numbers — an export that can disagree with the screen is
+ * worse than no export, because only one of them ends up in the submission.
+ *
+ * The model must belong to this project (or be an org-wide Archiv model). That
+ * is not a second access check — `getAccessibleModel` already made one — it
+ * stops a model from being exported under a project whose confirmations were
+ * recorded about a different building.
+ */
+export async function exportAccessibleComplianceBcf(
+  session: AuthorizedSession,
+  projectId: string,
+  input: { modelId: string; gebaeudeklasse: number | null; hauptnutzung: string | null }
+): Promise<BcfExport> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:view')
+
+  const model = await getAccessibleModel(session, input.modelId)
+  if (model.projectId !== null && model.projectId !== projectId) {
+    throw new NotFoundError('Model not found in this project')
+  }
+
+  const [result, confirmations, project] = await Promise.all([
+    runBimQuery(
+      {
+        op: 'compliance',
+        gebaeudeklasse: input.gebaeudeklasse,
+        hauptnutzung: input.hauptnutzung,
+      },
+      { modelId: model.id, organizationId: session.organizationId }
+    ),
+    listBimCheckConfirmations(session.organizationId, projectId),
+    findProjectInOrg(projectId, session.organizationId),
+  ])
+
+  const results = attachConfirmations(
+    result.compliance ?? [],
+    confirmations.map((entry) => ({
+      ruleId: entry.ruleId,
+      modelId: entry.modelId,
+      confirmedBy: entry.confirmedBy,
+      note: entry.note,
+      confirmedAt: entry.confirmedAt.toISOString(),
+    })),
+    model.id
+  )
+
+  const root = model.summary?.spatial
+  return buildComplianceBcf({
+    projectId,
+    projectName: project?.name ?? null,
+    model: {
+      id: model.id,
+      filename: model.filename,
+      ifcProjectGlobalId: root?.ifcType === 'IfcProject' ? root.globalId : null,
+      updatedAt: model.updatedAt,
+    },
+    results,
+    // The person pressing export, not the person who confirmed anything — a
+    // BCF reader shows this as who raised the topic.
+    author: session.email,
   })
 }
 

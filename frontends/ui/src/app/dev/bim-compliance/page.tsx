@@ -166,6 +166,7 @@ export default function BimCompliancePreviewPage(): JSX.Element {
           modelFilename="wohnhaus-beispielgasse_V3.ifc"
           missingFacts={['Gebäudeklasse']}
           askHref="/app/projects/p1/chat?ask=x"
+          bcfHref="/api/projects/p1/bim/checks/export?modelId=m1&gebaeudeklasse=4"
         />
       </div>
     </div>

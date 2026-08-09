@@ -118,8 +118,21 @@ The whole ledger carries the same framing the applicability engine already uses:
    forward. A confirmation sits BESIDE the machine verdict, never replacing it.
    Caching the machine half is deliberately still open: it is an optimisation,
    and recomputing is always correct.
-6. **Export** — the ledger as a dossier; BCF for the undecidable and failing
-   items so they open as issues in ArchiCAD or Revit.
+6. ~~**Export**~~ **Done for BCF** — `GET /api/projects/{id}/bim/checks/export`
+   writes a BCF 2.1 archive of exactly the rules that leave work behind, one
+   topic per requirement (never per element), carrying the threshold, the
+   clause, the readings, the missing property paths and a viewpoint that
+   selects the affected GlobalIds. A rule a current confirmation covers travels
+   as `Closed`; a stale one travels `Open` and says why in a comment. Topic
+   GUIDs are UUIDv5 over (project, rule), so re-exporting after the next
+   revision updates the same topics instead of duplicating the issue list, and
+   every date comes from the data rather than a clock — an unchanged ledger
+   exports to byte-identical bytes.
+
+   The dossier half is still open: the ledger as a PDF/annex for the
+   Einreichung. BCF was first because it is the half that closes a loop —
+   the file goes back into ArchiCAD or Revit, the properties get authored, the
+   next revision makes the `undecidable` rows decidable. A dossier only reports.
 
 ## Deliberately not doing
 

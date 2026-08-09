@@ -332,6 +332,7 @@ organization. Cross-tenant and no-access both surface as 404.
 | `POST` | `/api/bim/models/{modelId}/query` | Run one structured query (below). A read, POSTed because the request is a nested filter object. |
 | `GET` | `/api/bim/models/{modelId}/source` | Short-lived presigned URL for the raw `.ifc` — the 3D viewport's input, signed against the browser-reachable endpoint. |
 | `GET`/`POST`/`DELETE` | `/api/projects/{id}/bim/checks` | Human confirmations on rule verdicts. `GET` needs `project:view` (a confirmation is part of the record everyone reads); `POST`/`DELETE` need `project:edit`. The confirming identity comes from the SESSION, never the body, and the `modelId` is re-resolved through `getAccessibleModel` so a confirmation cannot be pinned to another tenant's revision. |
+| `GET` | `/api/projects/{id}/bim/checks/export` | The Prüfbuch's open items as a BCF 2.1 archive (`?modelId=…&gebaeudeklasse=…&hauptnutzung=…`). A `GET` so the browser's own download path handles it and the URL is shareable; `project:view`, and the model must belong to the project (or be an Archiv model) so an archive cannot be built from one building's verdicts and another's confirmations. Runs the same `compliance` op the panel reads. `X-Grid-Bcf-Topics` carries the topic count. |
 | `POST` | `/api/internal/bim/query` | Service-token route for the agent's `ifc_query` tool. Resolves models by project + file name so no UUID travels through a conversation. |
 
 ### The query contract
