@@ -5,10 +5,12 @@ import { GridConfig, pullPolicyFor } from "../config";
 import { commonLabels } from "./namespaces";
 import {
   ROLLOUT,
+  assertStartupFitsRollout,
   gracefulShutdown,
   recreateRollout,
   secretChecksum,
   secretChecksumAnnotations,
+  startupBudgetSeconds,
   surgeRollout,
 } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
@@ -18,6 +20,25 @@ import { EDGE_TIMEOUT, LANGFUSE, PORT } from "../constants";
 /** Secret name. A constant rather than `secret.metadata.name` because the
  *  SecurityPolicy spec is a plain (typed) object, not a Pulumi resource input. */
 const SECRETS_NAME = "langfuse-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+
+/**
+ * The uid/gid both Langfuse images run as, verified against the pinned
+ * revision's Dockerfiles (`ARG UID=1001` / `ARG GID=1001`, `USER nextjs` and
+ * `USER expressjs`, with `/app` chowned to them).
+ *
+ * Named because it is a fact ABOUT THE IMAGE, not a preference: it must be
+ * re-checked on an image bump, and it deliberately differs from the 1000 the
+ * rest of this repo's workloads use.
+ */
+const LANGFUSE_IMAGE_UID = 1001;
+
+/**
+ * startupProbe geometry for the web tier, in one place because two things read
+ * it: the probe itself, and the plan-time assertion that it fits inside the
+ * rollout deadline. Splitting them is how the two silently disagreed.
+ */
+const WEB_STARTUP_PERIOD_SECONDS = 10;
+const WEB_STARTUP_FAILURE_THRESHOLD = 60;
 
 /**
  * Envoy Gateway requires the OIDC client secret under exactly this key
@@ -67,6 +88,22 @@ export const LANGFUSE_SECRET_KEYS = {
  */
 export function langfuseOtlpTracesEndpoint(): string {
   return `http://${LANGFUSE.web}:${PORT.langfuseWeb}${LANGFUSE.otlpTracesPath}`;
+}
+
+/**
+ * The `Basic base64(publicKey:secretKey)` header the collector presents to
+ * Langfuse's OTLP receiver.
+ *
+ * Exported, and derived in ONE place, because two things need it: the Secret
+ * this module writes, and the collector's rotation checksum. Computing it twice
+ * would mean a rotation could change the stored header without changing the
+ * hash that is supposed to force the collector to re-read it — a drift whose
+ * only symptom is telemetry quietly stopping.
+ */
+export function langfuseOtlpBasicAuth(cfg: GridConfig): pulumi.Output<string> {
+  return pulumi
+    .all([cfg.langfuse.publicKey, cfg.langfuse.secretKey])
+    .apply(([pk, sk]) => `Basic ${Buffer.from(`${pk}:${sk}`).toString("base64")}`);
 }
 
 export interface Langfuse {
@@ -131,6 +168,13 @@ export interface LangfuseInputs {
  * `/oauth2/callback` and `/logout`, while NextAuth uses
  * `/api/auth/callback/custom`, and by the time Langfuse redirects the browser
  * the WorkOS session already exists, so the second hop is silent.
+ *
+ * BOTH callbacks must be registered as redirect URIs on the Connect
+ * application. The second one is easy to talk yourself out of — it is behind an
+ * already-authenticated edge — but WorkOS validates `redirect_uri` against the
+ * application allowlist on every authorization request regardless of session
+ * state, so omitting it breaks SSO sign-in entirely while the edge gate
+ * continues to work. `docs/deployment/kubernetes.md` §9b lists both.
  */
 export function installLangfuse(
   cfg: GridConfig,
@@ -141,6 +185,16 @@ export function installLangfuse(
 ): Langfuse {
   const { langfuse: lf } = cfg;
   const publicUrl = `https://${lf.domain}`;
+
+  // The web tier's startupProbe covers a schema migration, so it is long — long
+  // enough that it once exactly equalled the rollout deadline, which turns a
+  // healthy first deploy into `ProgressDeadlineExceeded`. Checked rather than
+  // commented, because the two numbers live in different files.
+  assertStartupFitsRollout(
+    "langfuse-web",
+    ROLLOUT.langfuse,
+    startupBudgetSeconds(WEB_STARTUP_PERIOD_SECONDS, WEB_STARTUP_FAILURE_THRESHOLD),
+  );
 
   // Everything sensitive in one Secret, reached by `secretKeyRef` so no
   // credential is ever a plain value on a pod spec (readable by anything with
@@ -158,9 +212,7 @@ export function installLangfuse(
     [LANGFUSE_SECRET_KEYS.s3AccessKey]: lf.s3AccessKey,
     [LANGFUSE_SECRET_KEYS.s3SecretKey]: lf.s3SecretKey,
     [LANGFUSE_SECRET_KEYS.oidcClientSecret]: cfg.observability.oidcClientSecret,
-    [LANGFUSE_SECRET_KEYS.otlpBasicAuth]: pulumi
-      .all([lf.publicKey, lf.secretKey])
-      .apply(([pk, sk]) => `Basic ${Buffer.from(`${pk}:${sk}`).toString("base64")}`),
+    [LANGFUSE_SECRET_KEYS.otlpBasicAuth]: langfuseOtlpBasicAuth(cfg),
   };
 
   const secret = new k8s.core.v1.Secret(
@@ -279,8 +331,21 @@ export function installLangfuse(
   };
   const podSecurity: k8s.types.input.core.v1.PodSecurityContext = {
     runAsNonRoot: true,
-    runAsUser: 1000,
-    runAsGroup: 1000,
+    // 1001, matching the images — NOT the 1000 the rest of this repo uses.
+    //
+    // Both Dockerfiles create their runtime user at `ARG UID=1001` (`nextjs`
+    // on web, `expressjs` on worker) and `--chown` all of `/app` to it. The
+    // value here OVERRIDES the image's own `USER`, so a mismatched uid runs the
+    // process as an identity that owns nothing it was given — which is not
+    // hypothetical for these two, since `readOnlyRootFilesystem` is false
+    // precisely because they write under `/app` at runtime.
+    //
+    // And it cannot simply be omitted: the images declare `USER` by NAME, and
+    // `runAsNonRoot: true` against a non-numeric image user makes the kubelet
+    // refuse the pod outright ("cannot verify user is non-root"). So a number
+    // is required, and it has to be the right one.
+    runAsUser: LANGFUSE_IMAGE_UID,
+    runAsGroup: LANGFUSE_IMAGE_UID,
   };
 
   // ── web ────────────────────────────────────────────────────────────────────
@@ -298,7 +363,7 @@ export function installLangfuse(
         // corrupt — but a rollout that blocks on a lock is a worse first
         // failure than one that cannot happen.
         replicas: 1,
-        ...surgeRollout(ROLLOUT.observability),
+        ...surgeRollout(ROLLOUT.langfuse),
         selector: { matchLabels: webLabels },
         template: {
           metadata: {
@@ -313,7 +378,7 @@ export function installLangfuse(
             automountServiceAccountToken: false,
             securityContext: podSecurity,
             terminationGracePeriodSeconds:
-              gracefulShutdown(ROLLOUT.observability).terminationGracePeriodSeconds,
+              gracefulShutdown(ROLLOUT.langfuse).terminationGracePeriodSeconds,
             containers: [
               {
                 name: "langfuse-web",
@@ -358,10 +423,15 @@ export function installLangfuse(
                 // ClickHouse makes that slow. A generous startup budget keeps
                 // the kubelet from killing a pod that is mid-migration — which
                 // on a first deploy would restart the migration from the top.
+                //
+                // `ROLLOUT.langfuse.progressDeadlineSeconds` must stay above
+                // this plus minReadySeconds plus the image pull, or the deploy
+                // fails while the pod is starting normally. Asserted below, not
+                // left to this comment.
                 startupProbe: {
                   httpGet: { path: "/api/public/health", port: PORT.langfuseWeb },
-                  periodSeconds: 10,
-                  failureThreshold: 60,
+                  periodSeconds: WEB_STARTUP_PERIOD_SECONDS,
+                  failureThreshold: WEB_STARTUP_FAILURE_THRESHOLD,
                 },
                 readinessProbe: {
                   httpGet: { path: "/api/public/health", port: PORT.langfuseWeb },
@@ -408,7 +478,7 @@ export function installLangfuse(
         // worker is mid-batch against a schema the NEW web tier may have just
         // migrated. A gap costs queue depth, which is bounded and visible;
         // an overlap costs failed inserts, which are neither.
-        ...recreateRollout(ROLLOUT.observability),
+        ...recreateRollout(ROLLOUT.langfuse),
         selector: { matchLabels: workerLabels },
         template: {
           metadata: {
@@ -420,7 +490,7 @@ export function installLangfuse(
             automountServiceAccountToken: false,
             securityContext: podSecurity,
             terminationGracePeriodSeconds:
-              gracefulShutdown(ROLLOUT.observability).terminationGracePeriodSeconds,
+              gracefulShutdown(ROLLOUT.langfuse).terminationGracePeriodSeconds,
             containers: [
               {
                 name: "langfuse-worker",

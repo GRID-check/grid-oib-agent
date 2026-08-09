@@ -55,7 +55,9 @@ export function langfuseStackConfig(): Record<string, string> {
     "grid-oib:langfusePublicKey": "pk-lf-test", // pragma: allowlist secret
     "grid-oib:langfuseSecretKey": "sk-lf-test", // pragma: allowlist secret
     "grid-oib:langfuseDbPassword": "lf-db", // pragma: allowlist secret
-    "grid-oib:langfuseClickhousePassword": "lf-ch", // pragma: allowlist secret
+    // URL-safe on purpose — loadConfig refuses anything else, because the
+    // ClickHouse migrator interpolates this into a query string unencoded.
+    "grid-oib:langfuseClickhousePassword": "lf-ch-0123456789", // pragma: allowlist secret
     // Distinct from dragonflyPassword and rateLimitStorePassword above —
     // loadConfig refuses a collision, which is itself asserted in config.spec.
     "grid-oib:langfuseQueuePassword": "lf-queue", // pragma: allowlist secret

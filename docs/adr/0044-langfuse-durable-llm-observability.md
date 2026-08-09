@@ -112,8 +112,11 @@ already exist here:
   `/logout`, NextAuth uses `/api/auth/callback/custom`, and the second hop is
   silent because the WorkOS session already exists.
 
-  One Connect application serves both routes with one redirect URI each, rather
-  than a fourth OIDC triple for an operator to provision and mis-scope.
+  One Connect application serves both routes rather than a fourth OIDC triple
+  for an operator to provision and mis-scope. It carries three redirect URIs:
+  Envoy's callback on each host, plus Langfuse's own `/api/auth/callback/custom`
+  — which WorkOS validates against the allowlist like any other, session or no
+  session, so leaving it out breaks SSO while the edge gate keeps working.
 
 - **Ingestion keys are pre-seeded** via headless initialization
   (`LANGFUSE_INIT_PROJECT_*`). This is what makes the tier deployable in one

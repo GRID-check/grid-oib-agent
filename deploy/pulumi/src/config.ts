@@ -1736,6 +1736,38 @@ export function loadConfig(): GridConfig {
         );
       }
     }
+    // The ClickHouse password must be URL-SAFE, and this is the guard that
+    // stops the tier's own documented setup from breaking itself.
+    //
+    // Langfuse's ClickHouse migrator builds its connection string by raw shell
+    // interpolation — `packages/shared/clickhouse/scripts/up.sh`:
+    //
+    //     DATABASE_URL="${CLICKHOUSE_MIGRATION_URL}?username=${CLICKHOUSE_USER}
+    //       &password=${CLICKHOUSE_PASSWORD}&database=${CLICKHOUSE_DB}&..."
+    //
+    // Nothing percent-encodes that value. Every other secret in this program is
+    // generated with `openssl rand -base64 32`, which for 32 bytes ALWAYS ends
+    // in `=` and frequently contains `+` — so following the house convention
+    // here produces a password that truncates or corrupts the query string. The
+    // result is a langfuse-web container that fails the ClickHouse migration
+    // and exits: CrashLoopBackOff, with nothing in the logs but a generic HINT
+    // about special characters. Upstream only warns; this refuses.
+    //
+    // Unreserved characters (RFC 3986 §2.3) rather than a blocklist of what
+    // breaks today: a blocklist has to be right about every future
+    // interpolation site, and this value crosses a shell, a query string and a
+    // Go URL parser before it reaches ClickHouse.
+    const clickhousePasswordRaw = (cfg.get("langfuseClickhousePassword") ?? "").trim();
+    if (!/^[A-Za-z0-9._~-]+$/.test(clickhousePasswordRaw)) {
+      throw new Error(
+        "grid-oib:langfuseClickhousePassword must contain only URL-safe characters " +
+          "(A-Z a-z 0-9 . _ ~ -). Langfuse's ClickHouse migrator interpolates it into a " +
+          "connection-string query parameter without encoding it, so `+`, `=`, `/` or `&` — " +
+          "all of which `openssl rand -base64 32` produces — break the migration and " +
+          "crash-loop langfuse-web. Generate this one with `openssl rand -hex 32` instead.",
+      );
+    }
+
     // NOTE ON NETWORKPOLICIES, which this tier needs just as much as the
     // dashboard does — the trace store, its ClickHouse and its ingestion queue
     // all sit in the app namespace holding every tenant's prompts and LLM

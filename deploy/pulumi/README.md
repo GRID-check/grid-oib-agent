@@ -260,7 +260,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 `langfuseSalt` | — | `SALT`, hashes stored API keys. Rotating it invalidates every key including the collector's |
 | 🔒 `langfuseNextAuthSecret` | — | Signs the Langfuse session cookie |
 | 🔒 `langfuseDbPassword` | — | Login for the dedicated `langfuse_app` Postgres role, which owns the `langfuse` database and nothing else (it runs its own Prisma migrations, so it holds DDL rights) |
-| 🔒 `langfuseClickhousePassword` | — | ClickHouse login |
+| 🔒 `langfuseClickhousePassword` | — | ClickHouse login. **URL-safe characters only** (`A-Za-z0-9._~-`), enforced at load time: Langfuse's ClickHouse migrator interpolates it into a connection-string query parameter with no encoding, so the house `openssl rand -base64 32` — which always ends in `=` — corrupts the URL and crash-loops langfuse-web on the migration. Use `openssl rand -hex 32` |
 | 🔒 `langfuseQueuePassword` | — | `requirepass` for the ingestion queue. **Must differ** from `dragonflyPassword` and `rateLimitStorePassword` (refused at load time): every app pod holds the cache URL, and a shared password would let anything reading one pod's env drain the queue |
 | 🔒 `langfuseS3SecretKey` | — | Secret for the `grid-langfuse` S3 identity, scoped to the `langfuse` bucket alone. **Must differ** from every other SeaweedFS secret (refused at load time) — SeaweedFS authenticates by key, so sharing one confers that identity's wider bucket scope |
 | `langfuseS3AccessKey` | `grid-langfuse` | Its access key. An identity NAME, so it must match the entry in `s3.json` — hence a default |

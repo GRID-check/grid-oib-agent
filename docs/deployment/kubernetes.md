@@ -1622,15 +1622,20 @@ CNPG cluster, and one `langfuse` bucket on SeaweedFS reached by a dedicated
 ### One-time WorkOS setup
 
 Langfuse reuses **the same Connect application** as the Aspire dashboard (§9) —
-do not create a second one. Add one redirect URI to it:
+do not create a second one. Add **both** of these redirect URIs to it:
 
 ```
-https://langfuse.<baseDomain>/oauth2/callback
+https://langfuse.<baseDomain>/oauth2/callback          # Envoy's OIDC callback
+https://langfuse.<baseDomain>/api/auth/callback/custom # Langfuse's own SSO (NextAuth)
 ```
 
-That is Envoy's callback. Langfuse's own SSO uses
-`/api/auth/callback/custom` on the same host and needs no registration, because
-it runs against the same issuer behind Envoy's completed session.
+Both are required, and the second is the one that is easy to skip. Being behind
+Envoy's completed session does not exempt it: WorkOS validates `redirect_uri`
+against the application's allowlist on every authorization request, and the
+docs are explicit — *"Without a valid redirect URI, your users will be unable
+to sign in."* Omit it and the edge gate passes, then Langfuse's SSO button dies
+at `/oauth2/authorize`, leaving only the break-glass password account working.
+That reads as "SSO is broken" rather than "a URI is missing".
 
 Access requires the `platform:organizations:view` permission, enforced at the
 edge exactly as in §9. Langfuse's own SSO alone would admit anyone who can sign
@@ -1640,13 +1645,25 @@ so do not remove it on the grounds that "Langfuse has its own login".
 ### Configuration
 
 ```bash
-# Generate the secrets. NOTE the encryption key is HEX, not base64 — it is the
-# only one here that is, and a base64 value (44 chars) crash-loops the web
-# container without naming the variable.
-pulumi config set --secret grid-oib:langfuseEncryptionKey  "$(openssl rand -hex 32)"
+# TWO of these are HEX, not base64, and both for reasons that bite at runtime
+# rather than at config time:
+#
+#   langfuseEncryptionKey      must be exactly 64 hex chars (a 256-bit key);
+#                              a 44-char base64 value crash-loops the web
+#                              container without naming the variable.
+#   langfuseClickhousePassword must be URL-safe. Langfuse's ClickHouse migrator
+#                              interpolates it into a connection-string query
+#                              parameter with no encoding, and base64 always
+#                              ends in `=` and often contains `+`.
+#
+# `loadConfig` rejects both at preview time, so a mistake here is a message,
+# not a CrashLoopBackOff.
+pulumi config set --secret grid-oib:langfuseEncryptionKey      "$(openssl rand -hex 32)"
+pulumi config set --secret grid-oib:langfuseClickhousePassword "$(openssl rand -hex 32)"
+
+# The rest are ordinary base64 secrets — nothing interpolates them unencoded.
 for k in langfuseSalt langfuseNextAuthSecret langfuseDbPassword \
-         langfuseClickhousePassword langfuseQueuePassword langfuseS3SecretKey \
-         langfuseInitUserPassword; do
+         langfuseQueuePassword langfuseS3SecretKey langfuseInitUserPassword; do
   pulumi config set --secret "grid-oib:$k" "$(openssl rand -base64 32)"
 done
 
@@ -1661,6 +1678,8 @@ pulumi config set grid-oib:langfuseEnabled true
 `loadConfig` refuses, at preview time rather than at runtime:
 
 - an encryption key that is not exactly 64 hex characters;
+- a ClickHouse password containing anything outside `A-Za-z0-9._~-`, because
+  the migrator interpolates it into a query string unencoded;
 - an API key without its `pk-lf-` / `sk-lf-` prefix;
 - `langfuseQueuePassword` equal to `dragonflyPassword` or
   `rateLimitStorePassword` — every app pod holds the cache URL, and a shared

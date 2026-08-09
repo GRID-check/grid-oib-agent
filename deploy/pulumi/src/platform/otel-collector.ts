@@ -2,10 +2,20 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
-import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
+import {
+  ROLLOUT,
+  gracefulShutdown,
+  secretChecksum,
+  secretChecksumAnnotations,
+  surgeRollout,
+} from "./rollout";
 import { OTLP_API_KEY_SECRET_KEY } from "./observability";
 import { ERR2ISSUE_OTLP_HTTP } from "./err2issue";
-import { LANGFUSE_SECRET_KEYS, langfuseOtlpTracesEndpoint } from "./langfuse";
+import {
+  LANGFUSE_SECRET_KEYS,
+  langfuseOtlpBasicAuth,
+  langfuseOtlpTracesEndpoint,
+} from "./langfuse";
 
 const COMPONENT = "otel-collector";
 const OTLP_GRPC_PORT = 4317;
@@ -221,7 +231,23 @@ service:
         ...surgeRollout(ROLLOUT.observability),
         selector: { matchLabels: labels },
         template: {
-          metadata: { labels },
+          metadata: {
+            labels,
+            // Both of this pod's credentials arrive by `secretKeyRef`, which is
+            // read ONCE at container start (rollout.ts §5). Without this the
+            // collector keeps presenting a retired key after a rotation while
+            // `pulumi up` reports success — and the symptom is the quietest one
+            // in the tier: the exporters 401 and telemetry simply stops.
+            //
+            // The Langfuse half is what made this urgent, but the annotation
+            // covers the Aspire key too, which had the same gap.
+            annotations: secretChecksumAnnotations(
+              secretChecksum({
+                "otlp-api-key": cfg.observability.otelPrimaryApiKey,
+                ...(cfg.langfuse.enabled ? { "langfuse-otlp-auth": langfuseOtlpBasicAuth(cfg) } : {}),
+              }),
+            ),
+          },
           spec: {
             enableServiceLinks: false,
             // No K8s API access needed — don't hand the pod an API token.

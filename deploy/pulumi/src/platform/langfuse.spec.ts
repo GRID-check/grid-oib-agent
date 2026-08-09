@@ -167,6 +167,18 @@ describe("with the Langfuse tier enabled", () => {
       expect(env.LANGFUSE_OTLP_AUTH).toBeDefined();
     });
 
+    it("rolls the collector when the ingestion key rotates", async () => {
+      // `secretKeyRef` is read once at container start. Without a checksum on
+      // the pod template, rotating the Langfuse keys updates the Secret,
+      // restarts nothing, and leaves the collector presenting a retired header
+      // — 401s, and traces that simply stop, while `pulumi up` reports success.
+      const spec = (await resolve(
+        find("kubernetes:apps/v1:Deployment", "otel-collector").inputs.spec,
+      )) as any;
+
+      expect(Object.keys(spec.template.metadata.annotations ?? {}).join()).toMatch(/checksum/i);
+    });
+
     it("bounds the Langfuse queue so an outage cannot starve the dashboard", () => {
       // Both exporters share one pipeline, so unbounded buffering on one of
       // them becomes `memory_limiter` back-pressure on the other.
@@ -191,6 +203,44 @@ describe("with the Langfuse tier enabled", () => {
         find("kubernetes:apps/v1:Deployment", "langfuse-web").inputs.spec,
       )) as any;
       expect(spec.replicas).toBe(1);
+    });
+
+    it("gives the migration longer than the rollout deadline allows to fail it", async () => {
+      // The failure this guards is the most misleading in the tier: a first
+      // deploy whose migrations run for the documented ~10 minutes gets marked
+      // ProgressDeadlineExceeded and fails `pulumi up` while the pod is doing
+      // exactly what it was configured to do. `assertStartupFitsRollout` throws
+      // at plan time if this stops holding; this pins the resulting numbers.
+      const spec = (await resolve(
+        find("kubernetes:apps/v1:Deployment", "langfuse-web").inputs.spec,
+      )) as any;
+      const probe = spec.template.spec.containers[0].startupProbe;
+      const probeBudget = probe.periodSeconds * probe.failureThreshold;
+
+      expect(spec.progressDeadlineSeconds).toBeGreaterThan(
+        probeBudget + spec.minReadySeconds,
+      );
+    });
+  });
+
+  describe("runtime user", () => {
+    // Both Dockerfiles build their runtime user at `ARG UID=1001` and chown
+    // /app to it. `runAsUser` OVERRIDES the image's USER, so 1000 — the value
+    // every other workload in this repo uses — would run the process as an
+    // identity owning none of its own files. And it cannot be omitted: the
+    // images name their user (`nextjs` / `expressjs`) rather than numbering it,
+    // and `runAsNonRoot` against a non-numeric image user makes the kubelet
+    // refuse the pod outright.
+    it.each(["langfuse-web", "langfuse-worker"])("runs %s as the uid its image owns", async (name) => {
+      const spec = (await resolve(
+        find("kubernetes:apps/v1:Deployment", name).inputs.spec,
+      )) as any;
+
+      expect(spec.template.spec.securityContext).toMatchObject({
+        runAsNonRoot: true,
+        runAsUser: 1001,
+        runAsGroup: 1001,
+      });
     });
   });
 
@@ -365,6 +415,31 @@ describe("with the Langfuse tier enabled", () => {
   });
 });
 
+describe("the rollout-budget guard", () => {
+  // A guard that cannot fire is worse than no guard — it reads as protection
+  // that was considered and applied. So this asserts the arithmetic REFUSES a
+  // bad combination, not merely that today's numbers happen to pass.
+  it("refuses a probe budget that can outlive its rollout deadline", async () => {
+    const { assertStartupFitsRollout } = await import("./rollout");
+
+    expect(() =>
+      assertStartupFitsRollout(
+        "test-workload",
+        { minReadySeconds: 10, progressDeadlineSeconds: 600, terminationGracePeriodSeconds: 30, endpointDrainSeconds: 0 },
+        600, // exactly the deadline — the shape the Langfuse web tier shipped with
+      ),
+    ).toThrow(/exceeds progressDeadlineSeconds/);
+  });
+
+  it("accepts a deadline with room for the probe, the soak and the image pull", async () => {
+    const { assertStartupFitsRollout, ROLLOUT, startupBudgetSeconds } = await import("./rollout");
+
+    expect(() =>
+      assertStartupFitsRollout("langfuse-web", ROLLOUT.langfuse, startupBudgetSeconds(10, 60)),
+    ).not.toThrow();
+  });
+});
+
 describe("config gating", () => {
   function loadWith(values: Record<string, string>, omit: string[] = []): Error | null {
     const config: Record<string, string> = {
@@ -402,6 +477,26 @@ describe("config gating", () => {
   ])("refuses %s without the prefix Langfuse validates", (key, prefix) => {
     const error = loadWith({ [`grid-oib:${key}`]: "not-a-key" });
     expect(error?.message).toContain(prefix);
+  });
+
+  // The house convention for every other secret here is `openssl rand -base64
+  // 32`, which for 32 bytes ALWAYS ends in `=` and often contains `+`. Langfuse
+  // interpolates this one into a connection-string query parameter unencoded
+  // (`clickhouse/scripts/up.sh`), so following the convention breaks the
+  // ClickHouse migration and crash-loops langfuse-web — with nothing in the
+  // logs but a generic hint about special characters.
+  it.each([
+    ["base64 padding", "c2VjcmV0LXZhbHVlLWZvci10ZXN0aW5nLW9ubHk="],
+    ["a plus sign", "abc+def"],
+    ["an ampersand", "abc&def"],
+    ["a slash", "abc/def"],
+  ])("refuses a ClickHouse password containing %s", (_label, value) => {
+    const error = loadWith({ "grid-oib:langfuseClickhousePassword": value });
+    expect(error?.message).toMatch(/must contain only URL-safe characters/);
+  });
+
+  it("accepts a hex ClickHouse password, which is what the docs now generate", () => {
+    expect(loadWith({ "grid-oib:langfuseClickhousePassword": "a".repeat(64) })).toBeNull();
   });
 
   it("refuses a queue password shared with another Redis instance", () => {

@@ -668,7 +668,7 @@ services:
       # `langfuse_app`, not `aiq`: Langfuse runs its own Prisma migrations, so
       # its credential holds DDL rights and must not reach grid_app. The role
       # and database come from init-db.sql.
-      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD:-langfuse_dev}@postgres:5432/langfuse
+      DATABASE_URL: postgresql://langfuse_app:langfuse_dev@postgres:5432/langfuse  # pragma: allowlist secret (compose dev default, fixed by init-db.sql)
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       CLICKHOUSE_DB: langfuse
@@ -731,7 +731,7 @@ services:
     container_name: aiq-langfuse-worker
     profiles: [langfuse]
     environment:
-      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD:-langfuse_dev}@postgres:5432/langfuse
+      DATABASE_URL: postgresql://langfuse_app:langfuse_dev@postgres:5432/langfuse  # pragma: allowlist secret (compose dev default, fixed by init-db.sql)
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       CLICKHOUSE_DB: langfuse
