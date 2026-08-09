@@ -13,6 +13,7 @@ import {
 import { projects } from './projects'
 import { documents } from './documents'
 import type { BimClassification, BimModelStatus, BimModelSummary, BimPropertySets, BimQuantitySets } from '@/lib/bim/types'
+import type { StoredRuleInputs } from '@/lib/bim/rule-inputs'
 
 /**
  * One parsed IFC model. Exactly one per `documents` row — a model is not a
@@ -50,6 +51,11 @@ export const bimModels = pgTable(
     summary: jsonb('summary').$type<BimModelSummary>(),
     /** Number of `bim_elements` rows written (post-cap). */
     elementCount: integer('element_count').notNull().default(0),
+    /**
+     * Pruned per-element inputs for the rule catalogue — see
+     * `lib/bim/rule-inputs.ts`. NULL until the first compliance run fills it.
+     */
+    ruleInputs: jsonb('rule_inputs').$type<StoredRuleInputs>(),
     errorMessage: text('error_message'),
     extractedAt: timestamp('extracted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

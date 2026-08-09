@@ -31,6 +31,8 @@ import {
   listBimElements,
   loadBimElementsForComparison,
   loadBimElementsForSchedule,
+  loadBimRuleInputs,
+  saveBimRuleInputs,
   listBimPropertyCatalog,
   type BimElementListRow,
   type BimGroupedCount,
@@ -38,6 +40,7 @@ import {
   type BimPropertyCatalogEntry,
 } from './repository'
 import { readComplianceCache, writeComplianceCache } from './compliance-cache'
+import { buildStoredRuleInputs, readStoredRuleInputs } from './rule-inputs'
 import { compareModels, renderComparison, type BimComparison } from './compare'
 import { deriveProfileSuggestions, renderProfileSuggestions, type BimProfileSuggestion } from './profile'
 import {
@@ -705,15 +708,30 @@ export async function runBimQuery(
       )
       if (cached) return finish({ ...modelBase, ...cached })
 
+      // The fast path: a single column of a single row, ~120 bytes per element
+      // instead of ~1 199, no `jsonb_each`, one parse. See `rule-inputs.ts`.
+      const stored = readStoredRuleInputs(
+        await loadBimRuleInputs(context.modelId, context.organizationId)
+      )
+
       // `truncated` is NOT optional here. The loader caps at 50 000 rows, and
       // a catalogue run over a capped page reports verdict counts for part of
       // a building as though they covered all of it — the Prüfbuch, the BCF
-      // export and the signed confirmation all inherit that. Discarding this
-      // flag was the bug the comment above was written to prevent.
-      const { elements, truncated } = await loadBimElementsForSchedule(
-        context.modelId,
-        context.organizationId
-      )
+      // export and the signed confirmation all inherit that.
+      const { elements, truncated } = stored
+        ? { elements: stored.elements, truncated: stored.truncated }
+        : await loadBimElementsForSchedule(context.modelId, context.organizationId)
+
+      // Models extracted before the projection existed have none. The first
+      // reader pays the old cost once and leaves it behind for everyone else,
+      // which is why there is no backfill job.
+      if (!stored) {
+        await saveBimRuleInputs(
+          context.modelId,
+          context.organizationId,
+          buildStoredRuleInputs(elements, truncated)
+        )
+      }
       const compliance = runBimRules(elements, {
         gebaeudeklasse: request.gebaeudeklasse ?? null,
         hauptnutzung: request.hauptnutzung ?? null,

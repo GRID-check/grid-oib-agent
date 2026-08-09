@@ -260,6 +260,13 @@
       "when": 1785628800005,
       "tag": "0036_drop_unused_bim_property_index",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785715200005,
+      "tag": "0037_bim_rule_inputs",
+      "breakpoints": true
     }
   ]
 }

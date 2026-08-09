@@ -20,6 +20,8 @@ import {
   type BimElementRow,
   type BimModelRow,
 } from '@/lib/db/schema'
+import { buildStoredRuleInputs } from './rule-inputs'
+import type { StoredRuleInputs } from './rule-inputs'
 import type { BimElement, BimModelStatus, BimModelSummary } from './types'
 
 /** Hard cap for any single element page the API will serve. */
@@ -225,6 +227,12 @@ export async function completeBimModel(input: {
           schemaVersion: input.summary.schema,
           summary: input.summary,
           elementCount: input.elements.length,
+          // Computed here, inside the same transaction that writes the
+          // elements, so the FIRST person to open the Prüfbuch gets the fast
+          // path too. Extraction already holds every element in memory; the
+          // projection is a map over them and costs nothing next to the parse
+          // that produced them.
+          ruleInputs: buildStoredRuleInputs(input.elements, false),
           indexStorageKey: input.indexStorageKey,
           indexStorageBucket: input.indexStorageBucket,
           errorMessage: null,
@@ -558,6 +566,42 @@ function toBimElement(row: BimElementRow): BimElement {
  * is usually over a filtered set ("every load-bearing wall") while a room
  * schedule is over all of them. Bounded by the same cap for the same reason.
  */
+/**
+ * The precomputed rule inputs for a model, or `null` when it has none.
+ *
+ * One column of one row: no `jsonb_each`, no per-element work, one parse. This
+ * is the read that replaces a 50 000-row, ~60 MB scan on the compliance path.
+ */
+export async function loadBimRuleInputs(
+  modelId: string,
+  organizationId: string
+): Promise<unknown | null> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ ruleInputs: bimModels.ruleInputs })
+      .from(bimModels)
+      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId)))
+      .limit(1)
+  )
+  return rows[0]?.ruleInputs ?? null
+}
+
+/** Persist the projection so the next reader does not repeat the scan. */
+export async function saveBimRuleInputs(
+  modelId: string,
+  organizationId: string,
+  ruleInputs: StoredRuleInputs
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(bimModels)
+      .set({ ruleInputs })
+      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId)))
+  )
+}
+
 export async function loadBimElementsForSchedule(
   modelId: string,
   organizationId: string,
