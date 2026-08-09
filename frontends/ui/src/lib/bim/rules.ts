@@ -51,6 +51,15 @@ export interface BimRuleFacts {
   gebaeudeklasse?: number | null
   /** Intake use token: `wohnen`, `buero`, `beherbergung`, … */
   hauptnutzung?: string | null
+  /**
+   * Metres per model length unit, from `summary.units.length.siScale`
+   * (millimetres → 0.001).
+   *
+   * The model DECLARES this, so a rule that guesses is a rule that can be
+   * wrong. Passed in rather than sniffed because the declaration lives in the
+   * summary and the rules only ever see elements.
+   */
+  lengthScale?: number | null
 }
 
 /** One element's verdict under one rule. */
@@ -141,25 +150,31 @@ function numericProperty(element: BimElement, keys: readonly string[]): number |
 }
 
 /**
- * Millimetres or metres?
+ * A model length, in metres.
  *
- * IFC length values arrive in the model's own unit, and the two conventions in
- * the wild differ by a factor of a thousand. A door "width" of 900 is 0.9 m and
- * one of 0.9 is also 0.9 m — reading the first as 900 m would pass every
- * conceivable threshold, which is precisely the silent-wrong-answer this whole
- * subsystem exists to avoid. Values above 20 are treated as millimetres, which
- * is unambiguous for every dimension this catalog reads (door widths, riser
- * heights, room heights: none is legitimately 20 m or more, and none is
- * legitimately 20 mm or less).
+ * IFC length values arrive in the model's own unit, and the conventions in the
+ * wild differ by a factor of a thousand. A door "width" of 900 is 0.9 m and one
+ * of 0.9 is also 0.9 m — reading the first as 900 m would clear every
+ * threshold ever written, which is precisely the silent-wrong-answer this whole
+ * subsystem exists to avoid.
+ *
+ * The model DECLARES its unit (`IfcUnitAssignment` → `summary.units.length`),
+ * so the declaration is authoritative and is used whenever it is present. The
+ * magnitude guess below is the fallback for a model that declares nothing, and
+ * only that: it is unambiguous for every dimension this catalog reads (door
+ * widths, riser heights, room heights — none is legitimately 20 m or more, and
+ * none is legitimately 20 mm or less), but it is still a guess, and a guess
+ * loses to a declaration every time.
  */
-function toMetres(value: number | null): number | null {
+function toMetres(value: number | null, scale?: number | null): number | null {
   if (value === null) return null
+  if (typeof scale === 'number' && Number.isFinite(scale) && scale > 0) return value * scale
   return value > 20 ? value / 1000 : value
 }
 
-/** Same disambiguation for centimetre-scale stair dimensions. */
-function toCentimetres(value: number | null): number | null {
-  const metres = toMetres(value)
+/** Same conversion, expressed in centimetres for stair dimensions. */
+function toCentimetres(value: number | null, scale?: number | null): number | null {
+  const metres = toMetres(value, scale)
   return metres === null ? null : metres * 100
 }
 
@@ -189,11 +204,39 @@ function fireResistanceMinutes(raw: string): number | null {
   return Number.isFinite(minutes) ? minutes : null
 }
 
-/** Does the declared rating carry every letter the requirement asks for? */
-function coversCriteria(declared: string, required: string): boolean {
-  const letters = /^[A-Za-z]+/.exec(required.trim())?.[0]?.toUpperCase() ?? ''
+/** The European criteria letters, the only system this catalog can compare. */
+const EURO_CRITERIA = new Set(['R', 'E', 'I', 'M', 'W', 'S', 'C'])
+
+/**
+ * Compare a declared rating against a required one.
+ *
+ * `meets` / `short` / **`unreadable`** — and the third exists because letters
+ * are not interchangeable. `EI 90` on a load-bearing wall is not `R 90`:
+ * comparing minutes alone would call it compliant, so the letters are checked
+ * too.
+ *
+ * But the converse trap is just as real. `F 90` is the older Austrian and
+ * German designation and does mean load-bearing 90 minutes; scoring it against
+ * `REI 90` on letters would mark a compliant wall as FAILING. A false alarm on
+ * a fire rating costs an architect an afternoon proving the tool wrong, and a
+ * checker that cries wolf is one nobody reads. So a designation outside the
+ * European letter system is reported as unreadable — the value is shown, the
+ * verdict is withheld, and the person decides.
+ */
+function compareFireRating(declared: string, required: string): 'meets' | 'short' | 'unreadable' {
+  const declaredMinutes = fireResistanceMinutes(declared)
+  const requiredMinutes = fireResistanceMinutes(required)
+  if (declaredMinutes === null || requiredMinutes === null) return 'unreadable'
+
+  const requiredLetters = /^[A-Za-z]+/.exec(required.trim())?.[0]?.toUpperCase() ?? ''
   const declaredLetters = /^[A-Za-z]+/.exec(declared.trim())?.[0]?.toUpperCase() ?? ''
-  return [...letters].every((letter) => declaredLetters.includes(letter))
+  // A declaration in a different letter system (F 90, T 30, …) is not
+  // comparable here, however plainly a human could read it.
+  if (declaredLetters === '' || [...declaredLetters].some((letter) => !EURO_CRITERIA.has(letter))) {
+    return 'unreadable'
+  }
+  const coversCriteria = [...requiredLetters].every((letter) => declaredLetters.includes(letter))
+  return declaredMinutes >= requiredMinutes && coversCriteria ? 'meets' : 'short'
 }
 
 /**
@@ -260,12 +303,14 @@ export const BIM_RULES: RuleDefinition[] = [
     titleDe: 'Treppen — Steigungsverhältnis',
     thresholdDe: '2 × Steigung + Auftritt = 59–65 cm, Steigung ≤ 18 cm, Auftritt ≥ 28 cm',
     ifcTypes: ['IfcStairFlight'],
-    judge: (element) => {
+    judge: (element, facts) => {
       const riser = toCentimetres(
-        numericProperty(element, ['RiserHeight']) ?? quantity(element, ['RiserHeight'])
+        numericProperty(element, ['RiserHeight']) ?? quantity(element, ['RiserHeight']),
+        facts.lengthScale
       )
       const tread = toCentimetres(
-        numericProperty(element, ['TreadLength']) ?? quantity(element, ['TreadLength'])
+        numericProperty(element, ['TreadLength']) ?? quantity(element, ['TreadLength']),
+        facts.lengthScale
       )
       if (riser === null || tread === null) {
         return {
@@ -292,10 +337,11 @@ export const BIM_RULES: RuleDefinition[] = [
     titleDe: 'Türen — lichte Durchgangsbreite',
     thresholdDe: 'lichte Durchgangsbreite ≥ 0,80 m',
     ifcTypes: ['IfcDoor'],
-    judge: (element) => {
+    judge: (element, facts) => {
       const width = toMetres(
         quantity(element, ['Width', 'ClearWidth']) ??
-          numericProperty(element, ['OverallWidth', 'ClearWidth'])
+          numericProperty(element, ['OverallWidth', 'ClearWidth']),
+        facts.lengthScale
       )
       if (width === null) {
         return {
@@ -318,10 +364,11 @@ export const BIM_RULES: RuleDefinition[] = [
     thresholdDe: 'lichte Raumhöhe ≥ 2,50 m',
     ifcTypes: ['IfcSpace'],
     scope: isOccupiedSpace,
-    judge: (element) => {
+    judge: (element, facts) => {
       const height = toMetres(
         quantity(element, ['FinishCeilingHeight', 'Height', 'ClearHeight']) ??
-          numericProperty(element, ['FinishCeilingHeight', 'Height'])
+          numericProperty(element, ['FinishCeilingHeight', 'Height']),
+        facts.lengthScale
       )
       if (height === null) {
         return {
@@ -368,20 +415,18 @@ export const BIM_RULES: RuleDefinition[] = [
           missing: 'Pset_WallCommon.FireRating (bzw. Pset_*Common.FireRating)',
         }
       }
-      const declaredMinutes = fireResistanceMinutes(declared)
-      const requiredMinutes = fireResistanceMinutes(required)
-      if (declaredMinutes === null || requiredMinutes === null) {
+      const verdict = compareFireRating(declared, required)
+      if (verdict === 'unreadable') {
         return {
           status: 'undecidable',
-          reading: `Feuerwiderstand „${declared}“ nicht als Klassifizierung lesbar — erforderlich ${required}`,
+          reading:
+            `Feuerwiderstand „${declared}“ nicht mit ${required} vergleichbar ` +
+            '(andere oder unlesbare Klassifizierung) — bitte manuell prüfen',
           missing: 'Pset_WallCommon.FireRating in der Form „REI 90“',
         }
       }
-      // Both the minutes AND the letters must hold: EI 90 on a load-bearing
-      // wall is not R 90, and comparing only the number would call it one.
-      const ok = declaredMinutes >= requiredMinutes && coversCriteria(declared, required)
       return {
-        status: ok ? 'pass' : 'fail',
+        status: verdict === 'meets' ? 'pass' : 'fail',
         reading: `Feuerwiderstand ${declared} — erforderlich ${required} (Gebäudeklasse ${facts.gebaeudeklasse})`,
       }
     },
@@ -627,6 +672,131 @@ export function missingPropertyShoppingList(
   return [...byPath.entries()]
     .map(([path, bucket]) => ({ path, elements: bucket.elements, rules: [...bucket.rules].sort() }))
     .sort((a, b) => b.elements - a.elements || a.path.localeCompare(b.path))
+}
+
+// ---------------------------------------------------------------------------
+// Regression across revisions
+// ---------------------------------------------------------------------------
+
+/** How a rule's standing moved between two revisions. */
+export type BimComplianceTrend =
+  /** Was failing (or undecidable), now passes. */
+  | 'resolved'
+  /** Was passing, now fails — the answer nobody gets today. */
+  | 'broken'
+  /** Became decidable: the model gained the property. */
+  | 'decidable'
+  /** Stopped being decidable: the model LOST the property. */
+  | 'undecidable'
+  /** Still failing, but a different number of elements. */
+  | 'moved'
+
+export interface BimComplianceChange {
+  ruleId: string
+  titleDe: string
+  richtlinie: string
+  trend: BimComplianceTrend
+  before: { passed: number; failed: number; undecidable: number }
+  after: { passed: number; failed: number; undecidable: number }
+}
+
+/** The verdict a rule's counts amount to, for trend purposes. */
+function standing(result: BimRuleResult): 'pass' | 'fail' | 'unknown' | 'empty' {
+  if (!result.applicable) return 'empty'
+  if (result.failed > 0) return 'fail'
+  if (result.passed === 0 && result.undecidable === 0) return 'empty'
+  if (result.passed === 0) return 'unknown'
+  return 'pass'
+}
+
+/**
+ * What a new revision changed about the building's standing.
+ *
+ * This is the payoff of having verdicts at all. "188 Bauteile, +17" says a
+ * revision happened; **"Treppe Ost erfüllt das Steigungsverhältnis nicht
+ * mehr"** says what it did — and that is the sentence an architect cannot get
+ * from any tool at a price a small office would pay.
+ *
+ * `undecidable` as a trend is deliberately reported and not swallowed: a
+ * revision that DROPS a property (a re-export with a different mapping, a
+ * Pset that stopped being written) silently un-checks a requirement that was
+ * green yesterday. Reporting only pass↔fail would let that pass unnoticed,
+ * which is the same silence the whole subsystem exists to break.
+ *
+ * Rules whose standing did not change are omitted — a change list that
+ * restates everything is a list nobody reads.
+ */
+export function diffBimCompliance(
+  before: readonly BimRuleResult[],
+  after: readonly BimRuleResult[]
+): BimComplianceChange[] {
+  const previous = new Map(before.map((result) => [result.ruleId, result]))
+  const changes: BimComplianceChange[] = []
+
+  for (const now of after) {
+    const then = previous.get(now.ruleId)
+    if (!then) continue
+    const from = standing(then)
+    const to = standing(now)
+
+    let trend: BimComplianceTrend | null = null
+    if (from !== to) {
+      if (to === 'pass') trend = from === 'unknown' ? 'decidable' : 'resolved'
+      else if (to === 'fail') trend = 'broken'
+      else if (to === 'unknown') trend = 'undecidable'
+    } else if (to === 'fail' && then.failed !== now.failed) {
+      // Same verdict, different scale. Worth surfacing: nine failing doors
+      // becoming two is progress, and becoming ninety is a regression, and
+      // neither shows up in a pass/fail comparison.
+      trend = 'moved'
+    }
+    if (!trend) continue
+
+    changes.push({
+      ruleId: now.ruleId,
+      titleDe: now.titleDe,
+      richtlinie: now.richtlinie,
+      trend,
+      before: { passed: then.passed, failed: then.failed, undecidable: then.undecidable },
+      after: { passed: now.passed, failed: now.failed, undecidable: now.undecidable },
+    })
+  }
+
+  // Regressions first: what a revision BROKE is the reason to read this list.
+  const order: Record<BimComplianceTrend, number> = {
+    broken: 0,
+    undecidable: 1,
+    moved: 2,
+    decidable: 3,
+    resolved: 4,
+  }
+  return changes.sort(
+    (a, b) => order[a.trend] - order[b.trend] || a.ruleId.localeCompare(b.ruleId)
+  )
+}
+
+const TREND_DE: Record<BimComplianceTrend, string> = {
+  broken: 'neu nicht erfüllt',
+  undecidable: 'nicht mehr entscheidbar (Wert im Modell entfallen)',
+  moved: 'weiterhin nicht erfüllt, andere Anzahl',
+  decidable: 'jetzt entscheidbar und erfüllt',
+  resolved: 'jetzt erfüllt',
+}
+
+/** German lines for the agent, regressions first. */
+export function renderBimComplianceDiff(changes: readonly BimComplianceChange[]): string {
+  if (changes.length === 0) {
+    return 'Keine Anforderung hat ihren Status zwischen diesen beiden Ständen geändert.'
+  }
+  return changes
+    .map(
+      (change) =>
+        `${change.richtlinie} — ${change.titleDe}: ${TREND_DE[change.trend]} ` +
+        `(${change.before.passed}/${change.before.failed}/${change.before.undecidable} → ` +
+        `${change.after.passed}/${change.after.failed}/${change.after.undecidable} ` +
+        'erfüllt/nicht erfüllt/nicht entscheidbar)'
+    )
+    .join('\n')
 }
 
 /** German one-liner per rule, for the agent to quote without doing arithmetic. */

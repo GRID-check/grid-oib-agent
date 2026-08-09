@@ -567,4 +567,12 @@ export const SCREENSHOT_TARGETS = [
       'The model surfaces that produce work products rather than views: the Raumbuch with a room that publishes no area (shown as missing, counted against the storey total, and named in the banner), the Massenermittlung split by material with a group that publishes nothing, the revision timeline with signed per-step deltas, the derived project facts with the evidence behind each one, and an element chip as it renders inside a chat answer. Every fixture here includes the awkward case on purpose — a total that quietly excludes rooms is the failure this whole subsystem exists to prevent, and only the incomplete fixtures can show that it does not.',
     waitFor: '[data-testid="bim-tables-preview"]',
   },
+  {
+    id: 'bim-compliance',
+    mobile: true,
+    path: '/dev/bim-compliance',
+    description:
+      'The Prüfbuch: OIB requirements evaluated against the values the model publishes. The fixture is deliberately a MESSY project, because a green list would prove nothing — two failing doors with the reading that produced each verdict, thirty-four walls whose fire rating the model never published, a wall declared "F 90" that the catalogue refuses to score against REI 60 rather than raising a false alarm, a rule that stood down because the brief carries no Gebäudeklasse, and a rule with no affected elements. Every row prints the threshold it applied so the architect checks the rule and not only the result, "not decidable" carries the same visual weight as a failure, and the missing-property list is rendered as actions to take in the CAD rather than as a score.',
+    waitFor: '[data-testid="bim-compliance-preview"]',
+  },
 ]

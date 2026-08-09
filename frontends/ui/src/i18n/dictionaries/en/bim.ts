@@ -5,6 +5,7 @@ export const bim = {
     'The IFC models uploaded to this project. Everything shown here is read from the model itself — the assistant answers questions about the building from the same data.',
   tabs: {
     overview: 'Overview',
+    compliance: 'Requirements',
     structure: 'Structure',
     quantities: 'Quantities',
     revisions: 'Revisions',
@@ -131,6 +132,37 @@ export const bim = {
     unchanged: 'Unchanged',
     truncated: 'At least one revision is capped — the comparison may be incomplete.',
     empty: 'No differences between these two revisions.',
+  },
+  compliance: {
+    title: 'Requirement check',
+    description:
+      "Runs the OIB rule catalogue against the values the model publishes. Orientation, not a Nachweis: nothing here reads geometry, so escape-route lengths, guardrail heights and fire-compartment sizes are not checked at all.",
+    failed: 'The requirement check could not be run.',
+    disclaimer:
+      'Orientierende Prüfung — no legal advice and no Nachweis. “Not decidable” means the model does not publish the value, not that the building fails.',
+    counts: '{passed} met · {failed} not met · {undecidable} not decidable',
+    notApplicable: 'Not applicable',
+    noElements: 'No affected elements in this model.',
+    failures: 'Not met:',
+    unknowns: 'Not decidable:',
+    showInModel: 'show in model',
+    more: '{count} more',
+    truncated: 'Further elements are affected — see the counts above.',
+    missingFacts:
+      'Some rules depend on project data this brief does not carry: {facts}. Those rules stood down rather than guessing.',
+    setFacts: 'Set it with the assistant',
+    badge: {
+      passing: 'Met',
+      failing: 'Not met',
+      undecidable: 'Not decidable',
+      notApplicable: 'Not applicable',
+    },
+    shoppingList: {
+      title: 'What the model is missing',
+      description:
+        'Add these in your CAD and the requirements above become decidable. This is the list, not a score.',
+      count: 'on {count} elements',
+    },
   },
   schedule: {
     title: 'Room schedule',

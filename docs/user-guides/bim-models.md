@@ -42,6 +42,34 @@ the way you confirm every other proposed change to the project data. A derived
 the fire-safety answer is; that is not a value a page should set behind a
 checkbox.
 
+### Anforderungen
+
+**Anforderungsprüfung** — the OIB rule catalogue run against the values your
+model publishes. Per requirement: how many elements meet it, how many do not,
+and how many **cannot be decided** because the model does not carry the value.
+
+Three things this screen does deliberately:
+
+- **Every row shows the threshold it applied**, not just the verdict —
+  *"2h + b = 63 cm, Schwellwert 59–65 cm"*. You check the rule, not only the
+  result.
+- **"Nicht entscheidbar" has the same weight as a failure.** It is not a gap in
+  the report; it is the reason the report is not finished. **Was dem Modell
+  fehlt** turns those into a list of exact property paths to add in your CAD —
+  add `Pset_WallCommon.FireRating` to 34 walls and two requirements become
+  decidable.
+- **A rule that did not apply says why.** "Gebäudeklasse nicht gesetzt" is
+  fixable; hiding the row would make an under-configured project look clean.
+
+It reads **no geometry**. Fluchtweglängen, Geländerhöhen, Brandabschnittsgrößen
+and Belichtung per room are not checked at all, and the screen says so. This is
+an *orientierende Prüfung* — not a Nachweis and not legal advice.
+
+Ask in chat too: *"Prüfe das Modell gegen die OIB-Anforderungen"*, or
+*"Was hat sich seit dem letzten Stand am Erfüllungsgrad geändert?"* — the second
+reports only the requirements whose status moved, including one that stopped
+being checkable because a re-export dropped a property.
+
 ### Struktur
 
 **Räumliche Struktur** — the Project → Site → Building → Storey → Space tree.

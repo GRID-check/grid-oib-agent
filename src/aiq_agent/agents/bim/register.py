@@ -43,6 +43,8 @@ VALID_OPERATIONS = {
     "properties",
     "aggregate",
     "compare",
+    "compliance",
+    "compliance-diff",
 }
 
 _TOOL_DESCRIPTION = (
@@ -75,6 +77,17 @@ _TOOL_DESCRIPTION = (
     "  'profile'    — project facts the MODEL implies: storeys above/below ground, the "
     "Fluchtniveau band, the main use. These are PROPOSALS with their evidence — offer them "
     "through a project_profile_patch card for the user to confirm, never state them as settled.\n"
+    "  'compliance' — run the OIB rule catalogue against the model and report, per requirement, "
+    "how many elements are erfüllt / nicht erfüllt / NICHT ENTSCHEIDBAR. The third state is the "
+    "important one: it means the model does not publish the value, NOT that the building fails. "
+    "Each row names the exact property (e.g. Pset_WallCommon.FireRating) that would settle it — "
+    "report that list, it is what the architect has to add in their CAD. Pass "
+    "gebaeudeklasse and hauptnutzung from the project data when you know them; a rule that "
+    "needs a fact it was not given stands down WITH its reason rather than guessing.\n"
+    "  'compliance-diff' — the same catalogue over two revisions, reporting only the "
+    "requirements whose STATUS MOVED. Set 'compare_with' to a substring of the OLDER file's "
+    "name. This answers 'was hat sich der letzte Stand kaputt gemacht' — including a "
+    "requirement that stopped being decidable because the re-export dropped a property.\n"
     "  'compare'    — what changed between TWO revisions of the same building. Set "
     "'compare_with' to a substring of the OLDER file's name; this model is the newer one. "
     "Matched by IFC GlobalId, so a re-export that renumbers everything still reports zero "
@@ -93,6 +106,11 @@ _TOOL_DESCRIPTION = (
     "\n"
     "For aggregate: metric is count (default), sum, avg, min or max; sum/avg/min/max need "
     "'quantity' (e.g. NetFloorArea, NetSideArea, NetVolume). groupBy is optional.\n"
+    "\n"
+    "Never turn a compliance result into a statement that the building complies. The catalogue "
+    "is an orientierende Prüfung over the values the model publishes, it reads no geometry, and "
+    "Fluchtweglängen, Geländerhöhen und Brandabschnittsgrößen are not in it at all. Say what was "
+    "checked, what was not, and what could not be decided.\n"
     "\n"
     "Report the caveat line verbatim whenever one comes back — it says which parts of the "
     "building the numbers do NOT cover, and an answer that drops it is wrong.\n"
@@ -137,6 +155,8 @@ def _build_query(
     global_id: str,
     ifc_type: str,
     limit: int,
+    gebaeudeklasse: int = 0,
+    hauptnutzung: str = "",
 ) -> dict[str, Any] | str:
     """Assemble the endpoint's query object, or return an error string.
 
@@ -147,6 +167,17 @@ def _build_query(
     """
     if operation not in VALID_OPERATIONS:
         return f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
+
+    if operation in {"compliance", "compliance-diff"}:
+        # The rule catalogue takes project facts, not element filters. A fact
+        # that was not supplied is OMITTED rather than defaulted: the rules that
+        # need it stand down with their reason, which is the honest outcome.
+        compliance_query: dict[str, Any] = {"op": operation}
+        if gebaeudeklasse and 1 <= gebaeudeklasse <= 5:
+            compliance_query["gebaeudeklasse"] = gebaeudeklasse
+        if hauptnutzung.strip():
+            compliance_query["hauptnutzung"] = hauptnutzung.strip().lower()
+        return compliance_query
 
     parsed_filters: dict[str, Any] = {}
     if filters.strip():
@@ -298,6 +329,22 @@ def _render(result: dict[str, Any], project_id: str | None = None) -> str:
         for row in (result.get("takeoff") or [])[:40]:
             missing = f", {row.get('missing')} ohne Wert" if row.get("missing") else ""
             lines.append(f"- {row.get('group')}: {row.get('value')} ({row.get('elements')} Bauteile{missing})")
+    elif op in {"compliance", "compliance-diff"}:
+        # The endpoint already renders the German verdict lines into `summary`;
+        # what the model needs on top is the shopping list, because that is the
+        # part it must hand back to the architect as actions.
+        for entry in (result.get("complianceShoppingList") or [])[:15]:
+            rules = ", ".join(entry.get("rules") or [])
+            lines.append(f"- fehlt: {entry.get('path')} an {entry.get('elements')} Bauteilen (entscheidet: {rules})")
+        for rule in (result.get("compliance") or [])[:40]:
+            for verdict in (rule.get("failures") or [])[:10]:
+                link = _element_link(project_id, filename, verdict.get("globalId"))
+                suffix = f" · Link: {link}" if link else ""
+                lines.append(
+                    f"  ✗ {rule.get('richtlinie')} {verdict.get('name') or verdict.get('globalId')}: "
+                    f"{verdict.get('reading')}{suffix}"
+                )
+
     elif op == "profile":
         for suggestion in result.get("profileSuggestions") or []:
             lines.append(
@@ -350,6 +397,8 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
         ifc_type: str = "",
         model_name: str = "",
         compare_with: str = "",
+        gebaeudeklasse: int = 0,
+        hauptnutzung: str = "",
         limit: int = 0,
     ) -> str:
         """Query the project's IFC/BIM model for exact building facts."""
@@ -367,6 +416,8 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
             global_id=global_id or "",
             ifc_type=ifc_type or "",
             limit=limit if limit and limit > 0 else tool_config.default_limit,
+            gebaeudeklasse=gebaeudeklasse or 0,
+            hauptnutzung=hauptnutzung or "",
         )
         if isinstance(query, str):
             return query

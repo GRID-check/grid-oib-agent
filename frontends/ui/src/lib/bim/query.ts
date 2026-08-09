@@ -39,10 +39,13 @@ import {
 import { compareModels, renderComparison, type BimComparison } from './compare'
 import { deriveProfileSuggestions, renderProfileSuggestions, type BimProfileSuggestion } from './profile'
 import {
+  diffBimCompliance,
   missingPropertyShoppingList,
+  renderBimComplianceDiff,
   renderBimRules,
   runBimRules,
   summarizeBimRules,
+  type BimComplianceChange,
   type BimComplianceSummary,
   type BimRuleResult,
 } from './rules'
@@ -152,6 +155,14 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
     hauptnutzung: z.string().trim().max(64).nullish(),
   }),
+  z.object({
+    /** The same catalog over two revisions, reporting only what MOVED. */
+    op: z.literal('compliance-diff'),
+    /** The OLDER revision; this model is the newer one. */
+    baseModelId: z.string().uuid().optional(),
+    gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
+    hauptnutzung: z.string().trim().max(64).nullish(),
+  }),
   z.object({ op: z.literal('profile') }),
   z.object({
     op: z.literal('takeoff'),
@@ -216,6 +227,10 @@ export interface BimQueryResult {
   /** Per-rule verdicts from the OIB rule catalog (`lib/bim/rules.ts`). */
   compliance?: BimRuleResult[]
   complianceSummary?: BimComplianceSummary
+  /** Rules whose standing moved between two revisions; only what changed. */
+  complianceChanges?: BimComplianceChange[]
+  /** The older revision a `compliance-diff` was run against. */
+  comparedWith?: string
   /** What to author in the CAD to make the undecidable rules decidable. */
   complianceShoppingList?: Array<{ path: string; elements: number; rules: string[] }>
   takeoff?: BimQuantityRow[]
@@ -494,6 +509,11 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
     }
     case 'compliance':
       return renderBimRules(result.compliance ?? [])
+    case 'compliance-diff':
+      return (
+        `Statusänderungen gegenüber ${result.comparedWith ?? 'dem Vorstand'}:\n` +
+        renderBimComplianceDiff(result.complianceChanges ?? [])
+      )
     case 'profile':
       return renderProfileSuggestions(result.profileSuggestions ?? [])
     case 'compare':
@@ -645,6 +665,9 @@ export async function runBimQuery(
       const compliance = runBimRules(elements, {
         gebaeudeklasse: request.gebaeudeklasse ?? null,
         hauptnutzung: request.hauptnutzung ?? null,
+        // The model declares its length unit; a rule that guessed could be
+        // wrong by a factor of a thousand.
+        lengthScale: model.summary?.units.length?.siScale ?? null,
       })
       return finish({
         ...modelBase,
@@ -666,6 +689,42 @@ export async function runBimQuery(
           quantity: request.quantity,
           byMaterial: request.byMaterial,
         }),
+      })
+    }
+
+    case 'compliance-diff': {
+      if (!request.baseModelId) {
+        throw new BimModelNotReadyError('failed', 'compliance-diff requires a base model')
+      }
+      const base = await findBimModelById(request.baseModelId, context.organizationId)
+      if (!base || base.status !== 'ready') {
+        throw new BimModelNotReadyError(base?.status ?? 'failed', 'Base model is not ready')
+      }
+      const ruleFacts = {
+        gebaeudeklasse: request.gebaeudeklasse ?? null,
+        hauptnutzung: request.hauptnutzung ?? null,
+      }
+      const [beforeRows, afterRows] = await Promise.all([
+        loadBimElementsForSchedule(base.id, context.organizationId),
+        loadBimElementsForSchedule(context.modelId, context.organizationId),
+      ])
+      // Each side is judged with ITS OWN declared unit: a revision re-exported
+      // from millimetres to metres would otherwise register as every dimension
+      // changing by a factor of a thousand.
+      const before = runBimRules(beforeRows.elements, {
+        ...ruleFacts,
+        lengthScale: base.summary?.units.length?.siScale ?? null,
+      })
+      const after = runBimRules(afterRows.elements, {
+        ...ruleFacts,
+        lengthScale: model.summary?.units.length?.siScale ?? null,
+      })
+      return finish({
+        ...modelBase,
+        compliance: after,
+        complianceSummary: summarizeBimRules(after),
+        complianceChanges: diffBimCompliance(before, after),
+        comparedWith: base.filename,
       })
     }
 
@@ -724,6 +783,7 @@ export async function runBimQuery(
 }
 
 export type {
+  BimComplianceChange,
   BimComplianceSummary,
   BimRuleResult,
   BimElementListRow,

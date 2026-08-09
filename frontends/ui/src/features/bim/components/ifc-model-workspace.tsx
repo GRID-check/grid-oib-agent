@@ -36,10 +36,12 @@ import {
   useBimElementDetail,
   useBimElements,
   useBimModelSource,
+  useBimCompliance,
   useBimProfileSuggestions,
   useBimRoomSchedule,
   useBimTakeoff,
   useProjectBimModels,
+  useProjectRuleFacts,
   type BimModelHeaderView,
 } from '../hooks/use-bim-model'
 import {
@@ -50,6 +52,7 @@ import {
   IfcSpatialTree,
 } from './ifc-model-explorer'
 import { IfcModelCompare } from './ifc-model-compare'
+import { IfcCompliancePanel } from './ifc-compliance-panel'
 import {
   IfcProfileSuggestions,
   IfcQuantityTakeoff,
@@ -157,6 +160,11 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
     takeoffByMaterial
   )
   const profile = useBimProfileSuggestions(tab === 'overview' ? modelId : null)
+
+  // The rule catalogue reads the project brief. A fact the brief does not
+  // carry arrives as null and the rules that need it stand down, visibly.
+  const ruleFacts = useProjectRuleFacts(projectId)
+  const compliance = useBimCompliance(tab === 'compliance' ? modelId : null, ruleFacts)
   // Only mint the presigned source URL when a viewport can actually use it.
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const sourceUrl = useBimModelSource(modelId, webGpu)
@@ -275,6 +283,7 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
           >
             <TabsList>
               <TabsTrigger value="overview">{t('tabs.overview')}</TabsTrigger>
+              <TabsTrigger value="compliance">{t('tabs.compliance')}</TabsTrigger>
               <TabsTrigger value="structure">{t('tabs.structure')}</TabsTrigger>
               <TabsTrigger value="quantities">{t('tabs.quantities')}</TabsTrigger>
               <TabsTrigger value="revisions">{t('tabs.revisions')}</TabsTrigger>
@@ -304,6 +313,23 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
                 suggestions={profile.data}
                 isLoading={profile.isLoading}
                 error={profile.error}
+                askHref={profileQuestionHref}
+              />
+            </TabsContent>
+
+            <TabsContent
+              value="compliance"
+              className="mt-3 flex min-h-0 flex-col gap-5 overflow-auto pr-1"
+            >
+              <IfcCompliancePanel
+                rules={compliance.data?.rules ?? null}
+                summary={compliance.data?.summary ?? null}
+                shoppingList={compliance.data?.shoppingList ?? null}
+                isLoading={compliance.isLoading}
+                error={compliance.error}
+                projectId={projectId}
+                modelFilename={model.filename}
+                missingFacts={ruleFacts.missing}
                 askHref={profileQuestionHref}
               />
             </TabsContent>

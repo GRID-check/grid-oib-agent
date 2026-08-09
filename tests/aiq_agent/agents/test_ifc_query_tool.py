@@ -322,3 +322,92 @@ class TestElementLinks:
             }
         )
         assert "Link:" not in rendered
+
+
+class TestComplianceOperation:
+    """The rule catalogue's tool surface.
+
+    The catalogue's whole value rests on the third state — "nicht entscheidbar"
+    — surviving the trip through the tool intact, and on a fact the agent did
+    not supply being OMITTED rather than defaulted. A default Gebäudeklasse
+    would turn a GK5 building's missing R 90 into a pass.
+    """
+
+    def test_compliance_takes_project_facts_not_element_filters(self):
+        assert build(operation="compliance", gebaeudeklasse=4, hauptnutzung="Wohnen") == {
+            "op": "compliance",
+            "gebaeudeklasse": 4,
+            "hauptnutzung": "wohnen",
+        }
+
+    def test_a_fact_that_was_not_supplied_is_omitted_rather_than_defaulted(self):
+        # The rules that need it then stand down WITH their reason, which is the
+        # honest outcome; a default would silently pick the mildest class.
+        assert build(operation="compliance") == {"op": "compliance"}
+
+    def test_an_out_of_range_gebaeudeklasse_is_dropped_not_clamped(self):
+        # Clamping 9 to 5 would invent a requirement the project never stated.
+        assert build(operation="compliance", gebaeudeklasse=9) == {"op": "compliance"}
+
+    def test_compliance_ignores_filters_it_cannot_use(self):
+        assert build(operation="compliance", filters='{"ifcTypes": ["IfcWall"]}', gebaeudeklasse=2) == {
+            "op": "compliance",
+            "gebaeudeklasse": 2,
+        }
+
+    def test_the_diff_operation_is_addressable(self):
+        assert build(operation="compliance-diff")["op"] == "compliance-diff"
+
+    def test_the_shopping_list_reaches_the_model_as_actions(self):
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "compliance",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "OIB 2 3 — Tragende Bauteile: 0 erfüllt, 0 nicht erfüllt, 34 nicht entscheidbar",
+                "complianceShoppingList": [
+                    {
+                        "path": "Pset_WallCommon.FireRating",
+                        "elements": 34,
+                        "rules": ["oib2-feuerwiderstand-tragend"],
+                    }
+                ],
+            },
+            "p1",
+        )
+        assert "fehlt: Pset_WallCommon.FireRating an 34 Bauteilen" in rendered
+
+    def test_a_failing_element_carries_its_reading_and_its_link(self):
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "compliance",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "…",
+                "compliance": [
+                    {
+                        "richtlinie": "OIB 4",
+                        "failures": [
+                            {
+                                "globalId": "0GridFixtureDoor00001",
+                                "name": "T-14",
+                                "reading": "Breite 0.7 m — Schwellwert ≥ 0,80 m",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "p1",
+        )
+        # The reading is what makes the row checkable, and the link is what
+        # makes it fixable.
+        assert "Breite 0.7 m — Schwellwert ≥ 0,80 m" in rendered
+        assert "element=0GridFixtureDoor00001" in rendered
+
+    def test_the_tool_description_forbids_declaring_the_building_compliant(self):
+        from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
+
+        assert "Never turn a compliance result into a statement that the building complies" in (_TOOL_DESCRIPTION)
+        # And it must name what the catalogue cannot see, so the agent does not
+        # present a partial check as a whole one.
+        assert "Fluchtweglängen" in _TOOL_DESCRIPTION

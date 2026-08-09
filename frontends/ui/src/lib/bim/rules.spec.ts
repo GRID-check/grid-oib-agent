@@ -17,6 +17,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BIM_RULES,
+  diffBimCompliance,
+  renderBimComplianceDiff,
   missingPropertyShoppingList,
   renderBimRules,
   runBimRules,
@@ -220,6 +222,26 @@ describe('oib2-feuerwiderstand-tragend', () => {
     expect(rule.notApplicableReason).toContain('Gebäudeklasse')
   })
 
+  it('does not cry wolf over the older F-classification', () => {
+    // F 90 is the older Austrian/German designation and DOES mean load-bearing
+    // 90 minutes. Scoring it against REI 90 on letters would mark a compliant
+    // wall as failing, and a checker that raises false alarms on fire ratings
+    // is one nobody reads. The value is shown, the verdict is withheld.
+    const rule = ruleOf(runBimRules([wall('F 90')], { gebaeudeklasse: 5 }), 'oib2-feuerwiderstand-tragend')
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0].reading).toContain('F 90')
+    expect(rule.unknowns[0].reading).toContain('manuell')
+  })
+
+  it('still fails a genuine European shortfall rather than hiding behind unreadable', () => {
+    // The escape hatch must not swallow real failures: REI 30 against REI 90 is
+    // comparable and short.
+    expect(
+      ruleOf(runBimRules([wall('REI 30')], { gebaeudeklasse: 5 }), 'oib2-feuerwiderstand-tragend').failed
+    ).toBe(1)
+  })
+
   it('reports an unreadable rating as undecidable, not as a failure', () => {
     const rule = ruleOf(
       runBimRules([wall('feuerhemmend')], { gebaeudeklasse: 3 }),
@@ -227,6 +249,36 @@ describe('oib2-feuerwiderstand-tragend', () => {
     )
     expect(rule.undecidable).toBe(1)
     expect(rule.failed).toBe(0)
+  })
+})
+
+describe('the declared unit beats the guess', () => {
+  const door = (width: number) =>
+    element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { Width: width } } })
+
+  it('uses the model\u2019s declared length scale when it has one', () => {
+    // 0.9 in a MILLIMETRE model is 0.9 mm, not 0.9 m. The magnitude guess reads
+    // it as metres and passes; the declaration is what makes this a failure.
+    const guessed = ruleOf(runBimRules([door(0.9)]), 'oib4-tuer-durchgangsbreite')
+    expect(guessed.passed).toBe(1)
+    const declared = ruleOf(
+      runBimRules([door(0.9)], { lengthScale: 0.001 }),
+      'oib4-tuer-durchgangsbreite'
+    )
+    expect(declared.failed).toBe(1)
+  })
+
+  it('reads a metre-declared model literally', () => {
+    const rule = ruleOf(runBimRules([door(900)], { lengthScale: 1 }), 'oib4-tuer-durchgangsbreite')
+    // 900 m wide, which is absurd, but the model said metres and the checker
+    // must not quietly overrule the declaration to make the answer sensible.
+    expect(rule.passed).toBe(1)
+    expect(rule.failed).toBe(0)
+  })
+
+  it('falls back to the magnitude guess when nothing is declared', () => {
+    expect(ruleOf(runBimRules([door(900)]), 'oib4-tuer-durchgangsbreite').passed).toBe(1)
+    expect(ruleOf(runBimRules([door(0.7)]), 'oib4-tuer-durchgangsbreite').failed).toBe(1)
   })
 })
 
@@ -344,5 +396,75 @@ describe('summarizeBimRules', () => {
     expect(summary.rulesUndecidable).toBe(1)
     expect(summary.rulesEmpty).toBeGreaterThan(0)
     expect(summary.elementsUndecidable).toBe(1)
+  })
+})
+
+
+describe('diffBimCompliance', () => {
+  const wall = (rating: string | null) =>
+    element({
+      ifcType: 'IfcWall',
+      name: 'W1',
+      properties: {
+        Pset_WallCommon: { LoadBearing: true, ...(rating === null ? {} : { FireRating: rating }) },
+      },
+    })
+  const facts = { gebaeudeklasse: 5 as const }
+  const runOn = (rating: string | null) => runBimRules([wall(rating)], facts)
+
+  it('names what a revision BROKE, first', () => {
+    const changes = diffBimCompliance(runOn('REI 90'), runOn('REI 30'))
+    const fire = changes.find((change) => change.ruleId === 'oib2-feuerwiderstand-tragend')
+    expect(fire?.trend).toBe('broken')
+    expect(changes[0].trend).toBe('broken')
+  })
+
+  it('reports a property the revision LOST as no longer decidable', () => {
+    // A re-export with a different mapping silently un-checks a requirement
+    // that was green yesterday. Comparing only pass↔fail would miss it.
+    const changes = diffBimCompliance(runOn('REI 90'), runOn(null))
+    expect(changes.find((change) => change.ruleId === 'oib2-feuerwiderstand-tragend')?.trend).toBe(
+      'undecidable'
+    )
+  })
+
+  it('reports a requirement that became decidable and passes', () => {
+    const changes = diffBimCompliance(runOn(null), runOn('REI 90'))
+    expect(changes.find((change) => change.ruleId === 'oib2-feuerwiderstand-tragend')?.trend).toBe(
+      'decidable'
+    )
+  })
+
+  it('says nothing about the rules that did not move', () => {
+    // A change list that restates everything is a list nobody reads.
+    expect(diffBimCompliance(runOn('REI 90'), runOn('REI 90'))).toEqual([])
+  })
+
+  it('surfaces a change of scale within the same verdict', () => {
+    const before = runBimRules(
+      [wall('REI 30'), element({ ifcType: 'IfcWall', name: 'W2', properties: { Pset_WallCommon: { LoadBearing: true, FireRating: 'REI 90' } } })],
+      facts
+    )
+    const after = runBimRules(
+      [wall('REI 30'), element({ ifcType: 'IfcWall', name: 'W2', properties: { Pset_WallCommon: { LoadBearing: true, FireRating: 'REI 30' } } })],
+      facts
+    )
+    const fire = diffBimCompliance(before, after).find(
+      (change) => change.ruleId === 'oib2-feuerwiderstand-tragend'
+    )
+    // Still failing, but twice as much — invisible to a pass/fail comparison.
+    expect(fire?.trend).toBe('moved')
+    expect(fire?.before.failed).toBe(1)
+    expect(fire?.after.failed).toBe(2)
+  })
+
+  it('renders an empty diff as a sentence, not as nothing', () => {
+    expect(renderBimComplianceDiff([])).toContain('Keine Anforderung')
+  })
+
+  it('renders the counts beside the trend', () => {
+    const rendered = renderBimComplianceDiff(diffBimCompliance(runOn('REI 90'), runOn('REI 30')))
+    expect(rendered).toContain('neu nicht erfüllt')
+    expect(rendered).toContain('erfüllt/nicht erfüllt/nicht entscheidbar')
   })
 })

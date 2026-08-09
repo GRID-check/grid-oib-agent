@@ -101,18 +101,22 @@ The whole ledger carries the same framing the applicability engine already uses:
 
 ## Sequence
 
-1. **`lib/bim/rules.ts`** — the declarative catalog and the pure three-state
-   evaluator. No infrastructure, fully testable. *(this change)*
-2. **`compliance` query op** — run the catalog over a model, return per-rule
-   aggregates with the failing and undecidable GlobalIds. *(this change)*
-3. **Persist** — `bim_checks` keyed by (project, rule, model revision), plus
-   manual confirmations, so the ledger accumulates and can be diffed.
-4. **The Prüfbuch page + card** — statuses, evidence, deep links, the
-   "what to add in Revit" list.
-5. **Status regression across revisions** — the diff that answers "what did this
-   change break".
-6. **Export** — the ledger as a signed dossier; BCF for the undecidable and
-   failing items so they open as issues in ArchiCAD or Revit.
+1. ~~**`lib/bim/rules.ts`** — the declarative catalog and the pure three-state
+   evaluator.~~ **Done.**
+2. ~~**`compliance` query op**~~ **Done**, over the full element set, with the
+   model's declared length unit rather than a magnitude guess.
+3. ~~**The Prüfbuch tab**~~ **Done** — `?tab=compliance` on the model page:
+   per-rule verdicts with their thresholds, deep links that highlight the
+   failing elements, the missing-property list, and the rules that stood down
+   with their reason. Reachable by the agent too (`ifc_query operation=compliance`).
+4. ~~**Status regression across revisions**~~ **Done** as an on-demand diff
+   (`compliance-diff`): `resolved` / `broken` / `decidable` / `undecidable` /
+   `moved`, regressions first. Not yet persisted, so it is computed per request.
+5. **Persist** — `bim_checks` keyed by (project, rule, model revision), plus
+   manual confirmations, so the ledger accumulates rather than being recomputed,
+   and a signature has something durable to point at. **Next.**
+6. **Export** — the ledger as a dossier; BCF for the undecidable and failing
+   items so they open as issues in ArchiCAD or Revit.
 
 ## Deliberately not doing
 

@@ -7,6 +7,7 @@ export const bim: typeof en.bim = {
     'Die IFC-Modelle dieses Projekts. Alles hier wird aus dem Modell selbst gelesen — der Assistent beantwortet Fragen zum Gebäude aus denselben Daten.',
   tabs: {
     overview: 'Überblick',
+    compliance: 'Anforderungen',
     structure: 'Struktur',
     quantities: 'Mengen',
     revisions: 'Revisionen',
@@ -133,6 +134,37 @@ export const bim: typeof en.bim = {
     unchanged: 'Unverändert',
     truncated: 'Mindestens ein Stand ist gekürzt indiziert — der Vergleich kann unvollständig sein.',
     empty: 'Keine Unterschiede zwischen diesen beiden Ständen.',
+  },
+  compliance: {
+    title: 'Anforderungsprüfung',
+    description:
+      'Prüft den OIB-Regelkatalog gegen die im Modell veröffentlichten Werte. Orientierung, kein Nachweis: es wird keine Geometrie gelesen, Fluchtweglängen, Geländerhöhen und Brandabschnittsgrößen werden daher gar nicht geprüft.',
+    failed: 'Die Anforderungsprüfung konnte nicht durchgeführt werden.',
+    disclaimer:
+      'Orientierende Prüfung — keine Rechtsauskunft und kein Nachweis. „Nicht entscheidbar“ heißt: das Modell führt den Wert nicht, nicht dass das Gebäude die Anforderung verfehlt.',
+    counts: '{passed} erfüllt · {failed} nicht erfüllt · {undecidable} nicht entscheidbar',
+    notApplicable: 'Nicht einschlägig',
+    noElements: 'Keine betroffenen Bauteile in diesem Modell.',
+    failures: 'Nicht erfüllt:',
+    unknowns: 'Nicht entscheidbar:',
+    showInModel: 'im Modell zeigen',
+    more: '{count} weitere',
+    truncated: 'Weitere Bauteile betroffen — siehe Anzahl oben.',
+    missingFacts:
+      'Einige Regeln hängen an Projektangaben, die hier fehlen: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
+    setFacts: 'Über den Assistenten ergänzen',
+    badge: {
+      passing: 'Erfüllt',
+      failing: 'Nicht erfüllt',
+      undecidable: 'Nicht entscheidbar',
+      notApplicable: 'Nicht einschlägig',
+    },
+    shoppingList: {
+      title: 'Was dem Modell fehlt',
+      description:
+        'Diese Werte im CAD ergänzen, dann werden die Anforderungen oben entscheidbar. Das ist die Liste, keine Note.',
+      count: 'an {count} Bauteilen',
+    },
   },
   schedule: {
     title: 'Raumbuch',

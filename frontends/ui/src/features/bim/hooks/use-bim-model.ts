@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { BimProfileSuggestion } from '@/lib/bim/profile'
+import type { BimComplianceSummary, BimRuleResult } from '@/lib/bim/rules'
 import type { BimQuantityRow, BimRoomSchedule } from '@/lib/bim/schedule'
 import type { BimModelSummary } from '@/lib/bim/types'
 import type { BimViewerElement } from '../lib/model-index'
@@ -260,6 +261,9 @@ function useModelQuery<T>(
 interface BimQueryResponse {
   summary?: string
   caveat?: string | null
+  compliance?: BimRuleResult[]
+  complianceSummary?: BimComplianceSummary
+  complianceShoppingList?: Array<{ path: string; elements: number; rules: string[] }>
   schedule?: BimRoomSchedule
   takeoff?: BimQuantityRow[]
   profileSuggestions?: BimProfileSuggestion[]
@@ -296,6 +300,93 @@ export function useBimProfileSuggestions(
   modelId: string | null
 ): AsyncState<BimProfileSuggestion[]> {
   return useModelQuery(modelId, PROFILE_REQUEST, selectProfile)
+}
+
+interface BimComplianceView {
+  rules: BimRuleResult[]
+  summary: BimComplianceSummary | null
+  shoppingList: Array<{ path: string; elements: number; rules: string[] }>
+}
+
+const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
+  body.compliance
+    ? {
+        rules: body.compliance,
+        summary: body.complianceSummary ?? null,
+        shoppingList: body.complianceShoppingList ?? [],
+      }
+    : null
+
+/**
+ * The Prüfbuch for one model.
+ *
+ * The project facts are threaded in rather than defaulted: a rule that needs a
+ * Gebäudeklasse it was not given stands down with its reason, and assuming the
+ * mildest class would turn a GK5 building's missing R 90 into a pass.
+ */
+export function useBimCompliance(
+  modelId: string | null,
+  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null }
+): AsyncState<BimComplianceView> {
+  const request = useMemo(
+    () => ({
+      op: 'compliance' as const,
+      ...(facts.gebaeudeklasse === null ? {} : { gebaeudeklasse: facts.gebaeudeklasse }),
+      ...(facts.hauptnutzung === null ? {} : { hauptnutzung: facts.hauptnutzung }),
+    }),
+    [facts.gebaeudeklasse, facts.hauptnutzung]
+  )
+  return useModelQuery(modelId, request, selectCompliance)
+}
+
+/**
+ * The facts the rule catalogue reads, from the project brief.
+ *
+ * Read here rather than passed down because the model page is the only surface
+ * that needs them, and a fact the brief does not carry must arrive as `null`
+ * (the rules then say so) rather than as a default.
+ */
+export function useProjectRuleFacts(projectId: string | null): {
+  gebaeudeklasse: number | null
+  hauptnutzung: string | null
+  missing: string[]
+} {
+  const [facts, setFacts] = useState<{ gebaeudeklasse: number | null; hauptnutzung: string | null }>({
+    gebaeudeklasse: null,
+    hauptnutzung: null,
+  })
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    getJson<{ facts?: Record<string, { value?: unknown }> }>(`/api/projects/${projectId}/profile`)
+      .then((profile) => {
+        if (cancelled) return
+        const raw = profile.facts ?? {}
+        const klasse = Number(raw.gebaeudeklasse?.value)
+        const nutzung = raw.hauptnutzung?.value
+        setFacts({
+          gebaeudeklasse: Number.isInteger(klasse) && klasse >= 1 && klasse <= 5 ? klasse : null,
+          hauptnutzung: typeof nutzung === 'string' && nutzung.trim() !== '' ? nutzung : null,
+        })
+      })
+      .catch(() => {
+        // A profile that cannot be read is the same situation as a profile that
+        // does not carry the fact: the rules stand down and say so.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  const missing = useMemo(() => {
+    const gaps: string[] = []
+    if (facts.gebaeudeklasse === null) gaps.push('Gebäudeklasse')
+    if (facts.hauptnutzung === null) gaps.push('Hauptnutzung')
+    return gaps
+  }, [facts])
+
+  return { ...facts, missing }
 }
 
 /** The first ready model, or the first model at all — the page's default. */

@@ -350,6 +350,8 @@ organization. Cross-tenant and no-access both surface as 404.
 | `compare` | What changed against another revision, matched by GlobalId. |
 | `schedule` | The Raumbuch: every room with its storey, area and volume, plus per-storey and building totals — and `roomsWithoutArea`, the count each total excludes. |
 | `takeoff` | Massenermittlung: one `quantity` summed per element type, optionally split by material (`byMaterial`). Each row carries `missing`, the elements that publish no value. |
+| `compliance` | The OIB rule catalog (`lib/bim/rules.ts`) evaluated against the model's published values: per requirement, how many elements are `pass` / `fail` / **`undecidable`**, the threshold applied, the failing and undecidable GlobalIds, and the exact property paths that would make the undecidable ones decidable. Takes `gebaeudeklasse` / `hauptnutzung`; a rule needing a fact it was not given stands down WITH its reason rather than assuming one. |
+| `compliance-diff` | The same catalog over two revisions (`baseModelId`), reporting only the requirements whose status MOVED — including one that stopped being decidable because the re-export dropped a property. |
 | `profile` | Project-brief facts the model implies (storeys above/below ground, Fluchtniveau band, main use, room count), each with its evidence and a confidence. Proposals — the agent offers them through a `project_profile_patch` card, never as settled values. |
 
 Filters accept `ifcTypes`, `storeys` (name or GlobalId), `nameContains`,

@@ -27,7 +27,13 @@ import type { BimHighlightStatus } from './model-index'
  * that lands on the overview and expects the reader to find the right tab is a
  * link that lost the point.
  */
-export const BIM_MODEL_TABS = ['overview', 'structure', 'quantities', 'revisions'] as const
+export const BIM_MODEL_TABS = [
+  'overview',
+  'compliance',
+  'structure',
+  'quantities',
+  'revisions',
+] as const
 export type BimModelTab = (typeof BIM_MODEL_TABS)[number]
 
 const TABS = new Set<string>(BIM_MODEL_TABS)
