@@ -288,6 +288,25 @@ export const bim: typeof en.bim = {
     isolate: 'Geschoss isolieren',
     showAll: 'Alles anzeigen',
     hint: 'Ziehen zum Drehen · Umschalt+Ziehen zum Verschieben · Scrollen zum Zoomen · Klick zum Auswählen',
+    view: {
+      iso: 'Frei',
+      top: 'Grundriss',
+      north: 'Nord',
+      south: 'Süd',
+      east: 'Ost',
+      west: 'West',
+    },
+    projection: {
+      parallel: 'Parallel',
+      perspective: 'Perspektive',
+    },
+    section: {
+      toggle: 'Schnitt',
+      height: 'Schnitthöhe',
+      metres: '{value} m',
+      down: 'Blick nach unten',
+      up: 'Blick nach oben',
+    },
     unsupported: {
       title: '3D-Ansicht in diesem Browser nicht verfügbar',
       description:

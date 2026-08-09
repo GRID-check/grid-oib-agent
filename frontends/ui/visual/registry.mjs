@@ -583,4 +583,12 @@ export const SCREENSHOT_TARGETS = [
       'The four model-backed chat cards — Raumbuch, Bauteil, Anforderungen, Revisionsvergleich. Each carries an identifier and fetches its own numbers, so the agent can point at the wrong table but can never state a floor area the model does not publish. The fixtures show the hard states rather than the happy ones: a storey where two rooms publish no area so the total is visibly a subset, a wall whose Pset and Qto come from the model, one requirement nothing can decide (34 walls with no fire rating) beside the BCF download that turns it into work, and a revision whose single added door is only meaningful against the 99 unchanged elements behind it.',
     waitFor: '[data-testid="bim-cards-preview"]',
   },
+  {
+    id: 'bim-viewport',
+    mobile: true,
+    path: '/dev/bim-viewport',
+    description:
+      'The 3D viewport\'s controls, over the muted panel the viewport itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but the controls now live in a component that owns no canvas, so the part an architect actually presses is capturable. Three states: the free view you land on (perspective, no cut), a Grundriss (plan, parallel projection, cut at +1,00 m with the slider open — the state the whole feature exists for, because a plan in perspective is a picture and not a drawing), and the loading state with every control disabled so a live-looking toolbar cannot invite clicks that do nothing.',
+    waitFor: '[data-testid="bim-viewport-preview"]',
+  },
 ]

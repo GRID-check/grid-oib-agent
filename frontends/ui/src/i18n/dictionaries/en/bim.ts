@@ -286,6 +286,25 @@ export const bim = {
     isolate: 'Isolate storey',
     showAll: 'Show all',
     hint: 'Drag to orbit · Shift-drag to pan · Scroll to zoom · Click to select',
+    view: {
+      iso: 'Free',
+      top: 'Plan',
+      north: 'North',
+      south: 'South',
+      east: 'East',
+      west: 'West',
+    },
+    projection: {
+      parallel: 'Parallel',
+      perspective: 'Perspective',
+    },
+    section: {
+      toggle: 'Section',
+      height: 'Cut at',
+      metres: '{value} m',
+      down: 'Looking down',
+      up: 'Looking up',
+    },
     unsupported: {
       title: '3D view not available in this browser',
       description:

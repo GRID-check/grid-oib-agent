@@ -42,8 +42,9 @@
  * parsing does not resurrect itself into a detached canvas.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
+import { rendererPreset, type BimCameraView, type BimSection } from '../lib/viewer-camera'
 
 export interface IfcViewerCanvasProps {
   /** Presigned URL of the raw `.ifc`. */
@@ -64,7 +65,28 @@ export interface IfcViewerCanvasProps {
   xrayContextIds?: Set<number> | null
   onSelect?: (element: BimViewerElement | null) => void
   onStatus?: (status: IfcViewerStatus) => void
+  /** Named camera direction; `iso` leaves whatever the user orbited to. */
+  view?: BimCameraView
+  /** Parallel projection — what makes a plan or elevation measurable. */
+  orthographic?: boolean
+  /** Horizontal cut through the building, in metres. */
+  section?: BimSection | null
+  /** Reports the model's vertical extent once loaded, for the cut slider. */
+  onBounds?: (bounds: { minMetres: number; maxMetres: number } | null) => void
   className?: string
+}
+
+/**
+ * What the page may ask the viewport to do imperatively.
+ *
+ * Only actions with no state of their own belong here. `fit` used to be
+ * expressed by remounting the component, which re-downloaded the presigned URL
+ * and re-triangulated the entire building through the WASM kernel — seconds of
+ * work and a full GPU-buffer churn to move a camera. Everything else stays
+ * declarative.
+ */
+export interface IfcViewerHandle {
+  fit: () => void
 }
 
 export interface IfcViewerStatus {
@@ -73,6 +95,12 @@ export interface IfcViewerStatus {
   percent: number | null
   meshCount: number
   message?: string
+}
+
+interface Vec3Like {
+  x: number
+  y: number
+  z: number
 }
 
 /** Minimal structural types for the dynamically-imported ifc-lite classes. */
@@ -94,7 +122,13 @@ interface RendererLike {
       min: { x: number; y: number; z: number },
       max: { x: number; y: number; z: number }
     ): Promise<void>
+    setPresetView(
+      view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
+      bounds?: { min: Vec3Like; max: Vec3Like }
+    ): void
+    setProjectionMode(mode: 'perspective' | 'orthographic'): void
   }
+  getModelBounds(): { min: Vec3Like; max: Vec3Like } | null
   getScene(): {
     setColorOverrides(overrides: Map<number, Rgba>, device: unknown, pipeline: unknown): void
     clearColorOverrides(): void
@@ -103,17 +137,24 @@ interface RendererLike {
   getPipeline(): unknown
 }
 
-export function IfcViewerCanvas({
-  sourceUrl,
-  elements,
-  colorOverrides,
-  isolatedExpressIds = null,
-  selectedExpressId = null,
-  xrayContextIds = null,
-  onSelect,
-  onStatus,
-  className,
-}: IfcViewerCanvasProps): JSX.Element {
+export const IfcViewerCanvas = forwardRef<IfcViewerHandle, IfcViewerCanvasProps>(function IfcViewerCanvas(
+  {
+    sourceUrl,
+    elements,
+    colorOverrides,
+    isolatedExpressIds = null,
+    selectedExpressId = null,
+    xrayContextIds = null,
+    onSelect,
+    onStatus,
+    view = 'iso',
+    orthographic = false,
+    section = null,
+    onBounds,
+    className,
+  },
+  handleRef
+) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<RendererLike | null>(null)
   const [ready, setReady] = useState(false)
@@ -125,6 +166,8 @@ export function IfcViewerCanvas({
   const isolatedRef = useRef(isolatedExpressIds)
   const selectedRef = useRef(selectedExpressId)
   const xrayRef = useRef(xrayContextIds)
+  const sectionRef = useRef(section)
+  sectionRef.current = section
   overridesRef.current = colorOverrides
   isolatedRef.current = isolatedExpressIds
   selectedRef.current = selectedExpressId
@@ -137,6 +180,8 @@ export function IfcViewerCanvas({
   onStatusRef.current = onStatus
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  const onBoundsRef = useRef(onBounds)
+  onBoundsRef.current = onBounds
 
   /** Ask for one frame. Rendering is on demand — a static model must not spin the GPU. */
   const frameRef = useRef<number | null>(null)
@@ -155,6 +200,21 @@ export function IfcViewerCanvas({
           // the whole building the moment a highlight resolved to nothing.
           xrayContextIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
           ghostAlpha: 0.12,
+          // `down` is the renderer's horizontal plane. Absent rather than
+          // `enabled: false` when there is no cut: the option is snapshotted
+          // per frame and a disabled plane still costs the cap/outline setup.
+          sectionPlane: sectionRef.current
+            ? {
+                axis: 'down' as const,
+                position: sectionRef.current.atMetres,
+                enabled: true,
+                flipped: sectionRef.current.flipped,
+                // The hatched cap is what makes a section read as a drawing
+                // rather than as a model with its front wall deleted.
+                showCap: true,
+                showOutlines: true,
+              }
+            : undefined,
         })
       } catch {
         // A lost device makes render() a no-op upstream; anything else here is
@@ -291,6 +351,62 @@ export function IfcViewerCanvas({
     dragRef.current = { x: event.clientX, y: event.clientY, button: event.button, moved: false }
   }
 
+  /**
+   * Fit, without remounting.
+   *
+   * `fitToView` is on the renderer already; the page only ever lacked a way to
+   * reach it. Guarded on `ready` because a fit before the first batch lands
+   * frames an empty scene and leaves the camera there.
+   */
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      fit: () => {
+        if (!ready) return
+        rendererRef.current?.fitToView()
+        requestFrame()
+      },
+    }),
+    [ready, requestFrame]
+  )
+
+  // Report the model's vertical extent once, so the cut slider has a range
+  // that belongs to this building rather than an arbitrary one. Y is up in the
+  // kernel's output — see the axes note at the top of this file.
+  useEffect(() => {
+    if (!ready) {
+      onBoundsRef.current?.(null)
+      return
+    }
+    const bounds = rendererRef.current?.getModelBounds() ?? null
+    onBoundsRef.current?.(
+      bounds ? { minMetres: bounds.min.y, maxMetres: bounds.max.y } : null
+    )
+  }, [ready])
+
+  // A named view is declarative state, not a one-shot action: arriving on a
+  // link with `?view=north` must land on the north elevation, and so must
+  // pressing the button afterwards.
+  useEffect(() => {
+    if (!ready) return
+    const renderer = rendererRef.current
+    if (!renderer) return
+    const preset = rendererPreset(view)
+    if (preset === null) renderer.fitToView()
+    else renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
+    requestFrame()
+  }, [view, ready, requestFrame])
+
+  useEffect(() => {
+    if (!ready) return
+    rendererRef.current?.getCamera().setProjectionMode(orthographic ? 'orthographic' : 'perspective')
+    requestFrame()
+  }, [orthographic, ready, requestFrame])
+
+  useEffect(() => {
+    if (ready) requestFrame()
+  }, [section, ready, requestFrame])
+
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current
     const renderer = rendererRef.current
@@ -355,6 +471,6 @@ export function IfcViewerCanvas({
       aria-label="3D-Ansicht des IFC-Modells"
     />
   )
-}
+})
 
 export default IfcViewerCanvas

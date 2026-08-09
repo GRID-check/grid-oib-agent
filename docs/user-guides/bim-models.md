@@ -141,7 +141,23 @@ each row states how many of its elements publish no value.
 
 Drag to orbit, Shift-drag to pan, scroll to zoom, click to select.
 **Röntgen** ghosts everything that is not selected or highlighted, so a wall
-inside a building is still findable. The viewer needs **WebGPU** (Chrome and
+inside a building is still findable.
+
+Orbit is the least of it. The toolbar stands the model square and cuts it:
+
+- **Grundriss, Nord, Süd, Ost, West** snap the camera to a plan or one of the
+  four elevations. **Nord** means looking *at* the north facade — you are
+  standing to the north.
+- **Parallel** switches off perspective, and picking any of those views
+  switches it off for you. A plan in perspective is a picture: parallel walls
+  converge and nothing on it can be measured. **Frei** hands perspective back.
+- **Schnitt** cuts the building horizontally. It lands a metre above the floor
+  of the storey you have selected — where a Grundriss is cut, high enough to
+  pass through doors and windows, low enough to stay under the lintel — and the
+  slider moves it. **Blick nach unten / oben** flips which half you keep. The
+  cut face is hatched, so it reads as a section rather than as a model with a
+  wall deleted.
+- **Einpassen** re-frames the whole building without reloading it. The viewer needs **WebGPU** (Chrome and
 Edge today, Safari and Firefox depending on version). Without it you get a short
 note in place of the picture and *everything else on the page still works* — the
 structure, the elements, the properties, the quantities, the schedules, and
@@ -149,8 +165,11 @@ every answer the assistant gives.
 
 ### Every view is a link
 
-Which model, which tab, which storey, which element, what is highlighted and
-whether x-ray is on all live in the address bar. **Ansicht kopieren** copies the
+Which model, which tab, which storey, which element, what is highlighted,
+whether x-ray is on — and now the camera direction, the projection and the cut
+height — all live in the address bar. *"Schnitt bei +2,60 m, Blick nach Norden,
+diese drei Wände markiert"* is something you send, not something you talk
+someone through. **Ansicht kopieren** copies the
 current one. That is what makes "the third wall on the left in the ground floor"
 unnecessary: you send the wall.
 

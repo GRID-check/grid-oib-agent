@@ -1033,6 +1033,25 @@ cannot be — WebGPU needs a browser with a GPU adapter — so what the spec pin
 is everything up to the renderer's door. Note the kernel emits **Y-up** meshes,
 the glTF convention, not IFC's Z-up.
 
+The viewport is not just orbit. `features/bim/lib/viewer-camera.ts` holds the
+named views (plan and four elevations, plus the free view), the projection
+mode, and the horizontal cut; `ifc-viewer-toolbar.tsx` renders the controls and
+owns no canvas, which is why it can be unit-tested and screenshotted where
+WebGPU does not exist. Two rules are encoded rather than left to whoever wires
+a button: a cardinal view implies **parallel projection**, because a plan in
+perspective is a picture and nothing on it measures; and a new cut lands a
+metre above the storey's floor, which is where an Austrian Grundriss is cut and
+not where the plane would slice the slab. All of it round-trips through
+`buildModelQuery` / `parseModelView`, so "Schnitt bei +2,60 m, Blick nach
+Norden, diese drei Wände markiert" is a link rather than a description.
+
+The camera is controlled by the model page (so the view reaches the URL) and
+falls back to local state anywhere else, so a viewport mounted without those
+props still works instead of rendering a toolbar whose buttons do nothing.
+"Fit" calls `fitToView` through an imperative handle; it used to be expressed
+by remounting the canvas, which re-downloaded the presigned URL and re-ran the
+whole WASM triangulation to move a camera.
+
 There is no server-side render and no cached mesh format. The viewport streams
 the source through a short-lived presigned URL and triangulates locally with
 ifc-lite's WASM kernel + WebGPU renderer. A browser without WebGPU loses only

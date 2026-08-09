@@ -61,6 +61,7 @@ import {
   IfcRoomSchedule,
 } from './ifc-model-tables'
 import { IfcRevisionTimeline } from './ifc-revision-timeline'
+import { defaultCameraState } from '../lib/viewer-camera'
 import { IfcModelViewer } from './ifc-model-viewer'
 
 export interface IfcModelWorkspaceProps {
@@ -194,6 +195,18 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
   // Only mint the presigned source URL when a viewport can actually use it.
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const sourceUrl = useBimModelSource(modelId, webGpu)
+
+  /**
+   * The elevation of the storey in view, so a section defaults to a metre
+   * above ITS floor rather than a metre above the site. Null when no storey is
+   * selected or the model publishes no elevation — the toolbar then falls back
+   * to a third of the model's height rather than cutting at zero.
+   */
+  const storeyElevation = useMemo(() => {
+    if (!storey) return null
+    const match = model?.summary?.storeys.find((entry) => entry.name === storey)
+    return typeof match?.elevation === 'number' ? match.elevation : null
+  }, [storey, model])
 
   const handleSelect = useCallback(
     (element: BimViewerElement | null) => setView({ element: element?.globalId }),
@@ -453,6 +466,9 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
               onSelect={handleSelect}
               xray={view.xray ?? false}
               onXrayChange={(next) => setView({ xray: next })}
+              camera={view.camera ?? defaultCameraState()}
+              onCameraChange={(camera) => setView({ camera })}
+              storeyElevation={storeyElevation}
               className="h-[420px] min-h-64"
             />
             <section

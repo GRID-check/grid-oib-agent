@@ -18,6 +18,12 @@
  */
 
 import type { BimHighlightStatus } from './model-index'
+import {
+  defaultCameraState,
+  encodeCameraState,
+  parseCameraState,
+  type BimViewerCameraState,
+} from './viewer-camera'
 
 /**
  * Which half of the model page is open.
@@ -51,6 +57,14 @@ export interface BimModelView {
   highlights?: Array<{ status: BimHighlightStatus; globalIds: string[] }>
   /** Ghost everything that is not highlighted or selected. */
   xray?: boolean
+  /**
+   * Camera direction, projection and section cut.
+   *
+   * Part of the link for the same reason the element is: a plan cut at
+   * +2,60 m looking north is a view a colleague needs to open, not one they
+   * need to be talked into reproducing.
+   */
+  camera?: BimViewerCameraState
 }
 
 const STATUSES = new Set<BimHighlightStatus>(['pass', 'fail', 'warning', 'info'])
@@ -79,6 +93,7 @@ export function buildModelQuery(view: BimModelView): string {
     params.append('hl', `${group.status}:${ids.join(',')}`)
   }
   if (view.xray) params.set('xray', '1')
+  if (view.camera) encodeCameraState(view.camera, params)
   const query = params.toString()
   return query ? `?${query}` : ''
 }
@@ -108,6 +123,17 @@ export function parseModelView(search: string | URLSearchParams): BimModelView {
   const element = params.get('element')?.trim()
   if (element) view.element = element
   if (params.get('xray') === '1') view.xray = true
+
+  // Always present, because "no camera in the link" is itself a camera — the
+  // free view in perspective with no cut. A caller that had to distinguish
+  // absent from default would get it wrong on the first link without one.
+  const camera = parseCameraState(params)
+  const fallback = defaultCameraState()
+  const isDefault =
+    camera.view === fallback.view &&
+    camera.section === null &&
+    camera.orthographic === fallback.orthographic
+  if (!isDefault) view.camera = camera
 
   const highlights: NonNullable<BimModelView['highlights']> = []
   for (const raw of params.getAll('hl')) {

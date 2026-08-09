@@ -13,10 +13,9 @@
  * place of the canvas, and the rest of the page carries on.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Eye, EyeOff, Layers, Maximize2, MonitorX } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Layers, MonitorX } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -29,7 +28,15 @@ import {
   type BimHighlightGroup,
   type BimViewerElement,
 } from '../lib/model-index'
-import type { IfcViewerStatus } from './ifc-viewer-canvas'
+import {
+  clampCut,
+  defaultCameraState,
+  type BimCameraView,
+  type BimSection,
+  type BimViewerCameraState,
+} from '../lib/viewer-camera'
+import { IfcViewerToolbar } from './ifc-viewer-toolbar'
+import type { IfcViewerHandle, IfcViewerStatus } from './ifc-viewer-canvas'
 
 /**
  * `ssr: false` is not an optimisation here, it is a correctness requirement:
@@ -58,6 +65,21 @@ export interface IfcModelViewerProps {
    */
   xray?: boolean
   onXrayChange?: (xray: boolean) => void
+  /**
+   * Camera direction, projection and section cut.
+   *
+   * Controlled from the page, like `xray`, because all three belong in the
+   * link: "Schnitt bei +2,60 m, Blick nach Norden, diese drei Wände markiert"
+   * is a thing one person sends another, and a viewport that kept it locally
+   * would hand them a screenshot instead.
+   */
+  camera?: BimViewerCameraState
+  onCameraChange?: (camera: BimViewerCameraState) => void
+  /**
+   * Elevation of the storey in view, in metres — the cut lands a metre above
+   * it, which is where a Grundriss is cut.
+   */
+  storeyElevation?: number | null
   className?: string
   /** Compact chrome for the in-chat card; full chrome for the model page. */
   variant?: 'page' | 'card'
@@ -72,12 +94,60 @@ export function IfcModelViewer({
   onSelect,
   xray = false,
   onXrayChange,
+  camera,
+  onCameraChange,
+  storeyElevation = null,
   className,
   variant = 'page',
 }: IfcModelViewerProps): JSX.Element {
   const t = useTranslations('bim')
   const [status, setStatus] = useState<IfcViewerStatus>({ phase: 'idle', percent: null, meshCount: 0 })
-  const [remountKey, setRemountKey] = useState(0)
+  const [bounds, setBounds] = useState<{ minMetres: number; maxMetres: number } | null>(null)
+  const canvasRef = useRef<IfcViewerHandle | null>(null)
+
+  /**
+   * Controlled when the page passes `camera` + `onCameraChange`, local
+   * otherwise.
+   *
+   * The model page controls it so the view lands in the URL. Anywhere else —
+   * an embed, a preview, a future card — the viewport still has to work, and a
+   * toolbar whose buttons silently do nothing because a caller forgot a prop is
+   * worse than one that keeps its own state.
+   */
+  const [localCamera, setLocalCamera] = useState(defaultCameraState)
+  const cameraState = camera ?? localCamera
+
+  // A cut arriving from a link may name a height this model does not have —
+  // the link was copied from a different revision, or typed. Clamping keeps
+  // the plane inside the building instead of slicing empty space, which the
+  // reader would read as a model that failed to load.
+  const section = useMemo(() => {
+    if (!cameraState.section) return null
+    if (!bounds) return cameraState.section
+    return { ...cameraState.section, atMetres: clampCut(cameraState.section.atMetres, {
+      minY: bounds.minMetres,
+      maxY: bounds.maxMetres,
+    }) }
+  }, [cameraState.section, bounds])
+
+  const setCamera = useCallback(
+    (patch: Partial<BimViewerCameraState>) => {
+      const next = { ...cameraState, ...patch }
+      if (onCameraChange) onCameraChange(next)
+      else setLocalCamera(next)
+    },
+    [cameraState, onCameraChange]
+  )
+
+  const handleView = useCallback(
+    (view: BimCameraView) =>
+      // Choosing a plan or an elevation implies parallel projection, because a
+      // perspective plan is a picture rather than a drawing. Choosing the free
+      // view hands perspective back.
+      setCamera({ view, orthographic: view !== 'iso' }),
+    [setCamera]
+  )
+  const handleSection = useCallback((next: BimSection | null) => setCamera({ section: next }), [setCamera])
 
   // Evaluated once per mount rather than per render: it cannot change without a
   // page reload, and calling it during render on the server would be wrong.
@@ -134,13 +204,18 @@ export function IfcModelViewer({
   return (
     <div className={cn('relative overflow-hidden rounded-xl border bg-muted/30', className)}>
       <IfcViewerCanvas
-        key={`${sourceUrl}-${remountKey}`}
+        ref={canvasRef}
+        key={sourceUrl}
         sourceUrl={sourceUrl}
         elements={elements}
         colorOverrides={colorOverrides}
         isolatedExpressIds={isolatedExpressIds}
         selectedExpressId={selectedExpressId}
         xrayContextIds={xrayContextIds}
+        view={cameraState.view}
+        orthographic={cameraState.orthographic}
+        section={section}
+        onBounds={setBounds}
         onSelect={onSelect}
         onStatus={setStatus}
         className="size-full touch-none"
@@ -152,36 +227,23 @@ export function IfcModelViewer({
           <span>{statusLabel}</span>
         </div>
         {variant === 'page' && (
-          <div className="pointer-events-auto flex gap-1">
-            {onXrayChange && (
-              <Button
-                type="button"
-                size="sm"
-                variant={xray ? 'default' : 'secondary'}
-                aria-pressed={xray}
-                onClick={() => onXrayChange(!xray)}
-              >
-                {xray ? (
-                  <EyeOff className="size-3.5" aria-hidden="true" />
-                ) : (
-                  <Eye className="size-3.5" aria-hidden="true" />
-                )}
-                {t('viewer.xray')}
-              </Button>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              // Remounting the canvas is how "fit" is expressed without holding
-              // an imperative handle to the renderer: it is a rare, explicit
-              // action, and a fresh mount refits by construction.
-              onClick={() => setRemountKey((key) => key + 1)}
-            >
-              <Maximize2 className="size-3.5" aria-hidden="true" />
-              {t('viewer.fit')}
-            </Button>
-          </div>
+          <IfcViewerToolbar
+            className="pointer-events-auto"
+            view={cameraState.view}
+            onViewChange={handleView}
+            orthographic={cameraState.orthographic}
+            onOrthographicChange={(orthographic) => setCamera({ orthographic })}
+            section={section}
+            onSectionChange={handleSection}
+            cutRange={bounds}
+            defaultCutMetres={
+              storeyElevation === null ? null : Math.round((storeyElevation + 1) * 100) / 100
+            }
+            xray={xray}
+            onXrayChange={onXrayChange}
+            onFit={() => canvasRef.current?.fit()}
+            disabled={status.phase !== 'ready'}
+          />
         )}
       </div>
 
