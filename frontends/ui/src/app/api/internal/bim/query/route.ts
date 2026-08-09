@@ -63,8 +63,16 @@ export const POST = internalApiRoute(
     const { organizationId, projectId, modelId, modelName, compareWithName, query } =
       await parseJsonBody(request, requestSchema)
 
+    // `?? null`, NOT `?? undefined`: `listBimModels` reads an UNDEFINED
+    // projectId as "no project predicate at all", i.e. every model in the
+    // organization. A project-less chat (org-level or Archiv) would then
+    // resolve — and answer questions about — models in projects the asker
+    // holds no grant on, and every `resolved: false` branch below returns
+    // `models: readable.map(describe)`, which hands out their UUIDs. `null`
+    // scopes to the org-wide Archiv, which is what a project-less
+    // conversation is entitled to.
     const candidates = await listBimModels(organizationId, {
-      projectId: projectId ?? undefined,
+      projectId: projectId ?? null,
       includeArchiv: true,
     })
     // Only `ready` models can answer anything. A model still extracting is

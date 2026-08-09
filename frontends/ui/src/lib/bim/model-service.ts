@@ -104,13 +104,34 @@ export async function listAccessibleModels(
   return listBimModels(session.organizationId, { projectId, includeArchiv: true })
 }
 
-/** Run a validated query against a model the caller may read. */
+/**
+ * Run a validated query against a model the caller may read.
+ *
+ * BOTH models are authorized when the op names a second one. `compare` and
+ * `compliance-diff` take a `baseModelId` straight from the request body, and
+ * `runBimQuery` resolves it with `findBimModelById`, which scopes on the
+ * ORGANIZATION and nothing else — the per-project FGA that `getAccessibleModel`
+ * applies to the target never reaches the base.
+ *
+ * Without the check below, a member holding `project:view` on one project can
+ * name any model id in the organization as the base and read another project's
+ * building out of the diff: `compare` reports every base element absent from
+ * the revision as `removed`, with its name and storey, and `compliance-diff`
+ * reports the base's per-rule verdict counts and its file name.
+ * `requireProjectAccess` deliberately answers 404 so a caller cannot even
+ * confirm such a project exists; handing its element names over through a
+ * second parameter undoes that.
+ */
 export async function queryAccessibleModel(
   session: AuthorizedSession,
   modelId: string,
   request: BimQuery
 ): Promise<BimQueryResult> {
   const model = await getAccessibleModel(session, modelId)
+  const baseModelId = 'baseModelId' in request ? request.baseModelId : undefined
+  if (typeof baseModelId === 'string' && baseModelId !== model.id) {
+    await getAccessibleModel(session, baseModelId)
+  }
   return runBimQuery(request, { modelId: model.id, organizationId: session.organizationId })
 }
 
