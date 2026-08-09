@@ -653,15 +653,26 @@ export async function runBimQuery(
 
     case 'schedule': {
       if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
-      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
-      return finish({ ...modelBase, schedule: buildRoomSchedule(model.summary, elements) })
+      const { elements, truncated } = await loadBimElementsForSchedule(
+        context.modelId,
+        context.organizationId
+      )
+      return finish({ ...modelBase, truncated, schedule: buildRoomSchedule(model.summary, elements) })
     }
 
     case 'compliance': {
       // Over the FULL element set, like every other derived table: a rule run
       // against a capped page would report "0 nicht erfuellt" for a building
       // whose failures all sat past the cap.
-      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
+      // `truncated` is NOT optional here. The loader caps at 50 000 rows, and
+      // a catalogue run over a capped page reports verdict counts for part of
+      // a building as though they covered all of it — the Prüfbuch, the BCF
+      // export and the signed confirmation all inherit that. Discarding this
+      // flag was the bug the comment above was written to prevent.
+      const { elements, truncated } = await loadBimElementsForSchedule(
+        context.modelId,
+        context.organizationId
+      )
       const compliance = runBimRules(elements, {
         gebaeudeklasse: request.gebaeudeklasse ?? null,
         hauptnutzung: request.hauptnutzung ?? null,
@@ -671,6 +682,7 @@ export async function runBimQuery(
       })
       return finish({
         ...modelBase,
+        truncated,
         compliance,
         complianceSummary: summarizeBimRules(compliance),
         complianceShoppingList: missingPropertyShoppingList(compliance),
@@ -678,13 +690,14 @@ export async function runBimQuery(
     }
 
     case 'takeoff': {
-      const { elements } = await loadBimElementsForSchedule(
+      const { elements, truncated } = await loadBimElementsForSchedule(
         context.modelId,
         context.organizationId,
         buildBimPredicate(request.filter)
       )
       return finish({
         ...modelBase,
+        truncated,
         takeoff: buildQuantityTakeoff(elements, {
           quantity: request.quantity,
           byMaterial: request.byMaterial,

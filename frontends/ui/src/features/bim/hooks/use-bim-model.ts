@@ -268,6 +268,8 @@ function useModelQuery<T>(
 interface BimQueryResponse {
   summary?: string
   caveat?: string | null
+  /** The element loader capped — every derived count is over a subset. */
+  truncated?: boolean
   compliance?: BimRuleResult[]
   complianceSummary?: BimComplianceSummary
   complianceShoppingList?: Array<{ path: string; elements: number; rules: string[] }>
@@ -313,6 +315,14 @@ interface BimComplianceView {
   rules: BimRuleResultWithConfirmation[]
   summary: BimComplianceSummary | null
   shoppingList: Array<{ path: string; elements: number; rules: string[] }>
+  /**
+   * The catalogue saw only part of the model — the element loader capped.
+   *
+   * Carried all the way to the panel because every count below it is then a
+   * count over a subset, and a Prüfbuch that does not say so is asserting
+   * something it did not check.
+   */
+  truncated: boolean
 }
 
 const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
@@ -326,6 +336,7 @@ const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
         })),
         summary: body.complianceSummary ?? null,
         shoppingList: body.complianceShoppingList ?? [],
+        truncated: body.truncated === true,
       }
     : null
 

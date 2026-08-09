@@ -71,6 +71,7 @@ vi.mock('./query', () => ({
 
 import { exportAccessibleComplianceBcf } from './model-service'
 import { listBimModels, findBimModelById, listBimCheckConfirmations } from './repository'
+import { runBimQuery } from './query'
 import { readZipEntries } from '@/test-utils/read-zip'
 
 const SESSION = {
@@ -119,6 +120,22 @@ describe('exportAccessibleComplianceBcf', () => {
     const markup = [...readZipEntries(bcf.bytes).entries()].find(([p]) => p.endsWith('markup.bcf'))?.[1] ?? ''
 
     expect(markup).toContain('<Filename>Haus-A_V3.ifc</Filename>')
+  })
+
+  it('runs the catalogue against the resolved model, with the facts it was given', async () => {
+    // Everything else here reads the markup HEADER, which comes from the
+    // resolved model — so the model id and the facts handed to the catalogue
+    // were unasserted. An export built against the wrong model, or with the
+    // Gebäudeklasse silently dropped, produced a file that looks right and
+    // describes a different building or applies thresholds nobody chose.
+    vi.mocked(listBimModels).mockResolvedValue([model({ id: 'm-3', filename: 'Haus-A_V3.ifc' })])
+
+    await run({ modelId: null, modelName: 'Haus-A_V3.ifc', gebaeudeklasse: 4, hauptnutzung: 'wohnen' })
+
+    expect(runBimQuery).toHaveBeenCalledWith(
+      { op: 'compliance', gebaeudeklasse: 4, hauptnutzung: 'wohnen' },
+      { modelId: 'm-3', organizationId: 'org-1' }
+    )
   })
 
   it('matches case-insensitively, because a file name is not a key', async () => {

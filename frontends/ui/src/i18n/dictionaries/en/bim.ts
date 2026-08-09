@@ -139,6 +139,8 @@ export const bim = {
     description:
       "Runs the OIB rule catalogue against the values the model publishes. Orientation, not a Nachweis: nothing here reads geometry, so escape-route lengths, guardrail heights and fire-compartment sizes are not checked at all.",
     failed: 'The requirement check could not be run.',
+    truncatedModel:
+      'This model is too large to check in full — the catalogue saw only part of it. Every count below is a count over that part, not over the building.',
     disclaimer:
       'Orientierende Prüfung — no legal advice and no Nachweis. “Not decidable” means the model does not publish the value, not that the building fails.',
     counts: '{passed} met · {failed} not met · {undecidable} not decidable',

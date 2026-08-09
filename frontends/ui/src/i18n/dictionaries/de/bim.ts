@@ -141,6 +141,8 @@ export const bim: typeof en.bim = {
     description:
       'Prüft den OIB-Regelkatalog gegen die im Modell veröffentlichten Werte. Orientierung, kein Nachweis: es wird keine Geometrie gelesen, Fluchtweglängen, Geländerhöhen und Brandabschnittsgrößen werden daher gar nicht geprüft.',
     failed: 'Die Anforderungsprüfung konnte nicht durchgeführt werden.',
+    truncatedModel:
+      'Dieses Modell ist zu groß, um vollständig geprüft zu werden — der Katalog hat nur einen Teil gesehen. Alle Zahlen unten beziehen sich auf diesen Teil, nicht auf das Gebäude.',
     disclaimer:
       'Orientierende Prüfung — keine Rechtsauskunft und kein Nachweis. „Nicht entscheidbar“ heißt: das Modell führt den Wert nicht, nicht dass das Gebäude die Anforderung verfehlt.',
     counts: '{passed} erfüllt · {failed} nicht erfüllt · {undecidable} nicht entscheidbar',

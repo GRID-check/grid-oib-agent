@@ -366,6 +366,7 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
                 shoppingList={compliance.data?.shoppingList ?? null}
                 isLoading={compliance.isLoading}
                 error={compliance.error}
+                truncated={compliance.data?.truncated ?? false}
                 projectId={projectId}
                 modelFilename={model.filename}
                 missingFacts={ruleFacts.missing}

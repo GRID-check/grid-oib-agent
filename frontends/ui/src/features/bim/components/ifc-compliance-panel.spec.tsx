@@ -117,6 +117,27 @@ function panel(overrides: Partial<React.ComponentProps<typeof IfcCompliancePanel
 }
 
 describe('IfcCompliancePanel', () => {
+  it('says so, above the badges, when the catalogue only saw part of the model', () => {
+    // The element loader caps at 50 000 rows. A Prüfbuch that reports counts
+    // over a capped page as though they covered the building is the exact
+    // failure this whole feature exists to prevent — and it ends up in the
+    // BCF export and on a signed confirmation.
+    panel({ truncated: true })
+
+    const warning = screen.getByText(/the catalogue saw only part of it/i)
+    expect(warning).toBeInTheDocument()
+    // Ahead of the counts it invalidates, in the DOM order a reader follows.
+    expect(warning.compareDocumentPosition(screen.getByText(/Met/))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  })
+
+  it('says nothing when the whole model was checked', () => {
+    panel()
+
+    expect(screen.queryByText(/only part of it/i)).not.toBeInTheDocument()
+  })
+
   it('offers the open items as a BCF download, counting only the rules with work left', () => {
     // The count must match what the archive actually carries: `FAILING` has
     // failures and `UNDECIDABLE` has unknowns; `STOOD_DOWN` is out of scope

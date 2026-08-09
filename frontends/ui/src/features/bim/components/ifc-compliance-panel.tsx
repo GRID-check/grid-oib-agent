@@ -47,6 +47,11 @@ export interface IfcCompliancePanelProps {
   shoppingList: Array<{ path: string; elements: number; rules: string[] }> | null
   isLoading: boolean
   error: string | null
+  /**
+   * The catalogue ran over a CAPPED element list, so every count on this
+   * screen is a count over part of the building.
+   */
+  truncated?: boolean
   projectId: string
   modelFilename: string
   /** Set when the project brief is missing a fact some rules need. */
@@ -96,6 +101,7 @@ export function IfcCompliancePanel({
   shoppingList,
   isLoading,
   error,
+  truncated = false,
   projectId,
   modelFilename,
   missingFacts,
@@ -133,6 +139,14 @@ export function IfcCompliancePanel({
 
       {isLoading && <Spinner className="size-4" />}
       {error && <p className="text-sm text-destructive">{t('compliance.failed')}</p>}
+
+      {/* Above the badges on purpose: it invalidates every number in them. */}
+      {truncated && (
+        <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span>{t('compliance.truncatedModel')}</span>
+        </p>
+      )}
 
       {summary && (
         <div className="flex flex-wrap gap-2 text-xs">
