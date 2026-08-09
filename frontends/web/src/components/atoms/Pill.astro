@@ -5,8 +5,19 @@ interface Props {
   size?: 'sm' | 'md' | 'lg'
   external?: boolean
   class?: string
+  [key: `data-${string}`]: string | undefined
 }
-const { href, variant = 'solid', size = 'md', external = false, class: className = '' } = Astro.props
+// `rest` is forwarded so callers can hang hooks (`data-*`, `id`) on the anchor
+// without the atom having to know about them — the 404 uses it to relabel the
+// nav CTA for the English locale.
+const {
+  href,
+  variant = 'solid',
+  size = 'md',
+  external = false,
+  class: className = '',
+  ...rest
+} = Astro.props
 
 const base =
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition duration-200 active:translate-y-px'
@@ -28,6 +39,7 @@ const variants = {
 <a
   href={href}
   class={`${base} ${sizes[size]} ${variants[variant]} ${className}`}
+  {...rest}
   {...external ? { target: '_blank', rel: 'noopener noreferrer' } : {}}
 >
   <slot />

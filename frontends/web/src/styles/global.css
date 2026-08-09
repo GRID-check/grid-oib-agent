@@ -57,9 +57,13 @@
   --color-ink: #1f2023;
   --color-ink-soft: #55565a;
   --color-ink-mid: #3d3e3a;
-  --color-ink-mute: #6f706c;
-  --color-ink-faint: #8a8a86;
-  --color-ink-ghost: #a8a8a4;
+  /* The grey ladder is capped by contrast, not by taste: on the paper canvas
+     (#f7f7f3) the lightest grey that still clears WCAG AA 4.5:1 for body-size
+     text is about #717171, so every step below `soft` sits at or under it.
+     Measured ratios on canvas: mute 6.0, faint 5.0, ghost 4.8. */
+  --color-ink-mute: #5f605a;
+  --color-ink-faint: #6a6b64;
+  --color-ink-ghost: #6d6e67;
   --color-panel: #22271a;
   --color-accent-900: #2a301f;
   --color-accent-800: #2c3620;
@@ -74,7 +78,9 @@
   --color-bubble: #ececea;
   --color-paper-dim: #fafaf8;
   --color-hairline: #dcdfd8;
-  --color-ok: #17914d;
+  /* Also used as 12 px option letters in the chat mock, so it has to clear
+     4.5:1 on white — #17914d only reached 4.04. */
+  --color-ok: #157f44;
   --color-chip-law: #e3eafb;
   --color-chip-law-ink: #1c47ab;
   --color-chip-project: #e7f0e0;
@@ -134,6 +140,42 @@
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
+/* The landing page is ten sections written at different times. These three
+   utilities are the values they are only allowed to share: the content column
+   and its gutters, the inset of a panel sheet, and the proportion of the
+   heading block that opens a section. Ten copies of the same four numbers is
+   how a page starts drifting — 80 rem here, 85 rem there, `py-14` on one panel
+   and `py-18` on the next. */
+@utility section-shell {
+  box-sizing: border-box;
+  margin-inline: auto;
+  width: 100%;
+  max-width: 85rem;
+  padding-inline: 1rem;
+  @media (width >= 40rem) {
+    padding-inline: 2.5rem;
+  }
+}
+
+@utility panel-shell {
+  box-sizing: border-box;
+  border-radius: var(--radius-panel);
+  padding: 3.5rem 1.5rem;
+  @media (width >= 40rem) {
+    padding: 5rem 4rem;
+  }
+}
+
+/* Section opener: tag, heading, lead. `max-width` is measure, not layout — the
+   lead must break at a readable line length whatever the section below it does. */
+@utility section-head {
+  max-width: 48rem;
+  margin-bottom: 3rem;
+  @media (width >= 40rem) {
+    margin-bottom: 3.5rem;
+  }
+}
+
 /* Panels are sheets of drafting paper: they carry the same grid the page
    background does, so a coloured panel reads as a sheet laid on the drawing
    rather than as a card pasted over it. */
@@ -160,7 +202,9 @@
   html {
     scroll-behavior: smooth;
     scroll-snap-type: y proximity;
-    scroll-padding-top: 52px;
+    /* The floating bar measures 66 px tall including its top offset; anything
+       smaller lands the anchored heading underneath it. */
+    scroll-padding-top: 4.5rem;
   }
 
   [data-screen-label] {
@@ -169,9 +213,16 @@
   [data-pin] {
     scroll-snap-align: none;
   }
+  /* Sections that are read as a whole snap to their centre rather than to
+     their top edge — they are shorter than the viewport once the fixed nav is
+     accounted for, so a start-snap would leave them hanging under the bar. */
+  #ablauf,
   #nutzung,
+  #rollen,
   #daten,
+  #abdeckung,
   #datenschutz,
+  #fragen,
   #kontakt {
     scroll-snap-align: center;
   }

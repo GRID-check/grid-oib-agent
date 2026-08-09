@@ -8,18 +8,45 @@ const { locale = 'de' } = Astro.props
 const t = ui[locale]
 ---
 
-<div
+<figure
   data-chat-anchor
-  class="overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-mock"
+  class="m-0 overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-mock"
   data-reveal
 >
+  <!--
+    The diagram itself is absolutely positioned inside a camera that pans across
+    a 1160×620 coordinate space; read linearly it is noise, so it is hidden from
+    assistive tech and this caption carries the same material as prose. It is
+    the single richest piece of content on the page — dropping it for screen
+    readers would drop the argument the whole section makes.
+  -->
+  <figcaption class="sr-only">
+    <p>{t.chat.a11y.label}</p>
+    <p>{t.chat.a11y.questionLabel}: {t.chat.question}</p>
+    <p>{t.chat.a11y.sourcesLabel}:</p>
+    <ul>
+      <li>OIB-RL 2, {t.chat.oibTitle} — {t.chat.oibSub}</li>
+      <li>BO Wien, {t.chat.boTitle} — {t.chat.boSub}</li>
+      <li>{t.chat.projTag}: Einreichplan_EG.pdf — {t.chat.projSub}</li>
+    </ul>
+    <p>{t.chat.a11y.optionsLabel}. {t.chat.decisionIntro}</p>
+    <ul>
+      <li>A — {t.chat.optATitle}: {t.chat.optASub}</li>
+      <li>B — {t.chat.optBTitle}: {t.chat.optBSub}</li>
+      <li>C — {t.chat.optCTitle}: {t.chat.optCSub}</li>
+    </ul>
+    <p>{t.chat.a11y.stepsLabel}:</p>
+    <ol>
+      {t.chat.steps.map((s) => <li>{s}</li>)}
+    </ol>
+  </figcaption>
   <div
     class="flex items-center justify-between border-b border-ink/10 bg-paper-dim px-6 py-3"
   >
     <div class="flex items-center gap-2.5">
       <span class="size-2 rounded-full bg-ok" aria-hidden="true"></span>
       <span
-        class="font-display text-xs font-semibold uppercase tracking-wider text-ink-mute"
+        class="font-display text-xs font-medium uppercase tracking-label text-ink-mute"
         >{t.chat.header}</span
       >
     </div>
@@ -119,7 +146,7 @@ const t = ui[locale]
         class="pop absolute left-[780px] top-[172px] w-[300px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
       >
         <div class="bg-ink px-4 py-3">
-          <span class="font-display text-2xs font-bold uppercase tracking-wider text-on-dark-strong">{t.chat.decision}</span>
+          <span class="font-display text-2xs font-semibold uppercase tracking-label text-on-dark-strong">{t.chat.decision}</span>
         </div>
         <div class="px-4 pb-0.5 pt-3 text-xs leading-normal text-ink-soft">{t.chat.decisionIntro}</div>
         <div class="flex flex-col gap-2 px-3.5 pb-3.5 pt-3">
@@ -152,13 +179,13 @@ const t = ui[locale]
         class="pop absolute left-[840px] top-[520px] w-[320px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
       >
         <div class="flex items-center justify-between bg-accent-900 px-4 py-3">
-          <span class="font-display text-2xs font-bold uppercase tracking-wider text-surface">{t.chat.impl}</span>
+          <span class="font-display text-2xs font-semibold uppercase tracking-label text-surface">{t.chat.impl}</span>
           <span class="rounded-lg bg-tint px-2.5 py-0.5 text-2xs font-semibold text-accent-900">{t.chat.stepsBadge}</span>
         </div>
         <div class="flex flex-col gap-2 px-4 pb-4 pt-3">
-          <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-500">01</span><span class="text-xs leading-snug text-ink">{t.chat.steps[0]}</span></div>
-          <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-500">02</span><span class="text-xs leading-snug text-ink">{t.chat.steps[1]}</span></div>
-          <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-500">03</span><span class="text-xs leading-snug text-ink">{t.chat.steps[2]}</span></div>
+          <div class="flex items-baseline gap-2.5"><span class="font-mono text-2xs tracking-widest text-accent-600">01</span><span class="text-xs leading-snug text-ink">{t.chat.steps[0]}</span></div>
+          <div class="flex items-baseline gap-2.5"><span class="font-mono text-2xs tracking-widest text-accent-600">02</span><span class="text-xs leading-snug text-ink">{t.chat.steps[1]}</span></div>
+          <div class="flex items-baseline gap-2.5"><span class="font-mono text-2xs tracking-widest text-accent-600">03</span><span class="text-xs leading-snug text-ink">{t.chat.steps[2]}</span></div>
         </div>
       </div>
     </div>
@@ -171,20 +198,24 @@ const t = ui[locale]
         class="h-1.5 w-1.5 rounded-full bg-accent-500"
         style="animation: chain-pulse 1.4s ease-in-out infinite"
         aria-hidden="true"></span>
+      <!-- No `aria-live`: this line changes eleven times per 13.6 s loop, for
+           ever. Announcing a decorative animation over and over is worse than
+           silence — the caption above already carries the content. -->
       <span
         data-status
+        aria-hidden="true"
         class="font-display text-2xs uppercase tracking-widest text-ink-faint transition-opacity duration-400"
-        aria-live="polite">{t.chain.typing}</span
+        >{t.chain.typing}</span
       >
       <button
         data-replay
         type="button"
-        class="ml-auto cursor-pointer border-none bg-none font-display text-2xs uppercase tracking-widest text-ink-ghost hover:text-accent-500"
+        class="ml-auto inline-flex min-h-6 cursor-pointer items-center rounded-md border-none bg-none px-1.5 font-display text-2xs uppercase tracking-widest text-ink-faint hover:text-accent-600"
         >{t.chat.replay}</button
       >
     </div>
   </div>
-</div>
+</figure>
 
 <style>
   html.js [data-step-gte],

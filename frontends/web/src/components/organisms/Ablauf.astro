@@ -1,0 +1,79 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<!--
+  The "how". It sits directly after the story: the story ends on the claim that
+  Piloti wires the scattered fragments into one knowledge base, and this is the
+  mechanism behind that claim — read left to right, it is also exactly the
+  sequence the chat mock in the next section plays out.
+
+  Drawn on the open sheet rather than on a panel, so the page breathes between
+  the dark story panel and the light usage panel: one continuous dimension line
+  with a tick per step, step numbers in mono above the line, text below.
+-->
+<section
+  id="ablauf"
+  data-screen-label={t.sheets.ablauf}
+  class="section-shell py-24 sm:py-28"
+>
+  <div data-reveal class="section-head">
+    <SectionTag class="mb-5">{t.ablauf.tag}</SectionTag>
+    <h2 class="m-0 mb-6 font-display text-h2" style="text-wrap: balance">
+      {t.ablauf.title}
+    </h2>
+    <p class="m-0 text-lg leading-relaxed text-ink-soft" style="text-wrap: pretty">
+      {t.ablauf.lead}
+    </p>
+  </div>
+
+  <div class="relative">
+    <!-- The spine. Each step carries its own top rule, so a wrapped row keeps
+         one too; where all four steps stand in a single row this overlay closes
+         the gaps the gutters cut into it and the line runs end to end. Below
+         `lg` the steps wrap and the overlay is dropped — one closed row above a
+         broken one would read as a mistake rather than as a drawing. -->
+    <span class="absolute inset-x-0 top-0 hidden h-px bg-ink/15 lg:block" aria-hidden="true"></span>
+    <svg
+      class="absolute right-0 top-0 hidden -translate-y-1/2 lg:block"
+      width="9"
+      height="9"
+      viewBox="0 0 9 9"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path d="M3.5 1 7 4.5 3.5 8" stroke="currentColor" stroke-width="1" class="text-ink/30"></path>
+    </svg>
+
+    <ol
+      class="m-0 grid list-none grid-cols-4 gap-x-8 gap-y-11 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1"
+    >
+      {
+        t.ablauf.steps.map((s, i) => (
+          <li data-reveal class="group relative border-t border-ink/15 pt-7">
+            <span
+              class="absolute left-0 top-0 h-4 w-px bg-accent-600/45 transition-[height] duration-500 group-hover:h-7"
+              aria-hidden="true"
+            />
+            <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+              {`0${i + 1}`}
+            </p>
+            <h3 class="m-0 mt-3 font-display text-lg font-semibold tracking-tight text-ink">
+              {s.title}
+            </h3>
+            <p class="m-0 mt-2.5 text-sm leading-relaxed text-ink-soft" style="text-wrap: pretty">
+              {s.body}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>

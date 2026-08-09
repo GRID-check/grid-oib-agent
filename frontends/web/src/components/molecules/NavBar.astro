@@ -13,6 +13,21 @@ const { locale = 'de', switchTo } = Astro.props
 const t = ui[locale]
 const translatePath = useTranslatedPath(locale)
 const home = translatePath('/')
+
+// The page's own order. Prefixed with `home` so the anchors also work from the
+// blog and the legal pages, where these sections do not exist.
+//
+// `wide` marks the two that only appear once the bar's left track can hold six
+// labels (see the list below); the German set needs 487 px and the English 513,
+// against a track of 403 px at `lg` and 531 px at `xl`.
+const sections = [
+  { id: 'ablauf', label: t.nav.links.ablauf },
+  { id: 'nutzung', label: t.nav.links.nutzung },
+  { id: 'rollen', label: t.nav.links.rollen },
+  { id: 'daten', label: t.nav.links.daten },
+  { id: 'abdeckung', label: t.nav.links.abdeckung, wide: true },
+  { id: 'fragen', label: t.nav.links.fragen, wide: true },
+]
 ---
 
 <header data-nav class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-4 sm:pt-4">
@@ -21,7 +36,29 @@ const home = translatePath('/')
     class="mx-auto flex max-w-[84rem] items-center justify-between gap-3 rounded-card px-3 py-2 transition-colors duration-500 sm:px-4 md:grid md:grid-cols-[1fr_auto_1fr]"
     aria-label={t.nav.ariaLabel}
   >
-    <div class="hidden md:block"></div>
+    <!-- Section anchors sit in the bar's left margin, which is otherwise an
+         empty grid track. Below `lg` the track is too narrow even for four
+         labels and the list is dropped; the footer still links the same
+         sections. The active one is marked by the drafting-set device used
+         everywhere else on the page: a hairline tick under the label. -->
+    <ul
+      class="m-0 hidden list-none items-center gap-4 p-0 text-sm font-medium lg:flex xl:gap-5"
+    >
+      {
+        sections.map((s) => (
+          <li class={s.wide ? 'hidden xl:list-item' : ''}>
+            <a
+              href={`${home}#${s.id}`}
+              data-nav-link={s.id}
+              data-i18n={`nav.links.${s.id}`}
+              class="relative whitespace-nowrap py-1 text-ink transition-colors hover:text-accent-600 aria-[current]:text-accent-600 after:absolute after:inset-x-0 after:bottom-0 after:h-px after:origin-left after:scale-x-0 after:bg-accent-600/60 after:transition-transform after:duration-300 aria-[current]:after:scale-x-100"
+            >
+              {s.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
     <Logo href={`${home}#top`} label={t.nav.logoLabel} class="shrink-0" />
     <div
       class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
@@ -67,25 +104,32 @@ const home = translatePath('/')
           >{t.nav.signIn}</span
         >
       </a>
-      <Pill href={`${home}#kontakt`} variant="outline" size="sm">
+      <Pill href={`${home}#kontakt`} variant="outline" size="sm" data-i18n="nav.cta">
         {t.nav.cta}
       </Pill>
       {
         switchTo && (
           <span
-            class="whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-ink-ghost"
+            data-lang-switch
+            class="flex items-center whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-ink-ghost"
             aria-label={t.nav.langLabel}
           >
             {locale === 'de' ? (
-              <span class="text-ink" aria-current="true">DE</span>
+              <span class="inline-flex size-6 items-center justify-center text-ink" aria-current="true">DE</span>
             ) : (
-              <a href={switchTo} class="hover:text-accent-600" hreflang="de">DE</a>
+              <a
+                href={switchTo}
+                class="inline-flex size-6 items-center justify-center hover:text-accent-600"
+                hreflang="de">DE</a>
             )}
-            <span aria-hidden="true"> / </span>
+            <span aria-hidden="true">/</span>
             {locale === 'en' ? (
-              <span class="text-ink" aria-current="true">EN</span>
+              <span class="inline-flex size-6 items-center justify-center text-ink" aria-current="true">EN</span>
             ) : (
-              <a href={switchTo} class="hover:text-accent-600" hreflang="en">EN</a>
+              <a
+                href={switchTo}
+                class="inline-flex size-6 items-center justify-center hover:text-accent-600"
+                hreflang="en">EN</a>
             )}
           </span>
         )

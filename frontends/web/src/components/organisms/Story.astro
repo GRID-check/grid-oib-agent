@@ -39,16 +39,16 @@ const t = ui[locale]
           GK 4
         </FragCard>
         <FragCard tag={t.story.tags.document} dx={-22} dy={-34} fx={0.32} fy={0.12} pos={{ left: 0.22, top: 0.11 }}>
-          Bauantrag.pdf
+          {t.story.docs.permit}
         </FragCard>
         <FragCard tag={t.story.tags.detail} dx={40} dy={4} fx={0.68} fy={0.12} pos={{ right: 0.05, top: 0.46 }}>
-          Sockelanschluss
+          {t.story.docs.detail}
         </FragCard>
 
         <InfoCard glyph="§" tile="#cfe0a8" title="§ 106 BO Wien" sub={t.story.infoSubs.fire} value="GK 4" dx={26} dy={-18} fx={0.14} fy={0.57} pos={{ right: 0.2, top: 0.3 }} />
         <InfoCard glyph="◷" tile="#f3e6b8" title="OIB-RL 6" sub={t.story.infoSubs.energy} value="U 0,20" dx={-34} dy={20} fx={0.86} fy={0.57} pos={{ left: 0.17, bottom: 0.3 }} />
         <InfoCard glyph="▦" tile="#e9c4a8" title="Volksschule Aspern" sub={t.story.infoSubs.connection} value="2019" dx={18} dy={34} fx={0.3} fy={0.87} pos={{ right: 0.24, bottom: 0.24 }} />
-        <InfoCard glyph="▤" tile="#cdd6e6" title="Statik_Nachweis" sub={t.story.infoSubs.construction} value="PDF" dx={-12} dy={40} fx={0.5} fy={0.895} pos={{ left: 0.33, bottom: 0.09 }} />
+        <InfoCard glyph="▤" tile="#cdd6e6" title={t.story.docs.structural} sub={t.story.infoSubs.construction} value="PDF" dx={-12} dy={40} fx={0.5} fy={0.895} pos={{ left: 0.33, bottom: 0.09 }} />
 
         <div
           data-frag="-42,4"

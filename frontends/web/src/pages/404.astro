@@ -3,51 +3,72 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import Pill from '../components/atoms/Pill.astro'
 import { ui } from '../i18n/ui'
 
+// One document serves both locales: a miss under /en/ has no route of its own to
+// branch on, so the German copy is rendered and the inline script below swaps the
+// text. It used to ship the two versions as two blocks, which meant two `h1`s in
+// the document — one of them merely `hidden`, which is a heading-outline error a
+// screen reader would still trip over on the visible one. Now the outline is
+// fixed and only the words change.
 const de = ui.de.notFound
-const en = ui.en.notFound
+// Only the three branches the inline script reads. Serialising the whole English
+// bundle into a 404 would ship the landing-page corpus with an error page.
+const en = { notFound: ui.en.notFound, nav: ui.en.nav, footer: ui.en.footer }
 ---
 
-<BaseLayout locale="de" title={de.metaTitle} description={de.metaDescription} alternates={false}>
-  <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-36 text-center">
-    <p class="font-mono text-xs uppercase tracking-label text-accent-600">404</p>
-    <div data-404-de>
-      <h1
-        class="mt-5 max-w-xl font-display text-h2 text-ink"
-      >
-        {de.heading}
-      </h1>
-      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
-        {de.body}
-      </p>
-      <div class="mt-9">
-        <Pill href="/" variant="solid" size="lg">{de.home}</Pill>
-      </div>
-    </div>
-    <div data-404-en hidden>
-      <h1
-        class="mt-5 max-w-xl font-display text-h2 text-ink"
-      >
-        {en.heading}
-      </h1>
-      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
-        {en.body}
-      </p>
-      <div class="mt-9">
-        <Pill href="/en/" variant="solid" size="lg">{en.home}</Pill>
-      </div>
+<BaseLayout
+  locale="de"
+  title={de.metaTitle}
+  description={de.metaDescription}
+  alternates={false}
+  noindex
+>
+  <section
+    class="section-shell flex min-h-[70vh] flex-col items-center justify-center pb-24 pt-36 text-center"
+  >
+    <p class="font-mono text-2xs uppercase tracking-widest text-ink-faint">404</p>
+    <h1 data-i18n="notFound.heading" class="mt-5 max-w-xl font-display text-h2 text-ink" style="text-wrap: balance">
+      {de.heading}
+    </h1>
+    <p data-i18n="notFound.body" class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
+      {de.body}
+    </p>
+    <div class="mt-9">
+      <Pill href="/" variant="solid" size="lg" data-i18n="notFound.home">{de.home}</Pill>
     </div>
   </section>
 </BaseLayout>
 
-<script is:inline>
+<script is:inline define:vars={{ en }}>
+  // The nav bar and footer are rendered from the German bundle too, so relabel
+  // every element that carries a `data-i18n` path and re-root its link — an
+  // English 404 used to sit under a German nav pointing at German URLs.
   if (window.location.pathname.startsWith('/en')) {
     document.documentElement.lang = 'en'
-    document.title = 'Page not found — Piloti'
-    const de = document.querySelector('[data-404-de]')
-    const en = document.querySelector('[data-404-en]')
-    if (de instanceof HTMLElement && en instanceof HTMLElement) {
-      de.hidden = true
-      en.hidden = false
+    document.title = en.notFound.metaTitle
+    document.querySelector('meta[name="description"]')?.setAttribute('content', en.notFound.metaDescription)
+
+    for (const el of document.querySelectorAll('[data-i18n]')) {
+      const text = el.dataset.i18n.split('.').reduce((o, k) => (o == null ? o : o[k]), en)
+      if (typeof text === 'string') el.textContent = text
     }
+
+    for (const a of document.querySelectorAll('a[href^="/"]')) {
+      const href = a.getAttribute('href')
+      if (href === '/en' || href.startsWith('/en/')) continue
+      a.setAttribute('href', href === '/' ? '/en/' : `/en${href}`)
+    }
+    // The locale switch was rendered "DE current / EN elsewhere"; on an English
+    // miss it is the other way round, and the German target is this same path
+    // without the /en prefix.
+    const langSwitch = document.querySelector('[data-lang-switch]')
+    if (langSwitch) {
+      langSwitch.setAttribute('aria-label', en.nav.langLabel)
+      const dePath = window.location.pathname.replace(/^\/en(?=\/|$)/, '') || '/'
+      langSwitch.innerHTML =
+        `<a href="${dePath}" hreflang="de" class="inline-flex size-6 items-center justify-center hover:text-accent-600">DE</a>` +
+        '<span aria-hidden="true">/</span>' +
+        '<span class="inline-flex size-6 items-center justify-center text-ink" aria-current="true">EN</span>'
+    }
+
   }
 </script>
