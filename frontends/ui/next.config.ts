@@ -99,6 +99,18 @@ const nextConfig: NextConfig = {
           { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
         ],
       },
+      // The stored-document stream, for the same reason and under the same
+      // ordering rule: when the in-app PDF viewer cannot run, it degrades to a
+      // same-origin iframe on this route, which the global DENY above would
+      // otherwise refuse to render. `streamDocumentFile` sets the same two
+      // headers on its Response as defense-in-depth.
+      {
+        source: '/api/documents/:id/file',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+        ],
+      },
     ]
   },
 }

@@ -48,7 +48,25 @@ export function activeSecretBackend(): SecretBackend {
   return process.env.WORKOS_API_KEY ? 'workos-vault' : 'local-aes-gcm'
 }
 
-/** SHA-256 hex prefix — safe to store/display, never reversible. */
+/**
+ * Display/audit-only fingerprint for an API key: the first 16 hex chars of
+ * SHA-256.
+ *
+ * This is NOT a password verifier and NOT a shortening of the key. The
+ * persisted secret is only ever the AES-256-GCM envelope or the WorkOS Vault
+ * object id (see storeSecret); nothing authenticates a candidate key against
+ * this value — it is shown next to the key hint (`…abcd · deadbeefdeadbeef`)
+ * so admins can eyeball which key a row holds, and it rides in audit
+ * metadata to correlate events back to a row. Recovery is infeasible for the
+ * same reason an SSH host fingerprint is: the key carries ~200 bits of
+ * entropy and the stored value keeps only 64, so exhaustively matching the
+ * fingerprint yields no more information about the key itself. (CodeQL's
+ * js/insufficient-password-hash flags the raw SHA-256; that alert does not
+ * apply here — there is no hash-to-verify path, a KDF would slow nothing
+ * down, and an HMAC could not be computed on the WorkOS path where no KEK
+ * exists. Callers wanting to RECOVER a key must use revealSecret(), not
+ * this.)
+ */
 export function keyFingerprint(apiKey: string): string {
   return createHash('sha256').update(apiKey, 'utf8').digest('hex').slice(0, 16)
 }

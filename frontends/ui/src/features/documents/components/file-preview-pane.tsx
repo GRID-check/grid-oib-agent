@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
+import { documentFileUrl } from '@/lib/documents/urls'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
@@ -309,15 +310,17 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           fileName={file.filename}
           // The enlarged view is the other place a full-size original used to
           // cross the wire whole, so it gets the optimizable path too when there
-          // is one. PDFs keep the object-store URL — the iframe wants the real
-          // document, not an image.
-          src={(isImage ? previewImageUrl : null) ?? previewUrl}
+          // is one. A PDF goes to the same-origin stream instead of the
+          // presigned URL: the enlarged viewer renders the document with pdf.js,
+          // which FETCHES it, and a cross-origin fetch has no CORS policy to
+          // land on. See `documentFileUrl`.
+          src={isImage ? (previewImageUrl ?? previewUrl) : documentFileUrl(file.id)}
           isImage={isImage}
-          // Asked of the src actually rendered, rather than inferred from
-          // "did we get a signed path": those are two spellings of one rule,
-          // and only `isOptimizerEligible` is checked against the optimizer's
-          // real allow-list (see `optimizable.ts`).
-          imageUnoptimized={!isOptimizerEligible((isImage ? previewImageUrl : null) ?? previewUrl)}
+          // Only ever consulted in image mode, so it is asked of the IMAGE src:
+          // the PDF branch renders through pdf.js on the same-origin stream and
+          // never reaches the optimizer at all. `isOptimizerEligible` is checked
+          // against the optimizer's real allow-list (see `optimizable.ts`).
+          imageUnoptimized={!isOptimizerEligible(previewImageUrl ?? previewUrl)}
         />
       )}
 

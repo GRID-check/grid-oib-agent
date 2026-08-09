@@ -9,11 +9,7 @@
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import { KIND_TO_SIGNAL } from '../source-kinds'
-import {
-  splitReportSources,
-  linkifyCitationMarkers,
-  type ReportSourceEntry,
-} from '@/features/layout/lib/report-citations'
+import { splitReportSources, type ReportSourceEntry } from '@/features/layout/lib/report-citations'
 import {
   citationNumbers,
   citedLoci,
@@ -115,24 +111,33 @@ export interface AnswerBodySplit {
   body: string
   /** Parsed entries of that section (empty when the answer had none). */
   entries: ReportSourceEntry[]
+  /** The `[N]` markers the prose may link to — one per parsed entry. */
+  numbers: ReadonlySet<number>
 }
 
 /**
- * Split the answer's written sources section off its body and turn the inline
- * `[N]` markers into links to the provenance row.
+ * Split the answer's written sources section off its body.
  *
  * The written list is lifted out because it is a DATA CHANNEL, not display: it
  * carries the `[N]` ↔ locator binding into `buildCitationModel`, and rendering
  * it as well would state the answer's sources twice, each statement holding
  * half the truth. Returns the answer unchanged when it carries no recognizable
  * section, so answers without one (and meta turns) render exactly as before.
+ *
+ * The `numbers` it reports are what the section licenses the prose to link to;
+ * `remarkCitationMarkers` does the linking, on the parsed body.
  */
-export const splitAnswerBody = (markdown: string, anchorPrefix: string): AnswerBodySplit => {
+export const splitAnswerBody = (markdown: string): AnswerBodySplit => {
   const split = splitReportSources(markdown)
-  if (split.entries.length === 0) return { body: markdown, entries: [] }
-  const numbers = new Set(split.entries.map((entry) => entry.number))
-  return { body: linkifyCitationMarkers(split.body, numbers, anchorPrefix), entries: split.entries }
+  if (split.entries.length === 0) return { body: markdown, entries: [], numbers: EMPTY_NUMBERS }
+  return {
+    body: split.body,
+    entries: split.entries,
+    numbers: new Set(split.entries.map((entry) => entry.number)),
+  }
 }
+
+const EMPTY_NUMBERS: ReadonlySet<number> = new Set()
 
 /**
  * Product-stratum tab label, used when a document carries no fine lane label of

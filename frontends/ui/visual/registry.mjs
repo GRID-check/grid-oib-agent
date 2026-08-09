@@ -44,6 +44,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'pdf-passage',
+    path: '/dev/pdf-passage',
+    description:
+      'Cited passage lit up inside the in-app PDF viewer, over a real one-page Bescheid rendered by pdf.js. Left pane freezes the arrival pulse mid-swell, right pane shows the resting mark. The quoted passage spans two printed lines and is cited without the line-break hyphen, so both the de-hyphenation and the per-line rectangle merge are visible.',
+    waitFor: '[data-testid="passage-mark"]',
+  },
+  {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',
@@ -315,7 +322,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/citation-interaction',
     description:
-      'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells.',
+      'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells. Includes a claim carried by two sources, written [2][3], as the two separate pills it must render as.',
     waitFor: '[data-testid="citation-interaction-preview"]',
   },
   {

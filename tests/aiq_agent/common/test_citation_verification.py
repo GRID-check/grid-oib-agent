@@ -1,5 +1,8 @@
 """Tests for citation verification module."""
 
+import re
+from urllib.parse import urlparse
+
 import pytest
 
 from aiq_agent.common.citation_verification import _PARSER_REGISTRY
@@ -1535,8 +1538,8 @@ class TestSanitizeReport:
             "[2] News: https://www.reuters.com/technology/nvidia-2026"
         )
         result = sanitize_report(report)
-        assert "arxiv.org" in result.sanitized_report
-        assert "reuters.com" in result.sanitized_report
+        hosts = {urlparse(u).hostname for u in re.findall(r"https?://\S+", result.sanitized_report)}
+        assert hosts == {"arxiv.org", "www.reuters.com"}
         assert result.body_urls_removed == 0
         assert len(result.shortened_urls_removed) == 0
         assert len(result.unsafe_urls_removed) == 0
@@ -1552,7 +1555,8 @@ class TestSanitizeReport:
         result = sanitize_report(report)
         assert "bit.ly" not in result.sanitized_report
         assert "tinyurl.com" not in result.sanitized_report
-        assert "arxiv.org" in result.sanitized_report
+        hosts = {urlparse(u).hostname for u in re.findall(r"https?://\S+", result.sanitized_report)}
+        assert hosts == {"arxiv.org"}
         assert len(result.shortened_urls_removed) == 2
 
     def test_no_references_section(self):
@@ -1574,7 +1578,8 @@ class TestSanitizeReport:
         """Domain-only URLs are legitimate if they came from tool results."""
         report = "Finding [1].\n\n## Sources\n[1] Weather API: https://www.weatherapi.com/"
         result = sanitize_report(report)
-        assert "weatherapi.com" in result.sanitized_report
+        hosts = {urlparse(u).hostname for u in re.findall(r"https?://\S+", result.sanitized_report)}
+        assert hosts == {"www.weatherapi.com"}
         assert len(result.truncated_urls_removed) == 0
 
     def test_full_url_not_flagged_as_truncated(self):

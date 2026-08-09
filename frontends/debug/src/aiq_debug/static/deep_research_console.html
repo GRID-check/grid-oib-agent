@@ -1836,20 +1836,39 @@
 
         if (options.viewReport) {
           const jobId = activeJobId || options.jobId || '';
-          bubble.innerHTML = `
-            <div class="research-complete-bubble">
-              <div class="status-text">✅ Deep research complete</div>
-              ${jobId ? `<div style="font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;">Job: ${jobId}</div>` : ''}
-              <div class="button-row">
-                <button class="view-report-btn" onclick="viewReportWithReplay('${jobId}')">
-                  📄 View Report
-                </button>
-                <button class="view-stream-btn" onclick="viewStreamWithReplay('${jobId}')">
-                  📡 View Stream
-                </button>
-              </div>
-            </div>
-          `;
+          // jobId is untrusted (user-typed or backend payload); build the
+          // bubble with DOM APIs so it is never parsed as markup and never
+          // escapes into an inline handler string (js/xss).
+          const complete = document.createElement('div');
+          complete.className = 'research-complete-bubble';
+
+          const status = document.createElement('div');
+          status.className = 'status-text';
+          status.textContent = '✅ Deep research complete';
+          complete.appendChild(status);
+
+          if (jobId) {
+            const meta = document.createElement('div');
+            meta.style.cssText = "font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;";
+            meta.textContent = `Job: ${jobId}`;
+            complete.appendChild(meta);
+          }
+
+          const buttonRow = document.createElement('div');
+          buttonRow.className = 'button-row';
+          const reportBtn = document.createElement('button');
+          reportBtn.className = 'view-report-btn';
+          reportBtn.textContent = '📄 View Report';
+          reportBtn.addEventListener('click', () => viewReportWithReplay(jobId));
+          const streamBtn = document.createElement('button');
+          streamBtn.className = 'view-stream-btn';
+          streamBtn.textContent = '📡 View Stream';
+          streamBtn.addEventListener('click', () => viewStreamWithReplay(jobId));
+          buttonRow.appendChild(reportBtn);
+          buttonRow.appendChild(streamBtn);
+          complete.appendChild(buttonRow);
+
+          bubble.appendChild(complete);
         } else {
           bubble.innerHTML = renderMarkdown(text);
         }
@@ -3029,6 +3048,14 @@
         });
       }
 
+      function makeButton(text, className, onClick) {
+        const btn = document.createElement('button');
+        btn.className = className;
+        btn.textContent = text;
+        btn.addEventListener('click', onClick);
+        return btn;
+      }
+
       function showJobBanner(jobId, status = 'running') {
         activeJobId = jobId;
 
@@ -3072,25 +3099,40 @@
 
         const config = statusConfig[status] || statusConfig.running;
 
-        const actionsHtml = config.showActions ? `
-          <div class="job-banner-actions">
-            <button class="btn btn-primary" onclick="startStream('${jobId}')">Stream</button>
-            <button class="btn" onclick="fetchState('${jobId}')">State</button>
-            <button class="btn" onclick="fetchReport('${jobId}')">Report</button>
-            <button class="btn btn-danger" onclick="cancelJob('${jobId}')">Cancel</button>
-          </div>
-        ` : '';
+        // jobId is untrusted (user-typed or backend payload); build the
+        // banner with DOM APIs so it is never parsed as markup and never
+        // escapes into an inline handler string (js/xss).
+        const banner = document.createElement('div');
+        banner.className = 'job-banner';
+        banner.style.borderColor = config.borderColor;
 
-        jobBannerContainer.innerHTML = `
-          <div class="job-banner" style="border-color: ${config.borderColor};">
-            <div class="job-banner-title">${config.icon} ${config.title}</div>
-            <div class="job-banner-id">Job ID: ${jobId}</div>
-            <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px;">
-              ${config.subtitle}
-            </div>
-            ${actionsHtml}
-          </div>
-        `;
+        const title = document.createElement('div');
+        title.className = 'job-banner-title';
+        title.textContent = `${config.icon} ${config.title}`;
+        banner.appendChild(title);
+
+        const idLine = document.createElement('div');
+        idLine.className = 'job-banner-id';
+        idLine.textContent = `Job ID: ${jobId}`;
+        banner.appendChild(idLine);
+
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 8px;';
+        subtitle.textContent = config.subtitle;
+        banner.appendChild(subtitle);
+
+        if (config.showActions) {
+          const actions = document.createElement('div');
+          actions.className = 'job-banner-actions';
+          actions.appendChild(makeButton('Stream', 'btn btn-primary', () => startStream(jobId)));
+          actions.appendChild(makeButton('State', 'btn', () => fetchState(jobId)));
+          actions.appendChild(makeButton('Report', 'btn', () => fetchReport(jobId)));
+          actions.appendChild(makeButton('Cancel', 'btn btn-danger', () => cancelJob(jobId)));
+          banner.appendChild(actions);
+        }
+
+        jobBannerContainer.innerHTML = '';
+        jobBannerContainer.appendChild(banner);
         renderSubagents(cachedState.subagents);
       }
 

@@ -304,8 +304,8 @@ def add_document_routes(router: APIRouter):
 
             return result
         except Exception as e:
-            logger.error(f"Failed to delete files from {collection_name}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error("Failed to delete files from collection %s: %s", collection_name, type(e).__name__)
+            raise HTTPException(status_code=500, detail="Failed to delete files")
 
     @router.get(
         "/v1/documents/{job_id}/status",
@@ -327,8 +327,8 @@ def add_document_routes(router: APIRouter):
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Failed to get job status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error("Failed to get job status: %s", type(e).__name__)
+            raise HTTPException(status_code=500, detail="Failed to get job status")
 
     class BatchStatusRequest(BaseModel):
         job_ids: list[str] = Field(default_factory=list, max_length=BATCH_STATUS_MAX_IDS)

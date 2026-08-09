@@ -2,6 +2,7 @@
 
 import { type FC, type ReactNode, memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
+import type { PluggableList } from 'unified'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -95,9 +96,11 @@ function stabilizeStreamingMarkdown(raw: string): string {
     const hasDelimiterRow = tableLines.some((l) => /^\s*\|?\s*:?-{1,}/.test(l) && l.includes('-'))
     if (!hasDelimiterRow) {
       // Escape the leading pipes so react-markdown renders them as text, not a
-      // broken table, until the delimiter row streams in.
+      // broken table, until the delimiter row streams in. Backslashes first:
+      // a pipe that is already escaped (`\|`) must not have its escape
+      // re-escaped, which would leave the pipe unescaped (js/incomplete-sanitization).
       for (let i = start; i < end; i++) {
-        lines[i] = lines[i].replace(/\|/g, '\\|')
+        lines[i] = lines[i].replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
       }
       content = lines.join('\n')
     }
@@ -113,11 +116,16 @@ function stabilizeStreamingMarkdown(raw: string): string {
  * @param isStreaming - Whether content is still streaming (disables memoization)
  * @param className - Additional CSS classes
  * @param compact - Use smaller text sizes for chat bubbles
+ * @param remarkPlugins - Extra remark plugins, run after GFM and math
  */
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
-  ({ content, className = '', compact = false, isStreaming = false }) => {
+  ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
     const renderInPageAnchor = useInPageAnchorRenderer()
     const renderInternalLink = useInternalLinkRenderer()
+    const plugins = useMemo(
+      (): PluggableList => [remarkGfm, remarkMath, ...(remarkPlugins ?? [])],
+      [remarkPlugins]
+    )
     // While streaming, run partial content through the stabilizer so half-formed
     // fences/tables don't thrash the layout token-by-token. Finalized content is
     // rendered verbatim.
@@ -303,7 +311,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     return (
       <div className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
+          remarkPlugins={plugins}
           rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
           components={components}
         >

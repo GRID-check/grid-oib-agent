@@ -1,10 +1,12 @@
 """Tests for the exa_web_search NAT registration."""
 
 import os
+import re
 import sys
 import types
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import pytest
 from exa_web_search.register import ExaWebSearchToolConfig
@@ -112,7 +114,8 @@ class TestExaWebSearchLive:
             out = await info.single_fn("question")
 
         assert os.environ.get("EXA_API_KEY") == "sk-from-config"
-        assert "https://a.example" in out
+        hrefs = re.findall(r'href="([^"]+)"', out)
+        assert [urlparse(h).hostname for h in hrefs] == ["a.example"]
         assert "body a" in out
 
     async def test_successful_search_formats_documents(self, fake_langchain_exa, monkeypatch):

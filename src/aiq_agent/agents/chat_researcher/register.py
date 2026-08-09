@@ -578,7 +578,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     f"  1. Set these keys in your .env file or environment variables\n"
                     f"  2. Restart the application"
                 )
-                logger.error("Missing required API keys: %s", ", ".join(missing_keys))
+                logger.error("Missing %d required API key(s)", len(missing_keys))
                 # Create the error response here to avoid duplication
                 api_key_error_response = _create_chat_response(error_msg, response_id="api_key_error")
         except Exception as e:

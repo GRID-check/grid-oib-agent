@@ -973,6 +973,83 @@ export async function getDocumentPreview(
 }
 
 /**
+ * Stream a stored PDF's bytes from THIS origin, under the same authorization
+ * `getAccessibleDocument` applies everywhere else — `project:view` for a project
+ * document, org membership for an org-wide Archiv document.
+ *
+ * The presigned URL `getDocumentPreview` mints points at the object store's own
+ * domain, and that is fine for anything the browser NAVIGATES to — a new tab, a
+ * download, an iframe. It is not fine for anything the browser FETCHES: the
+ * in-app PDF viewer reads the file with XHR to build a text layer, which makes
+ * the request cross-origin and subject to CORS, and the S3 gateway this deploys
+ * against (SeaweedFS, `deploy/compose/docker-compose.coolify.yaml`) publishes no
+ * CORS policy at all. Every project upload and every org-Archiv document would
+ * therefore fail to load in the viewer and silently drop to the fallback frame —
+ * losing the cited-passage highlight on exactly the documents users uploaded
+ * themselves, while the base corpus (already same-origin) kept it.
+ *
+ * So stored PDFs get the same shape the corpus route has. The presigned URL is
+ * not replaced: it still serves the "open in new tab" link and the image
+ * branch, where a navigation is what happens and an expiring URL is the point.
+ *
+ * PDF ONLY, and narrower than {@link PREVIEW_CONTENT_TYPES} on purpose. That
+ * list admits `image/svg+xml`, and an SVG is a script carrier: served `inline`
+ * from THIS origin it executes in the app's origin with the user's session,
+ * which is stored XSS. `frame-ancestors` does not prevent script execution in a
+ * top-level document. The same hazard is already spelled out for the image
+ * optimizer above — this route must not be the hole that reintroduces it.
+ * Images have no reason to come through here anyway: nothing fetches their
+ * bytes to parse, so every caller keeps them on the presigned URL.
+ */
+export async function streamDocumentFile(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<Response> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  const contentType = doc.contentType || 'application/octet-stream'
+  if (contentType !== 'application/pdf') {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only PDF documents stream from this route', {
+      contentType,
+    })
+  }
+
+  let body
+  try {
+    const object = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: doc.storageKey,
+      }),
+    )
+    body = object.Body
+  } catch {
+    throw new NotFoundError('File not available')
+  }
+  if (!body) throw new NotFoundError('File not available')
+
+  // ASCII-safe filename for the header; this route only ever displays inline.
+  const asciiName = doc.filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
+  return new Response(body.transformToWebStream(), {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${asciiName}"`,
+      // Private: these bytes are tenant data.
+      'Cache-Control': 'private, max-age=300',
+      // The viewer's fallback renders this stream in a same-origin iframe, and
+      // the global next.config rule stamps X-Frame-Options: DENY on every
+      // route. Override it here, with a matching CSP directive for modern
+      // browsers — the same pairing `streamKnowledgeBaseDocument` carries, and
+      // next.config carries a route-scoped override to match.
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy': "frame-ancestors 'self'",
+    },
+  })
+}
+
+/**
  * Browser-facing thumbnail URL (null when no thumbnail exists).
  *
  * Prefers the signed same-origin route so the card's 124px well gets an

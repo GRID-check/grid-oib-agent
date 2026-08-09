@@ -56,6 +56,13 @@ export const knowledge = {
     view: 'View PDF',
     description: 'Original source document.',
     openInTab: 'Open in new tab',
+    loading: 'Loading document…',
+    pageCount: '{count} pages',
+    toPassage: 'Go to passage',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    highlightUnavailable:
+      'The passage cannot be marked in this browser — showing the document without the highlight.',
   },
   error: {
     title: 'Knowledge base unavailable',

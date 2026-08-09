@@ -1,9 +1,11 @@
 """Tests for the tavily_web_search NAT registration."""
 
+import re
 import sys
 import types
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import pytest
 from pydantic import SecretStr
@@ -146,14 +148,16 @@ class TestPlatformMaxResultsOverride:
         assert fake_langchain_tavily.call_count == 2
         _, second_kwargs = fake_langchain_tavily.call_args_list[1]
         assert second_kwargs["max_results"] == 7
-        assert "https://a.example" in output
+        hrefs = re.findall(r'href="([^"]+)"', output)
+        assert [urlparse(h).hostname for h in hrefs] == ["a.example"]
 
     async def test_no_override_reuses_the_shared_client(self, fake_langchain_tavily):
         output = await _run_search(TavilyWebSearchToolConfig(max_results=5))
 
         kwargs = _construction_kwargs(fake_langchain_tavily)
         assert kwargs["max_results"] == 5
-        assert "https://a.example" in output
+        hrefs = re.findall(r'href="([^"]+)"', output)
+        assert [urlparse(h).hostname for h in hrefs] == ["a.example"]
 
     async def test_advanced_search_uses_the_advanced_key(self, fake_langchain_tavily, monkeypatch):
         _override_setting(monkeypatch, {"web.advanced_max_results": 4})
@@ -180,6 +184,7 @@ class TestPlatformMaxResultsOverride:
 
         kwargs = _construction_kwargs(fake_langchain_tavily)
         assert kwargs["max_results"] == 5
-        assert "https://a.example" in output
+        hrefs = re.findall(r'href="([^"]+)"', output)
+        assert [urlparse(h).hostname for h in hrefs] == ["a.example"]
         # The resolver's cache is process-global; do not leave this outage in it.
         retrieval_settings.reset_retrieval_settings_cache()

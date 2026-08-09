@@ -26,6 +26,7 @@ import { ChevronDown, ChevronUp, ExternalLink, FileSearch, Link2 } from 'lucide-
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
+import { documentFileUrl } from '@/lib/documents/urls'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import {
@@ -605,6 +606,10 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
     if (citation?.locus) setActiveLocus(citation.locus)
   }, [citation?.locus])
 
+  const isImage =
+    target.document.type === 'stored' &&
+    (target.document.contentType ?? '').toLowerCase().startsWith('image/')
+
   const openPreview = async (locus?: CitationLocus): Promise<void> => {
     if (locus) setActiveLocus(locus)
     if (target.document.type === 'base') {
@@ -613,10 +618,18 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
     }
     setIsResolving(true)
     try {
+      // The presign still runs, and not only out of habit: it is the
+      // authorization and existence check that keeps a failure a toast instead
+      // of a dialog that opens onto nothing.
       const res = await fetch(`/api/documents/${target.document.id}/preview`)
       const data = res.ok ? await res.json() : null
       if (data?.url) {
-        setSrc(data.url)
+        // An image is NAVIGATED to by `next/image` and keeps the presigned URL.
+        // A PDF is FETCHED by the viewer to read its text layer, so it has to
+        // come from this origin — the object store publishes no CORS policy,
+        // and a cross-origin read fails where the same bytes in an iframe would
+        // have loaded. See `documentFileUrl`.
+        setSrc(isImage ? data.url : documentFileUrl(target.document.id))
         setIsOpen(true)
       } else {
         toast.error(t('sourcePreview.loadFailed'))
@@ -627,10 +640,6 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
       setIsResolving(false)
     }
   }
-
-  const isImage =
-    target.document.type === 'stored' &&
-    (target.document.contentType ?? '').toLowerCase().startsWith('image/')
   // The provenance tint comes from the SOURCE, not from where the file happens
   // to be stored: a chip and the dialog it opens must never disagree about what
   // kind of source this is.
@@ -656,6 +665,12 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
       title={target.title}
       src={src ?? undefined}
       isImage={isImage}
+      // The passage the retrieval actually read. The viewer finds it on the
+      // page and marks it, so the click lands on the SENTENCE rather than on a
+      // page the reader then has to search — and it wears this source's own
+      // tint, the same one the chip that opened the dialog wore.
+      highlight={activeLocus?.snippet ?? target.snippet}
+      highlightColor={`var(--source-${headerSignal})`}
       headerChip={
         <span className="flex items-center gap-2">
           <SourceSignalChip signal={headerSignal}>

@@ -2,17 +2,17 @@
  * Report citation helpers (ReportTab).
  *
  * Deep-research reports cite sources with inline `[N]` markers and usually end
- * with a numbered sources section (`## Sources` / `## Quellen`). Rendered as
- * plain markdown those markers are dead text. These helpers:
+ * with a numbered sources section (`## Sources` / `## Quellen`).
+ * `splitReportSources` extracts that trailing section — heading plus numbered
+ * entries — so the entries can be rendered with per-entry DOM anchors
+ * (react-markdown without rehype-raw cannot attach ids to list items from
+ * markdown alone).
  *
- *  1. `splitReportSources` — extract the trailing sources section (heading +
- *     numbered entries) so the entries can be rendered with per-entry DOM
- *     anchors (react-markdown without rehype-raw cannot attach ids to list
- *     items from markdown alone).
- *  2. `linkifyCitationMarkers` — turn inline `[N]` markers in the report body
- *     into markdown anchor links (`[\[N\]](#report-source-N)`), skipping code
- *     blocks/spans and existing link syntax, so the MarkdownRenderer's
- *     in-page-anchor handling scrolls to the matching source entry.
+ * Linking the inline markers to those anchors is the other half, and it lives
+ * in {@link ./citation-markers} because it is a job for the parsed document
+ * rather than for the source text. This module still reads source text, but it
+ * reads it a LINE at a time, looking for the one shape a sources list has —
+ * which is a different problem from finding a bracket in running prose.
  */
 
 /** DOM id prefix for source entries rendered by ReportTab. */
@@ -87,9 +87,6 @@ const parseSourceKind = (
   }
 }
 
-/** Markdown reference-link definition, e.g. "[1]: https://..." */
-const LINK_REFERENCE_DEFINITION_RE = /^\s*\[\d+\]:\s+\S/m
-
 /**
  * Split a report into body + trailing sources section.
  * Only a sources section introduced by a recognized heading with at least one
@@ -143,50 +140,4 @@ export const splitReportSources = (markdown: string): SplitReportSources => {
 
   const body = [...lines.slice(0, headingIndex), ...lines.slice(end)].join('\n').trimEnd()
   return { body, heading, entries }
-}
-
-/**
- * Linkify inline `[N]` citation markers to in-page anchors.
- *
- * - Only numbers present in `validNumbers` are linkified.
- * - Fenced code blocks and inline code spans are left untouched.
- * - Existing markdown link syntax is preserved: `[N](url)`, `[N][ref]` and
- *   reference definitions are not rewritten; if the document declares numeric
- *   link-reference definitions (`[1]: url`), linkification is skipped entirely
- *   because `[1]` already renders as a link there.
- */
-export const linkifyCitationMarkers = (
-  markdown: string,
-  validNumbers: ReadonlySet<number>,
-  anchorPrefix: string = REPORT_SOURCE_ANCHOR_PREFIX
-): string => {
-  if (!markdown || validNumbers.size === 0) return markdown
-  if (LINK_REFERENCE_DEFINITION_RE.test(markdown)) return markdown
-
-  // Split out fenced code blocks first, then inline code spans, so `[N]`
-  // inside code is never rewritten.
-  const fenceSplit = markdown.split(/(^\s*(?:```|~~~)[\s\S]*?^\s*(?:```|~~~)\s*$)/m)
-
-  const linkifyText = (text: string): string =>
-    text.replace(/\[(\d{1,3})\](?!\(|\[|:)/g, (match, num: string, offset: number) => {
-      const n = Number(num)
-      if (!validNumbers.has(n)) return match
-      // Don't touch markers that are part of link syntax like `[text][1]`.
-      if (offset > 0 && text[offset - 1] === ']') return match
-      // Leave image/escaped constructs alone.
-      if (offset > 0 && (text[offset - 1] === '!' || text[offset - 1] === '\\')) return match
-      return `[\\[${n}\\]](#${anchorPrefix}${n})`
-    })
-
-  return fenceSplit
-    .map((segment, index) => {
-      // Odd indexes are the captured fenced code blocks — leave untouched.
-      if (index % 2 === 1) return segment
-      // Preserve inline code spans within the text segment.
-      return segment
-        .split(/(`[^`\n]*`)/)
-        .map((part, partIndex) => (partIndex % 2 === 1 ? part : linkifyText(part)))
-        .join('')
-    })
-    .join('')
 }

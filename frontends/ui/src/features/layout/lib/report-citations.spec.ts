@@ -2,11 +2,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import {
-  splitReportSources,
-  linkifyCitationMarkers,
-  REPORT_SOURCE_ANCHOR_PREFIX,
-} from './report-citations'
+import { splitReportSources } from './report-citations'
 
 describe('splitReportSources', () => {
   test('extracts a trailing "## Sources" section with numbered entries', () => {
@@ -179,60 +175,5 @@ describe('splitReportSources', () => {
 
     expect(result.entries[0].sourceKind).toBeUndefined()
     expect(result.entries[0].markdown).toBe('[2024] Annual outlook — https://example.com')
-  })
-})
-
-describe('linkifyCitationMarkers', () => {
-  const valid = new Set([1, 2, 3])
-
-  test('turns [N] into an in-page anchor link', () => {
-    const result = linkifyCitationMarkers('Duties differ [1] and [2].', valid)
-
-    expect(result).toBe(
-      `Duties differ [\\[1\\]](#${REPORT_SOURCE_ANCHOR_PREFIX}1) and [\\[2\\]](#${REPORT_SOURCE_ANCHOR_PREFIX}2).`
-    )
-  })
-
-  test('ignores numbers without a matching source entry', () => {
-    const result = linkifyCitationMarkers('See [1] and [9].', new Set([1]))
-
-    expect(result).toContain(`[\\[1\\]](#${REPORT_SOURCE_ANCHOR_PREFIX}1)`)
-    expect(result).toContain('[9].')
-    expect(result).not.toContain(`#${REPORT_SOURCE_ANCHOR_PREFIX}9`)
-  })
-
-  test('leaves [N] inside fenced code blocks alone', () => {
-    const markdown = ['See [1].', '```', 'array[1] = x // [2]', '```', 'And [2].'].join('\n')
-
-    const result = linkifyCitationMarkers(markdown, valid)
-
-    expect(result).toContain(`[\\[1\\]](#${REPORT_SOURCE_ANCHOR_PREFIX}1)`)
-    expect(result).toContain('array[1] = x // [2]')
-    expect(result).toContain(`[\\[2\\]](#${REPORT_SOURCE_ANCHOR_PREFIX}2)`)
-  })
-
-  test('leaves [N] inside inline code spans alone', () => {
-    const result = linkifyCitationMarkers('Use `items[1]` for access [1].', valid)
-
-    expect(result).toContain('`items[1]`')
-    expect(result).toContain(`access [\\[1\\]](#${REPORT_SOURCE_ANCHOR_PREFIX}1).`)
-  })
-
-  test('does not rewrite existing markdown link syntax', () => {
-    expect(linkifyCitationMarkers('[1](https://example.com)', valid)).toBe(
-      '[1](https://example.com)'
-    )
-    expect(linkifyCitationMarkers('[text][1]', valid)).toBe('[text][1]')
-  })
-
-  test('skips documents that declare numeric link-reference definitions', () => {
-    const markdown = 'See [1].\n\n[1]: https://example.com'
-
-    expect(linkifyCitationMarkers(markdown, valid)).toBe(markdown)
-  })
-
-  test('returns input unchanged for empty input or empty number set', () => {
-    expect(linkifyCitationMarkers('', valid)).toBe('')
-    expect(linkifyCitationMarkers('See [1].', new Set())).toBe('See [1].')
   })
 })

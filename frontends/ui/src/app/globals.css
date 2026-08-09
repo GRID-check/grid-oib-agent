@@ -519,6 +519,59 @@ body {
   animation: grid-citation-pulse 1.1s cubic-bezier(0.16, 1, 0.3, 1) 2;
 }
 
+/* =============================================================================
+   Passage highlight — "this one", inside the document
+
+   The same event the chip pulse states, one level down: the citation opened the
+   PDF at page 12, and this says WHICH SENTENCE on page 12. It is the answer to
+   the question the reader actually asked by clicking, so it has to arrive
+   visibly rather than be already there — a highlight that is simply present
+   when the page appears reads as part of the document, and the reader ends up
+   hunting for it exactly as they did before.
+
+   So: two beats of a swell that fades to a resting tint, the same grammar as
+   the chip pulse, in the tint of the source that opened the viewer. The resting
+   tint is what remains — a highlighter mark over the passage, kept through
+   scrolling and zooming so it can be found again after a detour, and the whole
+   affordance collapses under prefers-reduced-motion to the resting mark alone,
+   which still answers "which sentence".
+
+   One tint strength serves both themes on purpose: what the mark composites
+   against is the rendered PAGE, which is paper-white whatever the app around it
+   is wearing.
+   ============================================================================= */
+@keyframes grid-passage-ping {
+  0% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--passage-tint, var(--ring)) 70%, transparent);
+  }
+  /* The swell. It has to overshoot the resting mark by a wide margin — at a few
+     points of difference the "arrival" is invisible against the mark it settles
+     into, which is the whole event. The halo spreads past the band so the eye is
+     caught by a shape appearing, not only by a colour changing. */
+  30% {
+    background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) 88%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in oklch, var(--passage-tint, var(--ring)) 30%, transparent);
+  }
+  100% {
+    background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) 38%, transparent);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@utility passage-highlight {
+  /* The resting mark. Multiply keeps the glyphs underneath readable through the
+     fill — a plain opaque tint over rasterised text greys it out, which is the
+     one thing a highlight must not do to the sentence it is pointing at. */
+  background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) 38%, transparent);
+  mix-blend-mode: multiply;
+  border-radius: 2px;
+}
+
+@utility animate-passage-ping {
+  animation: grid-passage-ping 1.15s cubic-bezier(0.16, 1, 0.3, 1) 2 both;
+}
+
 @utility min-h-dvh {
   min-height: 100dvh;
 }
@@ -630,4 +683,13 @@ body {
 .dark .grid-storage-viz {
   --storage-meter: #3987e5;
   --storage-meter-over: #d03b3b;
+}
+
+/* Two sources behind one claim is written `[2][3]`, so two citation pills can
+   land side by side. Their tint blocks would touch and read as one wide chip
+   holding a two-digit number; a hair of space keeps them two citations. Scoped
+   to marker-after-marker so a single pill's spacing — tuned against the
+   sentence's own punctuation — is untouched. */
+[data-citation-marker] + [data-citation-marker] {
+  margin-left: 0.18em;
 }

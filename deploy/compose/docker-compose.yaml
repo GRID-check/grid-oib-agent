@@ -65,6 +65,10 @@ services:
       # anyone would look at. The Kubernetes tier holds a dedicated read-only
       # identity here; compose has one identity, so it uses that.
       - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      # Browser-facing host: the BFF signs presigned URLs against this, so the
+      # ingest endpoint must accept file_refs pointing at it too (SSRF
+      # allowlist in aiq_api.routes.ingest).
+      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
       # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object,
       # and this tier used to carry the `grid` credential — which holds
       # Write and Tagging on every document bucket, so a compromise here could
@@ -401,6 +405,7 @@ services:
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=grid-documents
