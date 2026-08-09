@@ -166,7 +166,7 @@ export const POST = internalApiRoute(
         // was fine and the MODEL is not ready, which is an answer, not an error.
         return {
           resolved: false,
-          reason: error.status === 'failed' ? 'extraction_failed' : 'not_ready',
+          reason: error.modelStatus === 'failed' ? 'extraction_failed' : 'not_ready',
           message: error.message,
           models: [describe(selected)],
         }

@@ -37,7 +37,7 @@ function result(overrides: Partial<BimRuleResultWithConfirmation> = {}): BimRule
     undecidable: 2,
     failures: [
       {
-        globalId: 'wall-fail-1',
+        globalId: '2O2Fr$t4X7Zf8NOew3FLKU',
         name: 'Aussenwand Nord',
         storeyName: 'EG',
         status: 'fail',
@@ -46,14 +46,14 @@ function result(overrides: Partial<BimRuleResultWithConfirmation> = {}): BimRule
     ],
     unknowns: [
       {
-        globalId: 'wall-unknown-1',
+        globalId: '1kTvXnbbzCWw8lcMd1dR4o',
         name: 'Innenwand 12',
         storeyName: 'OG1',
         status: 'undecidable',
         reading: 'kein FireRating veröffentlicht',
       },
       {
-        globalId: 'wall-unknown-2',
+        globalId: '0RSwXnbbzCWw8lcMd1dR9z',
         name: null,
         storeyName: null,
         status: 'undecidable',
@@ -88,10 +88,11 @@ describe('buildComplianceBcf', () => {
     expect(files.get('bcf.version')).toContain('VersionId="2.1"')
     expect(paths.filter((path) => path.endsWith('/markup.bcf'))).toHaveLength(1)
     expect(paths.filter((path) => path.endsWith('/viewpoint.bcfv'))).toHaveLength(1)
-    // The folder name IS the topic guid — readers key on it.
-    const folder = paths[1].split('/')[0]
+    // The folder name IS the topic guid — readers key on it. `paths[1]` is the
+    // folder entry itself, so the markup is the one after it.
+    const folder = paths[1].replace(/\/$/, '')
     expect(folder).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-    expect(files.get(paths[1])).toContain(`<Topic Guid="${folder}"`)
+    expect(files.get(`${folder}/markup.bcf`)).toContain(`<Topic Guid="${folder}"`)
   })
 
   it('names the file after the project and the revision it was run against', () => {
@@ -133,7 +134,7 @@ describe('buildComplianceBcf', () => {
     const viewpoint = [...files.entries()].find(([path]) => path.endsWith('.bcfv'))?.[1] ?? ''
     const ids = [...viewpoint.matchAll(/IfcGuid="([^"]+)"/g)].map((match) => match[1])
 
-    expect(ids).toEqual(['wall-fail-1', 'wall-unknown-1', 'wall-unknown-2'])
+    expect(ids).toEqual(['2O2Fr$t4X7Zf8NOew3FLKU', '1kTvXnbbzCWw8lcMd1dR4o', '0RSwXnbbzCWw8lcMd1dR9z'])
     expect(viewpoint).toContain('<Visibility DefaultVisibility="true" />')
   })
 
@@ -148,7 +149,7 @@ describe('buildComplianceBcf', () => {
     expect(markup).toContain('- Aussenwand Nord (EG): REI 30 — gefordert REI 60')
     expect(markup).toContain('- Pset_WallCommon.FireRating (2 Bauteile)')
     // The element with no name still has to be findable.
-    expect(markup).toContain('- wall-unknown-2: kein FireRating veröffentlicht')
+    expect(markup).toContain('- 0RSwXnbbzCWw8lcMd1dR9z: kein FireRating veröffentlicht')
   })
 
   it('escapes XML rather than emitting a file no reader can parse', () => {
@@ -158,7 +159,7 @@ describe('buildComplianceBcf', () => {
           titleDe: 'Wand "A" & <B>',
           failures: [
             {
-              globalId: 'w1',
+              globalId: '3aB9Kz1Uv7wxKQ8bqZ3aB2',
               name: 'Trennwand <EG> & "Flur"',
               storeyName: null,
               status: 'fail',
@@ -184,7 +185,7 @@ describe('buildComplianceBcf', () => {
         result({
           failures: [
             {
-              globalId: 'w1',
+              globalId: '3aB9Kz1Uv7wxKQ8bqZ3aB2',
               name: 'Wand\u0000\u000b12',
               storeyName: null,
               status: 'fail',
@@ -319,6 +320,63 @@ describe('buildComplianceBcf', () => {
 
     expect([...files.keys()].some((path) => path.endsWith('.bcfv'))).toBe(false)
     expect(markup).not.toContain('<Viewpoints')
+  })
+
+  it('omits IfcProject rather than writing an empty Guid', () => {
+    // `IfcProject` is typed Guid in the 2.1 schema; `IfcProject=""` makes the
+    // whole markup schema-invalid, so a model that published no project id
+    // produced an archive a validating reader refuses outright.
+    const files = readZipEntries(
+      buildComplianceBcf({
+        projectId: 'project-1',
+        projectName: 'Wohnhaus',
+        model: { ...MODEL, ifcProjectGlobalId: null },
+        results: [result()],
+        author: 'planer@example.at',
+      }).bytes
+    )
+    const markup = [...files.entries()].find(([p]) => p.endsWith('markup.bcf'))?.[1] ?? ''
+
+    expect(markup).not.toContain('IfcProject=')
+    expect(markup).toContain('<File isExternal="true">')
+  })
+
+  it('selects only ids a CAD can resolve', () => {
+    // An element the extractor could not identify carries a synthesised
+    // `express:1234`. BCF types IfcGuid as a 22-character IFC GlobalId, so
+    // emitting that invalidated the viewpoint. The element still appears in
+    // the description; it just cannot be selected.
+    const files = readZipEntries(
+      build([
+        result({
+          unknowns: [
+            {
+              globalId: 'express:4211',
+              name: 'Ohne GlobalId',
+              storeyName: null,
+              status: 'undecidable',
+              reading: 'kein FireRating',
+            },
+          ],
+        }),
+      ]).bytes
+    )
+    const viewpoint = [...files.entries()].find(([p]) => p.endsWith('.bcfv'))?.[1] ?? ''
+    const markup = [...files.entries()].find(([p]) => p.endsWith('markup.bcf'))?.[1] ?? ''
+
+    expect(viewpoint).not.toContain('express:4211')
+    expect([...viewpoint.matchAll(/IfcGuid="([^"]+)"/g)].map((m) => m[1])).toEqual(['2O2Fr$t4X7Zf8NOew3FLKU'])
+    expect(markup).toContain('Ohne GlobalId')
+  })
+
+  it('carries a folder entry per topic, as the encoding guide requires', () => {
+    // A reader that enumerates topics by walking DIRECTORY entries finds none
+    // in a flat archive and imports it as empty — without reporting an error.
+    const paths = [...readZipEntries(build([result()]).bytes).keys()]
+    const folder = paths.find((p) => p.endsWith('/'))
+
+    expect(folder).toBeDefined()
+    expect(paths).toContain(`${folder}markup.bcf`)
   })
 
   it('names the model revision in the markup header so the topic is anchored', () => {

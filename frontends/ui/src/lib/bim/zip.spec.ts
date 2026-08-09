@@ -128,6 +128,25 @@ describe('createZip', () => {
     ).toThrow(/Duplicate zip entry path/)
   })
 
+  it('marks a trailing-slash entry as a directory', () => {
+    const bytes = createZip([{ path: 'topic/', content: '' }])
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    // External attributes live at +38 in the central directory header.
+    let at = -1
+    for (let i = bytes.length - 22; i >= 0; i -= 1) {
+      if (view.getUint32(i, true) === 0x06054b50) { at = view.getUint32(i + 16, true); break }
+    }
+    expect(view.getUint32(at + 38, true) & 0x10).toBe(0x10)
+  })
+
+  it('refuses a traversing path, not just an absolute one', () => {
+    // The guard rejected '', '/x' and backslashes — and accepted the one shape
+    // that actually escapes a target directory on extraction.
+    expect(() => createZip([{ path: '../../etc/passwd', content: 'x' }])).toThrow(
+      /Invalid zip entry path/
+    )
+  })
+
   it.each(['', '/absolute.txt', 'windows\\path.txt'])('refuses the path %j', (path) => {
     expect(() => createZip([{ path, content: 'x' }])).toThrow(/Invalid zip entry path/)
   })

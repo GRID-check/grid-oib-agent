@@ -39,6 +39,19 @@ export interface ZipEntry {
   content: string | Uint8Array
 }
 
+/**
+ * MS-DOS directory bit, in the high half of `external file attributes`.
+ *
+ * A store-only archive of `<guid>/markup.bcf` with no folder entry unzips
+ * correctly everywhere, but the BCF 2.1 encoding guide names that shape as
+ * incorrect, and a reader that enumerates topics by walking DIRECTORY entries
+ * finds none — importing the file as empty without reporting an error, which
+ * is the worst way for an export to fail.
+ */
+const DOS_DIRECTORY = 0x10
+
+const isDirectoryPath = (path: string): boolean => path.endsWith('/')
+
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
   for (let n = 0; n < 256; n += 1) {
@@ -117,7 +130,14 @@ export function createZip(entries: readonly ZipEntry[]): Uint8Array {
   const directory = new ByteWriter()
 
   for (const entry of entries) {
-    if (entry.path === '' || entry.path.startsWith('/') || entry.path.includes('\\')) {
+    if (
+      entry.path === '' ||
+      entry.path.startsWith('/') ||
+      entry.path.includes('\\') ||
+      // `..` never appears in a path this module generates, but the guard read
+      // as a traversal check while allowing the one shape that traverses.
+      entry.path.split('/').includes('..')
+    ) {
       throw new Error(`Invalid zip entry path: ${JSON.stringify(entry.path)}`)
     }
     if (seen.has(entry.path)) throw new Error(`Duplicate zip entry path: ${entry.path}`)
@@ -160,7 +180,7 @@ export function createZip(entries: readonly ZipEntry[]): Uint8Array {
     directory.u16(0) // comment length
     directory.u16(0) // disk number start
     directory.u16(0) // internal attributes
-    directory.u32(0) // external attributes
+    directory.u32(isDirectoryPath(entry.path) ? DOS_DIRECTORY : 0) // external attributes
     directory.u32(localOffset)
     directory.bytes(name)
   }

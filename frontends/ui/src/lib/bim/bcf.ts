@@ -207,8 +207,20 @@ function topicTitle(result: BimRuleResultWithConfirmation): string {
  * than the ones that are unknown, and a reader that truncates a long selection
  * truncates the tail.
  */
+/**
+ * A 22-character IFC GlobalId, in IFC's own base64 alphabet.
+ *
+ * BCF types `IfcGuid` as exactly this. An element the extractor could not
+ * identify carries a synthesised `express:1234` instead, and emitting that
+ * made the viewpoint schema-invalid — so the topic still lists the element in
+ * its description, but the SELECTION only names ids a CAD can resolve.
+ */
+const IFC_GLOBAL_ID = /^[0-9A-Za-z_$]{22}$/
+
 function topicComponents(result: BimRuleResultWithConfirmation): string[] {
-  const ids = [...result.failures, ...result.unknowns].map((verdict) => verdict.globalId)
+  const ids = [...result.failures, ...result.unknowns]
+    .map((verdict) => verdict.globalId)
+    .filter((id) => IFC_GLOBAL_ID.test(id))
   return [...new Set(ids)]
 }
 
@@ -258,7 +270,11 @@ function markupXml(
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<Markup xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
     '  <Header>',
-    `    <File IfcProject="${text(model.ifcProjectGlobalId ?? '')}" isExternal="true">`,
+    // OMITTED when the model published no IfcProject GlobalId. `IfcProject`
+    // is typed `Guid` in the 2.1 schema, and an empty string is not one —
+    // `xmllint` rejects the whole markup, so a model without a project id
+    // produced an archive no validating reader would open.
+    `    <File${model.ifcProjectGlobalId ? ` IfcProject="${text(model.ifcProjectGlobalId)}"` : ''} isExternal="true">`,
     `      <Filename>${text(model.filename)}</Filename>`,
     `      <Date>${created}</Date>`,
     '    </File>',
@@ -350,6 +366,8 @@ export function buildComplianceBcf(input: BcfExportInput): BcfExport {
   for (const result of topics) {
     const guid = topicGuid(input.projectId, result.ruleId)
     const globalIds = topicComponents(result)
+    // The topic FOLDER, as its own entry — see `DOS_DIRECTORY` in `zip.ts`.
+    entries.push({ path: `${guid}/`, content: '' })
     entries.push({
       path: `${guid}/markup.bcf`,
       content: markupXml(result, input, guid, globalIds.length > 0),

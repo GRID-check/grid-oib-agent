@@ -69,6 +69,23 @@ export const AnswerCitations: FC<{
             if (element) {
               return <IfcElementChip link={element}>{label}</IfcElementChip>
             }
+            // An `/api/…` href is a DOWNLOAD, not a route. Rendered as a
+            // `next/link` it was prefetched by the intersection observer 200px
+            // before it scrolled into view — firing a full, unrate-limited
+            // compliance run and BCF build per link, with no click and no
+            // intent. A plain anchor with `download` is also what the reader
+            // actually wants: a file, not a navigation.
+            if (href.startsWith('/api/')) {
+              return (
+                <a
+                  href={href}
+                  download
+                  className="text-brand underline underline-offset-2 hover:opacity-80"
+                >
+                  {label}
+                </a>
+              )
+            }
             return (
               <Link href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
                 {label}

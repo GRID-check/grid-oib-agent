@@ -21,6 +21,7 @@
 import 'server-only'
 import { and, ilike, inArray, or, sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
+import { ApiError } from '@/lib/api/errors'
 import { bimElements } from '@/lib/db/schema'
 import {
   aggregateBimElements,
@@ -244,13 +245,26 @@ export interface BimQueryResult {
   truncated?: boolean
 }
 
-export class BimModelNotReadyError extends Error {
-  readonly status: BimModelHeader['status']
+export class BimModelNotReadyError extends ApiError {
+  readonly modelStatus: BimModelHeader['status']
 
   constructor(status: BimModelHeader['status'], message: string) {
-    super(message)
+    // Extends `ApiError` so the handler maps it. As a bare `Error` every one
+    // of these surfaced as HTTP 500 "Internal server error" with a stack in
+    // the logs: a model still extracting — the normal state for the first
+    // minute after a 250 MB upload — read to the user as a crashed server,
+    // and a model in another tenant read as one too.
+    //
+    // A missing model is 404, like every other resource. A model that exists
+    // but is not readable YET is 409: the request was well-formed and the
+    // caller should retry, which a 500 tells them nothing about.
+    super(
+      status === 'failed' && /not found/i.test(message) ? 404 : 409,
+      'MODEL_NOT_READY',
+      message
+    )
     this.name = 'BimModelNotReadyError'
-    this.status = status
+    this.modelStatus = status
   }
 }
 

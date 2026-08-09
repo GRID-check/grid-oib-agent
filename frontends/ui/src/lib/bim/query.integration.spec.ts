@@ -699,6 +699,23 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     expect(selected.filter((id) => !known.has(id))).toEqual([])
   })
 
+  it('reports a model that is not ready as a retryable 409, not a crash', async () => {
+    // `BimModelNotReadyError` was a bare `Error`, so `isAuthzError` did not
+    // match it and the handler returned HTTP 500 "Internal server error" with
+    // a stack per request. A 250 MB upload spends its first minute extracting;
+    // every poll in that window read to the user as a crashed server.
+    const { BimModelNotReadyError: Err } = await import('./query')
+    const extracting = new Err('extracting', 'Model is still being extracted')
+    const missing = new Err('failed', 'Model not found')
+
+    expect(extracting.status).toBe(409)
+    expect(extracting.code).toBe('MODEL_NOT_READY')
+    expect(missing.status).toBe(404)
+    // The status the model is in stays readable — the internal route branches
+    // on it to tell the agent "still reading" from "extraction failed".
+    expect(extracting.modelStatus).toBe('extracting')
+  })
+
   it('refuses to answer for another tenant, even with the right model id', async () => {
     const { runBimQuery: run2 } = await import('./query')
     await expect(run2({ op: 'overview' }, { modelId, organizationId: OTHER_ORG })).rejects.toBeInstanceOf(
