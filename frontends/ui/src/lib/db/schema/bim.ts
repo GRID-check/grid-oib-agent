@@ -7,6 +7,7 @@ import {
   integer,
   bigserial,
   index,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
@@ -114,3 +115,31 @@ export type BimModelRow = typeof bimModels.$inferSelect
 export type NewBimModelRow = typeof bimModels.$inferInsert
 export type BimElementRow = typeof bimElements.$inferSelect
 export type NewBimElementRow = typeof bimElements.$inferInsert
+
+/**
+ * A human verdict on a rule the catalogue could not settle.
+ *
+ * Recorded against a model REVISION so a later revision makes it visibly
+ * stale — see `0035_bim_check_confirmations.sql` for why that matters more
+ * than it looks.
+ */
+export const bimCheckConfirmations = pgTable(
+  'bim_check_confirmations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: text('organization_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    /** Rule id from `lib/bim/rules.ts`; deliberately not a foreign key. */
+    ruleId: text('rule_id').notNull(),
+    /** The revision the person actually looked at. */
+    modelId: uuid('model_id').notNull(),
+    confirmedBy: text('confirmed_by').notNull(),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('bim_check_confirmations_unique').on(table.organizationId, table.projectId, table.ruleId),
+    index('bim_check_confirmations_project_idx').on(table.organizationId, table.projectId),
+  ]
+)

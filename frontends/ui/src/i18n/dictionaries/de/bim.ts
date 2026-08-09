@@ -159,6 +159,19 @@ export const bim: typeof en.bim = {
       undecidable: 'Nicht entscheidbar',
       notApplicable: 'Nicht einschlägig',
     },
+    confirmed: {
+      by: 'Bestätigt von {who} am {when}',
+      stale: 'Älterer Stand',
+      staleHint:
+        'Diese Bestätigung wurde gegen einen früheren Modellstand abgegeben. Sie bleibt als Nachweis erhalten, deckt den aktuellen Stand aber nicht mehr ab.',
+      confirm: 'Manuell bestätigen',
+      reconfirm: 'Für diesen Stand erneut bestätigen',
+      withdraw: 'Zurückziehen',
+      save: 'Bestätigung speichern',
+      cancel: 'Abbrechen',
+      noteLabel: 'Warum das geklärt ist',
+      notePlaceholder: 'z. B. anhand des Plans geprüft, mit dem Brandschutzplaner abgestimmt …',
+    },
     shoppingList: {
       title: 'Was dem Modell fehlt',
       description:

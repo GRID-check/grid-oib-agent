@@ -670,3 +670,21 @@ Deliberately **no** `organization_id`: the parent model's column is the truth
 and the RLS policy joins it, per the child-table rule in ADR-0041. The join is
 asserted against a live Postgres in `src/lib/bim/query.integration.spec.ts`,
 which runs under `task db:test:rls`.
+
+### `bim_check_confirmations`
+
+A human verdict on a rule the OIB catalogue (`lib/bim/rules.ts`) could not
+settle — an architect reading a plan, or knowing that `F 90` is load-bearing 90
+minutes even though the checker refused to score it.
+
+| column | notes |
+|---|---|
+| `rule_id` | Catalogue rule id. **Not** a foreign key: the catalogue is code, and a renamed or retired rule must not take a signed confirmation down with it. |
+| `model_id` | The revision the person actually looked at. This is the point of the table: a later revision leaves the confirmation in place but visibly **stale**, so a signature cannot outlive the drawing it was made about. |
+| `confirmed_by` | Taken from the session, never from the request body. |
+| `note` | Why they are confident; shown verbatim beside the verdict. |
+
+Unique on `(organization_id, project_id, rule_id)` — a rule has exactly one
+current human verdict, and re-confirming replaces it rather than growing a
+history nobody reads. RLS: `organization_id = grid_current_org()` plus a
+project-ownership `EXISTS`.

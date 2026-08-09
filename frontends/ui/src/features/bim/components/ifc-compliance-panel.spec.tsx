@@ -8,13 +8,18 @@
  * Rendered in English — the default test locale.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { IfcCompliancePanel } from './ifc-compliance-panel'
-import type { BimRuleResult } from '@/lib/bim/rules'
+import type { BimRuleResult, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
 
-function rule(overrides: Partial<BimRuleResult> & Pick<BimRuleResult, 'ruleId'>): BimRuleResult {
+function rule(
+  overrides: Partial<BimRuleResultWithConfirmation> & Pick<BimRuleResult, 'ruleId'>
+): BimRuleResultWithConfirmation {
   return {
+    confirmation: null,
+    confirmationStale: false,
     richtlinie: 'OIB 2',
     clause: '3',
     titleDe: 'Tragende Bauteile — Feuerwiderstand',
@@ -181,5 +186,58 @@ describe('IfcCompliancePanel', () => {
     panel({ rules: null, summary: null, shoppingList: null, error: 'load-failed' })
     expect(screen.getByText('The requirement check could not be run.')).toBeInTheDocument()
     expect(screen.queryByText(/no legal advice/)).not.toBeInTheDocument()
+  })
+
+  describe('human confirmations', () => {
+    const CONFIRMED = rule({
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      undecidable: 34,
+      confirmation: {
+        ruleId: 'oib2-feuerwiderstand-tragend',
+        modelId: 'rev-3',
+        confirmedBy: 'a.muster',
+        note: 'Mit dem Brandschutzplaner abgeklärt.',
+        confirmedAt: '2026-03-02T09:00:00.000Z',
+      },
+    })
+
+    it('shows who settled it and why, beside the machine counts', () => {
+      panel({ rules: [CONFIRMED] })
+      expect(screen.getByText(/Confirmed by a.muster/)).toBeInTheDocument()
+      expect(screen.getByText(/Mit dem Brandschutzplaner abgeklärt/)).toBeInTheDocument()
+      // The machine verdict is NOT overwritten — the reader still sees that 34
+      // walls publish nothing.
+      expect(screen.getByText(/34 not decidable/)).toBeInTheDocument()
+    })
+
+    it('marks a confirmation from an older revision as no longer covering', () => {
+      panel({ rules: [{ ...CONFIRMED, confirmationStale: true }] })
+      expect(screen.getByText('Older revision')).toBeInTheDocument()
+      expect(screen.getByText(/no longer as cover for the current one/)).toBeInTheDocument()
+      // Still recorded: a signature is not deleted by a re-export.
+      expect(screen.getByText(/Confirmed by a.muster/)).toBeInTheDocument()
+    })
+
+    it('records a confirmation with the note the user typed', async () => {
+      const onConfirm = vi.fn().mockResolvedValue(undefined)
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm })
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      await userEvent.type(screen.getByLabelText('Why this is settled'), 'Anhand des Plans geprüft')
+      await userEvent.click(screen.getByRole('button', { name: 'Save confirmation' }))
+      expect(onConfirm).toHaveBeenCalledWith('oib2-feuerwiderstand-tragend', 'Anhand des Plans geprüft')
+    })
+
+    it('offers nothing to confirm on a rule the model settled cleanly', () => {
+      // A signature there would be one nobody needs.
+      panel({ rules: [rule({ ruleId: 'oib3-raumhoehe', passed: 9 })], onConfirm: vi.fn() })
+      expect(screen.queryByRole('button', { name: 'Confirm manually' })).not.toBeInTheDocument()
+    })
+
+    it('shows a confirmation to a viewer who cannot add one', () => {
+      // Read access is enough to SEE the record; only writing is withheld.
+      panel({ rules: [CONFIRMED] })
+      expect(screen.getByText(/Confirmed by a.muster/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Confirm/ })).not.toBeInTheDocument()
+    })
   })
 })

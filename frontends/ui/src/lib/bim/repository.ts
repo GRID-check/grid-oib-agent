@@ -13,6 +13,7 @@ import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
+  bimCheckConfirmations,
   bimElements,
   bimModels,
   documents,
@@ -597,3 +598,105 @@ export async function countBimElementsByType(
 }
 
 export type { BimModelRow, BimElementRow }
+
+// ---------------------------------------------------------------------------
+// Human confirmations on rule verdicts
+// ---------------------------------------------------------------------------
+
+/** One rule an architect settled themselves, as stored. */
+export interface BimStoredConfirmation {
+  ruleId: string
+  modelId: string
+  confirmedBy: string
+  note: string | null
+  confirmedAt: Date
+}
+
+export async function listBimCheckConfirmations(
+  organizationId: string,
+  projectId: string
+): Promise<BimStoredConfirmation[]> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        ruleId: bimCheckConfirmations.ruleId,
+        modelId: bimCheckConfirmations.modelId,
+        confirmedBy: bimCheckConfirmations.confirmedBy,
+        note: bimCheckConfirmations.note,
+        confirmedAt: bimCheckConfirmations.updatedAt,
+      })
+      .from(bimCheckConfirmations)
+      .where(
+        and(
+          eq(bimCheckConfirmations.organizationId, organizationId),
+          eq(bimCheckConfirmations.projectId, projectId)
+        )
+      )
+  )
+  return rows
+}
+
+/**
+ * Record (or re-record) a human verdict on one rule.
+ *
+ * Upserts on (organization, project, rule): a rule has exactly one current
+ * human verdict, and re-confirming against a newer revision REPLACES the old
+ * one rather than growing a history nobody reads. `model_id` moves with it,
+ * which is what clears the stale flag.
+ */
+export async function upsertBimCheckConfirmation(input: {
+  organizationId: string
+  projectId: string
+  ruleId: string
+  modelId: string
+  confirmedBy: string
+  note: string | null
+}): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId: input.organizationId }, () =>
+    db
+      .insert(bimCheckConfirmations)
+      .values({
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        ruleId: input.ruleId,
+        modelId: input.modelId,
+        confirmedBy: input.confirmedBy,
+        note: input.note,
+      })
+      .onConflictDoUpdate({
+        target: [
+          bimCheckConfirmations.organizationId,
+          bimCheckConfirmations.projectId,
+          bimCheckConfirmations.ruleId,
+        ],
+        set: {
+          modelId: input.modelId,
+          confirmedBy: input.confirmedBy,
+          note: input.note,
+          updatedAt: new Date(),
+        },
+      })
+  )
+}
+
+/** Withdraw a confirmation — the rule returns to whatever the catalogue says. */
+export async function deleteBimCheckConfirmation(input: {
+  organizationId: string
+  projectId: string
+  ruleId: string
+}): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId: input.organizationId }, () =>
+    db
+      .delete(bimCheckConfirmations)
+      .where(
+        and(
+          eq(bimCheckConfirmations.organizationId, input.organizationId),
+          eq(bimCheckConfirmations.projectId, input.projectId),
+          eq(bimCheckConfirmations.ruleId, input.ruleId)
+        )
+      )
+  )
+}

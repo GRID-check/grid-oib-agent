@@ -20,10 +20,14 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
+  deleteBimCheckConfirmation,
   findBimModelByDocument,
   findBimModelById,
+  listBimCheckConfirmations,
   listBimModels,
+  upsertBimCheckConfirmation,
   type BimModelHeader,
+  type BimStoredConfirmation,
 } from './repository'
 import { runBimQuery, type BimQuery, type BimQueryResult } from './query'
 
@@ -145,4 +149,65 @@ export async function getModelSource(
     { expiresIn }
   )
   return { url, filename: document.filename, expiresInSeconds: expiresIn }
+}
+
+// ---------------------------------------------------------------------------
+// Human confirmations on rule verdicts
+// ---------------------------------------------------------------------------
+
+/**
+ * The confirmations recorded for a project's Prüfbuch.
+ *
+ * `project:view` is enough to READ them: a confirmation is part of the record
+ * everyone working on the project needs to see, and hiding it from a viewer
+ * would show them open questions somebody has already answered.
+ */
+export async function listAccessibleCheckConfirmations(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<BimStoredConfirmation[]> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:view')
+  return listBimCheckConfirmations(session.organizationId, projectId)
+}
+
+/**
+ * Record a human verdict on one rule, against the revision they looked at.
+ *
+ * `project:edit`, and the confirming identity comes from the SESSION rather
+ * than the request body — a signature a caller could address to somebody else
+ * is not a signature. The model is re-resolved through `getAccessibleModel` so
+ * a confirmation cannot be pinned to a revision in another tenant.
+ */
+export async function confirmAccessibleCheck(
+  session: AuthorizedSession,
+  projectId: string,
+  input: { ruleId: string; modelId: string; note: string | null }
+): Promise<void> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:edit')
+  const model = await getAccessibleModel(session, input.modelId)
+  await upsertBimCheckConfirmation({
+    organizationId: session.organizationId,
+    projectId,
+    ruleId: input.ruleId,
+    modelId: model.id,
+    confirmedBy: session.userId,
+    note: input.note,
+  })
+}
+
+/** Withdraw a confirmation; the rule returns to whatever the catalogue says. */
+export async function withdrawAccessibleCheck(
+  session: AuthorizedSession,
+  projectId: string,
+  ruleId: string
+): Promise<void> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:edit')
+  await deleteBimCheckConfirmation({
+    organizationId: session.organizationId,
+    projectId,
+    ruleId,
+  })
 }

@@ -20,16 +20,27 @@
  *    under-configured project look like a clean one.
  */
 
-import { AlertTriangle, CheckCircle2, HelpCircle, MinusCircle, ShieldCheck, Wrench } from 'lucide-react'
+import { useState } from 'react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
+  MinusCircle,
+  ShieldCheck,
+  UserCheck,
+  Wrench,
+} from 'lucide-react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { useTranslations } from '@/i18n'
-import type { BimComplianceSummary, BimRuleResult } from '@/lib/bim/rules'
+import { Textarea } from '@/components/ui/textarea'
+import { useLocale, useTranslations } from '@/i18n'
+import type { BimComplianceSummary, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
 import { buildModelHref } from '../lib/model-link'
 
 export interface IfcCompliancePanelProps {
-  rules: BimRuleResult[] | null
+  rules: BimRuleResultWithConfirmation[] | null
   summary: BimComplianceSummary | null
   shoppingList: Array<{ path: string; elements: number; rules: string[] }> | null
   isLoading: boolean
@@ -40,6 +51,15 @@ export interface IfcCompliancePanelProps {
   missingFacts: string[]
   /** Opens the chat so the user can supply what the brief lacks. */
   askHref: string
+  /**
+   * Record a human verdict on a rule the catalogue could not settle.
+   *
+   * Absent for a viewer without `project:edit` — the confirmations are still
+   * SHOWN, because they are part of the record everyone needs to read; only
+   * the ability to add one is withheld.
+   */
+  onConfirm?: (ruleId: string, note: string) => Promise<void>
+  onWithdraw?: (ruleId: string) => Promise<void>
 }
 
 /** Rows before a rule's list folds — the counts always speak for the rest. */
@@ -69,6 +89,8 @@ export function IfcCompliancePanel({
   modelFilename,
   missingFacts,
   askHref,
+  onConfirm,
+  onWithdraw,
 }: IfcCompliancePanelProps): JSX.Element {
   const t = useTranslations('bim')
 
@@ -144,6 +166,8 @@ export function IfcCompliancePanel({
               rule={rule}
               projectId={projectId}
               modelFilename={modelFilename}
+              onConfirm={onConfirm}
+              onWithdraw={onWithdraw}
             />
           ))}
         </ul>
@@ -160,10 +184,14 @@ function RuleRow({
   rule,
   projectId,
   modelFilename,
+  onConfirm,
+  onWithdraw,
 }: {
-  rule: BimRuleResult
+  rule: BimRuleResultWithConfirmation
   projectId: string
   modelFilename: string
+  onConfirm?: (ruleId: string, note: string) => Promise<void>
+  onWithdraw?: (ruleId: string) => Promise<void>
 }): JSX.Element {
   const t = useTranslations('bim')
   const checked = rule.passed + rule.failed + rule.undecidable
@@ -231,9 +259,124 @@ function RuleRow({
               )}
             </>
           )}
+
+          <Confirmation rule={rule} onConfirm={onConfirm} onWithdraw={onWithdraw} />
         </div>
       </div>
     </li>
+  )
+}
+
+/**
+ * The human verdict on a rule, and the way to record one.
+ *
+ * Rendered BESIDE the machine counts, never instead of them: an architect who
+ * confirms a failing rule has said "I know, and it is fine", and turning the
+ * row green would hide what the model actually says from the next reader.
+ *
+ * A confirmation made against an older revision stays visible and is marked
+ * stale rather than being deleted or silently honoured — "I checked this" was
+ * true of the building that person looked at.
+ */
+function Confirmation({
+  rule,
+  onConfirm,
+  onWithdraw,
+}: {
+  rule: BimRuleResultWithConfirmation
+  onConfirm?: (ruleId: string, note: string) => Promise<void>
+  onWithdraw?: (ruleId: string) => Promise<void>
+}): JSX.Element | null {
+  const t = useTranslations('bim')
+  const { locale } = useLocale()
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Nothing to confirm on a rule that stood down or that the model settled
+  // cleanly — offering a signature there would invite one nobody needs.
+  const needsHuman = rule.applicable && (rule.failed > 0 || rule.undecidable > 0)
+  if (!needsHuman && !rule.confirmation) return null
+
+  const submit = async (): Promise<void> => {
+    if (!onConfirm) return
+    setBusy(true)
+    try {
+      await onConfirm(rule.ruleId, note.trim())
+      setOpen(false)
+      setNote('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1 border-t pt-2">
+      {rule.confirmation && (
+        <p className="flex flex-wrap items-baseline gap-x-2 text-xs">
+          <span className="inline-flex items-center gap-1 font-medium text-success">
+            <UserCheck className="size-3.5" aria-hidden="true" />
+            {t('compliance.confirmed.by', {
+              who: rule.confirmation.confirmedBy,
+              when: new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
+                new Date(rule.confirmation.confirmedAt)
+              ),
+            })}
+          </span>
+          {rule.confirmationStale && (
+            <Badge variant="warning">{t('compliance.confirmed.stale')}</Badge>
+          )}
+          {rule.confirmation.note && (
+            <span className="text-muted-foreground">„{rule.confirmation.note}“</span>
+          )}
+        </p>
+      )}
+
+      {rule.confirmationStale && (
+        <p className="text-xs text-muted-foreground">{t('compliance.confirmed.staleHint')}</p>
+      )}
+
+      {onConfirm && !open && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)}>
+            {rule.confirmation
+              ? t('compliance.confirmed.reconfirm')
+              : t('compliance.confirmed.confirm')}
+          </Button>
+          {rule.confirmation && onWithdraw && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void onWithdraw(rule.ruleId)}
+            >
+              {t('compliance.confirmed.withdraw')}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {onConfirm && open && (
+        <div className="space-y-2">
+          <Textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={2}
+            placeholder={t('compliance.confirmed.notePlaceholder')}
+            aria-label={t('compliance.confirmed.noteLabel')}
+          />
+          <div className="flex gap-2">
+            <Button type="button" size="sm" onClick={() => void submit()} disabled={busy}>
+              {busy ? <Spinner className="size-3" /> : null}
+              {t('compliance.confirmed.save')}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+              {t('compliance.confirmed.cancel')}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -246,7 +389,7 @@ function VerdictList({
   tone,
 }: {
   heading: string
-  verdicts: BimRuleResult['failures']
+  verdicts: BimRuleResultWithConfirmation['failures']
   projectId: string
   modelFilename: string
   status: 'fail' | 'info'

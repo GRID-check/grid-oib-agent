@@ -10,7 +10,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { BimProfileSuggestion } from '@/lib/bim/profile'
-import type { BimComplianceSummary, BimRuleResult } from '@/lib/bim/rules'
+import {
+  attachConfirmations,
+  type BimCheckConfirmation,
+  type BimComplianceSummary,
+  type BimRuleResult,
+  type BimRuleResultWithConfirmation,
+} from '@/lib/bim/rules'
 import type { BimQuantityRow, BimRoomSchedule } from '@/lib/bim/schedule'
 import type { BimModelSummary } from '@/lib/bim/types'
 import type { BimViewerElement } from '../lib/model-index'
@@ -303,7 +309,7 @@ export function useBimProfileSuggestions(
 }
 
 interface BimComplianceView {
-  rules: BimRuleResult[]
+  rules: BimRuleResultWithConfirmation[]
   summary: BimComplianceSummary | null
   shoppingList: Array<{ path: string; elements: number; rules: string[] }>
 }
@@ -311,7 +317,12 @@ interface BimComplianceView {
 const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
   body.compliance
     ? {
-        rules: body.compliance,
+        // Confirmations are attached later; the query layer knows only the model.
+        rules: body.compliance.map((rule) => ({
+          ...rule,
+          confirmation: null,
+          confirmationStale: false,
+        })),
         summary: body.complianceSummary ?? null,
         shoppingList: body.complianceShoppingList ?? [],
       }
@@ -325,9 +336,13 @@ const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
  * mildest class would turn a GK5 building's missing R 90 into a pass.
  */
 export function useBimCompliance(
+  projectId: string | null,
   modelId: string | null,
   facts: { gebaeudeklasse: number | null; hauptnutzung: string | null }
-): AsyncState<BimComplianceView> {
+): AsyncState<BimComplianceView> & {
+  confirm: (ruleId: string, note: string) => Promise<void>
+  withdraw: (ruleId: string) => Promise<void>
+} {
   const request = useMemo(
     () => ({
       op: 'compliance' as const,
@@ -336,7 +351,62 @@ export function useBimCompliance(
     }),
     [facts.gebaeudeklasse, facts.hauptnutzung]
   )
-  return useModelQuery(modelId, request, selectCompliance)
+  const run = useModelQuery(modelId, request, selectCompliance)
+  const [confirmations, setConfirmations] = useState<BimCheckConfirmation[]>([])
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    getJson<{ confirmations: BimCheckConfirmation[] }>(`/api/projects/${projectId}/bim/checks`)
+      .then((body) => {
+        if (!cancelled) setConfirmations(body.confirmations)
+      })
+      .catch(() => {
+        // No confirmations readable is the same as none recorded: every rule
+        // shows the catalogue's own verdict, which is never wrong, only less
+        // complete.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, tick])
+
+  const write = useCallback(
+    async (method: 'POST' | 'DELETE', body: Record<string, unknown>) => {
+      if (!projectId) return
+      await getJson(`/api/projects/${projectId}/bim/checks`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      setTick((value) => value + 1)
+    },
+    [projectId]
+  )
+
+  const data = useMemo(() => {
+    if (!run.data || !modelId) return run.data
+    return {
+      ...run.data,
+      // Attached in the CLIENT rather than joined server-side: the verdicts are
+      // a pure function of the model and the confirmations are a pure function
+      // of the project, and keeping them separate is what lets a confirmation
+      // be recorded without recomputing the whole catalogue.
+      rules: attachConfirmations(run.data.rules, confirmations, modelId),
+    }
+  }, [run.data, confirmations, modelId])
+
+  return {
+    ...run,
+    data,
+    confirm: useCallback(
+      (ruleId: string, note: string) =>
+        write('POST', { ruleId, modelId, note: note === '' ? null : note }),
+      [write, modelId]
+    ),
+    withdraw: useCallback((ruleId: string) => write('DELETE', { ruleId }), [write]),
+  }
 }
 
 /**

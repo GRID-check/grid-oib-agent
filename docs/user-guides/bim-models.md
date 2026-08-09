@@ -61,6 +61,18 @@ Three things this screen does deliberately:
 - **A rule that did not apply says why.** "Gebäudeklasse nicht gesetzt" is
   fixable; hiding the row would make an under-configured project look clean.
 
+**Manuell bestätigen** is for everything the model cannot settle. You read the
+plan, or you ask the Brandschutzplaner, and you record that here with a note.
+Two rules about it worth knowing:
+
+- A confirmation **sits beside** the machine verdict, it does not replace it.
+  Confirming a failing rule says "I know, and it is fine" — the next reader
+  still sees what the model actually says.
+- A confirmation is recorded **against the revision you looked at**. Upload a
+  new one and the confirmation stays but is marked *älterer Stand*: it was true
+  of the building you checked and says nothing about the one that replaced it.
+  Re-confirm to carry it forward deliberately.
+
 It reads **no geometry**. Fluchtweglängen, Geländerhöhen, Brandabschnittsgrößen
 and Belichtung per room are not checked at all, and the screen says so. This is
 an *orientierende Prüfung* — not a Nachweis and not legal advice.

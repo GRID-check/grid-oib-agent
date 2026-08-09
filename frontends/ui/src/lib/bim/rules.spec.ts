@@ -16,6 +16,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  attachConfirmations,
+  outstandingRules,
   BIM_RULES,
   diffBimCompliance,
   renderBimComplianceDiff,
@@ -531,5 +533,101 @@ describe('diffBimCompliance', () => {
     const rendered = renderBimComplianceDiff(diffBimCompliance(runOn('REI 90'), runOn('REI 30')))
     expect(rendered).toContain('neu nicht erfüllt')
     expect(rendered).toContain('erfüllt/nicht erfüllt/nicht entscheidbar')
+  })
+})
+
+
+describe('human confirmations', () => {
+  const failing = runBimRules(
+    [
+      element({
+        ifcType: 'IfcDoor',
+        name: 'T-14',
+        quantities: { Qto_DoorBaseQuantities: { Width: 0.7 } },
+      }),
+    ],
+    {}
+  )
+  const confirmation = {
+    ruleId: 'oib4-tuer-durchgangsbreite',
+    modelId: 'rev-3',
+    confirmedBy: 'a.muster',
+    note: 'Nebenraum, keine Aufenthaltsnutzung — mit der MA 37 abgeklärt.',
+    confirmedAt: '2026-03-02T09:00:00.000Z',
+  }
+
+  it('sits beside the machine verdict rather than overwriting it', () => {
+    // An architect who confirms a failing rule has said "I know, and it is
+    // fine". Flipping the status to pass would hide what the model says.
+    const [rule] = attachConfirmations(failing, [confirmation], 'rev-3').filter(
+      (entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite'
+    )
+    expect(rule.failed).toBe(1)
+    expect(rule.confirmation?.confirmedBy).toBe('a.muster')
+    expect(rule.confirmationStale).toBe(false)
+  })
+
+  it('marks a confirmation made against another revision as stale', () => {
+    const [rule] = attachConfirmations(failing, [confirmation], 'rev-4').filter(
+      (entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite'
+    )
+    // Still there — a signature is not deleted by a re-export — but no longer
+    // covering: it was true of the building that person looked at.
+    expect(rule.confirmation).not.toBeNull()
+    expect(rule.confirmationStale).toBe(true)
+  })
+
+  it('leaves a rule with no confirmation alone', () => {
+    const rules = attachConfirmations(failing, [], 'rev-3')
+    expect(rules.every((rule) => rule.confirmation === null)).toBe(true)
+    expect(rules.every((rule) => rule.confirmationStale === false)).toBe(true)
+  })
+})
+
+describe('outstandingRules', () => {
+  const run = runBimRules(
+    [
+      element({ ifcType: 'IfcDoor', name: 'narrow', quantities: { Qto_DoorBaseQuantities: { Width: 0.7 } } }),
+      element({ ifcType: 'IfcWall', name: 'W1', properties: { Pset_WallCommon: { LoadBearing: true } } }),
+    ],
+    { gebaeudeklasse: 3 }
+  )
+  const cover = (ruleId: string, modelId: string) => ({
+    ruleId,
+    modelId,
+    confirmedBy: 'a.muster',
+    note: null,
+    confirmedAt: '2026-03-02T09:00:00.000Z',
+  })
+
+  it('lists what still needs a human', () => {
+    const outstanding = outstandingRules(attachConfirmations(run, [], 'rev-3'))
+    const ids = outstanding.map((rule) => rule.ruleId)
+    expect(ids).toContain('oib4-tuer-durchgangsbreite')
+    expect(ids).toContain('oib2-feuerwiderstand-tragend')
+  })
+
+  it('drops a rule a current confirmation covers', () => {
+    const outstanding = outstandingRules(
+      attachConfirmations(run, [cover('oib4-tuer-durchgangsbreite', 'rev-3')], 'rev-3')
+    )
+    expect(outstanding.map((rule) => rule.ruleId)).not.toContain('oib4-tuer-durchgangsbreite')
+  })
+
+  it('does NOT let a stale confirmation close a rule', () => {
+    // The whole reason staleness is tracked: a signature must not outlive the
+    // drawing it was made about.
+    const outstanding = outstandingRules(
+      attachConfirmations(run, [cover('oib4-tuer-durchgangsbreite', 'rev-2')], 'rev-3')
+    )
+    expect(outstanding.map((rule) => rule.ruleId)).toContain('oib4-tuer-durchgangsbreite')
+  })
+
+  it('never lists a rule that passed or stood down', () => {
+    const outstanding = outstandingRules(attachConfirmations(run, [], 'rev-3'))
+    for (const rule of outstanding) {
+      expect(rule.applicable).toBe(true)
+      expect(rule.failed + rule.undecidable).toBeGreaterThan(0)
+    }
   })
 })

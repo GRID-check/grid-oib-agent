@@ -112,9 +112,12 @@ The whole ledger carries the same framing the applicability engine already uses:
 4. ~~**Status regression across revisions**~~ **Done** as an on-demand diff
    (`compliance-diff`): `resolved` / `broken` / `decidable` / `undecidable` /
    `moved`, regressions first. Not yet persisted, so it is computed per request.
-5. **Persist** — `bim_checks` keyed by (project, rule, model revision), plus
-   manual confirmations, so the ledger accumulates rather than being recomputed,
-   and a signature has something durable to point at. **Next.**
+5. ~~**Persist the human half**~~ **Done** — `bim_check_confirmations`, one
+   current verdict per (project, rule), recorded against the revision the person
+   looked at so a later revision marks it stale rather than silently carrying it
+   forward. A confirmation sits BESIDE the machine verdict, never replacing it.
+   Caching the machine half is deliberately still open: it is an optimisation,
+   and recomputing is always correct.
 6. **Export** — the ledger as a dossier; BCF for the undecidable and failing
    items so they open as issues in ArchiCAD or Revit.
 

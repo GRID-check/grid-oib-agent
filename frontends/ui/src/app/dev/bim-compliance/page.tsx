@@ -15,10 +15,14 @@
 
 import { notFound } from 'next/navigation'
 import { IfcCompliancePanel } from '@/features/bim/components/ifc-compliance-panel'
-import type { BimRuleResult } from '@/lib/bim/rules'
+import type { BimRuleResult, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
 
-function rule(overrides: Partial<BimRuleResult> & Pick<BimRuleResult, 'ruleId'>): BimRuleResult {
+function rule(
+  overrides: Partial<BimRuleResultWithConfirmation> & Pick<BimRuleResult, 'ruleId'>
+): BimRuleResultWithConfirmation {
   return {
+    confirmation: null,
+    confirmationStale: false,
     richtlinie: 'OIB 2',
     clause: '3',
     titleDe: 'Tragende Bauteile — Feuerwiderstand',
@@ -35,7 +39,7 @@ function rule(overrides: Partial<BimRuleResult> & Pick<BimRuleResult, 'ruleId'>)
   }
 }
 
-const RULES: BimRuleResult[] = [
+const RULES: BimRuleResultWithConfirmation[] = [
   rule({
     ruleId: 'oib4-tuer-durchgangsbreite',
     richtlinie: 'OIB 4',

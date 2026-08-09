@@ -331,6 +331,7 @@ organization. Cross-tenant and no-access both surface as 404.
 | `GET` | `/api/bim/models/{modelId}` | Model header + summary (spatial tree, storeys, type counts, totals, validation findings). |
 | `POST` | `/api/bim/models/{modelId}/query` | Run one structured query (below). A read, POSTed because the request is a nested filter object. |
 | `GET` | `/api/bim/models/{modelId}/source` | Short-lived presigned URL for the raw `.ifc` — the 3D viewport's input, signed against the browser-reachable endpoint. |
+| `GET`/`POST`/`DELETE` | `/api/projects/{id}/bim/checks` | Human confirmations on rule verdicts. `GET` needs `project:view` (a confirmation is part of the record everyone reads); `POST`/`DELETE` need `project:edit`. The confirming identity comes from the SESSION, never the body, and the `modelId` is re-resolved through `getAccessibleModel` so a confirmation cannot be pinned to another tenant's revision. |
 | `POST` | `/api/internal/bim/query` | Service-token route for the agent's `ifc_query` tool. Resolves models by project + file name so no UUID travels through a conversation. |
 
 ### The query contract

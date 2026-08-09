@@ -157,6 +157,19 @@ export const bim = {
       undecidable: 'Not decidable',
       notApplicable: 'Not applicable',
     },
+    confirmed: {
+      by: 'Confirmed by {who} on {when}',
+      stale: 'Older revision',
+      staleHint:
+        'This confirmation was made against an earlier revision of the model. It still counts as a record, but no longer as cover for the current one.',
+      confirm: 'Confirm manually',
+      reconfirm: 'Confirm again for this revision',
+      withdraw: 'Withdraw',
+      save: 'Save confirmation',
+      cancel: 'Cancel',
+      noteLabel: 'Why this is settled',
+      notePlaceholder: 'e.g. checked against the plan, agreed with the fire-safety consultant …',
+    },
     shoppingList: {
       title: 'What the model is missing',
       description:

@@ -164,7 +164,7 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
   // The rule catalogue reads the project brief. A fact the brief does not
   // carry arrives as null and the rules that need it stand down, visibly.
   const ruleFacts = useProjectRuleFacts(projectId)
-  const compliance = useBimCompliance(tab === 'compliance' ? modelId : null, ruleFacts)
+  const compliance = useBimCompliance(projectId, tab === 'compliance' ? modelId : null, ruleFacts)
   // Only mint the presigned source URL when a viewport can actually use it.
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const sourceUrl = useBimModelSource(modelId, webGpu)
@@ -331,6 +331,8 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
                 modelFilename={model.filename}
                 missingFacts={ruleFacts.missing}
                 askHref={profileQuestionHref}
+                onConfirm={compliance.confirm}
+                onWithdraw={compliance.withdraw}
               />
             </TabsContent>
 

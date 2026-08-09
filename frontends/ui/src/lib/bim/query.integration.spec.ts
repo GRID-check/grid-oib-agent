@@ -41,6 +41,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   let modelId: string
   let otherModelId: string
   let revisionModelId: string
+  let FIXTURE_PROJECT: string
   let index: BimModelIndex
   let runBimQuery: typeof import('./query').runBimQuery
   let bimQuerySchema: typeof import('./query').bimQuerySchema
@@ -144,6 +145,17 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       indexStorageKey: null,
       indexStorageBucket: null,
     })
+
+    // `bim_check_confirmations.project_id` is a real foreign key, so the
+    // fixture needs a project row rather than a made-up uuid.
+    const projectRows = await withPlatformAccess('seed a BIM fixture project', () =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO projects (organization_id, name, created_by, collection_name)
+        VALUES (${ORG}, 'BIM fixture', 'seed', 'seed')
+        RETURNING id
+      `)
+    )
+    FIXTURE_PROJECT = Array.from(projectRows)[0].id
 
     const otherDocumentId = await seedDocument(OTHER_ORG, 'other.ifc')
     otherModelId = await repository.startBimModel({
@@ -543,6 +555,75 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       delta: null,
     })
     expect(result.summary).toContain('1 neu, 1 entfallen, 1 geändert')
+  })
+
+  it('stores a human confirmation against the revision it was made on', async () => {
+    const repository = await import('./repository')
+    const { attachConfirmations, outstandingRules } = await import('./rules')
+
+    await repository.upsertBimCheckConfirmation({
+      organizationId: ORG,
+      projectId: FIXTURE_PROJECT,
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      modelId,
+      confirmedBy: 'a.muster',
+      note: 'Mit dem Brandschutzplaner abgeklärt.',
+    })
+
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].confirmedBy).toBe('a.muster')
+
+    const confirmations = stored.map((entry) => ({
+      ...entry,
+      confirmedAt: entry.confirmedAt.toISOString(),
+    }))
+    const rules = await run(bimQuerySchema.parse({ op: 'compliance', gebaeudeklasse: 5 }))
+
+    // Against the revision it was made on: covering.
+    const current = attachConfirmations(rules.compliance ?? [], confirmations, modelId)
+    expect(
+      outstandingRules(current).map((rule) => rule.ruleId)
+    ).not.toContain('oib2-feuerwiderstand-tragend')
+
+    // Against a LATER revision: still recorded, no longer covering.
+    const later = attachConfirmations(rules.compliance ?? [], confirmations, revisionModelId)
+    const stale = later.find((rule) => rule.ruleId === 'oib2-feuerwiderstand-tragend')
+    expect(stale?.confirmation).not.toBeNull()
+    expect(stale?.confirmationStale).toBe(true)
+  })
+
+  it('re-confirming replaces the row rather than growing a history', async () => {
+    const repository = await import('./repository')
+    await repository.upsertBimCheckConfirmation({
+      organizationId: ORG,
+      projectId: FIXTURE_PROJECT,
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      modelId: revisionModelId,
+      confirmedBy: 'b.beispiel',
+      note: null,
+    })
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    // The unique constraint is the point: one current human verdict per rule.
+    expect(stored).toHaveLength(1)
+    expect(stored[0].confirmedBy).toBe('b.beispiel')
+    expect(stored[0].modelId).toBe(revisionModelId)
+  })
+
+  it('never shows another tenant’s confirmations', async () => {
+    const repository = await import('./repository')
+    // The row exists for ORG; a missing tenant scope would return it here.
+    expect(await repository.listBimCheckConfirmations(OTHER_ORG, FIXTURE_PROJECT)).toEqual([])
+  })
+
+  it('withdrawing a confirmation returns the rule to the catalogue’s verdict', async () => {
+    const repository = await import('./repository')
+    await repository.deleteBimCheckConfirmation({
+      organizationId: ORG,
+      projectId: FIXTURE_PROJECT,
+      ruleId: 'oib2-feuerwiderstand-tragend',
+    })
+    expect(await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)).toEqual([])
   })
 
   it('refuses to answer for another tenant, even with the right model id', async () => {

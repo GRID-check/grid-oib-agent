@@ -742,6 +742,76 @@ export function missingPropertyShoppingList(
 }
 
 // ---------------------------------------------------------------------------
+// Human confirmations
+// ---------------------------------------------------------------------------
+
+/** A rule an architect settled themselves, recorded against a revision. */
+export interface BimCheckConfirmation {
+  ruleId: string
+  /** The revision the person actually looked at. */
+  modelId: string
+  confirmedBy: string
+  note: string | null
+  confirmedAt: string
+}
+
+/** A rule result with whatever human verdict sits on top of it. */
+export interface BimRuleResultWithConfirmation extends BimRuleResult {
+  confirmation: BimCheckConfirmation | null
+  /**
+   * The confirmation was made against a DIFFERENT revision than the one shown.
+   *
+   * Not an error and not a reason to drop it — a reason to say so. "I checked
+   * this" was true of the building that person looked at and says nothing about
+   * the one that replaced it, so carrying it forward silently would let a
+   * signature outlive the drawing it was made about.
+   */
+  confirmationStale: boolean
+}
+
+/**
+ * Attach human verdicts to a run of the catalogue.
+ *
+ * Deliberately does NOT change any status. A confirmation sits BESIDE the
+ * machine verdict rather than overwriting it: an architect who confirms a rule
+ * the catalogue reports as failing has said "I know, and it is fine" — which
+ * the reader needs to see as exactly that, not as a green tick that hides what
+ * the model actually says.
+ */
+export function attachConfirmations(
+  results: readonly BimRuleResult[],
+  confirmations: readonly BimCheckConfirmation[],
+  currentModelId: string
+): BimRuleResultWithConfirmation[] {
+  const byRule = new Map(confirmations.map((entry) => [entry.ruleId, entry]))
+  return results.map((result) => {
+    const confirmation = byRule.get(result.ruleId) ?? null
+    return {
+      ...result,
+      confirmation,
+      confirmationStale: confirmation !== null && confirmation.modelId !== currentModelId,
+    }
+  })
+}
+
+/**
+ * What still needs a human before the Prüfbuch can be signed.
+ *
+ * A rule counts as outstanding when the catalogue could not settle it (or
+ * settled it as a failure) and no CURRENT confirmation covers it. A stale
+ * confirmation does not count — that is the point of tracking staleness.
+ */
+export function outstandingRules(
+  results: readonly BimRuleResultWithConfirmation[]
+): BimRuleResultWithConfirmation[] {
+  return results.filter((result) => {
+    if (!result.applicable) return false
+    if (result.confirmation !== null && !result.confirmationStale) return false
+    return result.failed > 0 || result.undecidable > 0
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Regression across revisions
 // ---------------------------------------------------------------------------
 
