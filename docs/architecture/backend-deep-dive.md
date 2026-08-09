@@ -1020,6 +1020,19 @@ thresholds the answer did not apply.
 
 ### Geometry stays in the browser
 
+Two fixtures, because they feed two different halves. `sample-building.ifc` is
+metadata-only — every product has `$` for ObjectPlacement and Representation —
+which is exactly right for the extraction, query and rule tests and means the
+viewport has NOTHING to draw from it. `sample-building-geometry.ifc` carries a
+swept solid per element, and `features/bim/lib/viewer-input.spec.ts` runs the
+real WASM kernel over both: meshes and triangles from the first, zero from the
+second, and every mesh's expressId matched back against what the server-side
+extractor found in the same file (the map click-to-select and
+highlight-by-GlobalId both depend on). The renderer itself is not covered and
+cannot be — WebGPU needs a browser with a GPU adapter — so what the spec pins
+is everything up to the renderer's door. Note the kernel emits **Y-up** meshes,
+the glTF convention, not IFC's Z-up.
+
 There is no server-side render and no cached mesh format. The viewport streams
 the source through a short-lived presigned URL and triangulates locally with
 ifc-lite's WASM kernel + WebGPU renderer. A browser without WebGPU loses only

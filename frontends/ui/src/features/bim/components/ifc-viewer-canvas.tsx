@@ -22,6 +22,17 @@
  * and never on the server, where `navigator.gpu` and `HTMLCanvasElement` do not
  * exist.
  *
+ * ## Axes
+ *
+ * The kernel emits Y-UP meshes (the glTF convention), not IFC's Z-up — it does
+ * the axis conversion so a renderer does not have to. Nothing in this file
+ * touches a coordinate, which is why that has never mattered here: meshes go
+ * straight from `processAdaptive` into ifc-lite's own `Renderer`, and
+ * everything this component reasons about is an expressId. Written down
+ * because the first thing anyone who DOES touch a coordinate will assume is
+ * that a BIM kernel speaks Z-up, and the symptom is a building lying on its
+ * side with a facade where the roof should be.
+ *
  * ## Lifecycle
  *
  * WebGPU resources are not garbage-collected: a renderer left undisposed keeps
