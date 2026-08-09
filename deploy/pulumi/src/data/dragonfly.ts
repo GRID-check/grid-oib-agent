@@ -10,7 +10,7 @@ import {
   secretChecksumAnnotations,
   surgeRollout,
 } from "../platform/rollout";
-import { DATA_RESOURCES, EDGE_RATE_LIMIT, PORT } from "../constants";
+import { DATA_RESOURCES, EDGE_RATE_LIMIT, LANGFUSE, PORT } from "../constants";
 
 const DRAGONFLY_IMAGE = "docker.dragonflydb.io/dragonflydb/dragonfly:latest";
 
@@ -317,5 +317,47 @@ export function installRateLimitStore(
     // Never two counter stores behind one Service — see the option's comment.
     recreateOnRollout: true,
     password: cfg.rateLimit.storePassword,
+  });
+}
+
+/**
+ * The Langfuse ingestion queue (ADR-0044) — a THIRD Dragonfly, and for the same
+ * kind of reason the second one exists.
+ *
+ * Langfuse's web tier does not write traces to ClickHouse on the request path.
+ * It parks the event in S3 and pushes a reference onto this queue; the worker
+ * pops it and does the insert. So this instance is not a cache of anything —
+ * it is the only record that an already-durable event still needs processing.
+ *
+ *   1. **Eviction is off** (`cacheMode: false`), which is REQUIRED rather than
+ *      preferred: Langfuse's own self-hosting guide calls for
+ *      `maxmemory-policy noeviction`. Under eviction a memory spike silently
+ *      drops queue entries, and the trace never appears — the event is sitting
+ *      in S3, intact and unreferenced, so nothing is corrupt and nothing is
+ *      logged. It just isn't there. Refusing the write instead surfaces as an
+ *      ingestion error in the web tier's logs, which is a thing someone can
+ *      see. That is also why `queueMaxmemory` is a knob worth watching: with
+ *      eviction off, "full" means "ingestion stops", not "oldest drops".
+ *   2. **Blast radius.** Sharing the ADR-0020 cache would put telemetry-ingest
+ *      pressure directly onto the conversation bus every chat depends on.
+ *
+ * `recreateOnRollout` for the queue's own version of the split-keyspace
+ * problem: two instances behind one Service means the web tier enqueues into
+ * one while the worker blocks on the other, so events go nowhere and neither
+ * side errors. A brief gap where the web tier cannot enqueue is loud; a
+ * silently bisected queue is not.
+ */
+export function installLangfuseQueue(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+  namespace: pulumi.Input<string>,
+): Dragonfly {
+  return installDragonflyInstance(provider, namespace, {
+    name: LANGFUSE.queue,
+    maxmemory: cfg.langfuse.queueMaxmemory,
+    memoryLimit: cfg.langfuse.queueMemoryLimit,
+    cacheMode: false,
+    recreateOnRollout: true,
+    password: cfg.langfuse.queuePassword,
   });
 }

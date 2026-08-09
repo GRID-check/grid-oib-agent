@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
-import { baseStackConfig } from "./src/test-support/stack-config";
+import { baseStackConfig, langfuseStackConfig } from "./src/test-support/stack-config";
 
 /**
  * The whole-program construction with public DNS turned on.
@@ -52,6 +52,11 @@ describe("the program constructs with public DNS enabled", () => {
   beforeAll(async () => {
     pulumi.runtime.setAllConfig({
       ...baseStackConfig(),
+      // Langfuse ON for the same reason observability is, below: `https-langfuse`
+      // is the OTHER conditional listener, so leaving it off would let the
+      // invariant pass while the newest host in the set went unchecked. Spread
+      // first so this file's own otel values still win.
+      ...langfuseStackConfig(),
       "grid-oib:baseDomain": `dev.${ZONE}`,
       "grid-oib:seaweedfsTopology": "single",
       "grid-oib:seaweedfsPerOrgBuckets": "false",
@@ -97,13 +102,15 @@ describe("the program constructs with public DNS enabled", () => {
     expect([...dnsHosts()].sort()).toEqual([...listenerHosts()].sort());
   });
 
-  it("covers the conditional otel listener too", () => {
+  it("covers both conditional listeners too", () => {
     // Guards the test above against passing because BOTH sides went empty, and
-    // pins the specific host whose listener only exists when the observability
-    // tier is deployed.
-    expect(listenerHosts()).toContain(`otel.dev.${ZONE}`);
-    expect(dnsHosts()).toContain(`otel.dev.${ZONE}`);
-    expect(dnsHosts()).toHaveLength(4);
+    // pins the specific hosts whose listeners exist only when their tier is
+    // deployed — otel (ADR-0029) and langfuse (ADR-0044).
+    for (const host of [`otel.dev.${ZONE}`, `langfuse.dev.${ZONE}`]) {
+      expect(listenerHosts()).toContain(host);
+      expect(dnsHosts()).toContain(host);
+    }
+    expect(dnsHosts()).toHaveLength(5);
   });
 
   it("points every record at the pinned LoadBalancer IP", () => {

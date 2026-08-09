@@ -198,11 +198,27 @@ services:
       # boot.
       SEAWEED_TENANT_ADMIN_ACCESS_KEY: ${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
       SEAWEED_TENANT_ADMIN_SECRET_KEY: ${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      # A FOURTH identity, for the Langfuse trace archive (ADR-0044). Declared
+      # unconditionally so the compose authorization model stays identical to
+      # production's — an identity nobody uses costs nothing, and the parity
+      # test in `deploy/pulumi/src/data/seaweedfs.spec.ts` compares this list
+      # against `s3IdentityCatalog` precisely so the two cannot drift.
+      #
+      # This is the ONE secret key here with a default, and the exception is
+      # deliberate rather than an oversight. The three above are required
+      # because they open buckets that exist in every install the moment it
+      # starts. This one opens `langfuse`, a bucket the `langfuse` profile
+      # creates and nothing else touches — so making it required would fail
+      # `docker compose up` at interpolation for every developer who has never
+      # enabled an opt-in profile. Set it in deploy/.env before running the
+      # profile anywhere that is not a laptop.
+      SEAWEED_LANGFUSE_ACCESS_KEY: ${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      SEAWEED_LANGFUSE_SECRET_KEY: ${SEAWEED_LANGFUSE_SECRET_KEY:-langfuse_dev}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
         mkdir -p /etc/seaweedfs &&
-        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*","Write:grid-documents","Write:grid-org-*","List:grid-documents","List:grid-org-*","Tagging:grid-documents","Tagging:grid-org-*"]},{"name":"grid-backend-read","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_READONLY_ACCESS_KEY" "$$SEAWEED_READONLY_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*","Write:grid-documents","Write:grid-org-*","List:grid-documents","List:grid-org-*","Tagging:grid-documents","Tagging:grid-org-*"]},{"name":"grid-backend-read","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]},{"name":"grid-langfuse","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:langfuse","Write:langfuse","List:langfuse","Tagging:langfuse"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_READONLY_ACCESS_KEY" "$$SEAWEED_READONLY_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" "$$SEAWEED_LANGFUSE_ACCESS_KEY" "$$SEAWEED_LANGFUSE_SECRET_KEY" > /etc/seaweedfs/s3.json &&
         exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
       - seaweedfs-data:/data
@@ -220,15 +236,21 @@ services:
     restart: unless-stopped
 
   seaweedfs-init:
-    # Pre-create the documents bucket. SeaweedFS returns NoSuchBucket for puts to
-    # a missing bucket (it does not auto-create), so the app needs it to exist.
+    # Pre-create the platform buckets. SeaweedFS returns NoSuchBucket for puts to
+    # a missing bucket (it does not auto-create), so the app needs them to exist.
     # `weed shell` talks to the filer via the master; `|| true` keeps re-runs
     # idempotent (bucket-already-exists is a successful no-op).
+    #
+    # `langfuse` (ADR-0044) is created unconditionally, like its S3 identity —
+    # this service is not part of the opt-in profile, and an empty bucket costs
+    # nothing, while a missing one would make `--profile langfuse` fail on its
+    # first ingested event rather than at startup.
     image: chrislusf/seaweedfs:3.80
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
+        printf 's3.bucket.create -name grid-documents\ns3.bucket.create -name langfuse\n'
+        | weed shell -master=seaweedfs:9333 || true
     depends_on:
       seaweedfs:
         condition: service_healthy
@@ -557,6 +579,191 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  # ===========================================================================
+  # Langfuse (ADR-0044) — durable LLM observability, self-hosted OSS
+  # ===========================================================================
+  #
+  # OPT-IN. Every service below carries `profiles: [langfuse]`, so a plain
+  # `docker compose up` starts exactly what it started before. To run it:
+  #
+  #   docker compose --env-file ../.env -f docker-compose.yaml \
+  #     --profile langfuse up -d
+  #
+  # Then open http://localhost:3100 and sign in with LANGFUSE_INIT_USER_EMAIL /
+  # LANGFUSE_INIT_USER_PASSWORD from deploy/.env (there is no WorkOS SSO here —
+  # in Kubernetes the edge SecurityPolicy and Langfuse's own SSO do that job,
+  # and neither has an equivalent on a laptop).
+  #
+  # WHAT DOES **NOT** WORK LOCALLY, and it is the interesting half: nothing
+  # sends it any traces. The backend's OTLP exporter is gated on
+  # OTEL_EXPORTER_OTLP_ENDPOINT, which compose deliberately leaves unset
+  # (ADR-0029), and there is no OTel Collector here to fan out from. This
+  # profile exists to develop against the Langfuse UI and API — dashboards,
+  # prompt management, the schema — not to reproduce the ingestion path. Point
+  # a local `nat run` at it directly if you need spans.
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: aiq-clickhouse
+    profiles: [langfuse]
+    environment:
+      CLICKHOUSE_DB: langfuse
+      # Non-`default` on purpose: the image's entrypoint only removes its
+      # passwordless `default` SUPERUSER when CLICKHOUSE_USER is something else.
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_dev}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
+      # Langfuse's queries return empty result sets on a non-UTC server.
+      TZ: UTC
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  langfuse-queue:
+    # The ingestion queue — a THIRD Redis-protocol instance, never the ADR-0020
+    # cache. `--cache_mode=false` is REQUIRED, not a preference: an evicted
+    # queue entry is a trace that silently never arrives, because the event
+    # itself is already sitting intact and unreferenced in S3.
+    image: dragonflydb/dragonfly:v1.27.1
+    container_name: aiq-langfuse-queue
+    profiles: [langfuse]
+    command:
+      [
+        "dragonfly",
+        "--logtostderr",
+        "--force_epoll",
+        "--proactor_threads=1",
+        "--maxmemory=256mb",
+        "--cache_mode=false",
+        "--dbfilename=",
+      ]
+    ulimits:
+      memlock: -1
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  langfuse-web:
+    image: ghcr.io/langfuse/langfuse:3
+    container_name: aiq-langfuse-web
+    profiles: [langfuse]
+    ports:
+      - "3100:3000" # 3000 is taken by the frontend
+    environment:
+      # `langfuse_app`, not `aiq`: Langfuse runs its own Prisma migrations, so
+      # its credential holds DDL rights and must not reach grid_app. The role
+      # and database come from init-db.sql.
+      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD:-langfuse_dev}@postgres:5432/langfuse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_dev}
+      # Single node => plain MergeTree DDL rather than the Replicated* engines,
+      # which need a keeper quorum. A schema decision, not a tuning one.
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://langfuse-queue:6379/0
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse_dev_nextauth_secret}
+      SALT: ${LANGFUSE_SALT:-langfuse_dev_salt}
+      # 64 HEX characters — the one secret here that is not base64. Langfuse
+      # crash-loops on a wrong-length value without naming the variable.
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://seaweedfs:8333
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${SEAWEED_LANGFUSE_SECRET_KEY:-langfuse_dev}
+      # SeaweedFS addresses buckets as paths; without this the SDK dials
+      # http://langfuse.seaweedfs:8333, which does not resolve.
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Pre-seed the org, project and ingestion keys so a local stack is usable
+      # (and scriptable) the moment it boots, exactly as Pulumi does in k8s.
+      LANGFUSE_INIT_ORG_ID: grid
+      LANGFUSE_INIT_ORG_NAME: Grid
+      LANGFUSE_INIT_PROJECT_ID: grid-oib
+      LANGFUSE_INIT_PROJECT_NAME: Grid OIB
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-00000000-0000-0000-0000-000000000000}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-00000000-0000-0000-0000-000000000000}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-dev@grid.local}
+      LANGFUSE_INIT_USER_NAME: Grid Dev
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-langfuse_dev_password}
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      langfuse-queue:
+        condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/public/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Migrations run before the server listens; a cold ClickHouse makes that
+      # slow, and a container killed mid-migration restarts it from the top.
+      start_period: 180s
+    restart: unless-stopped
+
+  langfuse-worker:
+    image: ghcr.io/langfuse/langfuse-worker:3
+    container_name: aiq-langfuse-worker
+    profiles: [langfuse]
+    environment:
+      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD:-langfuse_dev}@postgres:5432/langfuse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_dev}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://langfuse-queue:6379/0
+      SALT: ${LANGFUSE_SALT:-langfuse_dev_salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://seaweedfs:8333
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${SEAWEED_LANGFUSE_SECRET_KEY:-langfuse_dev}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Migrations belong to ONE container. Both images ship them and both run
+      # them by default, so leaving these unset means web and worker contend on
+      # an advisory lock at every start and the loser blocks until its
+      # healthcheck gives up. The web tier owns them.
+      LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED: "true"
+      LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "true"
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      # On the WEB tier, not just the stores: it is what has migrated the
+      # schema this container is about to query.
+      langfuse-web:
+        condition: service_healthy
+    networks:
+      - aiq-network
+    restart: unless-stopped
+
 volumes:
   aiq-data:
     driver: local
@@ -565,6 +772,8 @@ volumes:
   seaweedfs-data:
     driver: local
   postgres-data:
+    driver: local
+  clickhouse-data:
     driver: local
 
 networks:

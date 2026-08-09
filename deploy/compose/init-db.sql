@@ -37,6 +37,32 @@ GRANT ALL PRIVILEGES ON DATABASE aiq_checkpoints TO aiq;
 GRANT ALL PRIVILEGES ON DATABASE grid_app TO aiq;
 
 -- =============================================================================
+-- Langfuse (ADR-0044) — its own role, its own database
+-- =============================================================================
+-- Provisioned unconditionally even though the `langfuse` compose profile is
+-- opt-in. An unused role and an empty database cost nothing, and the
+-- alternative is worse than it looks: this file runs ONLY on a fresh data
+-- directory, so making it conditional would mean anyone who enables the
+-- profile later has to drop their volume or run this by hand.
+--
+-- Separate from `aiq` on the same reasoning Kubernetes uses (see
+-- `LANGFUSE.databaseUser`): Langfuse runs its own Prisma migrations, so its
+-- credential is one with DDL rights, and that has no business reaching
+-- `grid_app` where every tenant's conversations live. NOCREATEDB / NOCREATEROLE
+-- keeps it confined to the database it owns.
+--
+-- The dev password matches `aiq_dev` alongside it: a compose stack on a laptop.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'langfuse_app') THEN
+    CREATE ROLE langfuse_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD 'langfuse_dev';  -- pragma: allowlist secret (compose dev default)
+  END IF;
+END
+$$;
+
+SELECT 'CREATE DATABASE langfuse OWNER langfuse_app' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'langfuse')\gexec
+
+-- =============================================================================
 -- Row-level-security roles (ADR-0041)
 -- =============================================================================
 -- These are CLUSTER-level objects, so they are provisioned here rather than by

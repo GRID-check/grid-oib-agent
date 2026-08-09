@@ -1588,6 +1588,167 @@ generates `https://` links behind the TLS-terminating Gateway; the NAT exporter
 posts OTLP/HTTP to the endpoint as-is, so the full `/v1/traces` path is
 required on the Python tiers.
 
+## 9b. Langfuse — durable LLM observability (ADR-0044)
+
+Section 9's dashboard is a live pane over an in-memory ring buffer. This is the
+store that outlives a restart: sessions, users, per-model cost, prompt
+management, datasets and evals, over history you can query.
+
+**It is the free, self-hosted OSS build.** No licence key is set anywhere. The
+one consequence that shows up operationally is at the end of this section.
+
+**Gating (flag AND capability):** deployed only when
+`grid-oib:langfuseEnabled` is on — default **`false`**, unlike section 9 — and
+every credential below is set **and** the observability tier of section 9 is
+itself deployed. Langfuse has no receiver of its own here; the collector is what
+feeds it, so without section 9 it is four workloads that can only sit idle. Miss
+anything and `pulumi preview` warns naming it and skips the tier entirely: no
+workloads, no `https-langfuse` listener or certificate, no collector exporter,
+and no identity attributes on any span.
+
+### What it deploys
+
+| Workload | Notes |
+|---|---|
+| `langfuse-web` | UI + public API + the OTLP receiver. Runs the migrations; single replica for that reason. |
+| `langfuse-worker` | Drains the ingestion queue into ClickHouse. Migrations disabled; ordered behind the web tier. |
+| `clickhouse` | **New stateful technology.** Single node, its own PVC. Langfuse v3 has no Postgres-only mode. |
+| `dragonfly-langfuse` | A THIRD Redis-protocol instance. Eviction is OFF — an evicted queue entry is a trace that silently never arrives. |
+
+Reusing what already exists: a `langfuse` database and `langfuse_app` role on the
+CNPG cluster, and one `langfuse` bucket on SeaweedFS reached by a dedicated
+`grid-langfuse` S3 identity scoped to that bucket alone.
+
+### One-time WorkOS setup
+
+Langfuse reuses **the same Connect application** as the Aspire dashboard (§9) —
+do not create a second one. Add one redirect URI to it:
+
+```
+https://langfuse.<baseDomain>/oauth2/callback
+```
+
+That is Envoy's callback. Langfuse's own SSO uses
+`/api/auth/callback/custom` on the same host and needs no registration, because
+it runs against the same issuer behind Envoy's completed session.
+
+Access requires the `platform:organizations:view` permission, enforced at the
+edge exactly as in §9. Langfuse's own SSO alone would admit anyone who can sign
+in to the WorkOS environment at all — the narrowing is the Envoy SecurityPolicy,
+so do not remove it on the grounds that "Langfuse has its own login".
+
+### Configuration
+
+```bash
+# Generate the secrets. NOTE the encryption key is HEX, not base64 — it is the
+# only one here that is, and a base64 value (44 chars) crash-loops the web
+# container without naming the variable.
+pulumi config set --secret grid-oib:langfuseEncryptionKey  "$(openssl rand -hex 32)"
+for k in langfuseSalt langfuseNextAuthSecret langfuseDbPassword \
+         langfuseClickhousePassword langfuseQueuePassword langfuseS3SecretKey \
+         langfuseInitUserPassword; do
+  pulumi config set --secret "grid-oib:$k" "$(openssl rand -base64 32)"
+done
+
+# Project API keys. The prefixes are validated by Langfuse, not decorative.
+pulumi config set --secret grid-oib:langfusePublicKey "pk-lf-$(openssl rand -hex 16)"
+pulumi config set --secret grid-oib:langfuseSecretKey "sk-lf-$(openssl rand -hex 16)"
+
+pulumi config set grid-oib:langfuseInitUserEmail ops@example.com
+pulumi config set grid-oib:langfuseEnabled true
+```
+
+`loadConfig` refuses, at preview time rather than at runtime:
+
+- an encryption key that is not exactly 64 hex characters;
+- an API key without its `pk-lf-` / `sk-lf-` prefix;
+- `langfuseQueuePassword` equal to `dragonflyPassword` or
+  `rateLimitStorePassword` — every app pod holds the cache URL, and a shared
+  password would let anything that reads one pod's env drain the ingestion
+  queue;
+- `langfuseS3SecretKey` equal to any other SeaweedFS secret — SeaweedFS
+  authenticates by key, so sharing one grants this tier that identity's bucket
+  scope instead of its own.
+
+NetworkPolicies are required. There is no separate check for it here: the tier
+depends on §9, whose guard already refuses `networkPolicies=false`.
+
+### Traps worth knowing before the first deploy
+
+- **Web and worker images must be the same Langfuse version.** They are two
+  config keys because upstream publishes two images; digests are opaque, so
+  nothing can verify it for you. Both defaults are pinned from the same tag
+  (3.225.1). Bump them together.
+- **ClickHouse must run UTC.** On any other server timezone Langfuse's queries
+  return empty or shifted results — a dashboard reporting "no data" for a system
+  that is plainly running. `TZ=UTC` is pinned on the container; do not override.
+- **`CLICKHOUSE_CLUSTER_ENABLED=false` is a schema decision.** It makes the
+  migrator emit plain `MergeTree` rather than `Replicated*`. Moving to a real
+  ClickHouse cluster later is a migration, not a replica-count change.
+- **First boot is slow.** The web tier runs Postgres and ClickHouse migrations
+  before it listens; its startup probe allows ten minutes. A pod killed mid-way
+  restarts the migration from the top.
+- **The ingestion keys are seeded, not minted.** Headless initialization creates
+  the org, project and API keys from config on first boot, which is what lets
+  the collector hold a working credential in the same `pulumi up`. Rotating
+  `langfuseSalt` invalidates every stored API key, including that one.
+
+### Signals and attribution
+
+Only **traces** go to Langfuse. Logs and metrics still go to the Aspire
+dashboard alone (and ERROR logs to err2issue, ADR-0031). The collector adds one
+exporter to the *existing* traces pipeline, so both consumers get every span.
+
+Consequence to know: the two exporters share the pipeline's `memory_limiter`, so
+a Langfuse outage long enough to fill its bounded sending queue (2000 batches)
+will cost the dashboard spans too. Neither is in a request path.
+
+When the tier is on, the agent tiers get `GRID_TRACE_IDENTITY_ATTRIBUTES=true`,
+which stamps `langfuse.user.id`, `langfuse.session.id` and the organization onto
+every span. Without it Langfuse receives traces that are anonymous — technically
+working, and missing most of the point. It is deliberately keyed off *this* tier
+rather than §9: attaching a user id to telemetry makes traces attributable to
+named individuals, and an Aspire-only deployment gets none of it.
+
+Session grouping and input/output capture need no configuration — NAT already
+emits `session.id` and OpenInference `input.value`/`output.value`, both of which
+Langfuse maps natively.
+
+### Operating it — the retention problem
+
+**Nothing expires.** Data-retention policies are an Enterprise feature, so on the
+free build the ClickHouse PVC grows for as long as the deployment runs. There is
+no setting in this program that changes that, and inventing one would be a knob
+that does nothing.
+
+So treat `grid-oib:clickhouseStorageSize` (default `20Gi`) as a number to watch,
+not to set once:
+
+```bash
+kubectl -n grid exec -it clickhouse-0 -- df -h /var/lib/clickhouse
+```
+
+Growing it is a PVC patch (the `volumeClaimTemplates` is immutable and
+`ignoreChanges`d — same procedure as SeaweedFS and Chroma, §4). Pruning is a
+manual ClickHouse partition drop. And note the store has **no backup**: Postgres
+has PITR (§5) and the raw events are archived in SeaweedFS, but ClickHouse has
+neither. Its PVC is `Retain` + `protect`ed, and that is the whole of its
+durability story.
+
+### Local development
+
+Compose runs the tier behind an opt-in profile:
+
+```bash
+cd deploy/compose
+docker compose --env-file ../.env -f docker-compose.yaml --profile langfuse up -d
+# http://localhost:3100 — sign in with LANGFUSE_INIT_USER_* from deploy/.env
+```
+
+There is no ingestion path locally: no collector runs, and the backend's OTLP
+exporter is gated off in compose by design (§9, ADR-0029). The profile is for
+developing against the Langfuse UI and API, not for reproducing ingestion.
+
 ## 10. Out of scope (deliberate follow-ups)
 
 - **A rehearsed SeaweedFS split-topology cutover.** The `split` layout exists

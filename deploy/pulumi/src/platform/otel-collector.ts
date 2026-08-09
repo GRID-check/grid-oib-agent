@@ -5,6 +5,7 @@ import { commonLabels } from "./namespaces";
 import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
 import { OTLP_API_KEY_SECRET_KEY } from "./observability";
 import { ERR2ISSUE_OTLP_HTTP } from "./err2issue";
+import { LANGFUSE_SECRET_KEYS, langfuseOtlpTracesEndpoint } from "./langfuse";
 
 const COMPONENT = "otel-collector";
 const OTLP_GRPC_PORT = 4317;
@@ -39,7 +40,14 @@ export function installOtelCollector(
   cfg: GridConfig,
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
-  secrets: k8s.core.v1.Secret,  dependsOn: pulumi.Resource[],
+  secrets: k8s.core.v1.Secret,
+  dependsOn: pulumi.Resource[],
+  /**
+   * The Secret carrying Langfuse's precomputed Basic-auth header (ADR-0044),
+   * when that tier is deployed. Undefined leaves the collector config
+   * byte-identical to what it was before Langfuse existed.
+   */
+  langfuseSecretName?: pulumi.Input<string>,
 ): OtelCollector {
   const labels = commonLabels(COMPONENT);
   const name = COMPONENT;
@@ -84,6 +92,63 @@ export function installOtelCollector(
       exporters: [otlp_http/err2issue]`
     : "";
 
+  // Langfuse (ADR-0044) is a THIRD consumer, and the first one on the traces
+  // signal — this is the change ADR-0029 predicted when it wrote that swapping
+  // or adding a storage backend "is a config change HERE, not in any app".
+  //
+  // A second exporter on the EXISTING traces pipeline rather than a pipeline of
+  // its own, which is the opposite of the choice made for err2issue one
+  // signal down. The difference is the processor chain: err2issue needs a
+  // severity filter that must not apply to the dashboard's copy, so it needs
+  // its own pipeline. Langfuse wants exactly the spans Aspire wants, so a
+  // separate pipeline would duplicate `memory_limiter` and `batch` — two
+  // independent memory budgets and two batchers over one input — to produce
+  // identical output.
+  //
+  // Consequence worth stating plainly: exporters on one pipeline share a fate
+  // for back-pressure. If Langfuse is slow enough to fill its sending queue,
+  // `memory_limiter` sees the pressure and starts refusing, and the dashboard
+  // loses spans too. That is accepted for the same reason the tier accepts
+  // dropped telemetry generally — neither consumer is in a request path — and
+  // it is why the Langfuse exporter gets an explicit, bounded queue below
+  // instead of the default.
+  const langfuseExporter = cfg.langfuse.enabled
+    ? `
+  otlp_http/langfuse:
+    # \`otlp_http\`, NOT \`otlphttp\`. Both resolve today, so this is easy to
+    # "correct" in the wrong direction: upstream renamed the component and
+    # \`otlphttp\` is now the DeprecatedType
+    # (exporter/otlphttpexporter/internal/metadata/generated_status.go —
+    # \`Type = MustNewType("otlp_http")\`, \`DeprecatedType = MustNewType("otlphttp")\`).
+    # Matches \`otlp_http/aspire\` below, which is the same component.
+    #
+    # \`traces_endpoint\`, not \`endpoint\`: the latter would have the exporter
+    # append \`/v1/traces\` to a path that already ends in it.
+    traces_endpoint: ${langfuseOtlpTracesEndpoint()}
+    # Basic base64(pk:sk), precomputed into the Langfuse Secret because the
+    # collector cannot base64 two env vars together (see LANGFUSE_SECRET_KEYS).
+    headers:
+      Authorization: \${env:LANGFUSE_OTLP_AUTH}
+    # Langfuse accepts gzip (it is a Next.js route, not the Aspire dashboard's
+    # raw-protobuf reader), and unlike the in-cluster hop to the dashboard this
+    # one pays for itself: spans carry prompts and completions, which compress
+    # roughly an order of magnitude.
+    compression: gzip
+    # Bounded rather than unlimited. The queue is what keeps a Langfuse restart
+    # — a deploy, a node drain — from immediately becoming dropped spans, but
+    # an unbounded one would let a long outage grow collector RSS until
+    # \`memory_limiter\` starts refusing the dashboard's traffic too.
+    sending_queue:
+      enabled: true
+      queue_size: 2000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s`
+    : "";
+  const langfuseTraceExport = cfg.langfuse.enabled ? ", otlp_http/langfuse" : "";
+
   // ${env:OTLP_API_KEY} is interpolated by the collector at startup from the
   // container env (secretKeyRef below) — the key never sits in the ConfigMap.
   const collectorConfig = `
@@ -104,7 +169,7 @@ processors:
     timeout: 5s
     send_batch_size: 1024${err2issueProcessor}
 
-exporters:${err2issueExporter}
+exporters:${err2issueExporter}${langfuseExporter}
   otlp_http/aspire:
     endpoint: ${ASPIRE_OTLP_HTTP}
     # The dashboard's OTLP/HTTP endpoint does not decompress gzip request
@@ -125,7 +190,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp_http/aspire]
+      exporters: [otlp_http/aspire${langfuseTraceExport}]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
@@ -185,6 +250,23 @@ service:
                       },
                     },
                   },
+                  // Present only when Langfuse is deployed. The collector
+                  // fails to START on an unresolvable `${env:…}` in its
+                  // config, so this env var and the exporter block above are
+                  // one decision — both keyed off `cfg.langfuse.enabled`.
+                  ...(langfuseSecretName
+                    ? [
+                        {
+                          name: "LANGFUSE_OTLP_AUTH",
+                          valueFrom: {
+                            secretKeyRef: {
+                              name: langfuseSecretName,
+                              key: LANGFUSE_SECRET_KEYS.otlpBasicAuth,
+                            },
+                          },
+                        },
+                      ]
+                    : []),
                 ],
                 volumeMounts: [
                   { name: "config", mountPath: "/etc/otelcol", readOnly: true },

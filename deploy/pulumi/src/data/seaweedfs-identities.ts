@@ -1,6 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
+import { LANGFUSE } from "../constants";
 
 /**
  * The SeaweedFS S3 identity set — who can touch which bucket.
@@ -95,11 +96,18 @@ export function s3IdentityCatalog({
   platformBuckets,
   tenantBucketPrefix,
   provisioning,
+  langfuseBucket,
 }: {
   documentsBucket: string;
   platformBuckets: string[];
   tenantBucketPrefix: string;
   provisioning: boolean;
+  /**
+   * The Langfuse bucket (ADR-0044), when that tier is deployed. It is a
+   * platform bucket — the init Job has to create it — but it is deliberately
+   * NOT in the `grid` identity's scope; see below.
+   */
+  langfuseBucket?: string;
 }): S3IdentityShape[] {
   // `Read:grid-org-*` — the star is matched by prefix, so this covers every
   // bucket the tenant provisioner will ever create without covering
@@ -107,8 +115,17 @@ export function s3IdentityCatalog({
   // would overlap either.
   const tenantScope = (action: string): string[] => [`${action}:${tenantBucketPrefix}*`];
 
+  // The Langfuse bucket is withheld from the general-purpose `grid` credential
+  // for the same reason `grid-backend-read` is scoped to the documents bucket:
+  // that credential is held by the BFF and the purger, neither of which has any
+  // reason to read raw trace events — which are cross-tenant prompts and model
+  // output in their most unredacted form. Langfuse reaches its own bucket with
+  // its own identity below. Excluding it here is what keeps adding a platform
+  // bucket from silently widening an existing credential.
+  const gridBuckets = platformBuckets.filter((bucket) => bucket !== langfuseBucket);
+
   const perBucket = (action: string): string[] => [
-    ...platformBuckets.map((bucket) => `${action}:${bucket}`),
+    ...gridBuckets.map((bucket) => `${action}:${bucket}`),
     ...tenantScope(action),
   ];
 
@@ -155,6 +172,20 @@ export function s3IdentityCatalog({
     });
   }
 
+  if (langfuseBucket) {
+    identities.push({
+      name: LANGFUSE.s3Identity,
+      // Object CRUD on exactly one bucket. Not `Admin` (which would authorise
+      // DeleteBucket on the trace archive), and not bucket-unscoped — a bare
+      // `"Write"` here would match EVERY bucket in the deployment, including
+      // the Postgres PITR archive. That is not a hypothetical failure mode:
+      // it is the exact bug this catalogue's `grid-backend-read` entry was
+      // written to fix, and the shape that caused it is one word shorter than
+      // the shape that does not.
+      actions: OBJECT_ACTIONS.map((action) => `${action}:${langfuseBucket}`),
+    });
+  }
+
   return identities;
 }
 
@@ -171,12 +202,15 @@ export function renderS3Config(
       cfg.seaweedfs.backendReadSecretKey,
       pulumi.output(cfg.seaweedfs.tenantAdminAccessKey),
       cfg.seaweedfs.tenantAdminSecretKey,
+      pulumi.output(cfg.langfuse.s3AccessKey),
+      cfg.langfuse.s3SecretKey,
     ])
-    .apply(([ak, sk, brak, brsk, taak, task]) => {
+    .apply(([ak, sk, brak, brsk, taak, task, lfak, lfsk]) => {
       const credentials: Record<string, { accessKey: string; secretKey: string }> = {
         grid: { accessKey: ak, secretKey: sk },
         "grid-backend-read": { accessKey: brak, secretKey: brsk },
         "grid-tenant-admin": { accessKey: taak, secretKey: task },
+        [LANGFUSE.s3Identity]: { accessKey: lfak, secretKey: lfsk },
       };
 
       const identities = s3IdentityCatalog({
@@ -184,6 +218,7 @@ export function renderS3Config(
         platformBuckets,
         tenantBucketPrefix,
         provisioning,
+        langfuseBucket: cfg.langfuse.enabled ? LANGFUSE.bucket : undefined,
       }).map((identity) => ({
         name: identity.name,
         credentials: [credentials[identity.name]],

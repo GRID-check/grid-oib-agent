@@ -12,7 +12,7 @@ import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { EDGE_SHUTDOWN, SURGE_ONLY_STRATEGY } from "./rollout";
-import { EDGE_RATE_LIMIT, EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
+import { EDGE_RATE_LIMIT, EDGE_TIMEOUT, LANGFUSE, PLATFORM_RESOURCES } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
 export const GATEWAY_NAME = "grid-gateway";
@@ -272,6 +272,23 @@ export function installGatewayResources(
       ]
     : [];
 
+  // Langfuse UI (ADR-0044) — same arrangement as the Aspire listener above, and
+  // absent for the same reason when the tier is off: no hostname to serve, and
+  // an annotated Gateway would have cert-manager chasing a certificate for a
+  // host with no backing Service.
+  const langfuseListeners: IGatewaySpec["listeners"] = cfg.langfuse.enabled
+    ? [
+        {
+          name: LANGFUSE.listenerName,
+          port: 443,
+          protocol: "HTTPS",
+          hostname: cfg.langfuse.domain,
+          tls: { mode: "Terminate", certificateRefs: [{ name: "grid-langfuse-tls" }] },
+          allowedRoutes: { namespaces: { from: "Same" } },
+        },
+      ]
+    : [];
+
   const gatewaySpec: IGatewaySpec = {
     gatewayClassName: GATEWAY_CLASS,
     // Attach the HA proxy-infrastructure config above.
@@ -316,6 +333,8 @@ export function installGatewayResources(
       // (ADR-0029). Otherwise there is no hostname to serve and cert-manager
       // would chase a certificate for a host with no backing Service.
       ...otelListeners,
+      // Langfuse UI — only when that tier is deployed (ADR-0044).
+      ...langfuseListeners,
     ],
   };
   const gateway = new k8s.apiextensions.CustomResource(
