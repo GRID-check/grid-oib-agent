@@ -346,8 +346,8 @@ organization. Cross-tenant and no-access both surface as 404.
 | `overview` | What the model is: project/site/building, storeys, totals, areas. |
 | `health` | The validation report — see below. |
 | `types` | Element counts per IFC type, from the rows. |
-| `properties` | The model's own property vocabulary: which sets exist, which properties, and the values they actually take with counts. |
-| `elements` | Matching elements, paged. |
+| `properties` | The model's own property vocabulary: which sets exist, which properties, and the values they actually take with counts. Past ~5 000 in-scope elements the catalog is built from a sample stratified **by IFC type** (up to 200 elements per type), and `propertyScan: { scanned, total, complete }` says so; the names stay authoritative, the counts become counts over the sample and the rendered summary states that. Reading the whole model instead was measured past the 30 s `statement_timeout` at 400 k elements — an HTTP 500 where a catalog was asked for. |
+| `elements` | Matching elements, paged. `total` stops counting at 10 000 (`COUNT_CEILING`): past that it is a **lower bound**, `totalIsLowerBound` is `true`, `truncated` is `true` and the summary reads "Mindestens 10000 Bauteile". An exact `count(*)` beside the page query measured 15.8 s warm / 21.9 s cold on a filtered 400 k-element model, holding a second pool slot for the whole time. |
 | `element` | One element in full, by IFC GlobalId. |
 | `aggregate` | `count`/`sum`/`avg`/`min`/`max` over the filtered set, optionally grouped by `ifcType`, `storey`, `predefinedType`, `typeName`, `material` or a property. |
 | `compare` | What changed against another revision, matched by GlobalId. |

@@ -20,7 +20,7 @@ import {
   type BimElementRow,
   type BimModelRow,
 } from '@/lib/db/schema'
-import { buildStoredRuleInputs } from './rule-inputs'
+import { buildSearchKeys, buildStoredRuleInputs } from './rule-inputs'
 import type { StoredRuleInputs } from './rule-inputs'
 import type { BimElement, BimModelStatus, BimModelSummary } from './types'
 
@@ -40,6 +40,12 @@ export interface BimModelHeader {
   elementCount: number
   errorMessage: string | null
   summary: BimModelSummary | null
+  /**
+   * Whether the GIN pre-filter may be used against this model's elements —
+   * `bim_models.search_keys_indexed`. Read by `buildBimPredicate`; false means
+   * the property filters fall back to the unnest alone.
+   */
+  searchKeysIndexed: boolean
   updatedAt: Date
 }
 
@@ -54,6 +60,7 @@ const MODEL_COLUMNS = {
   elementCount: bimModels.elementCount,
   errorMessage: bimModels.errorMessage,
   summary: bimModels.summary,
+  searchKeysIndexed: bimModels.searchKeysIndexed,
   updatedAt: bimModels.updatedAt,
 } as const
 
@@ -213,6 +220,7 @@ export async function completeBimModel(input: {
             containerKind: element.containerKind,
             containerName: element.containerName,
             materials: element.materials,
+            searchKeys: buildSearchKeys(element),
             classifications: element.classifications,
             properties: element.properties,
             quantities: element.quantities,
@@ -233,6 +241,11 @@ export async function completeBimModel(input: {
           // projection is a map over them and costs nothing next to the parse
           // that produced them.
           ruleInputs: buildStoredRuleInputs(input.elements, false),
+          // Set in the SAME transaction that wrote the elements above, so the
+          // flag cannot claim an index the rows do not have. An older image
+          // extracting a model during a rolling deploy never reaches this line
+          // and leaves the flag false, which reads as "unnest only".
+          searchKeysIndexed: true,
           indexStorageKey: input.indexStorageKey,
           indexStorageBucket: input.indexStorageBucket,
           errorMessage: null,
@@ -284,13 +297,19 @@ function elementScope(modelId: string, organizationId: string) {
   )
 }
 
+/**
+ * Past this the total is reported as a lower bound. Well beyond any page a
+ * person scrolls, and far short of the point where counting gets expensive.
+ */
+export const COUNT_CEILING = 10_000
+
 export async function listBimElements(input: {
   modelId: string
   organizationId: string
   where?: ReturnType<typeof and>
   limit: number
   offset: number
-}): Promise<{ rows: BimElementListRow[]; total: number }> {
+}): Promise<{ rows: BimElementListRow[]; total: number; totalIsLowerBound: boolean }> {
   const db = getDb()
   const limit = Math.min(Math.max(1, Math.trunc(input.limit)), BIM_ELEMENT_PAGE_LIMIT)
   const offset = Math.max(0, Math.trunc(input.offset))
@@ -305,9 +324,26 @@ export async function listBimElements(input: {
         .orderBy(asc(bimElements.ifcType), asc(bimElements.expressId))
         .limit(limit)
         .offset(offset),
-      db.select({ value: count() }).from(bimElements).where(predicate),
+      // Counted through a bounded subquery, not `count(*)` over the whole
+      // predicate. The row half stops at `limit`; an exact total cannot, so
+      // on a filtered 400 000-element model it was the slower half of the
+      // pair by an order of magnitude — 15.8 s warm, 21.9 s cold, holding a
+      // second pool slot the entire time. Nothing in the UI needs an exact
+      // figure past the cap; it needs to know there are more.
+      db.execute<{ value: number }>(sql`
+        SELECT count(*)::int AS value
+        FROM (
+          SELECT 1 FROM ${bimElements} WHERE ${predicate} LIMIT ${COUNT_CEILING + 1}
+        ) bounded
+      `),
     ])
-    return { rows, total: Number(totals[0]?.value ?? 0) }
+    const counted = Number(Array.from(totals)[0]?.value ?? 0)
+    // The subquery is allowed one row past the ceiling purely so the two cases
+    // are distinguishable; reporting that row would put a `total` of 10 001 on
+    // a model with 400 000 matches, which is wrong twice over. Past the ceiling
+    // the number means "at least this many" and the flag says so.
+    const totalIsLowerBound = counted > COUNT_CEILING
+    return { rows, total: totalIsLowerBound ? COUNT_CEILING : counted, totalIsLowerBound }
   })
 }
 
@@ -404,11 +440,51 @@ export interface BimPropertyCatalogEntry {
   name: string
   /** `property` or `quantity` — which container the entry came from. */
   source: 'property' | 'quantity'
-  /** How many elements carry this property at all. */
+  /**
+   * How many of the SCANNED elements carry this property. Equal to the number
+   * in the model when {@link BimPropertyCatalog.complete} is true, and a count
+   * within the sample when it is not.
+   */
   elements: number
-  /** The most common values, with occurrence counts. */
+  /** The most common values, with occurrence counts over the same scan. */
   values: Array<{ value: string; elements: number }>
 }
+
+export interface BimPropertyCatalog {
+  entries: BimPropertyCatalogEntry[]
+  /** Elements actually read to build {@link entries}. */
+  scanned: number
+  /** Elements in scope — the whole model, or one IFC type of it. */
+  total: number
+  /** `false` when `entries` describes a sample rather than every element. */
+  complete: boolean
+}
+
+/**
+ * Past this many in-scope elements the catalog reads a sample instead.
+ *
+ * The unnest is the cost: a realistic element carries ~29 property and
+ * quantity pairs, so the old unbounded query produced `Append (actual
+ * rows=11600000)` on a seeded 400 000-element model and two sorts of 45-48 MB
+ * against a 4 MB `work_mem` — measured at over the 30 s `statement_timeout`,
+ * which reached the caller as HTTP 500. At this ceiling the same unnest is
+ * ~145 000 rows.
+ */
+export const PROPERTY_CATALOG_SCAN_LIMIT = 5_000
+
+/**
+ * Bounds on the per-type slice of a sampled scan.
+ *
+ * Sampling is stratified BY IFC TYPE rather than taken off the top, because
+ * property vocabulary is a function of the type — walls carry
+ * `Pset_WallCommon`, doors carry `Pset_DoorCommon` — and rows come back from
+ * the `(model_id, ifc_type)` index in type order. A flat `LIMIT 5000` would
+ * therefore report the vocabulary of whichever types sort first and omit the
+ * rest entirely: not an imprecise catalog, a wrong one. Within a type the
+ * vocabulary is near-uniform, so a couple of hundred elements describe it.
+ */
+const PER_TYPE_MIN = 25
+const PER_TYPE_MAX = 200
 
 /**
  * The model's own property vocabulary: which sets exist, which properties they
@@ -419,41 +495,96 @@ export interface BimPropertyCatalogEntry {
  * gets zero rows and reports "no fire-rated walls", which is a wrong answer
  * dressed as a right one. Reading the catalog first turns that into a filter on
  * `FireRating` with a value the model actually contains.
+ *
+ * Large models are answered from a sample — see
+ * {@link PROPERTY_CATALOG_SCAN_LIMIT} — and say so in
+ * {@link BimPropertyCatalog.complete}. The names, which is what the catalog is
+ * for, survive sampling; the counts become counts over what was read, and the
+ * caller must not present them as the model's.
  */
 export async function listBimPropertyCatalog(input: {
   modelId: string
   organizationId: string
   ifcType?: string
   maxValues: number
-}): Promise<BimPropertyCatalogEntry[]> {
+}): Promise<BimPropertyCatalog> {
   const db = getDb()
   const maxValues = Math.min(Math.max(1, Math.trunc(input.maxValues)), 50)
   const typeFilter = input.ifcType
     ? sql`AND lower(e.ifc_type) = lower(${input.ifcType})`
     : sql``
+  const tenantScope = sql`
+    EXISTS (
+      SELECT 1 FROM bim_models m
+      WHERE m.id = e.model_id AND m.organization_id = ${input.organizationId}
+    )
+  `
 
-  // One pass over the model's elements, unnesting property and quantity sets
-  // together so both vocabularies come back in one round trip. The value list
-  // is cut per property inside the query (`row_number`), not in JS, so a model
-  // with 40 000 distinct values never materialises them all.
-  const rows = await withTenant({ organizationId: input.organizationId }, () =>
-    db.execute<{
+  return withTenant({ organizationId: input.organizationId }, async () => {
+    // How big the job is, before committing to it. An index-only scan of
+    // `bim_elements_model_type_idx` — it never touches the jsonb, which is the
+    // part that costs.
+    const typeRows = await db.execute<{ ifc_type: string; elements: string }>(sql`
+      SELECT e.ifc_type, count(*)::text AS elements
+      FROM bim_elements e
+      WHERE e.model_id = ${input.modelId} AND ${tenantScope} ${typeFilter}
+      GROUP BY e.ifc_type
+    `)
+    const types = Array.from(typeRows).map((row) => ({
+      ifcType: row.ifc_type,
+      // count(*) over bigint arrives as a string from node-postgres.
+      elements: Number(row.elements),
+    }))
+    const total = types.reduce((sum, type) => sum + type.elements, 0)
+    if (total === 0) return { entries: [], scanned: 0, total: 0, complete: true }
+
+    const perType =
+      total <= PROPERTY_CATALOG_SCAN_LIMIT
+        ? null
+        : Math.min(
+            PER_TYPE_MAX,
+            Math.max(PER_TYPE_MIN, Math.floor(PROPERTY_CATALOG_SCAN_LIMIT / types.length))
+          )
+    const scanned =
+      perType === null
+        ? total
+        : types.reduce((sum, type) => sum + Math.min(type.elements, perType), 0)
+
+    const scoped =
+      perType === null
+        ? sql`
+            SELECT e.properties, e.quantities
+            FROM bim_elements e
+            WHERE e.model_id = ${input.modelId} AND ${tenantScope} ${typeFilter}
+          `
+        : sql`
+            SELECT slice.properties, slice.quantities
+            FROM (VALUES ${sql.join(
+              types.map((type) => sql`(${type.ifcType}::text)`),
+              sql`, `
+            )}) AS t(ifc_type)
+            CROSS JOIN LATERAL (
+              SELECT e.properties, e.quantities
+              FROM bim_elements e
+              WHERE e.model_id = ${input.modelId}
+                AND e.ifc_type = t.ifc_type
+                AND ${tenantScope}
+              LIMIT ${perType}
+            ) slice
+          `
+
+    // One pass over the scoped elements, unnesting property and quantity sets
+    // together so both vocabularies come back in one round trip. The value list
+    // is cut per property inside the query (`row_number`), not in JS, so a model
+    // with 40 000 distinct values never materialises them all.
+    const rows = await db.execute<{
       set_name: string
       prop_name: string
       source: 'property' | 'quantity'
       element_total: string
       values: Array<{ value: string; elements: number }> | null
     }>(sql`
-      WITH scoped AS (
-        SELECT e.id, e.properties, e.quantities
-        FROM bim_elements e
-        WHERE e.model_id = ${input.modelId}
-          AND EXISTS (
-            SELECT 1 FROM bim_models m
-            WHERE m.id = e.model_id AND m.organization_id = ${input.organizationId}
-          )
-          ${typeFilter}
-      ),
+      WITH scoped AS (${scoped}),
       pairs AS (
         SELECT s.set_name, p.prop_name, 'property'::text AS source, p.prop_value #>> '{}' AS value
         FROM scoped e, jsonb_each(e.properties) AS s(set_name, set_value),
@@ -484,20 +615,25 @@ export async function listBimPropertyCatalog(input: {
       GROUP BY set_name, prop_name, source
       ORDER BY source ASC, set_name ASC, prop_name ASC
     `)
-  )
 
-  return Array.from(rows).map((row) => ({
-    set: row.set_name,
-    name: row.prop_name,
-    source: row.source,
-    // sum() over bigint arrives as a string from node-postgres; coerce here
-    // rather than let "12" reach a field typed number.
-    elements: Number(row.element_total),
-    values: (row.values ?? []).map((entry) => ({
-      value: entry.value,
-      elements: Number(entry.elements),
-    })),
-  }))
+    return {
+      entries: Array.from(rows).map((row) => ({
+        set: row.set_name,
+        name: row.prop_name,
+        source: row.source,
+        // sum() over bigint arrives as a string from node-postgres; coerce here
+        // rather than let "12" reach a field typed number.
+        elements: Number(row.element_total),
+        values: (row.values ?? []).map((entry) => ({
+          value: entry.value,
+          elements: Number(entry.elements),
+        })),
+      })),
+      scanned,
+      total,
+      complete: perType === null,
+    }
+  })
 }
 
 /**

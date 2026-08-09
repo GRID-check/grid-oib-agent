@@ -95,6 +95,7 @@ function model(overrides: Partial<BimModelHeader> & Pick<BimModelHeader, 'id' | 
     elementCount: 1,
     errorMessage: null,
     summary: null,
+    searchKeysIndexed: true,
     updatedAt: new Date('2026-05-04T09:30:15.400Z'),
     ...overrides,
   }

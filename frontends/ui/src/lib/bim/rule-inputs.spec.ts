@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import {
   RULE_INPUT_FIELDS,
   RULE_INPUT_KEYS,
+  buildSearchKeys,
   buildStoredRuleInputs,
   projectRuleInputs,
   readStoredRuleInputs,
@@ -173,5 +174,103 @@ describe('projected rule inputs', () => {
     expect(readStoredRuleInputs(null)).toBeNull()
     expect(readStoredRuleInputs('nope')).toBeNull()
     expect(readStoredRuleInputs({ version: 1 })).toBeNull()
+  })
+})
+
+/**
+ * The GIN pre-filter's shadow of `properties` and `quantities`.
+ *
+ * A key this omits is a candidate the index cannot offer, which costs only
+ * speed — the exact unnest still decides. A key it gets WRONG is worse than
+ * useless: the pre-filter is AND-ed in, so a mis-cased or mis-prefixed key
+ * makes matching elements vanish from the answer. Everything below is about
+ * that direction.
+ *
+ * The other half of the contract — that this agrees with the SQL backfill in
+ * `0038_bim_element_search_keys.sql` — is checked against a real Postgres in
+ * `query.integration.spec.ts`, because only Postgres can say what its own
+ * `#>> '{}'` renders.
+ */
+describe('search keys', () => {
+  it('emits the bare key and the set-qualified key, both lowercased', () => {
+    // The bare key answers `{name: 'FireRating'}`; the dotted one answers
+    // `{set: 'Pset_WallCommon', name: 'FireRating'}`. A filter may give either.
+    const keys = buildSearchKeys(
+      element({ ifcType: 'IfcWall', properties: { Pset_WallCommon: { FireRating: 'REI 90' } } })
+    )
+
+    expect(keys).toEqual({
+      'p:firerating': ['rei 90'],
+      'p:pset_wallcommon.firerating': ['rei 90'],
+    })
+  })
+
+  it('separates quantities from properties', () => {
+    // `Width` is both a Pset property and a Qto quantity in real exports, and
+    // a filter names which one it means. Collapsing them would let a property
+    // filter be pre-filtered away by a quantity's presence, and vice versa.
+    const keys = buildSearchKeys(
+      element({
+        ifcType: 'IfcDoor',
+        properties: { Pset_DoorCommon: { Width: 0.9 } },
+        quantities: { Qto_DoorBaseQuantities: { Width: 0.91 } },
+      })
+    )
+
+    expect(Object.keys(keys).sort()).toEqual([
+      'p:pset_doorcommon.width',
+      'p:width',
+      'q:qto_doorbasequantities.width',
+      'q:width',
+    ])
+    expect(keys['p:width']).toEqual(['0.9'])
+    expect(keys['q:width']).toEqual(['0.91'])
+  })
+
+  it('collects every value a bare key takes across sets', () => {
+    // Two sets carrying the same property name is why the map holds arrays.
+    // Keeping only one would drop the other set's elements from an `eq`
+    // pre-filter that AND-s containment.
+    const keys = buildSearchKeys(
+      element({
+        ifcType: 'IfcWall',
+        properties: {
+          Pset_WallCommon: { FireRating: 'REI 90' },
+          'Revit Type Parameters': { FireRating: 'F90' },
+        },
+      })
+    )
+
+    expect(keys['p:firerating'].sort()).toEqual(['f90', 'rei 90'])
+  })
+
+  it('renders booleans and numbers the way the SQL does', () => {
+    // `p.prop_value #>> '{}'` gives `true` and `0.21`, not `TRUE` or `.21`.
+    // The filter side lowercases the same way, so these have to match exactly.
+    const keys = buildSearchKeys(
+      element({
+        ifcType: 'IfcWall',
+        properties: { Pset_WallCommon: { IsExternal: true, ThermalTransmittance: 0.21 } },
+      })
+    )
+
+    expect(keys['p:isexternal']).toEqual(['true'])
+    expect(keys['p:thermaltransmittance']).toEqual(['0.21'])
+  })
+
+  it('skips a null value, as the backfill does', () => {
+    // `to_jsonb(lower(NULL #>> '{}'))` is SQL NULL and `jsonb_agg(DISTINCT …)`
+    // keeps it, so the two sides would disagree if JS emitted `"null"`.
+    const keys = buildSearchKeys(
+      element({ ifcType: 'IfcWall', properties: { Pset_WallCommon: { FireRating: null } } })
+    )
+
+    expect(keys).toEqual({})
+  })
+
+  it('gives an element with no properties an empty map, not null', () => {
+    // `{}` means "indexed, carries nothing"; NULL means "not indexed yet" and
+    // switches the pre-filter off for that row. They must not be confused.
+    expect(buildSearchKeys(element({ ifcType: 'IfcSite' }))).toEqual({})
   })
 })

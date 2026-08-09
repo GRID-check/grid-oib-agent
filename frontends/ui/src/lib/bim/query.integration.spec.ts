@@ -42,17 +42,71 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   let modelId: string
   let otherModelId: string
   let revisionModelId: string
+  /** A model past both the count ceiling and the property-catalog scan limit. */
+  let bigModelId: string
   let FIXTURE_PROJECT: string
   let index: BimModelIndex
   let runBimQuery: typeof import('./query').runBimQuery
   let bimQuerySchema: typeof import('./query').bimQuerySchema
   let BimModelNotReadyError: typeof import('./query').BimModelNotReadyError
   let closeDb: typeof import('@/lib/db').closeDb
+  let db: ReturnType<typeof import('@/lib/db').getDb>
+  let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
+
+  /** Rows in {@link bigModelId} — over `COUNT_CEILING` and over the scan limit. */
+  const BIG_MODEL_ELEMENTS = 10_100
+
+  /**
+   * The backfill half of `0038_bim_element_search_keys.sql`, read from the
+   * migration itself rather than restated here — the whole point of the tests
+   * below is that the SQL and the TypeScript agree, and a copy of the SQL in
+   * the spec would agree with itself no matter what shipped.
+   *
+   * Only the UPDATEs: the `ALTER`/`CREATE INDEX` are already applied by the
+   * migration chain, and `COMMENT ON COLUMN` needs table ownership the test
+   * role does not have.
+   */
+  const runSearchKeyBackfill = async (): Promise<void> => {
+    const source = readFileSync(
+      join(process.cwd(), 'drizzle', '0038_bim_element_search_keys.sql'),
+      'utf8'
+    ).replace(/^\s*--.*$/gm, '')
+    const statements = source
+      .split(/;\s*(?:\n|$)/)
+      .filter((statement) => /^\s*(WITH|UPDATE)\b/i.test(statement))
+    // The two element backfills and the `search_keys_indexed` flip.
+    expect(statements).toHaveLength(3)
+    for (const statement of statements) {
+      await withPlatformAccess('re-run the search-key backfill', () =>
+        db.execute(sql.raw(statement))
+      )
+    }
+  }
+
+  /** `global_id -> search_keys`, with the value arrays put in a stable order. */
+  const readSearchKeys = async (): Promise<Record<string, Record<string, string[]>>> => {
+    const rows = await withPlatformAccess('read the search keys', () =>
+      db.execute<{ global_id: string; search_keys: Record<string, string[]> | null }>(sql`
+        SELECT global_id, search_keys FROM bim_elements WHERE model_id = ${modelId}::uuid
+      `)
+    )
+    return Object.fromEntries(
+      Array.from(rows).map((row) => [
+        row.global_id,
+        Object.fromEntries(
+          // `jsonb_agg(DISTINCT …)` and a JS `Set` do not agree on order, and
+          // nothing reads these in order — `@>` and `?` are set operations.
+          Object.entries(row.search_keys ?? {}).map(([key, values]) => [key, [...values].sort()])
+        ),
+      ])
+    )
+  }
 
   beforeAll(async () => {
     process.env.GRID_APP_DATABASE_URL = url
     const { getDb, closeDb: close } = await import('@/lib/db')
-    const { withPlatformAccess } = await import('@/lib/db/tenant-context')
+    const tenantContext = await import('@/lib/db/tenant-context')
+    withPlatformAccess = tenantContext.withPlatformAccess
     const repository = await import('./repository')
     const query = await import('./query')
     runBimQuery = query.runBimQuery
@@ -66,7 +120,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       'sample-building.ifc'
     )
 
-    const db = getDb()
+    db = getDb()
     // `documents.organization_id` is a plain column with no foreign key to
     // `organizations` (WorkOS owns org identity), so a document row is all the
     // fixture needs — and it is written through the platform role because a
@@ -172,6 +226,68 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       indexStorageKey: null,
       indexStorageBucket: null,
     })
+
+    // A model big enough for the two bounds to engage: past `COUNT_CEILING`
+    // so the element count stops early, and past the property-catalog scan
+    // limit so the catalog samples. Written in one INSERT rather than through
+    // `completeBimModel`, because ten thousand round trips through the ORM
+    // would dominate the suite's runtime and none of it is what is under test.
+    //
+    // The three types are deliberately spread across the alphabet and given
+    // DIFFERENT property sets: rows come back from
+    // `bim_elements_model_type_idx` in type order, so a catalog that took a
+    // flat `LIMIT` off the top would report `Pset_DoorCommon`, part of
+    // `Pset_WallCommon`, and never see `Pset_WindowCommon` at all.
+    const bigDocumentId = await seedDocument(ORG, 'big-building.ifc')
+    bigModelId = await repository.startBimModel({
+      organizationId: ORG,
+      projectId: null,
+      documentId: bigDocumentId,
+    })
+    await repository.completeBimModel({
+      modelId: bigModelId,
+      organizationId: ORG,
+      summary,
+      elements: [],
+      indexStorageKey: null,
+      indexStorageBucket: null,
+    })
+    await withPlatformAccess('seed a large BIM fixture', () =>
+      db.execute(sql`
+        INSERT INTO bim_elements
+          (model_id, global_id, express_id, ifc_type, name, storey_name, properties, quantities)
+        SELECT
+          ${bigModelId}::uuid,
+          'BIG' || lpad(i::text, 19, '0'),
+          i,
+          kind.ifc_type,
+          'Bauteil ' || i,
+          'Erdgeschoss',
+          jsonb_build_object(
+            kind.pset,
+            jsonb_build_object(
+              'FireRating', (ARRAY['REI 90', 'EI 30'])[1 + (i % 2)],
+              'Reference', 'R' || i
+            )
+          ),
+          '{}'::jsonb
+        FROM generate_series(1, ${BIG_MODEL_ELEMENTS}) AS i
+        CROSS JOIN LATERAL (
+          SELECT
+            (ARRAY['IfcDoor', 'IfcWall', 'IfcWindow'])[1 + (i % 3)] AS ifc_type,
+            (ARRAY['Pset_DoorCommon', 'Pset_WallCommon', 'Pset_WindowCommon'])[1 + (i % 3)] AS pset
+        ) kind
+      `)
+    )
+    await withPlatformAccess('record the large fixture element count', () =>
+      db.execute(sql`
+        UPDATE bim_models SET element_count = ${BIG_MODEL_ELEMENTS} WHERE id = ${bigModelId}::uuid
+      `)
+    )
+    // Those rows went in raw, so they carry no `search_keys` yet. Running the
+    // migration's own backfill over them puts the fixture in the state a real
+    // deployment is in after 0038, rather than a state only a test produces.
+    await runSearchKeyBackfill()
   })
 
   afterAll(async () => {
@@ -321,6 +437,100 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     expect(classified.total).toBe(2)
   })
 
+  it('extracts the same search keys the migration backfills', async () => {
+    // `buildSearchKeys` in TypeScript and the `jsonb_each` backfill in SQL are
+    // two implementations of one lookup map. If they drift, a freshly
+    // extracted model and a backfilled one answer the same filter differently
+    // — and the difference is invisible, because the pre-filter only ever
+    // REMOVES candidates the exact predicate would have matched.
+    const fromExtractor = await readSearchKeys()
+    expect(
+      Object.values(fromExtractor).filter((keys) => Object.keys(keys).length > 0).length
+    ).toBeGreaterThan(0)
+
+    await withPlatformAccess('clear the search keys', () =>
+      db.execute(sql`UPDATE bim_elements SET search_keys = NULL WHERE model_id = ${modelId}::uuid`)
+    )
+    await runSearchKeyBackfill()
+
+    expect(await readSearchKeys()).toEqual(fromExtractor)
+  })
+
+  it('answers every property filter identically with and without the pre-filter', async () => {
+    // The pre-filter is an index-servable NECESSARY condition AND-ed into the
+    // predicate. A key it fails to emit — a case, a prefix, a set-qualified
+    // form — does not slow the query down, it deletes matching elements from
+    // the answer. `search_keys_indexed` switches the pre-filter off entirely,
+    // so the two runs below are the same question asked with and without it.
+    const requests = [
+      { properties: [{ name: 'FireRating', operator: 'eq', value: 'rei 90', source: 'property' }] },
+      { properties: [{ set: 'Pset_WallCommon', name: 'FireRating', operator: 'eq', value: 'REI 90', source: 'property' }] },
+      { properties: [{ name: 'FireRating', operator: 'exists', source: 'property' }] },
+      { properties: [{ name: 'FireRating', operator: 'missing', source: 'property' }] },
+      { properties: [{ name: 'FireRating', operator: 'neq', value: 'REI 90', source: 'property' }] },
+      { properties: [{ name: 'FireRating', operator: 'contains', value: 'rei', source: 'property' }] },
+      { properties: [{ name: 'IsExternal', operator: 'eq', value: true, source: 'property' }] },
+      { properties: [{ name: 'ThermalTransmittance', operator: 'lte', value: 0.2, source: 'property' }] },
+      { properties: [{ name: 'NetFloorArea', operator: 'gt', value: 10, source: 'quantity' }] },
+      { properties: [{ set: 'Qto_WallBaseQuantities', name: 'NetSideArea', operator: 'exists', source: 'quantity' }] },
+    ]
+    const answers = async () =>
+      Promise.all(
+        requests.map(async (filter) => {
+          const result = await run(
+            bimQuerySchema.parse({ op: 'elements', filter, limit: 200, offset: 0 })
+          )
+          return {
+            filter: JSON.stringify(filter),
+            total: result.total ?? 0,
+            globalIds: (result.elements ?? []).map((element) => element.globalId).sort(),
+          }
+        })
+      )
+
+    const withPrefilter = await answers()
+    // Not vacuous: every filter has to actually match something, or "identical"
+    // would be ten empty answers agreeing with ten empty answers.
+    expect(withPrefilter.filter((answer) => answer.total > 0).length).toBe(requests.length)
+
+    await withPlatformAccess('mark the model unindexed', () =>
+      db.execute(sql`UPDATE bim_models SET search_keys_indexed = false WHERE id = ${modelId}::uuid`)
+    )
+    try {
+      expect(await answers()).toEqual(withPrefilter)
+    } finally {
+      await runSearchKeyBackfill()
+    }
+  })
+
+  it('answers correctly for a model whose elements were never indexed', async () => {
+    // The rolling-deploy case: a pod on the previous image extracts a model
+    // after 0038 has run, writing elements with no `search_keys` and leaving
+    // `search_keys_indexed` at its default. If the query layer trusted the
+    // column anyway, every property filter against that model would return
+    // nothing — a building reported as having no fire-rated walls at all.
+    await withPlatformAccess('simulate an older image writing this model', () =>
+      db.execute(sql`
+        UPDATE bim_elements SET search_keys = NULL WHERE model_id = ${modelId}::uuid
+      `)
+    )
+    await withPlatformAccess('leave the flag at its default', () =>
+      db.execute(sql`UPDATE bim_models SET search_keys_indexed = false WHERE id = ${modelId}::uuid`)
+    )
+
+    try {
+      const result = await run({
+        op: 'elements',
+        filter: { properties: [{ name: 'FireRating', operator: 'eq', value: 'REI 90', source: 'property' }] },
+        limit: 25,
+        offset: 0,
+      })
+      expect(result.total).toBe(3)
+    } finally {
+      await runSearchKeyBackfill()
+    }
+  })
+
   it('reads one element in full by GlobalId', async () => {
     const result = await run({ op: 'element', globalId: '0GridFixture00Wall0001' })
     expect(result.element?.name).toBe('Aussenwand Nord')
@@ -350,6 +560,72 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       'IsExternal',
       'ThermalTransmittance',
     ])
+  })
+
+  it('reports the property catalog of a small model as complete', async () => {
+    const result = await run({ op: 'properties', maxValues: 10 })
+    expect(result.propertyScan).toEqual({ scanned: 19, total: 19, complete: true })
+    expect(result.summary).toBe(`${result.properties?.length} Merkmale im Modell.`)
+  })
+
+  it('samples the property catalog of a large model, and says it sampled', async () => {
+    // The old query unnested every element: 11.6 M rows on a 400 000-element
+    // model, two sorts over a 4 MB `work_mem`, past the 30 s statement timeout
+    // and out as HTTP 500. This is the bound that replaced it.
+    const result = await runBimQuery(
+      { op: 'properties', maxValues: 10 },
+      { modelId: bigModelId, organizationId: ORG }
+    )
+
+    expect(result.propertyScan?.total).toBe(BIG_MODEL_ELEMENTS)
+    expect(result.propertyScan?.complete).toBe(false)
+    // 200 per type, three types — the per-type cap, not a slice off the top.
+    expect(result.propertyScan?.scanned).toBe(600)
+
+    // The point of stratifying: `IfcWindow` sorts last and would never be
+    // reached by a flat LIMIT, so its property set appearing here is the
+    // assertion that the sample covers the model rather than its first rows.
+    expect(result.properties?.map((entry) => entry.set).sort()).toEqual([
+      'Pset_DoorCommon',
+      'Pset_DoorCommon',
+      'Pset_WallCommon',
+      'Pset_WallCommon',
+      'Pset_WindowCommon',
+      'Pset_WindowCommon',
+    ])
+
+    // And the counts are labelled as the sample's, so an agent quoting the
+    // summary cannot present 200 walls as the model's wall count.
+    expect(result.summary).toContain('Stichprobe von 600 der 10100 Bauteile')
+    expect(result.summary).toContain('NUR auf die Stichprobe')
+  })
+
+  it('stops counting elements at the ceiling and says the total is a floor', async () => {
+    // An exact `count(*)` over a filtered 400 000-element model was measured at
+    // 15.8 s warm / 21.9 s cold, holding a second pool slot beside the page
+    // query for the whole time. Nothing in the product needs the exact figure.
+    const { COUNT_CEILING } = await import('./repository')
+    const result = await runBimQuery(
+      { op: 'elements', filter: {}, limit: 25, offset: 0 },
+      { modelId: bigModelId, organizationId: ORG }
+    )
+
+    expect(result.total).toBe(COUNT_CEILING)
+    expect(result.totalIsLowerBound).toBe(true)
+    // `truncated` must not be computed from `offset + rows < total` alone: on
+    // the last page inside the cap that is false while 90 000 rows remain.
+    expect(result.truncated).toBe(true)
+    expect(result.summary).toContain(`Mindestens ${COUNT_CEILING} Bauteile`)
+    expect(result.summary).not.toMatch(/^10000 Bauteile/)
+  })
+
+  it('reports an exact total below the ceiling', async () => {
+    const result = await run({ op: 'elements', filter: { ifcTypes: ['IfcWall'] }, limit: 25, offset: 0 })
+
+    expect(result.total).toBe(5)
+    expect(result.totalIsLowerBound).toBe(false)
+    expect(result.truncated).toBe(false)
+    expect(result.summary).toBe('5 Bauteile erfüllen die Abfrage.')
   })
 
   it('counts without grouping', async () => {

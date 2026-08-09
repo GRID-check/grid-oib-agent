@@ -215,3 +215,38 @@ export function readStoredRuleInputs(
   if (!Array.isArray(value.elements)) return null
   return { truncated: value.truncated === true, elements: value.elements.map(rehydrate) }
 }
+
+/**
+ * The flat lowercased lookup map the GIN pre-filter reads.
+ *
+ * Mirrors the backfill in `0038_bim_element_search_keys.sql` exactly — the two
+ * must agree, or a freshly extracted model and a backfilled one answer the
+ * same filter differently. Both emit the bare key (any set) and the
+ * set-qualified key, prefixed `p:` for properties and `q:` for quantities.
+ */
+export function buildSearchKeys(element: BimElement): Record<string, string[]> {
+  const keys = new Map<string, Set<string>>()
+  const add = (key: string, value: string): void => {
+    const bucket = keys.get(key) ?? new Set<string>()
+    bucket.add(value)
+    keys.set(key, bucket)
+  }
+
+  for (const [prefix, sets] of [
+    ['p:', element.properties],
+    ['q:', element.quantities],
+  ] as const) {
+    for (const [setName, values] of Object.entries(sets)) {
+      for (const [name, raw] of Object.entries(values)) {
+        // `#>> '{}'` in SQL renders a jsonb scalar as text; `String()` is the
+        // JS equivalent for the same scalar types, and `null` is skipped on
+        // both sides.
+        if (raw === null || raw === undefined) continue
+        const value = String(raw).toLowerCase()
+        add(`${prefix}${name.toLowerCase()}`, value)
+        add(`${prefix}${setName.toLowerCase()}.${name.toLowerCase()}`, value)
+      }
+    }
+  }
+  return Object.fromEntries([...keys].map(([key, values]) => [key, [...values]]))
+}

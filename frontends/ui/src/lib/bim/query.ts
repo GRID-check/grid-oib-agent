@@ -244,8 +244,20 @@ export interface BimQueryResult {
   elements?: BimElementListRow[]
   element?: Awaited<ReturnType<typeof findBimElement>>
   properties?: BimPropertyCatalogEntry[]
+  /**
+   * How much of the model the `properties` catalog was built from. Absent on
+   * every other op. `complete: false` means the counts in `properties` are
+   * counts over a sample and must not be reported as the model's.
+   */
+  propertyScan?: { scanned: number; total: number; complete: boolean }
   groups?: BimGroupedCount[]
   total?: number
+  /**
+   * `total` is a LOWER BOUND, not the count: past `COUNT_CEILING` matches the
+   * query stops counting rather than hold a pool slot for 16-22 s on a large
+   * model. "At least 10 000" is the honest reading.
+   */
+  totalIsLowerBound?: boolean
   truncated?: boolean
 }
 
@@ -351,7 +363,45 @@ function numericCondition(operator: SQL, value: number): SQL {
   return sql`CASE WHEN jsonb_typeof(p.prop_value) = 'number' THEN (p.prop_value)::numeric ${operator} ${value} ELSE false END`
 }
 
-function propertyPredicate(filter: BimPropertyFilter): SQL {
+/**
+ * An index-servable condition that every matching row must ALSO satisfy.
+ *
+ * This is a pre-filter, never the answer: the exact unnest predicate below
+ * still decides, so this may only ever be something the real condition
+ * IMPLIES. `missing` and `neq` are therefore excluded — both are satisfied by
+ * elements that do NOT carry the property, so requiring the key to exist would
+ * drop exactly the rows the filter is looking for.
+ *
+ * The caller decides whether the model is indexed at all
+ * (`bim_models.search_keys_indexed`); this function assumes it is. Writing the
+ * fallback into the predicate instead — `search_keys IS NULL OR …` — was
+ * measured and is a trap: `IS NULL` is not GIN-indexable, so the disjunction
+ * makes the whole condition unindexable and every query keeps the old plan.
+ *
+ * Measured on a seeded 200 000-element model, filter matching one element:
+ *
+ *   no pre-filter                6 474 ms   Index Scan + 200 000 unnests
+ *   `IS NULL OR @>`              2 934 ms   same plan, GIN untouched
+ *   `@>` alone                       4 ms   Bitmap Index Scan on the GIN
+ *
+ * `?` and `@>` are both served by the `jsonb_ops` GIN index on `search_keys`.
+ */
+function searchKeyPrefilter(filter: BimPropertyFilter): SQL | null {
+  if (filter.operator === 'missing' || filter.operator === 'neq') return null
+  const prefix = filter.source === 'quantity' ? 'q:' : 'p:'
+  const key = filter.set
+    ? `${prefix}${filter.set.toLowerCase()}.${filter.name.toLowerCase()}`
+    : `${prefix}${filter.name.toLowerCase()}`
+
+  // For an exact string match the VALUE is indexable too, which turns the
+  // candidate set from "every element carrying a FireRating" into "every
+  // element whose FireRating is this one".
+  return filter.operator === 'eq' && typeof filter.value === 'string'
+    ? sql`${bimElements.searchKeys} @> ${JSON.stringify({ [key]: [filter.value.toLowerCase()] })}::jsonb`
+    : sql`${bimElements.searchKeys} ? ${key}`
+}
+
+function propertyPredicate(filter: BimPropertyFilter, searchKeysIndexed: boolean): SQL {
   const conditions: SQL[] = [sql`lower(p.prop_name) = lower(${filter.name})`]
   if (filter.set) conditions.push(sql`lower(s.set_name) = lower(${filter.set})`)
   const value = valueCondition(filter)
@@ -361,7 +411,10 @@ function propertyPredicate(filter: BimPropertyFilter): SQL {
   // `missing` is "no property of that name anywhere on the element", which is a
   // different question from "a property whose value is not X" (`neq`): an
   // element with no FireRating at all satisfies the first and not the second.
-  return filter.operator === 'missing' ? sql`NOT EXISTS (${body})` : sql`EXISTS (${body})`
+  const exact = filter.operator === 'missing' ? sql`NOT EXISTS (${body})` : sql`EXISTS (${body})`
+
+  const prefilter = searchKeysIndexed ? searchKeyPrefilter(filter) : null
+  return prefilter ? sql`(${prefilter} AND ${exact})` : exact
 }
 
 /**
@@ -374,7 +427,10 @@ function propertyPredicate(filter: BimPropertyFilter): SQL {
  * `TypeError` deep in predicate building surfaces as a 500 on a request that
  * was perfectly answerable.
  */
-export function buildBimPredicate(filter: BimFilter | undefined): SQL | undefined {
+export function buildBimPredicate(
+  filter: BimFilter | undefined,
+  options: { searchKeysIndexed: boolean } = { searchKeysIndexed: false }
+): SQL | undefined {
   if (!filter) return undefined
   const conditions: Array<SQL | undefined> = []
 
@@ -415,7 +471,7 @@ export function buildBimPredicate(filter: BimFilter | undefined): SQL | undefine
     )
   }
   for (const property of filter.properties ?? []) {
-    conditions.push(propertyPredicate(property))
+    conditions.push(propertyPredicate(property, options.searchKeysIndexed))
   }
 
   const present = conditions.filter((condition): condition is SQL => condition !== undefined)
@@ -563,7 +619,13 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
       const total = result.total ?? 0
       const shown = result.elements?.length ?? 0
       if (total === 0) return 'Kein Bauteil erfüllt die Abfrage.'
-      return `${total} Bauteil${total === 1 ? '' : 'e'} erfüllen die Abfrage${shown < total ? `, davon ${shown} aufgelistet` : ''}.`
+      const listed = shown < total ? `, davon ${shown} aufgelistet` : ''
+      // "Mindestens", never a bare number, once the count stopped early. An
+      // agent handed "10000 Bauteile" would quote it as the figure, and the
+      // model has 400 000.
+      return result.totalIsLowerBound
+        ? `Mindestens ${total} Bauteile erfüllen die Abfrage${listed}. Die Gesamtzahl wurde nicht zu Ende gezählt.`
+        : `${total} Bauteil${total === 1 ? '' : 'e'} erfüllen die Abfrage${listed}.`
     }
     case 'element':
       return result.element
@@ -571,8 +633,15 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
         : 'Kein Bauteil mit dieser GlobalId im Modell.'
     case 'properties': {
       const properties = result.properties ?? []
-      return properties.length === 0
-        ? 'Das Modell enthält keine Property Sets.'
+      if (properties.length === 0) return 'Das Modell enthält keine Property Sets.'
+      const scan = result.propertyScan
+      // The names are the answer and they survive sampling; the counts do not.
+      // Saying so is what stops an agent quoting "12 Bauteile mit REI 90" from
+      // a scan of 200 walls out of 40 000.
+      return scan && !scan.complete
+        ? `${properties.length} Merkmale, ermittelt aus einer Stichprobe von ${scan.scanned} der ` +
+            `${scan.total} Bauteile (je Bauteiltyp). Die Merkmals- und Wertnamen sind vollständig ` +
+            `belastbar, die Anzahlen beziehen sich NUR auf die Stichprobe.`
         : `${properties.length} Merkmale im Modell.`
     }
     case 'aggregate': {
@@ -658,14 +727,23 @@ export async function runBimQuery(
       })
 
     case 'elements': {
-      const { rows, total } = await listBimElements({
+      const { rows, total, totalIsLowerBound } = await listBimElements({
         modelId: context.modelId,
         organizationId: context.organizationId,
-        where: buildBimPredicate(request.filter),
+        where: buildBimPredicate(request.filter, { searchKeysIndexed: model.searchKeysIndexed }),
         limit: request.limit,
         offset: request.offset,
       })
-      return finish({ ...modelBase, elements: rows, total, truncated: request.offset + rows.length < total })
+      return finish({
+        ...modelBase,
+        elements: rows,
+        total,
+        totalIsLowerBound,
+        // A capped count is itself proof there is more: `offset + rows < total`
+        // is false on the last page WITHIN the cap, and there are still
+        // hundreds of thousands of rows behind it.
+        truncated: totalIsLowerBound || request.offset + rows.length < total,
+      })
     }
 
     case 'element':
@@ -674,16 +752,23 @@ export async function runBimQuery(
         element: await findBimElement(context.modelId, context.organizationId, request.globalId),
       })
 
-    case 'properties':
+    case 'properties': {
+      const catalog = await listBimPropertyCatalog({
+        modelId: context.modelId,
+        organizationId: context.organizationId,
+        ifcType: request.ifcType,
+        maxValues: request.maxValues,
+      })
       return finish({
         ...modelBase,
-        properties: await listBimPropertyCatalog({
-          modelId: context.modelId,
-          organizationId: context.organizationId,
-          ifcType: request.ifcType,
-          maxValues: request.maxValues,
-        }),
+        properties: catalog.entries,
+        propertyScan: {
+          scanned: catalog.scanned,
+          total: catalog.total,
+          complete: catalog.complete,
+        },
       })
+    }
 
     case 'schedule': {
       if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
@@ -761,7 +846,7 @@ export async function runBimQuery(
       const { elements, truncated } = await loadBimElementsForSchedule(
         context.modelId,
         context.organizationId,
-        buildBimPredicate(request.filter)
+        buildBimPredicate(request.filter, { searchKeysIndexed: model.searchKeysIndexed })
       )
       return finish({
         ...modelBase,
@@ -858,7 +943,7 @@ export async function runBimQuery(
       const groups = await aggregateBimElements({
         modelId: context.modelId,
         organizationId: context.organizationId,
-        where: buildBimPredicate(request.filter),
+        where: buildBimPredicate(request.filter, { searchKeysIndexed: model.searchKeysIndexed }),
         groupExpression: groupExpression(request.groupBy, request.groupProperty),
         metricExpression: metricExpression(request),
         limit: request.limit,

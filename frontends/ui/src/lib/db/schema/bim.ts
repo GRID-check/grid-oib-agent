@@ -5,6 +5,7 @@ import {
   timestamp,
   jsonb,
   integer,
+  boolean,
   bigserial,
   index,
   unique,
@@ -56,6 +57,13 @@ export const bimModels = pgTable(
      * `lib/bim/rule-inputs.ts`. NULL until the first compliance run fills it.
      */
     ruleInputs: jsonb('rule_inputs').$type<StoredRuleInputs>(),
+    /**
+     * Whether every element of this model has `bim_elements.search_keys`
+     * written, and the GIN pre-filter may therefore be used against it — see
+     * `0038_bim_element_search_keys.sql`. False on a model an older image
+     * extracted, which is then answered by the unnest alone.
+     */
+    searchKeysIndexed: boolean('search_keys_indexed').notNull().default(false),
     errorMessage: text('error_message'),
     extractedAt: timestamp('extracted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -108,12 +116,18 @@ export const bimElements = pgTable(
     classifications: jsonb('classifications').$type<BimClassification[]>().notNull().default([]),
     properties: jsonb('properties').$type<BimPropertySets>().notNull().default({}),
     quantities: jsonb('quantities').$type<BimQuantitySets>().notNull().default({}),
+    /**
+     * Flat lowercased lookup map for the GIN pre-filter — see
+     * `0038_bim_element_search_keys.sql`. NULL means not yet indexed.
+     */
+    searchKeys: jsonb('search_keys').$type<Record<string, string[]>>(),
   },
   (table) => ({
     modelExpressIdx: uniqueIndex('bim_elements_model_express_idx').on(table.modelId, table.expressId),
     modelTypeIdx: index('bim_elements_model_type_idx').on(table.modelId, table.ifcType),
     modelStoreyIdx: index('bim_elements_model_storey_idx').on(table.modelId, table.storeyName),
     globalIdIdx: index('bim_elements_global_id_idx').on(table.modelId, table.globalId),
+    searchKeysIdx: index('bim_elements_search_keys_idx').using('gin', table.searchKeys),
   })
 )
 

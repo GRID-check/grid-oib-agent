@@ -950,6 +950,46 @@ The agent reaches the second through the `ifc_query` tool
 single-writer separation the `remember` tool uses. Models are addressed by
 project and file name; no UUID travels through a conversation.
 
+### What a large model costs, and where that cost was removed
+
+A 400 000-element model is an ordinary Austrian submission, and every number
+below was measured against a seeded one (`work_mem 4MB`, `statement_timeout
+30s` — the deployed values, on the 1 CPU / 1 GiB pod budget). The pattern in
+all four is the same: the query layer was reading the WHOLE model to answer a
+question about a small part of it.
+
+| Path | Was | Is | How |
+|---|---|---|---|
+| `compliance` (first request) | ~1.5 s, ~60 MB of JSON parsed on the event loop | ~0.3 s | `bim_models.rule_inputs` — the thirteen keys the catalogue reads, pruned at extraction time (`lib/bim/rule-inputs.ts`). 1 409 → 219 bytes per element. |
+| `compliance` (repeat) | ~1.5 s again | ~0 | A 64-entry, 1 h memo keyed by model id + Gebäudeklasse + Hauptnutzung (`lib/bim/compliance-cache.ts`). A `ready` model is immutable, so the key is the whole input. |
+| a filtered element page | 6 474 ms | **4 ms** | `bim_elements.search_keys` + its GIN index, AND-ed in as a pre-filter (0038). |
+| its `count(*)` | 4 719 ms | **2 ms** | The same pre-filter, plus counting through a subquery capped at `COUNT_CEILING` so the total becomes an honest lower bound instead of a full scan. |
+| `properties` | past the 30 s timeout → **HTTP 500** | ~0.6 s | A scan bounded at ~5 000 elements, stratified by IFC type, reported as a sample. |
+
+Two of those carry a correctness obligation, and the obligation is what most of
+the code is:
+
+- **The pre-filter is a necessary condition, never the answer.** The exact
+  `jsonb_each` predicate still decides, so a `search_keys` map carrying a key it
+  should not costs a wasted heap fetch. The other direction — a key MISSING
+  where the property exists — would delete matching elements from the answer,
+  so it is prevented structurally: `bim_models.search_keys_indexed` gates the
+  pre-filter per model and defaults to false, and the integration suite pins
+  the TypeScript writer against the migration's SQL backfill on a live Postgres.
+  Writing the fallback into the predicate instead (`search_keys IS NULL OR …`)
+  is the trap that looks safest and is worst: `IS NULL` is not GIN-indexable, so
+  the disjunction disables the index entirely and every query keeps the old plan
+  (2 934 ms rather than 4 ms, measured).
+- **A bounded answer says it is bounded.** A capped count reports `total` as a
+  lower bound with `totalIsLowerBound`, and the rendered German reads
+  "Mindestens 10000 Bauteile" — never a bare figure an agent would quote. A
+  sampled property catalog reports `propertyScan { scanned, total, complete }`
+  and its summary states that the NAMES are authoritative while the COUNTS are
+  the sample's. The sample is stratified by IFC type rather than taken off the
+  top precisely because property vocabulary is a function of type: a flat
+  `LIMIT` returns rows in index order and would report the first types'
+  vocabulary as though it were the building's.
+
 ### Validation qualifies the answer
 
 `lib/bim/validate.ts` runs five stages over the extraction (schema, identity,

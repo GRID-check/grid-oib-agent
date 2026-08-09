@@ -104,22 +104,27 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
 
     const load = async () => {
       const collected: BimViewerElement[] = []
+      const PAGE = 200
       let offset = 0
       // Bounded so a pathological model cannot spin forever: 200 pages × 200
       // rows is the extraction cap, past which there is nothing more to fetch.
       for (let page = 0; page < 1000; page += 1) {
-        const body = await getJson<{ elements: BimViewerElement[]; total: number }>(
+        const body = await getJson<{ elements: BimViewerElement[] }>(
           `/api/bim/models/${modelId}/query`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ op: 'elements', filter: {}, limit: 200, offset }),
+            body: JSON.stringify({ op: 'elements', filter: {}, limit: PAGE, offset }),
           }
         )
         if (cancelled) return
         collected.push(...body.elements)
         offset += body.elements.length
-        if (body.elements.length === 0 || collected.length >= body.total) break
+        // A SHORT page is the end, not `collected.length >= body.total`: the
+        // total stops counting at `COUNT_CEILING` and reports a lower bound
+        // past it, so keying on it would silently load 10 000 elements of a
+        // 200 000-element model into the viewer and call it the building.
+        if (body.elements.length < PAGE) break
       }
       if (!cancelled) setState({ data: collected, isLoading: false, error: null })
     }
