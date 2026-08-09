@@ -234,6 +234,20 @@ describe('oib2-feuerwiderstand-tragend', () => {
     expect(rule.unknowns[0].reading).toContain('manuell')
   })
 
+  it('refuses to pick a side of a combined declaration', () => {
+    // `R 30 / EI 90` carries two performances for two situations, and taking
+    // whichever number comes first reports the wall as failing REI 60 when it
+    // may be fine — or the reverse.
+    for (const combined of ['R 30 / EI 90', 'REI 90/EI 30', 'R 30 und EI 90']) {
+      const rule = ruleOf(
+        runBimRules([wall(combined)], { gebaeudeklasse: 3 }),
+        'oib2-feuerwiderstand-tragend'
+      )
+      expect(rule.undecidable, combined).toBe(1)
+      expect(rule.failed, combined).toBe(0)
+    }
+  })
+
   it('still fails a genuine European shortfall rather than hiding behind unreadable', () => {
     // The escape hatch must not swallow real failures: REI 30 against REI 90 is
     // comparable and short.
@@ -249,6 +263,36 @@ describe('oib2-feuerwiderstand-tragend', () => {
     )
     expect(rule.undecidable).toBe(1)
     expect(rule.failed).toBe(0)
+  })
+})
+
+describe('reading a number out of a string a CAD wrote', () => {
+  const wall = (uValue: string | number) =>
+    element({
+      ifcType: 'IfcWall',
+      name: 'AW',
+      properties: { Pset_WallCommon: { IsExternal: true, ThermalTransmittance: uValue } },
+    })
+
+  it('does not concatenate digits that were never part of the value', () => {
+    // The regression: stripping non-numerics turns `0,35 W/m2K` into 0.352,
+    // which fails a ≤ 0,35 check. A compliant wall reported as non-compliant
+    // because the exporter spelled the unit with an ASCII 2.
+    for (const written of ['0,35 W/m2K', '0.35 W/m²K', '0,35', 0.35, '0.35 W/(m2.K)']) {
+      const rule = ruleOf(runBimRules([wall(written)]), 'oib6-u-wert-aussenwand')
+      expect(rule.passed, `written as ${JSON.stringify(written)}`).toBe(1)
+    }
+  })
+
+  it('still fails a genuinely high U-value written the same way', () => {
+    expect(ruleOf(runBimRules([wall('0,45 W/m2K')]), 'oib6-u-wert-aussenwand').failed).toBe(1)
+  })
+
+  it('refuses a string that does not start with a number', () => {
+    // `Klasse 2 gemäß ÖNORM` must not be mined for a `2`.
+    const rule = ruleOf(runBimRules([wall('Klasse 2 gemäß ÖNORM')]), 'oib6-u-wert-aussenwand')
+    expect(rule.undecidable).toBe(1)
+    expect(rule.passed + rule.failed).toBe(0)
   })
 })
 
@@ -298,6 +342,27 @@ describe('oib3-raumhoehe', () => {
 
   it('fails a low Aufenthaltsraum', () => {
     const rule = ruleOf(runBimRules([space('Wohnen', 2.3)]), 'oib3-raumhoehe')
+    expect(rule.failed).toBe(1)
+  })
+
+  it('leaves ENGLISH circulation and service rooms out of scope too', () => {
+    // Half the Austrian offices running Revit have an English CAD template.
+    // A German-only marker list holds `Corridor` to 2,50 m and reports failures
+    // nobody has to fix.
+    const rule = ruleOf(
+      runBimRules([
+        space('Corridor', 2.2),
+        space('Plant Room', 2.1),
+        space('Storage 03', 2.0),
+        space('Stair Core', 2.2),
+      ]),
+      'oib3-raumhoehe'
+    )
+    expect(rule.passed + rule.failed + rule.undecidable).toBe(0)
+  })
+
+  it('still checks an English-named living space', () => {
+    const rule = ruleOf(runBimRules([space('Living Room', 2.3)]), 'oib3-raumhoehe')
     expect(rule.failed).toBe(1)
   })
 

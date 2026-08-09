@@ -138,15 +138,30 @@ function property(
   return null
 }
 
-/** A numeric property, tolerating the string a CAD sometimes writes. */
+/**
+ * A numeric property, tolerating the string a CAD sometimes writes.
+ *
+ * Reads the LEADING number and stops. The obvious implementation — strip every
+ * non-numeric character and parse what is left — silently concatenates digits
+ * that were never part of the value: `0,35 W/m2K` becomes `0.352`, which fails
+ * a `≤ 0,35` check and reports a compliant wall as non-compliant. (The pretty
+ * `m²` escapes because U+00B2 is not an ASCII digit; the plain `m2` a CAD
+ * writes just as often does not.) A checker whose answer depends on how the
+ * exporter spelled a unit is not a checker.
+ *
+ * Anything that does not START with a number is refused rather than mined for
+ * digits, so `Klasse 2 gemäß ÖNORM` yields nothing instead of `2`.
+ */
+const LEADING_NUMBER = /^[+-]?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?/
+
 function numericProperty(element: BimElement, keys: readonly string[]): number | null {
   const raw = property(element, keys)
   if (typeof raw === 'number' && Number.isFinite(raw)) return raw
-  if (typeof raw === 'string') {
-    const parsed = Number(raw.replace(',', '.').replace(/[^0-9.eE+-]/g, ''))
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return null
+  if (typeof raw !== 'string') return null
+  const match = LEADING_NUMBER.exec(raw.trim())
+  if (!match) return null
+  const parsed = Number(match[0].replace(',', '.'))
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 /**
@@ -224,6 +239,12 @@ const EURO_CRITERIA = new Set(['R', 'E', 'I', 'M', 'W', 'S', 'C'])
  * verdict is withheld, and the person decides.
  */
 function compareFireRating(declared: string, required: string): 'meets' | 'short' | 'unreadable' {
+  // A combined declaration — `REI 90/EI 30`, `R 30 / EI 90` — carries two
+  // performances for two situations, and `fireResistanceMinutes` would take
+  // whichever number came first. Picking one at random is how a checker reports
+  // `R 30 / EI 90` as failing REI 90 while the wall is fine, or the reverse.
+  if (/[/|]|\bund\b|\band\b/i.test(declared)) return 'unreadable'
+
   const declaredMinutes = fireResistanceMinutes(declared)
   const requiredMinutes = fireResistanceMinutes(required)
   if (declaredMinutes === null || requiredMinutes === null) return 'unreadable'
@@ -283,16 +304,62 @@ const isLoadBearing = (element: BimElement): boolean =>
 
 const isExternal = (element: BimElement): boolean => property(element, ['IsExternal']) === true
 
-/** An Aufenthaltsraum, as far as the model lets us tell. */
+/**
+ * Room names that mark circulation or service space rather than an
+ * Aufenthaltsraum.
+ *
+ * German AND English, because the room names in an IFC follow whoever set up
+ * the CAD template and half the Austrian offices running Revit have an English
+ * one. A German-only list holds `Corridor` and `Technical Room` to the 2,50 m
+ * clear height and reports failures nobody has to fix — the same false-alarm
+ * class as scoring `F 90` against `REI 90`, and just as effective at making a
+ * checker unreadable.
+ *
+ * Substrings, because names are free text (`TR 01 Stiegenhaus`, `Plant Room`).
+ */
+const NON_OCCUPIED_MARKERS = [
+  // German
+  'flur',
+  'gang',
+  'stiege',
+  'treppe',
+  'technik',
+  'schacht',
+  'abstell',
+  'lager',
+  'garage',
+  'wc',
+  'bad',
+  'vorraum',
+  'keller',
+  // English
+  'corridor',
+  'hallway',
+  'stair',
+  'shaft',
+  'plant',
+  'technical',
+  'storage',
+  'store',
+  'toilet',
+  'bathroom',
+  'utility',
+  'lobby',
+  'circulation',
+]
+
+/**
+ * An Aufenthaltsraum, as far as the model lets us tell.
+ *
+ * `PredefinedType` is believed when the model publishes a meaningful one; the
+ * name markers are the fallback for the overwhelming majority of exports that
+ * leave it `INTERNAL` or unset.
+ */
 const isOccupiedSpace = (element: BimElement): boolean => {
   const predefined = (element.predefinedType ?? '').toUpperCase()
   if (predefined && predefined !== 'INTERNAL' && predefined !== 'USERDEFINED') return false
   const name = (element.name ?? '').toLowerCase()
-  // Circulation and service rooms are not Aufenthaltsräume, and holding them to
-  // the 2.50 m clear height would produce failures nobody has to fix.
-  return !['flur', 'gang', 'stiege', 'treppe', 'technik', 'schacht', 'abstell', 'wc', 'bad'].some(
-    (marker) => name.includes(marker)
-  )
+  return !NON_OCCUPIED_MARKERS.some((marker) => name.includes(marker))
 }
 
 export const BIM_RULES: RuleDefinition[] = [
