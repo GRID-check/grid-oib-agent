@@ -170,6 +170,10 @@ export const bim = {
       noteLabel: 'Why this is settled',
       notePlaceholder: 'e.g. checked against the plan, agreed with the fire-safety consultant …',
     },
+      card: {
+        unresolved: '{count} of the requested rule ids are not in the catalogue.',
+        none: 'None of the requested requirements are in the catalogue.',
+      },
     shoppingList: {
       title: 'What the model is missing',
       description:

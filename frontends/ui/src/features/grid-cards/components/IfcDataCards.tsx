@@ -17,12 +17,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Boxes, Download, GitCompare, Table2 } from 'lucide-react'
+import { ArrowRight, Boxes, Download, GitCompare, ShieldCheck, Table2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import type { BimComparison } from '@/lib/bim/compare'
+import type { BimRuleResult } from '@/lib/bim/rules'
 import type { BimRoomSchedule } from '@/lib/bim/schedule'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import { shortIfcType } from '@/features/bim/lib/model-index'
@@ -387,6 +388,120 @@ export function IfcElementCard({
             </dl>
           ))}
           {note && <p className="text-muted-foreground">{note}</p>}
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Prüfbuch
+// ---------------------------------------------------------------------------
+
+const pickCompliance = (payload: Record<string, unknown>) =>
+  payload.compliance as BimRuleResult[] | undefined
+
+export interface IfcComplianceCardProps {
+  title: string
+  modelFile: string | null
+  ruleIds: string[]
+  note: string | null
+  projectId: string | null
+}
+
+/**
+ * The requirement verdicts, as a card.
+ *
+ * Carries rule IDS and nothing else — the counts, thresholds and readings are
+ * fetched, so an answer cannot state that a requirement is met. `rule_ids` that
+ * do not resolve are REPORTED rather than dropped: silently narrowing the list
+ * would turn a hallucinated id into a shorter, cleaner-looking Prüfbuch, which
+ * is the one direction this card must never fail in.
+ */
+export function IfcComplianceCard({
+  title,
+  modelFile,
+  ruleIds,
+  note,
+  projectId,
+}: IfcComplianceCardProps): JSX.Element {
+  const t = useTranslations('bim')
+  const { model } = useResolvedModel(projectId, modelFile)
+  const { data: rules, isLoading, error } = useModelQuery(
+    model?.id ?? null,
+    { op: 'compliance' },
+    pickCompliance
+  )
+
+  const selected = useMemo(() => {
+    if (!rules) return null
+    if (ruleIds.length === 0) return rules
+    const wanted = new Set(ruleIds)
+    return rules.filter((rule) => wanted.has(rule.ruleId))
+  }, [rules, ruleIds])
+
+  const unresolved = useMemo(() => {
+    if (!rules || ruleIds.length === 0) return 0
+    const known = new Set(rules.map((rule) => rule.ruleId))
+    return ruleIds.filter((id) => !known.has(id)).length
+  }, [rules, ruleIds])
+
+  return (
+    <CardShell
+      title={title}
+      icon={ShieldCheck}
+      action={
+        model && projectId ? (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={buildModelHref(projectId, { model: model.filename, tab: 'compliance' })}>
+              {t('card.openModel')}
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </Button>
+        ) : null
+      }
+    >
+      {!model ? (
+        <NoModel />
+      ) : isLoading ? (
+        <Spinner className="size-4" />
+      ) : error ? (
+        <p className="text-sm text-destructive">{t('compliance.failed')}</p>
+      ) : (
+        <div className="space-y-2">
+          {unresolved > 0 && (
+            <p className="text-xs text-warning">
+              {t('compliance.card.unresolved', { count: unresolved })}
+            </p>
+          )}
+          {selected?.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('compliance.card.none')}</p>
+          ) : (
+            <ul className="space-y-1.5 text-sm">
+              {(selected ?? []).map((rule) => (
+                <li key={rule.ruleId} className="space-y-0.5">
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{rule.titleDe}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {rule.richtlinie}, Punkt {rule.clause}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {rule.applicable
+                      ? t('compliance.counts', {
+                          passed: rule.passed,
+                          failed: rule.failed,
+                          undecidable: rule.undecidable,
+                        })
+                      : `${t('compliance.notApplicable')}: ${rule.notApplicableReason ?? ''}`}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {note && <p className="text-xs text-muted-foreground">{note}</p>}
+          {/* Non-negotiable on a surface that leaves the page in a screenshot. */}
+          <p className="text-xs text-muted-foreground">{t('compliance.disclaimer')}</p>
         </div>
       )}
     </CardShell>

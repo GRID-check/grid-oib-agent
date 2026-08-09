@@ -26,6 +26,7 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `IfcScheduleCard` | The Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
 | `IfcElementCard` | One element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
 | `IfcDiffCard` | What changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
+| `IfcComplianceCard` | The Prüfbuch: OIB requirements with their verdict | `title`, `model_file`, `rule_ids[]`, `note` |
 
 `validate_cards()` validates against the union and drops null fields.
 
@@ -39,7 +40,15 @@ partly wrong answer into a confidently wrong picture. The model is named by FILE
 NAME (the string `ifc_query` reports), never by id, so a hallucinated UUID is
 not a failure mode it has.
 
-The three data cards go one step further: their payload is a file name, a
+`IfcComplianceCard` carries rule IDS and no verdicts, so an answer cannot state
+that a requirement is met; the component runs the catalogue when it renders. Ids
+that do not resolve are REPORTED rather than dropped — silently narrowing the
+list would turn a hallucinated id into a shorter, cleaner-looking Prüfbuch,
+which is the one direction that card must not fail in. It also carries the
+orientation caveat inline, because a card leaves the page in a screenshot and
+the caveat has to travel with it.
+
+The four data cards go one step further: their payload is a file name, a
 GlobalId or a pair of revisions **and nothing else**, and the component fetches
 the figures from the model when it renders
 (`features/grid-cards/components/IfcDataCards.tsx`). The agent therefore cannot
@@ -51,7 +60,7 @@ was summarised then.
 
 Every row that names an element links into the model page at that element
 (`buildModelHref`), so a card is a way *into* the building rather than a
-screenshot of it. All four are `presentational` in `CARD_INTERACTIVITY`: sorting
+screenshot of it. All five are `presentational` in `CARD_INTERACTIVITY`: sorting
 a schedule, downloading its CSV or orbiting the viewport starts no commitment,
 so there is nothing to persist on the message.
 

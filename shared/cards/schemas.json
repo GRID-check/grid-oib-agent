@@ -1364,6 +1364,63 @@
       "title": "GuardrailCheckCard",
       "type": "object"
     },
+    "IfcComplianceCard": {
+      "description": "The Pr\u00fcfbuch: OIB requirements with their verdict against this model.\n\nCarries only WHICH requirements to show; the frontend runs the catalogue and\nrenders the counts, the thresholds and the failing elements itself. The\nmodel therefore cannot state that a building complies, because it never\nsupplies a verdict \u2014 the same reason the schedule card carries no areas.\n\nUse when the user asks whether the model meets a requirement, what is still\nopen, or what they have to add to the model. Prefer it over prose whenever\nthe answer is a list of requirements: the card stays correct after the model\nchanges, and a sentence does not.\n\nNEVER present this as a Nachweis. The catalogue reads only published\nproperty values, it reads no geometry, and Fluchtwegl\u00e4ngen, Gel\u00e4nderh\u00f6hen\nund Brandabschnittsgr\u00f6\u00dfen are not in it at all.",
+      "properties": {
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name of the model as ifc_query reported it. Empty when the project has one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification",
+          "title": "Note"
+        },
+        "rule_ids": {
+          "description": "Rule ids from ifc_query operation='compliance' (e.g. 'oib2-feuerwiderstand-tragend') to narrow the card to the requirements this answer is about. Empty shows all. Use ONLY ids the tool reported; the card says so when one does not resolve.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Rule Ids",
+          "type": "array"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Anforderungen Brandschutz'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_compliance",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcComplianceCard",
+      "type": "object"
+    },
     "IfcDiffCard": {
       "description": "What changed between two revisions of the model.\n\nNames the two files; the frontend computes the comparison by IFC GlobalId.\nUse for \"what changed since the last submission\" \u2014 the question a pair of\nplan PDFs cannot answer.",
       "properties": {
@@ -2525,6 +2582,7 @@
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
       "fire_compartment": "#/$defs/FireCompartmentCard",
       "guardrail_check": "#/$defs/GuardrailCheckCard",
+      "ifc_compliance": "#/$defs/IfcComplianceCard",
       "ifc_diff": "#/$defs/IfcDiffCard",
       "ifc_element": "#/$defs/IfcElementCard",
       "ifc_schedule": "#/$defs/IfcScheduleCard",
@@ -2610,6 +2668,9 @@
     },
     {
       "$ref": "#/$defs/IfcViewerCard"
+    },
+    {
+      "$ref": "#/$defs/IfcComplianceCard"
     },
     {
       "$ref": "#/$defs/IfcScheduleCard"

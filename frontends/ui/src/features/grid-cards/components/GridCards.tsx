@@ -24,7 +24,12 @@ import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
 import { IfcViewerCard } from './IfcViewerCard'
-import { IfcDiffCard, IfcElementCard, IfcScheduleCard } from './IfcDataCards'
+import {
+  IfcComplianceCard,
+  IfcDiffCard,
+  IfcElementCard,
+  IfcScheduleCard,
+} from './IfcDataCards'
 import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-documents'
 import { FadeIn } from '@/components/motion'
 
@@ -426,6 +431,20 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId }) =
                 title={card.title}
                 baseModelFile={card.base_model_file}
                 modelFile={card.model_file ?? null}
+                note={card.note ?? null}
+                projectId={projectId ?? null}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_compliance') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcComplianceCard
+                title={card.title}
+                modelFile={card.model_file ?? null}
+                ruleIds={card.rule_ids ?? []}
                 note={card.note ?? null}
                 projectId={projectId ?? null}
               />

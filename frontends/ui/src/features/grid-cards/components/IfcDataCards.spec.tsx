@@ -12,7 +12,12 @@
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
-import { IfcDiffCard, IfcElementCard, IfcScheduleCard } from './IfcDataCards'
+import {
+  IfcComplianceCard,
+  IfcDiffCard,
+  IfcElementCard,
+  IfcScheduleCard,
+} from './IfcDataCards'
 
 const MODELS = {
   models: [
@@ -284,5 +289,124 @@ describe('IfcDiffCard', () => {
     )
     await waitFor(() => expect(screen.getByText(/not available in this project/)).toBeInTheDocument())
     expect(queriedOps(fetchMock)).toEqual([])
+  })
+})
+
+
+const COMPLIANCE = {
+  compliance: [
+    {
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      richtlinie: 'OIB 2',
+      clause: '3',
+      titleDe: 'Tragende Bauteile — Feuerwiderstand',
+      thresholdDe: 'Feuerwiderstand nach Gebäudeklasse',
+      applicable: true,
+      passed: 0,
+      failed: 0,
+      undecidable: 34,
+      failures: [],
+      unknowns: [],
+      truncated: false,
+      missing: [{ path: 'Pset_WallCommon.FireRating', elements: 34 }],
+    },
+    {
+      ruleId: 'oib3-raumhoehe',
+      richtlinie: 'OIB 3',
+      clause: '2',
+      titleDe: 'Aufenthaltsräume — lichte Raumhöhe',
+      thresholdDe: 'lichte Raumhöhe ≥ 2,50 m',
+      applicable: true,
+      passed: 9,
+      failed: 0,
+      undecidable: 0,
+      failures: [],
+      unknowns: [],
+      truncated: false,
+      missing: [],
+    },
+  ],
+}
+
+describe('IfcComplianceCard', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('runs the catalogue itself rather than trusting the card', async () => {
+    const fetchMock = stubFetch({ models: MODELS, query: COMPLIANCE })
+    render(
+      <IfcComplianceCard
+        title="Offene Anforderungen"
+        modelFile="haus-a_v2.ifc"
+        ruleIds={[]}
+        note={null}
+        projectId="p1"
+      />
+    )
+    expect(await screen.findByText('Tragende Bauteile — Feuerwiderstand')).toBeInTheDocument()
+    expect(screen.getByText(/0 met · 0 not met · 34 not decidable/)).toBeInTheDocument()
+    await waitFor(() => expect(queriedOps(fetchMock)).toEqual(['compliance']))
+  })
+
+  it('narrows to the requirements the answer is about', async () => {
+    stubFetch({ models: MODELS, query: COMPLIANCE })
+    render(
+      <IfcComplianceCard
+        title="Brandschutz"
+        modelFile="haus-a_v2.ifc"
+        ruleIds={['oib2-feuerwiderstand-tragend']}
+        note={null}
+        projectId="p1"
+      />
+    )
+    expect(await screen.findByText('Tragende Bauteile — Feuerwiderstand')).toBeInTheDocument()
+    expect(screen.queryByText('Aufenthaltsräume — lichte Raumhöhe')).not.toBeInTheDocument()
+  })
+
+  it('reports a rule id that does not resolve instead of quietly dropping it', async () => {
+    // Silently narrowing would turn a hallucinated id into a shorter,
+    // cleaner-looking Prüfbuch — the one direction this card must not fail in.
+    stubFetch({ models: MODELS, query: COMPLIANCE })
+    render(
+      <IfcComplianceCard
+        title="Brandschutz"
+        modelFile="haus-a_v2.ifc"
+        ruleIds={['oib2-feuerwiderstand-tragend', 'oib9-erfunden']}
+        note={null}
+        projectId="p1"
+      />
+    )
+    expect(
+      await screen.findByText('1 of the requested rule ids are not in the catalogue.')
+    ).toBeInTheDocument()
+  })
+
+  it('always carries the orientation disclaimer', async () => {
+    stubFetch({ models: MODELS, query: COMPLIANCE })
+    render(
+      <IfcComplianceCard
+        title="Anforderungen"
+        modelFile="haus-a_v2.ifc"
+        ruleIds={[]}
+        note={null}
+        projectId="p1"
+      />
+    )
+    // The card leaves the page in a screenshot; the caveat has to travel with it.
+    expect(await screen.findByText(/no legal advice and no Nachweis/)).toBeInTheDocument()
+  })
+
+  it('opens the model on the Prüfbuch tab', async () => {
+    stubFetch({ models: MODELS, query: COMPLIANCE })
+    render(
+      <IfcComplianceCard
+        title="Anforderungen"
+        modelFile="haus-a_v2.ifc"
+        ruleIds={[]}
+        note={null}
+        projectId="p1"
+      />
+    )
+    const open = await screen.findByRole('link', { name: /Open model/ })
+    expect(open.getAttribute('href')).toContain('tab=compliance')
   })
 })

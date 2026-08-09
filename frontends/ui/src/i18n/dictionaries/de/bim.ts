@@ -172,6 +172,10 @@ export const bim: typeof en.bim = {
       noteLabel: 'Warum das geklärt ist',
       notePlaceholder: 'z. B. anhand des Plans geprüft, mit dem Brandschutzplaner abgestimmt …',
     },
+      card: {
+        unresolved: '{count} der angeforderten Regel-IDs sind nicht im Katalog.',
+        none: 'Keine der angeforderten Anforderungen ist im Katalog.',
+      },
     shoppingList: {
       title: 'Was dem Modell fehlt',
       description:

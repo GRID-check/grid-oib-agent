@@ -710,6 +710,42 @@ class IfcScheduleCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification")
 
 
+class IfcComplianceCard(BaseModel):
+    """The Prüfbuch: OIB requirements with their verdict against this model.
+
+    Carries only WHICH requirements to show; the frontend runs the catalogue and
+    renders the counts, the thresholds and the failing elements itself. The
+    model therefore cannot state that a building complies, because it never
+    supplies a verdict — the same reason the schedule card carries no areas.
+
+    Use when the user asks whether the model meets a requirement, what is still
+    open, or what they have to add to the model. Prefer it over prose whenever
+    the answer is a list of requirements: the card stays correct after the model
+    changes, and a sentence does not.
+
+    NEVER present this as a Nachweis. The catalogue reads only published
+    property values, it reads no geometry, and Fluchtweglängen, Geländerhöhen
+    und Brandabschnittsgrößen are not in it at all.
+    """
+
+    type: Literal["ifc_compliance"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Anforderungen Brandschutz'")
+    model_file: str | None = Field(
+        default=None,
+        description="File name of the model as ifc_query reported it. Empty when the project has one model.",
+    )
+    rule_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Rule ids from ifc_query operation='compliance' (e.g. 'oib2-feuerwiderstand-tragend') "
+            "to narrow the card to the requirements this answer is about. Empty shows all. "
+            "Use ONLY ids the tool reported; the card says so when one does not resolve."
+        ),
+    )
+    note: str | None = Field(default=None, description="Optional one-line clarification")
+
+
 class IfcElementCard(BaseModel):
     """One element of the model, in full, with a link into the 3D view.
 
@@ -771,6 +807,7 @@ GridCard = (
     | MemoryProposalCard
     | DocumentGridCard
     | IfcViewerCard
+    | IfcComplianceCard
     | IfcScheduleCard
     | IfcElementCard
     | IfcDiffCard
@@ -787,6 +824,7 @@ __all__ = [
     "GridCard",
     "IfcHighlight",
     "IfcViewerCard",
+    "IfcComplianceCard",
     "IfcScheduleCard",
     "IfcElementCard",
     "IfcDiffCard",

@@ -54,6 +54,16 @@ CARD_EXAMPLES: dict[str, dict] = {
     # the same turn, and an invented GlobalId highlights nothing. Worth an
     # example so the model sees that `global_ids` is a list of opaque strings it
     # copies, not a value it composes.
+    "ifc_compliance": {
+        "type": "ifc_compliance",
+        "title": "Offene Anforderungen — Brandschutz",
+        "model_file": "haus-a.ifc",
+        # Ids exactly as ifc_query operation='compliance' reported them. The
+        # card reports any that do not resolve rather than dropping them, so an
+        # invented id is visible instead of silently narrowing the list.
+        "rule_ids": ["oib2-feuerwiderstand-tragend"],
+        "note": "Orientierende Prüfung, kein Nachweis.",
+    },
     "ifc_viewer": {
         "type": "ifc_viewer",
         "title": "Brandabschnitte – Erdgeschoss",
