@@ -1624,7 +1624,7 @@ CNPG cluster, and one `langfuse` bucket on SeaweedFS reached by a dedicated
 Langfuse reuses **the same Connect application** as the Aspire dashboard (§9) —
 do not create a second one. Add **both** of these redirect URIs to it:
 
-```
+```text
 https://langfuse.<baseDomain>/oauth2/callback          # Envoy's OIDC callback
 https://langfuse.<baseDomain>/api/auth/callback/custom # Langfuse's own SSO (NextAuth)
 ```

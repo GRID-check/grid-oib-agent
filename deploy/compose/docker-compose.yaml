@@ -245,12 +245,28 @@ services:
     # this service is not part of the opt-in profile, and an empty bucket costs
     # nothing, while a missing one would make `--profile langfuse` fail on its
     # first ingested event rather than at startup.
+    #
+    # `|| true` used to swallow the exit code, which was survivable while
+    # nothing depended on this Job. It is not now: `langfuse-web` waits on
+    # `service_completed_successfully`, so a masked failure means the profile
+    # starts against a bucket that does not exist and fails on its first
+    # ingested event instead of at boot.
+    #
+    # `s3.bucket.create` errors on an existing bucket, so the exit code alone
+    # cannot distinguish "already there" from "master unreachable". The
+    # authoritative check is therefore the STATE, not the command: create both,
+    # then assert both are listed. That is idempotent AND fails loudly for a
+    # down master, a bad credential, or a renamed flag.
     image: chrislusf/seaweedfs:3.80
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
         printf 's3.bucket.create -name grid-documents\ns3.bucket.create -name langfuse\n'
-        | weed shell -master=seaweedfs:9333 || true
+        | weed shell -master=seaweedfs:9333 || true;
+        buckets=$$(echo 's3.bucket.list' | weed shell -master=seaweedfs:9333) || exit 1;
+        for b in grid-documents langfuse; do
+        echo "$$buckets" | grep -q "$$b" || { echo "bucket $$b missing after init"; exit 1; }; done;
+        echo 'buckets present: grid-documents langfuse'
     depends_on:
       seaweedfs:
         condition: service_healthy

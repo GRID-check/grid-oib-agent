@@ -144,7 +144,11 @@ export function assertStartupFitsRollout(
   imagePullSlackSeconds = 120,
 ): void {
   const needed = probeBudgetSeconds + profile.minReadySeconds + imagePullSlackSeconds;
-  if (needed > profile.progressDeadlineSeconds) {
+  // `>=`, not `>`: `progressDeadlineSeconds` is documented as having to EXCEED
+  // this budget, so a deadline that merely equals it does not satisfy the
+  // contract — it leaves exactly zero slack, and the defect this guard was
+  // written for was an exact-equality case.
+  if (needed >= profile.progressDeadlineSeconds) {
     throw new Error(
       `Invalid ${workload} rollout budget: startupProbe (${probeBudgetSeconds}s) + ` +
         `minReadySeconds (${profile.minReadySeconds}s) + image-pull slack ` +
@@ -255,7 +259,14 @@ export const ROLLOUT = {
     minReadySeconds: 10,
     progressDeadlineSeconds: 1200,
     terminationGracePeriodSeconds: 30,
-    endpointDrainSeconds: 0,
+    // The WEB tier sits behind a Service and the Gateway, so it needs the
+    // endpoint-propagation wait this field exists for — `0` is documented as
+    // being for workloads behind no Service, and the UI plus the OTLP receiver
+    // are both routed. The worker is genuinely behind no Service, and it simply
+    // does not ask `gracefulShutdown` for the hook (which is only emitted when
+    // a runtime is passed), so the two share one profile without the worker
+    // paying a drain it has no use for.
+    endpointDrainSeconds: 10,
   },
 } as const satisfies Record<string, RolloutProfile>;
 

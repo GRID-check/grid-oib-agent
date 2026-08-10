@@ -11,7 +11,6 @@ import {
   secretChecksum,
   secretChecksumAnnotations,
   startupBudgetSeconds,
-  surgeRollout,
 } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
 import { platformOidcSecurityPolicySpec } from "./platform-oidc";
@@ -349,6 +348,10 @@ export function installLangfuse(
   };
 
   // ── web ────────────────────────────────────────────────────────────────────
+  // The web tier is the routed one, so it is the one that gets the preStop
+  // endpoint drain. The worker calls `gracefulShutdown` without a runtime and
+  // therefore gets no hook — correct, it sits behind no Service.
+  const webShutdown = gracefulShutdown(ROLLOUT.langfuse, "node");
   const webLabels = commonLabels(LANGFUSE.web);
   const web = new k8s.apps.v1.Deployment(
     LANGFUSE.web,
@@ -358,12 +361,24 @@ export function installLangfuse(
         // Single replica. Not a scaling statement — a migration one: this
         // container runs the Postgres and ClickHouse migrations at startup
         // (see `LANGFUSE_AUTO_*_MIGRATION_DISABLED` on the worker), and two
-        // replicas starting together would run them concurrently. Langfuse
-        // takes an advisory lock, so the second would wait rather than
-        // corrupt — but a rollout that blocks on a lock is a worse first
-        // failure than one that cannot happen.
+        // replicas starting together would run them concurrently.
         replicas: 1,
-        ...surgeRollout(ROLLOUT.langfuse),
+        // Recreate, and `replicas: 1` alone does not achieve it — a surge
+        // starts the replacement BEFORE the old pod exits, which is precisely
+        // the overlap the single replica exists to prevent. The two settings
+        // contradicted each other here until a review caught it.
+        //
+        // The overlap is worse than the double-migrator it obviously causes.
+        // On a version bump that carries schema changes, a surging deploy
+        // leaves the OLD code serving traffic while the NEW pod migrates the
+        // schema underneath it — old queries against a new schema, for however
+        // long the roll takes. A short gap is the cheaper failure, and this is
+        // an operator dashboard, not a request path.
+        //
+        // The cost is real and accepted: the Langfuse UI is unavailable for the
+        // length of a restart on every deploy, and the OTLP receiver with it —
+        // the collector's bounded sending queue (2000 batches) covers that.
+        ...recreateRollout(ROLLOUT.langfuse),
         selector: { matchLabels: webLabels },
         template: {
           metadata: {
@@ -377,14 +392,22 @@ export function installLangfuse(
             enableServiceLinks: false,
             automountServiceAccountToken: false,
             securityContext: podSecurity,
-            terminationGracePeriodSeconds:
-              gracefulShutdown(ROLLOUT.langfuse).terminationGracePeriodSeconds,
+            // The FULL shutdown budget, not just the grace period. Taking only
+            // `terminationGracePeriodSeconds` (as this did) silently discards
+            // the `lifecycle.preStop` hook, so the pod behind the Gateway had
+            // no endpoint-propagation wait at all — the classic "a few 502s on
+            // every deploy", which `endpointDrainSeconds` exists to remove.
+            terminationGracePeriodSeconds: webShutdown.terminationGracePeriodSeconds,
             containers: [
               {
                 name: "langfuse-web",
                 image: lf.webImage,
                 imagePullPolicy: pullPolicyFor(lf.webImage),
                 securityContext: hardened,
+                // `"node"` because the runtime image is node:24-alpine — the
+                // hook is a `node -e setTimeout(...)`, and it has to be a
+                // binary the image actually ships.
+                ...(webShutdown.lifecycle ? { lifecycle: webShutdown.lifecycle } : {}),
                 ports: [{ containerPort: PORT.langfuseWeb, name: "http" }],
                 env: [
                   ...sharedEnv,

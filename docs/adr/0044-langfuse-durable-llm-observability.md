@@ -64,7 +64,7 @@ those has a consequence recorded below rather than papered over.
 
 ### Shape
 
-```
+```text
 producers ──OTLP──> otel-collector ──┬──> aspire-dashboard   (live, in-memory)
 (BFF, agent,          (one traces     ├──> langfuse-web      (durable, queryable)
  worker)               pipeline)      └──> err2issue         (logs, ERROR only)

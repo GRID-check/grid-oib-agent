@@ -122,7 +122,18 @@ export function installOtelCollector(
   // dropped telemetry generally — neither consumer is in a request path — and
   // it is why the Langfuse exporter gets an explicit, bounded queue below
   // instead of the default.
-  const langfuseExporter = cfg.langfuse.enabled
+  // Keyed off `langfuseSecretName`, NOT `cfg.langfuse.enabled` — the two are
+  // not the same condition, and the difference is a total telemetry outage.
+  //
+  // `index.ts` builds the Langfuse tier under a WIDER guard than the flag:
+  // `cfg.langfuse.enabled && clickhouse && langfuseQueue && postgres.langfuseDsn`.
+  // Those extra three are in lockstep with the flag today, but that is an
+  // invariant maintained by hand across two files. Break it and this function
+  // writes `${env:LANGFUSE_OTLP_AUTH}` into the ConfigMap while nothing injects
+  // the variable — and the collector REFUSES TO START on an unresolvable env
+  // reference, taking the Aspire dashboard's traces, logs and metrics down with
+  // it. The parameter is already the single source of truth here; use it.
+  const langfuseExporter = langfuseSecretName
     ? `
   otlp_http/langfuse:
     # \`otlp_http\`, NOT \`otlphttp\`. Both resolve today, so this is easy to
@@ -157,7 +168,7 @@ export function installOtelCollector(
       max_interval: 30s
       max_elapsed_time: 300s`
     : "";
-  const langfuseTraceExport = cfg.langfuse.enabled ? ", otlp_http/langfuse" : "";
+  const langfuseTraceExport = langfuseSecretName ? ", otlp_http/langfuse" : "";
 
   // ${env:OTLP_API_KEY} is interpolated by the collector at startup from the
   // container env (secretKeyRef below) — the key never sits in the ConfigMap.
