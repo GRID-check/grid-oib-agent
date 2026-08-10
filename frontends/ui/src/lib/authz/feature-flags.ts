@@ -171,6 +171,34 @@ export function isCollaborationEnabled(session: Pick<GridSession, 'featureFlags'
 }
 
 /**
+ * Default-OFF gate for IFC/BIM models (ADR-0045). Same dark-launch shape as
+ * `isCollaborationEnabled`: with WorkOS flag enforcement it follows the per-org
+ * `ifc-models` flag; without enforcement it requires an explicit deployment
+ * opt-in via `GRID_IFC_MODELS_ENABLED=true`.
+ *
+ * Deliberately not fail-open like `isFeatureEnabled`. The fail-open default is
+ * right for the flags that gate cosmetics — an origin badge, a confidence chip
+ * — and wrong here: this feature renders OIB compliance verdicts, and a
+ * checker that says `erfüllt` is making a claim an architect may act on. A
+ * deployment gets that only by choosing it.
+ */
+export function isIfcModelsEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.ifcModels)
+  }
+  return ifcModelsEnvOptIn()
+}
+
+/**
+ * The session-less half of {@link isIfcModelsEnabled}, for the internal service
+ * route: it carries a service token and no session, so it resolves the per-org
+ * flag itself and needs this for the enforcement-off case.
+ */
+export function ifcModelsEnvOptIn(): boolean {
+  return (process.env.GRID_IFC_MODELS_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
  * Route guard for collaboration: stable-coded 403 when off, null when allowed.
  * Usage: `const gated = requireCollaborationEnabled(session); if (gated) return gated`
  */

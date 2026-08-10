@@ -25,7 +25,7 @@ import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { bimQuerySchema, runBimQuery, BimModelNotReadyError } from '@/lib/bim/query'
 import { listBimModels, type BimModelHeader } from '@/lib/bim/repository'
-import { FEATURE_FLAGS, enforcementOn } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvOptIn } from '@/lib/authz/feature-flags'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 
 const requestSchema = z
@@ -71,10 +71,16 @@ export const POST = internalApiRoute(
     // agent kept answering questions about the building indefinitely — the
     // registry comment and ADR-0045 both say it is gated, and it was not.
     //
-    // Only when enforcement is on, matching `isFeatureEnabled`'s back-compat
-    // rule for deployments that have no WorkOS flag product; `isOrgFeatureEnabled`
-    // is itself fail-closed on a lookup error.
-    if (enforcementOn() && !(await isOrgFeatureEnabled(FEATURE_FLAGS.ifcModels, organizationId))) {
+    // Mirrors `isIfcModelsEnabled` for a caller that has a service token and no
+    // session: under enforcement the per-org flag decides (`isOrgFeatureEnabled`
+    // is itself fail-closed on a lookup error); without it, the deployment-level
+    // opt-in does. NOT fail-open — the agent answering questions about a
+    // building is the same claim the UI makes, and it must not be reachable in
+    // a deployment that has not chosen the feature.
+    const allowed = enforcementOn()
+      ? await isOrgFeatureEnabled(FEATURE_FLAGS.ifcModels, organizationId)
+      : ifcModelsEnvOptIn()
+    if (!allowed) {
       throw new ForbiddenError('IFC models are not enabled for this organization')
     }
 

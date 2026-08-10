@@ -803,6 +803,21 @@ export interface GridConfig {
     schedule: string;
   };
 
+  ifcModels: {
+    /**
+     * Dark-launch gate for IFC/BIM models (ADR-0045: `.ifc` upload, the model
+     * workspace, the 3D viewer, the Prüfbuch and the agent's `ifc_query`
+     * tool). Reaches the frontend as `GRID_IFC_MODELS_ENABLED`, which the BFF
+     * only consults while `enforceFeatureFlags` is off; with enforcement on,
+     * the per-org `ifc-models` WorkOS flag decides instead. Default-deny: the
+     * feature renders OIB compliance verdicts, and a checker that says
+     * `erfüllt` makes a claim an architect may act on, so an operator has to
+     * choose it. No paired capability — extraction runs in the BFF process and
+     * the viewer in the browser.
+     */
+    enabled: boolean;
+  };
+
   collaboration: {
     /**
      * Dark-launch gate for collaboration (ADR-0032…0035: shared chats,
@@ -2239,6 +2254,10 @@ export function loadConfig(): GridConfig {
 
     collaboration: {
       enabled: bool(cfg, "collaborationEnabled", false),
+    },
+
+    ifcModels: {
+      enabled: bool(cfg, "ifcModelsEnabled", false),
     },
 
     memory: {

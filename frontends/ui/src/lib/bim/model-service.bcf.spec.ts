@@ -16,6 +16,7 @@ import type { BimModelHeader } from './repository'
 vi.mock('@/lib/authz/feature-flags', () => ({
   FEATURE_FLAGS: { ifcModels: 'ifc-models' },
   isFeatureEnabled: vi.fn().mockReturnValue(true),
+  isIfcModelsEnabled: vi.fn().mockReturnValue(true),
 }))
 
 vi.mock('@/lib/authz/projects', () => ({
@@ -232,8 +233,8 @@ describe('exportAccessibleComplianceBcf', () => {
   })
 
   it('refuses every export when the feature is off for the organization', async () => {
-    const { isFeatureEnabled } = await import('@/lib/authz/feature-flags')
-    vi.mocked(isFeatureEnabled).mockReturnValueOnce(false)
+    const { isIfcModelsEnabled } = await import('@/lib/authz/feature-flags')
+    vi.mocked(isIfcModelsEnabled).mockReturnValueOnce(false)
 
     await expect(byName('Haus-A_V3.ifc')).rejects.toThrow(/not enabled/i)
   })

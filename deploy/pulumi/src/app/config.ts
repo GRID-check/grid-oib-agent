@@ -360,6 +360,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // backend needs this. Without it the feature is invisible even on a
     // deployment carrying its code — which is exactly the dark-launch contract.
     { name: "GRID_COLLABORATION_ENABLED", value: String(cfg.collaboration.enabled) },
+    // IFC/BIM models (ADR-0045). Frontend-only: extraction runs in the BFF
+    // process and the viewer in the browser, so neither the worker nor the
+    // backend needs it. Default-deny for the same reason as collaboration —
+    // this one renders compliance verdicts.
+    { name: "GRID_IFC_MODELS_ENABLED", value: String(cfg.ifcModels.enabled) },
     // Storage-quota alerting (ADR-0042). Read by the sweep behind
     // /api/internal/storage/alerts, which the storage-alerts CronJob calls — so
     // it belongs to the frontend even though nothing renders it. Escalation to

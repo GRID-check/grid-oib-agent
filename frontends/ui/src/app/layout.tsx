@@ -20,7 +20,12 @@ import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { PRODUCT_NAME } from '@/lib/brand'
-import { FEATURE_FLAGS, isFeatureEnabled, type KnownFeatureFlag } from '@/lib/authz/feature-flags'
+import {
+  FEATURE_FLAGS,
+  isFeatureEnabled,
+  isIfcModelsEnabled,
+  type KnownFeatureFlag,
+} from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
 import { getDictionary } from '@/i18n'
 import './globals.css'
@@ -71,8 +76,23 @@ export const metadata: Metadata = {
  */
 const isImageUploadEnabled = async (): Promise<boolean> => isSessionFlagEnabled(FEATURE_FLAGS.imageUpload)
 
-/** Whether IFC model upload is offered to this session (WorkOS `ifc-models`). */
-const isIfcUploadEnabled = async (): Promise<boolean> => isSessionFlagEnabled(FEATURE_FLAGS.ifcModels)
+/**
+ * Whether IFC model upload is offered to this session (WorkOS `ifc-models`).
+ *
+ * Read through `isIfcModelsEnabled`, not the flag directly: this feature is
+ * dark-launched, so with enforcement off it needs `GRID_IFC_MODELS_ENABLED`
+ * rather than falling open like the cosmetic flags do.
+ */
+const isIfcUploadEnabled = async (): Promise<boolean> => {
+  try {
+    return await runWithTenantSlot(async () => {
+      const session = await getGridSession()
+      return isIfcModelsEnabled(session ?? { featureFlags: null })
+    })
+  } catch {
+    return isIfcModelsEnabled({ featureFlags: null })
+  }
+}
 
 const isSessionFlagEnabled = async (flag: KnownFeatureFlag): Promise<boolean> => {
   try {

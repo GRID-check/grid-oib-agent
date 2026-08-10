@@ -15,7 +15,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { signingS3Client } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -44,7 +44,7 @@ const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL
  * preference rather than a boundary.
  */
 export function assertIfcModelsEnabled(session: AuthorizedSession): void {
-  if (!isFeatureEnabled(session, FEATURE_FLAGS.ifcModels)) {
+  if (!isIfcModelsEnabled(session)) {
     throw new ForbiddenError('IFC models are not enabled for this organization')
   }
 }

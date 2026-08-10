@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/authz/feature-flags', () => ({
   FEATURE_FLAGS: { ifcModels: 'ifc-models' },
   isFeatureEnabled: vi.fn().mockReturnValue(true),
+  isIfcModelsEnabled: vi.fn().mockReturnValue(true),
 }))
 
 /** `project-a` is granted; every other project 404s, as FGA does here. */

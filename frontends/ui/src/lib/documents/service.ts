@@ -33,7 +33,7 @@ import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/sign
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
@@ -456,7 +456,7 @@ function fileExtension(name: string): string {
  */
 export async function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): Promise<void> {
   const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
-  const ifcUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.ifcModels)
+  const ifcUploadEnabled = isIfcModelsEnabled(session)
   const vlmAvailable = await isVlmConfigured()
   const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, {
     imageUploadEnabled,
