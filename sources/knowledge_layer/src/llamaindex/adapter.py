@@ -571,6 +571,63 @@ def _apply_metadata_exclusions(document: Any) -> None:
             logger.debug("Could not set %s on %r", attribute, type(document).__name__)
 
 
+#: Collection-metadata keys recording which embedding produced a collection's vectors.
+#: Namespaced so they cannot collide with a user-supplied `metadata` dict.
+EMBED_FINGERPRINT_KEY = "aiq:embed_fingerprint"
+EMBED_MODEL_KEY = "aiq:embed_model"
+
+#: Collections whose fingerprint mismatch has already been reported, so a
+#: misconfiguration logs once rather than once per query.
+_reported_fingerprint_mismatches: set[str] = set()
+
+
+def embed_fingerprint(model: str, base_url: str) -> str:
+    """Stable digest of the embedding identity a collection's vectors were written with.
+
+    ``base_url`` is part of the identity, not decoration: the same model name served by
+    a different provider is a different vector space, and this deployment's code default
+    (``nvidia/llama-nemotron-embed-vl-1b-v2`` on NVIDIA) differs from what compose
+    actually sets (``openai/text-embedding-3-large`` on OpenRouter), so any deployment
+    path that misses the env var writes foreign vectors into a shared collection.
+    """
+    payload = json.dumps({"model": model, "base_url": (base_url or "").rstrip("/")}, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def embed_fingerprint_metadata(model: str, base_url: str) -> dict[str, str]:
+    """Collection metadata recording the embedding identity, human-readable digest first."""
+    return {EMBED_FINGERPRINT_KEY: embed_fingerprint(model, base_url), EMBED_MODEL_KEY: model}
+
+
+def embed_fingerprint_mismatch(collection_metadata: dict[str, Any] | None, model: str, base_url: str) -> str | None:
+    """Describe a fingerprint conflict, or ``None`` when the collection is usable.
+
+    Three states, three behaviours. **Absent** -- which is every collection deployed
+    before this existed -- is adopted silently rather than failed: "no fingerprint"
+    carries no claim, so it can only be wrong in the case that is already wrong today,
+    and a naive ``if stored != current: raise`` would brick every live corpus.
+    **Equal** proceeds. **Different** is reported.
+
+    A same-dimension model swap is the case that needs this. A different-dimension one
+    already fails loudly inside Chroma; swapping two 3072-dimension models, or repointing
+    the base URL, produces no error at all -- just silently wrong retrieval, at a score
+    distribution that looks entirely normal.
+    """
+    stored = (collection_metadata or {}).get(EMBED_FINGERPRINT_KEY)
+    if not stored:
+        return None
+    current = embed_fingerprint(model, base_url)
+    if stored == current:
+        return None
+    stored_model = (collection_metadata or {}).get(EMBED_MODEL_KEY, "unknown")
+    return (
+        f"embedding mismatch: collection was written with {stored_model!r} (fingerprint {stored}), "
+        f"but this process is configured for {model!r} at {base_url!r} (fingerprint {current}). "
+        f"Stored and query vectors are from different spaces. Restore the previous "
+        f"AIQ_EMBED_MODEL/AIQ_EMBED_BASE_URL, or delete and re-ingest the collection."
+    )
+
+
 def _to_chroma_where(filters: dict[str, Any] | None):
     """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
 
@@ -1937,6 +1994,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # Collection Management Implementation
     # =========================================================================
 
+    def _embed_fingerprint_metadata(self) -> dict[str, str]:
+        """The embedding identity to stamp on collections this ingestor writes."""
+        return embed_fingerprint_metadata(self.embed_model_name, self.embed_base_url)
+
     def create_collection(
         self,
         name: str,
@@ -1957,6 +2018,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 "hnsw:space": "cosine",
                 "created_at": now_iso,
                 "updated_at": now_iso,
+                **self._embed_fingerprint_metadata(),
             }
             if description:
                 collection_metadata["description"] = description
@@ -2063,6 +2125,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     new_metadata[key] = value
 
             new_metadata["updated_at"] = datetime.utcnow().isoformat()
+            # Stamp (or adopt) the embedding identity while we already hold the merged
+            # metadata. This runs at the end of every ingestion job, so a collection
+            # created by the ingest path -- which cannot carry metadata, since Chroma
+            # ignores it for an existing collection -- still acquires a fingerprint.
+            new_metadata.update(self._embed_fingerprint_metadata())
 
             # ChromaDB's modify() only updates the metadata fields we provide
             collection.modify(metadata=new_metadata)
@@ -3470,6 +3537,16 @@ class LlamaIndexRetriever(BaseRetriever):
         except Exception as e:
             logger.warning(f"Collection '{collection_name}' not found: {e}")
             return None
+
+        # Fail loudly rather than answering from a foreign vector space. Raising here
+        # surfaces through _retrieve_sync as success=False, so the layer drops out with a
+        # WARNING instead of taking the whole chat surface down over a config typo.
+        mismatch = embed_fingerprint_mismatch(chroma_collection.metadata, self.embed_model_name, self.embed_base_url)
+        if mismatch:
+            if collection_name not in _reported_fingerprint_mismatches:
+                _reported_fingerprint_mismatches.add(collection_name)
+                logger.error("Collection '%s' %s", collection_name, mismatch)
+            raise RuntimeError(f"Collection '{collection_name}' {mismatch}")
 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store)

@@ -234,3 +234,52 @@ def test_the_local_chroma_where_fallback_matches_the_vendor_normalisations() -> 
     assert _local_chroma_where({"$and": [{"content_type": "text"}]}) == {"content_type": {"$eq": "text"}}
     two_key = _local_chroma_where({"content_type": "text", "doc_class": "gesetz"})
     assert len(two_key["$and"]) == 2
+
+
+# ===========================================================================
+# Embedding-model fingerprint
+#
+# Swapping AIQ_EMBED_MODEL between two models of the SAME dimension, or
+# repointing AIQ_EMBED_BASE_URL, produces no error anywhere: stored and query
+# vectors come from different spaces and retrieval is quietly wrong at a score
+# distribution that looks entirely normal.
+# ===========================================================================
+
+
+def test_a_collection_with_no_fingerprint_is_adopted_not_rejected() -> None:
+    """Every collection deployed before this existed has no fingerprint.
+
+    "No fingerprint" carries no claim, so it can only be wrong in the case that is
+    already wrong today. Failing on absence would brick every live corpus.
+    """
+    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
+
+    assert embed_fingerprint_mismatch(None, "model-a", "https://host") is None
+    assert embed_fingerprint_mismatch({}, "model-a", "https://host") is None
+    assert embed_fingerprint_mismatch({"created_at": "x"}, "model-a", "https://host") is None
+
+
+def test_a_matching_fingerprint_passes_and_a_different_model_is_reported() -> None:
+    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_metadata
+    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
+
+    stamped = embed_fingerprint_metadata("model-a", "https://host/v1")
+    assert embed_fingerprint_mismatch(stamped, "model-a", "https://host/v1") is None
+
+    mismatch = embed_fingerprint_mismatch(stamped, "model-b", "https://host/v1")
+    assert mismatch and "model-b" in mismatch and "model-a" in mismatch
+
+
+def test_the_same_model_on_a_different_host_is_a_different_vector_space() -> None:
+    """This deployment's code default and its compose default disagree on both."""
+    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_metadata
+    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
+
+    stamped = embed_fingerprint_metadata("text-embedding-3-large", "https://openrouter.ai/api/v1")
+    assert embed_fingerprint_mismatch(stamped, "text-embedding-3-large", "https://integrate.api.nvidia.com/v1")
+
+
+def test_a_trailing_slash_is_not_a_different_deployment() -> None:
+    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint
+
+    assert embed_fingerprint("m", "https://host/v1/") == embed_fingerprint("m", "https://host/v1")
