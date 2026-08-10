@@ -392,6 +392,50 @@ def collection_version(collection_name: str) -> int:
         return _collection_versions.get(collection_name, 0)
 
 
+#: ``exp(-distance)`` at cosine distance 1.0 — the score of a chunk with no
+#: relationship to the query at all. Everything below this maps to 0.0.
+_ORTHOGONAL_STORE_SCORE = math.exp(-1.0)
+
+
+def cosine_similarity_from_store_score(score: Any) -> float:
+    """Recover a true cosine similarity from the vector store's reported score.
+
+    ``llama-index-vector-stores-chroma`` reports ``math.exp(-distance)`` as the
+    node similarity, not the similarity itself, and this module mirrors that
+    transform on the lexical channel so the two agree. With ``hnsw:space=cosine``
+    Chroma defines distance as ``1 - cos(q, v)``, so the recovery is exact::
+
+        s = e^-d,  d = 1 - cos   =>   cos = 1 + ln(s)
+
+    This matters because the raw number is not a similarity and never approaches
+    zero: an *orthogonal* chunk scores ``e^-1 = 0.37`` and a contradictory one
+    ``e^-2 = 0.14``. Printed to the answering LLM as ``Relevance Score: 0.37``
+    that reads as a moderate match, and any threshold set against it is set
+    against a scale nobody intended -- the one such threshold in this codebase
+    (``surface_documents.MIN_SURFACE_SCORE = 0.35``) sits at a cosine of -0.05,
+    admitting anti-correlated chunks while documented as a quality gate.
+
+    Anti-correlated results floor at ``0.0`` rather than going negative:
+    ``Chunk.score`` is contractually ``[0, 1]``, and "worse than unrelated" and
+    "unrelated" are the same decision for every consumer.
+
+    Total on every input -- ``None``, ``NaN``, ``0.0`` and out-of-range values all
+    return a float and never raise. That is deliberate rather than defensive:
+    ``normalize``'s except-branch does not drop a bad chunk, it substitutes one
+    whose content is ``str(raw_result)`` and whose file name is ``"unknown"``,
+    which then occupies a top-k slot and can be cited.
+    """
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value) or value <= _ORTHOGONAL_STORE_SCORE:
+        return 0.0
+    if value >= 1.0:
+        return 1.0
+    return min(1.0, max(0.0, 1.0 + math.log(value)))
+
+
 def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
     """Stable cache-key fragment for a filter dict (empty string when unfiltered)."""
     if not filters:
@@ -471,6 +515,77 @@ def _to_metadata_filters(filters: dict[str, Any] | None):
     if not filters:
         return None
     return _translate_filter_node(filters)
+
+
+#: Metadata keys that exist for filtering, citation or diagnostics and must never be
+#: embedded or shown to the LLM.
+#:
+#: LlamaIndex prepends the whole metadata dict to a node's text before embedding
+#: (``MetadataMode.EMBED``) unless a key is excluded, and nothing here set any
+#: exclusions -- so every OIB chunk's vector was shifted by ``file_size: 1975942``, and
+#: table/image/drawing chunks additionally carried row counts and pixel dimensions.
+#: A byte count and a render's pixel width carry no retrieval signal; they are also
+#: charged against the chunk's token budget, because ``SentenceSplitter`` subtracts the
+#: metadata header from ``chunk_size`` before splitting.
+#:
+#: ``file_path`` is the sharpest one: ``SimpleDirectoryReader`` sets it to the ingest
+#: temp file, so non-PDF uploads embedded a random ``/tmp/tmpk3n8w1qz.docx`` -- different
+#: on every re-upload of the same document.
+#:
+#: ``drawing_type``/``drawing_scale`` are excluded because the VLM caption already states
+#: both verbatim in the chunk body; embedding them again only doubles their weight.
+#: ``file_name``, ``page_label``, ``content_type`` and ``doc_class`` stay: those are what
+#: users actually ask by, and they are the closest thing this corpus has to a context
+#: header.
+EMBED_EXCLUDED_METADATA_KEYS = (
+    "file_size",
+    "file_path",
+    "table_index",
+    "rows",
+    "cols",
+    "image_index",
+    "image_format",
+    "image_width",
+    "image_height",
+    "drawing_type",
+    "drawing_scale",
+)
+
+
+def _apply_metadata_exclusions(document: Any) -> None:
+    """Exclude non-semantic metadata from a document's embed and LLM renderings.
+
+    Extends rather than replaces any existing exclusions -- ``SimpleDirectoryReader``
+    already populates ``excluded_embed_metadata_keys`` on the non-PDF path, and
+    clobbering it would re-embed the reader's own bookkeeping.
+
+    Both lists are set because the splitter budgets on whichever of the two renderings
+    is longer, so excluding from only one would leave the token cost in place.
+    """
+    for attribute in ("excluded_embed_metadata_keys", "excluded_llm_metadata_keys"):
+        existing = list(getattr(document, attribute, None) or [])
+        merged = existing + [key for key in EMBED_EXCLUDED_METADATA_KEYS if key not in existing]
+        try:
+            setattr(document, attribute, merged)
+        except (AttributeError, ValueError):  # pragma: no cover - non-llama-index document
+            logger.debug("Could not set %s on %r", attribute, type(document).__name__)
+
+
+def _to_chroma_where(filters: dict[str, Any] | None):
+    """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
+
+    Routes through the same ``MetadataFilters`` translation the vector channel uses, so
+    the lexical channel cannot accept or reject a different filter grammar than its
+    partner. Chroma requires exactly one operator per expression and at least two
+    operands in an ``$and``/``$or``; LlamaIndex's translation normalises both, which the
+    raw dict did not. Returns ``None`` for empty input.
+    """
+    from llama_index.vector_stores.chroma.base import _to_chroma_filter
+
+    metadata_filters = _to_metadata_filters(filters)
+    if metadata_filters is None:
+        return None
+    return _to_chroma_filter(metadata_filters)
 
 
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
@@ -2954,6 +3069,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # classifiers ahead of the filename guess.
                     for doc in all_documents:
                         doc.metadata["doc_class"] = doc_class
+                        _apply_metadata_exclusions(doc)
 
                     # Create/update index with all documents
                     if index is None:
@@ -3499,13 +3615,21 @@ class LlamaIndexRetriever(BaseRetriever):
 
             embedding = self._embed_query_cached(query)
             collection = self._chroma_client.get_collection(name=collection_name)
+            # Translate through the SAME grammar the vector channel uses. Passing the
+            # backend-neutral dict straight to Chroma diverged on two shapes it rejects
+            # but LlamaIndex accepts -- a node with sibling keys (an implicit AND) and a
+            # single-element `$and`/`$or` group. Since the base collection always carries
+            # the `exclude_file_names` clause, any caller filter with two keys made the
+            # lexical pass raise, and the fail-open below turned hybrid off for exactly
+            # the filtered queries, visible only in a log line.
+            where = _to_chroma_where(filters)
             channels: list[list[Chunk]] = [chunks]
             for term in terms:
                 raw = collection.query(
                     query_embeddings=[embedding],
                     n_results=top_k,
                     where_document={"$contains": term},
-                    where=filters if filters else None,
+                    where=where,
                 )
                 channels.append(self._chunks_from_raw_query(raw))
 
@@ -3525,11 +3649,24 @@ class LlamaIndexRetriever(BaseRetriever):
         """Convert a raw Chroma ``collection.query`` result dict into normalized Chunks.
 
         The raw query returns per-query-embedding lists; we always send exactly one
-        embedding, so each key's first list is the one we want. L2 distances map to a
-        display score monotonically; RRF only consumes ranks, so any monotone map works.
+        embedding, so each key's first list is the one we want. Cosine distances map to
+        the store's own ``exp(-distance)`` scale, mirroring what the vector channel
+        receives from ``ChromaVectorStore`` so the two channels stay comparable.
+
+        Node reconstruction goes through ``metadata_dict_to_node`` -- the same helper
+        the vector path uses -- rather than a hand-built ``TextNode``. That is not a
+        tidiness preference: ``node_id`` is a read-only *property* over the ``id_``
+        field, so ``TextNode(node_id=...)`` was silently discarded by pydantic and every
+        lexical chunk was born with a fresh ``uuid4``. Since reciprocal rank fusion keys
+        on ``chunk_id``, no chunk could ever match across the two channels: fusion
+        degenerated into channel-major concatenation, the same passage was emitted twice
+        under two different ids, and the duplicates displaced genuine vector hits. The
+        helper also restores the clean node metadata instead of Chroma's raw row, which
+        carries a full JSON copy of the chunk's own text in ``_node_content``.
         """
         from llama_index.core.schema import NodeWithScore
         from llama_index.core.schema import TextNode
+        from llama_index.core.vector_stores.utils import metadata_dict_to_node
 
         ids = raw.get("ids", [[]])[0]
         documents = raw.get("documents", [[]])[0]
@@ -3541,7 +3678,12 @@ class LlamaIndexRetriever(BaseRetriever):
             distance = distances[index] if index < len(distances) else 1.0
             metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
             text = documents[index] if index < len(documents) else ""
-            node = TextNode(text=text, node_id=chunk_id, metadata=metadata)
+            try:
+                node = metadata_dict_to_node(metadata, text=text)
+            except Exception:
+                # Rows written before `_node_content` existed, or by a non-llama-index
+                # writer. `id_`, not `node_id` -- see the docstring.
+                node = TextNode(text=text or "", id_=chunk_id, metadata=metadata)
             nodes.append(NodeWithScore(node=node, score=math.exp(-float(distance))))
         return [self.normalize(node) for node in nodes]
 
@@ -3606,10 +3748,7 @@ class LlamaIndexRetriever(BaseRetriever):
             return Chunk(
                 chunk_id=node.node_id if hasattr(node, "node_id") else str(uuid.uuid4()),
                 content=node.get_content() if hasattr(node, "get_content") else str(node),
-                # Cosine similarity is in [-1, 1] (and float rounding can nudge
-                # an exact match past 1.0), but Chunk.score enforces [0, 1] —
-                # an out-of-range value would raise and swallow the real result.
-                score=min(1.0, max(0.0, float(score))) if score else 0.0,
+                score=cosine_similarity_from_store_score(score),
                 file_name=file_name,
                 page_number=page_number,
                 display_citation=display_citation,

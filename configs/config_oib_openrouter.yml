@@ -297,8 +297,16 @@ llms:
 
   # LLM-judge retrieval reranking — one batched relevance judgment over up to
   # rerank_candidates chunks. Dedicated entry: summary_llm's 100-token cap is
-  # too small for a 15-candidate JSON scores reply. Greedy decoding (0) pins the
-  # judgment; pure JSON extraction needs no reasoning effort.
+  # too small for the JSON scores reply. Greedy decoding (0) pins the judgment;
+  # pure JSON extraction needs no reasoning effort.
+  #
+  # max_tokens must fit ONE SCORE PER CANDIDATE. At ~12 tokens per entry, the old
+  # 256 sat 12 tokens above a 20-candidate reply — and a model emitting one decimal
+  # score ("8.5") overran it, truncating the JSON mid-object and silently disabling
+  # reranking for that turn. 2048 covers a ~150-candidate pool with headroom.
+  #
+  # request_timeout x (max_retries + 1) must stay UNDER rerank_chunks' own 30s
+  # asyncio timeout, or the outer bound fires first and both knobs are dead letters.
   #
   # NOTE: rerank_llm has NO agent group, so no platform default or org override
   # can re-point it — this literal is what every request uses, always. That also
@@ -312,9 +320,9 @@ llms:
     temperature: 0
     seed: 1
     top_p: 1.0
-    max_tokens: 256
-    max_retries: 2
-    request_timeout: 60
+    max_tokens: 2048
+    max_retries: 1
+    request_timeout: 12
     reasoning_effort: none
 
 functions:
@@ -440,13 +448,19 @@ functions:
     top_k: 16
     max_chunks_per_document: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
-    # LLM-judge reranking: over-fetch rerank_candidates (20) chunks and re-order
-    # them against the query with the dedicated rerank LLM before trimming to
-    # top_k. Must exceed top_k — rerank_chunks trims to rerank_candidates, so a
-    # smaller pool than top_k could never fill the full result set. Fail-open:
-    # any judge error returns the fused (hybrid+vector) order.
+    # LLM-judge reranking: over-fetch rerank_candidates chunks and re-order them
+    # against the query with the dedicated rerank LLM before trimming to top_k.
+    # Fail-open: any judge error returns the fused (hybrid+vector) order.
+    #
+    # The pool must exceed top_k by SEVERAL TIMES, not by a margin. At 20-vs-16 the
+    # judge could only reshuffle 20 candidates into 16 slots, so the stage that is
+    # supposed to convert recall into precision had four chunks of headroom. 60 gives
+    # it a real pool; the cost is one batched call either way (the extra candidates
+    # come from a Chroma n_results bump, not extra round-trips), plus the judge's
+    # input tokens. The trim is now max(top_k, rerank_candidates), so raising
+    # Platform -> Retrieval top_k above this can no longer silently cap a search.
     rerank_llm: rerank_llm
-    rerank_candidates: 20
+    rerank_candidates: 60
 
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.

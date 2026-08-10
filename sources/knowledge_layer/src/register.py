@@ -155,7 +155,14 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         ),
     )
     rerank_candidates: int = Field(
-        default=15, ge=0, description="How many candidate chunks to over-fetch and re-rank when rerank_llm is set"
+        default=15,
+        ge=1,
+        description=(
+            "How many candidate chunks to over-fetch and re-rank when rerank_llm is set. "
+            "Reranking converts recall into precision, so this should exceed top_k by "
+            "several times, not by a margin. Must be >= 1: zero used to be accepted and "
+            "trimmed every search to nothing."
+        ),
     )
     # Foundational RAG (hosted RAG Blueprint) options
     rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
@@ -517,7 +524,12 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             logger.debug("Knowledge layer raised, skipping: %s", result)
             continue
         if not getattr(result, "success", False):
-            logger.debug(
+            # WARNING, not DEBUG. A brand-new session collection legitimately does not
+            # exist yet, but so does a corpus that dropped out because Chroma was
+            # unreachable, a collection was deleted and recreated, or a caller filter
+            # failed to translate. All of those produced a confident answer built on an
+            # empty knowledge layer with nothing above DEBUG to say so.
+            logger.warning(
                 "Knowledge layer empty/failed, skipping: %s",
                 getattr(result, "error_message", None),
             )
@@ -1200,7 +1212,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             if rerank_llm_obj is not None:
                 from knowledge_layer.rerank import rerank_chunks
 
-                reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=config.rerank_candidates)
+                # Never trim below what the caller is about to ask for. `top_k` is
+                # admin-tunable at runtime (up to 50) while `rerank_candidates` is a
+                # build-time YAML value, so raising Platform -> Retrieval top_k above
+                # rerank_candidates used to cap every search at rerank_candidates with
+                # no error — the "must exceed top_k" invariant was documented in a
+                # comment and enforced nowhere.
+                rerank_top_n = max(effective_top_k, config.rerank_candidates)
+                reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=rerank_top_n)
                 merged = merged.model_copy(update={"chunks": reranked})
 
             merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
