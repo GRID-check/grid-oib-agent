@@ -154,6 +154,19 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "against the query (LLM-judge reranking; fail-open to the original order)."
         ),
     )
+    reranker_provider: str | None = Field(
+        default=None,
+        description=(
+            "Cross-encoder reranking provider (none|openrouter|cohere|voyage|jina|nvidia). "
+            "None falls back to the AIQ_RERANKER_PROVIDER environment default, which is "
+            "'none'. When one resolves it becomes the primary reranker and rerank_llm "
+            "becomes the fallback; a missing key or any provider error degrades to the judge."
+        ),
+    )
+    reranker_model: str | None = Field(
+        default=None,
+        description="Cross-encoder model id. None uses the provider's multilingual default.",
+    )
     rerank_candidates: int = Field(
         default=15,
         ge=1,
@@ -524,15 +537,18 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             logger.debug("Knowledge layer raised, skipping: %s", result)
             continue
         if not getattr(result, "success", False):
-            # WARNING, not DEBUG. A brand-new session collection legitimately does not
-            # exist yet, but so does a corpus that dropped out because Chroma was
-            # unreachable, a collection was deleted and recreated, or a caller filter
-            # failed to translate. All of those produced a confident answer built on an
-            # empty knowledge layer with nothing above DEBUG to say so.
-            logger.warning(
-                "Knowledge layer empty/failed, skipping: %s",
-                getattr(result, "error_message", None),
-            )
+            # A missing collection is routine — every new conversation's session
+            # collection does not exist until something is uploaded into it, so
+            # logging that at WARNING would bury the signal under one line per turn.
+            # Everything else is not routine: a corpus that dropped out because Chroma
+            # was unreachable, a collection deleted and recreated, or a filter that
+            # failed to translate all produced a confident answer built on an empty
+            # knowledge layer with nothing above DEBUG to say so.
+            message = getattr(result, "error_message", None) or ""
+            if "not found" in message.lower():
+                logger.debug("Knowledge layer absent, skipping: %s", message)
+            else:
+                logger.warning("Knowledge layer failed, skipping: %s", message)
             continue
         if result.backend:
             backend = result.backend
@@ -1026,6 +1042,17 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
 
+    # Cross-encoder reranking, when configured. Primary when present; the LLM judge
+    # above stays as the fallback. Returns None (never raises) for 'none', an unknown
+    # provider, or a key that does not resolve.
+    cross_encoder = None
+    try:
+        from knowledge_layer.cross_encoder import resolve_cross_encoder
+
+        cross_encoder = resolve_cross_encoder(config.reranker_provider, model=config.reranker_model)
+    except Exception as e:
+        logger.warning(f"Cross-encoder reranker unavailable ({type(e).__name__}: {e}); using the LLM judge")
+
     # Initialize summary DB with configured URL
     from aiq_agent.knowledge.factory import configure_summary_db
 
@@ -1110,7 +1137,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         # Over-fetch when agentic filters will drop candidates post-merge.
         narrowed = bool(doc_class or title_contains or file_name)
         candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if narrowed else effective_top_k
-        if rerank_llm_obj is not None:
+        if rerank_llm_obj is not None or cross_encoder is not None:
             candidate_k = max(candidate_k, config.rerank_candidates)
 
         # Resolve the per-session collection (UI uploads for this conversation).
@@ -1208,8 +1235,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 )
                 merged = merged.model_copy(update={"chunks": kept})
 
-            # LLM-judge reranking (fail-open: any error keeps the fused order).
-            if rerank_llm_obj is not None:
+            # Reranking: cross-encoder first when configured, LLM judge as the
+            # fallback (fail-open: any error keeps the fused order).
+            if rerank_llm_obj is not None or cross_encoder is not None:
                 from knowledge_layer.rerank import rerank_chunks
 
                 # Never trim below what the caller is about to ask for. `top_k` is
@@ -1219,7 +1247,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 # no error — the "must exceed top_k" invariant was documented in a
                 # comment and enforced nowhere.
                 rerank_top_n = max(effective_top_k, config.rerank_candidates)
-                reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=rerank_top_n)
+                reranked = await rerank_chunks(
+                    rerank_llm_obj,
+                    query,
+                    merged.chunks,
+                    top_n=rerank_top_n,
+                    cross_encoder=cross_encoder,
+                )
                 merged = merged.model_copy(update={"chunks": reranked})
 
             merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})

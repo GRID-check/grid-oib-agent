@@ -69,6 +69,11 @@ _TOTAL_EXCERPT_BUDGET_CHARS = 60_000
 # nothing else, and reranking on it is worse than not reranking.
 _MIN_EXCERPT_CHARS = 300
 
+# The score range the system prompt asks for. Replies are clamped into it so a
+# model that ignores the contract cannot skew the imputation in `_ranked_order`.
+_MIN_SCORE = 0.0
+_MAX_SCORE = 10.0
+
 
 def _excerpt_budget(chunk_count: int, max_doc_chars: int) -> int:
     """Per-candidate excerpt size that keeps the whole prompt within budget."""
@@ -180,7 +185,11 @@ def _validated_scores(parsed: list[tuple[int, float]], chunk_count: int) -> dict
         if index in scores:
             duplicates += 1
             continue
-        scores[index] = score
+        # Clamp to the 0-10 contract the prompt states. `_parse_scores` accepts any
+        # finite number, and an out-of-contract value poisons the mean the unscored
+        # candidates are imputed at: one score of -5 drags the mean below zero, so a
+        # chunk the judge scored 0 would outrank every candidate it never looked at.
+        scores[index] = min(_MAX_SCORE, max(_MIN_SCORE, score))
 
     if out_of_range:
         logger.warning("Rerank judge returned %d score(s) outside 1..%d; dropped", out_of_range, chunk_count)
@@ -202,10 +211,15 @@ def _ranked_order(chunks: list[Any], scores: dict[int, float]) -> list[Any]:
     top-ranked hits would sort below a chunk scored 0 ("completely irrelevant").
 
     An omission is not a rejection, it is an absence of opinion, so an unscored
-    candidate is imputed the mean of the scores the judge did give: above anything
-    actively rejected, below anything actively preferred, and neutral overall.
-    Scored candidates win ties against imputed ones, and ``sorted`` is stable
-    (``reverse=True`` does not reverse ties), so equals keep their retrieval order.
+    candidate is imputed the mean of the scores the judge did give. The invariant
+    this buys, stated exactly: **an unscored candidate outranks every candidate
+    scored below the mean, and trails every candidate scored above it.** Scored
+    candidates win ties against imputed ones, so when the judge rejects everything
+    equally (all scores identical) the imputation carries no information and the
+    retrieval order survives intact.
+
+    ``sorted`` is stable and ``reverse=True`` does not reverse ties, so equals keep
+    their retrieval order.
     """
     mean_score = sum(scores.values()) / len(scores)
     return [

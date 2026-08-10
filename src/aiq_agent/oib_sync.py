@@ -67,7 +67,13 @@ def _file_hash(path: Path) -> str:
 # sync() then discards all stored hashes ONCE and re-ingests the full corpus,
 # so stale-format chunks self-heal automatically instead of persisting until
 # a PDF happens to change. Stored under a reserved key in the sync registry.
-CHUNK_FORMAT_VERSION = 1
+# 2: chunk metadata is no longer embedded wholesale. `file_size`, the ingest temp
+#    path and render geometry are excluded from the embed rendering, so the literal
+#    text sent to the embedding model changed for every chunk. Without this bump the
+#    corpus would keep its diluted vectors indefinitely — sync() gates on the sha256
+#    of the PDF bytes, and a preprocessing change alters no file hash — while newly
+#    uploaded documents got clean ones, leaving two embedding conventions in one index.
+CHUNK_FORMAT_VERSION = 2
 _FORMAT_KEY = "__chunk_format_version__"
 
 

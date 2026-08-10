@@ -192,3 +192,45 @@ def test_exclusions_are_idempotent() -> None:
     _apply_metadata_exclusions(doc)
     _apply_metadata_exclusions(doc)
     assert len(doc.excluded_embed_metadata_keys) == len(set(doc.excluded_embed_metadata_keys))
+
+
+# ===========================================================================
+# Cross-encoder configuration must never take retrieval down
+# ===========================================================================
+
+
+def test_a_malformed_reranker_env_var_does_not_break_the_import() -> None:
+    """Module-scope ``float(os.environ[...])`` made a typo an unimportable module."""
+    import importlib
+    import os
+
+    from sources.knowledge_layer.src import cross_encoder
+
+    os.environ["AIQ_RERANKER_TIMEOUT_SECONDS"] = "abc"
+    os.environ["AIQ_RERANKER_MAX_DOC_CHARS"] = "lots"
+    try:
+        reloaded = importlib.reload(cross_encoder)
+        assert reloaded.DEFAULT_TIMEOUT_SECONDS == 10.0
+        assert reloaded.DEFAULT_MAX_DOC_CHARS == 4000
+    finally:
+        del os.environ["AIQ_RERANKER_TIMEOUT_SECONDS"]
+        del os.environ["AIQ_RERANKER_MAX_DOC_CHARS"]
+        importlib.reload(cross_encoder)
+
+
+def test_resolving_a_nonsense_provider_returns_none_rather_than_raising() -> None:
+    """A YAML ``provider: 0`` arrives as an int, not a string."""
+    from sources.knowledge_layer.src.cross_encoder import resolve_cross_encoder
+
+    for hostile in (0, ["openrouter"], object(), "definitely-not-a-provider", "", "none"):
+        assert resolve_cross_encoder(hostile) is None
+
+
+def test_the_local_chroma_where_fallback_matches_the_vendor_normalisations() -> None:
+    """Used when llama-index drops the private helper this translation borrows."""
+    from sources.knowledge_layer.src.llamaindex.adapter import _local_chroma_where
+
+    assert _local_chroma_where({"content_type": "text"}) == {"content_type": {"$eq": "text"}}
+    assert _local_chroma_where({"$and": [{"content_type": "text"}]}) == {"content_type": {"$eq": "text"}}
+    two_key = _local_chroma_where({"content_type": "text", "doc_class": "gesetz"})
+    assert len(two_key["$and"]) == 2

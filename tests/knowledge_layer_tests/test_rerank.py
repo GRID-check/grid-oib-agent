@@ -256,3 +256,33 @@ async def test_cross_encoder_failure_falls_back_to_the_judge() -> None:
     reranked = await rerank_chunks(llm, "query", chunks, cross_encoder=_BrokenEncoder())
     assert [c.chunk_id for c in reranked] == ["b", "a"]
     assert len(llm.calls) == 1
+
+
+# ===========================================================================
+# Score-contract clamping.
+#
+# `_parse_scores` accepts any finite number, so a judge that ignores the stated
+# 0-10 range could skew the mean the unscored candidates are imputed at.
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_out_of_contract_scores_cannot_invert_the_imputation() -> None:
+    """A negative score used to drag the mean below zero.
+
+    With mean < 0 every unscored candidate sorted beneath a chunk the judge had
+    explicitly rejected — the exact inversion the imputation exists to prevent.
+    Clamping to the stated 0-10 range keeps the mean inside the contract.
+    """
+    llm = _FakeLLM(json.dumps({"scores": [{"i": 1, "score": -5}, {"i": 2, "score": 8}]}))
+    chunks = [_chunk("rejected"), _chunk("preferred"), _chunk("unscored_x"), _chunk("unscored_y")]
+    order = [c.chunk_id for c in await rerank_chunks(llm, "query", chunks)]
+    assert order == ["preferred", "unscored_x", "unscored_y", "rejected"]
+
+
+@pytest.mark.asyncio
+async def test_an_all_equal_reply_leaves_the_retrieval_order_intact() -> None:
+    """When the judge rejects everything equally its opinion carries no information."""
+    llm = _FakeLLM(json.dumps({"scores": [{"i": 1, "score": 0}, {"i": 2, "score": 0}]}))
+    chunks = [_chunk("a"), _chunk("b"), _chunk("c")]
+    assert [c.chunk_id for c in await rerank_chunks(llm, "query", chunks)] == ["a", "b", "c"]

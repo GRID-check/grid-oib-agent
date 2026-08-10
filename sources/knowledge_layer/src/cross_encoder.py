@@ -50,6 +50,28 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+def _env_float(name: str, fallback: float) -> float:
+    """Read a positive float from the environment, falling back on anything unusable.
+
+    Module-scope ``float(os.environ[...])`` would make a typo'd env var raise at
+    IMPORT time, taking down the whole knowledge layer -- the exact opposite of the
+    fail-open contract this module is built on. A misconfiguration must degrade to
+    the default, not to an unimportable module.
+    """
+    raw = os.environ.get(name, "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        if raw:
+            logger.warning("%s=%r is not a number; using %s", name, raw, fallback)
+        return fallback
+    if value <= 0 or not math.isfinite(value):
+        logger.warning("%s=%r must be positive and finite; using %s", name, raw, fallback)
+        return fallback
+    return value
+
+
 # @environment_variable AIQ_RERANKER_PROVIDER
 # @category Knowledge Layer
 # @type str
@@ -86,7 +108,7 @@ DEFAULT_BASE_URL = os.environ.get("AIQ_RERANKER_BASE_URL", "").strip()
 # Per-request timeout. Cross-encoders answer in ~100ms; 10s is already a generous
 # bound on a provider having a bad day, and reranking must never hold a turn open
 # longer than the retrieval it is improving.
-DEFAULT_TIMEOUT_SECONDS = float(os.environ.get("AIQ_RERANKER_TIMEOUT_SECONDS", "10") or 10)
+DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 10.0)
 
 # @environment_variable AIQ_RERANKER_MAX_DOC_CHARS
 # @category Knowledge Layer
@@ -96,7 +118,7 @@ DEFAULT_TIMEOUT_SECONDS = float(os.environ.get("AIQ_RERANKER_TIMEOUT_SECONDS", "
 # Per-document character budget sent to the reranker. Current cross-encoders take
 # 8k-32k tokens per document, so a full 1024-token chunk fits comfortably; the cap
 # exists to bound a pathological chunk, not to summarise.
-DEFAULT_MAX_DOC_CHARS = int(os.environ.get("AIQ_RERANKER_MAX_DOC_CHARS", "4000") or 4000)
+DEFAULT_MAX_DOC_CHARS = int(_env_float("AIQ_RERANKER_MAX_DOC_CHARS", 4000.0))
 
 
 @dataclass(frozen=True)
@@ -308,11 +330,12 @@ class CrossEncoderReranker:
             return None
 
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
-
-        import httpx
-
         url = f"{self.base_url}{self._spec.path}"
         try:
+            # Imported inside the guard: httpx is an optional transitive dependency, and
+            # an ImportError here must degrade to "no opinion" like every other failure.
+            import httpx
+
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     url,
@@ -363,7 +386,11 @@ def resolve_cross_encoder(
     or a provider whose key does not resolve, so a misconfiguration degrades to the
     previous behaviour instead of taking retrieval down.
     """
-    name = (provider or DEFAULT_PROVIDER or "none").strip().lower()
+    candidate = provider if provider is not None else DEFAULT_PROVIDER
+    if not isinstance(candidate, str):
+        logger.warning("Reranker provider %r is not a string; falling back to the LLM judge.", candidate)
+        return None
+    name = (candidate or "none").strip().lower()
     if name in {"", "none", "off", "false", "0", "llm_judge"}:
         return None
     if name not in _PROVIDERS:

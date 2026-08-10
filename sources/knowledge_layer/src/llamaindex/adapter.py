@@ -580,12 +580,41 @@ def _to_chroma_where(filters: dict[str, Any] | None):
     operands in an ``$and``/``$or``; LlamaIndex's translation normalises both, which the
     raw dict did not. Returns ``None`` for empty input.
     """
-    from llama_index.vector_stores.chroma.base import _to_chroma_filter
-
     metadata_filters = _to_metadata_filters(filters)
     if metadata_filters is None:
         return None
-    return _to_chroma_filter(metadata_filters)
+    # `_to_chroma_filter` is private to the vendor package and pinned only by a lower
+    # bound, so a minor bump can remove it. Raising here would degrade to "hybrid
+    # silently off" -- the exact failure this translation exists to eliminate -- so
+    # fall back to the local translation instead.
+    try:
+        from llama_index.vector_stores.chroma.base import _to_chroma_filter
+
+        return _to_chroma_filter(metadata_filters)
+    except ImportError:
+        logger.warning("llama-index's Chroma filter translation is unavailable; using the local fallback")
+        return _local_chroma_where(filters)
+
+
+def _local_chroma_where(filters: dict[str, Any]) -> dict[str, Any]:
+    """Minimal backend-neutral -> Chroma ``where`` translation.
+
+    Mirrors the two normalisations Chroma requires and the raw dict lacks: sibling
+    keys in one node become an explicit ``$and``, and a one-operand ``$and``/``$or``
+    collapses to the bare expression.
+    """
+    operands: list[dict[str, Any]] = []
+    for key, condition in filters.items():
+        if key in {"$and", "$or"}:
+            children = [_local_chroma_where(child) for child in condition]
+            operands.append(children[0] if len(children) == 1 else {key: children})
+        elif isinstance(condition, dict):
+            operands.append({key: condition})
+        else:
+            operands.append({key: {"$eq": condition}})
+    if not operands:
+        raise ValueError("Unsupported metadata filter: empty group")
+    return operands[0] if len(operands) == 1 else {"$and": operands}
 
 
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
