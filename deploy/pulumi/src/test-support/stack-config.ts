@@ -33,10 +33,11 @@ export function baseStackConfig(): Record<string, string> {
 /**
  * Everything the Langfuse tier (ADR-0044) needs on top of {@link baseStackConfig}.
  *
- * Separate rather than merged in, because `langfuseEnabled` defaults to FALSE:
- * folding these into the base would silently deploy four extra workloads in
- * every test that only wanted a Postgres knob, and the default-off path is
- * itself something the tests must be able to exercise.
+ * Separate rather than merged in. `langfuseEnabled` defaults to true, so it is
+ * these CREDENTIALS that decide whether the tier resolves available: folding
+ * them into the base would silently deploy four extra workloads in every test
+ * that only wanted a Postgres knob, and the not-adopted path is itself
+ * something the tests must be able to exercise.
  *
  * The shape of these values matters — `loadConfig` validates the encryption
  * key's hex length and both API-key prefixes — so they are realistic in FORM

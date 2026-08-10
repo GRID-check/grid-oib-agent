@@ -1599,7 +1599,7 @@ management, datasets and evals, over history you can query.
 one consequence that shows up operationally is at the end of this section.
 
 **Gating (flag AND capability):** deployed only when
-`grid-oib:langfuseEnabled` is on — default **`false`**, unlike section 9 — and
+`grid-oib:langfuseEnabled` is on — default **`true`**, as in section 9 — and
 every credential below is set **and** the observability tier of section 9 is
 itself deployed. Langfuse has no receiver of its own here; the collector is what
 feeds it, so without section 9 it is four workloads that can only sit idle. Miss
@@ -1687,7 +1687,10 @@ pulumi config set --secret grid-oib:langfusePublicKey "pk-lf-$(openssl rand -hex
 pulumi config set --secret grid-oib:langfuseSecretKey "sk-lf-$(openssl rand -hex 16)"
 
 pulumi config set grid-oib:langfuseInitUserEmail ops@example.com
-pulumi config set grid-oib:langfuseEnabled true
+
+# The flag defaults to true, so the credentials above are what actually turns
+# the tier on. Set it explicitly only to opt OUT:
+#   pulumi config set grid-oib:langfuseEnabled false
 ```
 
 `loadConfig` refuses, at preview time rather than at runtime:

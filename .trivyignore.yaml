@@ -46,8 +46,9 @@ vulnerabilities:
   # the Langfuse UI is reachable only through the Envoy Gateway behind an OIDC
   # flow gated on `platform:organizations:view`, and its OTLP receiver is
   # cluster-internal with a NetworkPolicy admitting only otel-collector. There
-  # is no unauthenticated surface. The tier is also `langfuseEnabled: false` by
-  # default, so a stack that has not adopted it runs none of this code.
+  # is no unauthenticated surface. The `langfuseEnabled` flag now defaults to
+  # true, but the capability half of the gate still needs the tier's
+  # credentials, so a stack that has not adopted it runs none of this code.
 
   - id: CVE-2026-18446
     expired_at: 2026-10-09
