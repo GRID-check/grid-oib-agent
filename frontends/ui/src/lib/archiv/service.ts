@@ -24,7 +24,7 @@ import {
   buildArchivStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
-import { ensureTenantBucket, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -128,7 +128,7 @@ export async function uploadArchivDocument(
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
   // the tenant's bucket, because it shares the tenant's bytes.
-  const storageBucket = await ensureTenantBucket(bucketAdminS3Client, session.organizationId)
+  const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(

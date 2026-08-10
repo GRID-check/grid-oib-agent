@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { createHash } from 'node:crypto'
 import { bucketName as sharedBucketName } from '@/lib/s3'
+import { UpstreamError } from '@/lib/api/errors'
 
 /**
  * Which bucket an organization's objects live in (ADR-0043), and how one gets
@@ -373,6 +374,22 @@ function ownerClaimKey(organizationId: string): string {
  * That credential does still live in this process; ADR-0043 records the residual
  * risk rather than claiming otherwise.
  */
+
+/**
+ * True for a failure the OBJECT STORE owns, rather than one this code made.
+ *
+ * The AWS SDK reports these as `$fault: 'server'` with a 5xx in `$metadata`.
+ * A full or read-only SeaweedFS volume server surfaces as a bare
+ * `InternalError` — no space signal, no distinguishing code — so 5xx is the
+ * only handle there is.
+ */
+function isStoreFault(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const fault = (error as { $fault?: unknown }).$fault
+  const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode
+  return fault === 'server' || (typeof status === 'number' && status >= 500)
+}
+
 export async function ensureTenantBucket(
   client: S3Client,
   organizationId: string,
@@ -405,6 +422,36 @@ export async function ensureTenantBucket(
   await assertBucketOwnership(client, bucket, organizationId, { created: !exists })
   known.add(bucket)
   return bucket
+}
+
+/**
+ * {@link ensureTenantBucketOrThrow}'s reason for existing: an object store that
+ * is down, full, or read-only is an UPSTREAM failure, and reporting it as an
+ * unhandled 500 is wrong twice over. The user is told "Internal server error"
+ * when the truth is "storage is unavailable, and it is not your upload", and
+ * the error tracker files a bug against this application for a disk that
+ * needs attention — which is how a full staging volume arrived as
+ * `[api] Unhandled error in POST /api/archiv/documents/upload`.
+ *
+ * Only STORE faults are converted. A `ForbiddenError` from the ownership claim,
+ * a bad argument, a programming mistake — all keep their own shape, because
+ * turning every failure here into 502 would hide the ones that are ours.
+ */
+export async function ensureTenantBucketChecked(
+  client: S3Client,
+  organizationId: string,
+): Promise<string> {
+  try {
+    return await ensureTenantBucket(client, organizationId)
+  } catch (error) {
+    if (isStoreFault(error)) {
+      throw new UpstreamError('Object storage is unavailable', {
+        operation: 'ensureTenantBucket',
+        code: (error as { Code?: string }).Code ?? null,
+      })
+    }
+    throw error
+  }
 }
 
 /**

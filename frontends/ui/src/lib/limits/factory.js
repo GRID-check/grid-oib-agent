@@ -109,10 +109,20 @@ async function consumeLimiter(limiter, key, points = 1) {
       console.warn('[limits] store unavailable, allowing:', rejection.message)
       return { allowed: true, retryAfterMs: 0, remaining: 0, degraded: true }
     }
+    // Floor at one second. A refusal that reports zero tells a client to retry
+    // IMMEDIATELY, which turns one refused request into a hot loop that keeps
+    // its own bucket drained — the shape a 429 with `retryAfterSeconds: 0` was
+    // observed in. `msBeforeNext` is 0 whenever the library cannot say (a
+    // rejection that is not a `RateLimiterRes`, or a union whose values are
+    // not), and "unknown" must not read as "no wait".
+    const wait = maxMsBeforeNext(rejection)
     return {
       allowed: false,
-      retryAfterMs: maxMsBeforeNext(rejection),
-      remaining: 0,
+      retryAfterMs: wait > 0 ? wait : 1000,
+      // The real figure, not a hardcoded zero: on a union the tightest clause
+      // is what refused, and reporting 0 for every refusal made it impossible
+      // to tell a genuinely drained bucket from a spurious refusal.
+      remaining: minRemaining(rejection),
       degraded: false,
     }
   }

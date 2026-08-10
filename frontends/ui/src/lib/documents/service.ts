@@ -18,7 +18,7 @@ import {
   buildStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
-import { ensureTenantBucket, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { ForbiddenError } from '@/lib/api/errors'
@@ -537,7 +537,7 @@ export async function uploadDocument(
   // A no-op — not even a round trip — when per-org buckets are off. Done before
   // the PUT so a provisioning failure leaves nothing behind, same reasoning as
   // the quota check above.
-  const storageBucket = await ensureTenantBucket(bucketAdminS3Client, session.organizationId)
+  const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
