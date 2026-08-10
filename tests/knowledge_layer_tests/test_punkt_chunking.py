@@ -156,3 +156,35 @@ def test_bookkeeping_metadata_is_not_embedded() -> None:
 def test_an_empty_document_does_not_raise() -> None:
     assert punkt_documents([], "empty.pdf", 0) is None
     assert punkt_documents(_pages("", ""), "empty.pdf", 0) is None
+
+
+# ===========================================================================
+# The ingestion seam
+#
+# The chunker is only worth anything if ingestion actually reaches for it, and
+# only safe if every document it cannot parse keeps the old behaviour exactly.
+# ===========================================================================
+
+
+def test_ingestion_cuts_a_numbered_document_on_its_outline() -> None:
+    from knowledge_layer.llamaindex.adapter import text_documents_for_pages
+
+    docs = text_documents_for_pages(_pages(COVER, BODY, MORE), "oib-rl_2_ausgabe_mai_2023.pdf", 1234)
+    assert {doc.metadata.get("chunking") for doc in docs} == {"punkt", "page"}
+    assert any(doc.metadata.get("punkt_id") == "2.1" for doc in docs)
+
+
+def test_ingestion_falls_back_to_one_document_per_page_for_everything_else() -> None:
+    """A tenant upload or a glossary must ingest exactly as it did before.
+
+    The fallback is the whole reason the chunker may be enabled by default: it can
+    only ever improve a document whose structure it recognises.
+    """
+    from knowledge_layer.llamaindex.adapter import text_documents_for_pages
+
+    prose = _pages("Ein Angebot ohne Nummerierung.", "Noch eine Seite Fliesstext.")
+    docs = text_documents_for_pages(prose, "angebot.pdf", 99)
+    assert len(docs) == 2
+    assert [doc.metadata["page_label"] for doc in docs] == ["1", "2"]
+    assert all(doc.metadata["content_type"] == "text" for doc in docs)
+    assert all("punkt_id" not in doc.metadata for doc in docs)

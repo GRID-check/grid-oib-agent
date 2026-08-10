@@ -73,7 +73,11 @@ def _file_hash(path: Path) -> str:
 #    corpus would keep its diluted vectors indefinitely — sync() gates on the sha256
 #    of the PDF bytes, and a preprocessing change alters no file hash — while newly
 #    uploaded documents got clean ones, leaving two embedding conventions in one index.
-CHUNK_FORMAT_VERSION = 2
+# 3: Punkt-aware chunking. A document with a usable outline is now cut on its own
+#    numbering rather than per page, so chunk boundaries, chunk count and the
+#    metadata every chunk carries all change. Without this bump the corpus would
+#    keep its page-cut chunks forever, for the same reason as 2.
+CHUNK_FORMAT_VERSION = 3
 _FORMAT_KEY = "__chunk_format_version__"
 
 

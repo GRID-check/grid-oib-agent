@@ -1012,6 +1012,38 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     return pages
 
 
+def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
+    """Build the text Documents for one PDF, structure-aware where the document allows it.
+
+    A numbered corpus cut on its own outline yields one requirement per chunk instead of
+    roughly fifteen blended into a 1024-token block, and gives every chunk a Punkt to
+    cite rather than only a page. ``punkt_documents`` returns ``None`` for anything
+    without a usable outline -- a glossary, a list of standards, any tenant upload -- and
+    that is the per-page path below, byte-for-byte what ingestion did before.
+
+    Extracted from ``_run_ingestion`` so the choice between the two strategies is
+    testable without a job, a Chroma client or an embedder.
+    """
+    from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
+    from llama_index.core import Document
+
+    structured = punkt_documents(text_pages, file_name, file_size)
+    if structured is not None:
+        return structured
+    return [
+        Document(
+            text=page["text"],
+            metadata={
+                "file_name": file_name,
+                "file_size": file_size,
+                "page_label": str(page["page_number"]),
+                "content_type": "text",
+            },
+        )
+        for page in text_pages
+    ]
+
+
 def _looks_like_pdf(file_path: str) -> bool:
     """Detect PDFs by file magic so presigned/temp files without .pdf still use PDF extraction."""
     try:
@@ -2884,18 +2916,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     text_pages: list[dict[str, Any]] = []
                     if is_pdf:
                         text_pages = _extract_text_from_pdf(file_path)
-                        text_documents = [
-                            Document(
-                                text=page["text"],
-                                metadata={
-                                    "file_name": file_name,
-                                    "file_size": file_size,
-                                    "page_label": str(page["page_number"]),
-                                    "content_type": "text",
-                                },
-                            )
-                            for page in text_pages
-                        ]
+                        text_documents = text_documents_for_pages(text_pages, file_name, file_size)
                     elif is_image:
                         # Standalone image: caption via the VLM into a single
                         # Document. The VLM is a hard requirement here (there is
