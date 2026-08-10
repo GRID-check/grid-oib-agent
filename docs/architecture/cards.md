@@ -22,8 +22,58 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
 | `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
+| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids`, `label`, `status`), `storey`, `note` |
+| `IfcScheduleCard` | The Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
+| `IfcElementCard` | One element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
+| `IfcDiffCard` | What changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
+| `IfcComplianceCard` | The Prüfbuch: OIB requirements with their verdict | `title`, `model_file`, `rule_ids[]`, `note` |
 
 `validate_cards()` validates against the union and drops null fields.
+
+### The four IFC cards carry identifiers, not numbers
+
+`IfcViewerCard` is the only card that points at data the model did not supply:
+`global_ids` must be IFC GlobalIds returned by `ifc_query` in the same turn. The
+frontend resolves them against the loaded model and **reports how many did not
+resolve** — colouring two of three walls while saying nothing would turn a
+partly wrong answer into a confidently wrong picture. The model is named by FILE
+NAME (the string `ifc_query` reports), never by id, so a hallucinated UUID is
+not a failure mode it has.
+
+`IfcComplianceCard` carries rule IDS and no verdicts, so an answer cannot state
+that a requirement is met; the component runs the catalogue when it renders. Ids
+that do not resolve are REPORTED rather than dropped — silently narrowing the
+list would turn a hallucinated id into a shorter, cleaner-looking Prüfbuch,
+which is the one direction that card must not fail in. It also carries the
+orientation caveat inline, because a card leaves the page in a screenshot and
+the caveat has to travel with it.
+
+The four data cards go one step further: their payload is a file name, a
+GlobalId or a pair of revisions **and nothing else**, and the component fetches
+the figures from the model when it renders
+(`features/grid-cards/components/IfcDataCards.tsx`). The agent therefore cannot
+state a floor area, get a fire rating wrong or invent a delta, because it never
+supplies one — the worst it can do is point at the wrong table, which is visible
+immediately. That also keeps a card honest after the fact: re-open a
+conversation a month later and the card shows the model as it is now, not as it
+was summarised then.
+
+Every row that names an element links into the model page at that element
+(`buildModelHref`), so a card is a way *into* the building rather than a
+screenshot of it. That includes both sides of a revision delta: the diff card
+lists what was ADDED and what was REMOVED as openable rows, not only as counts
+— a delta you cannot open is a number rather than an answer — and a removed
+element links into the BASE revision, since it has no GlobalId in the new one.
+
+The requirement card runs the catalogue with the project brief's facts
+(`useProjectRuleFacts`), the same ones the model page uses. Without them the
+fire-resistance rules stand down in chat and produce a verdict on the model
+page, and the same building answers two ways depending on which surface it is
+read from. It also renders the BCF download itself rather than leaving the path
+to the answer text: the agent is told to repeat that URL, and a model asked to
+reproduce a URL will eventually reproduce a wrong one. All five are `presentational` in `CARD_INTERACTIVITY`: sorting
+a schedule, downloading its CSV or orbiting the viewport starts no commitment,
+so there is nothing to persist on the message.
 
 ## How generation works
 

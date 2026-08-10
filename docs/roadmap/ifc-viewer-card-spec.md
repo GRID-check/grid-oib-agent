@@ -1,5 +1,24 @@
-# Spec (phase 3): IFC/BIM Viewer Card
+# Spec (phase 3): IFC/BIM Viewer Card — **SUPERSEDED, BUILT DIFFERENTLY**
 
+> **Status (2026-08-08): superseded by
+> [ADR-0045](../adr/0045-ifc-models-as-a-queryable-building-not-a-document.md),
+> which is the record of what was actually built. This file is kept as the
+> design that was considered and where it turned out to be wrong.**
+>
+> Two things changed. The viewer library is **ifc-lite** (Rust/WASM +
+> WebGPU), not `web-ifc` + ThatOpen, and there is **no Fragments conversion
+> pipeline** — ifc-lite streams first triangles during the parse, so the
+> conversion step, its storage artefact and its cache-invalidation story all
+> disappeared. More importantly, the spec below treats the problem as "render
+> the model", and the larger half turned out to be "answer questions about it":
+> a structured index the agent queries deterministically, a validation pass that
+> qualifies those answers, and a revision comparison. The `ifc_viewer` card is
+> one surface of that, not the feature.
+>
+> ---
+>
+> Original text follows.
+>
 > Build-ready design for a card that renders an architect's **actual IFC/BIM
 > model** in the browser, with GRID's compliance findings overlaid. This is the
 > domain-native "3D model" no generic tool has. Scoped separately because it is a

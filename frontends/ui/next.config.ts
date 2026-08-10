@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { NextConfig } from 'next'
 import { AVATAR_IMAGE_PATTERNS } from './src/lib/images/avatar-hosts'
 import { LOCAL_IMAGE_PATTERNS } from './src/lib/images/optimizable'
@@ -38,7 +39,33 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: `${fileUploadMaxSizeMB}mb`,
   },
 
-  turbopack: {},
+  // `@ifc-lite/renderer` re-exports a point-cloud renderer that reaches
+  // `laz-perf`, whose Emscripten loader imports `wasi_snapshot_preview1` and two
+  // virtual specifiers no bundler can resolve — it fails `next build` outright.
+  // Grid never decodes a point cloud (a STEP IFC building model contains none),
+  // so the dependency is aliased to a loud stub instead. Both bundlers are
+  // configured: turbopack serves `next dev` and webpack the production build.
+  turbopack: {
+    resolveAlias: {
+      'laz-perf': './src/lib/bim/laz-perf-stub.ts',
+      // The decoder also imports its own `.wasm` through a `?url` specifier,
+      // which resolves to an Emscripten loader importing `env` and
+      // `wasi_snapshot_preview1`. Aliasing the package alone leaves that second
+      // request behind, so both spellings are mapped.
+      'laz-perf/lib/web/laz-perf.wasm?url': './src/lib/bim/laz-perf-stub.ts',
+      'laz-perf/lib/web/laz-perf.wasm': './src/lib/bim/laz-perf-stub.ts',
+    },
+  },
+
+  webpack: (config) => {
+    config.resolve = config.resolve ?? {}
+    config.resolve.alias = {
+      ...(config.resolve.alias ?? {}),
+      'laz-perf': path.resolve(process.cwd(), 'src/lib/bim/laz-perf-stub.ts'),
+      'laz-perf/lib/web/laz-perf.wasm': path.resolve(process.cwd(), 'src/lib/bim/laz-perf-stub.ts'),
+    }
+    return config
+  },
 
   // Baseline security headers. A full Content-Security-Policy needs nonce
   // plumbing for Next's inline scripts and is tracked as a follow-up —

@@ -32,6 +32,7 @@ export const KNOWN_PROJECT_SECTIONS = [
   'overview',
   'chat',
   'files',
+  'model',
   'workflows',
   'history',
   'settings',

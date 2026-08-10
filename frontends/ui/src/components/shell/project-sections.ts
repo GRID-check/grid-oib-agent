@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import {
   Archive,
   BookOpenCheck,
+  Boxes,
   ClipboardList,
   Clock,
   Folder,
@@ -33,6 +34,7 @@ export type ProjectSectionKey =
   | 'chat'
   | 'workflows'
   | 'files'
+  | 'model'
   | 'knowledge'
   | 'history'
   | 'archiv'
@@ -56,6 +58,8 @@ export interface ProjectSectionFlags {
    * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
    */
   canAccessInbox?: boolean
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
+  showModels?: boolean
 }
 
 export interface ProjectSection {
@@ -124,6 +128,19 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'f',
+  },
+  {
+    // The IFC/BIM model page (ADR-0045). Sits next to Files because that is
+    // where the model was uploaded and how a user thinks of it: the same
+    // material, seen as a building rather than as a list of documents.
+    key: 'model',
+    segment: 'model',
+    icon: Boxes,
+    i18nKey: 'model',
+    gate: 'showModels',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'm',
   },
   {
     key: 'knowledge',

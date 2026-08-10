@@ -10,6 +10,7 @@ export const nav = {
   sections: {
     chat: 'Ask Piloti',
     files: 'Files',
+    model: 'Model',
     knowledge: 'Knowledge',
     research: 'Research',
     workflows: 'Workflows',

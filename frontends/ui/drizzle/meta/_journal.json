@@ -239,6 +239,55 @@
       "when": 1785542400003,
       "tag": "0033_documents_storage_bucket",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785542400004,
+      "tag": "0034_bim_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785542400005,
+      "tag": "0035_bim_check_confirmations",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785628800005,
+      "tag": "0036_drop_unused_bim_property_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785715200005,
+      "tag": "0037_bim_rule_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785801600005,
+      "tag": "0038_bim_element_search_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785888000005,
+      "tag": "0039_bim_elements_type_order_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785974400005,
+      "tag": "0040_bim_elements_storey_expression_idx",
+      "breakpoints": true
     }
   ]
 }

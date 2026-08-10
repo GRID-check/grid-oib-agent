@@ -177,6 +177,29 @@ export async function setDocumentIngestJob(
 }
 
 /**
+ * Mark a document as being worked on locally, before any backend job exists.
+ *
+ * The IFC path needs this: extraction happens in THIS process and can take
+ * tens of seconds, during which there is no ingest job to reconcile against.
+ * Leaving the row at 'uploaded' would render a green "Ready" for a model that
+ * cannot be opened yet. 'processing' is an in-flight status, and reconciliation
+ * writes nothing for an in-flight row the backend has never heard of, so the
+ * status survives until extraction sets a real one.
+ */
+export async function markDocumentProcessing(
+  documentId: string,
+  organizationId: string,
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ status: 'processing', errorMessage: null, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  )
+}
+
+/**
  * Persist an ingestion failure so status reads tell the truth. Without this a
  * document whose ingest dispatch never started would sit at 'uploaded' — which
  * the UI renders as a green "Ready" — forever (reconciliation only revisits

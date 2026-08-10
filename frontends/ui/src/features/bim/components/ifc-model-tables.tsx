@@ -1,0 +1,410 @@
+'use client'
+
+/**
+ * The two tables an architect already keeps by hand, and the facts a model can
+ * fill into the project brief.
+ *
+ * Everything else on the model page answers "what is in this file". These three
+ * answer "what do I do with it": a Raumbuch goes into the Einreichung, a
+ * Massenermittlung into the Kostenschätzung, and the derived facts into the
+ * brief every later compliance answer is computed from.
+ *
+ * All three follow one rule: **a number that is missing is shown as missing.**
+ * The room count next to a floor-area total is not decoration — it is the
+ * difference between a total you can submit and one that quietly excludes four
+ * rooms whose area the model never published. Every total here states how many
+ * rows it could not see.
+ */
+
+import { useMemo, useState } from 'react'
+import { AlertTriangle, Download, Ruler, Sparkles, Table2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { useLocale, useTranslations } from '@/i18n'
+import type { BimProfileSuggestion } from '@/lib/bim/profile'
+import {
+  BIM_TAKEOFF_QUANTITIES,
+  roomScheduleToCsv,
+  type BimQuantityRow,
+  type BimRoomSchedule,
+} from '@/lib/bim/schedule'
+
+/** Rows shown before the panel folds; a 400-room model must not own the page. */
+const VISIBLE_ROOMS = 60
+
+function useNumberFormat(): (value: number | null, digits?: number) => string {
+  const { locale } = useLocale()
+  return useMemo(() => {
+    const format = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
+    const integer = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+    return (value, digits = 2) => (value === null ? '—' : (digits === 0 ? integer : format).format(value))
+  }, [locale])
+}
+
+// ---------------------------------------------------------------------------
+// Raumbuch
+// ---------------------------------------------------------------------------
+
+export interface IfcRoomScheduleProps {
+  schedule: BimRoomSchedule | null
+  isLoading: boolean
+  error: string | null
+  filename: string
+  /** Selecting a row selects the room everywhere else on the page. */
+  onSelect?: (globalId: string) => void
+  selectedGlobalId?: string | null
+}
+
+export function IfcRoomSchedule({
+  schedule,
+  isLoading,
+  error,
+  filename,
+  onSelect,
+  selectedGlobalId,
+}: IfcRoomScheduleProps): JSX.Element {
+  const t = useTranslations('bim')
+  const format = useNumberFormat()
+  const [expanded, setExpanded] = useState(false)
+
+  const download = (): void => {
+    if (!schedule) return
+    // Built in the browser from the rows on screen, so the file and the table
+    // cannot disagree — and a BOM, because Excel reads a UTF-8 CSV without one
+    // as Latin-1 and turns every "Grundfläche" into "GrundflÃ¤che".
+    const blob = new Blob([`﻿${roomScheduleToCsv(schedule)}`], {
+      type: 'text/csv;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${filename.replace(/\.(ifc|ifczip)$/i, '')}-raumbuch.csv`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const totalRooms = schedule?.totals.rooms ?? 0
+  let rendered = 0
+
+  return (
+    <section aria-labelledby="bim-schedule-heading" className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="bim-schedule-heading" className="flex items-center gap-2 text-sm font-semibold">
+          <Table2 className="size-4 text-muted-foreground" aria-hidden="true" />
+          {t('schedule.title')}
+        </h2>
+        {schedule && schedule.totals.rooms > 0 && (
+          <Button type="button" size="sm" variant="ghost" onClick={download}>
+            <Download className="size-3.5" aria-hidden="true" />
+            {t('schedule.download')}
+          </Button>
+        )}
+      </div>
+
+      {isLoading && <Spinner className="size-4" />}
+      {error && <p className="text-sm text-destructive">{t('schedule.failed')}</p>}
+
+      {schedule && schedule.totals.rooms === 0 && (
+        <p className="text-sm text-muted-foreground">{t('schedule.empty')}</p>
+      )}
+
+      {schedule && schedule.totals.rooms > 0 && (
+        <>
+          {schedule.totals.roomsWithoutArea > 0 && (
+            <p className="flex items-start gap-2 rounded-md bg-warning-subtle p-2 text-xs text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              {t('schedule.missing', { count: schedule.totals.roomsWithoutArea })}
+            </p>
+          )}
+
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs">
+                <tr>
+                  <th scope="col" className="px-2 py-1.5 text-left font-medium">
+                    {t('schedule.room')}
+                  </th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">
+                    {t('schedule.netArea')} ({schedule.units.area})
+                  </th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">
+                    {t('schedule.volume')} ({schedule.units.volume})
+                  </th>
+                </tr>
+              </thead>
+              {schedule.storeys.map((storey) => {
+                const visible = expanded
+                  ? storey.rooms
+                  : storey.rooms.slice(0, Math.max(0, VISIBLE_ROOMS - rendered))
+                rendered += visible.length
+                if (visible.length === 0) return null
+                return (
+                  <tbody key={storey.storeyName} className="border-t">
+                    <tr className="bg-muted/30">
+                      <th
+                        scope="colgroup"
+                        colSpan={3}
+                        className="px-2 py-1 text-left text-xs font-semibold"
+                      >
+                        {storey.storeyName}
+                        {storey.roomsWithoutArea > 0 && (
+                          <span className="ml-2 font-normal text-warning">
+                            {t('schedule.storeyMissing', { count: storey.roomsWithoutArea })}
+                          </span>
+                        )}
+                      </th>
+                    </tr>
+                    {visible.map((room) => (
+                      <tr
+                        key={room.globalId}
+                        onClick={onSelect ? () => onSelect(room.globalId) : undefined}
+                        aria-selected={room.globalId === selectedGlobalId}
+                        className={`border-t ${
+                          onSelect ? 'cursor-pointer hover:bg-muted/50' : ''
+                        } ${room.globalId === selectedGlobalId ? 'bg-muted' : ''}`}
+                      >
+                        <td className="px-2 py-1">
+                          {room.name}
+                          {room.category && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {room.category}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums">
+                          {format(room.netFloorArea)}
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums">
+                          {format(room.netVolume)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t bg-muted/20 text-xs font-medium">
+                      <td className="px-2 py-1">{t('schedule.storeyTotal')}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {format(storey.netFloorArea)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {format(storey.netVolume)}
+                      </td>
+                    </tr>
+                  </tbody>
+                )
+              })}
+              <tfoot className="border-t-2">
+                <tr className="text-sm font-semibold">
+                  <td className="px-2 py-1.5">{t('schedule.total')}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {format(schedule.totals.netFloorArea)}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {format(schedule.totals.netVolume)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {totalRooms > VISIBLE_ROOMS && (
+            <Button type="button" size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
+              {expanded
+                ? t('schedule.collapse')
+                : t('schedule.expand', { count: totalRooms - VISIBLE_ROOMS })}
+            </Button>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Massenermittlung
+// ---------------------------------------------------------------------------
+
+export interface IfcQuantityTakeoffProps {
+  rows: BimQuantityRow[] | null
+  isLoading: boolean
+  error: string | null
+  quantity: string
+  onQuantityChange: (quantity: string) => void
+  byMaterial: boolean
+  onByMaterialChange: (byMaterial: boolean) => void
+}
+
+export function IfcQuantityTakeoff({
+  rows,
+  isLoading,
+  error,
+  quantity,
+  onQuantityChange,
+  byMaterial,
+  onByMaterialChange,
+}: IfcQuantityTakeoffProps): JSX.Element {
+  const t = useTranslations('bim')
+  const format = useNumberFormat()
+  const incomplete = (rows ?? []).reduce((sum, row) => sum + row.missing, 0)
+
+  return (
+    <section aria-labelledby="bim-takeoff-heading" className="space-y-2">
+      <h2 id="bim-takeoff-heading" className="flex items-center gap-2 text-sm font-semibold">
+        <Ruler className="size-4 text-muted-foreground" aria-hidden="true" />
+        {t('takeoff.title')}
+      </h2>
+      <p className="text-xs text-muted-foreground">{t('takeoff.description')}</p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-sm text-muted-foreground" htmlFor="bim-takeoff-quantity">
+          {t('takeoff.quantity')}
+        </label>
+        <select
+          id="bim-takeoff-quantity"
+          value={quantity}
+          onChange={(event) => onQuantityChange(event.target.value)}
+          className="h-8 rounded-md border bg-background px-2 text-sm"
+        >
+          {BIM_TAKEOFF_QUANTITIES.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={byMaterial}
+            onChange={(event) => onByMaterialChange(event.target.checked)}
+            className="size-3.5"
+          />
+          {t('takeoff.byMaterial')}
+        </label>
+      </div>
+
+      {isLoading && <Spinner className="size-4" />}
+      {error && <p className="text-sm text-destructive">{t('takeoff.failed')}</p>}
+
+      {rows && rows.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('takeoff.empty')}</p>
+      )}
+
+      {rows && rows.length > 0 && (
+        <>
+          {incomplete > 0 && (
+            <p className="flex items-start gap-2 rounded-md bg-warning-subtle p-2 text-xs text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              {t('takeoff.missing', { count: incomplete })}
+            </p>
+          )}
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs">
+                <tr>
+                  <th scope="col" className="px-2 py-1.5 text-left font-medium">
+                    {t('takeoff.group')}
+                  </th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">
+                    {t('takeoff.elements')}
+                  </th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">
+                    {quantity}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.group} className="border-t">
+                    <td className="px-2 py-1">{row.group}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">
+                      {format(row.elements, 0)}
+                      {row.missing > 0 && (
+                        <span className="ml-1 text-xs text-warning">
+                          {t('takeoff.rowMissing', { count: row.missing })}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1 text-right tabular-nums">{format(row.value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Derived project facts
+// ---------------------------------------------------------------------------
+
+export interface IfcProfileSuggestionsProps {
+  suggestions: BimProfileSuggestion[] | null
+  isLoading: boolean
+  error: string | null
+  /** Opens the chat with a question that asks the agent to apply these. */
+  askHref: string
+}
+
+const CONFIDENCE_VARIANT: Record<BimProfileSuggestion['confidence'], 'success' | 'warning' | 'secondary'> =
+  {
+    high: 'success',
+    medium: 'warning',
+    low: 'secondary',
+  }
+
+export function IfcProfileSuggestions({
+  suggestions,
+  isLoading,
+  error,
+  askHref,
+}: IfcProfileSuggestionsProps): JSX.Element {
+  const t = useTranslations('bim')
+
+  return (
+    <section aria-labelledby="bim-profile-heading" className="space-y-2">
+      <h2 id="bim-profile-heading" className="flex items-center gap-2 text-sm font-semibold">
+        <Sparkles className="size-4 text-muted-foreground" aria-hidden="true" />
+        {t('profile.title')}
+      </h2>
+      <p className="text-xs text-muted-foreground">{t('profile.description')}</p>
+
+      {isLoading && <Spinner className="size-4" />}
+      {error && <p className="text-sm text-destructive">{t('profile.failed')}</p>}
+
+      {suggestions && suggestions.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('profile.empty')}</p>
+      )}
+
+      {suggestions && suggestions.length > 0 && (
+        <>
+          <ul className="space-y-1.5">
+            {suggestions.map((suggestion) => (
+              <li key={suggestion.key} className="rounded-lg border p-2">
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium">{t(`profile.key.${suggestion.key}`)}</span>
+                  <span className="tabular-nums">{String(suggestion.value)}</span>
+                  <Badge variant={CONFIDENCE_VARIANT[suggestion.confidence]}>
+                    {t(`profile.confidence.${suggestion.confidence}`)}
+                  </Badge>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{suggestion.evidence}</p>
+              </li>
+            ))}
+          </ul>
+          {/*
+            No Apply button here on purpose. These are inferences from an export
+            that may be a working file, and `geschosse_oberirdisch` picks a
+            Gebäudeklasse — so they go through the same confirm-the-patch card
+            every other agent-proposed brief change uses (ADR-0030), rather than
+            being written by a button that looks like a checkbox.
+          */}
+          <Button asChild size="sm" variant="secondary">
+            <a href={askHref}>{t('profile.ask')}</a>
+          </Button>
+        </>
+      )}
+    </section>
+  )
+}

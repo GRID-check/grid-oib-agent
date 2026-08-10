@@ -33,7 +33,7 @@ import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/sign
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
@@ -44,9 +44,12 @@ import {
   findStorageKeyByCollectionAndFilename,
   listProjectDocuments,
   markDocumentIngestFailed,
+  markDocumentProcessing,
   setDocumentIngestJob,
   type DocumentListRow,
 } from './repository'
+import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
+import { isIfcFilename } from '@/lib/bim/types'
 
 const PREVIEW_CONTENT_TYPES = [
   'application/pdf',
@@ -423,7 +426,13 @@ export interface UploadDocumentInput {
 export interface UploadDocumentResult {
   documentId: string
   jobId: string | null
-  status: 'pending' | 'uploaded' | 'failed'
+  /**
+   * `processing` is the IFC path: extraction runs in this process and there is
+   * no backend job to report yet, but the document is genuinely being worked on
+   * — reporting `uploaded` would render a green "Ready" for a model that cannot
+   * be opened.
+   */
+  status: 'pending' | 'uploaded' | 'failed' | 'processing'
   filename: string
 }
 
@@ -447,8 +456,13 @@ function fileExtension(name: string): string {
  */
 export async function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): Promise<void> {
   const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+  const ifcUploadEnabled = isIfcModelsEnabled(session)
   const vlmAvailable = await isVlmConfigured()
-  const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled, vlmAvailable })
+  const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, {
+    imageUploadEnabled,
+    vlmAvailable,
+    ifcUploadEnabled,
+  })
   const allowed = acceptedTypes
     .split(',')
     .map((ext) => ext.trim().toLowerCase())
@@ -552,13 +566,26 @@ export async function uploadDocument(
     status: 'uploaded',
   })
 
-  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(
-    documentId,
-    collectionName,
-    storageKey,
-    session.organizationId,
-    storageBucket,
-  )
+  // An IFC model does NOT go to the ingestor as-is: its STEP source would be
+  // embedded as unreadable noise. It is parsed here instead, and the Markdown
+  // digest that parse produces is what gets ingested (see `@/lib/bim/service`).
+  const { jobId: ingestJobId, status: ingestStatus } = isIfcFilename(file.name)
+    ? await beginModelExtraction({
+        organizationId: session.organizationId,
+        projectId,
+        documentId,
+        filename: file.name,
+        storageKey,
+        storageBucket,
+        collectionName,
+      })
+    : await dispatchIngest(
+        documentId,
+        collectionName,
+        storageKey,
+        session.organizationId,
+        storageBucket,
+      )
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -580,9 +607,83 @@ export async function uploadDocument(
   }
 }
 
+export interface BeginModelExtractionInput {
+  organizationId: string
+  projectId: string | null
+  documentId: string
+  filename: string
+  storageKey: string
+  storageBucket: string | null
+  collectionName: string
+}
+
+/**
+ * Kick off IFC extraction for a stored `.ifc` object and return the same shape
+ * `dispatchIngest` does, so the upload path stays one expression.
+ *
+ * Extraction is DETACHED, not awaited. A 60 MB model takes tens of seconds to
+ * parse, and the caller is an HTTP request that has already stored the bytes —
+ * blocking it would trade a durable upload for a gateway timeout. The document
+ * is marked `processing` first, so the row never renders as a green "Ready"
+ * for a model that cannot be opened yet, and every terminal outcome writes the
+ * row again:
+ *
+ *   - parse succeeded → the digest is dispatched, which sets `pending` + job id
+ *   - parse failed    → `failed` with the reason, and a `bim_models` row that
+ *                       records the same thing for the model surfaces
+ *
+ * The tradeoff this accepts: a process restart mid-parse leaves the document at
+ * `processing` and the model at `extracting`. That is visible in both places
+ * and recoverable through the ordinary re-ingest action, which is a better
+ * failure than a lost upload.
+ */
+export async function beginModelExtraction(
+  input: BeginModelExtractionInput,
+): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
+  await markDocumentProcessing(input.documentId, input.organizationId)
+
+  void runBimExtraction({
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+    documentId: input.documentId,
+    filename: input.filename,
+    storageKey: input.storageKey,
+    storageBucket: input.storageBucket,
+    dispatchDigest: (digestStorageKey) =>
+      dispatchIngest(
+        input.documentId,
+        input.collectionName,
+        digestStorageKey,
+        input.organizationId,
+        input.storageBucket,
+      ),
+  })
+    .then(async (outcome) => {
+      if (outcome.status === 'failed') {
+        await markDocumentIngestFailed(
+          input.documentId,
+          input.organizationId,
+          outcome.error ?? 'IFC extraction failed',
+        )
+      }
+    })
+    .catch(async () => {
+      // runBimExtraction is written not to throw; this is the belt to its
+      // braces, so an unexpected failure still leaves a truthful row rather
+      // than a document stuck at 'processing' forever.
+      await markDocumentIngestFailed(
+        input.documentId,
+        input.organizationId,
+        'IFC extraction failed',
+      ).catch(() => undefined)
+    })
+
+  return { jobId: null, status: 'processing' }
+}
+
 export interface ReingestDocumentResult {
   id: string
-  status: 'pending' | 'uploaded' | 'failed'
+  status: 'pending' | 'uploaded' | 'failed' | 'processing'
   jobId: string | null
 }
 
@@ -610,13 +711,27 @@ export async function reingestDocument(
   // per-organization document presigned a GET for an object that is not there
   // (the retry can never succeed) and a PUT into the shared bucket for a
   // thumbnail every read path then looks for in the tenant bucket.
-  const { jobId, status } = await dispatchIngest(
-    doc.id,
-    doc.collectionName,
-    doc.storageKey,
-    session.organizationId,
-    doc.storageBucket,
-  )
+  // A failed IFC document is retried by re-EXTRACTING it, not by re-dispatching
+  // its bytes: the raw model was never what ingestion consumed, so handing the
+  // STEP file to the ingestor here would "succeed" into a collection full of
+  // geometry noise — a green status on a model still unopenable.
+  const { jobId, status } = isIfcFilename(doc.filename)
+    ? await beginModelExtraction({
+        organizationId: session.organizationId,
+        projectId: doc.projectId,
+        documentId: doc.id,
+        filename: doc.filename,
+        storageKey: doc.storageKey,
+        storageBucket: doc.storageBucket,
+        collectionName: doc.collectionName,
+      })
+    : await dispatchIngest(
+        doc.id,
+        doc.collectionName,
+        doc.storageKey,
+        session.organizationId,
+        doc.storageBucket,
+      )
   return { id: doc.id, status, jobId }
 }
 
@@ -722,6 +837,11 @@ export async function deleteDocument(
           .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
           .catch(() => undefined)
       }
+      // The IFC pipeline writes its digest and index under a `_bim/`
+      // subdirectory of the same document folder. Those are nested, not
+      // siblings, so the exact-key deletes above never reach them — and the
+      // digest is the object the RAG index points at.
+      await deleteBimDerivedObjects(doc.storageKey, doc.storageBucket).catch(() => undefined)
     } catch {
       // ignore — the object may already be gone; the row delete below is the record of intent
     }

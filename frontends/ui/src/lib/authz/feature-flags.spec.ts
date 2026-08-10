@@ -4,7 +4,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   FEATURE_FLAGS,
+  ifcModelsEnvOptIn,
   isFeatureEnabled,
+  isIfcModelsEnabled,
   isWorkflowsEnabled,
   requireFeature,
   requireWorkflowsEnabled,
@@ -129,5 +131,52 @@ describe('organization-archiv flag (standard WorkOS flag, ADR-0024)', () => {
     const res = requireFeature({ featureFlags: [] }, FEATURE_FLAGS.orgArchiv)
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: 'organization-archiv' })
+  })
+})
+
+describe('ifc-models — dark-launched, not fail-open', () => {
+  afterEach(() => {
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_IFC_MODELS_ENABLED
+  })
+
+  it('registry carries the ifc-models slug', () => {
+    expect(FEATURE_FLAGS.ifcModels).toBe('ifc-models')
+  })
+
+  it('unenforced with no opt-in: OFF', () => {
+    // The bug this gate replaces. `isFeatureEnabled` is fail-open, and
+    // enforcement is off by default in both deployment paths
+    // (`${GRID_ENFORCE_FEATURE_FLAGS:-false}` in compose, `false` in Pulumi),
+    // so merging the feature turned it on for every user of every deployment
+    // — including the agent's `ifc_query` route. This feature renders OIB
+    // compliance verdicts; it does not get to switch itself on.
+    expect(isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.ifcModels)).toBe(true)
+    expect(isIfcModelsEnabled({ featureFlags: null })).toBe(false)
+    expect(isIfcModelsEnabled({ featureFlags: [FEATURE_FLAGS.ifcModels] })).toBe(false)
+  })
+
+  it('unenforced with the deployment opt-in: ON regardless of the claim', () => {
+    process.env.GRID_IFC_MODELS_ENABLED = 'true'
+    expect(isIfcModelsEnabled({ featureFlags: null })).toBe(true)
+    expect(isIfcModelsEnabled({ featureFlags: [] })).toBe(true)
+  })
+
+  it('enforced: the per-org WorkOS claim decides and the env var is ignored', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    process.env.GRID_IFC_MODELS_ENABLED = 'true'
+    expect(isIfcModelsEnabled({ featureFlags: [FEATURE_FLAGS.ifcModels] })).toBe(true)
+    expect(isIfcModelsEnabled({ featureFlags: [] })).toBe(false)
+    // A token minted before the flag existed must not inherit the env opt-in.
+    expect(isIfcModelsEnabled({ featureFlags: null })).toBe(false)
+  })
+
+  it('only the exact string `true` opts in', () => {
+    for (const value of ['', 'false', '1', 'yes', 'TRUE ']) {
+      process.env.GRID_IFC_MODELS_ENABLED = value
+      expect(ifcModelsEnvOptIn(), `value ${JSON.stringify(value)}`).toBe(false)
+    }
+    process.env.GRID_IFC_MODELS_ENABLED = 'TRUE'
+    expect(ifcModelsEnvOptIn()).toBe(true) // case-insensitive, like every other gate here
   })
 })

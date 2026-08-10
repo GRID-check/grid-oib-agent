@@ -639,3 +639,85 @@ the write volume.
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 Primary key: `conversation_reads_pk (conversation_id, user_id)`.
+
+## `bim_models` / `bim_elements` (migrations 0034, 0036–0038, ADR-0045)
+
+What an uploaded `.ifc` document turned out to contain.
+
+### `bim_models`
+
+One row per IFC document, unique on `document_id` — a model is not a separate
+upload, it is what the document *is*, so deleting the document deletes the
+model. Carries `organization_id` and the nullable `project_id` (org-wide Archiv
+models have none), the extraction `status`
+(`pending | extracting | ready | failed`), the declared `schema_version`, an
+`index_storage_key` pointing at the full JSON index in object storage, and a
+`summary` jsonb holding the spatial tree, storeys, type counts, totals and the
+validation findings.
+
+Two columns exist purely so a large model can be answered quickly:
+
+| column | migration | notes |
+|---|---|---|
+| `rule_inputs` | 0037 | The slice of the element set the OIB rule catalogue reads — six fields and thirteen property keys, pruned (`lib/bim/rule-inputs.ts`) and written in the same transaction as the elements. A compliance run reads one column of one row instead of 50 000 wide rows: measured 1 409 → 219 bytes per element, and ~580 ms → ~55 ms of driver JSON parsing on the event loop. Versioned; a projection written before a key was added is a miss, not a wrong verdict. |
+| `search_keys_indexed` | 0038 | Whether every element of this model has `bim_elements.search_keys` written, and the GIN pre-filter may therefore be used against it. `DEFAULT false` so a model extracted by an older image during a rolling deploy is answered by the unnest alone — slow, and right. |
+
+### `bim_elements`
+
+One row per element (wall, door, room). Identifying attributes are columns so
+they can be indexed and grouped; property sets, quantities, materials and
+classifications are `jsonb`, because their keys are chosen by whichever
+application exported the model and cannot be columns. Indexed on
+`(model_id, express_id)` (unique), `(model_id, ifc_type, express_id)`,
+`(model_id, storey_name)`, `(model_id, global_id)`, and
+`gin (search_keys jsonb_ops)`.
+
+`express_id` is the third column of the type index (0039) so that it satisfies
+the element list's `ORDER BY ifc_type, express_id` outright — with only
+`(model_id, ifc_type)` a page could be produced only by reading a whole type
+group and sorting it, which with a `jsonb_each` predicate in the WHERE means
+unnesting tens of thousands of elements to return twenty-five (1 277 ms → 3 ms
+measured on a 200 000-element model). It is the fast plan for a filter matching
+MANY elements, where the GIN index below is the fast plan for one matching few;
+`listBimElements` chooses between them.
+
+`search_keys` (0038) is a flat, lowercased shadow of `properties` and
+`quantities` — `{"p:firerating": ["rei 90"], "p:pset_wallcommon.firerating":
+["rei 90"], "q:width": ["0.9"]}` — where `p:`/`q:` separate properties from
+quantities, the bare key answers "any set" and the dotted key answers a
+set-qualified filter. It exists because the real predicate is a correlated
+`EXISTS (jsonb_each(properties) … lower(…) = lower(…))` that nothing can index,
+so a filtered query used to unnest every row of the model. It is a **necessary
+pre-filter, never the answer**: the exact unnest still decides, so an extra key
+costs speed rather than correctness, and a missing one is prevented by
+`search_keys_indexed` rather than tolerated.
+
+`jsonb_ops`, not `jsonb_path_ops`: the pre-filter needs key-existence (`?`) as
+well as containment (`@>`), and `jsonb_path_ops` supports only the latter. The
+original `gin (properties jsonb_path_ops)` index from 0034 was never usable by
+any query the layer emits and was dropped in 0036.
+
+Deliberately **no** `organization_id`: the parent model's column is the truth
+and the RLS policy joins it, per the child-table rule in ADR-0041. The join is
+asserted against a live Postgres in `src/lib/bim/query.integration.spec.ts`,
+which runs under `task db:test:rls` — as is the agreement between the
+TypeScript `buildSearchKeys` and 0038's SQL backfill, which are two
+implementations of the same map.
+
+### `bim_check_confirmations`
+
+A human verdict on a rule the OIB catalogue (`lib/bim/rules.ts`) could not
+settle — an architect reading a plan, or knowing that `F 90` is load-bearing 90
+minutes even though the checker refused to score it.
+
+| column | notes |
+|---|---|
+| `rule_id` | Catalogue rule id. **Not** a foreign key: the catalogue is code, and a renamed or retired rule must not take a signed confirmation down with it. |
+| `model_id` | The revision the person actually looked at. This is the point of the table: a later revision leaves the confirmation in place but visibly **stale**, so a signature cannot outlive the drawing it was made about. |
+| `confirmed_by` | Taken from the session, never from the request body. |
+| `note` | Why they are confident; shown verbatim beside the verdict. |
+
+Unique on `(organization_id, project_id, rule_id)` — a rule has exactly one
+current human verdict, and re-confirming replaces it rather than growing a
+history nobody reads. RLS: `organization_id = grid_current_org()` plus a
+project-ownership `EXISTS`.

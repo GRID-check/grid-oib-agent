@@ -77,6 +77,20 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   energy_performance: 'presentational',
   elevator_requirement: 'presentational',
   parking_requirement: 'presentational',
+  // The 3D model viewer: orbiting, isolating a storey and selecting an element
+  // are view state, not decisions — nothing is written and nothing would be
+  // annoying to redo, so there is nothing to persist on the message.
+  ifc_viewer: 'presentational',
+  // All three read their data live from the model and write nothing. Opening
+  // one, sorting it, or downloading the CSV starts no commitment.
+  ifc_schedule: 'presentational',
+  ifc_element: 'presentational',
+  ifc_diff: 'presentational',
+  // Reads its verdicts live and writes nothing. Confirming a requirement is a
+  // real write, but it happens on the model page against a project — not from
+  // a card, which has no project-scoped edit affordance and would strand the
+  // decision on a message.
+  ifc_compliance: 'presentational',
 }
 
 /** The card types whose user decisions must be persisted (see the map above). */

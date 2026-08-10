@@ -17,8 +17,12 @@
 'use client'
 
 import { useEffect, useRef, useSyncExternalStore, type FC, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { InPageAnchorProvider } from '@/shared/components/MarkdownRenderer/anchor-context'
+import { InternalLinkProvider } from '@/shared/components/MarkdownRenderer/internal-link-context'
+import { IfcElementChip } from '@/features/bim/components/ifc-element-chip'
+import { parseElementLink } from '@/features/bim/lib/element-question'
 import {
   CITATION_PARAM,
   parseCitationLink,
@@ -54,7 +58,43 @@ export const AnswerCitations: FC<{
           />
         )}
       >
-        {children}
+        {/*
+          A link the answer wrote into the app. A model deep link becomes an
+          element chip — the answer names a wall and the reader can open it —
+          and every other in-app link at least stops opening a second tab.
+        */}
+        <InternalLinkProvider
+          render={({ href, children: label }) => {
+            const element = parseElementLink(href)
+            if (element) {
+              return <IfcElementChip link={element}>{label}</IfcElementChip>
+            }
+            // An `/api/…` href is a DOWNLOAD, not a route. Rendered as a
+            // `next/link` it was prefetched by the intersection observer 200px
+            // before it scrolled into view — firing a full, unrate-limited
+            // compliance run and BCF build per link, with no click and no
+            // intent. A plain anchor with `download` is also what the reader
+            // actually wants: a file, not a navigation.
+            if (href.startsWith('/api/')) {
+              return (
+                <a
+                  href={href}
+                  download
+                  className="text-brand underline underline-offset-2 hover:opacity-80"
+                >
+                  {label}
+                </a>
+              )
+            }
+            return (
+              <Link href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
+                {label}
+              </Link>
+            )
+          }}
+        >
+          {children}
+        </InternalLinkProvider>
       </InPageAnchorProvider>
       {linked.ref && (
         <SourceDocumentDialog citation={linked.ref} onClose={linked.dismiss} />

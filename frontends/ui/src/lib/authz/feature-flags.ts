@@ -87,6 +87,21 @@ export const FEATURE_FLAGS = {
    * capability doctrine in AGENTS.md.
    */
   collaboration: 'collaboration',
+  /**
+   * IFC/BIM models (ADR-0045): `.ifc` upload, in-browser model viewer, and the
+   * agent's deterministic `ifc_query` tool.
+   *
+   * Gates the `.ifc` entry in the upload accept-list (client and the BFF
+   * allow-list), the model surfaces, and every `/api/**\/bim/*` route.
+   *
+   * Like `collaboration`, there is deliberately NO paired capability gate.
+   * Extraction runs in the BFF process with `@ifc-lite/parser` and the viewer
+   * runs in the browser, so the feature has no infrastructure dependency to
+   * derive a capability from — per the capability doctrine in AGENTS.md. The
+   * viewer's WebGPU requirement is a per-BROWSER fact, detected at render time
+   * and degraded to the data explorer, not a deployment capability.
+   */
+  ifcModels: 'ifc-models',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -153,6 +168,34 @@ export function isCollaborationEnabled(session: Pick<GridSession, 'featureFlags'
     return isFeatureEnabled(session, FEATURE_FLAGS.collaboration)
   }
   return (process.env.GRID_COLLABORATION_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Default-OFF gate for IFC/BIM models (ADR-0045). Same dark-launch shape as
+ * `isCollaborationEnabled`: with WorkOS flag enforcement it follows the per-org
+ * `ifc-models` flag; without enforcement it requires an explicit deployment
+ * opt-in via `GRID_IFC_MODELS_ENABLED=true`.
+ *
+ * Deliberately not fail-open like `isFeatureEnabled`. The fail-open default is
+ * right for the flags that gate cosmetics — an origin badge, a confidence chip
+ * — and wrong here: this feature renders OIB compliance verdicts, and a
+ * checker that says `erfüllt` is making a claim an architect may act on. A
+ * deployment gets that only by choosing it.
+ */
+export function isIfcModelsEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.ifcModels)
+  }
+  return ifcModelsEnvOptIn()
+}
+
+/**
+ * The session-less half of {@link isIfcModelsEnabled}, for the internal service
+ * route: it carries a service token and no session, so it resolves the per-org
+ * flag itself and needs this for the enforcement-off case.
+ */
+export function ifcModelsEnvOptIn(): boolean {
+  return (process.env.GRID_IFC_MODELS_ENABLED ?? '').toLowerCase() === 'true'
 }
 
 /**

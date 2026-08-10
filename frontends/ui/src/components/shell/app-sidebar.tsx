@@ -69,6 +69,8 @@ export interface AppSidebarProps {
   canAccessArchiv?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
   showWorkflows?: boolean
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
+  showModels?: boolean
   /**
    * Whether the inbox is reachable for this reader. Gates the Inbox nav entry —
    * and with it the badge subscription, so a gated reader opens no live
@@ -97,6 +99,7 @@ export function AppSidebar({
   canManagePlatform = false,
   canAccessArchiv = false,
   showWorkflows = false,
+  showModels = false,
   canAccessInbox,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
@@ -245,7 +248,7 @@ export function AppSidebar({
   // Workflows is feature-flagged (default off); Archiv shows for any member of
   // an org with the `organization-archiv` flag — the same gate the user menu's
   // Archiv entry uses (the layout passes both from getNavFlags).
-  const navItems = railSections({ showWorkflows, canAccessArchiv, canAccessInbox })
+  const navItems = railSections({ showWorkflows, showModels, canAccessArchiv, canAccessInbox })
 
   const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)
 

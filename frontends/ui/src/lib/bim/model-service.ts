@@ -1,0 +1,340 @@
+/**
+ * BIM model service — the authorized, user-facing surface over parsed models.
+ *
+ * Split from `service.ts` (which owns the extraction pipeline) because the two
+ * answer different questions: that module turns bytes into a model, this one
+ * decides who may look at one. Authorization mirrors the documents domain
+ * exactly, because a model IS a document — a project model goes through
+ * per-project FGA, an Archiv model (no project) is readable by any member of
+ * the organization that owns it. Cross-tenant and no-access both surface as 404.
+ */
+
+import 'server-only'
+import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { signingS3Client } from '@/lib/s3'
+import { resolveDocumentBucket } from '@/lib/storage/bucket'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { findDocumentInOrg } from '@/lib/documents/repository'
+import { findProjectInOrg } from '@/lib/projects/repository'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import { buildComplianceBcf, type BcfExport } from './bcf'
+import { attachConfirmations } from './rules'
+import {
+  deleteBimCheckConfirmation,
+  findBimModelByDocument,
+  findBimModelById,
+  listBimCheckConfirmations,
+  listBimModels,
+  upsertBimCheckConfirmation,
+  type BimModelHeader,
+  type BimStoredConfirmation,
+} from './repository'
+import { runBimQuery, type BimQuery, type BimQueryResult } from './query'
+
+const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
+
+/**
+ * Refuse every model surface when the `ifc-models` flag is off for this org.
+ *
+ * The routes are otherwise reachable by URL on a deployment that has not bought
+ * the feature — the flag would then gate only the upload button, which is a UI
+ * preference rather than a boundary.
+ */
+export function assertIfcModelsEnabled(session: AuthorizedSession): void {
+  if (!isIfcModelsEnabled(session)) {
+    throw new ForbiddenError('IFC models are not enabled for this organization')
+  }
+}
+
+/**
+ * Load a model and enforce the access its document's scope demands.
+ *
+ * The check is on the DOCUMENT, not on the model row: the model is derived data
+ * and the document is the thing the sharing rules are written about, so
+ * deriving access from anywhere else would eventually let the two disagree.
+ */
+export async function getAccessibleModel(
+  session: AuthorizedSession,
+  modelId: string
+): Promise<BimModelHeader> {
+  assertIfcModelsEnabled(session)
+  const model = await findBimModelById(modelId, session.organizationId)
+  if (!model) throw new NotFoundError('Model not found')
+
+  const document = await findDocumentInOrg(model.documentId, session.organizationId)
+  if (!document) throw new NotFoundError('Model not found')
+
+  // An Archiv document (no project) is readable by any member of the org, which
+  // `findDocumentInOrg` has already established.
+  if (document.projectId !== null) {
+    await requireProjectAccess(session, document.projectId, 'project:view')
+  }
+  return model
+}
+
+/** The model belonging to a document the caller may read, or null. */
+export async function getModelForDocument(
+  session: AuthorizedSession,
+  documentId: string
+): Promise<BimModelHeader | null> {
+  assertIfcModelsEnabled(session)
+  const document = await findDocumentInOrg(documentId, session.organizationId)
+  if (!document) throw new NotFoundError('Document not found')
+  if (document.projectId !== null) {
+    await requireProjectAccess(session, document.projectId, 'project:view')
+  }
+  return findBimModelByDocument(documentId, session.organizationId)
+}
+
+/**
+ * Models a project can see: its own, plus the org-wide Archiv's.
+ *
+ * The same scope rule retrieval uses — a chat that can cite an Archiv document
+ * can query the model that document is.
+ */
+export async function listAccessibleModels(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<BimModelHeader[]> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:view')
+  return listBimModels(session.organizationId, { projectId, includeArchiv: true })
+}
+
+/**
+ * Run a validated query against a model the caller may read.
+ *
+ * BOTH models are authorized when the op names a second one. `compare` and
+ * `compliance-diff` take a `baseModelId` straight from the request body, and
+ * `runBimQuery` resolves it with `findBimModelById`, which scopes on the
+ * ORGANIZATION and nothing else — the per-project FGA that `getAccessibleModel`
+ * applies to the target never reaches the base.
+ *
+ * Without the check below, a member holding `project:view` on one project can
+ * name any model id in the organization as the base and read another project's
+ * building out of the diff: `compare` reports every base element absent from
+ * the revision as `removed`, with its name and storey, and `compliance-diff`
+ * reports the base's per-rule verdict counts and its file name.
+ * `requireProjectAccess` deliberately answers 404 so a caller cannot even
+ * confirm such a project exists; handing its element names over through a
+ * second parameter undoes that.
+ */
+export async function queryAccessibleModel(
+  session: AuthorizedSession,
+  modelId: string,
+  request: BimQuery
+): Promise<BimQueryResult> {
+  const model = await getAccessibleModel(session, modelId)
+  const baseModelId = 'baseModelId' in request ? request.baseModelId : undefined
+  if (typeof baseModelId === 'string' && baseModelId !== model.id) {
+    await getAccessibleModel(session, baseModelId)
+  }
+  return runBimQuery(request, { modelId: model.id, organizationId: session.organizationId })
+}
+
+export interface BimModelSource {
+  /** Presigned GET for the raw IFC — the viewer streams geometry from this. */
+  url: string
+  filename: string
+  expiresInSeconds: number
+}
+
+/**
+ * A short-lived download URL for the model's own bytes.
+ *
+ * The 3D viewer parses and triangulates in the BROWSER: ifc-lite's geometry
+ * kernel is WASM, the renderer is WebGPU, and neither exists server-side. That
+ * makes the source file the viewer's actual input — it is not a download link
+ * bolted on, it is how the model is displayed at all. The URL is presigned with
+ * the same TTL as every other document read, so it expires like one.
+ */
+export async function getModelSource(
+  session: AuthorizedSession,
+  modelId: string
+): Promise<BimModelSource> {
+  const model = await getAccessibleModel(session, modelId)
+  const document = await findDocumentInOrg(model.documentId, session.organizationId)
+  if (!document?.storageKey) throw new NotFoundError('Model file not available')
+
+  const expiresIn = presignTtlSeconds()
+  const url = await getSignedUrl(
+    // The BROWSER fetches this, so it must be signed against the
+    // browser-reachable endpoint. Signing with the internal client bakes the
+    // Docker hostname into the URL and the viewer can never load the model —
+    // the same bug that once broke PDF preview.
+    signingS3Client,
+    new GetObjectCommand({
+      Bucket: resolveDocumentBucket(document.storageBucket),
+      Key: document.storageKey,
+    }),
+    { expiresIn }
+  )
+  return { url, filename: document.filename, expiresInSeconds: expiresIn }
+}
+
+// ---------------------------------------------------------------------------
+// Human confirmations on rule verdicts
+// ---------------------------------------------------------------------------
+
+/**
+ * The confirmations recorded for a project's Prüfbuch.
+ *
+ * `project:view` is enough to READ them: a confirmation is part of the record
+ * everyone working on the project needs to see, and hiding it from a viewer
+ * would show them open questions somebody has already answered.
+ */
+export async function listAccessibleCheckConfirmations(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<BimStoredConfirmation[]> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:view')
+  return listBimCheckConfirmations(session.organizationId, projectId)
+}
+
+/**
+ * Record a human verdict on one rule, against the revision they looked at.
+ *
+ * `project:edit`, and the confirming identity comes from the SESSION rather
+ * than the request body — a signature a caller could address to somebody else
+ * is not a signature. The model is re-resolved through `getAccessibleModel` so
+ * a confirmation cannot be pinned to a revision in another tenant.
+ */
+export async function confirmAccessibleCheck(
+  session: AuthorizedSession,
+  projectId: string,
+  input: { ruleId: string; modelId: string; note: string | null }
+): Promise<void> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:edit')
+  const model = await getAccessibleModel(session, input.modelId)
+  await upsertBimCheckConfirmation({
+    organizationId: session.organizationId,
+    projectId,
+    ruleId: input.ruleId,
+    modelId: model.id,
+    confirmedBy: session.userId,
+    note: input.note,
+  })
+}
+
+/**
+ * Find one readable model in a project by its file name.
+ *
+ * An exact match wins over a substring, and the NEWEST wins when several
+ * still match: a project carrying `Haus-A_V3.ifc` and `Haus-A_V3 (1).ifc`
+ * should answer for the one the architect uploaded last, not for whichever
+ * row the database happened to return first. `listBimModels` already orders
+ * newest-first, so the first hit is that one.
+ *
+ * The caller has already passed `project:view`; this narrows within what that
+ * check allowed and never widens it.
+ */
+async function resolveModelByName(
+  session: AuthorizedSession,
+  projectId: string,
+  name: string
+): Promise<BimModelHeader> {
+  const models = (await listBimModels(session.organizationId, { projectId, includeArchiv: true })).filter(
+    (model) => model.status === 'ready'
+  )
+  const needle = name.trim().toLowerCase()
+  const model =
+    models.find((entry) => entry.filename.toLowerCase() === needle) ??
+    models.find((entry) => entry.filename.toLowerCase().includes(needle))
+  if (!model) throw new NotFoundError('Model not found in this project')
+  return model
+}
+
+/**
+ * The Prüfbuch's open items as a BCF 2.1 archive.
+ *
+ * Runs the SAME query op the panel reads (`compliance`) rather than a second
+ * path to the same numbers — an export that can disagree with the screen is
+ * worse than no export, because only one of them ends up in the submission.
+ *
+ * The model must belong to this project (or be an org-wide Archiv model). That
+ * is not a second access check — `getAccessibleModel` already made one — it
+ * stops a model from being exported under a project whose confirmations were
+ * recorded about a different building.
+ */
+export async function exportAccessibleComplianceBcf(
+  session: AuthorizedSession,
+  projectId: string,
+  input: {
+    modelId: string | null
+    /** File name, for the callers that address models the way people do. */
+    modelName?: string | null
+    gebaeudeklasse: number | null
+    hauptnutzung: string | null
+  }
+): Promise<BcfExport> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:view')
+
+  const model = input.modelId
+    ? await getAccessibleModel(session, input.modelId)
+    : await resolveModelByName(session, projectId, input.modelName ?? '')
+  if (model.projectId !== null && model.projectId !== projectId) {
+    throw new NotFoundError('Model not found in this project')
+  }
+
+  const [result, confirmations, project] = await Promise.all([
+    runBimQuery(
+      {
+        op: 'compliance',
+        gebaeudeklasse: input.gebaeudeklasse,
+        hauptnutzung: input.hauptnutzung,
+      },
+      { modelId: model.id, organizationId: session.organizationId }
+    ),
+    listBimCheckConfirmations(session.organizationId, projectId),
+    findProjectInOrg(projectId, session.organizationId),
+  ])
+
+  const results = attachConfirmations(
+    result.compliance ?? [],
+    confirmations.map((entry) => ({
+      ruleId: entry.ruleId,
+      modelId: entry.modelId,
+      confirmedBy: entry.confirmedBy,
+      note: entry.note,
+      confirmedAt: entry.confirmedAt.toISOString(),
+    })),
+    model.id
+  )
+
+  const root = model.summary?.spatial
+  return buildComplianceBcf({
+    projectId,
+    projectName: project?.name ?? null,
+    model: {
+      id: model.id,
+      filename: model.filename,
+      ifcProjectGlobalId: root?.ifcType === 'IfcProject' ? root.globalId : null,
+      updatedAt: model.updatedAt,
+    },
+    results,
+    // The person pressing export, not the person who confirmed anything — a
+    // BCF reader shows this as who raised the topic.
+    author: session.email,
+  })
+}
+
+/** Withdraw a confirmation; the rule returns to whatever the catalogue says. */
+export async function withdrawAccessibleCheck(
+  session: AuthorizedSession,
+  projectId: string,
+  ruleId: string
+): Promise<void> {
+  assertIfcModelsEnabled(session)
+  await requireProjectAccess(session, projectId, 'project:edit')
+  await deleteBimCheckConfirmation({
+    organizationId: session.organizationId,
+    projectId,
+    ruleId,
+  })
+}

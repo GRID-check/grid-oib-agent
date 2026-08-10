@@ -54,6 +54,8 @@ export interface KeyboardShortcutsProps {
   showKnowledge?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
   showWorkflows?: boolean
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
+  showModels?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
   canAccessArchiv?: boolean
   /** Whether the collaboration surfaces are reachable (`collaboration`, ADR-0032…0035). */
@@ -67,6 +69,7 @@ export function KeyboardShortcuts({
   canViewOrganization,
   showKnowledge = false,
   showWorkflows = false,
+  showModels = false,
   canAccessArchiv = false,
   canCollaborate = false,
   canAccessInbox = false,
@@ -79,8 +82,24 @@ export function KeyboardShortcuts({
   const leaderArmedAtRef = React.useRef<number | null>(null)
 
   const flags: ShortcutFlags = React.useMemo(
-    () => ({ canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate, canAccessInbox }),
-    [canViewOrganization, showKnowledge, showWorkflows, canAccessArchiv, canCollaborate, canAccessInbox],
+    () => ({
+      canViewOrganization,
+      showKnowledge,
+      showWorkflows,
+      showModels,
+      canAccessArchiv,
+      canCollaborate,
+      canAccessInbox,
+    }),
+    [
+      canViewOrganization,
+      showKnowledge,
+      showWorkflows,
+      showModels,
+      canAccessArchiv,
+      canCollaborate,
+      canAccessInbox,
+    ],
   )
 
   // The handler reads the live path (a jump to "Files" means the project the
@@ -159,6 +178,7 @@ export function KeyboardShortcuts({
         authRequired={authRequired}
         canViewOrganization={canViewOrganization}
         showKnowledge={showKnowledge}
+        showModels={showModels}
         showWorkflows={showWorkflows}
         canAccessArchiv={canAccessArchiv}
       />
@@ -167,6 +187,7 @@ export function KeyboardShortcuts({
         onOpenChange={setCheatsheetOpen}
         canViewOrganization={canViewOrganization}
         showKnowledge={showKnowledge}
+        showModels={showModels}
         showWorkflows={showWorkflows}
         canAccessArchiv={canAccessArchiv}
         canCollaborate={canCollaborate}

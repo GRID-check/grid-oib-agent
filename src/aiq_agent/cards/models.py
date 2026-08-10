@@ -631,6 +631,158 @@ class DocumentGridCard(BaseModel):
     documents: list[SurfacedDocument] = Field(min_length=1, description="The surfaced files, best match first")
 
 
+# ---------------------------------------------------------------------------
+# IFC/BIM viewer card
+# ---------------------------------------------------------------------------
+# The one card that renders the architect's ACTUAL building rather than a
+# schematic of it. Everything else in this catalog is drawn from numbers the
+# model supplies; this one points at geometry that already exists, so the model
+# supplies only WHICH elements to look at and why.
+#
+# The model never invents an element: `global_ids` must be IFC GlobalIds that
+# came back from the `ifc_query` tool in the same turn. An id that does not
+# exist in the model simply does not highlight — the viewer shows the building
+# and says how many highlights it could not resolve, rather than pretending.
+
+
+class IfcHighlight(BaseModel):
+    """One set of model elements to call out, with a verdict."""
+
+    global_ids: list[str] = Field(
+        min_length=1,
+        description=(
+            "IFC GlobalIds returned by ifc_query. NEVER invent these — an id you did not see is a wrong answer."
+        ),
+    )
+    label: str = Field(min_length=1, description="What is being shown, e.g. 'Fluchtweg > 40 m'")
+    status: Literal["pass", "fail", "warning", "info"] = Field(
+        default="info", description="Verdict colour: pass=green, fail=red, warning=amber, info=neutral"
+    )
+
+
+class IfcViewerCard(BaseModel):
+    """The project's IFC model, rendered in 3D, with findings highlighted on it.
+
+    Use when the answer is ABOUT specific parts of the building and seeing them
+    beats reading their names — a compliance finding on particular walls, the
+    rooms that fall below a required area, the escape route being discussed.
+    Do NOT use it as a decorative "here is your building": an unhighlighted
+    viewer says nothing a sentence does not.
+    """
+
+    type: Literal["ifc_viewer"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Brandabschnitte – EG'")
+    model_file: str | None = Field(
+        default=None,
+        description=(
+            "File name of the model, exactly as ifc_query reported it (e.g. 'haus-a.ifc'). "
+            "Leave empty when the project has only one model."
+        ),
+    )
+    highlights: list[IfcHighlight] | None = Field(
+        default=None, description="Element groups to colour in the viewer, each with a verdict"
+    )
+    storey: str | None = Field(default=None, description="Storey name to isolate on open, e.g. 'Erdgeschoss'")
+    note: str | None = Field(default=None, description="Optional one-line clarification under the viewer")
+
+
+class IfcScheduleCard(BaseModel):
+    """The project's Raumbuch (room schedule) straight from the model.
+
+    The card names WHICH table to show; the frontend fetches the numbers from
+    the model itself. The model therefore cannot get an area wrong, because it
+    never supplies one — the same reason the viewer card carries GlobalIds and
+    not geometry.
+
+    Use when the user asks for room areas, a Flächenaufstellung, or "what rooms
+    are on the second floor".
+    """
+
+    type: Literal["ifc_schedule"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Flächenaufstellung'")
+    model_file: str | None = Field(
+        default=None,
+        description="File name of the model as ifc_query reported it. Empty when the project has one model.",
+    )
+    storey: str | None = Field(
+        default=None, description="Limit the table to one storey, e.g. 'Erdgeschoss'. Empty shows all."
+    )
+    note: str | None = Field(default=None, description="Optional one-line clarification")
+
+
+class IfcComplianceCard(BaseModel):
+    """The Prüfbuch: OIB requirements with their verdict against this model.
+
+    Carries only WHICH requirements to show; the frontend runs the catalogue and
+    renders the counts, the thresholds and the failing elements itself. The
+    model therefore cannot state that a building complies, because it never
+    supplies a verdict — the same reason the schedule card carries no areas.
+
+    Use when the user asks whether the model meets a requirement, what is still
+    open, or what they have to add to the model. Prefer it over prose whenever
+    the answer is a list of requirements: the card stays correct after the model
+    changes, and a sentence does not.
+
+    NEVER present this as a Nachweis. The catalogue reads only published
+    property values, it reads no geometry, and Fluchtweglängen, Geländerhöhen
+    und Brandabschnittsgrößen are not in it at all.
+    """
+
+    type: Literal["ifc_compliance"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Anforderungen Brandschutz'")
+    model_file: str | None = Field(
+        default=None,
+        description="File name of the model as ifc_query reported it. Empty when the project has one model.",
+    )
+    rule_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Rule ids from ifc_query operation='compliance' (e.g. 'oib2-feuerwiderstand-tragend') "
+            "to narrow the card to the requirements this answer is about. Empty shows all. "
+            "Use ONLY ids the tool reported; the card says so when one does not resolve."
+        ),
+    )
+    note: str | None = Field(default=None, description="Optional one-line clarification")
+
+
+class IfcElementCard(BaseModel):
+    """One element of the model, in full, with a link into the 3D view.
+
+    Use when the answer is ABOUT a specific element the user will want to look
+    at — the wall that fails a requirement, the door being discussed. The card
+    carries only the GlobalId; every property shown is read live from the model.
+    """
+
+    type: Literal["ifc_element"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Aussenwand Nord'")
+    global_id: str = Field(
+        min_length=1,
+        description=(
+            "IFC GlobalId returned by ifc_query. NEVER invent one — an id you did not see resolves to nothing."
+        ),
+    )
+    model_file: str | None = Field(default=None, description="Model file name; empty when there is one model.")
+    note: str | None = Field(default=None, description="Why this element matters to the answer")
+
+
+class IfcDiffCard(BaseModel):
+    """What changed between two revisions of the model.
+
+    Names the two files; the frontend computes the comparison by IFC GlobalId.
+    Use for "what changed since the last submission" — the question a pair of
+    plan PDFs cannot answer.
+    """
+
+    type: Literal["ifc_diff"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Änderungen seit Einreichung'")
+    base_model_file: str = Field(min_length=1, description="The OLDER revision's file name")
+    model_file: str | None = Field(
+        default=None, description="The NEWER revision's file name. Empty uses the project's current model."
+    )
+    note: str | None = Field(default=None, description="Optional one-line clarification")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -654,6 +806,11 @@ GridCard = (
     | ParkingRequirementCard
     | MemoryProposalCard
     | DocumentGridCard
+    | IfcViewerCard
+    | IfcComplianceCard
+    | IfcScheduleCard
+    | IfcElementCard
+    | IfcDiffCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
@@ -665,6 +822,12 @@ __all__ = [
     "ComparisonTableCard",
     "DocumentGridCard",
     "GridCard",
+    "IfcHighlight",
+    "IfcViewerCard",
+    "IfcComplianceCard",
+    "IfcScheduleCard",
+    "IfcElementCard",
+    "IfcDiffCard",
     "LegalBasisCard",
     "MemoryProposalCard",
     "SurfacedDocument",

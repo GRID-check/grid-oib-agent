@@ -23,6 +23,13 @@ import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
 import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
+import { IfcViewerCard } from './IfcViewerCard'
+import {
+  IfcComplianceCard,
+  IfcDiffCard,
+  IfcElementCard,
+  IfcScheduleCard,
+} from './IfcDataCards'
 import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-documents'
 import { FadeIn } from '@/components/motion'
 
@@ -365,6 +372,81 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId }) =
                 query={card.query}
                 documents={(card.documents ?? []) as SurfacedDocument[]}
                 projectId={projectId}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_viewer') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcViewerCard
+                title={card.title}
+                modelFile={card.model_file ?? null}
+                storey={card.storey ?? null}
+                note={card.note ?? null}
+                highlights={(card.highlights ?? []).map((highlight) => ({
+                  globalIds: highlight.global_ids,
+                  label: highlight.label,
+                  status: highlight.status,
+                }))}
+                projectId={projectId ?? null}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_schedule') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcScheduleCard
+                title={card.title}
+                modelFile={card.model_file ?? null}
+                storey={card.storey ?? null}
+                note={card.note ?? null}
+                projectId={projectId ?? null}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_element') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcElementCard
+                title={card.title}
+                globalId={card.global_id}
+                modelFile={card.model_file ?? null}
+                note={card.note ?? null}
+                projectId={projectId ?? null}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_diff') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcDiffCard
+                title={card.title}
+                baseModelFile={card.base_model_file}
+                modelFile={card.model_file ?? null}
+                note={card.note ?? null}
+                projectId={projectId ?? null}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'ifc_compliance') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <IfcComplianceCard
+                title={card.title}
+                modelFile={card.model_file ?? null}
+                ruleIds={card.rule_ids ?? []}
+                note={card.note ?? null}
+                projectId={projectId ?? null}
               />
             </FadeIn>
           )

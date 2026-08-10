@@ -50,6 +50,39 @@ INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
 CARD_EXAMPLES: dict[str, dict] = {
+    # The one card whose element ids must be REAL: they come from ifc_query in
+    # the same turn, and an invented GlobalId highlights nothing. Worth an
+    # example so the model sees that `global_ids` is a list of opaque strings it
+    # copies, not a value it composes.
+    "ifc_compliance": {
+        "type": "ifc_compliance",
+        "title": "Offene Anforderungen — Brandschutz",
+        "model_file": "haus-a.ifc",
+        # Ids exactly as ifc_query operation='compliance' reported them. The
+        # card reports any that do not resolve rather than dropping them, so an
+        # invented id is visible instead of silently narrowing the list.
+        "rule_ids": ["oib2-feuerwiderstand-tragend"],
+        "note": "Orientierende Prüfung, kein Nachweis.",
+    },
+    "ifc_viewer": {
+        "type": "ifc_viewer",
+        "title": "Brandabschnitte – Erdgeschoss",
+        "model_file": "haus-a.ifc",
+        "storey": "Erdgeschoss",
+        "highlights": [
+            {
+                "global_ids": ["1kTvXnbbzCWw8lcMd1dR4o", "0RSwXnbbzCWw8lcMd1dR9z"],
+                "label": "REI 90 erfüllt",
+                "status": "pass",
+            },
+            {
+                "global_ids": ["2mUwYocc0DXx9mdNe2eS5p"],
+                "label": "Keine Feuerwiderstandsklasse hinterlegt",
+                "status": "fail",
+            },
+        ],
+        "note": "Die hervorgehobenen Wände stammen aus der Modellabfrage, nicht aus dem Plan.",
+    },
     "daylight_incidence": {
         "type": "daylight_incidence",
         "title": "Belichtung – freier Lichteinfall (Gästezimmer)",

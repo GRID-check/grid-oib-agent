@@ -915,6 +915,235 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   Projektwissen / Büroarchiv / Web via collection origin) for the research
   fan-out UI. Deterministic tagging only — no chunk-metadata dependency.
 
+## 6c. IFC/BIM models — the building as queryable data (ADR-0045, 2026-08-08)
+
+An uploaded `.ifc` does **not** go down the ingest path. A STEP physical file is
+tens of megabytes of `#412=IFCCARTESIANPOINT((1.2,0.,3.));`; embedding it
+produces chunks that match nothing and bury everything. It is parsed instead,
+in the BFF's Node process, with `@ifc-lite/parser`.
+
+```
+Upload .ifc → SeaweedFS  →  extractIfcModel()  ─┬─→ bim_models + bim_elements   (structured index)
+   (documents row,           lib/bim/extract     ├─→ _bim/index.json            (full index, object storage)
+    status=processing)                           └─→ _bim/<name>.ifc (markdown) ─→ /v1/ingest → RAG
+```
+
+The digest object keeps the ORIGINAL filename as its last path segment and
+carries `Content-Type: text/markdown`, so the backend reads it as text while
+`file_name` still resolves to the real `documents` row — citations open the
+model and deleting the document removes its chunks. Extraction is detached from
+the request (a 60 MB model takes tens of seconds) and every terminal outcome
+writes the document row: success → the digest dispatch sets `pending` + a job
+id, failure → `failed` with the reason, plus a `bim_models` row recording the
+same thing.
+
+### Two question shapes, two mechanisms
+
+| Question | Mechanism |
+|---|---|
+| "What is this model of?" | Retrieval over the ingested digest — a document-shaped question. |
+| "How many external walls on the ground floor?" | `lib/bim/query.ts` → SQL over `bim_elements`. A `COUNT(*)` with a `WHERE`; an LLM summing forty thousand elements from retrieved prose is a fact turned into a guess. |
+
+The agent reaches the second through the `ifc_query` tool
+(`src/aiq_agent/agents/bim/register.py`), which posts to
+`POST /api/internal/bim/query` with the shared service token — the same
+single-writer separation the `remember` tool uses. Models are addressed by
+project and file name; no UUID travels through a conversation.
+
+### What a large model costs, and where that cost was removed
+
+A 400 000-element model is an ordinary Austrian submission, and every number
+below was measured against a seeded one (`work_mem 4MB`, `statement_timeout
+30s` — the deployed values, on the 1 CPU / 1 GiB pod budget). The pattern in
+all four is the same: the query layer was reading the WHOLE model to answer a
+question about a small part of it.
+
+| Path | Was | Is | How |
+|---|---|---|---|
+| `compliance` (first request) | ~1.5 s, ~60 MB of JSON parsed on the event loop | ~0.3 s | `bim_models.rule_inputs` — the thirteen keys the catalogue reads, pruned at extraction time (`lib/bim/rule-inputs.ts`). 1 409 → 219 bytes per element. |
+| `compliance` (repeat) | ~1.5 s again | ~0 | A 64-entry, 1 h memo keyed by model id + Gebäudeklasse + Hauptnutzung (`lib/bim/compliance-cache.ts`). A `ready` model is immutable, so the key is the whole input. |
+| a filtered element page, 1 match | 6 474 ms | **9 ms** | `bim_elements.search_keys` + its GIN index, AND-ed in as a pre-filter (0038). |
+| a filtered element page, 50 000 matches | 1 277 ms | **315 ms** | The pre-filter DROPPED, and `(model_id, ifc_type, express_id)` walked in order until the page is full (0039). |
+| `properties` | past the 30 s timeout → **HTTP 500** | ~0.6 s | A scan bounded at ~5 000 elements, stratified by IFC type, reported as a sample. |
+
+#### Two plans, and why the application picks
+
+Those two element-page rows are the same query, and their plans are each
+catastrophic in the other's regime:
+
+| | matches 1 | matches 50 000 |
+|---|---|---|
+| GIN pre-filter, bitmap plan | 5 ms | 1 692 ms |
+| ordered walk, no pre-filter | 5 877 ms | 3 ms |
+
+A thousandfold either way, and **Postgres picks the bitmap in both cases**:
+jsonb containment has no statistics, so `@>` is costed at a hardcoded 0.5 %
+selectivity — it estimated 1 988 rows where 50 000 matched. No amount of
+`ANALYZE` fixes that.
+
+So `listBimElements` measures instead of guessing. One statement returns two
+bounded counts — how many elements match (needed for `total` anyway) and how
+many the pre-filter would hand to the bitmap plan, capped at
+`PLAN_ROW_BUDGET` — and the page query is planned from them. Both plans cost
+about the same per row they examine (33 µs and 29 µs measured), so the choice
+is only "which reads fewer rows".
+
+The rule is deliberately asymmetric: the walk is taken **only when it is
+provably cheap and the pre-filter is provably not narrow.** The bitmap plan's
+worst case is bounded by how many candidates exist; the walk's worst case is
+the whole model. So everything uncertain lands on the bitmap — in particular a
+filter with many candidates and few matches (`FireRating > 900` where 50 000
+elements carry a FireRating and none exceed it), which stays expensive in both
+plans because proving a negative means examining every candidate.
+
+The choice can only ever be wrong about SPEED. The pre-filter is a necessary
+condition, never part of the answer, so `assisted` and `unassisted` are the
+same question — and the integration suite runs both against a live Postgres and
+asserts they return the same elements.
+
+Two of those carry a correctness obligation, and the obligation is what most of
+the code is:
+
+- **The pre-filter is a necessary condition, never the answer.** The exact
+  `jsonb_each` predicate still decides, so a `search_keys` map carrying a key it
+  should not costs a wasted heap fetch. The other direction — a key MISSING
+  where the property exists — would delete matching elements from the answer,
+  so it is prevented structurally: `bim_models.search_keys_indexed` gates the
+  pre-filter per model and defaults to false, and the integration suite pins
+  the TypeScript writer against the migration's SQL backfill on a live Postgres.
+  Writing the fallback into the predicate instead (`search_keys IS NULL OR …`)
+  is the trap that looks safest and is worst: `IS NULL` is not GIN-indexable, so
+  the disjunction disables the index entirely and every query keeps the old plan
+  (2 934 ms rather than 4 ms, measured).
+- **A bounded answer says it is bounded.** A capped count reports `total` as a
+  lower bound with `totalIsLowerBound`, and the rendered German reads
+  "Mindestens 10000 Bauteile" — never a bare figure an agent would quote. A
+  sampled property catalog reports `propertyScan { scanned, total, complete }`
+  and its summary states that the NAMES are authoritative while the COUNTS are
+  the sample's. The sample is stratified by IFC type rather than taken off the
+  top precisely because property vocabulary is a function of type: a flat
+  `LIMIT` returns rows in index order and would report the first types'
+  vocabulary as though it were the building's.
+
+### The BFF is not a trace producer, so the tool speaks for it
+
+`ifc_query` is the one expensive thing in a turn that Langfuse (ADR-0044)
+cannot see into: the work happens in the BFF, which exports OTel logs and no
+traces, so the span is a duration and a rendered string. The tool therefore
+records the shape of the call — operation, outcome, model, size, and whether
+the answer covered the whole building — through
+`observability/langfuse_trace_attributes.py`'s contribution channel, and tags
+the trace `feature:ifc`. Contents stay out: they are already in `output.value`
+under its own redaction policy. See ADR-0045 § Observability.
+
+### Validation qualifies the answer
+
+`lib/bim/validate.ts` runs five stages over the extraction (schema, identity,
+spatial structure, property sets, completeness) and stores the findings in the
+model summary. The point is not a report card: every query whose numbers those
+defects distort comes back with a `caveat` string, and the tool description
+tells the agent to report it verbatim. A storey breakdown over a model with 43
+unplaced elements is a subset presented as a total, and this is the only place
+that can be fixed.
+
+### Work products, not just views
+
+Three ops turn the index into the tables an office already keeps by hand:
+`schedule` (Raumbuch, `lib/bim/schedule.ts`), `takeoff` (Massenermittlung, same
+module) and `profile` (project-brief facts the model implies,
+`lib/bim/profile.ts`). All three are computed **server-side over the full
+element set**: the browser holds a capped page of elements with no quantities,
+so summing there would produce a Flächenaufstellung short by however many rows
+did not fit — silently, and only for large models. The page and the agent
+therefore read identical numbers from one code path.
+
+Each carries its own blind spot in the payload rather than in a footnote:
+`roomsWithoutArea` per storey and per building, `missing` per take-off row, and
+an `evidence` string plus a confidence on every derived fact. `profile` is
+deliberately advisory — `geschosse_oberirdisch` picks a Gebäudeklasse, so the
+suggestions travel to the user through the existing `project_profile_patch`
+confirm-the-patch card (ADR-0030), never as a direct write.
+
+### Revision comparison
+
+`lib/bim/compare.ts` diffs two models by IFC **GlobalId**, which survives
+re-export where express ids do not. Added / removed / changed with per-property
+deltas — the question ("what changed since the last submission") that no pair of
+PDFs can answer.
+
+Above it, `features/bim/lib/revisions.ts` groups a project's models into
+**series** by reading the revision markers offices actually type (`_V2`,
+`-rev3`, `(2)`, a trailing date stamp) out of the file name, and computes each
+step's deltas from the stored summaries — so a six-revision timeline costs zero
+queries. The grouping is deliberately conservative: a bare trailing number is
+not a revision marker, because merging `Bauteil 2` and `Bauteil 3` would report
+one building as a wholesale deletion of the other. The element-level diff stays
+on demand, one step at a time.
+
+### Every model view is addressable
+
+`features/bim/lib/model-link.ts` puts the whole view — model, tab, storey,
+element, highlight groups, x-ray — in the query string, and the model page reads
+its state from there. That one decision is what makes the rest possible: a
+validation finding becomes a shareable link, a card opens the model already
+focused, the `ifc_query` tool emits a `Link:` per element row so an answer can
+name a wall as a chip that opens it (`features/bim/components/ifc-element-chip.tsx`,
+supplied to the markdown renderer through `InternalLinkProvider`), and the
+property panel turns the current selection into a chat question carrying its
+GlobalId. Both halves of that contract are pure string ↔ object and tested on
+both sides — `_element_link` in the Python tool mirrors `buildModelHref`, and a
+drifted parameter name would otherwise fail silently as a link that opens a
+model with nothing selected.
+
+A compliance answer carries one more path: `_bcf_link` appends a
+`/api/projects/{id}/bim/checks/export?model=…` URL, so the chat turn that lists
+the open requirements can also hand over the BCF file that puts them back in
+ArchiCAD or Revit. It is addressed by file NAME for the same reason the tool
+itself is — a UUID carried through a conversation is a reliable source of
+hallucinated identifiers — and it carries the same `gebaeudeklasse` /
+`hauptnutzung` the run used, so the archive can never be built against
+thresholds the answer did not apply.
+
+### Geometry stays in the browser
+
+Two fixtures, because they feed two different halves. `sample-building.ifc` is
+metadata-only — every product has `$` for ObjectPlacement and Representation —
+which is exactly right for the extraction, query and rule tests and means the
+viewport has NOTHING to draw from it. `sample-building-geometry.ifc` carries a
+swept solid per element, and `features/bim/lib/viewer-input.spec.ts` runs the
+real WASM kernel over both: meshes and triangles from the first, zero from the
+second, and every mesh's expressId matched back against what the server-side
+extractor found in the same file (the map click-to-select and
+highlight-by-GlobalId both depend on). The renderer itself is not covered and
+cannot be — WebGPU needs a browser with a GPU adapter — so what the spec pins
+is everything up to the renderer's door. Note the kernel emits **Y-up** meshes,
+the glTF convention, not IFC's Z-up.
+
+The viewport is not just orbit. `features/bim/lib/viewer-camera.ts` holds the
+named views (plan and four elevations, plus the free view), the projection
+mode, and the horizontal cut; `ifc-viewer-toolbar.tsx` renders the controls and
+owns no canvas, which is why it can be unit-tested and screenshotted where
+WebGPU does not exist. Two rules are encoded rather than left to whoever wires
+a button: a cardinal view implies **parallel projection**, because a plan in
+perspective is a picture and nothing on it measures; and a new cut lands a
+metre above the storey's floor, which is where an Austrian Grundriss is cut and
+not where the plane would slice the slab. All of it round-trips through
+`buildModelQuery` / `parseModelView`, so "Schnitt bei +2,60 m, Blick nach
+Norden, diese drei Wände markiert" is a link rather than a description.
+
+The camera is controlled by the model page (so the view reaches the URL) and
+falls back to local state anywhere else, so a viewport mounted without those
+props still works instead of rendering a toolbar whose buttons do nothing.
+"Fit" calls `fitToView` through an imperative handle; it used to be expressed
+by remounting the canvas, which re-downloaded the presigned URL and re-ran the
+whole WASM triangulation to move a camera.
+
+There is no server-side render and no cached mesh format. The viewport streams
+the source through a short-lived presigned URL and triangulates locally with
+ifc-lite's WASM kernel + WebGPU renderer. A browser without WebGPU loses only
+the picture: the structure, elements, properties, quantities and every agent
+answer are unaffected, and the fallback says so.
+
 ## 7. Deep research (async jobs)
 
 - The `deep_research` graph node submits a Dask job and returns the stub message

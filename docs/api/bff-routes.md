@@ -318,3 +318,66 @@ Source: `frontends/ui/src/app/api/user/preferences/route.ts`
 | `ws`/`wss` | `/websocket` | Varies | WebSocket gateway for real-time chat with HITL support. Proxied by `server.js` (not a Next.js API route). Headers (`X-Grid-Collection-Scope`, `Authorization`, etc.) are resolved via internal `GET /api/auth/websocket-scope` before forwarding to `ws://{BACKEND_WS_URL}/websocket`. |
 
 Source: `docs/technical-reference/websocket-gateway.md`
+
+## BIM / IFC models (ADR-0045)
+
+Every route is gated by the `ifc-models` WorkOS flag AND the document's own
+access rule: a project model goes through `requireProjectAccess(project:view)`,
+an Archiv model (no project) is readable by any member of the owning
+organization. Cross-tenant and no-access both surface as 404.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/projects/{id}/bim/models` | Models in scope for a project — its own plus the org Archiv's. |
+| `GET` | `/api/bim/models/{modelId}` | Model header + summary (spatial tree, storeys, type counts, totals, validation findings). |
+| `POST` | `/api/bim/models/{modelId}/query` | Run one structured query (below). A read, POSTed because the request is a nested filter object. |
+| `GET` | `/api/bim/models/{modelId}/source` | Short-lived presigned URL for the raw `.ifc` — the 3D viewport's input, signed against the browser-reachable endpoint. |
+| `GET`/`POST`/`DELETE` | `/api/projects/{id}/bim/checks` | Human confirmations on rule verdicts. `GET` needs `project:view` (a confirmation is part of the record everyone reads); `POST`/`DELETE` need `project:edit`. The confirming identity comes from the SESSION, never the body, and the `modelId` is re-resolved through `getAccessibleModel` so a confirmation cannot be pinned to another tenant's revision. |
+| `GET` | `/api/projects/{id}/bim/checks/export` | The Prüfbuch's open items as a BCF 2.1 archive (`?modelId=…` **or** `?model=<file name>`, plus `&gebaeudeklasse=…&hauptnutzung=…`). The file-name form exists so a chat answer can link the download without carrying a UUID through a conversation; it resolves within the project, exact match first, newest wins, `ready` models only. A `GET` so the browser's own download path handles it and the URL is shareable; `project:view`, and the model must belong to the project (or be an Archiv model) so an archive cannot be built from one building's verdicts and another's confirmations. Runs the same `compliance` op the panel reads. `X-Grid-Bcf-Topics` carries the topic count. |
+| `POST` | `/api/internal/bim/query` | Service-token route for the agent's `ifc_query` tool. Resolves models by project + file name so no UUID travels through a conversation. |
+
+### The query contract
+
+`POST /api/bim/models/{modelId}/query` takes a discriminated union on `op`
+(`lib/bim/query.ts`, validated with zod before anything reaches SQL):
+
+| `op` | Answers |
+|---|---|
+| `overview` | What the model is: project/site/building, storeys, totals, areas. |
+| `health` | The validation report — see below. |
+| `types` | Element counts per IFC type, from the rows. |
+| `properties` | The model's own property vocabulary: which sets exist, which properties, and the values they actually take with counts. Past ~5 000 in-scope elements the catalog is built from a sample stratified **by IFC type** (up to 200 elements per type), and `propertyScan: { scanned, total, complete }` says so; the names stay authoritative, the counts become counts over the sample and the rendered summary states that. Reading the whole model instead was measured past the 30 s `statement_timeout` at 400 k elements — an HTTP 500 where a catalog was asked for. |
+| `elements` | Matching elements, paged. `total` stops counting at 10 000 (`COUNT_CEILING`): past that it is a **lower bound**, `totalIsLowerBound` is `true`, `truncated` is `true` and the summary reads "Mindestens 10000 Bauteile". An exact `count(*)` beside the page query measured 15.8 s warm / 21.9 s cold on a filtered 400 k-element model, holding a second pool slot for the whole time. The page itself is planned rather than left to the planner — see the deep dive's "Two plans, and why the application picks" — because a property filter matching one element and one matching a quarter of the model want opposite plans and Postgres cannot tell them apart. |
+| `element` | One element in full, by IFC GlobalId. |
+| `aggregate` | `count`/`sum`/`avg`/`min`/`max` over the filtered set, optionally grouped by `ifcType`, `storey`, `predefinedType`, `typeName`, `material` or a property. |
+| `compare` | What changed against another revision, matched by GlobalId. |
+| `schedule` | The Raumbuch: every room with its storey, area and volume, plus per-storey and building totals — and `roomsWithoutArea`, the count each total excludes. |
+| `takeoff` | Massenermittlung: one `quantity` summed per element type, optionally split by material (`byMaterial`). Each row carries `missing`, the elements that publish no value. |
+| `compliance` | The OIB rule catalog (`lib/bim/rules.ts`) evaluated against the model's published values: per requirement, how many elements are `pass` / `fail` / **`undecidable`**, the threshold applied, the failing and undecidable GlobalIds, and the exact property paths that would make the undecidable ones decidable. Takes `gebaeudeklasse` / `hauptnutzung`; a rule needing a fact it was not given stands down WITH its reason rather than assuming one. |
+| `compliance-diff` | The same catalog over two revisions (`baseModelId`), reporting only the requirements whose status MOVED — including one that stopped being decidable because the re-export dropped a property. |
+| `profile` | Project-brief facts the model implies (storeys above/below ground, Fluchtniveau band, main use, room count), each with its evidence and a confidence. Proposals — the agent offers them through a `project_profile_patch` card, never as settled values. |
+
+Filters accept `ifcTypes`, `storeys` (name or GlobalId), `nameContains`,
+`material`, `classification`, `globalIds`, and up to ten property predicates
+(`set?`, `name`, `operator`, `value`, `source: property|quantity`) with
+operators `eq | neq | contains | gt | gte | lt | lte | exists | missing`.
+
+The vocabulary is **closed**: every field is an enum or a schema-validated
+string and every value is a bound parameter, so a model-authored filter cannot
+become model-authored SQL. String comparison is case-insensitive; numeric
+comparison is guarded by a `CASE` so a jsonb boolean beside a numeric property
+cannot fail the whole query.
+
+`schedule`, `takeoff` and `profile` are computed over the FULL element set on
+the server, not over the page of elements the browser holds — summing a capped
+element list would produce a Flächenaufstellung that is short by however many
+rows did not fit, silently and only for large models. The model page and the
+agent therefore read the same numbers from the same code path.
+
+### The caveat field
+
+Results for `overview`, `types`, `elements` and `aggregate` carry a `caveat`
+string (or `null`) derived from the validation findings — for example
+`Hinweis zum Modell: 43 Bauteile sind keinem Geschoss zugeordnet …`. The agent
+is instructed to report it verbatim: a storey breakdown over a model with
+unplaced elements is a subset presented as a total.

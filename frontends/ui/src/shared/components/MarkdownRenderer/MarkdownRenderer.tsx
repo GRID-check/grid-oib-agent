@@ -9,6 +9,7 @@ import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
+import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
 import { getLanguageFromClassName } from './utils'
 
 function getTextFromChildren(node: ReactNode): string {
@@ -120,6 +121,7 @@ function stabilizeStreamingMarkdown(raw: string): string {
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
     const renderInPageAnchor = useInPageAnchorRenderer()
+    const renderInternalLink = useInternalLinkRenderer()
     const plugins = useMemo(
       (): PluggableList => [remarkGfm, remarkMath, ...(remarkPlugins ?? [])],
       [remarkPlugins]
@@ -246,6 +248,19 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
               </a>
             )
           }
+          // In-app links stay in the app. A surface that knows the destination
+          // may render something better than a link — the chat answer turns a
+          // model deep link into an element chip.
+          if (isInternalHref(href)) {
+            if (renderInternalLink) {
+              return <>{renderInternalLink({ href, children })}</>
+            }
+            return (
+              <a href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
+                {children}
+              </a>
+            )
+          }
           return (
             <a
               href={href ?? '#'}
@@ -290,7 +305,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }),
-      [compact, renderInPageAnchor]
+      [compact, renderInPageAnchor, renderInternalLink]
     )
 
     return (

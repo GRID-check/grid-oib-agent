@@ -52,6 +52,7 @@ that needs it rather than by default. So availability follows the house rule —
 Langfuse tier is deployed. An Aspire-only stack is byte-identical to before.
 """
 
+import contextvars
 import logging
 import os
 from typing import Any
@@ -70,6 +71,67 @@ TAGS_ATTRIBUTE = "langfuse.trace.tags"
 METADATA_PREFIX = "langfuse.trace.metadata."
 
 
+#: Per-turn facts a TOOL contributed, merged into the attributes below.
+#:
+#: A dict rather than repeated ``ContextVar.set`` calls so a tool can add to it
+#: from inside an awaited coroutine and have the value survive into the span's
+#: export task: ``asyncio.create_task`` snapshots the context at span END, by
+#: which point the tool has already returned.
+_CONTRIBUTED: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "grid_langfuse_contributed", default=None
+)
+
+
+def _contributions() -> dict[str, Any]:
+    """The current turn's contribution dict, created on first write."""
+    current = _CONTRIBUTED.get()
+    if current is None:
+        current = {"metadata": {}, "tags": []}
+        _CONTRIBUTED.set(current)
+    return current
+
+
+def record_trace_metadata(**pairs: Any) -> None:
+    """Attach facts about what a tool actually did to this turn's traces.
+
+    The gap this closes is specific and, for one feature, total. Everything
+    expensive in a research turn happens in THIS process, where NAT traces it
+    span by span. The IFC tools are the exception: their work happens in the
+    BFF, which exports OTel *logs* and no traces at all, so `ifc_query` reaches
+    Langfuse as one opaque span of N milliseconds. An operator looking at a
+    slow or wrong answer cannot see which model was read, which operation ran,
+    or whether the answer covered the whole building — none of which is
+    recoverable from the duration.
+
+    Best-effort like everything else here: a failure to record telemetry must
+    never fail the turn that was producing it.
+    """
+    try:
+        _contributions()["metadata"].update({key: value for key, value in pairs.items() if value is not None})
+    except Exception:
+        logger.debug("Failed to record Langfuse trace metadata", exc_info=True)
+
+
+def add_trace_tag(tag: str) -> None:
+    """Tag this turn's traces, e.g. so every turn that read a model is findable.
+
+    Tags are Langfuse's fast filter in the trace list, which is the same reason
+    the organization is written as one. "Show me the turns that touched a
+    building model" is otherwise a metadata scan.
+    """
+    try:
+        tags = _contributions()["tags"]
+        if tag not in tags:
+            tags.append(tag)
+    except Exception:
+        logger.debug("Failed to add a Langfuse trace tag", exc_info=True)
+
+
+def reset_contributions() -> None:
+    """Drop what this turn contributed. For tests, and for a reused context."""
+    _CONTRIBUTED.set(None)
+
+
 def identity_attributes_enabled() -> bool:
     """Whether to stamp per-request identity onto spans.
 
@@ -85,6 +147,7 @@ def langfuse_attributes_for(
     organization_id: str | None,
     project_id: str | None,
     conversation_id: str | None,
+    contributed: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the Langfuse attribute map for one request's identity.
 
@@ -110,6 +173,16 @@ def langfuse_attributes_for(
     # question anyone asks of a multi-tenant trace store, and metadata filtering
     # is a slower, less discoverable path in the UI.
     tags = [f"org:{organization_id}"] if organization_id else []
+
+    # What a tool recorded about what it did. Namespaced under the same
+    # `langfuse.trace.metadata.` prefix as the identity fields, so it is subject
+    # to exactly the same redaction policy — this whole map is written ahead of
+    # NAT's redaction processor and an operator listing a key in
+    # `redaction_attributes` must be able to reach these too.
+    for key, value in (contributed or {}).get("metadata", {}).items():
+        attributes[f"{METADATA_PREFIX}{key}"] = value
+    tags.extend(tag for tag in (contributed or {}).get("tags", []) if tag not in tags)
+
     if tags:
         attributes[TAGS_ATTRIBUTE] = tags
 
@@ -134,6 +207,7 @@ def current_langfuse_attributes() -> dict[str, Any]:
             organization_id=context.organization_id,
             project_id=context.project_id,
             conversation_id=get_conversation_id_from_context(),
+            contributed=_CONTRIBUTED.get(),
         )
     except Exception:
         logger.debug("Failed to derive Langfuse trace attributes from context", exc_info=True)

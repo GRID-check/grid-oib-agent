@@ -558,4 +558,51 @@ export const SCREENSHOT_TARGETS = [
       'Organization → Access, Permissions: the catalog inverted — every permission with the roles that grant it, computed from `ROLES` at render rather than stored, so it cannot drift. Deprecated permissions (`project:edit`) and WorkOS-owned ones (`widgets:*`) are marked instead of hidden, because an admin auditing a role meets those slugs either way.',
     waitFor: '[data-testid="permission-reference"]',
   },
+  {
+    id: 'bim-model',
+    mobile: true,
+    path: '/dev/bim-model',
+    description:
+      'The IFC/BIM model page (ADR-0045): overview stats read from the model itself, the spatial tree with signed storey elevations, the element table filtered to the selected storey, the property panel for the selected wall (occurrence + type-inherited Pset merged), and — in place of the 3D viewport — the no-WebGPU fallback. Headless Chromium has no WebGPU adapter, so the fallback IS what this route captures, which is the right thing to pin: it is what a Safari or Firefox user sees, and it has to read as "the picture is missing", never as "the feature is broken".',
+    waitFor: '[data-testid="bim-model-preview"]',
+  },
+  {
+    id: 'bim-tables',
+    mobile: true,
+    path: '/dev/bim-tables',
+    description:
+      'The model surfaces that produce work products rather than views: the Raumbuch with a room that publishes no area (shown as missing, counted against the storey total, and named in the banner), the Massenermittlung split by material with a group that publishes nothing, the revision timeline with signed per-step deltas, the derived project facts with the evidence behind each one, and an element chip as it renders inside a chat answer. Every fixture here includes the awkward case on purpose — a total that quietly excludes rooms is the failure this whole subsystem exists to prevent, and only the incomplete fixtures can show that it does not.',
+    waitFor: '[data-testid="bim-tables-preview"]',
+  },
+  {
+    id: 'bim-confirmation-failed',
+    path: '/dev/bim-confirmation-failed',
+    description:
+      'A manual confirmation on an OIB requirement that could NOT be saved. The write used to fail silently \u2014 the note form simply stayed open \u2014 so an architect who had just signed off a requirement had every reason to believe it was recorded, on the one surface whose whole purpose is to be a record. The alert now carries the same weight as a verdict and says plainly that the confirmation is NOT stored. The preview drives the form itself and the capture waits on the alert, because the state does not exist until somebody presses Save.',
+    waitFor: '[data-testid="bim-confirmation-failed"]',
+  },
+  {
+    id: 'bim-compliance',
+    mobile: true,
+    path: '/dev/bim-compliance',
+    description:
+      'The Prüfbuch: OIB requirements evaluated against the values the model publishes. The fixture is deliberately a MESSY project, because a green list would prove nothing — two failing doors with the reading that produced each verdict, thirty-four walls whose fire rating the model never published, a wall declared "F 90" that the catalogue refuses to score against REI 60 rather than raising a false alarm, a rule that stood down because the brief carries no Gebäudeklasse, and a rule with no affected elements. Every row prints the threshold it applied so the architect checks the rule and not only the result, "not decidable" carries the same visual weight as a failure, and the missing-property list is rendered as actions to take in the CAD rather than as a score. The header carries a BCF 2.1 download of exactly the rules that leave work behind, so the open items land back in ArchiCAD or Revit as an issue list with the affected elements selected.',
+    waitFor: '[data-testid="bim-compliance-preview"]',
+  },
+  {
+    id: 'bim-cards',
+    mobile: true,
+    path: '/dev/bim-cards',
+    description:
+      'The four model-backed chat cards — Raumbuch, Bauteil, Anforderungen, Revisionsvergleich. Each carries an identifier and fetches its own numbers, so the agent can point at the wrong table but can never state a floor area the model does not publish. The fixtures show the hard states rather than the happy ones: a storey where two rooms publish no area so the total is visibly a subset, a wall whose Pset and Qto come from the model, one requirement nothing can decide (34 walls with no fire rating) beside the BCF download that turns it into work, and a revision whose single added door is only meaningful against the 99 unchanged elements behind it.',
+    waitFor: '[data-testid="bim-cards-preview"]',
+  },
+  {
+    id: 'bim-viewport',
+    mobile: true,
+    path: '/dev/bim-viewport',
+    description:
+      'The 3D viewport\'s controls, over the muted panel the viewport itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but the controls now live in a component that owns no canvas, so the part an architect actually presses is capturable. Three states: the free view you land on (perspective, no cut), a Grundriss (plan, parallel projection, cut at +1,00 m with the slider open — the state the whole feature exists for, because a plan in perspective is a picture and not a drawing), and the loading state with every control disabled so a live-looking toolbar cannot invite clicks that do nothing.',
+    waitFor: '[data-testid="bim-viewport-preview"]',
+  },
 ]

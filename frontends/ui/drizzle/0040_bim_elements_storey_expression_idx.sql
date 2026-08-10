@@ -1,0 +1,41 @@
+-- Make the storey index serve the storey filter.
+--
+-- `bim_elements_model_storey_idx` was `(model_id, storey_name)`, a plain btree
+-- over the raw column. Every storey filter the query layer emits is
+-- `lower(storey_name) IN (…)` — set and value names come from whichever tool
+-- exported the model, so the comparison has to be case-insensitive — and a
+-- btree on `storey_name` cannot serve a predicate on `lower(storey_name)`.
+-- The index was therefore never used by the only query written against it
+-- (`idx_scan = 0`), while still being maintained on every insert.
+--
+-- The expression index below matches the predicate. The GlobalId half of the
+-- filter is handled in `buildBimPredicate` by emitting that arm only for
+-- tokens actually shaped like a GlobalId: an unconditional `OR` across two
+-- columns is unindexable whatever indexes exist, so adding this one without
+-- that change would have left it exactly as dead as its predecessor.
+--
+-- Grouping (`groupBy: 'storey'`) reads the raw column and loses an index it
+-- was not using either: a `GROUP BY` over a whole model is planned as a
+-- parallel sequential scan with a hash aggregate regardless (measured at
+-- 113 ms for the equivalent `ifc_type` grouping on 200 000 elements).
+--
+-- The new index gets a NEW NAME, and is built BEFORE the old one is dropped,
+-- for the same reason as 0039: `drizzle-kit migrate` wraps a migration in one
+-- transaction, so a `DROP INDEX` placed first would hold its ACCESS EXCLUSIVE
+-- lock until COMMIT — through the whole build behind it — and block every read
+-- and write on `bim_elements`. This order lets the build take only SHARE and
+-- confines ACCESS EXCLUSIVE to the drop at the end. No rename back to the old
+-- name: `ALTER INDEX … RENAME` takes ACCESS EXCLUSIVE too, which would restore
+-- the lock this ordering exists to avoid.
+--
+-- Reads survive the build; WRITES do not. `CREATE INDEX` holds SHARE for its
+-- duration, which is enough to stall inserts into `bim_elements`. Only
+-- `CONCURRENTLY` is genuinely online, and it cannot run inside a transaction
+-- block, so it would need a non-transactional migration runner this repo does
+-- not have. Writes to this table happen at model ingest and the build is
+-- seconds at the 200 000-row cap, so the blocked window is bounded and falls
+-- on ingest rather than on anything a user is waiting for.
+CREATE INDEX IF NOT EXISTS bim_elements_model_storey_lower_idx
+  ON bim_elements (model_id, lower(storey_name));
+
+DROP INDEX IF EXISTS bim_elements_model_storey_idx;
