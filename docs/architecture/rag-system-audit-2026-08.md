@@ -354,7 +354,7 @@ Edition, Bundesland adoption, and superseded status are the axes Austrian
 building law actually turns on. They live in the norm registry
 (`norm_registry.py`, `BUNDESLAND_TOKENS`, `focus_entries`) and drive the live-law
 plane — but they are **not chunk metadata**, so corpus retrieval cannot filter or
-prefer on them. The only mechanism is a hardcoded 26-entry `exclude_file_names`
+prefer on them. The only mechanism is a hardcoded 16-entry `exclude_file_names`
 denylist, which the config's own comment describes as *"Phase-0 … Replaced by
 role/edition metadata filters in Phase 2."*
 
@@ -417,3 +417,155 @@ Recorded so they are not re-litigated:
   `_extract_text_from_pdf` → `_strip_watermark_lines`;
   `SimpleDirectoryReader` is only the non-PDF, non-image path, and the comment
   at the call site explains why.
+
+---
+
+# Part II — Deep investigation and first fixes (2026-08)
+
+Eleven parallel investigations re-derived every finding above by execution rather
+than reading, against the pinned wheels and the real 39-PDF corpus in `data/oib/`.
+They **corrected four of the findings in Part I**, found a defect that outranks
+all of them, and supplied the measurements the recommendations were missing.
+
+## 8. Corrections to Part I
+
+| # | Part I said | Actually |
+|---|---|---|
+| F7 | "No relevance floor exists anywhere in the path." | **Wrong.** One exists: `surface_documents.MIN_SURFACE_SCORE = 0.35`. On the `exp(-d)` scale that is a cosine of **−0.05** — it admits anti-correlated chunks and rejects essentially nothing. A no-op documented as a user-protecting quality gate, which is worse than the absence I described. |
+| F14 | "a hardcoded 26-entry denylist" | **16 entries.** All 16 are still correct against `data/oib/`; nothing has gone stale. The real defect is elsewhere (§9.4). |
+| F19 | "a duplicated PDF occupies two of 16 slots" | **Up to ten.** `_merge_results` keys its diversity cap on `(collection, file_name)`, so the same PDF in the base corpus and an org Archiv is two *distinct* documents, each entitled to the full `max_chunks_per_document: 5`. |
+| F1 | "hybrid contributes candidate membership but no ranking" | **Understated.** It was a net *loss* — see §9.1. |
+
+Two Part I hypotheses were re-tested and still hold: the `exp(-d)` mirroring is
+deliberate and correct, and PDF text is watermark-stripped.
+
+## 9. What the investigations found that Part I missed
+
+### 9.1 The lexical channel had no stable identity — and hybrid was a net loss
+
+`_chunks_from_raw_query` built nodes with `TextNode(text=…, node_id=chunk_id, …)`.
+`node_id` is a **read-only property** over the `id_` field, so pydantic silently
+discarded the kwarg and every lexical chunk was born with a fresh `uuid4`:
+
+```
+TextNode(text='t', node_id='REAL-ID').node_id -> 46c97123-a820-4706-bd8f-af550462c67d
+second construction                            -> 92a2a52d-c7ea-45a8-acca-6ac54e94e8e1
+TextNode(text='t', id_='REAL-ID').node_id      -> REAL-ID
+```
+
+Reciprocal rank fusion keys on `chunk_id`, so **no chunk could ever match across
+the two channels**. Fusion degenerated into channel-major interleaving: at
+`candidate_k = 20`, half the vector candidates were evicted and replaced by
+byte-identical duplicates of the survivors under fresh ids. Those duplicates then
+carried identical scores through the merge, consumed the per-document diversity
+cap two-for-one, and were billed to the reranker's prompt and the answer context.
+
+Measured on a realistic 3-collection trace: **4 of 16 answer slots were
+duplicates, 4 good chunks were evicted, and zero lexical chunks reached the
+answer.** Turning hybrid retrieval *off* produced a strictly better result set.
+
+This is the defect that made everything else in F1 academic, and it was one token.
+
+### 9.2 The lexical channel fires on 28% of real queries and helps on 9%
+
+53 verbatim German questions were mined from the benchmark fixtures, i18n chips,
+dev pages and test fixtures (the five log files Part I pointed at contain **zero**
+user questions — that premise was wrong). Running `extract_exact_terms` on them:
+
+- **15/53 (28.3%)** produce any term at all.
+- Only **5/53 (9.4%)** produce a term with useful selectivity.
+- **0/53** contain a `§` — the module's flagship feature has never fired on a real
+  query, and the OIB corpus uses `Punkt N.N` (1,565 occurrences), not `§`. All 82
+  `§` occurrences in the corpus are boilerplate about the OIB's own statutes.
+- Bare `OIB` (emitted by the ALLCAPS branch) matches **467/490 chunks — 95.3%**.
+
+Chroma's `$contains` was confirmed to be a raw, **case-sensitive**, byte-level
+substring match with no tokenization or word boundaries: `'oib'` misses `OIB`,
+`'§ 3'` also matches `§ 30`, and `'Fluchtweg'` matches `Fluchtwegbreiten`.
+
+German morphology measured on the corpus: `Fluchtweg` has five inflected forms;
+`Geschoß` 677 vs `Geschoss` 5 (Austrian ß); `Treppenlaufbreite` 18 vs `Nutzbreite`
+0 — and the golden benchmark asks for "Treppenlauf-Nutzbreiten". Postgres'
+`german` FTS config was verified to solve inflection, ß→ss, umlaut folding and
+hyphen splitting, though not closed compounds.
+
+### 9.3 The reranker had four config-reachable failure modes
+
+Beyond the 1.25× pool and 400-char excerpt of Part I: `rerank_candidates: 0` was a
+*valid* config (`ge=0`) that emptied the knowledge base on both the success and
+the fail-open path; a platform `top_k` above `rerank_candidates` was silently
+capped; `max_tokens: 256` sat **12 tokens** above a 20-candidate reply, so a single
+decimal score truncated the JSON and disabled reranking for that turn; and the 30 s
+outer timeout made the configured `request_timeout: 60` / `max_retries: 2`
+unreachable. A judge reply that renumbered from 0, repeated an index, or scored
+only a prefix was absorbed as a successful rerank with nothing in the logs.
+
+Cross-encoder reranking endpoints **were probed live and do exist** on hosts this
+deployment already holds credentials for — the premise in `rerank.py`'s docstring
+was out of date.
+
+### 9.4 Denylist, chunking, caching, and the silent-empty corpus
+
+- **`config_grid_oib.yml` points at the same production collection with zero
+  exclusions**, and a newly uploaded Änderungsdokument is silently retrievable:
+  ingest classifies it correctly as `oib_aenderung` and retrieval never reads that
+  classification. The 16 denylisted PDFs are also still ingested and embedded — the
+  admin UI shows 39 healthy documents while retrieval can reach 23.
+- **`guess_display_title` hardcodes `ausgabe_mai_2023`.** Any other edition loses
+  its edition label entirely, so a 2019 and a 2026 edition of RL 2 would render as
+  the identical citation — superseded and in-force text visually indistinguishable.
+- **Chunking**: 1,360 Punkte across the base Richtlinien, median **62 tokens**, and
+  99.3% fit inside one chunk — while today's chunks average ~15 blended
+  requirements. 57% of pages begin mid-Punkt, and overlap does not cross the
+  page-Document boundary (measured: 0 of 35 page transitions overlap). Tables are
+  double-indexed and 9 of 13 split into a headerless tail. The reported chunk count
+  is `len(all_documents)` — pre-split Documents — understating by ~40%.
+- **`_get_retriever` constructs a new adapter per agent run**, so all three caches
+  die with the run and the 1-hour static-result TTL is unreachable. Making it the
+  singleton its docstring claims would un-mask a full hour of cross-replica
+  staleness, because `bump_collection_version` is process-local while the deployed
+  topology runs up to 10 processes against one shared Chroma.
+- **A failed retrieval layer was logged at DEBUG** and skipped, so a corpus that
+  dropped out (Chroma unreachable, collection recreated, filter failed to
+  translate) produced a confident answer from an empty knowledge layer, invisibly.
+
+## 10. Fixes landed
+
+All verified against a captured baseline of 2683 passed / 3 skipped; after the
+change 2707 / 3, ruff clean.
+
+| Finding | Fix |
+|---|---|
+| §9.1 identity | `_chunks_from_raw_query` reconstructs via `metadata_dict_to_node` (the vector path's own helper), with an `id_=` fallback. Also stops the lexical channel carrying a JSON copy of each chunk's text in `_node_content`. |
+| F17 filter grammar | Both channels now translate through one `_to_chroma_where`; multi-key and single-element groups no longer raise and silently disable hybrid on filtered queries. |
+| F6 score scale | `cosine_similarity_from_store_score` recovers `cos = 1 + ln s` exactly (Chroma's cosine distance verified as `1 − cos` in the pinned source). Total on every input, because `normalize`'s except-branch substitutes a *citable* poison chunk rather than dropping one. |
+| F7 (corrected) | `MIN_SURFACE_SCORE = 0.35` now means what its comment always claimed. |
+| F5 embedding dilution | `EMBED_EXCLUDED_METADATA_KEYS` applied to every document; `file_size`, render geometry and the ingest temp path no longer reach the embedder. |
+| §9.3 reranker | Rewritten: renumbered/duplicate/non-finite replies rejected rather than absorbed; unscored candidates impute the mean instead of sinking below explicitly-rejected ones; excerpt 400 → 1200 chars under a whole-prompt budget; `ge=1`; trim is `max(top_k, rerank_candidates)`; pool 20 → 60; `max_tokens` 256 → 2048; timeouts made reachable. Optional cross-encoder (default off, fail-open to the judge). |
+| §9.4 silent empty | Failed layers log at WARNING. |
+
+## 11. Deliberately not fixed yet, and why
+
+- **F8 eval harness.** There is **no real labelled data in this repo** — zero
+  user-originated (question, source) pairs, and exactly one question with a
+  Richtlinie *and* a Punkt, itself marked "Fiktives Beispiel". A golden set must
+  be synthesised, and the defensible method is now specified: derive labels
+  mechanically from the corpus (a pdfplumber Punkt index, verified to recover
+  `3.5 Fassaden` p.7 and friends) and questions from the repo's own card
+  taxonomy, never from an LLM's idea of the answer.
+- **F9 Punkt-aware chunking.** Fully specified, and it is the highest-ceiling
+  change left. It forces a re-ingest, and `oib_sync` gates on the **sha256 of the
+  PDF bytes** — a chunker change alters no file hash, so deploying it without a
+  `CHUNKER_VERSION` mixed into the registry is a silent no-op. It also changes
+  what `top_k` means (~1,360 discrete requirements instead of ~384 blended
+  chunks), so the retrieval budgets must be re-tuned in the same change.
+- **F10 sparse channel.** The Postgres `german` `tsvector` design is specified and
+  needs no re-ingest (Chroma already stores raw chunk text under the same ids), but
+  it is a new store surface.
+- **F11 embedding model / F14 Phase-2 metadata.** Both are decisions, not patches:
+  one needs a corpus re-embed justified by numbers that do not exist yet, the
+  other a metadata schema plus a backfill.
+
+The ordering constraint from Part I still holds and is now load-bearing:
+**F8 before F9/F10/F11.** `MIN_SURFACE_SCORE` is the standing proof of what
+happens when a retrieval number is set without a way to measure it.
