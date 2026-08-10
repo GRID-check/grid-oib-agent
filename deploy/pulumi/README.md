@@ -16,6 +16,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
+| DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
 
 ## Prerequisites
 
@@ -126,6 +127,15 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `xffNumTrustedHops` | `0` | Trusted hops when deriving the client IP from `X-Forwarded-For`. **Every per-IP limit rests on this.** 0 = trust Envoy's downstream address (correct when the LB preserves the source IP); 1 when a SNATing proxy appends one hop. Verify on a live cluster — wrong low buckets the whole internet as one client, wrong high lets a client forge its address |
 | `maxConnectionsPerProxy` | `10000` | Max concurrent downstream connections per Envoy replica (0 = unbounded) |
 | `networkPolicies` | `true` | Default-deny ingress + least-privilege allows |
+| **Public DNS (Cloudflare)** | | |
+| `dnsEnabled` | `false` | Manage the stack's A records in Cloudflare instead of by hand. The record set is derived from the same config the Gateway listeners are, so the two cannot drift. Requires a pinned `loadBalancerIp`. Off = records are maintained manually, exactly as before |
+| `dnsZoneId` | — | Cloudflare zone id (zone → Overview → API). Required when enabled |
+| `dnsZoneName` | — | The zone **apex** — not necessarily `baseDomain`, since a stack may live on a subdomain of its zone. Every managed host is checked to fall inside it: the Cloudflare API treats a name outside the zone as relative and appends the zone, creating a record that resolves nowhere and reporting success |
+| 🔒 `cloudflareApiToken` | — | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic Redirect:Edit` when `dnsApexRedirectTo` is set |
+| `dnsTtl` | `600` | TTL for unproxied records |
+| `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
+| `dnsDmarc` | — | Value of the `_dmarc` TXT record, when the baseline is owned here |
+| `dnsApexRedirectTo` | — | Absolute URL the apex and `www` redirect to (302) while no stack serves the apex. Unset it once one does — `loadConfig` refuses both at once |
 | **Edge rate limiting (ADR-0040 L1)** | | |
 | `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
 | `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |
@@ -290,6 +300,7 @@ the bootstrap Jobs ran to completion under enforced NetworkPolicies.
 index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
 src/platform/            provider, namespace, cert-manager, gateway (Envoy),
+                         dns (Cloudflare records for the Gateway's hosts),
                          metrics-server, scheduling (PDB/spread), rollout
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + npm ci)
