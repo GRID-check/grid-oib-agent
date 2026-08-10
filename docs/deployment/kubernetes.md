@@ -317,7 +317,8 @@ cannot resolve the name it is validating. Neither shows up in
 `src/platform/dns.ts` derives its record set from the same config
 `src/platform/gateway.ts` builds its HTTPS listeners from, so the two cannot
 drift: every listener has an A record, and no A record points at a host with no
-listener (`otel.` appears only when the observability tier is deployed).
+listener (`otel.` appears only when the observability tier is deployed, and
+`langfuse.` only when that tier is — §9b).
 
 ### Cloudflare operates the zone; the registrar does not change
 
@@ -1618,6 +1619,20 @@ and no identity attributes on any span.
 Reusing what already exists: a `langfuse` database and `langfuse_app` role on the
 CNPG cluster, and one `langfuse` bucket on SeaweedFS reached by a dedicated
 `grid-langfuse` S3 identity scoped to that bucket alone.
+
+### DNS
+
+Nothing to do by hand on a stack with `dnsEnabled` (§3b): `langfuse.<baseDomain>`
+is derived from the Gateway's `https-langfuse` listener like every other host, so
+enabling this tier publishes its A record in the same `pulumi up`. The
+whole-program test asserts that pairing rather than trusting it
+(`index-dns.spec.ts`).
+
+On a stack that still maintains records by hand, add
+`langfuse.<baseDomain>` → the Envoy Gateway external IP **before** enabling the
+tier. Not doing so is the quiet failure §3b describes: everything deploys
+healthy, cert-manager's HTTP-01 challenge never solves because the CA cannot
+resolve the name, and the host simply never serves.
 
 ### One-time WorkOS setup
 

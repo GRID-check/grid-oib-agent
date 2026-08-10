@@ -83,10 +83,16 @@ pulumi preview
 pulumi up
 ```
 
-Then point DNS for `app.<baseDomain>` and `s3.<baseDomain>` (and `otel.<baseDomain>`
-when observability is on) at the Envoy Gateway external IP
+Then point DNS for `app.<baseDomain>` and `s3.<baseDomain>` (plus
+`otel.<baseDomain>` when observability is on and `langfuse.<baseDomain>` when
+that tier is) at the Envoy Gateway external IP
 (`kubectl -n envoy-gateway-system get svc`), and once TLS issues, flip
 `useStagingIssuer` to `false` and `pulumi up` again.
+
+With `dnsEnabled` those records are written by this program instead — see
+[§3b](../../docs/deployment/kubernetes.md) — and the host set is derived from
+the Gateway's own listeners, so a new tier's host arrives in DNS without anyone
+remembering to add it.
 
 ## Configuration
 
