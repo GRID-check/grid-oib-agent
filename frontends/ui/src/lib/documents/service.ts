@@ -482,13 +482,20 @@ export async function assertUploadTypeAllowed(session: AuthorizedSession, filena
  * Reuses the env-based config that also drives the client-side max, so both
  * layers are governed by one source of truth.
  */
-export function assertFileSizeAllowed(sizeBytes: number): void {
-  const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
-  if (sizeBytes > maxFileSize) {
-    const maxSizeMB = maxFileSize / (1024 * 1024)
+export function assertFileSizeAllowed(sizeBytes: number, filename?: string): void {
+  // `ifcUploadEnabled: true` only to READ the IFC ceiling — whether a `.ifc`
+  // may be uploaded at all is `assertUploadTypeAllowed`'s job, and it has
+  // already run by the time a size is being checked. Without the filename the
+  // caller gets the general limit, which is the safe direction.
+  const { maxFileSize, maxIfcFileSize } = getFileUploadConfigFromEnv(process.env, {
+    ifcUploadEnabled: true,
+  })
+  const ceiling = filename && isIfcFilename(filename) ? maxIfcFileSize : maxFileSize
+  if (sizeBytes > ceiling) {
+    const maxSizeMB = Math.round(ceiling / (1024 * 1024))
     throw new BadRequestError(`File exceeds the maximum allowed size of ${maxSizeMB} MB`, {
       fileSize: sizeBytes,
-      maxSizeBytes: maxFileSize,
+      maxSizeBytes: ceiling,
     })
   }
 }
@@ -507,7 +514,7 @@ export async function uploadDocument(
 
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size)
+  assertFileSizeAllowed(file.size, file.name)
   // Org-wide ceiling, checked after the per-file one so the caller gets the
   // more specific complaint first, and BEFORE any bytes reach SeaweedFS so a
   // refusal leaves no orphan object behind (ADR-0042).

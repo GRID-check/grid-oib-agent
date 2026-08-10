@@ -117,7 +117,7 @@ export async function uploadArchivDocument(
 ): Promise<UploadArchivDocumentResult> {
   if (!canManageArchiv(session)) throw new ForbiddenError()
   await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size)
+  assertFileSizeAllowed(file.size, file.name)
   // Same org ceiling as the project path — the Archiv shares the tenant's
   // bytes, so it must not be a way around the quota (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)

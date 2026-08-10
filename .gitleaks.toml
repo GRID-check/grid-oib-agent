@@ -38,4 +38,16 @@ paths = [
 # Placeholder / obviously-fake credentials used in examples and docs.
 regexes = [
   '''(?i)(example|dummy|placeholder|changeme|your[-_]?token|test[-_]?key)''',
+  # Pulumi's PUBLIC secret sentinel. Every Pulumi state file and the Pulumi
+  # source itself carry this exact string as the key that marks a value as
+  # secret — it is a magic number, not a credential, and it has to appear
+  # verbatim in any code that unwraps a `requireSecret` output (the
+  # architecture extractor does). `generic-api-key` fires on it purely for
+  # being 32 hex characters.
+  #
+  # Allowlisted as an EXACT literal rather than by path: a rule scoped to the
+  # file would also hide a genuine key someone later pastes beside it, and
+  # gitleaks scans full history across refs, so one occurrence on any branch
+  # fails the scan for every open PR in the repo.
+  '''4dabf18193072939515e22adb298388d''', # pragma: allowlist secret
 ]

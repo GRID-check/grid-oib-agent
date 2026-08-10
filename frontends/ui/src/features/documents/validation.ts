@@ -17,6 +17,7 @@
 
 import type { FileUploadConfig } from '@/shared/context'
 import { IMAGE_EXTENSIONS } from '@/shared/config/file-upload'
+import { isIfcFilename } from '@/lib/bim/types'
 // The same formatter every file size in the UI renders through. These messages
 // name a size the user can also see on a file card, so a second implementation
 // meant one screen showing "1,5 MB" beside "1.5 MB" in German.
@@ -94,6 +95,9 @@ const DEFAULT_CONFIG: FileUploadConfig = {
   acceptedMimeTypes: DEFAULT_ACCEPTED_MIME_TYPES,
   maxTotalSizeMB: 100,
   maxFileSize: DEFAULT_MAX_FILE_SIZE,
+  // 0 = no IFC allowance. This fallback is for when AppConfig is absent, and a
+  // config that cannot say whether IFC is enabled must not invent a ceiling.
+  maxIfcFileSize: 0,
   maxTotalSize: DEFAULT_MAX_TOTAL_SIZE,
   maxFileCount: DEFAULT_MAX_FILE_COUNT,
   fileExpirationCheckIntervalHours: 0,
@@ -240,12 +244,19 @@ export function validateFileUpload(
       continue
     }
 
-    // Check individual file size
-    if (file.size > config.maxFileSize) {
+    // Check individual file size. A `.ifc` is measured against the IFC ceiling,
+    // not the document one — a building model is an order of magnitude larger
+    // than the PDFs `maxFileSize` was sized for, and refusing one for being a
+    // big FILE told the user nothing about what to do.
+    const sizeCeiling =
+      isIfcFilename(file.name) && config.maxIfcFileSize > 0
+        ? config.maxIfcFileSize
+        : config.maxFileSize
+    if (file.size > sizeCeiling) {
       fileErrors.push({
         file,
         code: 'FILE_TOO_LARGE',
-        message: `"${file.name}" is ${formatFileSize(file.size, locale)}, exceeds ${formatFileSize(config.maxFileSize, locale)} limit`,
+        message: `"${file.name}" is ${formatFileSize(file.size, locale)}, exceeds ${formatFileSize(sizeCeiling, locale)} limit`,
       })
       continue
     }
@@ -263,15 +274,25 @@ export function validateFileUpload(
   const totalSize = context.existingTotalSize + newFilesTotalSize
   const totalCount = context.existingFileCount + potentiallyValidFiles.length
 
+  // A batch carrying a model gets the IFC ceiling as its total, or one legal
+  // 150 MB model would clear the per-file check and then fail a 100 MB BATCH
+  // limit it could never satisfy. Lifted per-batch rather than in the config so
+  // a batch of ordinary documents keeps the document limit.
+  const carriesIfc = potentiallyValidFiles.some((file) => isIfcFilename(file.name))
+  const totalCeiling =
+    carriesIfc && config.maxIfcFileSize > config.maxTotalSize
+      ? config.maxIfcFileSize
+      : config.maxTotalSize
+
   // Check total size constraint
-  if (totalSize > config.maxTotalSize) {
-    const availableSpace = Math.max(0, config.maxTotalSize - context.existingTotalSize)
+  if (totalSize > totalCeiling) {
+    const availableSpace = Math.max(0, totalCeiling - context.existingTotalSize)
     batchErrors.push({
       code: 'TOTAL_SIZE_EXCEEDED',
       message:
         context.existingTotalSize > 0
-          ? `Total size would be ${formatFileSize(totalSize, locale)}. Only ${formatFileSize(availableSpace, locale)} available (${formatFileSize(config.maxTotalSize, locale)} limit).`
-          : `Total size ${formatFileSize(totalSize, locale)} exceeds ${formatFileSize(config.maxTotalSize, locale)} limit.`,
+          ? `Total size would be ${formatFileSize(totalSize, locale)}. Only ${formatFileSize(availableSpace, locale)} available (${formatFileSize(totalCeiling, locale)} limit).`
+          : `Total size ${formatFileSize(totalSize, locale)} exceeds ${formatFileSize(totalCeiling, locale)} limit.`,
     })
   }
 

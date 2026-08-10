@@ -309,6 +309,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['text/csv', 'application/json'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -328,6 +329,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['text/csv', 'application/json'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -344,6 +346,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['application/pdf', 'text/plain'],
           maxTotalSizeMB: 1,
           maxFileSize: 1 * 1024 * 1024, // 1MB limit
+          maxIfcFileSize: 0,
           maxTotalSize: 1 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -367,6 +370,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['application/pdf', 'text/plain'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 3, // Only 3 files allowed
           fileExpirationCheckIntervalHours: 0,
@@ -391,6 +395,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['application/pdf', 'text/plain'],
           maxTotalSizeMB: 1,
           maxFileSize: 100 * 1024 * 1024, // Individual files can be large
+          maxIfcFileSize: 0,
           maxTotalSize: 1 * 1024 * 1024, // But total is limited to 1MB
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -414,6 +419,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['text/csv', 'application/json'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -434,6 +440,7 @@ describe('validation', () => {
         acceptedMimeTypes: ['application/pdf'],
         maxTotalSizeMB: 100,
         maxFileSize: 100 * 1024 * 1024,
+        maxIfcFileSize: 0,
         maxTotalSize: 100 * 1024 * 1024,
         maxFileCount: 10,
         fileExpirationCheckIntervalHours: 0,
@@ -465,5 +472,70 @@ describe('validation', () => {
         expect(result.fileErrors[0].reason).toBeUndefined()
       })
     })
+  })
+})
+
+describe('a building model is not measured against the document limit', () => {
+  // `FILE_UPLOAD_MAX_SIZE_MB` is sized for PDFs (100 MB). An Einreichung IFC is
+  // routinely 50–500 MB, so a real model was refused for being a large FILE,
+  // with a message that named no limit the user could act on and said nothing
+  // about IFC.
+  const config = {
+    acceptedTypes: '.pdf,.ifc',
+    acceptedMimeTypes: ['application/pdf', 'application/octet-stream'],
+    maxTotalSizeMB: 100,
+    maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 250 * 1024 * 1024,
+    maxTotalSize: 250 * 1024 * 1024,
+    maxFileCount: 10,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes: number): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+
+  test('admits a 150 MB .ifc that exceeds the document limit', () => {
+    const result = validateFileUpload([file('Lacknergasse-98.ifc', 150 * 1024 * 1024)], undefined, config)
+
+    expect(result.fileErrors).toEqual([])
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+  })
+
+  test('still refuses a .ifc past the IFC ceiling', () => {
+    const result = validateFileUpload([file('federated.ifc', 300 * 1024 * 1024)], undefined, config)
+
+    expect(result.fileErrors[0].code).toBe('FILE_TOO_LARGE')
+  })
+
+  test('leaves the document limit alone for everything else', () => {
+    const result = validateFileUpload([file('Einreichplan.pdf', 150 * 1024 * 1024)], undefined, config)
+
+    expect(result.fileErrors[0].code).toBe('FILE_TOO_LARGE')
+  })
+
+  test('a batch carrying a model gets the IFC total, not the document one', () => {
+    // Otherwise the 150 MB model clears the per-file check and then fails a
+    // 100 MB BATCH limit it could never satisfy.
+    const batch = validateFileUpload([file('Lacknergasse-98.ifc', 150 * 1024 * 1024)], undefined, {
+      ...config,
+      maxTotalSize: 100 * 1024 * 1024,
+    })
+
+    expect(batch.batchErrors).toEqual([])
+  })
+
+  test('a batch of ordinary documents keeps the document total', () => {
+    // The reason the ceiling is lifted per-batch instead of in the config:
+    // three 40 MB PDFs must not start passing because IFC is enabled.
+    const batch = validateFileUpload(
+      [file('a.pdf', 40 * 1024 * 1024), file('b.pdf', 40 * 1024 * 1024), file('c.pdf', 40 * 1024 * 1024)],
+      undefined,
+      { ...config, maxTotalSize: 100 * 1024 * 1024 }
+    )
+
+    expect(batch.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
   })
 })

@@ -192,6 +192,26 @@ export const IFC_MIME_TYPES = [
   'application/x-ifc',
 ] as const
 
+/**
+ * Default ceiling on a `.ifc` upload, overridable with `BIM_MAX_IFC_BYTES`.
+ *
+ * It lives here, beside the extensions, because TWO layers need the same
+ * number and they must not disagree: the upload validator (which decides what
+ * the browser may send) and the extractor (which decides what it will parse).
+ * When the upload limit was the generic `FILE_UPLOAD_MAX_SIZE_MB` — 100 MB by
+ * default — a 150 MB model was refused as too large for the corpus even though
+ * the parser would happily have taken it, and the message said nothing about
+ * IFC. An ordinary Einreichung model is 50–500 MB; the general document limit
+ * was never sized for one.
+ */
+export const DEFAULT_MAX_IFC_BYTES = 250 * 1024 * 1024
+
+/** The configured IFC ceiling for an environment. Shared by both layers. */
+export function maxIfcBytesFrom(env: Record<string, string | undefined>): number {
+  const parsed = Number(env.BIM_MAX_IFC_BYTES)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_IFC_BYTES
+}
+
 /** True when a filename is one the IFC pipeline should handle. */
 export function isIfcFilename(filename: string): boolean {
   const lower = filename.trim().toLowerCase()
