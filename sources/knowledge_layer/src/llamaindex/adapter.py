@@ -370,26 +370,35 @@ FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTIO
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
 
+
 # ---------------------------------------------------------------------------
-# In-process collection write versions.
+# Collection write versions (cross-replica).
 #
-# The retriever's static-collection result cache keys on this version so any
-# ingestion/deletion in this process invalidates cached results immediately;
-# the cache TTL covers writes from other processes (there are none today —
-# one backend process owns the embedded Chroma store).
+# The premise the in-process counter rested on -- "one backend process owns the
+# store" -- is false: AIQ_CHROMA_URL points every backend replica and every
+# research worker at ONE Chroma. A version held in a module global is invisible
+# to every replica but its own, so a write here would leave the others serving
+# superseded results for the whole result-cache TTL. The version now lives in
+# the shared cache; these two functions are the adapter's seam onto it.
 # ---------------------------------------------------------------------------
-_collection_versions: dict[str, int] = {}
-_collection_versions_lock = threading.Lock()
-
-
 def bump_collection_version(collection_name: str) -> None:
-    with _collection_versions_lock:
-        _collection_versions[collection_name] = _collection_versions.get(collection_name, 0) + 1
+    """Record a write so every replica's cached results for this collection stop matching."""
+    from aiq_agent.knowledge import collection_version as _collection_version
+
+    _collection_version.bump(collection_name)
 
 
-def collection_version(collection_name: str) -> int:
-    with _collection_versions_lock:
-        return _collection_versions.get(collection_name, 0)
+def collection_version(collection_name: str) -> int | None:
+    """The collection's write version, or ``None`` when it cannot be resolved.
+
+    NOTE the contract: ``None`` means UNKNOWN, not 0. A caller must not build a cache
+    key from it and must not store a result. Coercing unknown to 0 is precisely how a
+    replica keeps serving superseded legal text through a cache outage -- every entry
+    another replica stored under version 0 would match again.
+    """
+    from aiq_agent.knowledge import collection_version as _collection_version
+
+    return _collection_version.current(collection_name)
 
 
 #: ``exp(-distance)`` at cosine distance 1.0 — the score of a chunk with no
@@ -3443,8 +3452,8 @@ class LlamaIndexRetriever(BaseRetriever):
         # identical questions recur across users and conversations, and the
         # corpus only changes on re-sync. Keyed on the collection write
         # version, so in-process ingestion invalidates immediately.
-        self._result_cache: dict[tuple[str, int, str, int], tuple[float, RetrievalResult]] = {}
-        self._result_cache_order: list[tuple[str, int, str, int]] = []
+        self._result_cache: dict[tuple[str, int, str, int, str], tuple[float, RetrievalResult]] = {}
+        self._result_cache_order: list[tuple[str, int, str, int, str]] = []
         self._result_cache_lock = threading.Lock()
 
         logger.info(f"LlamaIndexRetriever initialized: persist_dir={self.persist_dir}")
@@ -3626,15 +3635,21 @@ class LlamaIndexRetriever(BaseRetriever):
 
             logger.info(f"LlamaIndexRetriever.retrieve: query='{query[:50]}...', collection={collection_name}")
 
-            cacheable = collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS
-            cache_key = (
-                collection_name,
-                collection_version(collection_name),
-                query,
-                top_k,
-                _filters_fingerprint(filters),
-            )
-            if cacheable:
+            # No resolvable write version => no cache key at all. `None` is unknown,
+            # not 0: an entry stored or matched against a version we cannot vouch for
+            # is how one replica keeps answering from a corpus another replica has
+            # already changed. Read through instead -- the cache is an optimisation,
+            # the version is a correctness invariant.
+            version = collection_version(collection_name)
+            cache_key: tuple[str, int, str, int, str] | None = None
+            if version is not None and collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS:
+                cache_key = (
+                    collection_name,
+                    version,
+                    query,
+                    top_k,
+                    _filters_fingerprint(filters),
+                )
                 cached = self._cached_static_result(cache_key)
                 if cached is not None:
                     logger.info(f"Static retrieval cache hit for collection {collection_name}")
@@ -3676,7 +3691,7 @@ class LlamaIndexRetriever(BaseRetriever):
                 backend=self.backend_name,
                 success=True,
             )
-            if cacheable:
+            if cache_key is not None:
                 self._store_static_result(cache_key, result)
             return result
 

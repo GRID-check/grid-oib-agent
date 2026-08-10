@@ -9,6 +9,7 @@ The retriever is instantiated once and reused for all queries.
 import asyncio
 import logging
 import os
+from contextlib import suppress
 from typing import Literal
 
 from pydantic import Field
@@ -28,8 +29,9 @@ logger = logging.getLogger(__name__)
 _CHUNK_TRUNCATE_CHARS = 2500
 
 # Diversity-aware merge caps how many chunks per document are taken in the
-# first pass before spreading to other documents. With max_per_document=2 and
-# top_k=8 the second pass fills remaining slots, covering >=4 documents.
+# first pass before spreading to other documents. The cap is soft: with
+# max_per_document=2 and top_k=8 the first pass covers >=4 documents, and the
+# fill pass exceeds the cap rather than returning fewer than top_k chunks.
 _MAX_CHUNKS_PER_DOC = 2
 
 # Retrieval over-fetch factor applied when the caller narrows results with the
@@ -502,24 +504,120 @@ def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: d
     return {"$and": clauses}
 
 
+def _rank_channel(chunks) -> list:
+    """Lay one collection's hits out so that list position IS the per-collection rank.
+
+    ``fuse_with_ranks`` reads a chunk's rank from its position, while the adapter states
+    a hit's rank in ``retrieval_rank`` (stamped after the intra-collection lexical
+    fusion, so it is the collection's final order, not the raw vector order). Positions
+    a stamped rank has vacated are padded with ``None``, which the fuser skips because it
+    carries no ``chunk_id``: a collection whose rank 3 was dropped upstream keeps rank 4
+    at rank 4 instead of silently promoting it.
+
+    Chunks with no stamped rank (SimpleNamespace test doubles, the foundational_rag
+    backend, anything predating the field) fall back to their position in the list, which
+    is the order the retriever returned them in — so an unstamped layer behaves exactly
+    as it did before the field existed.
+    """
+    by_rank: dict[int, object] = {}
+    for position, chunk in enumerate(chunks):
+        rank = getattr(chunk, "retrieval_rank", None)
+        if not isinstance(rank, int) or isinstance(rank, bool) or rank < 0:
+            rank = position
+        # A duplicated or colliding rank must never evict a hit; push it to the next free
+        # slot so both survive and their relative order is preserved.
+        while rank in by_rank:
+            rank += 1
+        by_rank[rank] = chunk
+    if not by_rank:
+        return []
+    return [by_rank.get(rank) for rank in range(max(by_rank) + 1)]
+
+
+def _apply_diversity_cap(ordered, top_k: int, max_per_document: int) -> list:
+    """Select ``top_k`` chunks from a ranked list, spreading across distinct documents.
+
+    The cap is SOFT, which is what both the docstring it replaces and the LLM-facing tool
+    description have always promised: at most ``max_per_document`` chunks per distinct
+    document (keyed by collection + file_name) *where possible*, and the cap is exceeded
+    rather than returning fewer than ``top_k`` chunks.
+
+    The first pass is bounded at ``top_k`` selections. The previous inline version scanned
+    the ENTIRE merged list, so ``selected`` was already longer than ``top_k`` under any
+    production config and ``(selected + leftovers)[:top_k]`` reduced to ``selected[:top_k]``
+    — the fill pass was unreachable and the quota was hard. Worse, appending the deferred
+    chunks after every selected one meant a downstream ``[:top_k]`` trim saw a list whose
+    head had been rebuilt out of low-ranked chunks: on a single-topic query it swapped
+    seven on-topic hits for seven off-topic ones from other documents.
+
+    The result is returned in rank order, i.e. as a subsequence of ``ordered``. Selection
+    order was not monotone in the ranking key it was selected by, which is what made the
+    downstream trim lossy.
+
+    Args:
+        ordered: Chunks in final rank order, best first.
+        top_k: Maximum number of chunks to return.
+        max_per_document: Per-document cap for the first pass; ``0`` disables diversity
+            entirely, making this a plain top-k truncation.
+
+    Returns:
+        At most ``top_k`` chunks, in the same relative order as ``ordered``.
+    """
+    if max_per_document <= 0 or top_k <= 0:
+        return list(ordered[:top_k])
+
+    selected: list[int] = []
+    deferred: list[int] = []
+    per_doc: dict[tuple, int] = {}
+    for index, chunk in enumerate(ordered):
+        if len(selected) >= top_k:
+            # Bounded first pass: once the slate is full, everything left is a fill
+            # candidate. Nothing below this point is a cap decision.
+            deferred.append(index)
+            continue
+        doc_key = ((getattr(chunk, "metadata", None) or {}).get("collection"), getattr(chunk, "file_name", None))
+        if per_doc.get(doc_key, 0) < max_per_document:
+            per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
+            selected.append(index)
+        else:
+            deferred.append(index)
+
+    # Soft quota: when there are not enough distinct documents to fill the slate, the
+    # chunks the cap deferred come back, best rank first.
+    for index in deferred:
+        if len(selected) >= top_k:
+            break
+        selected.append(index)
+
+    return [ordered[index] for index in sorted(selected)]
+
+
 def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_document: int = _MAX_CHUNKS_PER_DOC):
     """
-    Merge per-collection retrieval results into a single scored result.
+    Merge per-collection retrieval results into one ranked result by rank fusion.
 
-    Scores are comparable across collections (same embedding model, cosine [0,1]),
-    so chunks from all successful layers are concatenated and sorted by score
-    descending. Selection is diversity-aware: a first pass takes at most
-    ``max_per_document`` chunks per distinct document (keyed by collection +
-    file_name), then any remaining slots up to ``top_k`` are filled with the
-    highest-scoring leftovers regardless of source. With a single document (or
-    ``max_per_document=0``) this is identical to a plain top-k truncation.
+    Chunks are NOT comparable by score across collections. ``Chunk.score`` is a true
+    cosine similarity, but the professionally chunked base corpus sits in a systematically
+    better distance band than a session or project collection, so a user's own uploaded
+    PDF can never win on raw score and "layered retrieval" does not layer. Each surviving
+    collection therefore contributes one RRF channel (in ``target_collections`` order, so
+    the base corpus wins exact ties) and the merged order is the fused rank — scale-free
+    by construction, so a session hit at rank 0 can outrank a corpus hit at rank 5.
+
+    Selection over that fused order is diversity-aware; see ``_apply_diversity_cap``. With
+    a single collection and ``max_per_document=0`` this is identical to a plain top-k
+    truncation of that collection's own order.
+
+    ``chunk.score`` is never mutated: ``_format_results`` keeps displaying the true
+    similarity. The fusion score is recorded on ``chunk.fusion_score`` for diagnostics.
 
     Failed layers (``success=False``, e.g. a brand-new session whose collection
     does not exist yet) and raised exceptions are treated as empty contributions
     and skipped. This never raises.
 
     Args:
-        results: List of RetrievalResult objects or Exceptions (from asyncio.gather).
+        results: List of RetrievalResult objects or Exceptions (from asyncio.gather),
+            in ``target_collections`` order.
         query: The original query string.
         top_k: Maximum number of merged chunks to return.
         backend_name: Fallback backend label if no successful result is available.
@@ -530,7 +628,7 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
     """
     from aiq_agent.knowledge.schema import RetrievalResult
 
-    merged_chunks = []
+    channels: list[list] = []
     backend = backend_name
     for result in results:
         if isinstance(result, Exception):
@@ -552,9 +650,18 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             continue
         if result.backend:
             backend = result.backend
-        merged_chunks.extend(result.chunks)
+        # One channel per SURVIVING collection, in arrival order. Skipped layers must not
+        # leave an empty channel behind: an empty channel is harmless to RRF but a
+        # non-empty one from a later collection would shift into the tie-break seat.
+        channels.append(_rank_channel(result.chunks))
 
-    merged_chunks.sort(key=lambda chunk: chunk.score, reverse=True)
+    merged_chunks = []
+    for chunk, _fused_rank, fused_score in _fuse_channels(channels):
+        with suppress(Exception):
+            # Diagnostic only. Never displayed; `score` stays the true cosine so the
+            # "Relevance Score:" line keeps meaning what citation parsing expects.
+            chunk.fusion_score = fused_score
+        merged_chunks.append(chunk)
 
     try:
         from aiq_agent.common.focus_file import get_focused_file_name
@@ -579,22 +686,28 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
         # "summarize this PDF" grew a Büro plan (#429).
         merged_chunks = matching if matching else merged_chunks
 
-    if max_per_document > 0:
-        selected = []
-        leftovers = []
-        per_doc: dict[tuple, int] = {}
-        for chunk in merged_chunks:
-            doc_key = ((chunk.metadata or {}).get("collection"), chunk.file_name)
-            if per_doc.get(doc_key, 0) < max_per_document:
-                per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
-                selected.append(chunk)
-            else:
-                leftovers.append(chunk)
-        merged_top_k = (selected + leftovers)[:top_k]
-    else:
-        merged_top_k = merged_chunks[:top_k]
+    merged_top_k = _apply_diversity_cap(merged_chunks, top_k, max_per_document)
 
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
+
+
+def _fuse_channels(channels: list[list]) -> list[tuple]:
+    """Reciprocal-rank-fuse per-collection channels, failing open to concatenation.
+
+    The fusion helper lives in the llamaindex package, so it is imported lazily and
+    defensively: ``_merge_results`` is called on ``asyncio.gather(..., return_exceptions=True)``
+    output and must never raise, and a deployment running the foundational_rag backend
+    without the llamaindex extra must degrade to the (still collection-ordered)
+    concatenation rather than losing the whole search.
+    """
+    try:
+        from knowledge_layer.llamaindex.hybrid import fuse_with_ranks
+
+        return fuse_with_ranks(channels)
+    except Exception as exc:  # pragma: no cover - import/fusion failure is fail-open
+        logger.warning("Cross-collection rank fusion unavailable, using collection order: %s", exc)
+        flat = [chunk for channel in channels for chunk in channel if chunk is not None]
+        return [(chunk, rank, 0.0) for rank, chunk in enumerate(flat)]
 
 
 def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
@@ -1219,8 +1332,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 return_exceptions=True,
             )
 
-            # Merge by score (comparable across collections) with a per-document
-            # diversity cap so cross-cutting questions span multiple documents.
+            # Merge by cross-collection rank fusion (scores are NOT comparable across
+            # collections) with a per-document diversity cap so cross-cutting questions
+            # span multiple documents. `results` is in `target_collections` order, which
+            # is the channel order the fusion breaks exact ties by.
             merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
 
             # Agentic narrowing, then trim to the effective top_k.
