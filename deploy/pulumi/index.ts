@@ -25,7 +25,8 @@ import { installGatewayController, installGatewayResources } from "./src/platfor
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installNetworkPolicies } from "./src/platform/network-policies";
 import { installPostgres, installScheduledBackup, type Postgres } from "./src/data/postgres";
-import { installDragonfly, installRateLimitStore } from "./src/data/dragonfly";
+import { installDragonfly, installLangfuseQueue, installRateLimitStore } from "./src/data/dragonfly";
+import { installClickHouse } from "./src/data/clickhouse";
 import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
 import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
 import { installChroma } from "./src/data/chroma";
@@ -41,6 +42,9 @@ import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
 import { installOtelCollector } from "./src/platform/otel-collector";
 import { installErr2Issue } from "./src/platform/err2issue";
+import { installDns, managedRecordNames } from "./src/platform/dns";
+import { installLangfuse } from "./src/platform/langfuse";
+import { LANGFUSE } from "./src/constants";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -76,7 +80,13 @@ if (cfg.ingress.installMetricsServer) {
 // configuration, though — split topology with the Postgres filer store — so
 // rather than degrade every deployment to the weaker ordering, each branch
 // takes the ordering that is actually correct for it.
-const extraBuckets = cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [];
+const extraBuckets = [
+  ...(cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : []),
+  // Langfuse's event archive + batch exports (ADR-0044). A platform bucket, so
+  // the init Job creates it — but withheld from the general-purpose `grid` S3
+  // identity in `s3IdentityCatalog`; Langfuse reaches it as `grid-langfuse`.
+  ...(cfg.langfuse.enabled ? [LANGFUSE.bucket] : []),
+];
 const filerNeedsPostgres =
   cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres";
 
@@ -135,6 +145,16 @@ installSeaweedFSBackup(
   { master: seaweed.masterAddress, filer: seaweed.filerAddress },
 );
 const dragonfly = installDragonfly(cfg, provider, namespace);
+// ClickHouse + the ingestion queue for Langfuse (ADR-0044). Both live in the
+// data tier because that is what they are, even though the tier they serve is
+// an observability one — the Pulumi module layout follows what a workload IS,
+// not who consumes it.
+const clickhouse = cfg.langfuse.enabled
+  ? installClickHouse(cfg, provider, namespace, [ns])
+  : undefined;
+const langfuseQueue = cfg.langfuse.enabled
+  ? installLangfuseQueue(cfg, provider, namespace)
+  : undefined;
 // Counter store for edge rate limiting (ADR-0040 L1) — deliberately a SECOND
 // instance, never the cache above; `data/dragonfly.ts` explains why. Only the
 // rate limit service in `envoy-gateway-system` talks to it, over the allow in
@@ -242,12 +262,60 @@ if (cfg.observability.enabled) {
     ? installErr2Issue(cfg, provider, namespace, [ns])
     : undefined;
 
+  // Langfuse (ADR-0044) before the collector, for the same reason err2issue is:
+  // the collector's `otlp_http/langfuse` exporter starts exporting the moment it
+  // boots, so having the Service resolvable first avoids a burst of
+  // connection-refused export errors on every deploy. Its own `enabled` already
+  // implies observability is on.
+  //
+  // `clickhouse` / `langfuseQueue` are non-undefined exactly when
+  // `cfg.langfuse.enabled` is true — the same flag guards all three — but
+  // TypeScript cannot see that, so the check is written where the values are
+  // used rather than asserted away.
+  const langfuse =
+    cfg.langfuse.enabled && clickhouse && langfuseQueue && postgres.langfuseDsn
+      ? installLangfuse(
+          cfg,
+          provider,
+          namespace,
+          {
+            databaseUrl: postgres.langfuseDsn,
+            clickhouseHttpUrl: clickhouse.httpUrl,
+            clickhouseMigrationUrl: clickhouse.migrationUrl,
+            redisUrl: langfuseQueue.url,
+            s3Endpoint: seaweed.internalEndpoint,
+          },
+          [
+            gatewayResources.gateway,
+            clickhouse.service,
+            langfuseQueue.service,
+            seaweed.bucketInitJob,
+            ...postgres.langfuseStoreDeps,
+          ],
+        )
+      : undefined;
+
   installOtelCollector(
     cfg, provider, namespace,
     obs.secrets,
-    [obs.service, ...(errorSink ? [errorSink.service] : [])],
+    [
+      obs.service,
+      ...(errorSink ? [errorSink.service] : []),
+      ...(langfuse ? [langfuse.webService] : []),
+    ],
+    langfuse ? langfuse.secret.metadata.name : undefined,
   );
 }
+
+// ── Public DNS ───────────────────────────────────────────────────────────────
+//
+// Last, and deliberately independent of every resource above: these records are
+// managed at Cloudflare, not in the cluster, so they carry no `dependsOn` and
+// nothing in the cluster waits on them. Publishing a name before the Gateway
+// answers on it is harmless (the browser gets a connection refused, cert-manager
+// retries its challenge); the reverse — a Gateway nobody can find — is the state
+// this exists to prevent.
+const dns = installDns(cfg);
 
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
@@ -273,9 +341,15 @@ export const networkPoliciesEnabled = cfg.networkPolicies;
 export const otelUrl = cfg.observability.enabled
   ? pulumi.interpolate`https://${cfg.observability.otelDomain}`
   : pulumi.output("(none: observability disabled)");
+export const langfuseUrl = cfg.langfuse.enabled
+  ? pulumi.interpolate`https://${cfg.langfuse.domain}`
+  : pulumi.output("(none: langfuse disabled)");
 export const errorIssueRepo = cfg.err2issue.enabled
   ? pulumi.output(cfg.err2issue.githubRepo)
   : pulumi.output("(none: err2issue disabled)");
+export const dnsRecords = dns
+  ? pulumi.all(managedRecordNames(dns)).apply((names) => names.join(", "))
+  : pulumi.output("(none: dnsEnabled=false — records are maintained by hand)");
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

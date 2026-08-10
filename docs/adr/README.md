@@ -86,6 +86,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0041](0041-row-level-security-for-tenant-isolation.md) | Row-level security for tenant isolation | Accepted |
 | [0042](0042-object-storage-durability-and-quota.md) | Object-storage durability — backup, quota, and least privilege | Proposed |
 | [0043](0043-seaweedfs-split-topology-and-per-tenant-buckets.md) | SeaweedFS split topology, a Postgres filer store, and a bucket per tenant | Proposed |
+| [0044](0044-langfuse-durable-llm-observability.md) | Langfuse as the durable LLM-observability backend | Proposed |
 
 > Note: two ADRs were independently numbered 0027, and two more were
 > independently numbered 0039. All are Accepted and in effect; each collision is

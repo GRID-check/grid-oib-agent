@@ -154,10 +154,20 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
       },
       encryptVolumeData: true,
     },
+    // `renderS3Config` zips the Langfuse S3 credential onto the catalogue
+    // whenever the tier is on (ADR-0044), so the fixture has to carry it even
+    // for the default-off case — reading `.s3AccessKey` off an absent
+    // `langfuse` throws before the `enabled` flag is ever consulted.
+    langfuse: {
+      enabled: false,
+      s3AccessKey: "grid-langfuse",
+      s3SecretKey: pulumi.secret("langfuse-secret"), // pragma: allowlist secret
+    },
   };
   return {
     ...base,
     seaweedfs: { ...base.seaweedfs, ...(overrides.seaweedfs as object) },
+    langfuse: { ...base.langfuse, ...(overrides.langfuse as object) },
     // The modules under test only read the fields above; the cast is the one
     // documented boundary between this fixture and the full GridConfig.
   } as unknown as import("../config").GridConfig;
@@ -779,6 +789,12 @@ describe("compose stacks match the identity catalogue", () => {
       platformBuckets: ["grid-documents"],
       tenantBucketPrefix: "grid-org-",
       provisioning: true,
+      // The compose stacks declare the Langfuse identity unconditionally
+      // (ADR-0044) even though the profile that uses it is opt-in — an unused
+      // identity costs nothing, and declaring it here is what keeps compose's
+      // authorization model equal to production's rather than approximately
+      // equal, which is the entire reason this test exists.
+      langfuseBucket: "langfuse",
     });
 
     const actual = await composeIdentities(file);
@@ -798,12 +814,20 @@ describe("compose stacks match the identity catalogue", () => {
     const source = readFileSync(join(process.cwd(), file), "utf8");
     const printf = /printf '\{"identities".*?> \/etc\/seaweedfs\/s3\.json/s.exec(source)![0];
 
-    // One `$$VAR` pair per identity, all different. Reusing a variable would
-    // make two identities the same credential, which silently collapses the
-    // split this whole model rests on.
+    // One `$$VAR` PAIR per identity — an access key and a secret key — and all
+    // of them different. Reusing a variable would make two identities the same
+    // credential, which silently collapses the split this whole model rests on.
+    //
+    // Counted from the identity list in the same file rather than hardcoded:
+    // the previous fixed `6` meant that adding a fourth identity failed here
+    // with "expected 8 to be 6", which says nothing about credentials and
+    // invites someone to bump the number without checking distinctness.
+    const identities = await composeIdentities(file);
+    const expectedVars = identities.length * 2;
+
     const vars = [...printf.matchAll(/"\$\$([A-Z_]+)"/g)].map((m) => m[1]);
-    expect(vars).toHaveLength(6);
-    expect(new Set(vars).size).toBe(6);
+    expect(vars).toHaveLength(expectedVars);
+    expect(new Set(vars).size).toBe(expectedVars);
   });
 
   // The agent tier is the one that must NOT hold a write credential.

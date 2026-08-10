@@ -279,11 +279,18 @@ pulumi up
 
 Then:
 
-1. `kubectl -n envoy-gateway-system get svc` → note the Envoy proxy LoadBalancer external IP.
-2. Point DNS `A`/`AAAA` records for `app.<baseDomain>` and `s3.<baseDomain>`
-   (and `otel.<baseDomain>` when observability is on) at it. `appDomain`/
-   `s3Domain`/`otelDomain` exist only as optional per-host overrides —
-   `grid-oib:baseDomain` is the single key a domain move touches.
+1. `kubectl -n envoy-gateway-system get svc` → note the Envoy proxy LoadBalancer
+   external IP, and pin it as `grid-oib:loadBalancerIp`.
+2. Publish DNS `A` records for `app.<baseDomain>` and `s3.<baseDomain>` (and
+   `otel.<baseDomain>` when observability is on) plus the `baseDomain` apex
+   itself, pointing at that IP. `appDomain`/`s3Domain`/`otelDomain` exist only
+   as optional per-host overrides — `grid-oib:baseDomain` is the single key a
+   domain move touches.
+
+   With `grid-oib:dnsEnabled` this is not a manual step: `src/platform/dns.ts`
+   derives the record set from the same config the Gateway listeners are built
+   from and writes it to Cloudflare, so a host can never have a listener without
+   a record or the reverse. See § Public DNS below.
 3. Leave `useStagingIssuer: true` until the ingress is reachable and a staging
    cert issues (avoids Let's Encrypt rate limits); then set it `false` and
    `pulumi up` for a trusted cert.
@@ -293,6 +300,126 @@ The base OIB corpus is **not** shipped in the image or from git — it is
 volume-based. Load it through the platform-admin upload UI once the stack is up;
 it persists on the agent's `/app/data` PVC and is embedded into Chroma on the
 fly.
+
+---
+
+## 3b. Public DNS (`grid-oib:dnsEnabled`)
+
+Off by default. A stack whose records are maintained by hand deploys exactly as
+it always did; nothing below is required.
+
+What it removes is step 2 above — the one whose failure mode is not a failure.
+A forgotten or mistyped record leaves a perfectly healthy cluster that nobody
+can reach, and a cert-manager HTTP-01 challenge that never solves because the CA
+cannot resolve the name it is validating. Neither shows up in
+`kubectl get pods`.
+
+`src/platform/dns.ts` derives its record set from the same config
+`src/platform/gateway.ts` builds its HTTPS listeners from, so the two cannot
+drift: every listener has an A record, and no A record points at a host with no
+listener (`otel.` appears only when the observability tier is deployed, and
+`langfuse.` only when that tier is — §9b).
+
+### Cloudflare operates the zone; the registrar does not change
+
+The domain stays registered wherever it is — only its `NS` records move. For
+GoDaddy specifically this is not one option among several: their Domains API is
+gated behind 10+ domains or a Discount Domain Club membership, and below that
+bar every DNS call returns `403 ACCESS_DENIED`, so the zone cannot be driven
+from code at all while they serve it.
+
+### Configuration
+
+| Key | Notes |
+|---|---|
+| `dnsEnabled` | Master switch. Everything else is unread while false |
+| `dnsZoneId` | Cloudflare zone → Overview → API section |
+| `dnsZoneName` | The zone **apex** (`piloti.at`), which need not equal `baseDomain` — a stack may live on a subdomain of its zone |
+| 🔒 `cloudflareApiToken` | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set |
+| `dnsTtl` | Default 600s |
+| `dnsZoneBaseline` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** |
+| `dnsDmarc` | Value of the `_dmarc` TXT record, when the baseline is owned here |
+| `dnsApexRedirectTo` | Absolute URL the apex and `www` redirect to, for the window before any stack serves the apex |
+
+`loadBalancerIp` must be pinned. An unpinned address is assigned by the provider
+and can change under a Gateway re-creation; records written from it would be
+wrong from that moment, with nothing in this program in a position to notice.
+
+### Records are not proxied
+
+Every host record is created "grey cloud" (`proxied: false`), deliberately.
+Three separate things break behind Cloudflare's proxy and all three break
+quietly:
+
+- cert-manager solves ACME HTTP-01 through the Gateway. Proxying terminates TLS
+  at Cloudflare with its own certificate, so the Gateway's certificate stops
+  renewing and nothing says so until it expires.
+- `s3Domain` carries browser uploads via presigned URLs. The free plan caps a
+  request body at 100 MB; past that the upload dies at the edge, in no log this
+  repo collects.
+- The app tier is WebSocket-heavy (ADR-0028 pins a conversation to its owning
+  replica). Proxied WebSockets work, but acquire an idle timeout the Gateway's
+  own configuration no longer governs.
+
+Enabling the proxy is a real option; it just has to be taken together with a
+DNS-01 issuer and a paid upload limit.
+
+### The apex, and the one-owner rule
+
+Zone-level records have no stack of their own. `dnsZoneBaseline` names the stack
+that owns them, and `loadConfig` refuses the combinations that would produce two
+owners — because Cloudflare will not. Two stacks writing the same record is not
+an API error; the later `pulumi up` overwrites the earlier one and reports
+success.
+
+`dnsApexRedirectTo` is scaffolding for the window in which no stack serves the
+apex yet. It creates a proxied A record on `192.0.2.1` (RFC 5737 TEST-NET-1,
+guaranteed unroutable) and a dynamic-redirect ruleset; a redirect rule only runs
+on proxied traffic, and no packet is ever forwarded to the address, so a *real*
+IP there would be a trap — it would silently become a traffic destination the
+day the rule is removed. The redirect is a **302**: it disappears as soon as a
+stack claims the apex, and a cached 301 would keep bouncing visitors off the
+real site with no server-side way to undo it.
+
+When a stack's `baseDomain` *is* the zone apex, that stack publishes a real A
+record for it and `dnsApexRedirectTo` must be unset — `loadConfig` refuses to
+have both.
+
+### Cutover order
+
+The delegation moves last, so the new operator is already serving the right
+answers when it takes over:
+
+**The delegation moves LAST, and this program writes the zone FIRST.** That
+order is what makes the cutover verifiable instead of hopeful — Cloudflare
+answers queries on a zone's assigned nameservers as soon as it holds records,
+long before any registrar points at them, so the new zone can be interrogated
+directly while the old operator is still authoritative.
+
+1. `dig` the live zone for every record type — `A AAAA MX TXT CNAME SRV CAA` at
+   the apex, plus `_dmarc` and any DKIM selector. The current operator's web UI
+   truncates long values and the Cloudflare dashboard's auto-scan misses records
+   it cannot guess the name of; neither is a substitute for asking DNS.
+2. Add the zone in Cloudflare, then **delete every record its auto-scan
+   imported**. Whatever this program manages it must be the sole creator of:
+   Cloudflare permits two A records with the same name and round-robins between
+   them, so an imported record plus a created one is not an error, it is an
+   intermittently wrong answer.
+3. Set `dnsZoneId` / `dnsZoneName` / `cloudflareApiToken` — the token **before**
+   anything that could trigger a deploy, since `loadConfig` throws without it
+   once `dnsEnabled` is set, and on a CI-deployed stack that turns a merge into
+   a failed deploy.
+4. `dnsEnabled: true`, then `pulumi up`. Nothing goes live: the registrar still
+   delegates elsewhere.
+5. Verify against Cloudflare directly, bypassing the delegation —
+   `dig @<assigned-cloudflare-ns> <host>` for every host. This is the step that
+   makes the cutover safe, and it has no equivalent in the other ordering.
+6. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
+   still at an hour and waited out the *old* value first.
+7. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
+
+Abandonable up to step 6: everything before it is invisible to the internet, and
+reverting is deleting a Cloudflare zone nobody is pointed at.
 
 ---
 
@@ -1461,6 +1588,203 @@ on the configured authorization endpoint; ASP.NET 8 has no equivalent hook);
 generates `https://` links behind the TLS-terminating Gateway; the NAT exporter
 posts OTLP/HTTP to the endpoint as-is, so the full `/v1/traces` path is
 required on the Python tiers.
+
+## 9b. Langfuse — durable LLM observability (ADR-0044)
+
+Section 9's dashboard is a live pane over an in-memory ring buffer. This is the
+store that outlives a restart: sessions, users, per-model cost, prompt
+management, datasets and evals, over history you can query.
+
+**It is the free, self-hosted OSS build.** No licence key is set anywhere. The
+one consequence that shows up operationally is at the end of this section.
+
+**Gating (flag AND capability):** deployed only when
+`grid-oib:langfuseEnabled` is on — default **`true`**, as in section 9 — and
+every credential below is set **and** the observability tier of section 9 is
+itself deployed. Langfuse has no receiver of its own here; the collector is what
+feeds it, so without section 9 it is four workloads that can only sit idle. Miss
+anything and `pulumi preview` warns naming it and skips the tier entirely: no
+workloads, no `https-langfuse` listener or certificate, no collector exporter,
+and no identity attributes on any span.
+
+### What it deploys
+
+| Workload | Notes |
+|---|---|
+| `langfuse-web` | UI + public API + the OTLP receiver. Runs the migrations; single replica for that reason. |
+| `langfuse-worker` | Drains the ingestion queue into ClickHouse. Migrations disabled; ordered behind the web tier. |
+| `clickhouse` | **New stateful technology.** Single node, its own PVC. Langfuse v3 has no Postgres-only mode. |
+| `dragonfly-langfuse` | A THIRD Redis-protocol instance. Eviction is OFF — an evicted queue entry is a trace that silently never arrives. |
+
+Reusing what already exists: a `langfuse` database and `langfuse_app` role on the
+CNPG cluster, and one `langfuse` bucket on SeaweedFS reached by a dedicated
+`grid-langfuse` S3 identity scoped to that bucket alone.
+
+### DNS
+
+Nothing to do by hand on a stack with `dnsEnabled` (§3b): `langfuse.<baseDomain>`
+is derived from the Gateway's `https-langfuse` listener like every other host, so
+enabling this tier publishes its A record in the same `pulumi up`. The
+whole-program test asserts that pairing rather than trusting it
+(`index-dns.spec.ts`).
+
+On a stack that still maintains records by hand, add
+`langfuse.<baseDomain>` → the Envoy Gateway external IP **before** enabling the
+tier. Not doing so is the quiet failure §3b describes: everything deploys
+healthy, cert-manager's HTTP-01 challenge never solves because the CA cannot
+resolve the name, and the host simply never serves.
+
+### One-time WorkOS setup
+
+Langfuse reuses **the same Connect application** as the Aspire dashboard (§9) —
+do not create a second one. Add **both** of these redirect URIs to it:
+
+```text
+https://langfuse.<baseDomain>/oauth2/callback          # Envoy's OIDC callback
+https://langfuse.<baseDomain>/api/auth/callback/custom # Langfuse's own SSO (NextAuth)
+```
+
+Both are required, and the second is the one that is easy to skip. Being behind
+Envoy's completed session does not exempt it: WorkOS validates `redirect_uri`
+against the application's allowlist on every authorization request, and the
+docs are explicit — *"Without a valid redirect URI, your users will be unable
+to sign in."* Omit it and the edge gate passes, then Langfuse's SSO button dies
+at `/oauth2/authorize`, leaving only the break-glass password account working.
+That reads as "SSO is broken" rather than "a URI is missing".
+
+Access requires the `platform:organizations:view` permission, enforced at the
+edge exactly as in §9. Langfuse's own SSO alone would admit anyone who can sign
+in to the WorkOS environment at all — the narrowing is the Envoy SecurityPolicy,
+so do not remove it on the grounds that "Langfuse has its own login".
+
+### Configuration
+
+```bash
+# TWO of these are HEX, not base64, and both for reasons that bite at runtime
+# rather than at config time:
+#
+#   langfuseEncryptionKey      must be exactly 64 hex chars (a 256-bit key);
+#                              a 44-char base64 value crash-loops the web
+#                              container without naming the variable.
+#   langfuseClickhousePassword must be URL-safe. Langfuse's ClickHouse migrator
+#                              interpolates it into a connection-string query
+#                              parameter with no encoding, and base64 always
+#                              ends in `=` and often contains `+`.
+#
+# `loadConfig` rejects both at preview time, so a mistake here is a message,
+# not a CrashLoopBackOff.
+pulumi config set --secret grid-oib:langfuseEncryptionKey      "$(openssl rand -hex 32)"
+pulumi config set --secret grid-oib:langfuseClickhousePassword "$(openssl rand -hex 32)"
+
+# The rest are ordinary base64 secrets — nothing interpolates them unencoded.
+for k in langfuseSalt langfuseNextAuthSecret langfuseDbPassword \
+         langfuseQueuePassword langfuseS3SecretKey langfuseInitUserPassword; do
+  pulumi config set --secret "grid-oib:$k" "$(openssl rand -base64 32)"
+done
+
+# Project API keys. The prefixes are validated by Langfuse, not decorative.
+pulumi config set --secret grid-oib:langfusePublicKey "pk-lf-$(openssl rand -hex 16)"
+pulumi config set --secret grid-oib:langfuseSecretKey "sk-lf-$(openssl rand -hex 16)"
+
+pulumi config set grid-oib:langfuseInitUserEmail ops@example.com
+
+# The flag defaults to true, so the credentials above are what actually turns
+# the tier on. Set it explicitly only to opt OUT:
+#   pulumi config set grid-oib:langfuseEnabled false
+```
+
+`loadConfig` refuses, at preview time rather than at runtime:
+
+- an encryption key that is not exactly 64 hex characters;
+- a ClickHouse password containing anything outside `A-Za-z0-9._~-`, because
+  the migrator interpolates it into a query string unencoded;
+- an API key without its `pk-lf-` / `sk-lf-` prefix;
+- `langfuseQueuePassword` equal to `dragonflyPassword` or
+  `rateLimitStorePassword` — every app pod holds the cache URL, and a shared
+  password would let anything that reads one pod's env drain the ingestion
+  queue;
+- `langfuseS3SecretKey` equal to any other SeaweedFS secret — SeaweedFS
+  authenticates by key, so sharing one grants this tier that identity's bucket
+  scope instead of its own.
+
+NetworkPolicies are required. There is no separate check for it here: the tier
+depends on §9, whose guard already refuses `networkPolicies=false`.
+
+### Traps worth knowing before the first deploy
+
+- **Web and worker images must be the same Langfuse version.** They are two
+  config keys because upstream publishes two images; digests are opaque, so
+  nothing can verify it for you. Both defaults are pinned from the same tag
+  (3.225.1). Bump them together.
+- **ClickHouse must run UTC.** On any other server timezone Langfuse's queries
+  return empty or shifted results — a dashboard reporting "no data" for a system
+  that is plainly running. `TZ=UTC` is pinned on the container; do not override.
+- **`CLICKHOUSE_CLUSTER_ENABLED=false` is a schema decision.** It makes the
+  migrator emit plain `MergeTree` rather than `Replicated*`. Moving to a real
+  ClickHouse cluster later is a migration, not a replica-count change.
+- **First boot is slow.** The web tier runs Postgres and ClickHouse migrations
+  before it listens; its startup probe allows ten minutes. A pod killed mid-way
+  restarts the migration from the top.
+- **The ingestion keys are seeded, not minted.** Headless initialization creates
+  the org, project and API keys from config on first boot, which is what lets
+  the collector hold a working credential in the same `pulumi up`. Rotating
+  `langfuseSalt` invalidates every stored API key, including that one.
+
+### Signals and attribution
+
+Only **traces** go to Langfuse. Logs and metrics still go to the Aspire
+dashboard alone (and ERROR logs to err2issue, ADR-0031). The collector adds one
+exporter to the *existing* traces pipeline, so both consumers get every span.
+
+Consequence to know: the two exporters share the pipeline's `memory_limiter`, so
+a Langfuse outage long enough to fill its bounded sending queue (2000 batches)
+will cost the dashboard spans too. Neither is in a request path.
+
+When the tier is on, the agent tiers get `GRID_TRACE_IDENTITY_ATTRIBUTES=true`,
+which stamps `langfuse.user.id`, `langfuse.session.id` and the organization onto
+every span. Without it Langfuse receives traces that are anonymous — technically
+working, and missing most of the point. It is deliberately keyed off *this* tier
+rather than §9: attaching a user id to telemetry makes traces attributable to
+named individuals, and an Aspire-only deployment gets none of it.
+
+Session grouping and input/output capture need no configuration — NAT already
+emits `session.id` and OpenInference `input.value`/`output.value`, both of which
+Langfuse maps natively.
+
+### Operating it — the retention problem
+
+**Nothing expires.** Data-retention policies are an Enterprise feature, so on the
+free build the ClickHouse PVC grows for as long as the deployment runs. There is
+no setting in this program that changes that, and inventing one would be a knob
+that does nothing.
+
+So treat `grid-oib:clickhouseStorageSize` (default `20Gi`) as a number to watch,
+not to set once:
+
+```bash
+kubectl -n grid exec -it clickhouse-0 -- df -h /var/lib/clickhouse
+```
+
+Growing it is a PVC patch (the `volumeClaimTemplates` is immutable and
+`ignoreChanges`d — same procedure as SeaweedFS and Chroma, §4). Pruning is a
+manual ClickHouse partition drop. And note the store has **no backup**: Postgres
+has PITR (§5) and the raw events are archived in SeaweedFS, but ClickHouse has
+neither. Its PVC is `Retain` + `protect`ed, and that is the whole of its
+durability story.
+
+### Local development
+
+Compose runs the tier behind an opt-in profile:
+
+```bash
+cd deploy/compose
+docker compose --env-file ../.env -f docker-compose.yaml --profile langfuse up -d
+# http://localhost:3100 — sign in with LANGFUSE_INIT_USER_* from deploy/.env
+```
+
+There is no ingestion path locally: no collector runs, and the backend's OTLP
+exporter is gated off in compose by design (§9, ADR-0029). The profile is for
+developing against the Langfuse UI and API, not for reproducing ingestion.
 
 ## 10. Out of scope (deliberate follow-ups)
 

@@ -17,6 +17,13 @@ description = "Global false-positive allowlist"
 paths = [
   '''\.secrets\.baseline$''',
   '''(^|/)tests?/''',
+  # Shared fixtures that are not under `tests/` and are not themselves specs —
+  # `deploy/pulumi/src/test-support/` holds the stack config every Pulumi spec
+  # builds from. It was already in scope and simply never tripped a rule, because
+  # its placeholder values are short and low-entropy; the first one that wasn't
+  # (a URL-safe ClickHouse password) failed the scan on a file whose whole
+  # purpose is non-credentials.
+  '''(^|/)test-support/''',
   '''(^|/)__mocks__/''',
   '''(^|/)mocks/''',
   '''\.spec\.tsx?$''',

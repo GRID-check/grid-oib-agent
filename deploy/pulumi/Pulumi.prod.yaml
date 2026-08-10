@@ -62,6 +62,30 @@ config:
   # pointing at the same address across any Gateway re-creation (the provider
   # reserves a released IP for 14 days and reclaims it via this annotation):
   # grid-oib:loadBalancerIp: "203.0.113.10"
+  # ── Public DNS (Cloudflare) ──
+  # Off by default: a stack whose records are maintained by hand deploys exactly
+  # as before. Turning it on removes the manual per-host DNS step at the end of
+  # every deploy — the step whose failure mode is a healthy cluster nobody can
+  # reach and an ACME challenge that never solves.
+  #
+  # Requires `loadBalancerIp` above to be pinned (an unpinned address can change
+  # under a Gateway re-creation, and records written from it would be wrong with
+  # nothing to notice), plus:
+  #   pulumi config set        grid-oib:dnsZoneId   <zone id from the Cloudflare Overview page>
+  #   pulumi config set        grid-oib:dnsZoneName example.com
+  #   pulumi config set --secret grid-oib:cloudflareApiToken "<Zone:DNS:Edit, scoped to that zone>"
+  #   pulumi config set        grid-oib:dnsEnabled  true
+  #
+  # `dnsZoneName` is the ZONE apex, which is not necessarily `baseDomain` — a
+  # stack can live on a subdomain of its zone. Every managed host is checked to
+  # fall inside it, because the Cloudflare API treats a name outside the zone as
+  # relative and appends the zone to it, creating a record that resolves nowhere
+  # and reporting success.
+  #
+  # Set `dnsZoneBaseline: true` on EXACTLY ONE stack — the one that owns the
+  # zone-level records (www, _dmarc, the apex). When this stack's baseDomain is
+  # the zone apex, that stack is the natural owner.
+  grid-oib:dnsEnabled: "false"
   # NetworkPolicies (default-deny ingress + least-privilege allows) are ON by
   # default. Set false only if a validation pass shows they block required
   # traffic on your cluster. Egress is left open (see network-policies.ts).

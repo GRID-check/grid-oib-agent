@@ -45,6 +45,20 @@ export const PORT = {
    *  directly, using the address each volume server registers with the master. */
   seaweedVolume: 8080,
   seaweedVolumeGrpc: 18080,
+  /** Langfuse web (UI + public API + the OTLP receiver). Upstream default. */
+  langfuseWeb: 3000,
+  /**
+   * Langfuse worker. Upstream default, and NOT a port anything outside the
+   * worker's own probes should dial: the queue is how work reaches it.
+   */
+  langfuseWorker: 3030,
+  /** ClickHouse HTTP interface — `CLICKHOUSE_URL`. */
+  clickhouseHttp: 8123,
+  /**
+   * ClickHouse native TCP interface — `CLICKHOUSE_MIGRATION_URL`. Langfuse
+   * needs BOTH: the app talks HTTP, its schema migrator speaks native.
+   */
+  clickhouseNative: 9000,
 } as const;
 
 /**
@@ -184,6 +198,104 @@ export const DATA_RESOURCES = {
   seaweedfsFiler: {
     requests: { cpu: "100m", memory: "256Mi" },
     limits: { cpu: "1", memory: "1Gi" },
+  },
+  /**
+   * ClickHouse — the analytical store behind Langfuse (ADR-0044).
+   *
+   * Sized for the ingest rate of ONE deployment's traces, not for a warehouse.
+   * The memory limit is the number that matters: ClickHouse sizes its mark
+   * cache and merge buffers from what it believes is available, and the server
+   * reads the CGROUP limit, so this value is also the tuning input. Below ~2Gi
+   * merges of the trace tables start failing under load with
+   * `MEMORY_LIMIT_EXCEEDED` rather than degrading.
+   */
+  clickhouse: {
+    requests: { cpu: "250m", memory: "1Gi" },
+    limits: { cpu: "2", memory: "4Gi" },
+  },
+} as const;
+
+/**
+ * Langfuse (ADR-0044) — the fixed parts of the LLM-observability tier.
+ *
+ * What is a knob (`config.ts` → `langfuse`): the hostname, the images, the
+ * storage sizes, and every credential. What is here: the names and layout that
+ * several modules must agree on, and the resource envelopes.
+ */
+export const LANGFUSE = {
+  /** Deployment/Service name and `app.kubernetes.io/name` of the web tier. */
+  web: "langfuse-web",
+  /** Deployment/Service name and `app.kubernetes.io/name` of the worker. */
+  worker: "langfuse-worker",
+  /** StatefulSet/Service name of the ClickHouse instance. */
+  clickhouse: "clickhouse",
+  /**
+   * The Langfuse ingestion queue — a THIRD Dragonfly, never the ADR-0020 cache
+   * and never the rate-limit counter store. `installLangfuseQueue` carries the
+   * reasoning; the short version is that this one runs with eviction OFF
+   * because an evicted queue entry is a trace that silently never arrives.
+   */
+  queue: "dragonfly-langfuse",
+  /**
+   * Postgres database AND role for Langfuse's transactional state (projects,
+   * API keys, users, prompts, datasets). Not a knob, for the same reason
+   * `SEAWEED_FILER_DB` is not: it is referenced from the CNPG `managed.roles`
+   * entry, the `Database` CR and the DSN, and those three must agree exactly.
+   *
+   * Its own database and its own login rather than a schema in `grid_app`:
+   * Langfuse runs its own Prisma migrations as the database owner, so handing
+   * it the application role would hand a third-party image DDL rights over
+   * every tenant table in the product.
+   */
+  database: "langfuse",
+  databaseUser: "langfuse_app",
+  /**
+   * ClickHouse database name. `default` is deliberately avoided — Langfuse's
+   * migrator creates and drops tables, and doing that in `default` makes an
+   * accidental `DROP DATABASE` unrecoverable-by-name.
+   */
+  clickhouseDatabase: "langfuse",
+  /** ClickHouse login. Langfuse needs SELECT/INSERT/ALTER/CREATE/DELETE. */
+  clickhouseUser: "langfuse",
+  /**
+   * One SeaweedFS bucket, three key prefixes — not three buckets.
+   *
+   * The bucket is the authorization boundary in this stack (ADR-0043), so one
+   * bucket means the Langfuse S3 identity is scoped by exactly one rule and
+   * cannot be widened by adding a feature. The prefixes keep the three
+   * workloads separable for lifecycle policies later.
+   */
+  bucket: "langfuse",
+  eventPrefix: "events/",
+  batchExportPrefix: "exports/",
+  /**
+   * Dedicated S3 identity for the Langfuse tier. Object CRUD on the bucket
+   * above and NOTHING else — in particular not `Admin` (no bucket lifecycle)
+   * and not the tenant bucket prefix. See `s3IdentityCatalog`.
+   */
+  s3Identity: "grid-langfuse",
+  /**
+   * HTTPRoute name. The SecurityPolicy attaches to it by name, so the two are
+   * one decision.
+   */
+  routeName: "grid-langfuse",
+  /** Gateway listener name for the Langfuse hostname. */
+  listenerName: "https-langfuse",
+  /**
+   * OTLP/HTTP trace-ingestion path on the web tier. Langfuse also serves
+   * `/api/public/otel` as a base, but the collector's `otlp_http` exporter is
+   * given an explicit `traces_endpoint`, which is used AS-IS — so the signal
+   * path has to be spelled out here.
+   */
+  otlpTracesPath: "/api/public/otel/v1/traces",
+  /** Resource envelopes. The web tier serves the UI; the worker does ingest. */
+  webResources: {
+    requests: { cpu: "200m", memory: "1Gi" },
+    limits: { cpu: "1", memory: "2Gi" },
+  },
+  workerResources: {
+    requests: { cpu: "200m", memory: "1Gi" },
+    limits: { cpu: "2", memory: "3Gi" },
   },
 } as const;
 

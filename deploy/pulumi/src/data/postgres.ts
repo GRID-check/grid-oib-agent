@@ -7,6 +7,7 @@ import {
   BOOTSTRAP_JOB_RESOURCES,
   DATA_RESOURCES,
   JOB_DEFAULTS,
+  LANGFUSE,
   PLATFORM_RESOURCES,
   PORT,
   POSTGRES_TUNING,
@@ -27,6 +28,16 @@ export interface Postgres {
    * Empty when the filer is not using Postgres.
    */
   filerStoreDeps: pulumi.Resource[];
+  /**
+   * DSN for the Langfuse database as its own owning role (ADR-0044), or
+   * undefined when the tier is not deployed.
+   */
+  langfuseDsn?: pulumi.Output<string>;
+  /**
+   * Resources Langfuse must wait for before its Prisma migrations can run: the
+   * dedicated role and its database. Empty when the tier is not deployed.
+   */
+  langfuseStoreDeps: pulumi.Resource[];
 }
 
 const CLUSTER_NAME = "grid-pg";
@@ -248,6 +259,32 @@ export function installPostgres(
       )
     : undefined;
 
+  /**
+   * Login for Langfuse's own database (ADR-0044).
+   *
+   * Its own role and its own database, on the same reasoning as the filer's
+   * above. Langfuse runs Prisma migrations at startup — `CREATE TABLE`,
+   * `ALTER TABLE`, `DROP` — so whatever credential it holds is a credential
+   * with DDL rights. Confining that to a database it owns is what keeps a
+   * third-party image's migrator away from `grid_app`, where every tenant's
+   * conversations live. It has no CREATEDB and no CREATEROLE, so it cannot
+   * give itself another database either.
+   */
+  const langfuseCredentials = cfg.langfuse.enabled
+    ? new k8s.core.v1.Secret(
+        "pg-langfuse-credentials",
+        {
+          metadata: { name: `${CLUSTER_NAME}-langfuse-credentials`, namespace },
+          type: "kubernetes.io/basic-auth",
+          stringData: {
+            username: LANGFUSE.databaseUser,
+            password: cfg.langfuse.databasePassword,
+          },
+        },
+        { provider },
+      )
+    : undefined;
+
   // 2b. Object-store credentials for continuous backup (only when enabled). The
   //     provider's StorageClasses reclaim `Delete`, so WAL archiving + scheduled
   //     base backups to SeaweedFS are the only path to point-in-time recovery
@@ -384,6 +421,22 @@ export function installPostgres(
                   },
                 ]
               : []),
+            // Langfuse's own login (ADR-0044) — same shape and same reasoning
+            // as the filer's: DDL inside one database it owns, nothing outside.
+            ...(langfuseCredentials
+              ? [
+                  {
+                    name: LANGFUSE.databaseUser,
+                    ensure: "present",
+                    login: true,
+                    superuser: false,
+                    createdb: false,
+                    createrole: false,
+                    bypassrls: false,
+                    passwordSecret: { name: langfuseCredentials.metadata.apply((m) => m!.name!) },
+                  },
+                ]
+              : []),
           ],
         },
         bootstrap: {
@@ -472,6 +525,45 @@ export function installPostgres(
             cluster: { name: CLUSTER_NAME },
             name: cfg.seaweedfs.filerDatabase,
             owner: cfg.seaweedfs.filerDatabaseUser,
+            ensure: "present",
+            databaseReclaimPolicy: "retain",
+          },
+        },
+        { provider, dependsOn: [cluster], protect: cfg.protectDataResources },
+      )
+    : undefined;
+
+  /**
+   * Langfuse's database (ADR-0044), declared as a `Database` CR for the same
+   * reason the filer's is: `bootstrap.initdb.postInitSQL` runs EXACTLY ONCE at
+   * cluster initialisation, so adding a database there would create it on a
+   * fresh stack and silently do nothing on every existing one. The operator
+   * reconciles this CR continuously, so it converges on a running cluster —
+   * which is the only case that matters, since this tier is being added to
+   * clusters that already exist.
+   *
+   * `databaseReclaimPolicy: retain`: deleting the CR (turning
+   * `langfuseEnabled` off, renaming a resource) must not drop the database.
+   * It holds the API keys, the SSO account links and the prompt history —
+   * none of which is in ClickHouse and none of which the traces can rebuild.
+   */
+  const langfuseDatabase = langfuseCredentials
+    ? new k8s.apiextensions.CustomResource(
+        "pg-langfuse-db",
+        {
+          apiVersion: "postgresql.cnpg.io/v1",
+          kind: "Database",
+          metadata: {
+            // DNS-1123 for the CR's object name; the DATABASE and ROLE keep
+            // their Postgres-identifier spelling in `spec` below.
+            name: LANGFUSE.database.replace(/_/g, "-"),
+            namespace,
+            labels: commonLabels("postgres"),
+          },
+          spec: {
+            cluster: { name: CLUSTER_NAME },
+            name: LANGFUSE.database,
+            owner: LANGFUSE.databaseUser,
             ensure: "present",
             databaseReclaimPolicy: "retain",
           },
@@ -637,7 +729,29 @@ export function installPostgres(
   // database is actually reachable, not merely declared.
   const filerStoreDeps: pulumi.Resource[] = filerDatabase ? [filerDatabase, initJob] : [];
 
-  return { operator, cluster, initJob, rwHost, dsn, filerStoreDeps };
+  // Langfuse gates on the DATABASE CR only, not on `initJob` the way the filer
+  // does. The difference is real: the filer needs the init Job because that Job
+  // is what revokes `CONNECT` from `PUBLIC` on its database, and it needs
+  // tables created for it. Langfuse creates its own schema with Prisma and
+  // needs nothing bootstrapped, so gating it on a Job that does no work on its
+  // behalf would only couple its rollout to unrelated DDL.
+  const langfuseStoreDeps: pulumi.Resource[] = langfuseDatabase ? [langfuseDatabase] : [];
+
+  return {
+    operator,
+    cluster,
+    initJob,
+    rwHost,
+    dsn,
+    filerStoreDeps,
+    langfuseStoreDeps,
+    langfuseDsn: cfg.langfuse.enabled
+      ? dsn({
+          db: LANGFUSE.database,
+          as: { user: LANGFUSE.databaseUser, password: cfg.langfuse.databasePassword },
+        })
+      : undefined,
+  };
 }
 
 /**

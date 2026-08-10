@@ -4,6 +4,8 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
+from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
 from nat.builder.builder import Builder
 from nat.cli.register_workflow import register_telemetry_exporter
 from nat.observability.exporter.base_exporter import BaseExporter
@@ -116,7 +118,7 @@ async def otelcollector_redaction_telemetry_exporter(
     }
     merged_resource_attributes = {**default_resource_attributes, **config.resource_attributes}
 
-    yield OTLPSpanHeaderRedactionAdapterExporter(
+    exporter = OTLPSpanHeaderRedactionAdapterExporter(
         endpoint=config.endpoint,
         resource_attributes=merged_resource_attributes,
         batch_size=config.batch_size,
@@ -133,3 +135,31 @@ async def otelcollector_redaction_telemetry_exporter(
         redaction_value=getattr(config, "redaction_value", "[REDACTED]"),
         tags=config.tags,
     )
+
+    # Langfuse session/user attribution (ADR-0044). Same availability rule as
+    # the exporter itself: the deployment sets GRID_TRACE_IDENTITY_ATTRIBUTES
+    # only where the Langfuse tier exists, so an Aspire-only stack builds the
+    # identical pipeline it did before.
+    #
+    # `position=0` puts it AHEAD of NAT's redaction processor — see the
+    # processor's docstring; attributes added after redaction could never be
+    # redacted, which would quietly make `redaction_attributes` a lie for
+    # exactly the fields that identify a person.
+    if identity_attributes_enabled() and LangfuseTraceAttributeProcessor is not None:
+        try:
+            exporter.add_processor(
+                LangfuseTraceAttributeProcessor(),
+                name="langfuse_trace_attributes",
+                position=0,
+            )
+            logger.info("otelcollector_redaction: Langfuse trace identity attributes enabled.")
+        except Exception:
+            # A telemetry enrichment must not be able to stop the agent from
+            # booting; without it the traces are anonymous, not absent.
+            logger.warning(
+                "otelcollector_redaction: could not install the Langfuse trace attribute "
+                "processor - traces will export without session/user attribution.",
+                exc_info=True,
+            )
+
+    yield exporter

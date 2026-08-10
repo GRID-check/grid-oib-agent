@@ -1,4 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
+import { hostsOutsideZone, managedHosts } from "./platform/dns";
 
 /**
  * Typed configuration for the Grid OIB Kubernetes deployment.
@@ -142,6 +143,67 @@ export interface GridConfig {
      * connections without ever completing a request.
      */
     maxConnectionsPerProxy: number;
+  };
+
+  /**
+   * Public DNS, managed in Cloudflare (`platform/dns.ts`).
+   *
+   * OFF by default, and off is a supported posture: a stack whose records are
+   * maintained by hand deploys exactly as before. Turning it on replaces the
+   * manual "read the LoadBalancer IP, retype it per host" step at the end of
+   * every deploy — the step whose failure mode is a healthy cluster nobody can
+   * reach and an ACME challenge that never solves.
+   *
+   * Cloudflare operates the zone; the registrar is irrelevant to this program
+   * so long as the domain's NS records delegate there.
+   */
+  dns: {
+    /** Manage records for this stack's hosts. When false nothing here is read. */
+    enabled: boolean;
+    /** Cloudflare zone id (dashboard → the zone → Overview → API section). */
+    zoneId: string;
+    /**
+     * The zone's apex name (`piloti.at`), which is NOT `baseDomain` — a stack
+     * can live on a subdomain of its zone. Used to name the zone-level records
+     * and to check that every managed host actually falls inside this zone.
+     */
+    zoneName: string;
+    /** Token with Zone:DNS:Edit (plus Zone:Dynamic URL Redirects:Edit when `apexRedirectTo` is set). */
+    apiToken: pulumi.Output<string>;
+    /** Address every host record points at — the Envoy LoadBalancer's external IP. */
+    targetIp: string;
+    /**
+     * The hosts that get an A record: exactly the Gateway's HTTPS listeners
+     * (`platform/gateway.ts`), derived once here so the two cannot drift.
+     */
+    hosts: string[];
+    /** TTL in seconds for unproxied records. */
+    ttl: number;
+    /**
+     * Whether THIS stack owns the zone-level records (`www`, `_dmarc`, and the
+     * apex redirect) rather than just its own hosts.
+     *
+     * At most one stack may set it. Two stacks that both claim the zone do not
+     * conflict in any way Cloudflare reports — the later `pulumi up` overwrites
+     * the earlier one's records and prints success — so `loadConfig` refuses
+     * the combinations it can detect and this flag carries the rest.
+     */
+    zoneBaseline: boolean;
+    /**
+     * Value of the `_dmarc` TXT record. Optional, and carried in config rather
+     * than hardcoded because a DMARC policy is a property of the domain's mail
+     * posture, not of this deployment.
+     */
+    dmarc?: string;
+    /**
+     * Absolute URL the apex and `www` redirect to, for the window in which no
+     * stack serves the apex yet.
+     *
+     * Scaffolding with an explicit end: as soon as a stack's `baseDomain` IS
+     * the zone apex, that stack serves it for real and this must be unset.
+     * `loadConfig` refuses to have both at once.
+     */
+    apexRedirectTo?: string;
   };
 
   /**
@@ -825,6 +887,119 @@ export interface GridConfig {
   };
 
   /**
+   * Langfuse — the DURABLE LLM-observability backend (ADR-0044).
+   *
+   * A third consumer on the collector's traces signal, alongside the Aspire
+   * dashboard. The two are not redundant and neither replaces the other:
+   * Aspire is a live ops pane over an in-memory ring buffer that answers "what
+   * is the system doing right now"; Langfuse is a queryable store that answers
+   * "what did this user's run cost, which model served it, and how did that
+   * change over the last month". ADR-0029 deferred exactly this and named the
+   * collector as the seam it would arrive through.
+   *
+   * **Self-hosted OSS only.** No license key is configured anywhere in this
+   * program, deliberately: everything wired here is MIT-licensed core Langfuse.
+   * The consequence that matters operationally is that DATA RETENTION POLICIES
+   * are an Enterprise feature, so nothing expires on its own — see
+   * `clickhouseStorageSize` and the ADR's Consequences section.
+   */
+  langfuse: {
+    /**
+     * Whether the tier is deployed: the `langfuseEnabled` flag AND the
+     * capability derived from its dependencies (every credential it cannot
+     * boot without, plus `observability.enabled` — it is fed by the collector,
+     * so without one it is four workloads that can only ever sit idle).
+     */
+    enabled: boolean;
+    /** Public hostname. Derived: `langfuse.<baseDomain>` unless overridden. */
+    domain: string;
+    /** Langfuse web image (UI + public API + OTLP receiver), digest-pinned. */
+    webImage: string;
+    /**
+     * Langfuse worker image. A SEPARATE knob rather than a shared tag because
+     * upstream publishes them as two images; they must nonetheless be the same
+     * VERSION — `loadConfig` cannot check that (digests are opaque), so it is
+     * on the operator, and `docs/deployment/kubernetes.md` says so.
+     */
+    workerImage: string;
+    /** ClickHouse server image, digest-pinned. */
+    clickhouseImage: string;
+    /**
+     * PVC for ClickHouse. This is the tier's one unbounded resource: with
+     * retention policies behind the Enterprise license, the trace store grows
+     * for as long as the deployment runs. Size it for the retention you intend
+     * to keep by hand, and watch it.
+     */
+    clickhouseStorageSize: string;
+    /** Ingestion-queue dataset cap and pod memory limit (see `LANGFUSE.queue`). */
+    queueMaxmemory: string;
+    queueMemoryLimit: string;
+    /**
+     * `requirepass` for the ingestion queue. Its OWN credential, distinct from
+     * both `dragonflyPassword` and `rateLimitStorePassword` for the reason
+     * given on those two: shared key material makes every holder of one
+     * instance's URL an administrator of the others.
+     */
+    queuePassword: pulumi.Output<string>;
+    /** Login for the dedicated Postgres role that owns the Langfuse database. */
+    databasePassword: pulumi.Output<string>;
+    /** ClickHouse login password. */
+    clickhousePassword: pulumi.Output<string>;
+    /**
+     * `SALT` — hashes the API keys Langfuse stores. Changing it invalidates
+     * every existing key, including the ingestion key the collector holds.
+     */
+    salt: pulumi.Output<string>;
+    /**
+     * `ENCRYPTION_KEY` — 256-bit key, **64 hex characters**, encrypting the
+     * secrets Langfuse stores at rest (LLM API keys for the playground,
+     * integration credentials). `loadConfig` checks the shape, because
+     * Langfuse's own failure for a malformed value is a crash loop at startup
+     * with a stack trace, not a message naming the variable.
+     */
+    encryptionKey: pulumi.Output<string>;
+    /** `NEXTAUTH_SECRET` — signs the Langfuse session cookie. */
+    nextAuthSecret: pulumi.Output<string>;
+    /**
+     * The project's ingestion API keys, pre-seeded via headless
+     * initialization (`LANGFUSE_INIT_PROJECT_*`).
+     *
+     * This is what makes the tier deployable in one `pulumi up` rather than
+     * two: the collector needs an ingestion credential in the same apply that
+     * creates Langfuse, and the alternative — boot Langfuse, log in, mint a
+     * key by hand, put it in the stack config, apply again — is a bootstrap
+     * that cannot be automated and quietly rots.
+     *
+     * Langfuse validates the prefixes, so `publicKey` must start `pk-lf-` and
+     * `secretKey` must start `sk-lf-`; `loadConfig` checks both rather than
+     * letting the web container reject them on startup.
+     */
+    publicKey: pulumi.Output<string>;
+    secretKey: pulumi.Output<string>;
+    /** Headless-init identifiers. Stable strings, not secrets. */
+    orgId: string;
+    projectId: string;
+    /**
+     * The break-glass Langfuse account created at headless init.
+     *
+     * Sign-in normally happens through WorkOS SSO (`AUTH_CUSTOM_*`), so this
+     * exists for the case SSO itself is what is broken. It is a real password
+     * on a real account behind the edge permission gate — treat it as a
+     * credential, not a placeholder.
+     */
+    initUserEmail: string;
+    initUserPassword: pulumi.Output<string>;
+    /**
+     * S3 identity for the Langfuse bucket. The secret key MUST differ from
+     * every other SeaweedFS credential in the deployment, for the reason
+     * `backendReadSecretKey` gives: shared key material would let this tier
+     * authenticate as an identity with a wider bucket scope.
+     */
+    s3AccessKey: string;
+    s3SecretKey: pulumi.Output<string>;
+  };
+
+  /**
    * err2issue — ERROR-severity telemetry becomes deduplicated GitHub issues
    * (ADR-0031). A second consumer on the collector's logs signal, alongside the
    * Aspire dashboard.
@@ -957,6 +1132,7 @@ export function loadConfig(): GridConfig {
   // class this guard exists to kill).
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
   rejectPlaceholder("otelDomain", ["example.com"]);
+  rejectPlaceholder("langfuseDomain", ["example.com"]);
 
   // The BFF clamps a nonsense threshold back to 80 rather than switching the
   // warning off, which is the right runtime behaviour and a terrible deploy-time
@@ -1483,6 +1659,253 @@ export function loadConfig(): GridConfig {
     );
   }
 
+  // ── Langfuse (ADR-0044): same availability = flag AND capability rule ──────
+  // Default ON, like `observabilityEnabled`: durable traces are the expected
+  // shape of a stack now, not an extra. Nothing is provisioned by the flag
+  // alone — the capability half of the rule still requires every credential the
+  // tier cannot boot without, so a stack that has not set them gets the warning
+  // below and no workloads, never a half-deployed tier. Set the flag to false
+  // to opt out of the four workloads and the PVC that grows without a
+  // retention policy. The dependency on `observabilityEnabled` is structural
+  // for the same reason err2issue's is: Langfuse has no receiver of its own in
+  // this design, the collector fans traces into it, so without it it is idle.
+  //
+  // It also inherits the collector's WorkOS Connect application rather than
+  // asking for a fourth OIDC triple. One application can carry several redirect
+  // URIs, and the alternative is an operator provisioning two near-identical
+  // confidential clients that gate on the same permission — two places to get
+  // the scope assignment wrong, for no separation that anyone would use.
+  const langfuseDomain = cfg.get("langfuseDomain") ?? `langfuse.${baseDomain}`;
+  const langfuseFlag = bool(cfg, "langfuseEnabled", true);
+  const langfuseEncryptionKey = cfg.getSecret("langfuseEncryptionKey");
+  const langfusePublicKey = cfg.getSecret("langfusePublicKey");
+  const langfuseSecretKey = cfg.getSecret("langfuseSecretKey");
+  const langfuseSecretKeys = [
+    "langfuseSalt",
+    "langfuseEncryptionKey",
+    "langfuseNextAuthSecret",
+    "langfusePublicKey",
+    "langfuseSecretKey",
+    "langfuseDbPassword",
+    "langfuseClickhousePassword",
+    "langfuseQueuePassword",
+    "langfuseS3SecretKey",
+    "langfuseInitUserPassword",
+  ];
+  const missingLangfuseDeps = [
+    ...langfuseSecretKeys.filter((key) => (cfg.get(key) ?? "").trim() === ""),
+    observabilityEnabled ? undefined : "observabilityEnabled (Langfuse is fed by the collector)",
+  ].filter((k): k is string => k !== undefined);
+  const langfuseEnabled = langfuseFlag && missingLangfuseDeps.length === 0;
+
+  if (langfuseFlag && !langfuseEnabled) {
+    pulumi.log.warn(
+      "Langfuse (ADR-0044) not deployed: missing " +
+        missingLangfuseDeps.map((k) => (k.includes(" ") ? k : `grid-oib:${k}`)).join(", ") +
+        ". Set them to deploy the durable trace store, or set " +
+        "grid-oib:langfuseEnabled=false to silence this.",
+    );
+  }
+
+  // Shape checks, run only when the tier is actually being deployed so that a
+  // stack which has not adopted it is never failed by a key it does not set.
+  //
+  // Every one of these is a value Langfuse validates ITSELF — the point is
+  // WHERE the failure lands. Rejected at startup they are a CrashLoopBackOff on
+  // a container whose logs an operator has to go find; rejected here they are a
+  // line of `pulumi preview` naming the key.
+  if (langfuseEnabled) {
+    // 32 bytes, hex — `openssl rand -hex 32`. A base64 value (the format every
+    // OTHER secret in this program uses) is the overwhelmingly likely mistake,
+    // and it is 44 characters, so length alone catches it.
+    const encryptionKeyRaw = (cfg.get("langfuseEncryptionKey") ?? "").trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(encryptionKeyRaw)) {
+      throw new Error(
+        "grid-oib:langfuseEncryptionKey must be exactly 64 hex characters (a 256-bit key). " +
+          `Got ${encryptionKeyRaw.length} character(s). Note this is the ONE secret here that is ` +
+          "hex rather than base64 — generate it with `openssl rand -hex 32`, not `openssl rand -base64 32`.",
+      );
+    }
+    const keyPrefixes: Array<[string, string]> = [
+      ["langfusePublicKey", "pk-lf-"],
+      ["langfuseSecretKey", "sk-lf-"],
+    ];
+    for (const [key, prefix] of keyPrefixes) {
+      const value = (cfg.get(key) ?? "").trim();
+      if (!value.startsWith(prefix)) {
+        throw new Error(
+          `grid-oib:${key} must start with "${prefix}" — Langfuse validates the prefix on the ` +
+            "keys it seeds at headless initialization and refuses to start otherwise. Generate " +
+            `one with \`echo "${prefix}$(openssl rand -hex 16)"\`.`,
+        );
+      }
+    }
+    // The ClickHouse password must be URL-SAFE, and this is the guard that
+    // stops the tier's own documented setup from breaking itself.
+    //
+    // Langfuse's ClickHouse migrator builds its connection string by raw shell
+    // interpolation — `packages/shared/clickhouse/scripts/up.sh`:
+    //
+    //     DATABASE_URL="${CLICKHOUSE_MIGRATION_URL}?username=${CLICKHOUSE_USER}
+    //       &password=${CLICKHOUSE_PASSWORD}&database=${CLICKHOUSE_DB}&..."
+    //
+    // Nothing percent-encodes that value. Every other secret in this program is
+    // generated with `openssl rand -base64 32`, which for 32 bytes ALWAYS ends
+    // in `=` and frequently contains `+` — so following the house convention
+    // here produces a password that truncates or corrupts the query string. The
+    // result is a langfuse-web container that fails the ClickHouse migration
+    // and exits: CrashLoopBackOff, with nothing in the logs but a generic HINT
+    // about special characters. Upstream only warns; this refuses.
+    //
+    // Unreserved characters (RFC 3986 §2.3) rather than a blocklist of what
+    // breaks today: a blocklist has to be right about every future
+    // interpolation site, and this value crosses a shell, a query string and a
+    // Go URL parser before it reaches ClickHouse.
+    const clickhousePasswordRaw = (cfg.get("langfuseClickhousePassword") ?? "").trim();
+    if (!/^[A-Za-z0-9._~-]+$/.test(clickhousePasswordRaw)) {
+      throw new Error(
+        "grid-oib:langfuseClickhousePassword must contain only URL-safe characters " +
+          "(A-Z a-z 0-9 . _ ~ -). Langfuse's ClickHouse migrator interpolates it into a " +
+          "connection-string query parameter without encoding it, so `+`, `=`, `/` or `&` — " +
+          "all of which `openssl rand -base64 32` produces — break the migration and " +
+          "crash-loop langfuse-web. Generate this one with `openssl rand -hex 32` instead.",
+      );
+    }
+
+    // NOTE ON NETWORKPOLICIES, which this tier needs just as much as the
+    // dashboard does — the trace store, its ClickHouse and its ingestion queue
+    // all sit in the app namespace holding every tenant's prompts and LLM
+    // output. There is deliberately NO guard for it here.
+    //
+    // It would be unreachable. `langfuseEnabled` resolves true only when
+    // `observabilityEnabled` is true (the capability list above), and the
+    // observability check a few lines up already throws for
+    // `networkPolicies=false`. A second check could never fire, and a control
+    // that cannot fire is worse than no control: it reads to the next person
+    // as protection that has been considered and applied.
+    //
+    // The requirement is therefore INHERITED, structurally, not restated.
+    // If the observability guard is ever relaxed, this tier needs its own.
+    //
+    // Distinctness, not strength — the same control as pgRuntimePassword and
+    // rateLimitStorePassword. Every app pod already holds the ADR-0020 cache
+    // URL; if the Langfuse queue shared that password, anything that reads one
+    // app pod's env could drain the ingestion queue.
+    const queuePasswordRaw = (cfg.get("langfuseQueuePassword") ?? "").trim();
+    const collides = [
+      ["dragonflyPassword", cfg.get("dragonflyPassword")],
+      ["rateLimitStorePassword", cfg.get("rateLimitStorePassword")],
+    ].find(([, other]) => (other ?? "").trim() === queuePasswordRaw);
+    if (collides) {
+      throw new Error(
+        `grid-oib:langfuseQueuePassword must differ from grid-oib:${collides[0]}. They are ` +
+          "separate Redis-protocol instances precisely so that holding one credential does not " +
+          "confer control of the others; an identical value silently removes that separation.",
+      );
+    }
+    // The S3 identity is scoped to the Langfuse bucket alone. Reusing another
+    // identity's secret key hands this tier that identity's scope instead —
+    // which for `seaweedfsSecretKey` is object CRUD across every tenant bucket.
+    const langfuseS3SecretRaw = (cfg.get("langfuseS3SecretKey") ?? "").trim();
+    const s3Collides = [
+      ["seaweedfsSecretKey", cfg.get("seaweedfsSecretKey")],
+      ["seaweedfsBackendReadSecretKey", cfg.get("seaweedfsBackendReadSecretKey")],
+      ["seaweedfsTenantAdminSecretKey", cfg.get("seaweedfsTenantAdminSecretKey")],
+    ].find(([, other]) => (other ?? "").trim() === langfuseS3SecretRaw);
+    if (s3Collides) {
+      throw new Error(
+        `grid-oib:langfuseS3SecretKey must differ from grid-oib:${s3Collides[0]}. SeaweedFS ` +
+          "authenticates by key, so a shared secret gives the Langfuse tier that identity's " +
+          "bucket scope instead of its own single-bucket one.",
+      );
+    }
+  }
+
+  // ── Public DNS (Cloudflare) ────────────────────────────────────────────────
+  //
+  // Everything below is validated eagerly rather than at `installDns`, because
+  // every one of these mistakes produces records that Cloudflare accepts and
+  // reports as created. There is no failing resource to read afterwards — only
+  // a name that resolves somewhere unhelpful, weeks later, to whoever tries it.
+  const loadBalancerIp = cfg.get("loadBalancerIp");
+  const dnsEnabled = bool(cfg, "dnsEnabled", false);
+  const dnsZoneId = cfg.get("dnsZoneId") ?? "";
+  const dnsZoneName = (cfg.get("dnsZoneName") ?? "").replace(/\.$/, "");
+  const cloudflareApiToken = cfg.getSecret("cloudflareApiToken");
+  const dnsApexRedirectTo = cfg.get("dnsApexRedirectTo");
+  const dnsZoneBaseline = bool(cfg, "dnsZoneBaseline", false);
+  const dnsHosts = managedHosts({
+    webDomain,
+    appDomain,
+    s3Domain,
+    otelDomain: observabilityEnabled ? otelDomain : undefined,
+    langfuseDomain: langfuseEnabled ? langfuseDomain : undefined,
+  });
+
+  if (dnsEnabled) {
+    const missingDnsDeps = [
+      dnsZoneId === "" ? "dnsZoneId" : undefined,
+      dnsZoneName === "" ? "dnsZoneName" : undefined,
+      cloudflareApiToken === undefined ? "cloudflareApiToken" : undefined,
+    ].filter((k): k is string => k !== undefined);
+    if (missingDnsDeps.length > 0) {
+      throw new Error(
+        `grid-oib:dnsEnabled is set but ${missingDnsDeps
+          .map((k) => `grid-oib:${k}`)
+          .join(", ")} ${missingDnsDeps.length === 1 ? "is" : "are"} missing. DNS is all-or-nothing ` +
+          "on purpose: a half-configured zone leaves some hosts managed and the rest silently stale.",
+      );
+    }
+    // The whole point of managing DNS here is that the address is known and
+    // stable. Without `loadBalancerIp` the provider assigns one on first deploy
+    // and can assign a different one after a Gateway re-creation — records
+    // written from an unpinned address are wrong the moment that happens, and
+    // nothing in this program would notice.
+    if (loadBalancerIp === undefined || loadBalancerIp === "") {
+      throw new Error(
+        "grid-oib:dnsEnabled requires grid-oib:loadBalancerIp. The A records need an address to " +
+          "point at, and an unpinned LoadBalancer IP can change under a Gateway re-creation — " +
+          "which would leave the records pointing at an address the provider has since reassigned. " +
+          "Deploy once without DNS, read the IP (`kubectl -n envoy-gateway-system get svc`), pin " +
+          "it, then enable this.",
+      );
+    }
+    const strays = hostsOutsideZone(dnsHosts, dnsZoneName);
+    if (strays.length > 0) {
+      throw new Error(
+        `grid-oib:dnsZoneName is "${dnsZoneName}" but ${strays.join(", ")} ` +
+          `${strays.length === 1 ? "is" : "are"} not inside it. Cloudflare treats a name outside ` +
+          `the zone as RELATIVE and appends the zone to it, so this would create ` +
+          `"${strays[0]}.${dnsZoneName}" and report success. Fix baseDomain, or point dnsZoneName ` +
+          "at the zone that actually contains these hosts.",
+      );
+    }
+    // The redirect is scaffolding for a zone apex no stack serves yet. Once a
+    // stack's own baseDomain IS the apex, that stack publishes a real A record
+    // for it — and both would be the same Cloudflare record, so whichever
+    // resource is created second wins and the outcome depends on graph order.
+    if (dnsApexRedirectTo !== undefined && webDomain === dnsZoneName) {
+      throw new Error(
+        `grid-oib:dnsApexRedirectTo is set while this stack already serves the apex ` +
+          `("${webDomain}"). Both would write the same record. Unset dnsApexRedirectTo — the ` +
+          "redirect exists only for the window before a stack owns the apex.",
+      );
+    }
+    if (dnsApexRedirectTo !== undefined && !dnsZoneBaseline) {
+      throw new Error(
+        "grid-oib:dnsApexRedirectTo requires grid-oib:dnsZoneBaseline. The apex, www and _dmarc " +
+          "are zone-level records with at most one owning stack; the baseline flag is what " +
+          "declares this stack to be it.",
+      );
+    }
+    if (dnsApexRedirectTo !== undefined && !/^https?:\/\//.test(dnsApexRedirectTo)) {
+      throw new Error(
+        `grid-oib:dnsApexRedirectTo must be an absolute URL (got "${dnsApexRedirectTo}"). ` +
+          "Cloudflare sends it to the browser as a Location header verbatim.",
+      );
+    }
+  }
+
   // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────
   // Opt-in (default false) because turning it on starts writing to a GitHub
   // repo — a side effect outside the cluster, unlike every other component
@@ -1543,12 +1966,30 @@ export function loadConfig(): GridConfig {
     useStagingIssuer: bool(cfg, "useStagingIssuer", true),
       // Default FALSE: the managed provider ships an unremovable metrics stack.
       installMetricsServer: bool(cfg, "installMetricsServer", false),
-      loadBalancerIp: cfg.get("loadBalancerIp"),
+      loadBalancerIp,
       // 0 = trust Envoy's own downstream address. See the interface comment:
       // this is the one setting every per-IP limit rests on, and it must be
       // confirmed against a live cluster rather than assumed.
       xffNumTrustedHops: num(cfg, "xffNumTrustedHops", 0),
       maxConnectionsPerProxy: num(cfg, "maxConnectionsPerProxy", 10000),
+    },
+
+    dns: {
+      enabled: dnsEnabled,
+      zoneId: dnsZoneId,
+      zoneName: dnsZoneName,
+      // `??` only reached when disabled — the guard above requires the token
+      // whenever `dnsEnabled`, so `installDns` never sees this empty.
+      apiToken: cloudflareApiToken ?? pulumi.secret(""),
+      targetIp: loadBalancerIp ?? "",
+      hosts: dnsHosts,
+      // 600s, matching what these records already carried at the previous
+      // operator. Low enough that a LoadBalancer IP change is a ten-minute
+      // event rather than an hour-long one, high enough not to matter.
+      ttl: num(cfg, "dnsTtl", 600),
+      zoneBaseline: dnsZoneBaseline,
+      dmarc: cfg.get("dnsDmarc"),
+      apexRedirectTo: dnsApexRedirectTo,
     },
 
     postgres: {
@@ -1825,6 +2266,48 @@ export function loadConfig(): GridConfig {
       oidcIssuer: otelOidcIssuer,
       oidcClientId: otelOidcClientId,
       oidcClientSecret: otelOidcClientSecret ?? pulumi.output(""),
+    },
+
+    langfuse: {
+      enabled: langfuseEnabled,
+      domain: langfuseDomain,
+      // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
+      // the same trivy gate: langfuse 3.225.1 (web + worker, which MUST be the
+      // same version) and ClickHouse 25.8 LTS. `3` and `25.8` are moving tags
+      // upstream; these are the digests they resolved to when pinned.
+      webImage:
+        cfg.get("langfuseWebImage") ??
+        "ghcr.io/langfuse/langfuse@sha256:c782c55ab8fef96fac5ce85c57d8eacfd74b5e2549d01504ed3281e183d853ba",
+      workerImage:
+        cfg.get("langfuseWorkerImage") ??
+        "ghcr.io/langfuse/langfuse-worker@sha256:77da511ae0a29dee83e728049b5015ac73efac2315155910a282f20f1309c5a9",
+      clickhouseImage:
+        cfg.get("clickhouseImage") ??
+        "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
+      clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "20Gi",
+      // The queue holds references to events already durable in S3, not the
+      // events themselves, so it stays small — but eviction is OFF (see
+      // `installLangfuseQueue`), which means "small" has to mean "big enough".
+      queueMaxmemory: cfg.get("langfuseQueueMaxmemory") ?? "512mb",
+      queueMemoryLimit: cfg.get("langfuseQueueMemoryLimit") ?? "1Gi",
+      queuePassword: cfg.getSecret("langfuseQueuePassword") ?? pulumi.output(""),
+      databasePassword: cfg.getSecret("langfuseDbPassword") ?? pulumi.output(""),
+      clickhousePassword: cfg.getSecret("langfuseClickhousePassword") ?? pulumi.output(""),
+      salt: cfg.getSecret("langfuseSalt") ?? pulumi.output(""),
+      encryptionKey: langfuseEncryptionKey ?? pulumi.output(""),
+      nextAuthSecret: cfg.getSecret("langfuseNextAuthSecret") ?? pulumi.output(""),
+      publicKey: langfusePublicKey ?? pulumi.output(""),
+      secretKey: langfuseSecretKey ?? pulumi.output(""),
+      // Stable identifiers, not secrets, and deliberately not derived from the
+      // domain: headless init matches on them, so a value that moves when the
+      // hostname moves would create a SECOND org/project rather than reuse the
+      // existing one, orphaning every trace already stored.
+      orgId: cfg.get("langfuseOrgId") ?? "grid",
+      projectId: cfg.get("langfuseProjectId") ?? "grid-oib",
+      initUserEmail: cfg.get("langfuseInitUserEmail") ?? cfg.get("letsEncryptEmail") ?? "",
+      initUserPassword: cfg.getSecret("langfuseInitUserPassword") ?? pulumi.output(""),
+      s3AccessKey: cfg.get("langfuseS3AccessKey") ?? "grid-langfuse",
+      s3SecretKey: cfg.getSecret("langfuseS3SecretKey") ?? pulumi.output(""),
     },
 
     err2issue: {

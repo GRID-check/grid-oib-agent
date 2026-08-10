@@ -109,6 +109,58 @@ function assertFrontendBudgetFits(): void {
 }
 
 /**
+ * A workload's startupProbe budget, in seconds: how long Kubernetes will keep
+ * waiting for the container to report started before killing it.
+ *
+ * `failureThreshold` counts PROBE ATTEMPTS, so the wall-clock a reader needs to
+ * compare against a rollout deadline is the product — which is exactly the
+ * multiplication that is easy to leave un-done when both numbers are chosen
+ * separately and neither looks wrong on its own.
+ */
+export const startupBudgetSeconds = (periodSeconds: number, failureThreshold: number): number =>
+  periodSeconds * failureThreshold;
+
+/**
+ * Refuse a Deployment whose startupProbe can outlive its own rollout deadline.
+ *
+ * `progressDeadlineSeconds`' doc comment states the rule ("must exceed image
+ * pull + startupProbe budget + minReadySeconds"), and a comment is exactly the
+ * wrong place for arithmetic: the two numbers live in different files, are
+ * chosen for different reasons, and neither is wrong in isolation. The failure
+ * they produce together is also the most misleading one in this module — a
+ * slow-but-healthy first deploy is marked `ProgressDeadlineExceeded` and fails
+ * `pulumi up` while the pod is doing precisely what it was configured to do.
+ *
+ * Caught here instead, at plan time, naming both numbers.
+ *
+ * @param imagePullSlackSeconds Time to reserve for pulling the image before the
+ *   probe's first attempt. Not a guess to tune — it is the reason the deadline
+ *   must EXCEED the probe budget rather than merely match it.
+ */
+export function assertStartupFitsRollout(
+  workload: string,
+  profile: RolloutProfile,
+  probeBudgetSeconds: number,
+  imagePullSlackSeconds = 120,
+): void {
+  const needed = probeBudgetSeconds + profile.minReadySeconds + imagePullSlackSeconds;
+  // `>=`, not `>`: `progressDeadlineSeconds` is documented as having to EXCEED
+  // this budget, so a deadline that merely equals it does not satisfy the
+  // contract — it leaves exactly zero slack, and the defect this guard was
+  // written for was an exact-equality case.
+  if (needed >= profile.progressDeadlineSeconds) {
+    throw new Error(
+      `Invalid ${workload} rollout budget: startupProbe (${probeBudgetSeconds}s) + ` +
+        `minReadySeconds (${profile.minReadySeconds}s) + image-pull slack ` +
+        `(${imagePullSlackSeconds}s) = ${needed}s exceeds progressDeadlineSeconds ` +
+        `(${profile.progressDeadlineSeconds}s). A healthy-but-slow first deploy would be ` +
+        "reported as ProgressDeadlineExceeded while the container is still starting normally. " +
+        "Raise the deadline or shorten the probe.",
+    );
+  }
+}
+
+/**
  * Per-tier rollout profiles.
  *
  * The invariant to preserve when changing these:
@@ -185,6 +237,36 @@ export const ROLLOUT = {
     progressDeadlineSeconds: 600,
     terminationGracePeriodSeconds: 30,
     endpointDrainSeconds: 0,
+  },
+
+  /**
+   * Langfuse web + worker (ADR-0044). Its OWN profile rather than the
+   * observability one it sits beside, because its boot is not that boot.
+   *
+   * The Aspire dashboard starts a .NET process and serves; langfuse-web runs
+   * Prisma AND ClickHouse schema migrations before it ever listens, against a
+   * ClickHouse that may itself be cold on a first deploy. That is minutes, not
+   * seconds — so the startupProbe budget is large, and the deadline has to be
+   * larger still or the deploy fails while the migration it was configured to
+   * wait for is running (see `assertStartupFitsRollout`, which now checks it).
+   *
+   * Borrowing `observability`'s 600s deadline and simply widening it would have
+   * pushed the same slack onto the dashboard and the collector, where nothing
+   * needs it and a genuinely stuck rollout would take ten extra minutes to
+   * report.
+   */
+  langfuse: {
+    minReadySeconds: 10,
+    progressDeadlineSeconds: 1200,
+    terminationGracePeriodSeconds: 30,
+    // The WEB tier sits behind a Service and the Gateway, so it needs the
+    // endpoint-propagation wait this field exists for — `0` is documented as
+    // being for workloads behind no Service, and the UI plus the OTLP receiver
+    // are both routed. The worker is genuinely behind no Service, and it simply
+    // does not ask `gracefulShutdown` for the hook (which is only emitted when
+    // a runtime is passed), so the two share one profile without the worker
+    // paying a drain it has no use for.
+    endpointDrainSeconds: 10,
   },
 } as const satisfies Record<string, RolloutProfile>;
 

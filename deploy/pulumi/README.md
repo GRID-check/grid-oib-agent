@@ -12,10 +12,11 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 
 | Layer | Resources |
 |-------|-----------|
-| Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), (metrics-server only on bare clusters) |
+| Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), Langfuse (ADR-0044: `langfuse-web` + `langfuse-worker` Deployments, `clickhouse` StatefulSet, a dedicated ingestion queue, HTTPRoute + SecurityPolicy — only when `langfuseEnabled` **and** its config deps are set; flag **on by default**), (metrics-server only on bare clusters) |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
+| DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
 
 ## Prerequisites
 
@@ -82,10 +83,16 @@ pulumi preview
 pulumi up
 ```
 
-Then point DNS for `app.<baseDomain>` and `s3.<baseDomain>` (and `otel.<baseDomain>`
-when observability is on) at the Envoy Gateway external IP
+Then point DNS for `app.<baseDomain>` and `s3.<baseDomain>` (plus
+`otel.<baseDomain>` when observability is on and `langfuse.<baseDomain>` when
+that tier is) at the Envoy Gateway external IP
 (`kubectl -n envoy-gateway-system get svc`), and once TLS issues, flip
 `useStagingIssuer` to `false` and `pulumi up` again.
+
+With `dnsEnabled` those records are written by this program instead — see
+[§3b](../../docs/deployment/kubernetes.md) — and the host set is derived from
+the Gateway's own listeners, so a new tier's host arrives in DNS without anyone
+remembering to add it.
 
 ## Configuration
 
@@ -126,6 +133,15 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `xffNumTrustedHops` | `0` | Trusted hops when deriving the client IP from `X-Forwarded-For`. **Every per-IP limit rests on this.** 0 = trust Envoy's downstream address (correct when the LB preserves the source IP); 1 when a SNATing proxy appends one hop. Verify on a live cluster — wrong low buckets the whole internet as one client, wrong high lets a client forge its address |
 | `maxConnectionsPerProxy` | `10000` | Max concurrent downstream connections per Envoy replica (0 = unbounded) |
 | `networkPolicies` | `true` | Default-deny ingress + least-privilege allows |
+| **Public DNS (Cloudflare)** | | |
+| `dnsEnabled` | `false` | Manage the stack's A records in Cloudflare instead of by hand. The record set is derived from the same config the Gateway listeners are, so the two cannot drift. Requires a pinned `loadBalancerIp`. Off = records are maintained manually, exactly as before |
+| `dnsZoneId` | — | Cloudflare zone id (zone → Overview → API). Required when enabled |
+| `dnsZoneName` | — | The zone **apex** — not necessarily `baseDomain`, since a stack may live on a subdomain of its zone. Every managed host is checked to fall inside it: the Cloudflare API treats a name outside the zone as relative and appends the zone, creating a record that resolves nowhere and reporting success |
+| 🔒 `cloudflareApiToken` | — | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set |
+| `dnsTtl` | `600` | TTL for unproxied records |
+| `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
+| `dnsDmarc` | — | Value of the `_dmarc` TXT record, when the baseline is owned here |
+| `dnsApexRedirectTo` | — | Absolute URL the apex and `www` redirect to (302) while no stack serves the apex. Unset it once one does — `loadConfig` refuses both at once |
 | **Edge rate limiting (ADR-0040 L1)** | | |
 | `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
 | `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |
@@ -242,6 +258,25 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `dashboardImage` | digest-pinned `mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…` (13.4.2) | Dashboard image; override only for a deliberate upgrade. The trivy `image-scan` job blocks on fixable HIGH/CRITICAL in the pin, so it fails when the pin goes stale |
 | `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.157.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |
 | `dashboardMaxLogCount` / `dashboardMaxTraceCount` | `50000` / `50000` | In-memory ring-buffer limits |
+| **Langfuse** (ADR-0044) — durable LLM observability, self-hosted **free/OSS** build. No licence key is set anywhere; the visible cost is that data-retention policies are an Enterprise feature, so nothing expires and `clickhouseStorageSize` is a number to watch. Full operator guide: [`docs/deployment/kubernetes.md` §9b](../../docs/deployment/kubernetes.md) | | |
+| `langfuseEnabled` | `true` | Feature flag. Deployed only when the flag is on **AND** every 🔒 key below is set **AND** `observabilityEnabled` resolves true — Langfuse has no receiver of its own, the collector feeds it. Otherwise `preview` warns naming what is missing and nothing is provisioned (no workloads, no `https-langfuse` listener, no collector exporter, no identity attributes). Default-**on**, so setting the 🔒 keys is all a stack needs; set the flag to `false` to opt out of four workloads and a PVC that grows |
+| `langfuseDomain` | `langfuse.<baseDomain>` | Public host. Register `https://<host>/oauth2/callback` as a redirect URI on the **same** WorkOS Connect application as `otelOidc*` — not a second one |
+| 🔒 `langfuseEncryptionKey` | — | `ENCRYPTION_KEY`. **64 HEX characters** — the only secret here that is not base64. `openssl rand -hex 32`. Rejected at load time otherwise, because Langfuse's own failure is a crash loop that never names the variable |
+| 🔒 `langfusePublicKey` / `langfuseSecretKey` | — | Project API keys, pre-seeded by headless init so the collector has a working ingestion credential in the same `pulumi up`. Prefixes `pk-lf-` / `sk-lf-` are validated at load time — Langfuse validates them too, later and less helpfully |
+| 🔒 `langfuseSalt` | — | `SALT`, hashes stored API keys. Rotating it invalidates every key including the collector's |
+| 🔒 `langfuseNextAuthSecret` | — | Signs the Langfuse session cookie |
+| 🔒 `langfuseDbPassword` | — | Login for the dedicated `langfuse_app` Postgres role, which owns the `langfuse` database and nothing else (it runs its own Prisma migrations, so it holds DDL rights) |
+| 🔒 `langfuseClickhousePassword` | — | ClickHouse login. **URL-safe characters only** (`A-Za-z0-9._~-`), enforced at load time: Langfuse's ClickHouse migrator interpolates it into a connection-string query parameter with no encoding, so the house `openssl rand -base64 32` — which always ends in `=` — corrupts the URL and crash-loops langfuse-web on the migration. Use `openssl rand -hex 32` |
+| 🔒 `langfuseQueuePassword` | — | `requirepass` for the ingestion queue. **Must differ** from `dragonflyPassword` and `rateLimitStorePassword` (refused at load time): every app pod holds the cache URL, and a shared password would let anything reading one pod's env drain the queue |
+| 🔒 `langfuseS3SecretKey` | — | Secret for the `grid-langfuse` S3 identity, scoped to the `langfuse` bucket alone. **Must differ** from every other SeaweedFS secret (refused at load time) — SeaweedFS authenticates by key, so sharing one confers that identity's wider bucket scope |
+| `langfuseS3AccessKey` | `grid-langfuse` | Its access key. An identity NAME, so it must match the entry in `s3.json` — hence a default |
+| 🔒 `langfuseInitUserPassword` | — | Break-glass Langfuse account created at headless init, for when SSO itself is what is broken. A real credential behind the edge gate, not a placeholder |
+| `langfuseInitUserEmail` | `letsEncryptEmail` | That account's email |
+| `langfuseOrgId` / `langfuseProjectId` | `grid` / `grid-oib` | Headless-init identifiers. Deliberately not derived from the hostname: headless init matches on them, so a value that moved with the domain would create a SECOND project and orphan every stored trace |
+| `langfuseWebImage` / `langfuseWorkerImage` | digest-pinned `ghcr.io/langfuse/langfuse{,-worker}@sha256:…` (3.225.1) | Two keys because upstream publishes two images — but they **must be the same version**, and digests are opaque so nothing can check it. Bump together. Both are scanned by the trivy `image-scan` job |
+| `clickhouseImage` | digest-pinned `clickhouse/clickhouse-server@sha256:…` (25.8 LTS) | Single-node analytical store. `CLICKHOUSE_CLUSTER_ENABLED=false` makes the migrator emit plain `MergeTree`, so growing to a real cluster is a migration, not a replica count |
+| `clickhouseStorageSize` | `20Gi` | The tier's one unbounded resource — see the retention note above. Growing it is a PVC patch (`volumeClaimTemplates` is immutable and `ignoreChanges`d) |
+| `langfuseQueueMaxmemory` / `langfuseQueueMemoryLimit` | `512mb` / `1Gi` | Ingestion-queue dataset cap and pod memory limit. Eviction is OFF, so "full" means ingestion stops (loudly) rather than oldest-drops (silently) |
 
 ## Validation (no target cluster required)
 
@@ -290,6 +325,7 @@ the bootstrap Jobs ran to completion under enforced NetworkPolicies.
 index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
 src/platform/            provider, namespace, cert-manager, gateway (Envoy),
+                         dns (Cloudflare records for the Gateway's hosts),
                          metrics-server, scheduling (PDB/spread), rollout
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + npm ci)

@@ -6,6 +6,7 @@ import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
+import { platformOidcSecurityPolicySpec } from "./platform-oidc";
 
 const COMPONENT = "aspire-dashboard";
 const DASHBOARD_PORT = 18888;
@@ -20,12 +21,6 @@ const OTEL_ROUTE_NAME = "grid-otel";
  * threading an Output through it would need a cast that defeats the typing.
  */
 const SECRETS_NAME = "aspire-dashboard-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
-/**
- * WorkOS permission that grants dashboard access — the same value the app uses
- * as `PLATFORM_PERMISSIONS.organizationsView`. Requested as an OAuth scope and
- * enforced as the authorization rule, so the two cannot drift apart.
- */
-const PLATFORM_VIEW_PERMISSION = "platform:organizations:view";
 
 export interface Observability {
   deployment: k8s.apps.v1.Deployment;
@@ -251,144 +246,18 @@ export function installObservabilityDashboard(
 }
 
 /**
- * Edge authN + authZ for the Aspire dashboard route (ADR-0029 amendment 2).
+ * Edge authN + authZ for the Aspire dashboard route (ADR-0029 Amendment 2).
  *
- * Three cooperating stages, run by Envoy in this order (the filter order is
- * fixed by Envoy Gateway: OAuth2=8, JWTAuthn=9, RBAC=301):
- *
- *   1. `oidc`          — browser redirect flow against WorkOS AuthKit. On
- *                        success Envoy stores the tokens in cookies and, with
- *                        `forwardAccessToken`, replays the WorkOS access token
- *                        upstream as `Authorization: Bearer <jwt>`.
- *   2. `jwt`           — verifies that token against WorkOS's per-client JWKS.
- *   3. `authorization` — default-deny; allows only tokens whose `org_id` claim
- *                        is the GRID Platform org. This is the same gate the
- *                        dashboard's own `RequiredClaimValue` was meant to be,
- *                        moved to the edge where it actually runs.
- *
- * WHY A CONNECT APPLICATION AND NOT THE APP'S AUTHKIT CLIENT. The app's client
- * speaks WorkOS's `/user_management/*` endpoints, and those cannot serve this
- * flow — for two independent reasons, both verified against live WorkOS:
- *
- *   1. `/user_management/authorize` is not a spec-complete OIDC authorization
- *      endpoint. It demands a non-standard connection selector (`provider`,
- *      `connection_id`, `organization_id` or `domain_hint`) and 302s to
- *      `error.workos.com/sso/invalid-connection-selector` without one.
- *   2. Fatally: `/user_management/authenticate` reads client credentials ONLY
- *      from the request body, and answers
- *      `invalid_request: Missing required parameter: client_id` to an HTTP
- *      Basic header. Envoy Gateway hardcodes Basic auth for the token exchange
- *      (`internal/xds/translator/oidc.go`: "every OIDC provider supports basic
- *      auth") with no SecurityPolicy field to override it, so the flow always
- *      died at the callback with "OAuth flow failed."
- *
- * A Connect application's issuer — the environment's AuthKit domain — publishes
- * a complete discovery document (`scopes_supported`, `claims_supported`,
- * `id_token_signing_alg_values_supported`, RS256, and
- * `token_endpoint_auth_methods_supported` including `client_secret_basic`), so
- * a stock OIDC client works against it unmodified. No selector parameter, no
- * workaround. The application must be a CONFIDENTIAL client: a public
- * PKCE-only client has no secret, and `clientSecret` is required here.
- *
- * Endpoints are pinned rather than discovered so translation never depends on a
- * live fetch; they are the documented `/oauth2/*` paths under the issuer, and
- * discovery would resolve to the same values.
- *
- * One-time WorkOS setup: register `https://<otelDomain>/oauth2/callback` as a
- * redirect URI on that application (`docs/deployment/kubernetes.md` §9).
+ * The policy itself is `platformOidcSecurityPolicySpec` — shared with the
+ * Langfuse route since ADR-0044, because both are platform-operator surfaces
+ * gated on the same permission against the same WorkOS Connect application.
+ * That module carries the full reasoning, including why the app's own AuthKit
+ * client cannot serve this flow.
  */
 export function otelSecurityPolicySpec(cfg: GridConfig): ISecurityPolicySpec {
-  const { observability: obs } = cfg;
-  // Every endpoint hangs off the one issuer, so there is no way for them to
-  // drift onto different WorkOS applications.
-  const issuer = obs.oidcIssuer;
-  const jwtProviderName = "workos";
-
-  return {
-    targetRefs: [
-      { group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: OTEL_ROUTE_NAME },
-    ],
-    oidc: {
-      provider: {
-        issuer,
-        authorizationEndpoint: `${issuer}/oauth2/authorize`,
-        tokenEndpoint: `${issuer}/oauth2/token`,
-      },
-      clientID: obs.oidcClientId,
-      // Key name fixed by the SecurityPolicy API — see OIDC_CLIENT_SECRET_KEY.
-      clientSecret: { name: SECRETS_NAME },
-      // `offline_access` buys the refresh token for the renewal below. The
-      // permission scope is what carries the authorization decision: WorkOS
-      // grants it only if the signing-in user's role actually holds that
-      // permission, so requesting it here is what makes the rule below mean
-      // something. It must also be assigned to the Connect application
-      // ("Scopes" in the WorkOS dashboard) or it is silently not issued.
-      scopes: ["openid", "profile", "email", "offline_access", PLATFORM_VIEW_PERMISSION],
-      redirectURL: `https://${obs.otelDomain}/oauth2/callback`,
-      logoutPath: "/logout",
-      // Hands the access token to stage 2 (and 3) — without it there is no
-      // token for the JWT filter to verify and the org_id gate cannot run.
-      forwardAccessToken: true,
-      // Safety net, kept deliberately. Envoy hard-fails a login when the token
-      // response carries no `expires_in` and this is unset, because the default
-      // resolves to 0 ("No default or explicit access token expiration found in
-      // the token exchange response", oauth2/oauth_client.cc). WorkOS's
-      // /user_management endpoint does omit it; whether the Connect token
-      // endpoint does has not been verified, so the net stays.
-      //
-      // Only a fallback: a real `expires_in` always wins. Keep it <= the
-      // AuthKit application's `accessTokenExpiry` (300s on this environment) —
-      // too long and Envoy replays a token the JWT filter already rejects.
-      defaultTokenTTL: "5m",
-      // Renew silently rather than bouncing the browser through a full
-      // redirect every few minutes (which would also drop the dashboard's
-      // Blazor SignalR connection). Envoy's default is already true — pinned
-      // because the short TTL above makes the behaviour load-bearing.
-      refreshToken: true,
-    },
-    jwt: {
-      providers: [
-        {
-          name: jwtProviderName,
-          issuer,
-          remoteJWKS: { uri: `${issuer}/oauth2/jwks` },
-        },
-      ],
-    },
-    authorization: {
-      // Fail closed: anything without the platform permission is denied,
-      // including a request that somehow skipped stages 1-2.
-      //
-      // The gate is the permission, not membership of the platform org. Bare
-      // membership was the old dashboard gate (`RequiredClaimType=org_id`) and
-      // it does not match how the application decides platform access:
-      // `isPlatformOwner` (frontends/ui/src/lib/authz/platform.ts) accepts the
-      // `org-platform-owner` role OR this permission. Gating on the org alone
-      // would mean anyone added to the platform org with WorkOS's default
-      // `member` role — which grants nothing in the app, and so reads as
-      // harmless to whoever does it — silently gained cross-tenant read of
-      // prompts, document snippets, LLM output and presigned S3 URLs.
-      //
-      // One claim is enough here because the permission is doubly scoped: it
-      // is issued only to this Connect application (per-application scope
-      // assignment) and only to a user whose role in the selected organization
-      // holds it. `org_id` would be belt-and-braces, but adding a claim that
-      // may not be present in a Connect token risks locking everyone out for
-      // no gain — revisit once a real token has been inspected.
-      defaultAction: "Deny",
-      rules: [
-        {
-          name: "platform-permission-only",
-          action: "Allow",
-          principal: {
-            // `scopes` matches the space-delimited `scope`/`scp` claim per
-            // RFC 6749, which is how granted permissions arrive on an OAuth
-            // access token. This mirrors PLATFORM_PERMISSIONS.organizationsView
-            // in frontends/ui/src/lib/authz/permissions.ts.
-            jwt: { provider: jwtProviderName, scopes: [PLATFORM_VIEW_PERMISSION] },
-          },
-        },
-      ],
-    },
-  };
+  return platformOidcSecurityPolicySpec(cfg, {
+    routeName: OTEL_ROUTE_NAME,
+    domain: cfg.observability.otelDomain,
+    secretName: SECRETS_NAME,
+  });
 }
