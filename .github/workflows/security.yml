@@ -194,23 +194,39 @@ jobs:
     steps:
       # Needed for the digest extraction below to see deploy/pulumi/src/config.ts.
       - uses: actions/checkout@v7
-      # The two observability images (ADR-0029) are digest-pinned in
-      # deploy/pulumi/src/config.ts and never flow through a repo Dockerfile,
-      # so OSV/dependency scanners never see them. trivy scans the pinned
-      # digests directly. Blocking on HIGH/CRITICAL is safe precisely because
-      # the digests are pinned: a new finding means a deliberate image bump
-      # decision, never a surprise from a mutable tag. --ignore-unfixed keeps
-      # the gate about what we can act on.
+      # The observability images (ADR-0029) and the Langfuse tier's (ADR-0044)
+      # are digest-pinned in deploy/pulumi/src/config.ts and never flow through
+      # a repo Dockerfile, so OSV/dependency scanners never see them. trivy
+      # scans the pinned digests directly. Blocking on HIGH/CRITICAL is safe
+      # precisely because the digests are pinned: a new finding means a
+      # deliberate image bump decision, never a surprise from a mutable tag.
+      # --ignore-unfixed keeps the gate about what we can act on.
+      #
+      # This is what makes the pins SELF-MAINTAINING. Adding a pinned image
+      # without adding it here would leave it unscanned forever, so the count
+      # assertion below is deliberately exact rather than a lower bound: a new
+      # pin fails this job until someone extends the list.
       - name: Extract pinned images
         id: images
         run: |
-          grep -oE '(mcr\.microsoft\.com/dotnet/aspire-dashboard|otel/opentelemetry-collector-contrib)@sha256:[a-f0-9]{64}' \
-            deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
-          # A partial match would leave the loop below scanning one image (or
+          expected=(
+            'mcr\.microsoft\.com/dotnet/aspire-dashboard'
+            'otel/opentelemetry-collector-contrib'
+            'ghcr\.io/langfuse/langfuse'
+            'ghcr\.io/langfuse/langfuse-worker'
+            'clickhouse/clickhouse-server'
+          )
+          # `langfuse` is a prefix of `langfuse-worker`, so the alternation is
+          # anchored with (@) to keep the shorter pattern from swallowing the
+          # longer one's digest and reporting four images where there are five.
+          pattern="$(IFS='|'; echo "(${expected[*]})@sha256:[a-f0-9]{64}")"
+          grep -oE "$pattern" deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
+          # A partial match would leave the loop below scanning fewer images (or
           # none) and still passing. Require exactly one digest per image.
-          test "$(wc -l < pinned-images.txt)" -eq 2
-          grep -qE '^mcr\.microsoft\.com/dotnet/aspire-dashboard@sha256:[a-f0-9]{64}$' pinned-images.txt
-          grep -qE '^otel/opentelemetry-collector-contrib@sha256:[a-f0-9]{64}$' pinned-images.txt
+          test "$(wc -l < pinned-images.txt)" -eq "${#expected[@]}"
+          for image in "${expected[@]}"; do
+            grep -qE "^${image}@sha256:[a-f0-9]{64}$" pinned-images.txt
+          done
       # `.trivyignore.yaml` carries deliberate, time-boxed exceptions for
       # findings inside the upstream images that we cannot fix by bumping (each
       # entry states why it is not exploitable here and expires, so the gate

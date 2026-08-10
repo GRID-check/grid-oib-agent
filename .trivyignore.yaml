@@ -6,6 +6,13 @@
 # must say why the finding is not exploitable in OUR deployment and carry an
 # `expired_at`, so the gate turns red again instead of silently ignoring a CVE
 # forever if upstream never ships the fix.
+#
+# The Langfuse block below (ADR-0044) is deliberately boxed SHORTER than the
+# aspire-dashboard entry above it. That one waits on Microsoft shipping a
+# transitive dependency bump; these wait on Langfuse running `npm update` on a
+# project that publishes several releases a week. If they are still here in
+# October, the assumption behind them was wrong and they deserve re-arguing
+# rather than extending.
 vulnerabilities:
   - id: CVE-2026-49451
     expired_at: 2026-10-31
@@ -25,3 +32,130 @@ vulnerabilities:
 
       Drop this entry as soon as an aspire-dashboard image ships
       Microsoft.OpenApi >= 3.5.4, and re-check it on every dashboard bump.
+
+  # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
+  #
+  # All six are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
+  # packages this repo references — nothing here appears in any lockfile we own.
+  # Every one is marked `fixed` upstream, so `--ignore-unfixed` does not skip
+  # them, and no digest bump can currently clear them: the `3` tag still
+  # resolves to the pinned digest (3.225.1), so there is no newer image to move
+  # to. Verified against the registry, not assumed.
+  #
+  # Shared context for every entry below, so it is not repeated six times:
+  # the Langfuse UI is reachable only through the Envoy Gateway behind an OIDC
+  # flow gated on `platform:organizations:view`, and its OTLP receiver is
+  # cluster-internal with a NetworkPolicy admitting only otel-collector. There
+  # is no unauthenticated surface. The tier is also `langfuseEnabled: false` by
+  # default, so a stack that has not adopted it runs none of this code.
+
+  - id: CVE-2026-18446
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — host confusion via a backslash in the URI authority.
+      Bundled inside ghcr.io/langfuse/langfuse as ajv's URI parser (JSON Schema
+      `$ref` and `format: uri` handling).
+
+      Not exploitable here, with the honest limit stated: the defect matters
+      when a parsed URI's authority is then used for a security decision — an
+      allowlist check, an outbound fetch target. Langfuse uses ajv for request
+      and schema validation, not for routing or origin decisions, so there is
+      no path in this deployment from a caller-supplied URI through fast-uri to
+      such a decision. This is "no reachable path found", not "the library is
+      unreachable" — it is on the request path, behind the edge permission gate.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.5.
+
+  - id: GHSA-5p4m-2wfm-xmqj
+    expired_at: 2026-10-09
+    statement: |
+      js-yaml 3.15.0 / 4.3.0 — quadratic CPU consumption resolving `!!omap`
+      (CVE-2026-59870). A denial of service that requires the attacker to
+      supply the YAML being parsed.
+
+      Not exploitable here: nothing on the trace-ingestion path parses YAML.
+      The collector delivers OTLP/protobuf, the public API takes JSON, and the
+      UI submits JSON. js-yaml arrives transitively (config/OpenAPI tooling) and
+      is not fed caller-controlled documents in this deployment.
+
+      Drop as soon as a Langfuse image ships js-yaml >= 4.3.1 / >= 3.15.1.
+
+  - id: CVE-2026-67213
+    expired_at: 2026-10-09
+    statement: |
+      nanoid 3.3.12 — infinite loop in `customAlphabet`.
+
+      Not exploitable here, and this one is structural rather than
+      circumstantial: the loop requires attacker control of the ALPHABET
+      argument, which is a compile-time constant at every call site. A caller
+      cannot reach it by any input, authenticated or not.
+
+      Drop as soon as a Langfuse image ships nanoid >= 3.3.17.
+
+  - id: CVE-2026-67214
+    expired_at: 2026-10-09
+    statement: |
+      nanoid 3.3.12 — second infinite loop in the same `customAlphabet` surface
+      as CVE-2026-67213. Same reasoning: the alphabet is a constant at every
+      call site, so no input reaches the defect.
+
+      Drop as soon as a Langfuse image ships nanoid >= 3.3.16 / >= 5.1.16.
+
+  - id: GHSA-f88m-g3jw-g9cj
+    expired_at: 2026-10-09
+    statement: |
+      sharp 0.34.5 — inherited libvips CVEs (CVE-2026-33327, CVE-2026-33328,
+      CVE-2026-35590, CVE-2026-35591), reached by decoding a malicious image.
+
+      Not exploitable here, and this is the strongest of the six because it
+      rests on our own configuration rather than on upstream's internals:
+      `deploy/pulumi/src/platform/langfuse.ts` deliberately does NOT set
+      `LANGFUSE_S3_MEDIA_UPLOAD_*`, and Langfuse enables media capture only by
+      the presence of that bucket. Nothing in this deployment feeds an image to
+      sharp, because nothing can upload one.
+
+      THIS ENTRY MUST BE RE-ARGUED IF MEDIA UPLOAD IS EVER CONFIGURED. That
+      change would turn an unreachable decoder into a caller-reachable one.
+
+      Drop as soon as a Langfuse image ships sharp >= 0.35.0.
+
+  - id: CVE-2026-13697
+    expired_at: 2026-10-09
+    statement: |
+      undici 7.28.0 — information disclosure and denial of service via
+      malformed `Cache-Control` directives in a RESPONSE.
+
+      Not exploitable here: the defect needs a response from an origin the
+      attacker controls. Langfuse's outbound HTTP in this deployment goes to
+      infrastructure named in its own config (Postgres, ClickHouse, the
+      SeaweedFS S3 endpoint, the WorkOS issuer) — all operator-configured. The
+      one surface that could reach an arbitrary origin is a BYOK model endpoint
+      entered in the playground, which is itself a platform-operator action
+      behind the permission gate.
+
+      Drop as soon as a Langfuse image ships undici >= 7.29.0.
+
+secrets:
+  - id: gcp-service-account
+    paths:
+      - "**/web/.next/**"
+    expired_at: 2026-11-30
+    statement: |
+      Eight CRITICAL "Google (GCP) Service-account" hits across the Next.js
+      build output inside ghcr.io/langfuse/langfuse. Every one is Langfuse's own
+      UI PLACEHOLDER for pasting a Vertex AI credential — the matched text is
+      the empty template, `"project_id": "<project_id>"`,
+      `"client_x509_cert_url": "<client_x509_cert_url>"`, sitting next to
+      `displaySecretKey` in a form component. There is no key material.
+      Confirmed by reading the matched lines in the scan output, not inferred
+      from the rule name.
+
+      Scoped to `**/web/.next/**` rather than suppressing the rule outright, so
+      a genuinely leaked service-account key anywhere else in any scanned image
+      still fails the gate. Only the Langfuse web image has that path among the
+      five pinned images.
+
+      The `expired_at` here is a RE-VERIFICATION date, not a wait-for-a-fix
+      date: upstream will never "fix" placeholder text in a form. It is boxed so
+      that someone confirms, after a Langfuse bump, that these matches are still
+      the template and not something that has become real.

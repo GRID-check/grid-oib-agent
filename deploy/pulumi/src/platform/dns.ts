@@ -54,10 +54,11 @@ export interface ManagedDns {
 /**
  * Every public host this stack serves, in Gateway listener order.
  *
- * `otelDomain` appears only when the observability tier is actually deployed,
- * mirroring the conditional `https-otel` listener: a record for a host with no
- * listener resolves, answers with the wrong certificate, and reads as a broken
- * deployment rather than a disabled feature.
+ * `otelDomain` and `langfuseDomain` appear only when their tiers are actually
+ * deployed, mirroring the conditional `https-otel` and `https-langfuse`
+ * listeners: a record for a host with no listener resolves, answers with the
+ * wrong certificate, and reads as a broken deployment rather than a disabled
+ * feature.
  *
  * Derived here rather than inside `installDns` so that `loadConfig` validates
  * the same list it later hands over — a second derivation is a second thing to
@@ -68,12 +69,14 @@ export function managedHosts(args: {
   appDomain: string;
   s3Domain: string;
   otelDomain?: string;
+  langfuseDomain?: string;
 }): string[] {
   return [
     args.webDomain,
     args.appDomain,
     args.s3Domain,
     ...(args.otelDomain !== undefined ? [args.otelDomain] : []),
+    ...(args.langfuseDomain !== undefined ? [args.langfuseDomain] : []),
   ];
 }
 

@@ -361,13 +361,51 @@ Two follow-ups landed together once traces were flowing:
    unaffected. Metrics are still not emitted anywhere — adopting them means
    adding explicit meters, which is deliberately not done.
 
+## Amendment 4 (2026-08-09): a durable backend arrives alongside — ADR-0044
+
+The in-memory ring buffer listed under Consequences → Negative is no longer the
+whole story. **ADR-0044** adds self-hosted **Langfuse** (free OSS build) as a
+SECOND consumer on the collector's traces signal.
+
+This amends rather than supersedes: the dashboard stays exactly as specified
+here. The two are not redundant and neither replaces the other — Aspire answers
+"what is the system doing right now" over a live ring buffer; Langfuse answers
+"what did this run cost, on which model, for which user, and how did that change
+last month" over a queryable store. Logs and metrics still go to the dashboard
+alone.
+
+Two things in this ADR were load-bearing and held up:
+
+- The amendment's claim that "swapping Aspire for a Grafana/Tempo stack later is
+  a collector-config change, not an app change" was tested by doing it. Adding
+  Langfuse is one exporter block and one pipeline entry in
+  `otel-collector.ts`. No producer changed its endpoint.
+- The "availability = flag AND capability" rule extended cleanly: the Langfuse
+  tier takes `observabilityEnabled` as one of its own capability dependencies,
+  because it has no receiver of its own and the collector is what feeds it.
+
+The Gateway SecurityPolicy here was generalized (`platformOidcSecurityPolicySpec`
+in `deploy/pulumi/src/platform/platform-oidc.ts`) so both platform routes share
+one implementation and one WorkOS Connect application. The dashboard's behaviour
+is unchanged; Amendment 2's reasoning now lives in that module.
+
+One residual risk below is sharpened by ADR-0044 and should be re-read with it:
+"Trace payloads contain user content". With Langfuse deployed, traces also carry
+**user and organization identifiers**, making them attributable to named
+individuals. That is gated behind the same edge permission and behind its own
+env flag (`GRID_TRACE_IDENTITY_ATTRIBUTES`, off unless the Langfuse tier is
+deployed), but it is a real change in what the telemetry store holds.
+
 ## Alternatives considered
 
 **Option 1 — Full OTel Collector + Grafana stack.** Durable storage, alerting,
 multi-service aggregation. Rejected: 5+ services, DB-backed, dedicated
 observability runbook that a single diagnostic pane does not justify at the
 current team size. The OTLP boundary means we can add a collector later
-without touching app code.
+without touching app code. *(Partially revisited by ADR-0044 — see Amendment 4.
+A durable backend did arrive through exactly that boundary, though a
+GenAI-native one rather than the Grafana stack: Tempo has no concept of a model,
+a token or a cost.)*
 
 **Option 3 — No change.** Rejected: no live visibility beyond `kubectl logs`.
 

@@ -887,6 +887,119 @@ export interface GridConfig {
   };
 
   /**
+   * Langfuse — the DURABLE LLM-observability backend (ADR-0044).
+   *
+   * A third consumer on the collector's traces signal, alongside the Aspire
+   * dashboard. The two are not redundant and neither replaces the other:
+   * Aspire is a live ops pane over an in-memory ring buffer that answers "what
+   * is the system doing right now"; Langfuse is a queryable store that answers
+   * "what did this user's run cost, which model served it, and how did that
+   * change over the last month". ADR-0029 deferred exactly this and named the
+   * collector as the seam it would arrive through.
+   *
+   * **Self-hosted OSS only.** No license key is configured anywhere in this
+   * program, deliberately: everything wired here is MIT-licensed core Langfuse.
+   * The consequence that matters operationally is that DATA RETENTION POLICIES
+   * are an Enterprise feature, so nothing expires on its own — see
+   * `clickhouseStorageSize` and the ADR's Consequences section.
+   */
+  langfuse: {
+    /**
+     * Whether the tier is deployed: the `langfuseEnabled` flag AND the
+     * capability derived from its dependencies (every credential it cannot
+     * boot without, plus `observability.enabled` — it is fed by the collector,
+     * so without one it is four workloads that can only ever sit idle).
+     */
+    enabled: boolean;
+    /** Public hostname. Derived: `langfuse.<baseDomain>` unless overridden. */
+    domain: string;
+    /** Langfuse web image (UI + public API + OTLP receiver), digest-pinned. */
+    webImage: string;
+    /**
+     * Langfuse worker image. A SEPARATE knob rather than a shared tag because
+     * upstream publishes them as two images; they must nonetheless be the same
+     * VERSION — `loadConfig` cannot check that (digests are opaque), so it is
+     * on the operator, and `docs/deployment/kubernetes.md` says so.
+     */
+    workerImage: string;
+    /** ClickHouse server image, digest-pinned. */
+    clickhouseImage: string;
+    /**
+     * PVC for ClickHouse. This is the tier's one unbounded resource: with
+     * retention policies behind the Enterprise license, the trace store grows
+     * for as long as the deployment runs. Size it for the retention you intend
+     * to keep by hand, and watch it.
+     */
+    clickhouseStorageSize: string;
+    /** Ingestion-queue dataset cap and pod memory limit (see `LANGFUSE.queue`). */
+    queueMaxmemory: string;
+    queueMemoryLimit: string;
+    /**
+     * `requirepass` for the ingestion queue. Its OWN credential, distinct from
+     * both `dragonflyPassword` and `rateLimitStorePassword` for the reason
+     * given on those two: shared key material makes every holder of one
+     * instance's URL an administrator of the others.
+     */
+    queuePassword: pulumi.Output<string>;
+    /** Login for the dedicated Postgres role that owns the Langfuse database. */
+    databasePassword: pulumi.Output<string>;
+    /** ClickHouse login password. */
+    clickhousePassword: pulumi.Output<string>;
+    /**
+     * `SALT` — hashes the API keys Langfuse stores. Changing it invalidates
+     * every existing key, including the ingestion key the collector holds.
+     */
+    salt: pulumi.Output<string>;
+    /**
+     * `ENCRYPTION_KEY` — 256-bit key, **64 hex characters**, encrypting the
+     * secrets Langfuse stores at rest (LLM API keys for the playground,
+     * integration credentials). `loadConfig` checks the shape, because
+     * Langfuse's own failure for a malformed value is a crash loop at startup
+     * with a stack trace, not a message naming the variable.
+     */
+    encryptionKey: pulumi.Output<string>;
+    /** `NEXTAUTH_SECRET` — signs the Langfuse session cookie. */
+    nextAuthSecret: pulumi.Output<string>;
+    /**
+     * The project's ingestion API keys, pre-seeded via headless
+     * initialization (`LANGFUSE_INIT_PROJECT_*`).
+     *
+     * This is what makes the tier deployable in one `pulumi up` rather than
+     * two: the collector needs an ingestion credential in the same apply that
+     * creates Langfuse, and the alternative — boot Langfuse, log in, mint a
+     * key by hand, put it in the stack config, apply again — is a bootstrap
+     * that cannot be automated and quietly rots.
+     *
+     * Langfuse validates the prefixes, so `publicKey` must start `pk-lf-` and
+     * `secretKey` must start `sk-lf-`; `loadConfig` checks both rather than
+     * letting the web container reject them on startup.
+     */
+    publicKey: pulumi.Output<string>;
+    secretKey: pulumi.Output<string>;
+    /** Headless-init identifiers. Stable strings, not secrets. */
+    orgId: string;
+    projectId: string;
+    /**
+     * The break-glass Langfuse account created at headless init.
+     *
+     * Sign-in normally happens through WorkOS SSO (`AUTH_CUSTOM_*`), so this
+     * exists for the case SSO itself is what is broken. It is a real password
+     * on a real account behind the edge permission gate — treat it as a
+     * credential, not a placeholder.
+     */
+    initUserEmail: string;
+    initUserPassword: pulumi.Output<string>;
+    /**
+     * S3 identity for the Langfuse bucket. The secret key MUST differ from
+     * every other SeaweedFS credential in the deployment, for the reason
+     * `backendReadSecretKey` gives: shared key material would let this tier
+     * authenticate as an identity with a wider bucket scope.
+     */
+    s3AccessKey: string;
+    s3SecretKey: pulumi.Output<string>;
+  };
+
+  /**
    * err2issue — ERROR-severity telemetry becomes deduplicated GitHub issues
    * (ADR-0031). A second consumer on the collector's logs signal, alongside the
    * Aspire dashboard.
@@ -1019,6 +1132,7 @@ export function loadConfig(): GridConfig {
   // class this guard exists to kill).
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
   rejectPlaceholder("otelDomain", ["example.com"]);
+  rejectPlaceholder("langfuseDomain", ["example.com"]);
 
   // The BFF clamps a nonsense threshold back to 80 rather than switching the
   // warning off, which is the right runtime behaviour and a terrible deploy-time
@@ -1545,6 +1659,164 @@ export function loadConfig(): GridConfig {
     );
   }
 
+  // ── Langfuse (ADR-0044): same availability = flag AND capability rule ──────
+  // Opt-in (default false) because turning it on provisions four new workloads
+  // and a PVC that grows without a retention policy — a standing cost, not a
+  // toggle. The dependency on `observabilityEnabled` is structural for the same
+  // reason err2issue's is: Langfuse has no receiver of its own in this design,
+  // the collector fans traces into it, so without the collector it is idle.
+  //
+  // It also inherits the collector's WorkOS Connect application rather than
+  // asking for a fourth OIDC triple. One application can carry several redirect
+  // URIs, and the alternative is an operator provisioning two near-identical
+  // confidential clients that gate on the same permission — two places to get
+  // the scope assignment wrong, for no separation that anyone would use.
+  const langfuseDomain = cfg.get("langfuseDomain") ?? `langfuse.${baseDomain}`;
+  const langfuseFlag = bool(cfg, "langfuseEnabled", false);
+  const langfuseEncryptionKey = cfg.getSecret("langfuseEncryptionKey");
+  const langfusePublicKey = cfg.getSecret("langfusePublicKey");
+  const langfuseSecretKey = cfg.getSecret("langfuseSecretKey");
+  const langfuseSecretKeys = [
+    "langfuseSalt",
+    "langfuseEncryptionKey",
+    "langfuseNextAuthSecret",
+    "langfusePublicKey",
+    "langfuseSecretKey",
+    "langfuseDbPassword",
+    "langfuseClickhousePassword",
+    "langfuseQueuePassword",
+    "langfuseS3SecretKey",
+    "langfuseInitUserPassword",
+  ];
+  const missingLangfuseDeps = [
+    ...langfuseSecretKeys.filter((key) => (cfg.get(key) ?? "").trim() === ""),
+    observabilityEnabled ? undefined : "observabilityEnabled (Langfuse is fed by the collector)",
+  ].filter((k): k is string => k !== undefined);
+  const langfuseEnabled = langfuseFlag && missingLangfuseDeps.length === 0;
+
+  if (langfuseFlag && !langfuseEnabled) {
+    pulumi.log.warn(
+      "Langfuse (ADR-0044) not deployed: missing " +
+        missingLangfuseDeps.map((k) => (k.includes(" ") ? k : `grid-oib:${k}`)).join(", ") +
+        ". Set them to deploy the durable trace store, or set " +
+        "grid-oib:langfuseEnabled=false to silence this.",
+    );
+  }
+
+  // Shape checks, run only when the tier is actually being deployed so that a
+  // stack which has not adopted it is never failed by a key it does not set.
+  //
+  // Every one of these is a value Langfuse validates ITSELF — the point is
+  // WHERE the failure lands. Rejected at startup they are a CrashLoopBackOff on
+  // a container whose logs an operator has to go find; rejected here they are a
+  // line of `pulumi preview` naming the key.
+  if (langfuseEnabled) {
+    // 32 bytes, hex — `openssl rand -hex 32`. A base64 value (the format every
+    // OTHER secret in this program uses) is the overwhelmingly likely mistake,
+    // and it is 44 characters, so length alone catches it.
+    const encryptionKeyRaw = (cfg.get("langfuseEncryptionKey") ?? "").trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(encryptionKeyRaw)) {
+      throw new Error(
+        "grid-oib:langfuseEncryptionKey must be exactly 64 hex characters (a 256-bit key). " +
+          `Got ${encryptionKeyRaw.length} character(s). Note this is the ONE secret here that is ` +
+          "hex rather than base64 — generate it with `openssl rand -hex 32`, not `openssl rand -base64 32`.",
+      );
+    }
+    const keyPrefixes: Array<[string, string]> = [
+      ["langfusePublicKey", "pk-lf-"],
+      ["langfuseSecretKey", "sk-lf-"],
+    ];
+    for (const [key, prefix] of keyPrefixes) {
+      const value = (cfg.get(key) ?? "").trim();
+      if (!value.startsWith(prefix)) {
+        throw new Error(
+          `grid-oib:${key} must start with "${prefix}" — Langfuse validates the prefix on the ` +
+            "keys it seeds at headless initialization and refuses to start otherwise. Generate " +
+            `one with \`echo "${prefix}$(openssl rand -hex 16)"\`.`,
+        );
+      }
+    }
+    // The ClickHouse password must be URL-SAFE, and this is the guard that
+    // stops the tier's own documented setup from breaking itself.
+    //
+    // Langfuse's ClickHouse migrator builds its connection string by raw shell
+    // interpolation — `packages/shared/clickhouse/scripts/up.sh`:
+    //
+    //     DATABASE_URL="${CLICKHOUSE_MIGRATION_URL}?username=${CLICKHOUSE_USER}
+    //       &password=${CLICKHOUSE_PASSWORD}&database=${CLICKHOUSE_DB}&..."
+    //
+    // Nothing percent-encodes that value. Every other secret in this program is
+    // generated with `openssl rand -base64 32`, which for 32 bytes ALWAYS ends
+    // in `=` and frequently contains `+` — so following the house convention
+    // here produces a password that truncates or corrupts the query string. The
+    // result is a langfuse-web container that fails the ClickHouse migration
+    // and exits: CrashLoopBackOff, with nothing in the logs but a generic HINT
+    // about special characters. Upstream only warns; this refuses.
+    //
+    // Unreserved characters (RFC 3986 §2.3) rather than a blocklist of what
+    // breaks today: a blocklist has to be right about every future
+    // interpolation site, and this value crosses a shell, a query string and a
+    // Go URL parser before it reaches ClickHouse.
+    const clickhousePasswordRaw = (cfg.get("langfuseClickhousePassword") ?? "").trim();
+    if (!/^[A-Za-z0-9._~-]+$/.test(clickhousePasswordRaw)) {
+      throw new Error(
+        "grid-oib:langfuseClickhousePassword must contain only URL-safe characters " +
+          "(A-Z a-z 0-9 . _ ~ -). Langfuse's ClickHouse migrator interpolates it into a " +
+          "connection-string query parameter without encoding it, so `+`, `=`, `/` or `&` — " +
+          "all of which `openssl rand -base64 32` produces — break the migration and " +
+          "crash-loop langfuse-web. Generate this one with `openssl rand -hex 32` instead.",
+      );
+    }
+
+    // NOTE ON NETWORKPOLICIES, which this tier needs just as much as the
+    // dashboard does — the trace store, its ClickHouse and its ingestion queue
+    // all sit in the app namespace holding every tenant's prompts and LLM
+    // output. There is deliberately NO guard for it here.
+    //
+    // It would be unreachable. `langfuseEnabled` resolves true only when
+    // `observabilityEnabled` is true (the capability list above), and the
+    // observability check a few lines up already throws for
+    // `networkPolicies=false`. A second check could never fire, and a control
+    // that cannot fire is worse than no control: it reads to the next person
+    // as protection that has been considered and applied.
+    //
+    // The requirement is therefore INHERITED, structurally, not restated.
+    // If the observability guard is ever relaxed, this tier needs its own.
+    //
+    // Distinctness, not strength — the same control as pgRuntimePassword and
+    // rateLimitStorePassword. Every app pod already holds the ADR-0020 cache
+    // URL; if the Langfuse queue shared that password, anything that reads one
+    // app pod's env could drain the ingestion queue.
+    const queuePasswordRaw = (cfg.get("langfuseQueuePassword") ?? "").trim();
+    const collides = [
+      ["dragonflyPassword", cfg.get("dragonflyPassword")],
+      ["rateLimitStorePassword", cfg.get("rateLimitStorePassword")],
+    ].find(([, other]) => (other ?? "").trim() === queuePasswordRaw);
+    if (collides) {
+      throw new Error(
+        `grid-oib:langfuseQueuePassword must differ from grid-oib:${collides[0]}. They are ` +
+          "separate Redis-protocol instances precisely so that holding one credential does not " +
+          "confer control of the others; an identical value silently removes that separation.",
+      );
+    }
+    // The S3 identity is scoped to the Langfuse bucket alone. Reusing another
+    // identity's secret key hands this tier that identity's scope instead —
+    // which for `seaweedfsSecretKey` is object CRUD across every tenant bucket.
+    const langfuseS3SecretRaw = (cfg.get("langfuseS3SecretKey") ?? "").trim();
+    const s3Collides = [
+      ["seaweedfsSecretKey", cfg.get("seaweedfsSecretKey")],
+      ["seaweedfsBackendReadSecretKey", cfg.get("seaweedfsBackendReadSecretKey")],
+      ["seaweedfsTenantAdminSecretKey", cfg.get("seaweedfsTenantAdminSecretKey")],
+    ].find(([, other]) => (other ?? "").trim() === langfuseS3SecretRaw);
+    if (s3Collides) {
+      throw new Error(
+        `grid-oib:langfuseS3SecretKey must differ from grid-oib:${s3Collides[0]}. SeaweedFS ` +
+          "authenticates by key, so a shared secret gives the Langfuse tier that identity's " +
+          "bucket scope instead of its own single-bucket one.",
+      );
+    }
+  }
+
   // ── Public DNS (Cloudflare) ────────────────────────────────────────────────
   //
   // Everything below is validated eagerly rather than at `installDns`, because
@@ -1563,6 +1835,7 @@ export function loadConfig(): GridConfig {
     appDomain,
     s3Domain,
     otelDomain: observabilityEnabled ? otelDomain : undefined,
+    langfuseDomain: langfuseEnabled ? langfuseDomain : undefined,
   });
 
   if (dnsEnabled) {
@@ -1989,6 +2262,48 @@ export function loadConfig(): GridConfig {
       oidcIssuer: otelOidcIssuer,
       oidcClientId: otelOidcClientId,
       oidcClientSecret: otelOidcClientSecret ?? pulumi.output(""),
+    },
+
+    langfuse: {
+      enabled: langfuseEnabled,
+      domain: langfuseDomain,
+      // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
+      // the same trivy gate: langfuse 3.225.1 (web + worker, which MUST be the
+      // same version) and ClickHouse 25.8 LTS. `3` and `25.8` are moving tags
+      // upstream; these are the digests they resolved to when pinned.
+      webImage:
+        cfg.get("langfuseWebImage") ??
+        "ghcr.io/langfuse/langfuse@sha256:c782c55ab8fef96fac5ce85c57d8eacfd74b5e2549d01504ed3281e183d853ba",
+      workerImage:
+        cfg.get("langfuseWorkerImage") ??
+        "ghcr.io/langfuse/langfuse-worker@sha256:77da511ae0a29dee83e728049b5015ac73efac2315155910a282f20f1309c5a9",
+      clickhouseImage:
+        cfg.get("clickhouseImage") ??
+        "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
+      clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "20Gi",
+      // The queue holds references to events already durable in S3, not the
+      // events themselves, so it stays small — but eviction is OFF (see
+      // `installLangfuseQueue`), which means "small" has to mean "big enough".
+      queueMaxmemory: cfg.get("langfuseQueueMaxmemory") ?? "512mb",
+      queueMemoryLimit: cfg.get("langfuseQueueMemoryLimit") ?? "1Gi",
+      queuePassword: cfg.getSecret("langfuseQueuePassword") ?? pulumi.output(""),
+      databasePassword: cfg.getSecret("langfuseDbPassword") ?? pulumi.output(""),
+      clickhousePassword: cfg.getSecret("langfuseClickhousePassword") ?? pulumi.output(""),
+      salt: cfg.getSecret("langfuseSalt") ?? pulumi.output(""),
+      encryptionKey: langfuseEncryptionKey ?? pulumi.output(""),
+      nextAuthSecret: cfg.getSecret("langfuseNextAuthSecret") ?? pulumi.output(""),
+      publicKey: langfusePublicKey ?? pulumi.output(""),
+      secretKey: langfuseSecretKey ?? pulumi.output(""),
+      // Stable identifiers, not secrets, and deliberately not derived from the
+      // domain: headless init matches on them, so a value that moves when the
+      // hostname moves would create a SECOND org/project rather than reuse the
+      // existing one, orphaning every trace already stored.
+      orgId: cfg.get("langfuseOrgId") ?? "grid",
+      projectId: cfg.get("langfuseProjectId") ?? "grid-oib",
+      initUserEmail: cfg.get("langfuseInitUserEmail") ?? cfg.get("letsEncryptEmail") ?? "",
+      initUserPassword: cfg.getSecret("langfuseInitUserPassword") ?? pulumi.output(""),
+      s3AccessKey: cfg.get("langfuseS3AccessKey") ?? "grid-langfuse",
+      s3SecretKey: cfg.getSecret("langfuseS3SecretKey") ?? pulumi.output(""),
     },
 
     err2issue: {

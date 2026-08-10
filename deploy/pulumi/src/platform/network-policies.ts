@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { EDGE_RATE_LIMIT, PORT } from "../constants";
+import { EDGE_RATE_LIMIT, LANGFUSE, PORT } from "../constants";
 
 /**
  * `app.kubernetes.io/name` of the Aspire dashboard. Referenced by rule 2 (which
@@ -16,6 +16,15 @@ const OBSERVABILITY_DASHBOARD = "aspire-dashboard";
  * rule 9.
  */
 const ERR2ISSUE = "err2issue";
+
+/**
+ * `app.kubernetes.io/name` of the two Langfuse workloads and their ClickHouse
+ * (ADR-0044). All three are withheld from rule 2 and granted named callers in
+ * rules 10-12, on the same reasoning as the dashboard.
+ */
+const LANGFUSE_WEB = LANGFUSE.web;
+const LANGFUSE_WORKER = LANGFUSE.worker;
+const CLICKHOUSE = LANGFUSE.clickhouse;
 
 /**
  * Namespace-scoped NetworkPolicies for `grid`: a **default-deny for ingress**
@@ -86,6 +95,22 @@ export function installNetworkPolicies(
   //    token with Issues write — so a blanket allow would let any pod in the
   //    namespace, including the agent worker executing model-chosen tool calls,
   //    forge issues into the repo. Rule 9 grants its one real caller.
+  //
+  //    The Langfuse tier (ADR-0044) is withheld for a related but distinct
+  //    reason, and the distinction is worth stating because it is easy to argue
+  //    the other way. Unlike the dashboard these pods DO authenticate — the web
+  //    tier has sessions and API keys, ClickHouse has a password. What they do
+  //    not have is any legitimate in-namespace caller other than each other and
+  //    the collector. Leaving them in the blanket allow would expose, to every
+  //    pod in the namespace: an ingestion API that accepts a bearer key
+  //    (guessable? no — but reachable, and reachability is what a policy
+  //    controls), and a ClickHouse speaking PLAINTEXT HTTP that answers to a
+  //    password sitting in an env var on four different pods. The store behind
+  //    it is every tenant's prompts and completions. Rules 10-12 name the
+  //    callers that actually exist.
+  const langfuseWithheld = cfg.langfuse.enabled
+    ? [LANGFUSE_WEB, LANGFUSE_WORKER, CLICKHOUSE]
+    : [];
   const intra = mk("allow-same-namespace", {
     podSelector: {
       matchExpressions: [
@@ -95,6 +120,7 @@ export function installNetworkPolicies(
           values: [
             OBSERVABILITY_DASHBOARD,
             ...(cfg.err2issue.enabled ? [ERR2ISSUE] : []),
+            ...langfuseWithheld,
           ],
         },
       ],
@@ -231,6 +257,65 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 10. Edge → Langfuse web (the langfuse HTTPRoute serves its UI). The
+  //     SecurityPolicy on that route is what authorizes the request; this rule
+  //     is only what makes the route reachable at all.
+  const edgeLangfuse = cfg.langfuse.enabled
+    ? mk("allow-edge-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [nsLabel("envoy-gateway-system")],
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
+  // 11. otel-collector → Langfuse web OTLP ingestion. Mirrors rules 8 and 9:
+  //     rule 2 leaves the web tier out of the wholesale allow, and the
+  //     collector's `otlp_http/langfuse` exporter is its only in-namespace
+  //     client. Same port as the UI — Langfuse serves `/api/public/otel/*` on
+  //     the one HTTP listener, so this cannot be narrowed further by port. It
+  //     is narrowed by CALLER instead, which is the control that matters.
+  const collectorToLangfuse = cfg.langfuse.enabled
+    ? mk("allow-collector-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "otel-collector" } } }],
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
+  // 12. Langfuse web + worker → ClickHouse, on both interfaces: HTTP 8123 for
+  //     queries and native 9000 for the schema migrator. Nothing else in the
+  //     deployment speaks to ClickHouse, and it holds the trace store in
+  //     plaintext behind a password that four pods carry in env — so "only the
+  //     two pods that own it" is the whole point of withholding it from rule 2.
+  const langfuseToClickhouse = cfg.langfuse.enabled
+    ? mk("allow-langfuse-to-clickhouse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": CLICKHOUSE } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [
+              { podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } } },
+              { podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WORKER } } },
+            ],
+            ports: [
+              { protocol: "TCP", port: PORT.clickhouseHttp },
+              { protocol: "TCP", port: PORT.clickhouseNative },
+            ],
+          },
+        ],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
@@ -243,5 +328,8 @@ export function installNetworkPolicies(
     ...(edgeOtel ? [edgeOtel] : []),
     ...(collectorToDashboard ? [collectorToDashboard] : []),
     ...(collectorToErr2Issue ? [collectorToErr2Issue] : []),
+    ...(edgeLangfuse ? [edgeLangfuse] : []),
+    ...(collectorToLangfuse ? [collectorToLangfuse] : []),
+    ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
   ];
 }

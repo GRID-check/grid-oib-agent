@@ -219,6 +219,14 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
           { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318/v1/traces" },
         ]
       : []),
+    // Langfuse session/user attribution (ADR-0044). Keyed off the LANGFUSE
+    // tier, not the observability one, and that distinction is the point:
+    // stamping a user id on every span is only worth its privacy cost where
+    // there is a store that groups traces by user. An Aspire-only deployment
+    // gets no identity attributes at all.
+    ...(cfg.langfuse.enabled
+      ? [{ name: "GRID_TRACE_IDENTITY_ATTRIBUTES", value: "true" }]
+      : []),
     // Dask (in-process research execution) — vertical scaling knobs.
     { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
     { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },
