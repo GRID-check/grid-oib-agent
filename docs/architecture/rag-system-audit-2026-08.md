@@ -569,3 +569,88 @@ change 2707 / 3, ruff clean.
 The ordering constraint from Part I still holds and is now load-bearing:
 **F8 before F9/F10/F11.** `MIN_SURFACE_SCORE` is the standing proof of what
 happens when a retrieval number is set without a way to measure it.
+
+---
+
+# Part III — Measured (2026-08)
+
+Parts I and II were reasoning about code. This part is measurement, and it
+overturned one of the programme's central assumptions.
+
+The instrument: `intfloat/multilingual-e5-small` over the real 39-PDF corpus.
+It is **not** the deployed embedder (production is `openai/text-embedding-3-large`
+via OpenRouter), so every number here is valid for **relative** comparison — both
+arms see the same model — and is **not** a claim about production's absolute
+recall. Sample sizes are stated because they are small.
+
+## 12. Punkt chunking is a large German win and was an English regression
+
+5 questions per language, targets verified against the generated Punkt index:
+
+| arm | R@1 | MRR |
+|---|---|---|
+| OLD page-cut, DE | 0.20 | 0.474 |
+| OLD page-cut, EN | 0.40 | 0.450 |
+| NEW Punkt-cut, DE | **0.60** | **0.678** |
+| NEW Punkt-cut, EN (raw) | 0.20 | **0.293** |
+| NEW Punkt-cut, EN + query expansion | **0.60** | **0.672** |
+
+Cutting the corpus into requirement-sized chunks improved German sharply and
+**made English materially worse** — the language gap went from 0.024 to 0.385.
+The mechanism is straightforward in hindsight: a 124-token requirement is a far
+narrower cross-lingual target than a 1000-token page, so a weak English match
+loses the surface it was relying on.
+
+This was invisible to every form of reasoning applied in Parts I and II. It was
+found in the first hour of having an instrument, and it directly contradicts
+"structure-aware chunking is a pure win", which Part II asserted.
+
+Note the direction of the bias: a Punkt chunk begins with its own heading, which
+should *favour* the new arm. English regressed anyway, which makes the regression
+more credible rather than less.
+
+The bilingual glossary closes it: 0.385 → **0.006**. Cross-lingual expansion is
+therefore not an enhancement to schedule later — it is a **precondition** for
+shipping Punkt chunking without regressing English.
+
+## 13. The sparse channel, measured
+
+776 real corpus pages, 25 real German questions, correct-Richtlinie-in-top-k:
+
+| top-k | SQLite | Postgres `german` FTS |
+|---|---|---|
+| 1 | 64% | 44% |
+| 5 | 76% | 84% |
+| 10 | 80% | **88%** |
+| 50 | 100% | 96% |
+
+Against the channel it replaces — which produced any term for 28% of real
+questions and a useful one for 9% — this is the difference between a channel and
+a gesture. The document-frequency ceiling does what F10 said it must: bare `OIB`
+measures **100%** of pages and now returns nothing at all.
+
+Two calibration defects surfaced only under measurement, both fixed:
+`Geschoss` (23.2% DF, 779 corpus occurrences, its own glossary entry) was being
+silenced by a ceiling set at 20%, and the channel leaked on English through the
+two-letter `of`, which survives on 5 of 776 pages of English ÖNORM titles.
+
+## 14. What Part I got wrong, and why it matters
+
+| Part I claim | Measured |
+|---|---|
+| "Chunking 3/10 — the weakest link" | Correct in direction, but it is not a pure win: it regresses English without the glossary. |
+| Cross-lingual expansion listed as a later-stage nicety | It is a precondition for the chunking change. |
+| "No relevance floor anywhere" | One existed, at a cosine of −0.05. |
+
+The pattern is consistent: every reasoned conclusion about *ranking mechanics*
+held up under measurement, and the reasoned conclusions about *what would improve
+quality* did not. That is the argument for the harness in one line.
+
+## 15. Still unmeasured
+
+- **Production's embedder.** No credentials in this environment. Direction should
+  transfer; absolute recall will not.
+- **The reranker's contribution.** It needs a live LLM.
+- **Sample size.** n=5 per language for the chunking A/B is a spot-check. The
+  harness's golden set is what turns it into evidence.
+- **The re-ingest.** `CHUNK_FORMAT_VERSION = 3` forces it; it has not been run.
