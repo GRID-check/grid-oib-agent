@@ -156,3 +156,27 @@ describe('rateLimitHeaders', () => {
     expect(Number(headers['Retry-After'])).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe('a refusal is never self-contradictory', () => {
+  // Observed in staging: `{"code":"RATE_LIMITED","details":{"policy":"api-mutation",
+  // "retryAfterSeconds":0}}`. A refusal that says "retry in zero seconds" tells a
+  // client to retry immediately, which keeps the bucket it just drained drained.
+  it('reports a positive wait even when the limiter cannot say how long', async () => {
+    const { consumeLimiter } = await import('./factory.js')
+    // A rejection carrying no `msBeforeNext` — what a union whose values are not
+    // `RateLimiterRes` produces, and the shape that yielded 0.
+    const limiter = { consume: () => Promise.reject({ opaque: true }) }
+    const outcome = await consumeLimiter(limiter, 'subject')
+
+    expect(outcome.allowed).toBe(false)
+    expect(outcome.retryAfterMs).toBeGreaterThan(0)
+  })
+
+  it('keeps the limiter’s own wait when it has one', async () => {
+    const { consumeLimiter } = await import('./factory.js')
+    const limiter = { consume: () => Promise.reject({ msBeforeNext: 4200, remainingPoints: 0 }) }
+    const outcome = await consumeLimiter(limiter, 'subject')
+
+    expect(outcome.retryAfterMs).toBe(4200)
+  })
+})
