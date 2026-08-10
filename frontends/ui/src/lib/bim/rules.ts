@@ -207,6 +207,53 @@ function round(value: number, digits = 2): number {
   return Math.round(value * factor) / factor
 }
 
+/** Decimals in a number's shortest form, so `decimal` never pads noise on. */
+function decimalsOf(value: number): number {
+  const text = String(value)
+  if (text.includes('e')) return 0
+  const dot = text.indexOf('.')
+  return dot === -1 ? 0 : text.length - dot - 1
+}
+
+/**
+ * German decimal notation. Every threshold in this catalogue is written the
+ * Austrian way — `≥ 0,80 m`, `≤ 0,35 W/m²K` — while the readings beside them
+ * came from `String(number)` and used a point. One row said
+ * `Breite 0.7 m — Schwellwert ≥ 0,80 m`, mixing both in eleven characters.
+ */
+function decimal(value: number, minDigits: number): string {
+  return value.toFixed(Math.max(minDigits, decimalsOf(value))).replace('.', ',')
+}
+
+/**
+ * Renders a measurement so the number a reader sees supports the verdict
+ * printed beside it.
+ *
+ * `round(0.795)` is `0.8`, so a door five millimetres under the threshold
+ * rendered as `Lichte Durchgangsbreite 0,80 m — Schwellwert ≥ 0,80 m` and then
+ * said **nicht erfüllt**: a row contradicting its own arithmetic, in the German
+ * the BCF export ships to the Bauzeichner. The same reading appeared on the
+ * U-value, Raumhöhe and stair rules.
+ *
+ * Widening every reading to four decimals would fix it and make every other row
+ * unreadable — `2,4999999 m` is noise, not precision. So the SHORTEST rendering
+ * is chosen that still lands on the same side of the threshold as the raw
+ * measurement. `satisfies` is the rule's own comparison, passed in rather than
+ * restated, so the two cannot drift apart.
+ */
+function measure(
+  value: number,
+  satisfies: (candidate: number) => boolean,
+  digits = 2,
+  maxDigits = 5
+): string {
+  const truth = satisfies(value)
+  for (let d = digits; d < maxDigits; d += 1) {
+    if (satisfies(round(value, d)) === truth) return decimal(round(value, d), digits)
+  }
+  return decimal(round(value, maxDigits), digits)
+}
+
 // ---------------------------------------------------------------------------
 // Fire ratings
 // ---------------------------------------------------------------------------
@@ -391,12 +438,76 @@ const isExternal = (element: BimElement): boolean => property(element, ['IsExter
  * class as scoring `F 90` against `REI 90`, and just as effective at making a
  * checker unreadable.
  *
- * Substrings, because names are free text (`TR 01 Stiegenhaus`, `Plant Room`).
+ * Matched per WORD, not as a bare substring of the whole name. `name.includes`
+ * excluded `Level 2 Storey Plan Office` (`store` ⊂ `storey`, and every English
+ * Revit template prefixes room names with the level), `Upstairs Bedroom`
+ * (`stair`), `Showcase` (`wc`), `Implantologie` (`plant`), `Badminton-Halle`
+ * and `Besprechung Bad Gastein` (`bad`). Those rooms did not fail the Raumhöhe
+ * rule — they produced no row at all, which is the invisible false pass this
+ * catalogue exists to refuse.
+ *
+ * The asymmetry is deliberate: when a name is ambiguous, CHECK the room. A
+ * Technikraum wrongly held to 2,50 m is a visible row somebody can dismiss; an
+ * Aufenthaltsraum silently dropped is a compliance gap nobody can see.
  */
-const NON_OCCUPIED_MARKERS = [
-  // German
-  'flur',
+
+/**
+ * Positive signals. Checked FIRST, so one unambiguous word rescues a room from
+ * a marker that happens to collide with it — `Büro Keller` (Keller is a common
+ * Austrian surname and offices get named after their occupant),
+ * `Besprechung Bad Gastein`, `Store (Verkauf)`.
+ */
+const OCCUPIED_MARKERS = [
+  'wohn',
+  'schlaf',
+  'kind',
+  'büro',
+  'buero',
+  'ess',
+  'küche',
+  'kueche',
+  'arbeits',
+  'besprechung',
+  'aufenthalt',
+  'unterricht',
+  'klasse',
+  'seminar',
+  'verkauf',
+  'praxis',
+  'ordination',
+  'office',
+  'kitchen',
+  'meeting',
+  'living',
+  'bed',
+]
+
+/**
+ * Short or ambiguous markers, matched as a WHOLE word only. `gang` must not
+ * take `Gangküche`, `bad` must not take `Badminton`, `wc` must not take
+ * `Showcase`, `plant` must not take `Implantologie`.
+ */
+const NON_OCCUPIED_WORDS = new Set([
   'gang',
+  'bad',
+  'wc',
+  'stair',
+  'stairs',
+  'store',
+  'plant',
+  'lobby',
+  'toilet',
+  'shaft',
+  'hall',
+])
+
+/**
+ * Unambiguous stems, matched at either END of a word — German builds compounds
+ * in both directions (`Stiegenhaus`, `Installationsschacht`), and a stem this
+ * long does not collide by accident.
+ */
+const NON_OCCUPIED_STEMS = [
+  'flur',
   'stiege',
   'treppe',
   'technik',
@@ -404,25 +515,28 @@ const NON_OCCUPIED_MARKERS = [
   'abstell',
   'lager',
   'garage',
-  'wc',
-  'bad',
   'vorraum',
   'keller',
-  // English
+  'bade',
+  'sanitär',
+  'sanitaer',
   'corridor',
   'hallway',
-  'stair',
-  'shaft',
-  'plant',
   'technical',
   'storage',
-  'store',
-  'toilet',
   'bathroom',
+  'restroom',
   'utility',
-  'lobby',
   'circulation',
 ]
+
+/** Free-text room names split into words: `TR 01 Stiegenhaus`, `WC-Vorraum`. */
+function nameWords(name: string): string[] {
+  return name
+    .toLowerCase()
+    .split(/[^0-9a-zäöüß]+/u)
+    .filter((word) => word !== '')
+}
 
 /**
  * `IfcSpaceTypeEnum` values that say NOTHING about whether people stay in the
@@ -450,8 +564,14 @@ const UNINFORMATIVE_SPACE_TYPES = new Set(['', 'SPACE', 'INTERNAL', 'USERDEFINED
 const isOccupiedSpace = (element: BimElement): boolean => {
   const predefined = (element.predefinedType ?? '').toUpperCase()
   if (!UNINFORMATIVE_SPACE_TYPES.has(predefined)) return false
-  const name = (element.name ?? '').toLowerCase()
-  return !NON_OCCUPIED_MARKERS.some((marker) => name.includes(marker))
+  const words = nameWords(element.name ?? '')
+  const edgeMatch = (word: string, stem: string): boolean =>
+    word.startsWith(stem) || word.endsWith(stem)
+  if (words.some((word) => OCCUPIED_MARKERS.some((marker) => edgeMatch(word, marker)))) return true
+  return !words.some(
+    (word) =>
+      NON_OCCUPIED_WORDS.has(word) || NON_OCCUPIED_STEMS.some((stem) => edgeMatch(word, stem))
+  )
 }
 
 export const BIM_RULES: RuleDefinition[] = [
@@ -479,12 +599,17 @@ export const BIM_RULES: RuleDefinition[] = [
           missing: 'IfcStairFlight.RiserHeight / TreadLength',
         }
       }
+      // The ratio is deliberately compared at the precision it is shown at: a
+      // millimetre on a 2h+b sum is below what a stair is built to, and the
+      // displayed number is the one the comparison used, so the row stays
+      // self-consistent. h and b are compared raw and so need `measure`.
       const ratio = round(2 * riser + tread, 1)
       const ok = ratio >= 59 && ratio <= 65 && riser <= 18 && tread >= 28
       return {
         status: ok ? 'pass' : 'fail',
         reading:
-          `2h + b = ${ratio} cm (h = ${round(riser, 1)} cm, b = ${round(tread, 1)} cm) — ` +
+          `2h + b = ${decimal(ratio, 1)} cm (h = ${measure(riser, (h) => h <= 18, 1)} cm, ` +
+          `b = ${measure(tread, (b) => b >= 28, 1)} cm) — ` +
           'Schwellwert 59–65 cm, h ≤ 18 cm, b ≥ 28 cm',
       }
     },
@@ -509,7 +634,7 @@ export const BIM_RULES: RuleDefinition[] = [
       if (clear !== null) {
         return {
           status: clear >= 0.8 ? 'pass' : 'fail',
-          reading: `Lichte Durchgangsbreite ${round(clear)} m — Schwellwert ≥ 0,80 m`,
+          reading: `Lichte Durchgangsbreite ${measure(clear, (w) => w >= 0.8)} m — Schwellwert ≥ 0,80 m`,
         }
       }
 
@@ -531,14 +656,14 @@ export const BIM_RULES: RuleDefinition[] = [
         return {
           status: 'fail',
           reading:
-            `Nennbreite ${round(nominal)} m — die lichte Durchgangsbreite ist kleiner und ` +
+            `Nennbreite ${measure(nominal, (w) => w >= 0.8)} m — die lichte Durchgangsbreite ist kleiner und ` +
             'liegt damit unter dem Schwellwert von 0,80 m',
         }
       }
       return {
         status: 'undecidable',
         reading:
-          `Nur die Nennbreite ${round(nominal)} m veröffentlicht — die lichte ` +
+          `Nur die Nennbreite ${decimal(round(nominal), 2)} m veröffentlicht — die lichte ` +
           'Durchgangsbreite ist um Rahmen und Anschlag kleiner und nicht daraus ableitbar',
         missing: 'Qto_DoorBaseQuantities.ClearWidth',
       }
@@ -553,21 +678,52 @@ export const BIM_RULES: RuleDefinition[] = [
     ifcTypes: ['IfcSpace'],
     scope: isOccupiedSpace,
     judge: (element, facts) => {
-      const height = toMetres(
-        quantity(element, ['FinishCeilingHeight', 'Height', 'ClearHeight']) ??
-          numericProperty(element, ['FinishCeilingHeight', 'Height']),
+      // LICHTE Raumhöhe: the finished floor-to-ceiling dimension.
+      // `Qto_SpaceBaseQuantities.Height` is the GROSS/structural space height
+      // and the two are not interchangeable — floor build-up and a suspended
+      // ceiling routinely take 15–25 cm out of it. Reading `Height` as though
+      // it were the clear height passed a room that finishes at 2,42 m against
+      // "lichte Raumhöhe ≥ 2,50 m", which is the false pass this catalogue
+      // exists to refuse.
+      const clear = toMetres(
+        quantity(element, ['FinishCeilingHeight', 'ClearHeight']) ??
+          numericProperty(element, ['FinishCeilingHeight', 'ClearHeight']),
         facts.lengthScale
       )
-      if (height === null) {
+      if (clear !== null) {
+        return {
+          status: clear >= 2.5 ? 'pass' : 'fail',
+          reading: `Lichte Raumhöhe ${measure(clear, (h) => h >= 2.5)} m — Schwellwert ≥ 2,50 m`,
+        }
+      }
+
+      // The gross height is an UPPER BOUND on the clear one, so — exactly like
+      // the door's nominal width — it can settle a failure and never a pass.
+      const gross = toMetres(
+        quantity(element, ['Height']) ?? numericProperty(element, ['Height']),
+        facts.lengthScale
+      )
+      if (gross === null) {
         return {
           status: 'undecidable',
           reading: 'Keine Raumhöhe im Modell veröffentlicht',
           missing: 'Qto_SpaceBaseQuantities.FinishCeilingHeight',
         }
       }
+      if (gross < 2.5) {
+        return {
+          status: 'fail',
+          reading:
+            `Brutto-Raumhöhe ${measure(gross, (h) => h >= 2.5)} m — die lichte Raumhöhe ist ` +
+            'kleiner und liegt damit unter dem Schwellwert von 2,50 m',
+        }
+      }
       return {
-        status: height >= 2.5 ? 'pass' : 'fail',
-        reading: `Raumhöhe ${round(height)} m — Schwellwert ≥ 2,50 m`,
+        status: 'undecidable',
+        reading:
+          `Nur die Brutto-Raumhöhe ${decimal(round(gross), 2)} m veröffentlicht — die lichte ` +
+          'Raumhöhe ist um Fußbodenaufbau und abgehängte Decke kleiner und nicht daraus ableitbar',
+        missing: 'Qto_SpaceBaseQuantities.FinishCeilingHeight',
       }
     },
   },
@@ -678,13 +834,13 @@ export const BIM_RULES: RuleDefinition[] = [
       if (uValue <= 0) {
         return {
           status: 'undecidable',
-          reading: `U = ${round(uValue)} W/m²K ist kein physikalisch möglicher Wert — vermutlich nicht gesetzt`,
+          reading: `U = ${decimal(round(uValue), 2)} W/m²K ist kein physikalisch möglicher Wert — vermutlich nicht gesetzt`,
           missing: 'Pset_WallCommon.ThermalTransmittance (echter Wert, nicht 0)',
         }
       }
       return {
         status: uValue <= 0.35 ? 'pass' : 'fail',
-        reading: `U = ${round(uValue)} W/m²K — Schwellwert ≤ 0,35 W/m²K`,
+        reading: `U = ${measure(uValue, (u) => u <= 0.35)} W/m²K — Schwellwert ≤ 0,35 W/m²K`,
       }
     },
   },
@@ -711,13 +867,13 @@ export const BIM_RULES: RuleDefinition[] = [
       if (uValue <= 0) {
         return {
           status: 'undecidable',
-          reading: `U = ${round(uValue)} W/m²K ist kein physikalisch möglicher Wert — vermutlich nicht gesetzt`,
+          reading: `U = ${decimal(round(uValue), 2)} W/m²K ist kein physikalisch möglicher Wert — vermutlich nicht gesetzt`,
           missing: 'Pset_WindowCommon.ThermalTransmittance (echter Wert, nicht 0)',
         }
       }
       return {
         status: uValue <= 1.4 ? 'pass' : 'fail',
-        reading: `U = ${round(uValue)} W/m²K — Schwellwert ≤ 1,40 W/m²K`,
+        reading: `U = ${measure(uValue, (u) => u <= 1.4)} W/m²K — Schwellwert ≤ 1,40 W/m²K`,
       }
     },
   },

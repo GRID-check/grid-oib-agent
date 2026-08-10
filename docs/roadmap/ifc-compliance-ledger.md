@@ -2,6 +2,9 @@
 
 Status: **proposed**. Supersedes nothing; extends ADR-0045.
 
+Known gaps in what is already built are tracked in
+[ifc-review-findings.md](./ifc-review-findings.md).
+
 ## The gap
 
 Two halves of this product have never actually touched.
@@ -69,8 +72,8 @@ respect it rather than pretend.
 | Rule | Reads |
 |---|---|
 | Treppen-Steigungsverhältnis (OIB 4) | `RiserHeight`, `TreadLength` — a pure formula on two published numbers |
-| Lichte Durchgangsbreite Türen (OIB 4) | `Qto_DoorBaseQuantities.Width` |
-| Raumhöhe Aufenthaltsräume (OIB 3) | `Qto_SpaceBaseQuantities.Height` / `FinishCeilingHeight` |
+| Lichte Durchgangsbreite Türen (OIB 4) | `Qto_DoorBaseQuantities.ClearWidth` — `Width` is the nominal leaf width and settles a failure only |
+| Raumhöhe Aufenthaltsräume (OIB 3) | `Qto_SpaceBaseQuantities.FinishCeilingHeight` — `Height` is the GROSS height and settles a failure only |
 | Feuerwiderstand tragender Bauteile (OIB 2) | `Pset_*Common.FireRating` vs the Gebäudeklasse minimum |
 | U-Werte Hüllbauteile (OIB 6) | `Pset_*Common.ThermalTransmittance` |
 | Schalldämmung Trennbauteile (OIB 5) | `Pset_*Common.AcousticRating` |

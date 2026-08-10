@@ -759,6 +759,188 @@ describe('oib3-raumhoehe', () => {
     )
     expect(rule.passed + rule.failed + rule.undecidable).toBe(0)
   })
+
+  it('will not pass a room on its GROSS height', () => {
+    // `Qto_SpaceBaseQuantities.Height` is the structural space height, not the
+    // lichte Raumhöhe. Floor build-up and a suspended ceiling take 15–25 cm out
+    // of it, so a room publishing 2,65 m gross can finish at 2,42 m. The rule
+    // read it as a clear height and ticked the room.
+    const gross = element({
+      ifcType: 'IfcSpace',
+      name: 'Wohnen',
+      predefinedType: 'INTERNAL',
+      quantities: { Qto_SpaceBaseQuantities: { Height: 2.65 } },
+    })
+    const rule = ruleOf(runBimRules([gross]), 'oib3-raumhoehe')
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0].reading).toContain('Brutto-Raumhöhe')
+    expect(rule.missing[0].path).toContain('FinishCeilingHeight')
+  })
+
+  it('still settles a FAILURE from the gross height', () => {
+    // Same asymmetry as the door: an upper bound cannot earn a tick, but if
+    // even the gross height is under 2,50 m the clear height certainly is.
+    const gross = element({
+      ifcType: 'IfcSpace',
+      name: 'Wohnen',
+      predefinedType: 'INTERNAL',
+      quantities: { Qto_SpaceBaseQuantities: { Height: 2.3 } },
+    })
+    expect(ruleOf(runBimRules([gross]), 'oib3-raumhoehe').failed).toBe(1)
+  })
+
+  it('prefers the clear height when the model publishes both', () => {
+    const both = element({
+      ifcType: 'IfcSpace',
+      name: 'Wohnen',
+      predefinedType: 'INTERNAL',
+      quantities: { Qto_SpaceBaseQuantities: { Height: 2.9, FinishCeilingHeight: 2.4 } },
+    })
+    const rule = ruleOf(runBimRules([both]), 'oib3-raumhoehe')
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('Lichte Raumhöhe')
+  })
+})
+
+describe('room names are matched by word, not by substring', () => {
+  const space = (name: string) =>
+    element({
+      ifcType: 'IfcSpace',
+      name,
+      predefinedType: 'INTERNAL',
+      quantities: { Qto_SpaceBaseQuantities: { FinishCeilingHeight: 2.3 } },
+    })
+
+  it('checks the Aufenthaltsräume a substring match silently dropped', () => {
+    // Every one of these produced NO ROW under `name.includes(marker)` — not a
+    // pass, not a fail, nothing. An invisible exclusion is worse than a wrong
+    // verdict because there is nothing on screen to disagree with.
+    const dropped = [
+      'Level 2 Storey Plan Office', // 'store' ⊂ 'storey'
+      'Upstairs Bedroom', // 'stair' ⊂ 'upstairs'
+      'Showcase', // 'wc' ⊂ 'showcase'
+      'Implantologie', // 'plant' ⊂ 'implantologie'
+      'Badminton-Halle', // 'bad' ⊂ 'badminton'
+      'Besprechung Bad Gastein', // meeting rooms named after spa towns
+      'Büro Keller', // Keller is also a common Austrian surname
+      'Store (Verkauf)', // a Verkaufsraum IS an Aufenthaltsraum
+      'Gangküche',
+    ]
+    for (const name of dropped) {
+      expect(ruleOf(runBimRules([space(name)]), 'oib3-raumhoehe').failed, name).toBe(1)
+    }
+  })
+
+  it('still excludes the rooms the markers are actually for', () => {
+    const excluded = [
+      'Flur',
+      'Gang',
+      'WC',
+      'WC-Vorraum',
+      'Technikraum',
+      'TR 01 Stiegenhaus',
+      'Treppenhaus',
+      'Abstellraum',
+      'Installationsschacht',
+      'Tiefgarage',
+      'Lagerraum',
+      'Badezimmer',
+      'Corridor',
+      'Plant Room',
+      'Storage 03',
+      'Stair Core',
+      'Hallway',
+    ]
+    for (const name of excluded) {
+      const rule = ruleOf(runBimRules([space(name)]), 'oib3-raumhoehe')
+      expect(rule.passed + rule.failed + rule.undecidable, name).toBe(0)
+    }
+  })
+})
+
+describe('a reading never contradicts the verdict printed beside it', () => {
+  // `round(0.795)` is `0.8`, so the row read
+  // `Lichte Durchgangsbreite 0,80 m — Schwellwert ≥ 0,80 m` and then said
+  // **nicht erfüllt**. The same arithmetic appeared on the U-value, Raumhöhe
+  // and stair rules, and it travels verbatim into the BCF export.
+  const door = (clear: number) =>
+    element({
+      ifcType: 'IfcDoor',
+      name: 'T-14',
+      quantities: { Qto_DoorBaseQuantities: { ClearWidth: clear } },
+    })
+
+  it('widens a width that rounds onto the threshold it fails', () => {
+    const rule = ruleOf(runBimRules([door(0.795)]), 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('0,795')
+    expect(rule.failures[0].reading).not.toContain('0,80 m — Schwellwert')
+  })
+
+  it('widens a Raumhöhe that rounds onto its threshold', () => {
+    const rule = ruleOf(
+      runBimRules([
+        element({
+          ifcType: 'IfcSpace',
+          name: 'Wohnen',
+          predefinedType: 'INTERNAL',
+          quantities: { Qto_SpaceBaseQuantities: { FinishCeilingHeight: 2.496 } },
+        }),
+      ]),
+      'oib3-raumhoehe'
+    )
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('2,496')
+  })
+
+  it('widens a U-value that rounds onto its threshold', () => {
+    const rule = ruleOf(
+      runBimRules([
+        element({
+          ifcType: 'IfcWall',
+          name: 'AW-01',
+          properties: { Pset_WallCommon: { IsExternal: true, ThermalTransmittance: 0.3549 } },
+        }),
+      ]),
+      'oib6-u-wert-aussenwand'
+    )
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('0,355')
+  })
+
+  it('widens a stair riser that rounds onto its threshold', () => {
+    const rule = ruleOf(
+      runBimRules([
+        element({
+          ifcType: 'IfcStairFlight',
+          name: 'ST-1',
+          properties: { Pset_StairFlightCommon: { RiserHeight: 0.1804, TreadLength: 0.28 } },
+        }),
+      ]),
+      'oib4-treppe-steigungsverhaeltnis'
+    )
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('h = 18,04')
+  })
+
+  it('does not widen an ordinary reading, and never mixes decimal separators', () => {
+    // The point is the SHORTEST rendering that supports the verdict — widening
+    // everything to four decimals would fix the contradiction and make every
+    // other row unreadable.
+    const rule = ruleOf(runBimRules([door(0.7)]), 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('0,70 m')
+    // A German threshold beside a JS-rendered point: `0.7 m — ≥ 0,80 m`.
+    expect(rule.failures[0].reading).not.toMatch(/\d\.\d/)
+  })
 })
 
 describe('applicability', () => {
