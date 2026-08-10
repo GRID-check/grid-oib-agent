@@ -157,6 +157,19 @@ try:
         """
 
         async def process(self, item: Span) -> Span:
+            """Stamp the current request's identity onto one span.
+
+            Mutates and returns the same object rather than building a copy —
+            that is NAT's pipeline contract, and the redaction processor
+            downstream relies on it.
+
+            Reading the context here (rather than at span creation) is safe
+            because ``SpanExporter._process_end_event`` hands this pipeline to
+            ``asyncio.create_task`` while still inside the request, and
+            ``create_task`` snapshots the current ``contextvars``. Never raises:
+            ``current_langfuse_attributes`` absorbs its own failures, because an
+            exception escaping here would stop span export for the process.
+            """
             for key, value in current_langfuse_attributes().items():
                 item.set_attribute(key, value)
             return item
