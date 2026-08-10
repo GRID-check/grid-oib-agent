@@ -77,6 +77,14 @@ def _file_hash(path: Path) -> str:
 #    numbering rather than per page, so chunk boundaries, chunk count and the
 #    metadata every chunk carries all change. Without this bump the corpus would
 #    keep its page-cut chunks forever, for the same reason as 2.
+#    Version 3 also covers the later correction to how the outline is chosen (a
+#    best-chain search over all heading candidates, anchored on the document's own
+#    contents page, in place of a greedy left-to-right scan). No separate version is
+#    needed: 3 has not been ingested anywhere yet, and both changes land in the same
+#    unreleased pass. Corpus effect, measured against the 946 Punkte the contents
+#    pages of the twelve Punkt-structured Richtlinien list: 903 chunks with 44
+#    missing, 1 spurious and 4 carrying another heading's title, becomes 946 with
+#    none of the three.
 CHUNK_FORMAT_VERSION = 3
 _FORMAT_KEY = "__chunk_format_version__"
 

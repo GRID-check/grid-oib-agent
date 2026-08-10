@@ -57,6 +57,12 @@ _FOOTER_LABEL_RE = re.compile(
 
 #: A run of dots is the table-of-contents leader ("3.1 Brandabschnitte ......... 3").
 _DOT_LEADER_RE = re.compile(r"\.{4,}")
+#: A contents-page *entry*: leader dots and the page number they lead to. Requiring the
+#: number is what separates a contents page from the abbreviation legend on page 11 of
+#: `oib-rl_6-leitfaden`, whose "KD ...... Kellerdecke" lines are leaders that lead
+#: nowhere. Read as a contents page, that page was dropped from the body and took
+#: Punkte 4.3.1 and 4.3.2 with it.
+_TOC_ENTRY_RE = re.compile(r"\.{4,}\s*\d+\s*$")
 #: Three leader lines on one page is well clear of prose (which never produces one) and
 #: still catches the shortest ToC in the corpus (OIB-Richtlinie 1, three entries).
 logger = logging.getLogger(__name__)
@@ -119,7 +125,7 @@ def _is_toc_page(text: str) -> bool:
     producing a full set of empty duplicates that outranks the real requirements (a ToC
     line is short and dense with the heading words a query uses).
     """
-    return sum(1 for line in text.splitlines() if _DOT_LEADER_RE.search(line)) >= _TOC_MIN_DOT_LEADER_LINES
+    return sum(1 for line in text.splitlines() if _TOC_ENTRY_RE.search(line)) >= _TOC_MIN_DOT_LEADER_LINES
 
 
 def _parse_punkt_id(raw: str) -> tuple[int, ...] | None:
@@ -167,15 +173,21 @@ def _is_monotonic(candidate: tuple[int, ...], previous: tuple[int, ...] | None) 
     return 1 <= candidate[level] - previous[level] <= _MAX_ID_GAP
 
 
-def _is_plausible_heading(title: str) -> bool:
-    """True unless the text after the number reads as a sentence continuation.
+#: Guard on the candidate count before the chain search runs. The search is O(n²) in
+#: candidates; the worst document in the corpus offers 345, so 2000 leaves two orders of
+#: magnitude of headroom while still bounding a pathological input to ~4M comparisons.
+_MAX_CHAIN_CANDIDATES = 2000
 
-    Second line of defence against numeric wrap-around lines such as ``10 cm aus
-    expandiertem Polystyrol``: German capitalises nouns and sentence openings, so a real
-    Punkt body never starts with a lowercase letter, while a continuation almost always
-    does. Cheap, and independent of the numbering, so the two guards fail differently.
-    """
-    return not title[:1].islower()
+#: How much of the chosen chain the contents page must already account for before it is
+#: trusted to exclude what it omits. At 0.9 the twelve Punkt-structured Richtlinien all
+#: qualify -- the weakest is OIB-Richtlinie 2 at 214 listed of 217 -- while a document
+#: whose contents page covers only its top level lands far below and keeps every heading.
+_MIN_TOC_AGREEMENT = 0.9
+
+#: Characters of normalised title that must agree for a heading to be judged the one the
+#: contents page names. Long enough to be decisive, short enough to survive the hyphenated
+#: line wrap a PDF puts inside a heading ("…für die Konditionie-").
+_TITLE_MATCH_CHARS = 12
 
 
 def _dehyphenate(text: str) -> str:
@@ -273,33 +285,226 @@ class _Segment:
         return self.lines[-1][0]
 
 
-def _split_into_segments(
+def _heading_candidates(
     lines: list[tuple[int, str]],
-) -> tuple[list[tuple[int, str]], list[_Segment], list[tuple[int, str]]]:
-    """Cut the line stream into preamble, Punkt segments and postamble."""
-    preamble: list[tuple[int, str]] = []
-    postamble: list[tuple[int, str]] = []
-    segments: list[_Segment] = []
-    previous_id: tuple[int, ...] | None = None
-    ended = False
+    body_end: int,
+    listed: dict[str, str],
+) -> list[tuple[int, tuple[int, ...], re.Match[str]]]:
+    """Every line before ``body_end`` that could open a Punkt, as ``(index, id, match)``.
 
-    for page_number, line in lines:
-        if ended:
-            postamble.append((page_number, line))
-            continue
-        if _END_OF_BODY_RE.match(line):
-            ended = True
-            postamble.append((page_number, line))
-            continue
-
+    Only the *shape* filters run here, plus the one contradiction the document states
+    outright. Which of the survivors are real headings is decided by
+    :func:`_select_punkt_chain`, which needs to see them all at once.
+    """
+    candidates: list[tuple[int, tuple[int, ...], re.Match[str]]] = []
+    for index in range(body_end):
+        line = lines[index][1]
         match = _PUNKT_RE.match(line)
         # A dot-leader line that survived the page-level ToC check (a stray entry on a
         # content page) is a pointer to a Punkt, never the Punkt itself.
-        parsed = None
-        if match is not None and not _DOT_LEADER_RE.search(line) and _is_plausible_heading(match.group(2)):
-            parsed = _parse_punkt_id(match.group(1))
-        if parsed is not None and _is_monotonic(parsed, previous_id):
-            previous_id = parsed
+        if match is None or _DOT_LEADER_RE.search(line):
+            continue
+        # A lowercase opening used to be rejected here as a wrapped-prose tell -- German
+        # capitalises nouns and sentence openings, so "10 cm aus expandiertem Polystyrol"
+        # reads as a continuation rather than a heading. `_contradicts_contents` covers
+        # that case more precisely, by the number rather than by the orthography: the
+        # contents page says what Punkt 10 is called, and it is not "cm aus expandiertem".
+        # The orthographic rule also had a cost, because the corpus does open headings in
+        # lowercase -- OIB-Richtlinie 6 numbers two of them "kein ENERGIEAUSWEIS
+        # erforderlich …" -- and dropping them merged their text into the Punkt above.
+        if _contradicts_contents(match, listed):
+            continue
+        parsed = _parse_punkt_id(match.group(1))
+        if parsed is not None:
+            candidates.append((index, parsed, match))
+    return candidates
+
+
+def _title_key(title: str) -> str:
+    """Normalise a heading title for comparison against the contents page.
+
+    Case and inter-word spacing differ routinely between the two renderings of the same
+    heading; nothing else is touched, so two genuinely different headings stay different.
+    A contents-page entry is cut at its dot leader, which takes the trailing page number
+    with it -- left in, ``4 Abfälle .... 3`` keys as ``"abfälle 3"`` against the body's
+    ``"abfälle"``, and every short heading in the corpus fails to match itself.
+    """
+    return re.sub(r"\s+", " ", _DOT_LEADER_RE.split(title, maxsplit=1)[0]).strip().lower()[:_TITLE_MATCH_CHARS]
+
+
+def _listed_headings(text_pages: list[dict[str, Any]]) -> dict[str, str]:
+    """``{punkt_id: normalised title}`` for what the document's contents page announces.
+
+    The chain search below has to choose between two readings of the same numbering, and
+    on the tables that imitate it there is no local evidence either way -- a page-density
+    test does not separate them, because OIB-Richtlinie 2.3's table page carries 27
+    numbered lines in 71 and its genuine heading pages carry up to 19 in 41. The contents
+    page is the one place where the document states which numbers are its own.
+
+    The title matters as much as the number, and OIB-Richtlinie 2 is why: its annex tables
+    run to a row labelled ``10 Außentreppen`` while the contents page promises ``10 Gebäude
+    mit einem Fluchtniveau von mehr als 22 m``. Both carry the id ``10``, so an id-only
+    reading cannot tell them apart, and the emitted Punkt 10 was the table row -- a chunk
+    filed under a real citation whose text belongs to something else.
+
+    Returned empty -- disabling the preference entirely rather than guessing -- for a
+    document with no contents page, or one too short to be trusted.
+    """
+    listed: dict[str, str] = {}
+    for page in text_pages:
+        text = page.get("text") or ""
+        if not _is_toc_page(text):
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not _TOC_ENTRY_RE.search(stripped):
+                continue
+            match = _PUNKT_RE.match(stripped)
+            if match is not None and _parse_punkt_id(match.group(1)) is not None:
+                listed.setdefault(match.group(1), _title_key(match.group(2)))
+    return listed if len(listed) >= _MIN_PUNKTE else {}
+
+
+def _contradicts_contents(match: re.Match[str], listed: dict[str, str]) -> bool:
+    """True when the contents page claims this id for a demonstrably different heading.
+
+    A hard rejection rather than a preference: the document itself has said what ``10`` is
+    called, so a line numbered ``10`` that is called something else is not Punkt 10, and no
+    chain should be allowed to spend it as one.
+    """
+    expected = listed.get(match.group(1))
+    if expected is None:
+        return False
+    actual = _title_key(match.group(2))
+    # Either may be the longer rendering: pdfplumber sometimes glues the first words of
+    # the body onto the heading line, and a heading shorter than the comparison window
+    # leaves the contents-page entry as the longer of the two. Only a genuine divergence
+    # inside the shared prefix is treated as a contradiction.
+    return not expected.startswith(actual) and not actual.startswith(expected)
+
+
+def _select_punkt_chain(
+    candidates: list[tuple[int, tuple[int, ...], re.Match[str]]],
+    listed: dict[str, str],
+) -> list[tuple[int, tuple[int, ...], re.Match[str]]]:
+    """The candidates that open a Punkt, in document order.
+
+    Two readings, and the second is only attempted when the document has earned it.
+    :func:`_best_chain` first picks the best chain out of everything on offer, preferring
+    headings the contents page lists. Some table rows survive that: OIB-Richtlinie 2's
+    Tabelle 2 contributes ``9.1``, ``9.2`` and ``9.3`` between the genuine Punkte ``9``
+    and ``10``, and since they cost no listed heading to include, preferring listed ones
+    does not exclude them. A fabricated ``Punkt 9.1`` is exactly the kind of citation this
+    system must not emit, so they have to go.
+
+    Restricting the candidates to listed ids removes them, but as a blanket rule it would
+    silently swallow every genuine Punkt that a partial contents page omits. So it is
+    applied only when this document's own contents page has just demonstrated that it is
+    complete -- ``_MIN_TOC_AGREEMENT`` of the unrestricted chain already listed -- and the
+    restricted chain is then kept only if it recovers every listed heading the
+    unrestricted one found. That second check is what makes the trade safe rather than
+    hopeful: filtering can break outline succession where an unlisted heading sat between
+    two listed ones, and when it does, this notices and keeps the unrestricted reading.
+    """
+    chain = _best_chain(candidates, listed)
+    if not listed or not chain:
+        return chain
+    anchored = [candidate for candidate in chain if candidate[2].group(1) in listed]
+    if len(anchored) < _MIN_TOC_AGREEMENT * len(chain):
+        return chain
+    restricted = _best_chain([candidate for candidate in candidates if candidate[2].group(1) in listed], listed)
+    return restricted if len(restricted) >= len(anchored) else chain
+
+
+def _best_chain(
+    candidates: list[tuple[int, tuple[int, ...], re.Match[str]]],
+    listed: dict[str, str],
+) -> list[tuple[int, tuple[int, ...], re.Match[str]]]:
+    """Pick the best outline-consistent chain of candidates, in document order.
+
+    Scanning left to right and taking every candidate that succeeds the last accepted one
+    is the obvious implementation, and it is what this replaced. It fails on this corpus
+    because acceptance is irrevocable: OIB-Richtlinie 6 lays its U-value table out with a
+    numbered first column whose counter -- 1, 2, 3, ... -- happens to reach 5 just as the
+    document's own numbering sits at 4.4.1, so ``5 WÄNDE (Trennwände) …`` is a *legal*
+    sibling of Punkt 4. The greedy scan took it, parked the cursor at 9, and then rejected
+    every genuine Punkt from 4.4.2 to the end of the file: 23 Punkte survived instead of
+    64, and the last Document spanned pages 7 to 27. Fixing that particular table by
+    inspecting its wording only moves the problem -- the Konversionsfaktoren table three
+    pages later has the same shape with different words.
+
+    Choosing the chain globally removes the class of bug rather than the instance, because
+    a table cannot offer a chain that outruns the document's own numbering: the document
+    resumes after the table and the table does not.
+
+    Counting headings alone is not quite the right objective, though, and OIB-Richtlinie
+    2.3 says so. Its Tabelle 1 fills a page with a complete pseudo-outline -- 1, 1.1, 1.2,
+    1.2.1 … 5.4 -- and the run ``5, 5.1, 5.2, 5.3, 5.4`` inside it is longer than the two
+    genuine Punkte (``5``, ``6``) it competes with. So the objective is ordered: first the
+    number of headings the *contents page* lists, then the total. Genuine Punkte are listed
+    and table rows are not, which settles that fork without appealing to layout.
+
+    The order matters more than it may look: an unlisted heading still enters the chain
+    freely, so a Richtlinie whose contents page is partial keeps the Punkte it omits.
+    ``listed`` empty -- no contents page found -- degrades exactly to counting.
+
+    O(n²) in candidates, which the corpus bounds at 345.
+    """
+    if not candidates or len(candidates) > _MAX_CHAIN_CANDIDATES:
+        return []
+    # (listed headings, total headings); (0, 0) marks a candidate no chain can reach.
+    score: list[tuple[int, int]] = [(0, 0)] * len(candidates)
+    previous = [-1] * len(candidates)
+    for position, (_index, ids, match) in enumerate(candidates):
+        anchor = 1 if match.group(1) in listed else 0
+        # A chain may only open where a Richtlinie opens; anywhere else it must extend one.
+        if _is_monotonic(ids, None):
+            score[position] = (anchor, 1)
+        for earlier in range(position):
+            if score[earlier] == (0, 0):
+                continue
+            extended = (score[earlier][0] + anchor, score[earlier][1] + 1)
+            if extended <= score[position]:
+                continue
+            if _is_monotonic(ids, candidates[earlier][1]):
+                score[position] = extended
+                previous[position] = earlier
+    best = max(range(len(candidates)), key=lambda position: score[position])
+    if score[best] == (0, 0):
+        return []
+    chain: list[tuple[int, tuple[int, ...], re.Match[str]]] = []
+    cursor = best
+    while cursor >= 0:
+        chain.append(candidates[cursor])
+        cursor = previous[cursor]
+    chain.reverse()
+    return chain
+
+
+def _split_into_segments(
+    lines: list[tuple[int, str]],
+    listed: dict[str, str] | None = None,
+) -> tuple[list[tuple[int, str]], list[_Segment], list[tuple[int, str]]]:
+    """Cut the line stream into preamble, Punkt segments and postamble."""
+    body_end = len(lines)
+    for index, (_page_number, line) in enumerate(lines):
+        if _END_OF_BODY_RE.match(line):
+            body_end = index
+            break
+
+    listed = listed or {}
+    candidates = _heading_candidates(lines, body_end, listed)
+    openings = {candidate[0]: candidate for candidate in _select_punkt_chain(candidates, listed)}
+
+    preamble: list[tuple[int, str]] = []
+    postamble: list[tuple[int, str]] = list(lines[body_end:])
+    segments: list[_Segment] = []
+
+    for index in range(body_end):
+        page_number, line = lines[index]
+        opening = openings.get(index)
+        if opening is not None:
+            _index, parsed, match = opening
             raw_id = match.group(1)
             parent_id = raw_id.rsplit(".", 1)[0] if "." in raw_id else ""
             segments.append(_Segment(raw_id, match.group(2).strip(), len(parsed), parent_id))
@@ -403,7 +608,7 @@ def punkt_documents(text_pages: list[dict[str, Any]], file_name: str, file_size:
     if not lines:
         return None
 
-    preamble, segments, postamble = _split_into_segments(lines)
+    preamble, segments, postamble = _split_into_segments(lines, _listed_headings(text_pages))
     if len(segments) < _MIN_PUNKTE:
         return None
 

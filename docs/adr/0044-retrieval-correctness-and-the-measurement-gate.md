@@ -78,6 +78,20 @@ one package, and we will gate tuning on measurement.
    yields one requirement per chunk with a `punkt_id` to cite; anything it cannot
    parse keeps the previous per-page behaviour byte-for-byte. That fallback is
    what makes enabling it by default safe.
+
+   The outline is **chosen over the whole document, not accumulated left to
+   right**, and the document's own contents page arbitrates. Both halves were
+   forced by measurement. A greedy scan commits irrevocably, so a table row that
+   is a legal successor of the current heading truncates everything after it —
+   OIB-Richtlinie 6 emitted 23 chunks for 64 Punkte with one spanning twenty
+   pages. And counting headings is not sufficient either, because a table can
+   offer a *longer* locally-consistent run than the outline it interrupts, so the
+   objective prefers headings the contents page lists and a listed number whose
+   title disagrees with the contents page is rejected outright. That last rule is
+   the one that matters most for this product: without it a chunk was filed under
+   a real citation while carrying another heading's text. Preference never becomes
+   requirement — a partial contents page (OIB-Richtlinie 2 lists 13 of its 214
+   Punkte) still keeps every heading it omits.
 5. **Every collection records the embedding that wrote it.** Absent fingerprints
    are adopted, not rejected, so no deployed corpus breaks.
 6. **The collection write version lives in the shared cache**, with `None`
@@ -118,6 +132,13 @@ one package, and we will gate tuning on measurement.
 - The retriever's caches become resident rather than per-run (~49 MiB per distinct
   configuration), and the retrieval path acquires a shared-cache round trip,
   memoised for 3s.
+- **Chunking now depends on a document rendering its contents page as extractable
+  text.** A scanned or image-only contents page yields nothing, the preference
+  degrades to counting headings, and the tie-breaks above stop working — silently,
+  and only for documents shaped like that. The degradation is to the previous
+  objective rather than to a failure, and it is measured for this corpus (all
+  twelve Punkt-structured Richtlinien parse), but it is a new input the chunker did
+  not previously read.
 
 ### Neutral / follow-up
 

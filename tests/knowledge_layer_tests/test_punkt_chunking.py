@@ -67,8 +67,7 @@ def test_a_wrapped_measurement_line_does_not_park_the_cursor_at_thirty() -> None
     """``30 cm und einer Hoehe…`` parses as the id (30,), which plain `>` accepts.
 
     Accepting it strands every later Punkt behind a cursor at 30 -- measured on the
-    real file, 37 Punkte survived instead of 227. Succession plus the lowercase-title
-    check reject it two independent ways.
+    real file, 37 Punkte survived instead of 227.
     """
     wrapped = "30 cm und einer Hoehe von 20 cm ausgefuehrt werden.\n"
     docs = punkt_documents(_pages(COVER, BODY, wrapped + MORE), "oib-rl_2_ausgabe_mai_2023.pdf", 1234)
@@ -156,6 +155,138 @@ def test_bookkeeping_metadata_is_not_embedded() -> None:
 def test_an_empty_document_does_not_raise() -> None:
     assert punkt_documents([], "empty.pdf", 0) is None
     assert punkt_documents(_pages("", ""), "empty.pdf", 0) is None
+
+
+# ===========================================================================
+# Choosing between two readings of the same numbering
+#
+# A table's first column and a document's outline are the same characters, so
+# the guards above cannot separate them line by line. What separates them is
+# that the outline resumes after the table and the table does not -- which is
+# only visible if the whole document is considered at once.
+# ===========================================================================
+
+OUTLINE = (
+    "0 Vorbemerkungen zu dieser Richtlinie sind zu beachten.\n"
+    "1 Allgemeine Bestimmungen gelten fuer alle Gebaeude.\n"
+    "2 Begriffsbestimmungen sind der Richtlinie zu entnehmen.\n"
+    "3 Gebaeudekategorien werden wie folgt unterschieden.\n"
+    "4 Anforderungen an das Gebaeude sind einzuhalten.\n"
+    "4.1 Allgemeines zur Nachweisfuehrung des Gebaeudes.\n"
+)
+
+#: A U-value table whose row labels continue the outline's own numbering by coincidence.
+UWERT_TABLE = (
+    "5 WAENDE (Trennwaende) zwischen Wohneinheiten 0,90\n"
+    "6 WAENDE gegen andere Bauwerke 0,50\n"
+    "7 WAENDE (Zwischenwaende) innerhalb von Einheiten 0,70\n"
+)
+
+OUTLINE_TAIL = (
+    "4.2 Niedrigstenergiegebaeude sind nachzuweisen.\n"
+    "4.3 Anforderungen an Energiekennzahlen bei Neubau.\n"
+    "5 Wahl der eingesetzten Energietraeger ist zu begruenden.\n"
+    "5.1 Einsatz hocheffizienter alternativer Energiesysteme.\n"
+    "6 Ausweis ueber die Gesamtenergieeffizienz ist auszustellen.\n"
+)
+
+
+def test_a_table_whose_rows_continue_the_outline_does_not_swallow_the_rest() -> None:
+    """The defect this replaced a greedy scan to fix, in miniature.
+
+    ``5 WAENDE …`` is a legal sibling of Punkt ``4`` and reads as one, so a scan that
+    commits to it parks the cursor at 7 and rejects every genuine Punkt that follows.
+    On the real OIB-Richtlinie 6 that cost 41 of 64 Punkte and left a Document spanning
+    twenty pages. Choosing the chain over the whole document instead costs the table
+    nothing to reject, because the outline resumes afterwards and the table does not.
+    """
+    docs = punkt_documents(_pages(COVER, OUTLINE, UWERT_TABLE + OUTLINE_TAIL), "oib-rl_6.pdf", 1)
+    assert docs is not None
+    punkte = _punkte(docs)
+    assert "7" not in punkte, "a table row is not a Punkt"
+    assert sorted(punkte) == ["0", "1", "2", "3", "4", "4.1", "4.2", "4.3", "5", "5.1", "6"]
+    assert "Energietraeger" in punkte["5"].get_content(), "Punkt 5 is the outline's, not the table's"
+
+
+def test_the_contents_page_settles_which_line_is_the_heading_it_names() -> None:
+    """Two lines can carry the same number, and only one is the Punkt.
+
+    OIB-Richtlinie 2's annex has a row labelled ``10 Außentreppen`` while its contents
+    page promises ``10 Gebäude mit einem Fluchtniveau von mehr als 22 m``. Counting
+    headings cannot choose -- both readings are the same length -- so the emitted Punkt
+    10 was the table row: a chunk filed under a real citation whose text belongs to
+    something else.
+    """
+    toc = (
+        "0 Vorbemerkungen ......... 1\n"
+        "1 Allgemeine Bestimmungen ......... 1\n"
+        "2 Begriffsbestimmungen ......... 2\n"
+        "3 Gebaeudekategorien ......... 2\n"
+        "4 Anforderungen an das Gebaeude ......... 3\n"
+        "5 Wahl der eingesetzten Energietraeger ......... 4\n"
+        "6 Ausweis ueber die Gesamtenergieeffizienz ......... 5\n"
+    )
+    docs = punkt_documents(_pages(COVER, toc, OUTLINE, UWERT_TABLE + OUTLINE_TAIL), "oib-rl_6.pdf", 1)
+    assert docs is not None
+    punkte = _punkte(docs)
+    assert "Energietraeger" in punkte["5"].get_content()
+    assert "WAENDE" not in punkte["5"].get_content()
+
+
+def test_a_contents_page_that_names_only_the_top_level_still_keeps_the_rest() -> None:
+    """Preferring what the contents page lists must never become requiring it.
+
+    OIB-Richtlinie 2's contents page names thirteen Punkte and the document has 214.
+    A rule that dropped the other 201 would be far worse than the table rows it removed.
+    """
+    toc = (
+        "0 Vorbemerkungen ......... 1\n"
+        "1 Allgemeine Bestimmungen ......... 1\n"
+        "2 Begriffsbestimmungen ......... 2\n"
+        "3 Gebaeudekategorien ......... 2\n"
+        "4 Anforderungen an das Gebaeude ......... 3\n"
+    )
+    docs = punkt_documents(_pages(COVER, toc, OUTLINE, OUTLINE_TAIL), "oib-rl_6.pdf", 1)
+    assert docs is not None
+    punkte = _punkte(docs)
+    assert "4.1" in punkte and "5.1" in punkte, "unlisted Punkte are kept, not filtered out"
+
+
+def test_an_abbreviation_legend_is_not_a_contents_page() -> None:
+    """Dot leaders also separate a term from its definition, and lead to no page.
+
+    Page 11 of `oib-rl_6-leitfaden` is such a legend. Read as a contents page it was
+    dropped from the body entirely, taking Punkte 4.3.1 and 4.3.2 with it.
+    """
+    legend = (
+        "KD ...... Kellerdecke\n"
+        "OD ..... Oberste Geschossdecke\n"
+        "AW ..... Aussenwand\n"
+        "DF ...... Dachflaeche aus Beton\n"
+        "4.2 Niedrigstenergiegebaeude sind nachzuweisen.\n"
+    )
+    docs = punkt_documents(
+        _pages(COVER, OUTLINE, legend, OUTLINE_TAIL[len("4.2 Niedrigstenergiegebaeude sind nachzuweisen.\n") :]),
+        "oib-rl_6.pdf",
+        1,
+    )
+    assert docs is not None
+    assert "4.2" in _punkte(docs), "the legend page is body text and keeps its Punkte"
+
+
+def test_a_heading_the_corpus_opens_in_lowercase_is_still_a_heading() -> None:
+    """OIB-Richtlinie 6 numbers two Punkte "kein ENERGIEAUSWEIS erforderlich …".
+
+    Rejecting a lowercase opening as wrapped prose is a rule the corpus breaks, and
+    breaking it merged both requirements into the Punkt above them.
+    """
+    body = OUTLINE + "4.1.1 kein ENERGIEAUSWEIS erforderlich / keine ANFORDERUNGEN\n"
+    docs = punkt_documents(_pages(COVER, body, OUTLINE_TAIL), "oib-rl_6.pdf", 1)
+    assert docs is not None
+    punkte = _punkte(docs)
+    assert "4.1.1" in punkte
+    assert "ENERGIEAUSWEIS" in punkte["4.1.1"].get_content()
+    assert "ENERGIEAUSWEIS" not in punkte["4.1"].get_content(), "it was merged into the Punkt above"
 
 
 # ===========================================================================

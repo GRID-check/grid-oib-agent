@@ -652,5 +652,118 @@ quality* did not. That is the argument for the harness in one line.
   transfer; absolute recall will not.
 - **The reranker's contribution.** It needs a live LLM.
 - **Sample size.** n=5 per language for the chunking A/B is a spot-check. The
-  harness's golden set is what turns it into evidence.
+  harness's golden set is what turns it into evidence — see Part IV.
 - **The re-ingest.** `CHUNK_FORMAT_VERSION = 3` forces it; it has not been run.
+
+---
+
+# Part IV — The harness turned on its own author (2026-08)
+
+The eval harness's first real use was not on retrieval. It was on the chunker
+shipped three commits earlier, and it found a defect that every test, every
+review pass and every A/B in Part III had missed.
+
+## 16. The greedy scan, and why the tests could not see it
+
+`punkt_documents` scanned headings left to right, accepting each candidate whose
+number could succeed the last accepted one. Acceptance was irrevocable, and that
+is the whole bug: **one wrong acceptance silently truncates the rest of the
+document.**
+
+OIB-Richtlinie 6 lays its U-value table out with a numbered first column whose
+counter reaches 5 exactly where the document's own numbering sits at 4.4.1. So
+`5 WÄNDE (Trennwände) …` is a *legal* sibling of Punkt 4. The scan took it,
+walked to 9, and then rejected every genuine Punkt from 4.4.2 onward as
+non-monotonic. That file emitted **23 Punkt Documents for its 64 Punkte**, and
+the last one spanned **pages 7 to 27**.
+
+Two properties made this invisible:
+
+- Every unit test passed. The guards under test all worked; what failed was the
+  commitment to a guess, which no single-line test can express.
+- The Part III A/B *improved* anyway. The corpus is twelve Richtlinien and only
+  one was badly hit, so aggregate recall rose while a twentieth of the corpus was
+  being served as one 20-page blob.
+
+An independent inventory of what *should* exist is the only instrument that sees
+this, and building one is exactly what the harness was for.
+
+## 17. The fix: choose the outline, do not commit to it
+
+Four changes, each measured, in `punkt_chunking`:
+
+1. **Best-chain search replaces the greedy scan.** All heading candidates are
+   collected, then the best outline-consistent chain over the whole document is
+   chosen (O(n²); the corpus's worst file offers 345 candidates). A table can
+   offer a run that succeeds the cursor, but it cannot offer a chain that outruns
+   the document's own numbering — the document resumes after the table and the
+   table does not.
+2. **The contents page breaks ties the chain search cannot.** OIB-Richtlinie
+   2.3's Tabelle 1 fills a page with a complete pseudo-outline (`1, 1.1, 1.2,
+   1.2.1 … 5.4`), and its `5, 5.1 … 5.4` run is *longer* than the two genuine
+   Punkte it competes with, so counting headings picks the table. The objective
+   is therefore ordered: contents-page-listed headings first, total second. A
+   page-density test was tried first and rejected on measurement — 2.3's table
+   page carries 27 numbered lines in 71, and genuine heading pages reach 19 in 41.
+3. **A listed id with a different title is not that Punkt.** OIB-Richtlinie 2's
+   annex has a row `10 Außentreppen` while its contents page promises `10 Gebäude
+   mit einem Fluchtniveau von mehr als 22 m`. Both readings are the same length,
+   so only the title separates them. Without this the emitted Punkt 10 was the
+   table row — **a chunk filed under a real citation whose text belongs to
+   something else**, which is the worst failure available to a legal-advisory
+   product.
+4. **Two over-eager guards removed.** A contents-page entry now has to end in a
+   page number, so the abbreviation legend on `oib-rl_6-leitfaden` p11 (`KD ......
+   Kellerdecke`) is no longer read as a contents page and dropped from the body.
+   And the lowercase-opening rejection is gone: `_contradicts_contents` covers the
+   wrapped-prose case it guarded, by the number rather than by the orthography,
+   and the corpus does open two headings with `kein ENERGIEAUSWEIS erforderlich …`.
+
+## 18. Measured against the corpus's own contents pages
+
+946 Punkte across the twelve Punkt-structured Richtlinien, compared on **ids and
+titles** — an id-only comparison is what hid defect 3 for a full cycle.
+
+| | chunks | missing | spurious | wrong title | worst page span |
+|---|---|---|---|---|---|
+| greedy | 903 | 44 | 1 | 4 | 20 |
+| best-chain | **946** | **0** | **0** | **0** | 18 |
+
+Exact, every file. The residual 18-page span is one genuinely long Punkt in
+`oib-rl_1_leitfaden`, not a mis-cut.
+
+Structural retrievability over the same index (model-free, absolute):
+
+| property | page-cut | punkt-cut, greedy | punkt-cut, best-chain |
+|---|---|---|---|
+| Punkt survives as a citable unit | 5.2% | 93.8% | **98.3%** |
+| Punkt contiguous in one chunk | 95.8% | 97.9% | **98.3%** |
+| leaf Punkte blended per chunk | 4.14 | 1.03 | **1.00** |
+
+Dense A/B, 52 golden entries, `intfloat/multilingual-e5-small` (relative only —
+production embeds with `openai/text-embedding-3-large`):
+
+| arm | n | R@1 | R@5 | R@16 | MRR |
+|---|---|---|---|---|---|
+| OLD page-cut, DE | 24 | 0.25 | 0.67 | 0.96 | 0.431 |
+| OLD page-cut, EN (raw) | 22 | 0.09 | 0.32 | 0.45 | 0.196 |
+| NEW Punkt-cut, DE | 24 | **0.33** | **0.96** | **1.00** | **0.605** |
+| NEW Punkt-cut, EN (raw) | 22 | 0.09 | 0.41 | 0.73 | 0.276 |
+| NEW Punkt-cut, EN + expansion | 22 | **0.32** | 0.77 | 0.86 | **0.517** |
+
+German improved again over the greedy chunker (R@5 0.88 → 0.96, MRR 0.593 →
+0.605); English is flat. The remaining German/English MRR gap is **0.088**,
+against 0.235 for the same corpus page-cut.
+
+## 19. What this says about the programme
+
+Part III's lesson was that reasoning about *ranking mechanics* survived
+measurement and reasoning about *quality* did not. Part IV sharpens it: the
+chunker's defect was not a wrong belief about quality but a wrong belief about
+**correctness**, held while 2,900 tests were green, and it was found only by an
+instrument that knew independently what the answer should be.
+
+The generalisable form is that a structure-aware component needs an inventory of
+the structure it claims to extract, held separately from the component, and
+compared on *content* rather than on labels. The four regression tests added with
+this fix all fail against the greedy implementation; the previous fourteen do not.

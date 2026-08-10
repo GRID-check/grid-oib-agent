@@ -161,10 +161,16 @@ pip install -e frontends/benchmarks/oib_retrieval          # CI path
 pip install -e "frontends/benchmarks/oib_retrieval[dense]" # adds sentence-transformers
 ```
 
-Like `oib_compliance`, this suite is intentionally **not yet** in the root `pyproject.toml`'s
-`[tool.uv.workspace] members` list (that file is outside this directory); the tests fall
-back to a `sys.path` insert so they run without the editable install. See the report's
-WIRING NEEDED section for the exact diff.
+Like `oib_compliance`, this suite is deliberately **not** in the root `pyproject.toml`'s
+`[tool.uv.workspace] members` list; the tests fall back to a `sys.path` insert so they run
+without the editable install.
+
+That was tried and reverted, on measurement. `uv` locks every extra a workspace member
+declares, so adding this one pulled `torch`, `transformers` and the NVIDIA CUDA wheels
+into `uv.lock` (+400 lines) and **downgraded `tokenizers` 0.23.1 → 0.22.2 for the whole
+workspace**, including the deployed backend. An evaluation harness must not move the
+application's dependency floor. Install it on demand instead, exactly as `oib_compliance`
+is installed.
 
 ### The NAT evaluator is registered but not yet driven by a config
 
