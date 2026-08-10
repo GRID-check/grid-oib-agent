@@ -2,7 +2,8 @@ import type { FileUploadConfig } from '@/shared/context'
 // One source of truth for the IFC file identity: `@/lib/bim/types` is pure
 // types + constants with no server-only import, so the client bundle can read
 // it too and the accept-list cannot drift from the pipeline that consumes it.
-import { IFC_EXTENSIONS, IFC_MIME_TYPES, maxIfcBytesFrom } from '@/lib/bim/types'
+import { IFC_EXTENSIONS, IFC_MIME_TYPES } from '@/lib/bim/types'
+import { maxIfcBytesFrom } from './request-body-limit'
 
 // Doctrine (see AGENTS.md): flags are product decisions, env vars are real
 // infrastructure dependencies, a capability is DERIVED from the dependency, and

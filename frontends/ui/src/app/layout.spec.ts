@@ -7,6 +7,7 @@
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { requestBodyLimitBytes } from '@/shared/config/request-body-limit'
 
 // Store original env
 const originalEnv = process.env
@@ -311,5 +312,35 @@ describe('File Upload Configuration', () => {
       // `.xyz`/`.unknown` contribute no MIME types; the IFC entries do.
       expect(config.acceptedMimeTypes).not.toContain('application/pdf')
     })
+  })
+})
+
+describe('the transport ceiling clears the largest file any route admits', () => {
+  // Issue #369. The client validator and `assertFileSizeAllowed` both admitted
+  // a 149 MB .ifc against BIM_MAX_IFC_BYTES, while next.config derived the
+  // request body limit from FILE_UPLOAD_MAX_SIZE_MB (100 MB). The body was cut
+  // off in front of the handler, so `request.formData()` threw
+  // `TypeError: Failed to parse body as FormData` — a 500 naming neither the
+  // file nor a size.
+  afterEach(() => {
+    delete process.env.FILE_UPLOAD_MAX_SIZE_MB
+    delete process.env.BIM_MAX_IFC_BYTES
+  })
+
+  test('defaults to the IFC ceiling, not the document limit', () => {
+    expect(requestBodyLimitBytes({})).toBe(250 * 1024 * 1024)
+  })
+
+  test('never sits below what an .ifc upload is allowed to be', () => {
+    const env = { BIM_MAX_IFC_BYTES: String(400 * 1024 * 1024) }
+    expect(requestBodyLimitBytes(env)).toBe(400 * 1024 * 1024)
+  })
+
+  test('follows the document limit when that is the larger of the two', () => {
+    const env = {
+      FILE_UPLOAD_MAX_SIZE_MB: '600',
+      BIM_MAX_IFC_BYTES: String(250 * 1024 * 1024),
+    }
+    expect(requestBodyLimitBytes(env)).toBe(600 * 1024 * 1024)
   })
 })

@@ -81,6 +81,28 @@ export class UnprocessableError extends ApiError {
 }
 
 /**
+ * 413 — the request body was larger than the server will accept.
+ *
+ * Distinct from the 400 that judges a declared file size: this one is reached
+ * when the body has ALREADY been cut off in transit, so nothing downstream can
+ * name the file — the multipart stream carrying its name is the thing that
+ * failed to parse. The limit is worth stating for exactly that reason: it is
+ * the only actionable fact left.
+ */
+export class PayloadTooLargeError extends ApiError {
+  constructor(limitBytes?: number) {
+    super(
+      413,
+      'PAYLOAD_TOO_LARGE',
+      limitBytes
+        ? `Request body exceeds the maximum accepted size of ${Math.round(limitBytes / (1024 * 1024))} MB`
+        : 'Request body exceeds the maximum accepted size',
+      limitBytes ? { limitBytes } : undefined
+    )
+  }
+}
+
+/**
  * 507 — the organization's storage quota would be exceeded by this write.
  *
  * Distinct from 400 "file exceeds the maximum size", which judges the ONE file:

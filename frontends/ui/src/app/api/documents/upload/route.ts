@@ -3,13 +3,13 @@
  * ingestion. Thin handler; all logic lives in `@/lib/documents/service`.
  */
 
-import { apiRoute } from '@/lib/api/handler'
+import { apiRoute, parseFormData } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadDocument } from '@/lib/documents/service'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
-    const formData = await request.formData()
+    const formData = await parseFormData(request)
     const projectId = formData.get('projectId')
     const folderId = formData.get('folderId')
     const file = formData.get('file')

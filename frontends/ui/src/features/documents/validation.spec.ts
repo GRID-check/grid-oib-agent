@@ -539,3 +539,57 @@ describe('a building model is not measured against the document limit', () => {
     expect(batch.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
   })
 })
+
+describe('a model already in the session keeps the IFC ceiling', () => {
+  // Reported from staging: with a 149.3 MB model in the session, the next
+  // action reported `Total size would be 149.3 MB. Only 0 B available (100.0 MB
+  // limit)`. The lift only looked at the NEW files, so a session already past
+  // the document limit could never be added to again — and re-dropping the
+  // model itself is rejected as a duplicate in pass 1, so it never reached the
+  // list the lift was computed from.
+  const config = {
+    acceptedTypes: '.pdf,.ifc',
+    acceptedMimeTypes: ['application/pdf', 'application/octet-stream'],
+    maxTotalSizeMB: 100,
+    maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 250 * 1024 * 1024,
+    maxTotalSize: 100 * 1024 * 1024,
+    maxFileCount: 10,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes: number): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+  const sessionWithModel = () => ({
+    existingTotalSize: Math.round(149.3 * 1024 * 1024),
+    existingFileCount: 1,
+    existingFileNames: new Set(['2026-02-17_WB_Lacknergasse-98.ifc']),
+  })
+
+  test('adding a small document alongside it is not refused', () => {
+    const result = validateFileUpload([file('Einreichplan.pdf', 2 * 1024 * 1024)], sessionWithModel(), config)
+
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+  })
+
+  test('re-dropping the model reports the duplicate, not a phantom size failure', () => {
+    const result = validateFileUpload(
+      [file('2026-02-17_WB_Lacknergasse-98.ifc', Math.round(149.3 * 1024 * 1024))],
+      sessionWithModel(),
+      config
+    )
+
+    expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
+    expect(result.batchErrors).toEqual([])
+  })
+
+  test('the IFC ceiling still bounds the session', () => {
+    // Lifted, not removed: 149.3 MB + 120 MB is past the 250 MB IFC ceiling.
+    const result = validateFileUpload([file('zweiter-stand.ifc', 120 * 1024 * 1024)], sessionWithModel(), config)
+
+    expect(result.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
+  })
+})

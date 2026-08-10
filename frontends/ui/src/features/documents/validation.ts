@@ -278,7 +278,16 @@ export function validateFileUpload(
   // 150 MB model would clear the per-file check and then fail a 100 MB BATCH
   // limit it could never satisfy. Lifted per-batch rather than in the config so
   // a batch of ordinary documents keeps the document limit.
-  const carriesIfc = potentiallyValidFiles.some((file) => isIfcFilename(file.name))
+  //
+  // The session's EXISTING files count too, not just the new ones. `totalSize`
+  // includes `existingTotalSize`, so once a 149 MB model is in the session the
+  // total is over the document limit forever: the next add — even a 20 kB
+  // text file, even a re-drop of the model itself, which pass 1 drops as a
+  // duplicate and so keeps out of `potentiallyValidFiles` — was measured
+  // against 100 MB and told the user "Only 0 B available".
+  const carriesIfc =
+    potentiallyValidFiles.some((file) => isIfcFilename(file.name)) ||
+    [...context.existingFileNames].some((name) => isIfcFilename(name))
   const totalCeiling =
     carriesIfc && config.maxIfcFileSize > config.maxTotalSize
       ? config.maxIfcFileSize
