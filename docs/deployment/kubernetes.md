@@ -389,18 +389,36 @@ have both.
 The delegation moves last, so the new operator is already serving the right
 answers when it takes over:
 
-1. Add the zone in Cloudflare and reconcile its records against the current
-   operator's. `dig` the zone rather than trusting the dashboard's auto-scan,
-   which misses records it cannot guess the name of (DKIM selectors especially).
-2. Set `dnsZoneId` / `dnsZoneName` / `cloudflareApiToken`, leave `dnsEnabled`
-   false, and run `pulumi preview` to confirm the stack still builds.
-3. Lower the TTL on any record still at an hour, and wait out the *old* TTL.
-4. Point the nameservers at Cloudflare at the registrar.
-5. Verify (`dig NS <zone>`, then each host), then set `dnsEnabled: true` and
-   `pulumi up`.
+**The delegation moves LAST, and this program writes the zone FIRST.** That
+order is what makes the cutover verifiable instead of hopeful — Cloudflare
+answers queries on a zone's assigned nameservers as soon as it holds records,
+long before any registrar points at them, so the new zone can be interrogated
+directly while the old operator is still authoritative.
 
-Step 5 last is what makes this safe to abandon halfway: until `dnsEnabled` flips,
-this program has never written to the zone.
+1. `dig` the live zone for every record type — `A AAAA MX TXT CNAME SRV CAA` at
+   the apex, plus `_dmarc` and any DKIM selector. The current operator's web UI
+   truncates long values and the Cloudflare dashboard's auto-scan misses records
+   it cannot guess the name of; neither is a substitute for asking DNS.
+2. Add the zone in Cloudflare, then **delete every record its auto-scan
+   imported**. Whatever this program manages it must be the sole creator of:
+   Cloudflare permits two A records with the same name and round-robins between
+   them, so an imported record plus a created one is not an error, it is an
+   intermittently wrong answer.
+3. Set `dnsZoneId` / `dnsZoneName` / `cloudflareApiToken` — the token **before**
+   anything that could trigger a deploy, since `loadConfig` throws without it
+   once `dnsEnabled` is set, and on a CI-deployed stack that turns a merge into
+   a failed deploy.
+4. `dnsEnabled: true`, then `pulumi up`. Nothing goes live: the registrar still
+   delegates elsewhere.
+5. Verify against Cloudflare directly, bypassing the delegation —
+   `dig @<assigned-cloudflare-ns> <host>` for every host. This is the step that
+   makes the cutover safe, and it has no equivalent in the other ordering.
+6. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
+   still at an hour and waited out the *old* value first.
+7. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
+
+Abandonable up to step 6: everything before it is invisible to the internet, and
+reverting is deleting a Cloudflare zone nobody is pointed at.
 
 ---
 

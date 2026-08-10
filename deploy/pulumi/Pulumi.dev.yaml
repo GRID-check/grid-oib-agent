@@ -189,20 +189,25 @@ config:
   # gated behind 10+ domains or a Discount Domain Club membership, so a small
   # account cannot drive it from code at all.
   #
-  # Before flipping dnsEnabled to true (in this order — the zone has to exist to
-  # have an id, and the records have to exist before the delegation moves):
-  #   1. Add piloti.at to Cloudflare, reconcile the record list against GoDaddy's
-  #      (dig the zone; the dashboard's auto-scan misses records it cannot guess).
-  #   2. Copy the zone id from the zone's Overview page into dnsZoneId below.
-  #   3. Create a token scoped to THIS zone with Zone:DNS:Edit and
-  #      Zone:Dynamic Redirect:Edit (the latter only while dnsApexRedirectTo is
-  #      set), then:
+  # This program writes the zone BEFORE the delegation moves, not after —
+  # Cloudflare answers on a zone's assigned nameservers as soon as it holds
+  # records, so the new zone can be dug directly while GoDaddy is still
+  # authoritative. See docs/deployment/kubernetes.md § 3b "Cutover order".
+  #   1. `dig` every record type off the live zone (GoDaddy's UI truncates).
+  #   2. Add piloti.at to Cloudflare and DELETE every record its auto-scan
+  #      imported — Cloudflare round-robins duplicate A records rather than
+  #      rejecting them, so an imported record plus a created one is an
+  #      intermittently wrong answer, not an error.
+  #   3. Copy the zone id from the zone's Overview page into dnsZoneId below,
+  #      and set the token FIRST — `loadConfig` throws without it once
+  #      dnsEnabled is set, which on this CI-deployed stack turns a merge into
+  #      a failed deploy:
   #      esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:cloudflareApiToken "<token>" --secret
-  #   4. Lower the TTL on the records still at 1 hour (@ and www) and wait out
-  #      the old TTL, then point the nameservers at Cloudflare from GoDaddy's
-  #      "Change Nameservers → I'll use my own".
-  #   5. dnsEnabled: "true" here, `pulumi preview` — it must report the records
-  #      as CREATES matching what Cloudflare already serves, not diffs.
+  #      (scoped to THIS zone: Zone:DNS:Edit, plus Zone:Dynamic Redirect:Edit
+  #      while dnsApexRedirectTo is set)
+  #   4. dnsEnabled: "true" here, then `pulumi up`. Nothing goes live yet.
+  #   5. Verify against Cloudflare directly: dig @<assigned-cf-ns> <host>.
+  #   6. Only then change the nameservers at GoDaddy.
   grid-oib:dnsEnabled: "false"
   grid-oib:dnsZoneName: piloti.at
   # grid-oib:dnsZoneId: <from the Cloudflare zone Overview page>
