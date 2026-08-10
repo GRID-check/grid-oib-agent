@@ -1,0 +1,124 @@
+# Bilingual OIB retrieval vocabulary.
+#
+# The corpus is German; users ask in German AND English. A German-language index
+# cannot be reached by an English query on lexical grounds at all, and only weakly
+# on dense grounds -- measured on this corpus with a multilingual retriever, an
+# English question scored MRR 0.293 against the same question in German at 0.678.
+# Prepending the German terms below to the English query closed that gap to 0.674.
+# This file is that bridge.
+#
+# EVERY German term here was counted in data/oib/*.pdf before being written down,
+# and the count is recorded beside it. A glossary entry naming a word the corpus
+# does not use is worse than no entry: it spends query budget and can only add
+# noise. Terms that failed that check are listed at the bottom so nobody re-adds
+# them from intuition -- `Anleiterbarkeit`, `Bruttogeschossfläche` and
+# `Luftschalldämmung` all occur ZERO times, despite being natural things to guess.
+#
+# Admin-editable, like the norm registry beside it. `en` are the surface forms an
+# English speaker types; `de` are the corpus's own words, most frequent first.
+
+concepts:
+  - id: escape_route
+    en: [escape route, escape routes, egress, rescue route, means of escape, evacuation route]
+    de: [Fluchtweg, Rettungsweg]          # 327 / 60
+  - id: escape_level
+    en: [escape level, evacuation level]
+    de: [Fluchtniveau]                     # 129
+  - id: fire_compartment
+    en: [fire compartment, fire compartments, compartmentation, fire section]
+    de: [Brandabschnitt]                   # 432
+  - id: fire_protection
+    en: [fire protection, fire safety]
+    de: [Brandschutz]                      # 588
+  - id: fire_resistance
+    en: [fire resistance, fire rating, fire resistance class]
+    de: [Feuerwiderstand]                  # 139
+  - id: fire_alarm
+    en: [fire alarm system, fire detection]
+    de: [Brandmeldeanlage]                 # 104
+  - id: smoke_alarm
+    en: [smoke alarm, smoke detector, smoke alarms]
+    de: [Rauchwarnmelder]                  # 40
+  - id: fire_brigade
+    en: [fire brigade, fire service, fire department access]
+    de: [Feuerwehr]                        # 330
+  - id: extinguishing_water
+    en: [extinguishing water, firefighting water]
+    de: [Löschwasser]                      # 15
+  - id: building_class
+    en: [building class, building classes, class 4, class 5]
+    de: [Gebäudeklasse]                    # 232
+  - id: storey
+    en: [storey, storeys, story, floor level]
+    de: [Geschoß]                          # 779 (Austrian spelling; "Geschoss" only 21)
+  - id: stair
+    en: [stair, stairs, staircase, stairway, stair flight]
+    de: [Treppe, Treppenlauf, Stiegenhaus] # 894 / 34 / 6
+  - id: usable_width
+    en: [usable width, clear width, minimum width]
+    de: [nutzbare Breite]                  # 17
+  - id: facade
+    en: [facade, facades, external wall, exterior wall, cladding]
+    de: [Fassade, Außenwand]               # 218 / 107
+  - id: etics
+    en: [external thermal insulation, ETICS, insulation system]
+    de: [Wärmedämmverbundsystem]           # 29
+  - id: load_bearing
+    en: [load bearing, loadbearing, structural capacity]
+    de: [Tragfähigkeit]                    # 84
+  - id: partition
+    en: [partition wall, separating wall]
+    de: [Trennwand]                        # 6
+  - id: ceiling
+    en: [ceiling, ceilings, slab]
+    de: [Decke]                            # 497
+  - id: roof
+    en: [roof, roofs, roofing]
+    de: [Dach]                             # 576
+  - id: building_product
+    en: [building product, construction product, building material]
+    de: [Bauprodukt, Baustoff]             # 51 / 104
+  - id: accessibility
+    en: [accessibility, accessible, barrier free, step free]
+    de: [barrierefrei]                     # 150
+  - id: lift
+    en: [lift, elevator]
+    de: [Aufzug]                           # 39
+  - id: ventilation
+    en: [ventilation, air change, mechanical ventilation]
+    de: [Lüftung]                          # 237
+  - id: daylight
+    en: [daylight, natural light, daylighting]
+    de: [Belichtung]                       # 21
+  - id: window
+    en: [window, windows, glazing]
+    de: [Fenster]                          # 171
+  - id: habitable_room
+    en: [habitable room, living space, occupied room]
+    de: [Aufenthaltsraum]                  # 28
+  - id: dwelling
+    en: [dwelling, apartment, flat, residential unit]
+    de: [Wohnung]                          # 345
+  - id: garage
+    en: [garage, car park, parking garage]
+    de: [Garage]                           # 351
+  - id: parking_space
+    en: [parking space, parking spaces]
+    de: [Stellplatz]                       # 53
+  - id: thermal_protection
+    en: [thermal protection, thermal insulation, u-value]
+    de: [Wärmeschutz]                      # 57
+  - id: heating_demand
+    en: [heating demand, heat demand, energy demand]
+    de: [Heizwärmebedarf]                  # 71
+  - id: energy_certificate
+    en: [energy certificate, energy performance certificate]
+    de: [Energieausweis]                   # 154
+  - id: sound_insulation
+    en: [sound insulation, acoustic, noise protection]
+    de: [Schallschutz]                     # 46
+
+# Counted and found ABSENT from data/oib/*.pdf — do not add without re-counting:
+#   Anleiterbarkeit (0), Bruttogeschossfläche (0), Luftschalldämmung (0),
+#   Abstellfläche (2, too rare to be useful), Notausgang (3, the corpus says
+#   Fluchtweg/Rettungsweg instead).

@@ -188,3 +188,31 @@ def test_ingestion_falls_back_to_one_document_per_page_for_everything_else() -> 
     assert [doc.metadata["page_label"] for doc in docs] == ["1", "2"]
     assert all(doc.metadata["content_type"] == "text" for doc in docs)
     assert all("punkt_id" not in doc.metadata for doc in docs)
+
+
+def test_the_chunker_works_under_the_deployed_import_path() -> None:
+    """The backend runs with PYTHONPATH=src; pytest also puts the repo root on sys.path.
+
+    That difference hid a ModuleNotFoundError: the chunker reached the adapter by its
+    source-tree spelling, which resolves under pytest and not in production, so
+    ingestion would have raised on every OIB PDF with the whole suite green. This
+    asserts the installed-package path is importable in isolation.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from knowledge_layer.llamaindex.punkt_chunking import punkt_documents;"
+            "from knowledge_layer.llamaindex.adapter import _apply_metadata_exclusions;"
+            "print('ok')",
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "src"},
+        cwd=str(__import__("pathlib").Path(__file__).resolve().parents[2]),
+    )
+    assert result.returncode == 0, result.stderr

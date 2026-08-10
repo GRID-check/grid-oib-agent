@@ -31,6 +31,7 @@ alphabetical glossary, ``Zitierte Normen`` is a four-column table). For those
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 from typing import TYPE_CHECKING
@@ -58,6 +59,8 @@ _FOOTER_LABEL_RE = re.compile(
 _DOT_LEADER_RE = re.compile(r"\.{4,}")
 #: Three leader lines on one page is well clear of prose (which never produces one) and
 #: still catches the shortest ToC in the corpus (OIB-Richtlinie 1, three entries).
+logger = logging.getLogger(__name__)
+
 _TOC_MIN_DOT_LEADER_LINES = 3
 
 #: The Punkt heading itself. Bounded at four levels because the corpus never nests
@@ -334,10 +337,20 @@ def _apply_exclusions(document: Any) -> None:
     Imported here rather than at module scope because the adapter imports this module;
     a top-level import would close the cycle. Reused rather than duplicated so the
     non-semantic key list cannot drift between the two chunking paths.
-    """
-    from sources.knowledge_layer.src.llamaindex.adapter import _apply_metadata_exclusions
 
-    _apply_metadata_exclusions(document)
+    The import goes through the INSTALLED package path. The source-tree spelling
+    (``sources.knowledge_layer.src...``) resolves only when the repo root is on
+    sys.path, which pytest arranges and the deployed backend -- which runs with
+    ``PYTHONPATH=src`` -- does not. Getting that wrong raised ModuleNotFoundError out
+    of ``punkt_documents`` and would have failed ingestion for every OIB PDF while
+    the whole suite stayed green.
+    """
+    try:
+        from knowledge_layer.llamaindex.adapter import _apply_metadata_exclusions
+
+        _apply_metadata_exclusions(document)
+    except ImportError:  # pragma: no cover - the adapter is always present in practice
+        logger.warning("Adapter metadata exclusions unavailable; applying Punkt exclusions only")
     for attribute in ("excluded_embed_metadata_keys", "excluded_llm_metadata_keys"):
         existing = list(getattr(document, attribute, None) or [])
         merged = existing + [key for key in PUNKT_EMBED_EXCLUDED_METADATA_KEYS if key not in existing]

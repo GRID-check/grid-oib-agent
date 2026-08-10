@@ -1270,6 +1270,23 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             _resolve_scoped_collections(config, session_collection, base_collection)
         )
 
+        # Cross-lingual bridge. The corpus is German; an English question reaches it
+        # only weakly by embedding and not at all lexically. Measured on this corpus,
+        # an English question scored MRR 0.293 against 0.678 for the same question in
+        # German, and prepending the corpus's own German terms closed that to 0.674.
+        # A German query is returned untouched, so this is a no-op for the language
+        # the corpus is written in.
+        #
+        # ONLY the matching query is augmented. The reranker judges, and the grounding
+        # block reports, the user's actual question -- the glossary states the topic,
+        # not the intent, and a judge shown "Fassade Außenwand What are the facade…"
+        # would be scoring a phrase nobody asked.
+        from aiq_agent.common.query_expansion import augmented_query
+
+        retrieval_query = augmented_query(query)
+        if retrieval_query != query:
+            logger.info("Query expanded for retrieval: %r -> %r", query[:60], retrieval_query[:80])
+
         logger.info(
             "Knowledge search: query='%s...' collections=%s",
             query[:100],
@@ -1282,7 +1299,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
             result = await retriever.retrieve(
-                query=query, collection_name=coll, top_k=candidate_k, filters=coll_filters
+                query=retrieval_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.

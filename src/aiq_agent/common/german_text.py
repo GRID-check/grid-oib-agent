@@ -112,11 +112,20 @@ import re
 from collections.abc import Sequence
 
 #: Fraction of a collection's chunks a lexeme may appear in and still be used.
-#: 0.2 is chosen against the measured corpus: bare ``OIB`` sits at 95.3% and must
-#: die; the discriminating terms of real questions (``Fluchtweg``,
-#: ``Treppenlaufbreite``, ``Geschoß``) sit far below it. Always overridable —
-#: this is a corpus property, not a constant of nature.
-DEFAULT_DF_CEILING_RATIO = 0.2
+#:
+#: Measured on the real base corpus (776 pages), the values this must separate are:
+#: ``OIB`` 95.0% and ``anforderung``/``punkt`` 27.8% (all noise, must die) against
+#: ``Geschoß`` 23.2% and ``Fluchtweg`` 14.0% (core domain nouns, must live). 0.2 cut
+#: between the wrong pair -- it silenced ``Geschoss`` entirely, a term with 779 corpus
+#: occurrences and its own glossary entry.
+#:
+#: The distinction the ceiling is actually drawing is corpus-IDENTITY words, which a
+#: domain corpus repeats on nearly every page, against DOMAIN words, which are common
+#: precisely because they are what the corpus is about. 0.25 puts the line between the
+#: two measured clusters. The bracket is narrow (23.2 vs 27.8) and calibrated on one
+#: corpus, so this is a tuned parameter, not a constant of nature — overridable per
+#: call, and a prime candidate for the retrieval-eval harness to re-derive.
+DEFAULT_DF_CEILING_RATIO = 0.25
 
 #: Below this many rows a document-frequency RATIO is noise (in a 6-chunk project
 #: collection every content word looks "too frequent"), so the ceiling is not
@@ -142,9 +151,16 @@ _S_ENDINGS = frozenset("bdfghklmnrt")
 #: Step-1 suffixes, longest first so ``-ern`` wins over ``-er``.
 _SUFFIXES = ("ern", "em", "er", "en", "es", "e")
 
-#: Shortest lexeme kept from a query. Single letters are noise; single DIGITS are
-#: not (``§ 3``, ``OIB-RL 2``), so digits are exempt.
-_MIN_TERM_LENGTH = 2
+#: Shortest lexeme kept from a query. Single DIGITS are exempt (``§ 3``, ``OIB-RL 2``).
+#:
+#: 3, not 2, because of a measured leak: this channel is supposed to be silent for an
+#: English query, and ``"What is the required width of escape routes?"`` was returning
+#: chunks on the strength of ``of`` alone — which survives the df==0 rule because the
+#: German corpus does contain a handful of English ÖNORM titles (5 of 776 pages, 0.6%),
+#: and survives the alphabetic rule because it is a word. Rarity normally means signal;
+#: for a two-letter foreign function word it means coincidence. No German content word
+#: this corpus cites is shorter than three characters.
+_MIN_TERM_LENGTH = 3
 
 
 def fold(text: str | None) -> str:

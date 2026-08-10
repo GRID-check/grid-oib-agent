@@ -2109,6 +2109,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             from aiq_agent.knowledge import clear_collection_summaries
 
             clear_collection_summaries(name)
+
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            get_chunk_text_store().delete_collection(name)
             bump_collection_version(name)
 
             logger.info(f"Deleted collection: {name}")
@@ -2418,6 +2422,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.knowledge import unregister_summary
 
                     unregister_summary(collection_name, file_name)
+
+                    from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+                    get_chunk_text_store().delete_by_file(collection_name, file_name)
                     return True
                 results = {"ids": matching_ids}
 
@@ -2435,6 +2443,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             from aiq_agent.knowledge import unregister_summary
 
             unregister_summary(collection_name, file_name)
+
+            # Drop the lexical mirror for this file, scoped to THIS collection: the
+            # same file_name legitimately exists in the base corpus and in a project
+            # upload, and deleting one must not blind the other.
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            get_chunk_text_store().delete_by_file(collection_name, file_name)
 
             return True
 
@@ -3210,6 +3225,49 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         for doc in all_documents:
                             index.insert(doc)
 
+                    # Mirror this file's chunk text into the knowledge database so the
+                    # German lexical channel can search it. The ids are read back FROM
+                    # Chroma rather than derived from the documents: the node parser runs
+                    # inside from_documents/insert, so the llama-index node id -- which is
+                    # the chunk_id fusion keys on -- does not exist until after indexing.
+                    # Fail-open: a mirror failure must never fail a file that is already
+                    # safely in the vector store.
+                    try:
+                        from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+                        mirrored = chroma_collection.get(
+                            where={"file_name": file_name},
+                            include=["documents", "metadatas"],
+                        )
+                        mirrored_ids = mirrored.get("ids") or []
+                        mirrored_docs = mirrored.get("documents") or []
+                        mirrored_meta = mirrored.get("metadatas") or []
+                        get_chunk_text_store().upsert_many(
+                            collection_name,
+                            [
+                                {
+                                    "chunk_id": chunk_id,
+                                    "body": mirrored_docs[index] if index < len(mirrored_docs) else "",
+                                    # The STORED file_name, not the local one: delete_file
+                                    # resolves tmp-prefixed names, and the mirror has to be
+                                    # deletable by whatever key delete looks up.
+                                    "file_name": (
+                                        (mirrored_meta[index] or {}).get("file_name") or file_name
+                                        if index < len(mirrored_meta)
+                                        else file_name
+                                    ),
+                                    "page_label": (
+                                        (mirrored_meta[index] or {}).get("page_label", "")
+                                        if index < len(mirrored_meta)
+                                        else ""
+                                    ),
+                                }
+                                for index, chunk_id in enumerate(mirrored_ids)
+                            ],
+                        )
+                    except Exception as mirror_error:
+                        logger.warning("Chunk text mirror skipped for %s: %s", file_name, mirror_error)
+
                     # Count chunks (nodes)
                     chunks_created = len(all_documents)
                     total_chunks += chunks_created
@@ -3752,8 +3810,6 @@ class LlamaIndexRetriever(BaseRetriever):
             from .hybrid import reciprocal_rank_fusion
 
             terms = extract_exact_terms(query) if extract_exact_terms is not None else []
-            if not terms:
-                return chunks
 
             embedding = self._embed_query_cached(query)
             collection = self._chroma_client.get_collection(name=collection_name)
@@ -3774,6 +3830,44 @@ class LlamaIndexRetriever(BaseRetriever):
                     where=where,
                 )
                 channels.append(self._chunks_from_raw_query(raw))
+
+            # German sparse channel: a real lexical index over the mirrored chunk text,
+            # solving the inflection, Austrian-ß and umlaut cases Chroma's byte-level
+            # `$contains` cannot. An EMPTY result is normal and means "no usable lexical
+            # signal" -- the document-frequency ceiling fired, or the query is English --
+            # never an error.
+            try:
+                from aiq_agent.common.query_expansion import expansion_terms
+                from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+                lexical_ids = get_chunk_text_store().search(
+                    collection_name, query, limit=top_k, extra_terms=expansion_terms(query)
+                )
+                if lexical_ids:
+                    fetched = collection.get(ids=lexical_ids, include=["documents", "metadatas"], where=where)
+                    fetched_ids = fetched.get("ids") or []
+                    german_channel = self._chunks_from_raw_query(
+                        {
+                            "ids": [fetched_ids],
+                            "documents": [fetched.get("documents") or []],
+                            "metadatas": [fetched.get("metadatas") or []],
+                            "distances": [[1.0] * len(fetched_ids)],
+                        }
+                    )
+                    # Restore the store's ranking: `collection.get` does not preserve it,
+                    # and RRF consumes rank position.
+                    rank = {chunk_id: index for index, chunk_id in enumerate(lexical_ids)}
+                    german_channel.sort(key=lambda chunk: rank.get(chunk.chunk_id, len(rank)))
+                    channels.append(german_channel)
+            except Exception as lexical_error:
+                logger.warning("German sparse channel unavailable: %s", lexical_error)
+
+            # Only the vector channel: nothing to fuse. This replaces the old early
+            # return on `not terms`, which would have made the sparse channel dead for
+            # the 71.7% of German questions that produce no exact term -- precisely the
+            # population it exists to serve.
+            if len(channels) == 1:
+                return chunks
 
             fused = reciprocal_rank_fusion(channels, top_n=top_k)
             if fused:
