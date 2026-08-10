@@ -40,6 +40,11 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 _BOUNDS: dict[str, tuple[int, int]] = {
     "knowledge.top_k": (1, 50),
     "knowledge.max_chunks_per_document": (0, 10),
+    # Percent, not a float, because this catalog is integer-only and the BFF mirrors
+    # it. 0 disables the floor, which is the default: see the call site in
+    # knowledge_layer.register.search for why a floor must be calibrated against the
+    # embedding model actually deployed rather than shipped as a guess.
+    "knowledge.relevance_floor_pct": (0, 90),
     "surface.chunk_top_k": (1, 100),
     "surface.max_files": (1, 4),
     "web.max_results": (1, 10),

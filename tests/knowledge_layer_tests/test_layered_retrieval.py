@@ -377,3 +377,31 @@ class TestTTLSessionExclusion:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+class TestRelevanceFloor:
+    """The grounding block must be able to say "nothing here".
+
+    Without a floor, top_k is always filled: a question the corpus cannot answer
+    still returns sixteen formatted excerpts carrying page citations and a
+    Dokumentart line asserting binding legal force. In a building-law product that
+    is the highest-consequence failure available, and it was structurally
+    impossible to express before scores became true similarities.
+    """
+
+    def test_the_floor_is_disabled_by_default(self) -> None:
+        """A floor is a number on one embedding model's cosine distribution.
+
+        Shipping a default would repeat MIN_SURFACE_SCORE's whole history: a value
+        calibrated elsewhere, silently wrong here. 0 means "not calibrated yet".
+        """
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        assert get_retrieval_setting("knowledge.relevance_floor_pct", 0) == 0
+
+    def test_the_catalog_allows_a_floor_but_never_a_total_blackout(self) -> None:
+        from aiq_agent.common.retrieval_settings import _BOUNDS
+
+        low, high = _BOUNDS["knowledge.relevance_floor_pct"]
+        assert low == 0, "0 must remain expressible — it is the disabled state"
+        assert high <= 90, "a floor near 1.0 would reject everything the corpus contains"

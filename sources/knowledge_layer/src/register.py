@@ -1390,6 +1390,37 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
 
+            # Relevance floor. Without one, top_k is ALWAYS filled: a question this
+            # corpus cannot answer still returns sixteen formatted excerpts with page
+            # citations and a Dokumentart line asserting binding legal force, and the
+            # grounding block has no vocabulary for "I retrieved nothing useful". In a
+            # building-law product that is the highest-consequence failure available.
+            #
+            # DISABLED BY DEFAULT, and that is not timidity. A floor is a number on a
+            # specific embedding model's cosine distribution, and this deployment's
+            # model is a deploy-time choice -- the collection fingerprint records which
+            # one wrote the vectors precisely because they are not interchangeable. A
+            # value calibrated against one model silently over-filters under another,
+            # which is exactly how MIN_SURFACE_SCORE spent its whole life as a no-op.
+            # Calibrate with the retrieval-eval harness against the deployed model, then
+            # set knowledge.relevance_floor_pct.
+            floor_pct = get_retrieval_setting("knowledge.relevance_floor_pct", 0)
+            if floor_pct > 0:
+                floor = floor_pct / 100.0
+                kept = [chunk for chunk in merged.chunks if chunk.score >= floor]
+                if len(kept) != len(merged.chunks):
+                    best = max((chunk.score for chunk in merged.chunks), default=0.0)
+                    logger.info(
+                        "Relevance floor %.2f dropped %d/%d chunks (best score %.2f)",
+                        floor,
+                        len(merged.chunks) - len(kept),
+                        len(merged.chunks),
+                        best,
+                    )
+                merged = merged.model_copy(update={"chunks": kept})
+
+            # After the floor, not before: the floor is the only thing that can empty a
+            # non-empty result set, and this message is the vocabulary for saying so.
             if not merged.chunks:
                 return _empty_search_message(
                     query,
