@@ -2,7 +2,7 @@ import type { FileUploadConfig } from '@/shared/context'
 // One source of truth for the IFC file identity: `@/lib/bim/types` is pure
 // types + constants with no server-only import, so the client bundle can read
 // it too and the accept-list cannot drift from the pipeline that consumes it.
-import { IFC_EXTENSIONS, IFC_MIME_TYPES } from '@/lib/bim/types'
+import { IFC_EXTENSIONS, IFC_MIME_TYPES, maxIfcBytesFrom } from '@/lib/bim/types'
 
 // Doctrine (see AGENTS.md): flags are product decisions, env vars are real
 // infrastructure dependencies, a capability is DERIVED from the dependency, and
@@ -149,11 +149,23 @@ export const getFileUploadConfigFromEnv = (
     DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS
   const maxSizeBytes = maxTotalSizeMB * 1024 * 1024
 
+  // A `.ifc` gets its own, much larger ceiling, shared with the extractor via
+  // `maxIfcBytesFrom` so the two layers cannot disagree. An ordinary
+  // Einreichung model is 50–500 MB and the general document limit (100 MB by
+  // default) was sized for PDFs, so a model was refused for being a large
+  // FILE rather than for anything to do with IFC.
+  // NOT folded into `maxTotalSize`: raising the batch ceiling here would raise
+  // it for every file type, so three 80 MB PDFs would start passing a limit
+  // set at 100 MB. The batch ceiling is lifted per-batch, and only for a batch
+  // that actually contains a model — see `validateFileUpload`.
+  const maxIfcFileSize = ifcUploadEnabled ? maxIfcBytesFrom(env) : 0
+
   return {
     acceptedTypes,
     acceptedMimeTypes: buildAcceptedMimeTypes(acceptedTypes),
     maxTotalSizeMB,
     maxFileSize: maxSizeBytes,
+    maxIfcFileSize,
     maxTotalSize: maxSizeBytes,
     maxFileCount,
     fileExpirationCheckIntervalHours,

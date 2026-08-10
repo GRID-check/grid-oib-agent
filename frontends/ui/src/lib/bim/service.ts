@@ -30,7 +30,7 @@ import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2C
 import { s3Client } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { completeBimModel, failBimModel, startBimModel } from './repository'
-import { isIfcFilename } from './types'
+import { isIfcFilename, maxIfcBytesFrom } from './types'
 
 /**
  * Largest IFC accepted for extraction, independent of the upload size limit.
@@ -41,7 +41,7 @@ import { isIfcFilename } from './types'
  * than taking the process down. Raise it only alongside moving extraction out
  * of the request process.
  */
-export const MAX_IFC_BYTES = Number(process.env.BIM_MAX_IFC_BYTES ?? 250 * 1024 * 1024)
+export const MAX_IFC_BYTES = maxIfcBytesFrom(process.env)
 
 /** Cap on `bim_elements` rows per model; see `extract.ts`. */
 export const BIM_ELEMENT_LIMIT = Number(process.env.BIM_ELEMENT_LIMIT ?? 200_000)

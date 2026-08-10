@@ -25,7 +25,7 @@ import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { bimQuerySchema, runBimQuery, BimModelNotReadyError } from '@/lib/bim/query'
 import { listBimModels, type BimModelHeader } from '@/lib/bim/repository'
-import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvOptIn } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvEnabled } from '@/lib/authz/feature-flags'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 
 const requestSchema = z
@@ -74,12 +74,12 @@ export const POST = internalApiRoute(
     // Mirrors `isIfcModelsEnabled` for a caller that has a service token and no
     // session: under enforcement the per-org flag decides (`isOrgFeatureEnabled`
     // is itself fail-closed on a lookup error); without it, the deployment-level
-    // opt-in does. NOT fail-open — the agent answering questions about a
-    // building is the same claim the UI makes, and it must not be reachable in
-    // a deployment that has not chosen the feature.
+    // switch does — which defaults to ON, like the UI. The point is that the
+    // two agree: the agent answering questions about a building makes the same
+    // claim the UI makes, so withdrawing the feature has to stop both.
     const allowed = enforcementOn()
       ? await isOrgFeatureEnabled(FEATURE_FLAGS.ifcModels, organizationId)
-      : ifcModelsEnvOptIn()
+      : ifcModelsEnvEnabled()
     if (!allowed) {
       throw new ForbiddenError('IFC models are not enabled for this organization')
     }

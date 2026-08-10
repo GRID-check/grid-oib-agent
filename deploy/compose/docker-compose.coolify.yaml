@@ -473,10 +473,11 @@ services:
       # share surfaces and the mention picker do not exist and the
       # /api/inbox|sharing|mentions|stream routes 403.
       - GRID_COLLABORATION_ENABLED=${GRID_COLLABORATION_ENABLED:-false}
-      # IFC/BIM models (ADR-0045). Dark-launched and DEFAULT-DENY: the feature
-      # renders OIB compliance verdicts, so it does not switch itself on.
-      - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-false}
-      # Extraction bounds. Defaults (250 MB / 200 000 rows) apply when unset.
+      # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
+      # feature without turning on flag enforcement for everything else.
+      - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
+      # Extraction bounds. BIM_MAX_IFC_BYTES is also the UPLOAD ceiling for a
+      # .ifc — the two must not disagree. Defaults: 250 MB / 200 000 rows.
       - BIM_MAX_IFC_BYTES=${BIM_MAX_IFC_BYTES:-}
       - BIM_ELEMENT_LIMIT=${BIM_ELEMENT_LIMIT:-}
     expose:

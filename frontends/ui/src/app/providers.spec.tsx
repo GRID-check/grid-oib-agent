@@ -55,6 +55,7 @@ const baseConfig: AppConfig = {
     acceptedMimeTypes: ['application/pdf'],
     maxTotalSizeMB: 100,
     maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 0,
     maxTotalSize: 100 * 1024 * 1024,
     maxFileCount: 10,
     fileExpirationCheckIntervalHours: 0,

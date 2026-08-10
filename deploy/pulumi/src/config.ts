@@ -809,11 +809,12 @@ export interface GridConfig {
      * workspace, the 3D viewer, the Prüfbuch and the agent's `ifc_query`
      * tool). Reaches the frontend as `GRID_IFC_MODELS_ENABLED`, which the BFF
      * only consults while `enforceFeatureFlags` is off; with enforcement on,
-     * the per-org `ifc-models` WorkOS flag decides instead. Default-deny: the
-     * feature renders OIB compliance verdicts, and a checker that says
-     * `erfüllt` makes a claim an architect may act on, so an operator has to
-     * choose it. No paired capability — extraction runs in the BFF process and
-     * the viewer in the browser.
+     * the per-org `ifc-models` WorkOS flag decides instead. Defaults to TRUE —
+     * the feature ships on. It keeps its own key rather than riding the
+     * fail-open path so a deployment can withdraw it (`false`) without turning
+     * on flag enforcement for every other feature at once. No paired
+     * capability — extraction runs in the BFF process and the viewer in the
+     * browser.
      */
     enabled: boolean;
   };
@@ -2257,7 +2258,7 @@ export function loadConfig(): GridConfig {
     },
 
     ifcModels: {
-      enabled: bool(cfg, "ifcModelsEnabled", false),
+      enabled: bool(cfg, "ifcModelsEnabled", true),
     },
 
     memory: {
