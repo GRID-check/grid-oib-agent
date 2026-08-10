@@ -30,6 +30,23 @@ logger = logging.getLogger(__name__)
 # cold page cache on a large model without letting a stuck BFF hold the turn.
 _REQUEST_TIMEOUT_SECONDS = 10
 
+# Ops that read the WHOLE element set rather than a page, and are therefore
+# allowed longer than the default.
+#
+# Two numbers have to be kept on the right side of each other: the BFF's
+# `statement_timeout` is 30s, so a client that gives up sooner abandons a query
+# the server is still running — the pool slot stays held, the work still
+# completes, and the agent is told "the model could not be read" about a model
+# that was being read perfectly well. A ceiling above the server's means the
+# server always loses the race and reports the real reason.
+_LONG_OPERATIONS = frozenset({"compare", "compliance", "compliance-diff", "schedule", "takeoff", "profile"})
+_LONG_TIMEOUT_SECONDS = 35
+
+
+def _timeout_for(query: dict[str, Any]) -> int:
+    """Seconds to wait, by how much of the model the op has to read."""
+    return _LONG_TIMEOUT_SECONDS if query.get("op") in _LONG_OPERATIONS else _REQUEST_TIMEOUT_SECONDS
+
 
 class BimQueryUnavailableError(RuntimeError):
     """The internal endpoint could not be reached or refused the request.
@@ -106,7 +123,7 @@ def run_bim_query(
     )
 
     try:
-        with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+        with _opener.open(request, timeout=_timeout_for(query)) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
         # Never log the body: it can carry element names and property values

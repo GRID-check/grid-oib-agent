@@ -13,7 +13,7 @@
  * place of the canvas, and the rest of the page carries on.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Layers, MonitorX } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
@@ -173,6 +173,29 @@ export function IfcModelViewer({
     () => expressIdsForStorey(elements, isolatedStorey),
     [elements, isolatedStorey]
   )
+  /**
+   * The last element THIS canvas reported a click on.
+   *
+   * Selecting a wall in the table, from a search result or from a chat chip
+   * should fly the camera to it — "find the red thing" in a five-thousand
+   * element building is otherwise a manual hunt, and the renderer has had
+   * `zoomExtent` all along. Clicking one IN the viewport must not, or the
+   * camera moves out from under the hand that just clicked.
+   *
+   * A ref rather than state: it is read during the render that follows the
+   * selection change, and storing it in state would render twice to compute a
+   * boolean.
+   */
+  const clickedInCanvasRef = useRef<string | null>(null)
+  const handleCanvasSelect = useCallback(
+    (element: BimViewerElement | null) => {
+      clickedInCanvasRef.current = element?.globalId ?? null
+      onSelect?.(element)
+    },
+    [onSelect]
+  )
+  const zoomToSelection = selectedGlobalId !== null && selectedGlobalId !== clickedInCanvasRef.current
+
   const selectedExpressId = useMemo(
     () => elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null,
     [elements, selectedGlobalId]
@@ -231,7 +254,8 @@ export function IfcModelViewer({
         orthographic={cameraState.orthographic}
         section={section}
         onBounds={setBounds}
-        onSelect={onSelect}
+        onSelect={handleCanvasSelect}
+        zoomToSelection={zoomToSelection}
         onStatus={setStatus}
         className="size-full touch-none"
       />

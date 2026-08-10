@@ -240,7 +240,13 @@ export async function completeBimModel(input: {
           // path too. Extraction already holds every element in memory; the
           // projection is a map over them and costs nothing next to the parse
           // that produced them.
-          ruleInputs: buildStoredRuleInputs(input.elements, false),
+          // `truncatedAt` and NOT a hardcoded `false`. Extraction stops at
+          // `BIM_ELEMENT_LIMIT`, and a projection that claims to cover a
+          // building it only covers part of is the "Prüfbuch judged over part
+          // of a building" failure — reintroduced on the fast path, where it
+          // would be worse than before because the fast path is the one every
+          // reader gets.
+          ruleInputs: buildStoredRuleInputs(input.elements, input.summary.truncatedAt !== null),
           // Set in the SAME transaction that wrote the elements above, so the
           // flag cannot claim an index the rows do not have. An older image
           // extracting a model during a rolling deploy never reaches this line

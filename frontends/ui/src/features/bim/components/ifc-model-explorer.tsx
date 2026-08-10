@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { formatPropertyValue } from '../lib/format-value'
 import type { BimModelSummary } from '@/lib/bim/types'
 import type { BimHealth } from '@/lib/bim/validate'
 import {
@@ -233,12 +234,42 @@ export function IfcSpatialTree({
   const t = useTranslations('bim')
   const rows = useMemo(() => flattenSpatialTree(summary.spatial), [summary.spatial])
 
+  const handleTreeKeys = (event: React.KeyboardEvent<HTMLUListElement>): void => {
+    const step =
+      event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : event.key === 'Home' ? 0 : event.key === 'End' ? 0 : null
+    if (step === null) return
+    const buttons = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not([disabled])'),
+    ]
+    if (buttons.length === 0) return
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : // From nowhere, Down enters at the top and Up at the bottom.
+            current === -1
+            ? step > 0
+              ? 0
+              : buttons.length - 1
+            : Math.min(buttons.length - 1, Math.max(0, current + step))
+    event.preventDefault()
+    buttons[next]?.focus()
+  }
+
   return (
     <section aria-labelledby="bim-tree-heading" className="space-y-2">
       <h2 id="bim-tree-heading" className="text-sm font-semibold">
         {t('tree.title')}
       </h2>
-      <ul className="space-y-0.5 text-sm">
+      {/*
+        The rows are already flat, so arrow-key movement is a focus walk over
+        the buttons rather than a tree-walk: Up/Down step, Home/End jump. A
+        tree that can only be Tabbed through makes a reader press Tab once per
+        storey to reach the Keller.
+      */}
+      <ul className="space-y-0.5 text-sm" onKeyDown={handleTreeKeys}>
         <li>
           <button
             type="button"
@@ -394,7 +425,23 @@ export function IfcElementTable({
                 onClick={() => onSelect(element)}
               >
                 <td className="px-2 py-1 text-muted-foreground">{shortIfcType(element.ifcType)}</td>
-                <td className="px-2 py-1">{element.name ?? t('elements.unnamed')}</td>
+                <td className="px-2 py-1">
+                  {/*
+                    A real button, not a click handler on the row. The row's
+                    own `onClick` keeps the whole row clickable for a mouse,
+                    but a `<tr onClick>` is reachable by nothing else: no Tab
+                    stop, no Enter, and nothing announced to a screen reader —
+                    the element list was mouse-only, and it is the primary way
+                    into every other surface on this page.
+                  */}
+                  <button
+                    type="button"
+                    onClick={() => onSelect(element)}
+                    className="w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {element.name ?? t('elements.unnamed')}
+                  </button>
+                </td>
                 <td className="px-2 py-1 text-muted-foreground">{element.storeyName ?? '—'}</td>
               </tr>
             ))}
@@ -514,18 +561,4 @@ export function IfcPropertyPanel({ element, isLoading, error }: IfcPropertyPanel
       ))}
     </div>
   )
-}
-
-/**
- * An IFC boolean is a fact about the building, not a programming value, so it
- * reads as a word. `Ja`/`Nein` in both locales on purpose: the surrounding
- * property NAMES are the exporter's (`IsExternal`, `LoadBearing`) and are never
- * translated, so an English "Yes" beside a German model's own vocabulary would
- * be a third language in one row.
- */
-function formatPropertyValue(value: string | number | boolean | null, locale: string): string {
-  if (value === null) return '—'
-  if (typeof value === 'boolean') return value ? 'Ja' : 'Nein'
-  if (typeof value === 'number') return (Math.round(value * 1000) / 1000).toLocaleString(locale)
-  return value
 }

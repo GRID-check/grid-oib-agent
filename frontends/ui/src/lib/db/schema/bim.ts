@@ -11,6 +11,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { documents } from './documents'
 import type { BimClassification, BimModelStatus, BimModelSummary, BimPropertySets, BimQuantitySets } from '@/lib/bim/types'
@@ -133,7 +134,14 @@ export const bimElements = pgTable(
       table.ifcType,
       table.expressId
     ),
-    modelStoreyIdx: index('bim_elements_model_storey_idx').on(table.modelId, table.storeyName),
+    // On `lower(storey_name)`, matching the predicate the query layer emits —
+    // a btree over the raw column cannot serve a case-insensitive comparison,
+    // which is why the previous form was never used by the only query written
+    // against it. See `0040_bim_elements_storey_expression_idx.sql`.
+    modelStoreyIdx: index('bim_elements_model_storey_idx').on(
+      table.modelId,
+      sql`lower(${table.storeyName})`
+    ),
     globalIdIdx: index('bim_elements_global_id_idx').on(table.modelId, table.globalId),
     searchKeysIdx: index('bim_elements_search_keys_idx').using('gin', table.searchKeys),
   })

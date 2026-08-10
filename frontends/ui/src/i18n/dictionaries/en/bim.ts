@@ -10,6 +10,12 @@ export const bim = {
     quantities: 'Quantities',
     revisions: 'Revisions',
   },
+  loadFailed: {
+    title: 'Models could not be loaded',
+    description:
+      'This project\u2019s model list is temporarily unavailable. That does NOT mean there is no model \u2014 please try again.',
+    action: 'Try again',
+  },
   empty: {
     title: 'No IFC model yet',
     description:
@@ -165,6 +171,7 @@ export const bim = {
       stale: 'Older revision',
       staleHint:
         'This confirmation was made against an earlier revision of the model. It still counts as a record, but no longer as cover for the current one.',
+      failed: 'The confirmation could not be saved. It is NOT recorded \u2014 please try again.',
       confirm: 'Confirm manually',
       reconfirm: 'Confirm again for this revision',
       withdraw: 'Withdraw',
@@ -257,7 +264,7 @@ export const bim = {
   },
   timeline: {
     title: 'Revisions',
-    description: '{count} revisions of {name}, oldest last.',
+    description: '{count} revisions of {name}, newest first.',
     revision: 'Rev. {index}',
     latest: 'Current',
     compare: 'Compare with {previous}',
@@ -278,6 +285,7 @@ export const bim = {
     copied: 'Copied',
   },
   viewer: {
+    canvasLabel: '3D view of the IFC model',
     title: '3D view',
     downloading: 'Loading model…',
     parsing: 'Building geometry… {count} parts',

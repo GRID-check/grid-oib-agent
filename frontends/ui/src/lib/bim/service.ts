@@ -94,12 +94,42 @@ export interface BimExtractionOutcome {
   error?: string
 }
 
-/** Read an object into memory. Bounded by {@link MAX_IFC_BYTES} at the caller. */
+/**
+ * Read an object into memory, refusing one that is too big BEFORE reading it.
+ *
+ * The check used to be on `buffer.byteLength` at the caller, which is a
+ * rhetorical cap: by the time it can be evaluated the whole object is already
+ * resident. On a 1 GiB pod, with an upload limit that is a separate,
+ * independently configurable number, a file above the extraction limit was
+ * `transformToByteArray`-ed in full and only then declined — an OOM kill on
+ * the way to reporting a polite error.
+ *
+ * `ContentLength` comes back in the same `GetObject` response, ahead of the
+ * body, so the size is knowable before the read. An object that does not
+ * report one is read and checked afterwards, as before: a missing header is
+ * not a licence to skip the limit.
+ */
 async function fetchObject(bucket: string, key: string): Promise<ArrayBuffer> {
   const response = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+  const declared = response.ContentLength
+  if (typeof declared === 'number' && declared > MAX_IFC_BYTES) {
+    throw new IfcTooLargeError(declared)
+  }
   const bytes = await response.Body?.transformToByteArray()
   if (!bytes) throw new Error('object body was empty')
+  if (bytes.byteLength > MAX_IFC_BYTES) throw new IfcTooLargeError(bytes.byteLength)
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+/** A model above {@link MAX_IFC_BYTES}, raised from wherever the size is learnt. */
+class IfcTooLargeError extends Error {
+  constructor(readonly bytes: number) {
+    super(
+      `Model is ${Math.round(bytes / 1024 / 1024)} MB, above the ` +
+        `${Math.round(MAX_IFC_BYTES / 1024 / 1024)} MB extraction limit`
+    )
+    this.name = 'IfcTooLargeError'
+  }
 }
 
 /**
@@ -127,14 +157,16 @@ export async function runBimExtraction(input: BimExtractionInput): Promise<BimEx
   const { buildModelDigest } = await import('./digest')
 
   try {
-    const buffer = await fetchObject(bucket, input.storageKey)
-    if (buffer.byteLength > MAX_IFC_BYTES) {
-      throw new IfcExtractionError(
-        'parse-failed',
-        `Model is ${Math.round(buffer.byteLength / 1024 / 1024)} MB, above the ${Math.round(
-          MAX_IFC_BYTES / 1024 / 1024
-        )} MB extraction limit`
-      )
+    // The size limit is enforced inside `fetchObject`, before the object is
+    // resident — see the note there.
+    let buffer: ArrayBuffer
+    try {
+      buffer = await fetchObject(bucket, input.storageKey)
+    } catch (error) {
+      if (error instanceof IfcTooLargeError) {
+        throw new IfcExtractionError('parse-failed', error.message)
+      }
+      throw error
     }
 
     const index = await extractIfcModel(buffer, input.filename, { elementLimit: BIM_ELEMENT_LIMIT })

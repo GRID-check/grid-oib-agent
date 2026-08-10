@@ -434,7 +434,7 @@ describe('units', () => {
   it('reads a door width in millimetres as metres', () => {
     // 900 read as 900 m would clear every threshold ever written.
     const results = runBimRules([
-      element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { Width: 900 } } }),
+      element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { ClearWidth: 900 } } }),
     ])
     const rule = ruleOf(results, 'oib4-tuer-durchgangsbreite')
     expect(rule.passed).toBe(1)
@@ -443,7 +443,7 @@ describe('units', () => {
 
   it('reads the same width expressed in metres identically', () => {
     const results = runBimRules([
-      element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { Width: 0.9 } } }),
+      element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { ClearWidth: 0.9 } } }),
     ])
     expect(ruleOf(results, 'oib4-tuer-durchgangsbreite').passed).toBe(1)
   })
@@ -611,7 +611,7 @@ describe('reading a number out of a string a CAD wrote', () => {
 
 describe('the declared unit beats the guess', () => {
   const door = (width: number) =>
-    element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { Width: width } } })
+    element({ ifcType: 'IfcDoor', name: 'D1', quantities: { Qto_DoorBaseQuantities: { ClearWidth: width } } })
 
   it('uses the model\u2019s declared length scale when it has one', () => {
     // 0.9 in a MILLIMETRE model is 0.9 mm, not 0.9 m. The magnitude guess reads
@@ -639,6 +639,49 @@ describe('the declared unit beats the guess', () => {
   })
 })
 
+describe('oib4-tuer-durchgangsbreite', () => {
+  const door = (quantities: Record<string, number>) =>
+    element({ ifcType: 'IfcDoor', name: 'T-14', quantities: { Qto_DoorBaseQuantities: quantities } })
+
+  it('reads the CLEAR width, not the nominal one, when both are published', () => {
+    // The bug this rule shipped with. A 0,90 m door leaf passes through a
+    // frame and over a stop; the clear opening is routinely 0,78 m. Reading
+    // `Width` first passed the door — on an escape-route rule.
+    const rule = ruleOf(runBimRules([door({ Width: 0.9, ClearWidth: 0.78 })]), 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('Lichte Durchgangsbreite')
+  })
+
+  it('will not call a door compliant on its nominal width alone', () => {
+    // The nominal width is an UPPER BOUND on the clear one, so 0,90 m nominal
+    // is consistent with both a compliant and a non-compliant door. Saying so
+    // is the honest answer; a tick is a guess.
+    const rule = ruleOf(runBimRules([door({ Width: 0.9 })]), 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0].reading).toContain('Nennbreite')
+    expect(rule.missing[0].path).toContain('ClearWidth')
+  })
+
+  it('still settles a FAILURE from the nominal width', () => {
+    // Being an upper bound is exactly what makes this direction safe: if even
+    // the nominal width is under 0,80 m, the clear width certainly is.
+    const rule = ruleOf(runBimRules([door({ Width: 0.7 })]), 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.failed).toBe(1)
+    expect(rule.failures[0].reading).toContain('Nennbreite')
+  })
+
+  it('says which property would settle it when nothing is published', () => {
+    const rule = ruleOf(runBimRules([door({})]), 'oib4-tuer-durchgangsbreite')
+
+    expect(rule.undecidable).toBe(1)
+    expect(rule.missing[0].path).toBe('Qto_DoorBaseQuantities.ClearWidth')
+  })
+})
+
 describe('oib3-raumhoehe', () => {
   const space = (name: string, height: number | null) =>
     element({
@@ -651,6 +694,34 @@ describe('oib3-raumhoehe', () => {
   it('checks an Aufenthaltsraum', () => {
     const rule = ruleOf(runBimRules([space('Wohnen', 2.6)]), 'oib3-raumhoehe')
     expect(rule.passed).toBe(1)
+  })
+
+  it('checks a room whose PredefinedType says nothing', () => {
+    // `NOTDEFINED` is what Revit and ArchiCAD write for an ordinary room, and
+    // `SPACE` is IFC4's own generic value. Reading either as "a type WAS
+    // published and it is not one I recognise" put the majority of every real
+    // model's rooms out of scope — the rule then reported nothing to check,
+    // which reads as a building with no Aufenthaltsräume rather than as a
+    // check that never ran.
+    for (const predefinedType of ['NOTDEFINED', 'SPACE', 'USERDEFINED', null]) {
+      const rule = ruleOf(
+        runBimRules([{ ...space('Wohnen', 2.3), predefinedType }]),
+        'oib3-raumhoehe'
+      )
+      expect(rule.failed, `predefinedType ${predefinedType}`).toBe(1)
+    }
+  })
+
+  it('still believes a PredefinedType that means something', () => {
+    // These are real statements about the room, and a garage is not an
+    // Aufenthaltsraum however low its ceiling.
+    for (const predefinedType of ['PARKING', 'EXTERNAL', 'GFA']) {
+      const rule = ruleOf(
+        runBimRules([{ ...space('Wohnen', 2.0), predefinedType }]),
+        'oib3-raumhoehe'
+      )
+      expect(rule.passed + rule.failed + rule.undecidable, predefinedType).toBe(0)
+    }
   })
 
   it('fails a low Aufenthaltsraum', () => {
@@ -764,7 +835,7 @@ describe('summarizeBimRules', () => {
     const summary = summarizeBimRules(
       runBimRules(
         [
-          element({ ifcType: 'IfcDoor', name: 'ok', quantities: { Qto_DoorBaseQuantities: { Width: 900 } } }),
+          element({ ifcType: 'IfcDoor', name: 'ok', quantities: { Qto_DoorBaseQuantities: { ClearWidth: 900 } } }),
           element({ ifcType: 'IfcWindow', name: 'unknown' }),
         ],
         { hauptnutzung: 'wohnen' }
@@ -811,6 +882,29 @@ describe('diffBimCompliance', () => {
     expect(changes.find((change) => change.ruleId === 'oib2-feuerwiderstand-tragend')?.trend).toBe(
       'decidable'
     )
+  })
+
+  it('reports a PARTIAL loss of a property, not just a total one', () => {
+    // Two compliant walls; the re-export drops FireRating from one of them.
+    // The rule used to stand at `pass` with 2 passed and still stood at `pass`
+    // with 1 passed + 1 undecidable, so the diff said nothing moved — and
+    // "nothing moved" is exactly the answer this op exists to disprove.
+    const second = (rating: string | null) =>
+      element({
+        ifcType: 'IfcWall',
+        name: 'W2',
+        properties: {
+          Pset_WallCommon: { LoadBearing: true, ...(rating === null ? {} : { FireRating: rating }) },
+        },
+      })
+    const before = runBimRules([wall('REI 90'), second('REI 90')], facts)
+    const after = runBimRules([wall('REI 90'), second(null)], facts)
+
+    expect(
+      diffBimCompliance(before, after).find(
+        (change) => change.ruleId === 'oib2-feuerwiderstand-tragend'
+      )?.trend
+    ).toBe('undecidable')
   })
 
   it('says nothing about the rules that did not move', () => {

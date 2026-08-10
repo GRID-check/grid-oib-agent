@@ -136,7 +136,22 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       return Array.from(rows)[0].id
     }
 
-    const { elements, ...summary } = index
+    const { elements: extracted, ...summary } = index
+    // A null-valued property, which the two `search_keys` writers used to
+    // disagree about: SQL emitted `[null]`, TypeScript omitted the key, and a
+    // `{operator: 'exists'}` filter therefore matched or did not depending on
+    // which one had written the row.
+    const elements = extracted.map((element, position) =>
+      position === 0
+        ? {
+            ...element,
+            properties: {
+              ...element.properties,
+              Pset_WallCommon: { ...element.properties.Pset_WallCommon, AcousticRating: null },
+            },
+          }
+        : element
+    )
     const documentId = await seedDocument(ORG, 'sample-building.ifc')
     modelId = await repository.startBimModel({
       organizationId: ORG,
@@ -473,6 +488,12 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       { properties: [{ name: 'ThermalTransmittance', operator: 'lte', value: 0.2, source: 'property' }] },
       { properties: [{ name: 'NetFloorArea', operator: 'gt', value: 10, source: 'quantity' }] },
       { properties: [{ set: 'Qto_WallBaseQuantities', name: 'NetSideArea', operator: 'exists', source: 'quantity' }] },
+      // The null-valued property. `exists` asks only about the NAME, so this
+      // has to match the wall carrying `AcousticRating: null` — and it is the
+      // filter the two `search_keys` writers used to answer differently.
+      { properties: [{ name: 'AcousticRating', operator: 'exists', source: 'property' }] },
+      { storeys: ['Erdgeschoss'] },
+      { storeys: ['ERDGESCHOSS'], properties: [{ name: 'FireRating', operator: 'exists', source: 'property' }] },
     ]
     const answers = async () =>
       Promise.all(

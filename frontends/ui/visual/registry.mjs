@@ -575,6 +575,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="bim-tables-preview"]',
   },
   {
+    id: 'bim-confirmation-failed',
+    path: '/dev/bim-confirmation-failed',
+    description:
+      'A manual confirmation on an OIB requirement that could NOT be saved. The write used to fail silently \u2014 the note form simply stayed open \u2014 so an architect who had just signed off a requirement had every reason to believe it was recorded, on the one surface whose whole purpose is to be a record. The alert now carries the same weight as a verdict and says plainly that the confirmation is NOT stored. The preview drives the form itself and the capture waits on the alert, because the state does not exist until somebody presses Save.',
+    waitFor: '[data-testid="bim-confirmation-failed"]',
+  },
+  {
     id: 'bim-compliance',
     mobile: true,
     path: '/dev/bim-compliance',

@@ -12,6 +12,12 @@ export const bim: typeof en.bim = {
     quantities: 'Mengen',
     revisions: 'Revisionen',
   },
+  loadFailed: {
+    title: 'Modelle konnten nicht geladen werden',
+    description:
+      'Die Modellliste dieses Projekts ist gerade nicht abrufbar. Das heißt NICHT, dass kein Modell hinterlegt ist — bitte erneut versuchen.',
+    action: 'Erneut versuchen',
+  },
   empty: {
     title: 'Noch kein IFC-Modell',
     description:
@@ -167,6 +173,7 @@ export const bim: typeof en.bim = {
       stale: 'Älterer Stand',
       staleHint:
         'Diese Bestätigung wurde gegen einen früheren Modellstand abgegeben. Sie bleibt als Nachweis erhalten, deckt den aktuellen Stand aber nicht mehr ab.',
+      failed: 'Die Bestätigung konnte nicht gespeichert werden. Sie ist NICHT hinterlegt — bitte erneut versuchen.',
       confirm: 'Manuell bestätigen',
       reconfirm: 'Für diesen Stand erneut bestätigen',
       withdraw: 'Zurückziehen',
@@ -280,6 +287,7 @@ export const bim: typeof en.bim = {
     copied: 'Kopiert',
   },
   viewer: {
+    canvasLabel: '3D-Ansicht des IFC-Modells',
     title: '3D-Ansicht',
     downloading: 'Modell wird geladen…',
     parsing: 'Geometrie wird aufgebaut… {count} Teile',

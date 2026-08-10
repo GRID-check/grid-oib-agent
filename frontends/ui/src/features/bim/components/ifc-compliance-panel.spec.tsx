@@ -293,3 +293,64 @@ describe('IfcCompliancePanel', () => {
     })
   })
 })
+
+describe('a confirmation that could not be saved', () => {
+  const unsettled = rule({
+    ruleId: 'oib2-feuerwiderstand-tragend',
+    undecidable: 34,
+    unknowns: [
+      {
+        status: 'undecidable',
+        globalId: '0GridFixture00Wall0001',
+        name: 'AW 38 Nord',
+        storeyName: 'Erdgeschoss',
+        reading: 'Kein Feuerwiderstand am Bauteil hinterlegt',
+      },
+    ],
+  })
+
+  const panel = (onConfirm: (ruleId: string, note: string) => Promise<void>) =>
+    render(
+      <IfcCompliancePanel
+        rules={[unsettled]}
+        summary={null}
+        shoppingList={[]}
+        isLoading={false}
+        error={null}
+        projectId="p1"
+        modelFilename="haus.ifc"
+        missingFacts={[]}
+        askHref="/app/projects/p1/chat?ask=x"
+        bcfHref={null}
+        onConfirm={onConfirm}
+      />
+    )
+
+  it('says so, instead of leaving the form open with no explanation', async () => {
+    // The failure used to be invisible: the request rejected, the form stayed
+    // open, and an architect who had just signed off a requirement had every
+    // reason to believe it was recorded. A record of a decision that was never
+    // recorded is the worst thing this surface can produce.
+    const user = userEvent.setup()
+    panel(() => Promise.reject(new Error('offline')))
+
+    await user.click(screen.getByTestId('bim-confirm-open'))
+    await user.click(screen.getByTestId('bim-confirm-save'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/NOT recorded/i)
+    // And the form stays open, holding the note the person typed, so
+    // "try again" does not mean "type it all again".
+    expect(screen.getByTestId('bim-confirm-save')).toBeInTheDocument()
+  })
+
+  it('says nothing when the confirmation saved', async () => {
+    const user = userEvent.setup()
+    panel(() => Promise.resolve())
+
+    await user.click(screen.getByTestId('bim-confirm-open'))
+    await user.click(screen.getByTestId('bim-confirm-save'))
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})

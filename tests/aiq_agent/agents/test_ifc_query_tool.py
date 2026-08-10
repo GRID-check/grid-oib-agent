@@ -473,3 +473,124 @@ class TestComplianceOperation:
         # And it must name what the catalogue cannot see, so the agent does not
         # present a partial check as a whole one.
         assert "Fluchtweglängen" in _TOOL_DESCRIPTION
+
+
+class TestTheDescriptionDescribesTheRealTool:
+    """The description is the only spec the model reads.
+
+    A parameter documented in it that the function does not have is not a typo
+    — it is an instruction the model follows to produce a call that silently
+    does something else. ``by_material=true`` shipped for exactly that reason:
+    the real switch is ``group_by="material"``, so every cost-estimate takeoff
+    an obedient model asked for came back ungrouped, and nothing failed.
+    """
+
+    @staticmethod
+    def _description_and_parameters() -> tuple[str, list[str]]:
+        # Read through the AST rather than importing: `_ifc_query` is nested
+        # inside a registration generator, so its signature is not reachable
+        # without standing up the whole NAT builder.
+        import ast
+        import inspect
+
+        from aiq_agent.agents.bim import register
+
+        tree = ast.parse(inspect.getsource(register))
+        description = next(
+            ast.literal_eval(node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "_TOOL_DESCRIPTION"
+        )
+        parameters = next(
+            [argument.arg for argument in node.args.args + node.args.kwonlyargs]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_ifc_query"
+        )
+        return description, parameters
+
+    def test_every_argument_the_description_shows_being_set_exists(self):
+        import re
+
+        description, parameters = self._description_and_parameters()
+        # `name=value` in the description is an instruction to pass `name`.
+        shown = set(re.findall(r"\b([a-z][a-z0-9_]{2,})\s*=", description))
+
+        assert shown, "the invariant is vacuous if the description shows no arguments at all"
+        assert sorted(shown - set(parameters)) == []
+
+    def test_every_snake_case_name_is_a_parameter_or_a_named_neighbour(self):
+        import re
+
+        description, parameters = self._description_and_parameters()
+        # Other tools and cards the description legitimately points at. The
+        # list is explicit so a NEW snake_case name has to be classified rather
+        # than absorbed.
+        neighbours = {"knowledge_search", "project_profile_patch"}
+        named = set(re.findall(r"[a-z][a-z0-9]*_[a-z0-9_]+", description))
+
+        assert sorted(named - set(parameters) - neighbours) == []
+
+    def test_the_takeoff_material_split_is_documented_as_a_name_match(self):
+        # It matches material NAMES, not IfcMaterialLayerSet structure, and a
+        # reader who assumes otherwise reports a layered wall's quantity as
+        # though it were split per layer.
+        description, _ = self._description_and_parameters()
+
+        assert 'group_by="material"' in description
+        assert "substring match" in description
+
+    def test_the_description_separates_an_absent_value_from_a_zero(self):
+        # IFC2X3 rarely publishes Qto_* at all, so "no NetFloorArea" on a 2X3
+        # export is a fact about the exporter, not about the rooms.
+        description, _ = self._description_and_parameters()
+
+        assert "IFC2X3" in description
+        assert "not that the rooms have no area" in description
+
+    def test_the_description_teaches_the_spatial_tree(self):
+        description, _ = self._description_and_parameters()
+
+        assert "project → site → building → storey → elements" in description
+        assert "IfcSpace" in description
+
+    def test_the_description_says_the_bcf_does_not_come_back(self):
+        # Nothing reads topic status back, so an agent must not imply the file
+        # tracks resolution.
+        description, _ = self._description_and_parameters()
+
+        assert "ONE-WAY" in description
+
+
+class TestGebaeudeklasseValidation:
+    """One gate, so the run and the download cannot disagree."""
+
+    @pytest.mark.parametrize("value", [0, 6, 9, -1, None])
+    def test_an_impossible_gebaeudeklasse_reaches_neither_the_query_nor_the_link(self, value):
+        from aiq_agent.agents.bim.register import _bcf_link
+
+        query = build(operation="compliance", gebaeudeklasse=value or 0)
+        assert "gebaeudeklasse" not in query
+
+        # And the same value must not survive into the export URL, which is the
+        # half that used to take it raw.
+        assert "gebaeudeklasse" not in _bcf_link("p1", "haus.ifc", value or 0, "")
+
+    @pytest.mark.parametrize("value", [1, 2, 3, 4, 5])
+    def test_a_real_gebaeudeklasse_reaches_both(self, value):
+        from aiq_agent.agents.bim.register import _bcf_link
+
+        assert build(operation="compliance", gebaeudeklasse=value)["gebaeudeklasse"] == value
+        assert f"gebaeudeklasse={value}" in _bcf_link("p1", "haus.ifc", value, "")
+
+    def test_the_rendered_export_link_drops_a_klasse_the_catalogue_refused(self):
+        # The end-to-end shape of the bug: the tool is called with 9, the
+        # catalogue runs without a Gebäudeklasse, and the link must match.
+        rendered = _render(
+            {"resolved": True, "op": "compliance", "model": {"filename": "haus.ifc"}, "summary": "…"},
+            "p1",
+            9,
+            "wohnen",
+        )
+
+        assert "checks/export?model=haus.ifc&hauptnutzung=wohnen" in rendered
+        assert "gebaeudeklasse" not in rendered

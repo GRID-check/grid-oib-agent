@@ -54,6 +54,10 @@ _TOOL_DESCRIPTION = (
     "is about THIS building rather than about a regulation — 'how many escape doors', 'net floor "
     "area per storey', 'which walls are external', 'what is the U-value of the windows'.\n"
     "\n"
+    "An IFC model is a TREE: project → site → building → storey → elements, and rooms are "
+    "IfcSpace elements sitting in a storey. 'which storey is this on' and 'which rooms are in "
+    "the Erdgeschoss' are answered by that containment, not by geometry.\n"
+    "\n"
     "operation:\n"
     "  'overview'   — what the model is: project/site/building names, storeys, totals, areas. "
     "Start here when you do not yet know what the model contains.\n"
@@ -72,8 +76,10 @@ _TOOL_DESCRIPTION = (
     "per-storey and building totals. Use for 'Flächenaufstellung', 'welche Räume', 'wie groß ist'. "
     "The totals already say how many rooms publish no area — report that too.\n"
     "  'takeoff'    — Massenermittlung: one quantity summed per element type, optionally split "
-    "by material. Set 'quantity' (NetSideArea, NetVolume, …) and by_material=true for a "
-    "cost-estimate breakdown.\n"
+    "by material. Set 'quantity' (NetSideArea, NetVolume, …) and group_by=\"material\" for a "
+    "cost-estimate breakdown. The material split matches the material NAMES the export wrote "
+    "(a substring match on names like 'Beton C25/30'); it does not read the layer structure, so "
+    "a wall counts once under its first material rather than per layer.\n"
     "  'profile'    — project facts the MODEL implies: storeys above/below ground, the "
     "Fluchtniveau band, the main use. These are PROPOSALS with their evidence — offer them "
     "through a project_profile_patch card for the user to confirm, never state them as settled.\n"
@@ -115,6 +121,12 @@ _TOOL_DESCRIPTION = (
     "Report the caveat line verbatim whenever one comes back — it says which parts of the "
     "building the numbers do NOT cover, and an answer that drops it is wrong.\n"
     "\n"
+    "A missing value is a fact about the EXPORT, not about the building. IFC2X3 models in "
+    "particular rarely publish Qto_* quantity sets at all, so 'no NetFloorArea' on a 2X3 file "
+    "usually means the exporter did not write quantities — not that the rooms have no area. "
+    "Check 'overview' for the schema version and say which of the two it is rather than "
+    "reporting zero.\n"
+    "\n"
     "Whenever a row comes back with a 'Link:' value, LINK the element when you name it: write "
     "[Aussenwand AW 38](/app/projects/…/model?…) using that exact path. The link opens the 3D "
     "model with that element selected and highlighted, which is the difference between telling "
@@ -124,12 +136,29 @@ _TOOL_DESCRIPTION = (
     "a link at the end of the answer — [offene Punkte als BCF](/api/projects/…/bim/checks/export?…) "
     "using that exact path. It downloads the open requirements as a BCF 2.1 file that opens in "
     "ArchiCAD, Revit, Solibri or BIMcollab with the affected elements selected, which is how the "
-    "missing properties actually get authored. Copy the path verbatim.\n"
+    "missing properties actually get authored. Copy the path verbatim. The export is ONE-WAY: "
+    "nothing reads the topics back, so a resolved item shows up here only after the corrected "
+    "model is re-uploaded and checked again — say that rather than implying the BCF tracks "
+    "status.\n"
     "\n"
     "model_name selects one model when the project has several (a substring of the file name); "
     "leave it empty when there is only one. Report the numbers this tool returns as they are — "
     "do not recompute, round differently, or extrapolate them."
 )
+
+
+def _valid_gebaeudeklasse(value: int | None) -> int:
+    """The Gebäudeklasse if it is one, else 0 — the single place that decides.
+
+    OIB knows GK 1–5. A model asked for "Gebäudeklasse 9" will occasionally
+    supply one, and the two consumers of this value MUST agree on what to do
+    with it: the catalogue omits an invalid fact so the rules stand down with
+    their reason, and the BCF link has to omit it for the same reason. Deciding
+    that twice is how they came to disagree — the run happened at "no
+    Gebäudeklasse given" while the download link said `gebaeudeklasse=9`, so the
+    archive an architect opened was built against thresholds nobody chose.
+    """
+    return value if value and 1 <= value <= 5 else 0
 
 
 def _element_link(project_id: str | None, filename: str | None, global_id: str | None) -> str:
@@ -172,8 +201,11 @@ def _bcf_link(
     if not project_id or not filename:
         return ""
     query = f"model={quote(filename, safe='')}"
-    if gebaeudeklasse:
-        query = f"{query}&gebaeudeklasse={gebaeudeklasse}"
+    # Through the same gate the catalogue run went through, so the archive can
+    # never carry a fact the verdicts did not use.
+    valid_klasse = _valid_gebaeudeklasse(gebaeudeklasse)
+    if valid_klasse:
+        query = f"{query}&gebaeudeklasse={valid_klasse}"
     if hauptnutzung:
         query = f"{query}&hauptnutzung={quote(hauptnutzung, safe='')}"
     return f"/api/projects/{quote(project_id, safe='')}/bim/checks/export?{query}"
@@ -206,8 +238,8 @@ def _build_query(
         # that was not supplied is OMITTED rather than defaulted: the rules that
         # need it stand down with their reason, which is the honest outcome.
         compliance_query: dict[str, Any] = {"op": operation}
-        if gebaeudeklasse and 1 <= gebaeudeklasse <= 5:
-            compliance_query["gebaeudeklasse"] = gebaeudeklasse
+        if _valid_gebaeudeklasse(gebaeudeklasse):
+            compliance_query["gebaeudeklasse"] = _valid_gebaeudeklasse(gebaeudeklasse)
         if hauptnutzung.strip():
             compliance_query["hauptnutzung"] = hauptnutzung.strip().lower()
         return compliance_query

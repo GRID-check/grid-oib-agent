@@ -40,7 +40,11 @@ import {
   type BimElementQueryPlan,
   type BimPropertyCatalogEntry,
 } from './repository'
-import { readComplianceCache, writeComplianceCache } from './compliance-cache'
+import {
+  readComplianceCache,
+  writeComplianceCache,
+  type CachedCompliance,
+} from './compliance-cache'
 import { buildStoredRuleInputs, readStoredRuleInputs } from './rule-inputs'
 import { compareModels, renderComparison, type BimComparison } from './compare'
 import { deriveProfileSuggestions, renderProfileSuggestions, type BimProfileSuggestion } from './profile'
@@ -78,6 +82,18 @@ export const BIM_FILTER_OPERATORS = [
 ] as const
 export type BimFilterOperator = (typeof BIM_FILTER_OPERATORS)[number]
 
+/**
+ * The operators whose value reaches SQL as a NUMBER, and which therefore
+ * cannot be handed anything else.
+ *
+ * `value` is a string|number|boolean, so `{operator: 'lt', value: 'breit'}`
+ * parses, and `Number('breit')` is NaN. Postgres orders `numeric 'NaN'` ABOVE
+ * every real number, so that filter does not fail — it returns EVERY element
+ * with the property, as a confident answer to a question nobody asked. Failing
+ * the parse is the only outcome the reader can tell apart from a real result.
+ */
+const NUMERIC_OPERATORS = new Set(['gt', 'gte', 'lt', 'lte'])
+
 const propertyFilterSchema = z
   .object({
     /**
@@ -95,6 +111,12 @@ const propertyFilterSchema = z
     (filter) =>
       filter.operator === 'exists' || filter.operator === 'missing' || filter.value !== undefined,
     { message: 'operator requires a value' }
+  )
+  .refine(
+    (filter) => !NUMERIC_OPERATORS.has(filter.operator) || Number.isFinite(Number(filter.value)),
+    {
+      message: 'gt/gte/lt/lte need a numeric value',
+    }
   )
 
 export type BimPropertyFilter = z.infer<typeof propertyFilterSchema>
@@ -302,6 +324,76 @@ function storeyFacts(
 }
 
 /**
+ * The rule catalogue over one model, through every shortcut there is.
+ *
+ * Written once because it is needed twice, and the second caller — the
+ * revision diff — had none of it: two unconditional `loadBimElementsForSchedule`
+ * calls, no projection, no memo, and no truncation flag, so the op that
+ * compares two 400 000-element revisions was the slowest thing in the product
+ * and the least honest about what it had read.
+ *
+ * The order matters: memo, then the stored projection, then the full load.
+ * Each step is a fact about an IMMUTABLE model — a `ready` model never changes
+ * and a new revision is a new id — so a hit can never describe a building that
+ * has since moved.
+ */
+async function complianceRun(
+  header: BimModelHeader,
+  organizationId: string,
+  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null }
+): Promise<CachedCompliance> {
+  const cached = readComplianceCache(header.id, facts.gebaeudeklasse, facts.hauptnutzung)
+  if (cached) return cached
+
+  // The fast path: a single column of a single row, ~120 bytes per element
+  // instead of ~1 199, no `jsonb_each`, one parse. See `rule-inputs.ts`.
+  const stored = readStoredRuleInputs(await loadBimRuleInputs(header.id, organizationId))
+  const loaded = stored
+    ? { elements: stored.elements, truncated: stored.truncated }
+    : await loadBimElementsForSchedule(header.id, organizationId)
+
+  // Models extracted before the projection existed have none. The first reader
+  // pays the old cost once and leaves it behind for everyone else, which is
+  // why there is no backfill job.
+  if (!stored) {
+    await saveBimRuleInputs(
+      header.id,
+      organizationId,
+      buildStoredRuleInputs(loaded.elements, loaded.truncated)
+    )
+  }
+
+  // TWO caps, and either one makes the run partial: the loader’s, and
+  // EXTRACTION’s — elements past `BIM_ELEMENT_LIMIT` were never written to the
+  // table at all, so no loader could report them missing. Only the summary
+  // knows about that one. A catalogue run over part of a building, reporting
+  // verdict counts as though they covered all of it, is what the Prüfbuch, the
+  // BCF export and the signed confirmation all inherit.
+  const truncated = loaded.truncated || header.summary?.truncatedAt != null
+
+  const compliance = runBimRules(loaded.elements, {
+    ...facts,
+    // The model declares its length unit; a rule that guessed could be wrong
+    // by a factor of a thousand. Each revision is judged with ITS OWN, so a
+    // re-export from millimetres to metres does not register as every
+    // dimension changing by a factor of a thousand.
+    lengthScale: header.summary?.units.length?.siScale ?? null,
+    // OIB 2 Tabelle 1b asks a different duration of a Kellergeschöß wall than
+    // of a ground-floor one; without the elevations no rule can tell. From
+    // each side’s OWN summary, for the same reason the length scale is.
+    storeys: storeyFacts(header.summary),
+  })
+  const computed: CachedCompliance = {
+    truncated,
+    compliance,
+    complianceSummary: summarizeBimRules(compliance),
+    complianceShoppingList: missingPropertyShoppingList(compliance),
+  }
+  writeComplianceCache(header.id, facts.gebaeudeklasse, facts.hauptnutzung, computed)
+  return computed
+}
+
+/**
  * `jsonb_each` over a container, exposing `(set_name, prop_name, prop_value)`.
  *
  * Written once because every property predicate needs the same two-level
@@ -361,6 +453,12 @@ function valueCondition(filter: BimPropertyFilter): SQL | null {
  * SQL that guarantees the order, so the type check actually gates the cast.
  */
 function numericCondition(operator: SQL, value: number): SQL {
+  // A non-finite bound never reaches here through the schema, which rejects
+  // it — but `buildBimPredicate` is called directly by tests and by the
+  // internal composer, and `NaN` bound into a `numeric` comparison makes the
+  // predicate silently all-true rather than raising. `false` is the only safe
+  // reading of "compare this against a number that is not one".
+  if (!Number.isFinite(value)) return sql`false`
   return sql`CASE WHEN jsonb_typeof(p.prop_value) = 'number' THEN (p.prop_value)::numeric ${operator} ${value} ELSE false END`
 }
 
@@ -435,6 +533,13 @@ export function buildBimPredicate(
   return buildBimElementPlan(filter, options).assisted
 }
 
+/**
+ * An IFC GlobalId: 22 characters of base64 over IFC's own alphabet.
+ *
+ * Lowercased forms included, because the storey filter compares lowercased.
+ */
+const IFC_GLOBAL_ID = /^[0-9A-Za-z_$]{22}$/
+
 /** Conditions that are the same however the query is planned. */
 function sharedConditions(filter: BimFilter): SQL[] {
   const conditions: Array<SQL | undefined> = []
@@ -451,11 +556,20 @@ function sharedConditions(filter: BimFilter): SQL[] {
     // A storey is addressed by name in conversation and by GlobalId in a card,
     // and the caller should not have to know which it holds.
     const lowered = filter.storeys.map((storey) => storey.toLowerCase())
+    const byName = inArray(sql`lower(${bimElements.storeyName})`, lowered)
+    // The GlobalId arm is emitted ONLY for tokens shaped like one. Every value
+    // of `storey_global_id` is a 22-character IFC GlobalId, so its lowercase
+    // form is always GlobalId-shaped and a token that is not can never equal
+    // it — dropping the arm for a list of plain names is exact, not a
+    // shortcut. It matters because an unconditional `OR` over two columns is
+    // unindexable: the expression index added in 0040 serves the name arm, and
+    // an OR with an unindexed second arm sends the whole predicate back to a
+    // sequential scan, which is what made that index dead on arrival.
+    const globalIds = lowered.filter((storey) => IFC_GLOBAL_ID.test(storey))
     conditions.push(
-      or(
-        inArray(sql`lower(${bimElements.storeyName})`, lowered),
-        inArray(sql`lower(${bimElements.storeyGlobalId})`, lowered)
-      )
+      globalIds.length === 0
+        ? byName
+        : or(byName, inArray(sql`lower(${bimElements.storeyGlobalId})`, globalIds))
     )
   }
   if (filter.globalIds?.length) {
@@ -815,63 +929,13 @@ export async function runBimQuery(
       // Over the FULL element set, like every other derived table: a rule run
       // against a capped page would report "0 nicht erfuellt" for a building
       // whose failures all sat past the cap.
-      // A `ready` model is immutable, so this is a pure function of the model
-      // id and the two facts — see `compliance-cache.ts` for what recomputing
-      // it costs (~1.5 s and ~126 MB per call on a 400k-element model).
-      const cached = readComplianceCache(
-        context.modelId,
-        request.gebaeudeklasse ?? null,
-        request.hauptnutzung ?? null
-      )
-      if (cached) return finish({ ...modelBase, ...cached })
-
-      // The fast path: a single column of a single row, ~120 bytes per element
-      // instead of ~1 199, no `jsonb_each`, one parse. See `rule-inputs.ts`.
-      const stored = readStoredRuleInputs(
-        await loadBimRuleInputs(context.modelId, context.organizationId)
-      )
-
-      // `truncated` is NOT optional here. The loader caps at 50 000 rows, and
-      // a catalogue run over a capped page reports verdict counts for part of
-      // a building as though they covered all of it — the Prüfbuch, the BCF
-      // export and the signed confirmation all inherit that.
-      const { elements, truncated } = stored
-        ? { elements: stored.elements, truncated: stored.truncated }
-        : await loadBimElementsForSchedule(context.modelId, context.organizationId)
-
-      // Models extracted before the projection existed have none. The first
-      // reader pays the old cost once and leaves it behind for everyone else,
-      // which is why there is no backfill job.
-      if (!stored) {
-        await saveBimRuleInputs(
-          context.modelId,
-          context.organizationId,
-          buildStoredRuleInputs(elements, truncated)
-        )
-      }
-      const compliance = runBimRules(elements, {
-        gebaeudeklasse: request.gebaeudeklasse ?? null,
-        hauptnutzung: request.hauptnutzung ?? null,
-        // The model declares its length unit; a rule that guessed could be
-        // wrong by a factor of a thousand.
-        lengthScale: model.summary?.units.length?.siScale ?? null,
-        // OIB 2 Tabelle 1b asks a different duration of a Kellergeschoß wall
-        // than of a ground-floor one; without the elevations no rule can tell.
-        storeys: storeyFacts(model.summary),
+      return finish({
+        ...modelBase,
+        ...(await complianceRun(model, context.organizationId, {
+          gebaeudeklasse: request.gebaeudeklasse ?? null,
+          hauptnutzung: request.hauptnutzung ?? null,
+        })),
       })
-      const computed = {
-        truncated,
-        compliance,
-        complianceSummary: summarizeBimRules(compliance),
-        complianceShoppingList: missingPropertyShoppingList(compliance),
-      }
-      writeComplianceCache(
-        context.modelId,
-        request.gebaeudeklasse ?? null,
-        request.hauptnutzung ?? null,
-        computed
-      )
-      return finish({ ...modelBase, ...computed })
     }
 
     case 'takeoff': {
@@ -898,36 +962,27 @@ export async function runBimQuery(
       if (!base || base.status !== 'ready') {
         throw new BimModelNotReadyError(base?.status ?? 'failed', 'Base model is not ready')
       }
-      const ruleFacts = {
+      const facts = {
         gebaeudeklasse: request.gebaeudeklasse ?? null,
         hauptnutzung: request.hauptnutzung ?? null,
       }
-      const [beforeRows, afterRows] = await Promise.all([
-        loadBimElementsForSchedule(base.id, context.organizationId),
-        loadBimElementsForSchedule(context.modelId, context.organizationId),
+      const [before, after] = await Promise.all([
+        complianceRun(base, context.organizationId, facts),
+        complianceRun(model, context.organizationId, facts),
       ])
-      // Each side is judged with ITS OWN declared unit: a revision re-exported
-      // from millimetres to metres would otherwise register as every dimension
-      // changing by a factor of a thousand.
-      // Storeys come from each side's OWN summary for the same reason the
-      // length scale does: a revision that renamed or re-levelled a storey
-      // must be judged as it is, not as the other revision was.
-      const before = runBimRules(beforeRows.elements, {
-        ...ruleFacts,
-        lengthScale: base.summary?.units.length?.siScale ?? null,
-        storeys: storeyFacts(base.summary),
-      })
-      const after = runBimRules(afterRows.elements, {
-        ...ruleFacts,
-        lengthScale: model.summary?.units.length?.siScale ?? null,
-        storeys: storeyFacts(model.summary),
-      })
       return finish({
         ...modelBase,
-        compliance: after,
-        complianceSummary: summarizeBimRules(after),
-        complianceChanges: diffBimCompliance(before, after),
+        compliance: after.compliance,
+        complianceSummary: after.complianceSummary,
+        complianceShoppingList: after.complianceShoppingList,
+        complianceChanges: diffBimCompliance(before.compliance, after.compliance),
         comparedWith: base.filename,
+        // EITHER side being capped makes the diff unsound the same way: an
+        // element past one side's cap reads as removed, and a rule whose
+        // failures sat past it reads as fixed. The banner is the only thing
+        // stopping "was hat sich verschlechtert" being answered from half a
+        // building.
+        truncated: before.truncated || after.truncated,
       })
     }
 

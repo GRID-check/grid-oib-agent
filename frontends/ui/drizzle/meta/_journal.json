@@ -281,6 +281,13 @@
       "when": 1785888000005,
       "tag": "0039_bim_elements_type_order_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785974400005,
+      "tag": "0040_bim_elements_storey_expression_idx",
+      "breakpoints": true
     }
   ]
 }

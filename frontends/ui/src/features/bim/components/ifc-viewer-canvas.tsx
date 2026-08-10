@@ -43,6 +43,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslations } from '@/i18n'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
 import { rendererPreset, type BimCameraView, type BimSection } from '../lib/viewer-camera'
 
@@ -85,6 +86,16 @@ export interface IfcViewerCanvasProps {
   viewNonce?: number
   /** Bumped to re-frame the model. Same reason: fitting twice is two events. */
   fitNonce?: number
+  /**
+   * Fly the camera to {@link selectedExpressId} when it changes.
+   *
+   * Off by default, and deliberately not implied by selection: clicking an
+   * element in the viewport must not move the camera out from under the hand
+   * that clicked it. The list, the search result and the chat chip are the
+   * callers that want it, because there "find the red thing" in a
+   * five-thousand-element building is the entire task.
+   */
+  zoomToSelection?: boolean
   className?: string
 }
 
@@ -131,6 +142,8 @@ interface RendererLike {
   getScene(): {
     setColorOverrides(overrides: Map<number, Rgba>, device: unknown, pipeline: unknown): void
     clearColorOverrides(): void
+    /** World-space AABB of one element, or null before its geometry lands. */
+    getEntityBoundingBox(expressId: number): { min: Vec3Like; max: Vec3Like } | null
   }
   getGPUDevice(): unknown
   getPipeline(): unknown
@@ -151,10 +164,16 @@ export function IfcViewerCanvas({
     onBounds,
     viewNonce = 0,
     fitNonce = 0,
+    zoomToSelection = false,
     className,
 }: IfcViewerCanvasProps): JSX.Element {
+  const t = useTranslations('bim')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<RendererLike | null>(null)
+  // The geometry kernel is a WASM instance with its own heap, and it outlives
+  // the parse: `processAdaptive` returns but the module stays resident. Only
+  // the renderer used to be disposed, so every viewport mount leaked a kernel.
+  const geometryRef = useRef<{ dispose(): void } | null>(null)
   const [ready, setReady] = useState(false)
 
   // Render inputs live in refs as well as props: the draw call reads them from
@@ -246,6 +265,7 @@ export function IfcViewerCanvas({
         if (cancelled) return
 
         const geometry = new GeometryProcessor()
+        geometryRef.current = geometry
         const renderer = new Renderer(canvas) as unknown as RendererLike
         await Promise.all([geometry.init(), renderer.init()])
         if (cancelled) {
@@ -288,11 +308,13 @@ export function IfcViewerCanvas({
       cancelled = true
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
       frameRef.current = null
-      // WebGPU resources are not garbage-collected. Skipping this leaks a
-      // device and every buffer per mount, and a handful of navigations
-      // exhausts VRAM.
+      // Neither WebGPU resources nor the WASM heap are garbage-collected.
+      // Skipping either leaks a device, every vertex buffer, and the kernel's
+      // whole arena per mount; a handful of navigations exhausts VRAM.
       rendererRef.current?.destroy()
       rendererRef.current = null
+      geometryRef.current?.dispose()
+      geometryRef.current = null
       setReady(false)
     }
   }, [sourceUrl, requestFrame])
@@ -343,10 +365,59 @@ export function IfcViewerCanvas({
   }, [requestFrame])
 
   const dragRef = useRef<{ x: number; y: number; button: number; moved: boolean } | null>(null)
+  /**
+   * Every pointer currently down, by id — the whole of touch support.
+   *
+   * A single-pointer drag orbits, which a phone could already do. Nothing
+   * mapped the SECOND finger, and the canvas is `touch-action: none`, so the
+   * browser's own pinch was suppressed as well: a tablet could turn the
+   * building and never get closer to it. Two fingers now pinch to zoom and
+   * drag to pan, which is what every BIM viewer on a tablet does.
+   */
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ distance: number; centreX: number; centreY: number } | null>(null)
+
+  /** Spread and midpoint of the two active pointers. */
+  const pinchState = (): { distance: number; centreX: number; centreY: number } | null => {
+    const [a, b] = [...pointersRef.current.values()]
+    if (!a || !b) return null
+    return {
+      distance: Math.hypot(a.x - b.x, a.y - b.y),
+      centreX: (a.x + b.x) / 2,
+      centreY: (a.y + b.y) / 2,
+    }
+  }
+
+  /** Forget a pointer and leave gesture state consistent, however it ended. */
+  const endPointer = (event: React.PointerEvent<HTMLCanvasElement>): void => {
+    pointersRef.current.delete(event.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId)
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2) {
+      // A gesture that became a pinch is no longer a click or an orbit.
+      pinchRef.current = pinchState()
+      dragRef.current = null
+      return
+    }
     dragRef.current = { x: event.clientX, y: event.clientY, button: event.button, moved: false }
+  }
+
+  /**
+   * A pointer that the BROWSER took away — a system gesture, a palm rejection,
+   * a lost capture. Without this the drag state survives, and the next tap is
+   * read as the continuation of a drag that ended minutes ago: an orbit that
+   * jumps, or a selection that never fires because `moved` is still true.
+   */
+  const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    endPointer(event)
+    dragRef.current = null
   }
 
   /**
@@ -373,6 +444,32 @@ export function IfcViewerCanvas({
     rendererRef.current?.fitToView()
     requestFrame()
   }, [fitNonce, ready, requestFrame])
+
+  // Frame the selected element, when the selection came from somewhere other
+  // than a click in this canvas. `zoomExtent` is on the camera and
+  // `getEntityBoundingBox` on the scene; nothing was missing but the wiring.
+  //
+  // Skipped when the element has no geometry yet (streaming has not reached
+  // it) and when it has none at all — an IfcSpace in a model exported without
+  // volumes is selectable in the table and invisible here, and flying the
+  // camera to an empty box would leave the reader staring at nothing with no
+  // way back.
+  useEffect(() => {
+    if (!ready || !zoomToSelection || selectedExpressId === null) return
+    const renderer = rendererRef.current
+    if (!renderer) return
+    const box = renderer.getScene().getEntityBoundingBox(selectedExpressId)
+    if (!box) return
+    void renderer
+      .getCamera()
+      .zoomExtent(box.min, box.max)
+      .then(() => requestFrame())
+      .catch(() => {
+        // A camera that refuses the move leaves the view where it was, which
+        // is a worse answer than moving but a much better one than a crash
+        // mid-selection.
+      })
+  }, [selectedExpressId, zoomToSelection, ready, requestFrame])
 
   // Report the model's vertical extent once, so the cut slider has a range
   // that belongs to this building rather than an arbitrary one. Y is up in the
@@ -412,9 +509,34 @@ export function IfcViewerCanvas({
   }, [section, ready, requestFrame])
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const drag = dragRef.current
     const renderer = rendererRef.current
-    if (!drag || !renderer) return
+    if (!renderer) return
+
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    }
+
+    // Two fingers: the change in spread zooms, the change in midpoint pans.
+    // Both at once, because that is one gesture to the hand holding the
+    // tablet even though it is two numbers here.
+    const previous = pinchRef.current
+    if (previous) {
+      const current = pinchState()
+      if (!current) return
+      pinchRef.current = current
+      if (previous.distance > 0 && current.distance > 0) {
+        // Ratio, not difference: pinching the same physical distance should
+        // zoom the same PROPORTION whether the fingers started 40 px or
+        // 400 px apart, which a subtraction gets wrong at both ends.
+        renderer.getCamera().zoom(Math.log(previous.distance / current.distance) * 4)
+      }
+      renderer.getCamera().pan(current.centreX - previous.centreX, current.centreY - previous.centreY)
+      requestFrame()
+      return
+    }
+
+    const drag = dragRef.current
+    if (!drag) return
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
     if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true
@@ -428,9 +550,12 @@ export function IfcViewerCanvas({
   }
 
   const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const wasPinching = pinchRef.current !== null
     const drag = dragRef.current
     dragRef.current = null
-    event.currentTarget.releasePointerCapture(event.pointerId)
+    endPointer(event)
+    // Lifting one finger of a pinch is not a click on whatever was under it.
+    if (wasPinching) return
     const renderer = rendererRef.current
     // A click is a pointer-up that did not drag: orbiting past an element must
     // not select it.
@@ -468,11 +593,15 @@ export function IfcViewerCanvas({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       onWheel={handleWheel}
       // The canvas is a graphical view of data that is also available as text in
       // the element table beside it, so it is labelled rather than described.
+      // Through the dictionary like every other string a reader sees: a
+      // hardcoded German label is the one piece of the page an English screen
+      // reader cannot read.
       role="img"
-      aria-label="3D-Ansicht des IFC-Modells"
+      aria-label={t('viewer.canvasLabel')}
     />
   )
 }

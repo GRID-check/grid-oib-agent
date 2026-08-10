@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
 import { resolveHighlights, supportsWebGpu, type BimHighlightGroup } from '@/features/bim/lib/model-index'
+import { buildModelHref } from '@/features/bim/lib/model-link'
 import {
   pickDefaultModel,
   useBimElements,
@@ -73,6 +74,28 @@ export function IfcViewerCard({
     [highlights, elements]
   )
 
+  /**
+   * "Open model" carries the card's whole view, not just the project.
+   *
+   * The card exists because an answer named three walls on the Obergeschoss;
+   * a bare `/model` link throws that away and hands the reader a fresh
+   * building to find them in again. Everything the card was showing —
+   * which model, which storey, which elements highlighted — is already
+   * expressible as a URL (`model-link.ts`), so the link is that URL.
+   */
+  const openHref = useMemo(
+    () =>
+      buildModelHref(projectId ?? '', {
+        ...(model ? { model: model.filename } : {}),
+        ...(storey ? { storey } : {}),
+        ...(highlights.length > 0 ? { highlights } : {}),
+        // Ghosting is what makes three highlighted walls findable inside a
+        // whole building rather than buried in it.
+        ...(highlights.length > 0 ? { xray: true } : {}),
+      }),
+    [projectId, model, storey, highlights]
+  )
+
   return (
     <section className="rounded-xl border bg-card p-4" aria-label={title}>
       <header className="mb-3 flex items-start justify-between gap-3">
@@ -82,7 +105,7 @@ export function IfcViewerCard({
         </div>
         {model && projectId && (
           <Button asChild size="sm" variant="ghost">
-            <Link href={`/app/projects/${projectId}/model`}>
+            <Link href={openHref}>
               {t('card.openModel')}
               <ExternalLink className="size-3.5" aria-hidden="true" />
             </Link>

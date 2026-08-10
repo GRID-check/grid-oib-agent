@@ -26,6 +26,7 @@ import type { BimComparison } from '@/lib/bim/compare'
 import { rulesWithOpenWork, type BimRuleResult } from '@/lib/bim/rules'
 import type { BimRoomSchedule } from '@/lib/bim/schedule'
 import { buildModelHref } from '@/features/bim/lib/model-link'
+import { formatPropertyValue } from '@/features/bim/lib/format-value'
 import { shortIfcType } from '@/features/bim/lib/model-index'
 import {
   pickDefaultModel,
@@ -328,6 +329,7 @@ export function IfcElementCard({
   projectId,
 }: IfcElementCardProps): JSX.Element {
   const t = useTranslations('bim')
+  const { locale } = useLocale()
   const { model } = useResolvedModel(projectId, modelFile)
   const { data: element, isLoading, error } = useModelQuery(
     model?.id ?? null,
@@ -382,7 +384,7 @@ export function IfcElementCard({
                 <div key={name} className="flex justify-between gap-3">
                   <dd className="text-muted-foreground">{name}</dd>
                   <dd className="font-medium">
-                    {value === null ? '—' : typeof value === 'boolean' ? (value ? 'Ja' : 'Nein') : String(value)}
+                    {formatPropertyValue(value, locale)}
                   </dd>
                 </div>
               ))}
@@ -440,7 +442,17 @@ export function IfcComplianceCard({
     }),
     [facts.gebaeudeklasse, facts.hauptnutzung]
   )
-  const { data: rules, isLoading, error } = useModelQuery(model?.id ?? null, request, pickCompliance)
+  // WAIT for the brief. Without the guard the catalogue runs once with no
+  // Gebäudeklasse and again with it, and the first run is both discarded and
+  // WRONG — every fire-resistance rule stands down, so for a moment the card
+  // contradicts the model page about the same building. It also costs a
+  // measured ~1.5 s and ~126 MB of server work per card, thrown away.
+  const {
+    data: rules,
+    isLoading: queryLoading,
+    error,
+  } = useModelQuery(facts.ready ? (model?.id ?? null) : null, request, pickCompliance)
+  const isLoading = queryLoading || !facts.ready
 
   const selected = useMemo(() => {
     if (!rules) return null

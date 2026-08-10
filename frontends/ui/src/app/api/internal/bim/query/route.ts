@@ -22,9 +22,11 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { BadRequestError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { bimQuerySchema, runBimQuery, BimModelNotReadyError } from '@/lib/bim/query'
 import { listBimModels, type BimModelHeader } from '@/lib/bim/repository'
+import { FEATURE_FLAGS, enforcementOn } from '@/lib/authz/feature-flags'
+import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 
 const requestSchema = z
   .object({
@@ -62,6 +64,19 @@ export const POST = internalApiRoute(
   async ({ request }) => {
     const { organizationId, projectId, modelId, modelName, compareWithName, query } =
       await parseJsonBody(request, requestSchema)
+
+    // The SAME gate the UI and every user-facing route apply, evaluated
+    // per-organization because this route carries a service token and no
+    // session. Without it the flag gated the upload and the pages while the
+    // agent kept answering questions about the building indefinitely — the
+    // registry comment and ADR-0044 both say it is gated, and it was not.
+    //
+    // Only when enforcement is on, matching `isFeatureEnabled`'s back-compat
+    // rule for deployments that have no WorkOS flag product; `isOrgFeatureEnabled`
+    // is itself fail-closed on a lookup error.
+    if (enforcementOn() && !(await isOrgFeatureEnabled(FEATURE_FLAGS.ifcModels, organizationId))) {
+      throw new ForbiddenError('IFC models are not enabled for this organization')
+    }
 
     // `?? null`, NOT `?? undefined`: `listBimModels` reads an UNDEFINED
     // projectId as "no project predicate at all", i.e. every model in the
@@ -126,10 +141,20 @@ export const POST = internalApiRoute(
       }
     }
 
-    // `compare` names its counterpart by file name too, and resolving it here
-    // keeps the tool free of ids on both sides of the comparison.
+    // Both two-revision ops name their counterpart by file name, and resolving
+    // it here keeps the tool free of ids on both sides of the comparison.
+    //
+    // A `baseModelId` that arrived in the BODY is discarded rather than
+    // trusted. `runBimQuery` scopes a base model to the ORGANIZATION and
+    // nothing else, so a caller that supplied one directly could read another
+    // PROJECT's building out of the diff: `compare` reports every base element
+    // absent from the revision as `removed`, with its name and storey, and
+    // `compliance-diff` reports the base's per-rule verdict counts and its
+    // file name. `queryAccessibleModel` closes exactly this on the user path;
+    // this route is the other half, and `readable` below is already scoped to
+    // the conversation's project plus the org Archiv.
     let resolvedQuery = query
-    if (query.op === 'compare') {
+    if (query.op === 'compliance-diff' || query.op === 'compare') {
       if (!compareWithName) {
         return {
           resolved: false,

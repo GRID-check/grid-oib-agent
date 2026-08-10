@@ -335,6 +335,11 @@ function Confirmation({
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  // A signature that did not save must SAY so. Without this the request failed
+  // silently, the form stayed open with no explanation, and the architect had
+  // every reason to believe the rule was confirmed — a record of a decision
+  // that was never recorded, on the one surface that exists to be a record.
+  const [failed, setFailed] = useState(false)
 
   // Nothing to confirm on a rule that stood down or that the model settled
   // cleanly — offering a signature there would invite one nobody needs.
@@ -344,10 +349,26 @@ function Confirmation({
   const submit = async (): Promise<void> => {
     if (!onConfirm) return
     setBusy(true)
+    setFailed(false)
     try {
       await onConfirm(rule.ruleId, note.trim())
       setOpen(false)
       setNote('')
+    } catch {
+      setFailed(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const withdraw = async (): Promise<void> => {
+    if (!onWithdraw) return
+    setBusy(true)
+    setFailed(false)
+    try {
+      await onWithdraw(rule.ruleId)
+    } catch {
+      setFailed(true)
     } finally {
       setBusy(false)
     }
@@ -381,7 +402,13 @@ function Confirmation({
 
       {onConfirm && !open && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            data-testid="bim-confirm-open"
+            onClick={() => setOpen(true)}
+          >
             {rule.confirmation
               ? t('compliance.confirmed.reconfirm')
               : t('compliance.confirmed.confirm')}
@@ -391,7 +418,8 @@ function Confirmation({
               type="button"
               size="sm"
               variant="ghost"
-              onClick={() => void onWithdraw(rule.ruleId)}
+              onClick={() => void withdraw()}
+              disabled={busy}
             >
               {t('compliance.confirmed.withdraw')}
             </Button>
@@ -409,7 +437,13 @@ function Confirmation({
             aria-label={t('compliance.confirmed.noteLabel')}
           />
           <div className="flex gap-2">
-            <Button type="button" size="sm" onClick={() => void submit()} disabled={busy}>
+            <Button
+              type="button"
+              size="sm"
+              data-testid="bim-confirm-save"
+              onClick={() => void submit()}
+              disabled={busy}
+            >
               {busy ? <Spinner className="size-3" /> : null}
               {t('compliance.confirmed.save')}
             </Button>
@@ -418,6 +452,12 @@ function Confirmation({
             </Button>
           </div>
         </div>
+      )}
+
+      {failed && (
+        <p role="alert" data-testid="bim-confirmation-failed" className="text-xs text-destructive">
+          {t('compliance.confirmed.failed')}
+        </p>
       )}
     </div>
   )

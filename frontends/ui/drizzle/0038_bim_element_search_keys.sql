@@ -56,27 +56,42 @@ ALTER TABLE bim_models ADD COLUMN IF NOT EXISTS search_keys_indexed boolean NOT 
 
 -- Backfill from the jsonb already stored, set-based. `bim_elements` is capped
 -- at 200 000 rows per model by `BIM_ELEMENT_LIMIT`, so this is bounded work.
+--
+-- `#>> '{}'` over a jsonb null yields SQL NULL, and the value list drops it
+-- (`FILTER … IS NOT NULL`, defaulting to `[]`) while the KEY is still emitted.
+-- Both halves matter and they pull in opposite directions: a null-valued
+-- property still EXISTS, so `{operator: 'exists'}` matches it and the key has
+-- to be present or the pre-filter deletes a row the exact predicate matched;
+-- but no `eq` can ever match it, so putting a literal `"null"` in the value
+-- list would make containment claim a match that the predicate refuses.
+-- `buildSearchKeys` in `lib/bim/rule-inputs.ts` does exactly the same, and
+-- `query.integration.spec.ts` runs the two against each other.
 WITH flattened AS (
   SELECT
     e.id,
     jsonb_object_agg(f.key, f.values) AS keys
   FROM bim_elements e
   CROSS JOIN LATERAL (
-    SELECT f.key, jsonb_agg(DISTINCT f.value) AS values
+    SELECT
+      f.key,
+      coalesce(
+        jsonb_agg(DISTINCT to_jsonb(f.value)) FILTER (WHERE f.value IS NOT NULL),
+        '[]'::jsonb
+      ) AS values
     FROM (
-      SELECT 'p:' || lower(p.prop_name) AS key, to_jsonb(lower(p.prop_value #>> '{}')) AS value
+      SELECT 'p:' || lower(p.prop_name) AS key, lower(p.prop_value #>> '{}') AS value
       FROM jsonb_each(e.properties) AS s(set_name, set_value),
            jsonb_each(s.set_value) AS p(prop_name, prop_value)
       UNION ALL
-      SELECT 'p:' || lower(s.set_name) || '.' || lower(p.prop_name), to_jsonb(lower(p.prop_value #>> '{}'))
+      SELECT 'p:' || lower(s.set_name) || '.' || lower(p.prop_name), lower(p.prop_value #>> '{}')
       FROM jsonb_each(e.properties) AS s(set_name, set_value),
            jsonb_each(s.set_value) AS p(prop_name, prop_value)
       UNION ALL
-      SELECT 'q:' || lower(p.prop_name), to_jsonb(lower(p.prop_value #>> '{}'))
+      SELECT 'q:' || lower(p.prop_name), lower(p.prop_value #>> '{}')
       FROM jsonb_each(e.quantities) AS s(set_name, set_value),
            jsonb_each(s.set_value) AS p(prop_name, prop_value)
       UNION ALL
-      SELECT 'q:' || lower(s.set_name) || '.' || lower(p.prop_name), to_jsonb(lower(p.prop_value #>> '{}'))
+      SELECT 'q:' || lower(s.set_name) || '.' || lower(p.prop_name), lower(p.prop_value #>> '{}')
       FROM jsonb_each(e.quantities) AS s(set_name, set_value),
            jsonb_each(s.set_value) AS p(prop_name, prop_value)
     ) f

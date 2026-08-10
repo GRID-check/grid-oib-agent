@@ -110,7 +110,8 @@ project and by file name, and the endpoint resolves them.
   bury the rest of the corpus.
 - **`bim_elements` is a wide jsonb table.** Property-set keys are chosen by
   whichever application exported the model, so they cannot be columns. Indexed
-  with `gin (properties jsonb_path_ops)`.
+  with `gin (properties jsonb_path_ops)`. *(Superseded — see the amendment
+  below.)*
 
 ## Tenancy
 
@@ -128,4 +129,43 @@ infrastructure dependency to derive one from (unlike image upload, which needs a
 VLM). WebGPU is a per-browser fact detected at render time, not a deployment
 capability. The flag gates the `.ifc` entry in the upload accept-list on both
 the client and the BFF allow-list, the model page, and every `/api/**/bim/*`
-route.
+route. The gate is applied on the user-facing routes through
+`assertIfcModelsEnabled`, and on the session-less `/api/internal/bim/query`
+route — the agent's path — by evaluating the flag per-organization, so
+revoking it stops the agent answering as well as hiding the pages.
+
+## Amendments
+
+### The property index (migrations 0036, 0038, 0039, 0040)
+
+`gin (properties jsonb_path_ops)`, as decided above, was never usable by any
+query this layer emits, and was dropped in `0036` after being measured at
+`idx_scan = 0`. Two things were wrong with it. `jsonb_path_ops` supports
+containment (`@>`) only, while the property filters also need key-existence
+(`?`); and no operator class can serve the predicate the filters actually
+emit, which is a correlated `EXISTS (jsonb_each(properties) … lower(…) =
+lower(…))` — set and property names come from whichever tool exported the
+model, so the comparison has to be case-insensitive, and `lower()` over an
+unnested key is not an indexable expression.
+
+What replaced it keeps the decision above intact — the keys still cannot be
+columns — and adds an indexable *shadow* of them:
+
+- `bim_elements.search_keys` (`0038`), a flat lowercased map of exactly what
+  those predicates look up, with `gin (search_keys jsonb_ops)` — `jsonb_ops`
+  because it must serve `?` as well as `@>`. It is a **necessary pre-filter,
+  never the answer**: the exact unnest still decides.
+- `bim_models.search_keys_indexed` (`0038`), so a model an older image wrote is
+  answered by the unnest alone rather than by an index that does not describe
+  it.
+- `(model_id, ifc_type, express_id)` (`0039`), so the element list's ordering
+  comes from the index and a page stops at its last row.
+- `(model_id, lower(storey_name))` (`0040`), for the same reason the original
+  index failed: the predicate is on `lower()`, and the plain btree could not
+  serve it either.
+
+The two indexes are the fast plan for opposite regimes — one for a filter
+matching few elements, one for a filter matching many — and `listBimElements`
+chooses between them from measured counts, because jsonb containment has no
+statistics and Postgres cannot. `docs/architecture/backend-deep-dive.md`
+carries the measurements.

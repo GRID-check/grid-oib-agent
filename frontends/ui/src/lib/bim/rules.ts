@@ -425,15 +425,31 @@ const NON_OCCUPIED_MARKERS = [
 ]
 
 /**
+ * `IfcSpaceTypeEnum` values that say NOTHING about whether people stay in the
+ * room, so the name markers have to decide instead.
+ *
+ * The list is the whole point of the helper below. `NOTDEFINED` is what Revit
+ * and ArchiCAD write for an ordinary room by default and `SPACE` is IFC4's own
+ * generic value — treating either as "a type was published, and it is not one
+ * of the two I recognise" dropped the majority of every real model's rooms out
+ * of the Raumhöhe rule silently, which reads as a building with no
+ * Aufenthaltsräume to check rather than as a rule that never ran.
+ *
+ * Everything NOT in this list is a real statement — `PARKING`, `EXTERNAL`,
+ * `GFA` — and is believed.
+ */
+const UNINFORMATIVE_SPACE_TYPES = new Set(['', 'SPACE', 'INTERNAL', 'USERDEFINED', 'NOTDEFINED'])
+
+/**
  * An Aufenthaltsraum, as far as the model lets us tell.
  *
  * `PredefinedType` is believed when the model publishes a meaningful one; the
  * name markers are the fallback for the overwhelming majority of exports that
- * leave it `INTERNAL` or unset.
+ * publish one of {@link UNINFORMATIVE_SPACE_TYPES}.
  */
 const isOccupiedSpace = (element: BimElement): boolean => {
   const predefined = (element.predefinedType ?? '').toUpperCase()
-  if (predefined && predefined !== 'INTERNAL' && predefined !== 'USERDEFINED') return false
+  if (!UNINFORMATIVE_SPACE_TYPES.has(predefined)) return false
   const name = (element.name ?? '').toLowerCase()
   return !NON_OCCUPIED_MARKERS.some((marker) => name.includes(marker))
 }
@@ -481,21 +497,50 @@ export const BIM_RULES: RuleDefinition[] = [
     thresholdDe: 'lichte Durchgangsbreite ≥ 0,80 m',
     ifcTypes: ['IfcDoor'],
     judge: (element, facts) => {
-      const width = toMetres(
-        quantity(element, ['Width', 'ClearWidth']) ??
-          numericProperty(element, ['OverallWidth', 'ClearWidth']),
+      // LICHTE Durchgangsbreite, which is not the door's nominal width. A
+      // 0,90 m door leaf passes through a frame and over a stop, and the
+      // clear opening it leaves is routinely 0,78 m — under the threshold the
+      // nominal figure clears comfortably. Reading `Width` first therefore
+      // passed doors that fail, on an escape-route rule.
+      const clear = toMetres(
+        quantity(element, ['ClearWidth']) ?? numericProperty(element, ['ClearWidth']),
         facts.lengthScale
       )
-      if (width === null) {
+      if (clear !== null) {
+        return {
+          status: clear >= 0.8 ? 'pass' : 'fail',
+          reading: `Lichte Durchgangsbreite ${round(clear)} m — Schwellwert ≥ 0,80 m`,
+        }
+      }
+
+      // Without it, the nominal width is still an UPPER BOUND on the clear
+      // one, so it can settle a failure and never a pass. Reporting the pass
+      // anyway is the whole class of error this catalogue exists to avoid.
+      const nominal = toMetres(
+        quantity(element, ['Width']) ?? numericProperty(element, ['OverallWidth', 'Width']),
+        facts.lengthScale
+      )
+      if (nominal === null) {
         return {
           status: 'undecidable',
           reading: 'Keine Breite im Modell veröffentlicht',
-          missing: 'Qto_DoorBaseQuantities.Width',
+          missing: 'Qto_DoorBaseQuantities.ClearWidth',
+        }
+      }
+      if (nominal < 0.8) {
+        return {
+          status: 'fail',
+          reading:
+            `Nennbreite ${round(nominal)} m — die lichte Durchgangsbreite ist kleiner und ` +
+            'liegt damit unter dem Schwellwert von 0,80 m',
         }
       }
       return {
-        status: width >= 0.8 ? 'pass' : 'fail',
-        reading: `Breite ${round(width)} m — Schwellwert ≥ 0,80 m`,
+        status: 'undecidable',
+        reading:
+          `Nur die Nennbreite ${round(nominal)} m veröffentlicht — die lichte ` +
+          'Durchgangsbreite ist um Rahmen und Anschlag kleiner und nicht daraus ableitbar',
+        missing: 'Qto_DoorBaseQuantities.ClearWidth',
       }
     },
   },
@@ -1011,7 +1056,13 @@ function standing(result: BimRuleResult): 'pass' | 'fail' | 'unknown' | 'empty' 
   if (!result.applicable) return 'empty'
   if (result.failed > 0) return 'fail'
   if (result.passed === 0 && result.undecidable === 0) return 'empty'
-  if (result.passed === 0) return 'unknown'
+  // ANY undecidable element leaves the rule unsettled, not passing. The
+  // alternative reads a revision that dropped `FireRating` from half its walls
+  // as "no change" — the rule stood at `pass` with 40 passed, and it still
+  // stands at `pass` with 20 passed and 20 undecidable. That regression is
+  // precisely what a diff is for, and it is the same unearned tick
+  // `summarizeBimRules` refuses to show on the page.
+  if (result.undecidable > 0) return 'unknown'
   return 'pass'
 }
 

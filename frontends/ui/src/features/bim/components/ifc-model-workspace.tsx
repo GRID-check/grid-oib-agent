@@ -89,7 +89,7 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { data: models, isLoading } = useProjectBimModels(projectId)
+  const { data: models, isLoading, error, reload } = useProjectBimModels(projectId)
 
   /**
    * The whole view lives in the URL: which model, which storey, which element,
@@ -208,9 +208,32 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
     return typeof match?.elevation === 'number' ? match.elevation : null
   }, [storey, model])
 
+  /**
+   * Select an element, and make sure the view can actually show it.
+   *
+   * A storey filter isolates one level; selecting a wall on another one left
+   * the URL saying `element=…` while nothing on screen showed it — not in the
+   * viewport, which was isolated to the filtered storey, and not in the table,
+   * which was filtered the same way. The selection existed and was invisible,
+   * which reads as a broken link rather than as a filter.
+   *
+   * So the selection wins: picking an element moves the storey filter to the
+   * storey that element is on. Both halves travel in the URL together, so the
+   * link a reader shares reproduces what the sender was looking at.
+   */
   const handleSelect = useCallback(
-    (element: BimViewerElement | null) => setView({ element: element?.globalId }),
-    [setView]
+    (element: BimViewerElement | null) => {
+      if (!element) {
+        setView({ element: undefined })
+        return
+      }
+      const elementStorey = element.storeyName ?? null
+      setView({
+        element: element.globalId,
+        ...(elementStorey !== null && elementStorey !== storey ? { storey: elementStorey } : {}),
+      })
+    },
+    [setView, storey]
   )
 
   const highlights = useMemo(
@@ -247,6 +270,26 @@ export function IfcModelWorkspace({ projectId }: IfcModelWorkspaceProps): JSX.El
     return (
       <div className="flex h-64 items-center justify-center">
         <Spinner />
+      </div>
+    )
+  }
+
+  // "The request failed" and "this project has no model" are different facts,
+  // and the empty state asserts the second one. Rendering it for a failed
+  // fetch tells an architect their building is not in the system — on the page
+  // whose entire job is to show them that it is.
+  if (error) {
+    return (
+      <div className="space-y-4 p-6">
+        <PageHeader title={t('title')} subtitle={t('subtitle')} />
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
+          <Boxes className="size-8 text-muted-foreground" aria-hidden="true" />
+          <p className="font-medium">{t('loadFailed.title')}</p>
+          <p className="max-w-prose text-sm text-muted-foreground">{t('loadFailed.description')}</p>
+          <Button size="sm" onClick={reload}>
+            {t('loadFailed.action')}
+          </Button>
+        </div>
       </div>
     )
   }

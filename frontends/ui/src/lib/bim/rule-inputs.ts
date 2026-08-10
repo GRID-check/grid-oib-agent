@@ -226,10 +226,10 @@ export function readStoredRuleInputs(
  */
 export function buildSearchKeys(element: BimElement): Record<string, string[]> {
   const keys = new Map<string, Set<string>>()
-  const add = (key: string, value: string): void => {
+  const ensure = (key: string): Set<string> => {
     const bucket = keys.get(key) ?? new Set<string>()
-    bucket.add(value)
     keys.set(key, bucket)
+    return bucket
   }
 
   for (const [prefix, sets] of [
@@ -238,13 +238,20 @@ export function buildSearchKeys(element: BimElement): Record<string, string[]> {
   ] as const) {
     for (const [setName, values] of Object.entries(sets)) {
       for (const [name, raw] of Object.entries(values)) {
-        // `#>> '{}'` in SQL renders a jsonb scalar as text; `String()` is the
-        // JS equivalent for the same scalar types, and `null` is skipped on
-        // both sides.
+        const bare = ensure(`${prefix}${name.toLowerCase()}`)
+        const qualified = ensure(`${prefix}${setName.toLowerCase()}.${name.toLowerCase()}`)
+        // A null-valued property still EXISTS, and `{operator: 'exists'}` says
+        // so — the exact predicate only checks the property NAME. So the key
+        // has to be here or the pre-filter deletes the element from an answer
+        // the predicate matched. Its VALUE is another matter: `#>> '{}'` over
+        // a jsonb null is SQL NULL, so no `eq` can ever match it, and both
+        // sides leave the value list empty rather than inventing `"null"`.
         if (raw === null || raw === undefined) continue
+        // `#>> '{}'` in SQL renders a jsonb scalar as text; `String()` is the
+        // JS equivalent for the same scalar types.
         const value = String(raw).toLowerCase()
-        add(`${prefix}${name.toLowerCase()}`, value)
-        add(`${prefix}${setName.toLowerCase()}.${name.toLowerCase()}`, value)
+        bare.add(value)
+        qualified.add(value)
       }
     }
   }

@@ -258,14 +258,33 @@ describe('search keys', () => {
     expect(keys['p:thermaltransmittance']).toEqual(['0.21'])
   })
 
-  it('skips a null value, as the backfill does', () => {
-    // `to_jsonb(lower(NULL #>> '{}'))` is SQL NULL and `jsonb_agg(DISTINCT …)`
-    // keeps it, so the two sides would disagree if JS emitted `"null"`.
+  it('keeps the KEY of a null-valued property but not a value for it', () => {
+    // Both halves, and they pull opposite ways. `{operator: 'exists'}` checks
+    // only the property NAME, so a null-valued FireRating matches it — and a
+    // pre-filter that omitted the key would delete that element from an answer
+    // the exact predicate matched. But `#>> '{}'` over a jsonb null is SQL
+    // NULL, so no `eq` can match it either, and a literal `"null"` in the
+    // value list would let containment claim a match the predicate refuses.
     const keys = buildSearchKeys(
       element({ ifcType: 'IfcWall', properties: { Pset_WallCommon: { FireRating: null } } })
     )
 
-    expect(keys).toEqual({})
+    expect(keys).toEqual({ 'p:firerating': [], 'p:pset_wallcommon.firerating': [] })
+  })
+
+  it('keeps the real values when one set is null and another is not', () => {
+    const keys = buildSearchKeys(
+      element({
+        ifcType: 'IfcWall',
+        properties: {
+          Pset_WallCommon: { FireRating: null },
+          'Revit Type Parameters': { FireRating: 'F90' },
+        },
+      })
+    )
+
+    expect(keys['p:firerating']).toEqual(['f90'])
+    expect(keys['p:pset_wallcommon.firerating']).toEqual([])
   })
 
   it('gives an element with no properties an empty map, not null', () => {

@@ -53,6 +53,14 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/**
+ * How often a page re-asks while an extraction is running.
+ *
+ * A 60 MB model takes tens of seconds, so this is a handful of requests, and
+ * the interval only exists while something is actually extracting.
+ */
+const EXTRACTION_POLL_MS = 4_000
+
 /** Models in scope for a project: its own plus the org Archiv's. */
 export function useProjectBimModels(projectId: string | null): AsyncState<BimModelHeaderView[]> & {
   reload: () => void
@@ -78,6 +86,20 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
       cancelled = true
     }
   }, [projectId, tick])
+
+  // A model the user just uploaded arrives `pending`/`extracting`, and nothing
+  // told the page when that finished — the upload appeared to hang until
+  // somebody reloaded, on exactly the surface whose whole promise is "drop an
+  // IFC in and ask it questions". Polling stops the moment nothing is in
+  // flight, so a page showing only `ready` models makes no requests at all.
+  const extracting = (state.data ?? []).some(
+    (model) => model.status === 'pending' || model.status === 'extracting'
+  )
+  useEffect(() => {
+    if (!extracting) return
+    const timer = setInterval(() => setTick((value) => value + 1), EXTRACTION_POLL_MS)
+    return () => clearInterval(timer)
+  }, [extracting])
 
   return { ...state, reload: useCallback(() => setTick((value) => value + 1), []) }
 }
