@@ -203,14 +203,19 @@ config:
   #      dnsEnabled is set, which on this CI-deployed stack turns a merge into
   #      a failed deploy:
   #      esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:cloudflareApiToken "<token>" --secret
-  #      (scoped to THIS zone: Zone:DNS:Edit, plus Zone:Dynamic Redirect:Edit
+  #      (scoped to THIS zone: Zone:DNS:Edit, plus Zone:Dynamic URL Redirects:Edit
   #      while dnsApexRedirectTo is set)
   #   4. dnsEnabled: "true" here, then `pulumi up`. Nothing goes live yet.
   #   5. Verify against Cloudflare directly: dig @<assigned-cf-ns> <host>.
   #   6. Only then change the nameservers at GoDaddy.
-  grid-oib:dnsEnabled: "false"
+  #
+  # DEV STACK IS LIVE: the delegation already moved to Cloudflare before this
+  # feature merged, so dnsEnabled is "true" here with the real zone id and token.
+  grid-oib:dnsEnabled: "true"
   grid-oib:dnsZoneName: piloti.at
-  # grid-oib:dnsZoneId: <from the Cloudflare zone Overview page>
+  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907
+  grid-oib:cloudflareApiToken:
+    secure: AAABAD5L+SCK2AhyqX/QqKlpHgDWIgYWvBO8TlwzYzUsaLb8//GZe0dAcvp348Xg0Ikbje8EUWvTiouh2jp4H/sI2l4d3XueTw8WlLm+qV2dPbPDhA==
   #
   # This stack owns the zone-level records (www, _dmarc, the apex) because it is
   # the only stack there is. When the PROD stack ships with baseDomain=piloti.at
