@@ -18,7 +18,24 @@
 -- was not using either: a `GROUP BY` over a whole model is planned as a
 -- parallel sequential scan with a hash aggregate regardless (measured at
 -- 113 ms for the equivalent `ifc_type` grouping on 200 000 elements).
-DROP INDEX IF EXISTS bim_elements_model_storey_idx;
-
-CREATE INDEX IF NOT EXISTS bim_elements_model_storey_idx
+--
+-- The new index gets a NEW NAME, and is built BEFORE the old one is dropped,
+-- for the same reason as 0039: `drizzle-kit migrate` wraps a migration in one
+-- transaction, so a `DROP INDEX` placed first would hold its ACCESS EXCLUSIVE
+-- lock until COMMIT — through the whole build behind it — and block every read
+-- and write on `bim_elements`. This order lets the build take only SHARE and
+-- confines ACCESS EXCLUSIVE to the drop at the end. No rename back to the old
+-- name: `ALTER INDEX … RENAME` takes ACCESS EXCLUSIVE too, which would restore
+-- the lock this ordering exists to avoid.
+--
+-- Reads survive the build; WRITES do not. `CREATE INDEX` holds SHARE for its
+-- duration, which is enough to stall inserts into `bim_elements`. Only
+-- `CONCURRENTLY` is genuinely online, and it cannot run inside a transaction
+-- block, so it would need a non-transactional migration runner this repo does
+-- not have. Writes to this table happen at model ingest and the build is
+-- seconds at the 200 000-row cap, so the blocked window is bounded and falls
+-- on ingest rather than on anything a user is waiting for.
+CREATE INDEX IF NOT EXISTS bim_elements_model_storey_lower_idx
   ON bim_elements (model_id, lower(storey_name));
+
+DROP INDEX IF EXISTS bim_elements_model_storey_idx;

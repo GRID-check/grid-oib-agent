@@ -41,11 +41,30 @@ function volumeLabel(summary: BimModelSummary): string {
   return summary.units.volume?.symbol ?? 'm³'
 }
 
-/** `| a | b |` row, escaping markdown table metacharacters in cell text. */
+/**
+ * `| a | b |` row, escaped so a cell cannot break out of the table.
+ *
+ * Three characters matter, and the ORDER of the first two does:
+ *
+ * - `\` first, because escaping `|` introduces backslashes. A cell already
+ *   containing `\|` would otherwise become `\\|` — a literal backslash
+ *   followed by an unescaped separator, which splits the row into two cells.
+ * - `|` second, the separator itself.
+ * - A newline ends the row wherever it appears, so it becomes a space.
+ *
+ * The cells are element names, type names and property values straight out of
+ * whichever tool exported the model, so none of the three is hypothetical.
+ * This digest is the text the retriever indexes; a row that breaks re-parses
+ * as a different table and the model reads values under the wrong headings.
+ */
 function row(cells: Array<string | number>): string {
-  return `| ${cells
-    .map((cell) => String(cell).replace(/\\/g, '\\\\').replace(/\|/g, '\\|'))
-    .join(' | ')} |`
+  const escaped = cells.map((cell) =>
+    String(cell)
+      .replace(/\\/g, '\\\\')
+      .replace(/\|/g, '\\|')
+      .replace(/\r?\n/g, ' ')
+  )
+  return `| ${escaped.join(' | ')} |`
 }
 
 function table(headers: string[], rows: Array<Array<string | number>>): string[] {

@@ -347,7 +347,8 @@ async function complianceRun(
 
   // The fast path: a single column of a single row, ~120 bytes per element
   // instead of ~1 199, no `jsonb_each`, one parse. See `rule-inputs.ts`.
-  const stored = readStoredRuleInputs(await loadBimRuleInputs(header.id, organizationId))
+  const rawRuleInputs = await loadBimRuleInputs(header.id, organizationId)
+  const stored = readStoredRuleInputs(rawRuleInputs)
   const loaded = stored
     ? { elements: stored.elements, truncated: stored.truncated }
     : await loadBimElementsForSchedule(header.id, organizationId)
@@ -356,10 +357,14 @@ async function complianceRun(
   // pays the old cost once and leaves it behind for everyone else, which is
   // why there is no backfill job.
   if (!stored) {
+    // Guarded on what we read: a re-extraction that landed while we were
+    // loading elements has already written a NEWER projection, and ours
+    // describes the previous revision.
     await saveBimRuleInputs(
       header.id,
       organizationId,
-      buildStoredRuleInputs(loaded.elements, loaded.truncated)
+      buildStoredRuleInputs(loaded.elements, loaded.truncated),
+      rawRuleInputs
     )
   }
 
@@ -766,9 +771,14 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
       // "Mindestens", never a bare number, once the count stopped early. An
       // agent handed "10000 Bauteile" would quote it as the figure, and the
       // model has 400 000.
+      // The VERB inflects too. `1 Bauteil erfüllen` is wrong German, and the
+      // agent is told to quote this line verbatim. The lower-bound branch is
+      // always plural: it only fires past `COUNT_CEILING`.
       return result.totalIsLowerBound
         ? `Mindestens ${total} Bauteile erfüllen die Abfrage${listed}. Die Gesamtzahl wurde nicht zu Ende gezählt.`
-        : `${total} Bauteil${total === 1 ? '' : 'e'} erfüllen die Abfrage${listed}.`
+        : total === 1
+          ? `1 Bauteil erfüllt die Abfrage${listed}.`
+          : `${total} Bauteile erfüllen die Abfrage${listed}.`
     }
     case 'element':
       return result.element

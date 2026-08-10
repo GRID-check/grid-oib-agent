@@ -258,6 +258,58 @@ describe('search keys', () => {
     expect(keys['p:thermaltransmittance']).toEqual(['0.21'])
   })
 
+  it('writes numbers in plain decimal, where `String()` would use an exponent', () => {
+    // Postgres renders jsonb numbers as `numeric`, which is plain decimal at
+    // every magnitude; `String()` flips to exponents at 1e21 and below 1e-6.
+    // The two writers of `search_keys` would then disagree on the same value,
+    // and the AND-ed pre-filter would drop whichever side's rows it did not
+    // write. Negatives and fractional mantissas go the same way.
+    const keys = buildSearchKeys(
+      element({
+        ifcType: 'IfcWall',
+        properties: {
+          Pset_WallCommon: {
+            Height: 1e21,
+            Width: 1e-7,
+            ClearWidth: 1.5e-7,
+            ClearHeight: -1e-7,
+          },
+        },
+      })
+    )
+
+    expect(keys['p:height']).toEqual(['1000000000000000000000'])
+    expect(keys['p:width']).toEqual(['0.0000001'])
+    expect(keys['p:clearwidth']).toEqual(['0.00000015'])
+    expect(keys['p:clearheight']).toEqual(['-0.0000001'])
+  })
+
+  it('leaves values Postgres and `String()` already agree on untouched', () => {
+    // The expansion must be inert everywhere else — a stray trailing zero or a
+    // stringified boolean turning into something else is the same
+    // disappearing-row bug from the other direction.
+    const keys = buildSearchKeys(
+      element({
+        ifcType: 'IfcWall',
+        properties: {
+          Pset_WallCommon: {
+            Width: 0.9,
+            ThermalTransmittance: 0.21,
+            AcousticRating: 53,
+            LoadBearing: true,
+            FireRating: 'REI 90',
+          },
+        },
+      })
+    )
+
+    expect(keys['p:width']).toEqual(['0.9'])
+    expect(keys['p:thermaltransmittance']).toEqual(['0.21'])
+    expect(keys['p:acousticrating']).toEqual(['53'])
+    expect(keys['p:loadbearing']).toEqual(['true'])
+    expect(keys['p:firerating']).toEqual(['rei 90'])
+  })
+
   it('keeps the KEY of a null-valued property but not a value for it', () => {
     // Both halves, and they pull opposite ways. `{operator: 'exists'}` checks
     // only the property NAME, so a null-valued FireRating matches it — and a

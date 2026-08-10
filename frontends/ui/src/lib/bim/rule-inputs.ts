@@ -216,6 +216,39 @@ export function readStoredRuleInputs(
   return { truncated: value.truncated === true, elements: value.elements.map(rehydrate) }
 }
 
+/** `String(number)` in exponent form: sign, mantissa, `e`, signed exponent. */
+const EXPONENT_FORM = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/i
+
+/**
+ * A jsonb scalar as text, rendered the way `#>> '{}'` renders it.
+ *
+ * Postgres stores jsonb numbers as `numeric` and prints them in plain decimal
+ * at every magnitude. `String()` does not: it flips to exponent notation at
+ * |x| >= 1e21 and below 1e-6, so `1e-7` is written `"1e-7"` here and
+ * `"0.0000001"` by the backfill. Both write `search_keys`, and the pre-filter
+ * is AND-ed in, so one element indexed by extraction and its twin indexed by
+ * the backfill answer the same `eq` filter differently — the row written by
+ * the other side vanishes from the result.
+ *
+ * Digits are only re-placed around the decimal point, never rounded or padded:
+ * JS already gives the shortest representation that round-trips, and adding or
+ * dropping a trailing zero would break the same agreement in the other
+ * direction.
+ */
+function renderScalar(raw: unknown): string {
+  const text = String(raw)
+  if (typeof raw !== 'number') return text
+  const match = EXPONENT_FORM.exec(text)
+  if (!match) return text
+
+  const [, sign, whole, fraction = '', exponent] = match
+  const digits = whole + fraction
+  const point = whole.length + Number(exponent)
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`
+  if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`
+}
+
 /**
  * The flat lowercased lookup map the GIN pre-filter reads.
  *
@@ -247,9 +280,7 @@ export function buildSearchKeys(element: BimElement): Record<string, string[]> {
         // a jsonb null is SQL NULL, so no `eq` can ever match it, and both
         // sides leave the value list empty rather than inventing `"null"`.
         if (raw === null || raw === undefined) continue
-        // `#>> '{}'` in SQL renders a jsonb scalar as text; `String()` is the
-        // JS equivalent for the same scalar types.
-        const value = String(raw).toLowerCase()
+        const value = renderScalar(raw).toLowerCase()
         bare.add(value)
         qualified.add(value)
       }

@@ -250,8 +250,8 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     //
     // The three types are deliberately spread across the alphabet and given
     // DIFFERENT property sets: rows come back from
-    // `bim_elements_model_type_idx` in type order, so a catalog that took a
-    // flat `LIMIT` off the top would report `Pset_DoorCommon`, part of
+    // `bim_elements_model_type_express_idx` in type order, so a catalog that
+    // took a flat `LIMIT` off the top would report `Pset_DoorCommon`, part of
     // `Pset_WallCommon`, and never see `Pset_WindowCommon` at all.
     const bigDocumentId = await seedDocument(ORG, 'big-building.ifc')
     bigModelId = await repository.startBimModel({
@@ -298,6 +298,14 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       db.execute(sql`
         UPDATE bim_models SET element_count = ${BIG_MODEL_ELEMENTS} WHERE id = ${bigModelId}::uuid
       `)
+    )
+    // `completeBimModel` ran with an empty element list, so it stored a
+    // rule-input projection describing ZERO elements, and the raw insert above
+    // did not update it. A `compliance` query would take the fast path and
+    // report a catalogue run over nothing as complete and untruncated. No test
+    // does that today; clearing the column means none can start to.
+    await withPlatformAccess('drop the empty rule-input projection', () =>
+      db.execute(sql`UPDATE bim_models SET rule_inputs = NULL WHERE id = ${bigModelId}::uuid`)
     )
     // Those rows went in raw, so they carry no `search_keys` yet. Running the
     // migration's own backfill over them puts the fixture in the state a real
@@ -699,6 +707,48 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
 
     expect(result.walked).toBe(false)
     expect(result.total).toBe(1)
+  })
+
+  it('refuses to overwrite a projection written while it was working', async () => {
+    // The lazy path reads `rule_inputs`, spends a second or two loading
+    // elements, and writes back. A re-extraction can land in that gap:
+    // `startBimModel` reuses the SAME row, so `completeBimModel` writes the new
+    // revision's projection — and a blind write-back would then replace it with
+    // one computed from the PREVIOUS revision's elements. Every later reader
+    // would get verdicts for a building that had already been superseded, on
+    // the fast path, with nothing to show which revision they described.
+    const repository = await import('./repository')
+    const { buildStoredRuleInputs } = await import('./rule-inputs')
+
+    const truncationFlag = async (): Promise<boolean | undefined> => {
+      const raw = await repository.loadBimRuleInputs(modelId, ORG)
+      return raw && typeof raw === 'object' && 'truncated' in raw
+        ? Boolean((raw as { truncated: unknown }).truncated)
+        : undefined
+    }
+
+    const original = await repository.loadBimRuleInputs(modelId, ORG)
+    expect(original).not.toBeNull()
+    expect(await truncationFlag()).toBe(false)
+
+    // A writer that started before that projection existed still holds `null`,
+    // and must lose.
+    await repository.saveBimRuleInputs(modelId, ORG, buildStoredRuleInputs([], true), null)
+    expect(await truncationFlag()).toBe(false)
+
+    // Passing what is actually there DOES write, so the lazy backfill this
+    // guard protects still works.
+    await repository.saveBimRuleInputs(modelId, ORG, buildStoredRuleInputs([], true), original)
+    expect(await truncationFlag()).toBe(true)
+
+    // Put the fixture's own projection back for the tests that follow.
+    await withPlatformAccess('restore the fixture projection', () =>
+      db.execute(sql`
+        UPDATE bim_models SET rule_inputs = ${JSON.stringify(original)}::jsonb
+        WHERE id = ${modelId}::uuid
+      `)
+    )
+    expect(await truncationFlag()).toBe(false)
   })
 
   it('reports an exact total below the ceiling', async () => {

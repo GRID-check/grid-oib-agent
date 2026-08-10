@@ -23,7 +23,25 @@
 -- of the two a given query wants is decided in `listBimElements`, because
 -- Postgres cannot decide it — jsonb containment has no statistics, so `@>` is
 -- costed at a hardcoded 0.5 % selectivity no matter what the model holds.
-DROP INDEX IF EXISTS bim_elements_model_type_idx;
-
-CREATE INDEX IF NOT EXISTS bim_elements_model_type_idx
+--
+-- The new index gets a NEW NAME, and is built BEFORE the old one is dropped,
+-- to keep the table readable while it builds. `drizzle-kit migrate` wraps a
+-- migration in one transaction, so a `DROP INDEX` placed first would hold its
+-- ACCESS EXCLUSIVE lock until COMMIT — that is, for the whole duration of the
+-- rebuild behind it, blocking every read and write on `bim_elements`. Ordered
+-- this way the build takes only SHARE, and the ACCESS EXCLUSIVE window shrinks
+-- to the drop at the very end. Renaming back to the old name is deliberately
+-- NOT done: `ALTER INDEX … RENAME` takes ACCESS EXCLUSIVE too, so it would put
+-- back a second lock for no gain beyond a tidier name.
+--
+-- This is NOT an online migration. `CREATE INDEX` still blocks WRITES to
+-- `bim_elements` for the length of the build; only reads survive. The fully
+-- online form is `CONCURRENTLY`, which cannot run inside a transaction block
+-- at all and so needs a non-transactional migration runner this repo does not
+-- have. Element writes happen at model ingest, and the build is seconds on a
+-- 200 000-row table, so the stall is bounded and lands on ingest, not on the
+-- element list.
+CREATE INDEX IF NOT EXISTS bim_elements_model_type_express_idx
   ON bim_elements (model_id, ifc_type, express_id);
+
+DROP INDEX IF EXISTS bim_elements_model_type_idx;

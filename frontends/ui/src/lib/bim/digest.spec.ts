@@ -97,3 +97,36 @@ describe('buildModelDigest', () => {
     expect(digest).toContain('| Bauteile gesamt | 19 |')
   })
 })
+
+describe('a cell cannot break out of the table', () => {
+  /**
+   * The digest is the text the retriever indexes. A row that breaks re-parses
+   * as a different table, and the model then reads values under the wrong
+   * headings — the digest's own numbers, attributed to the wrong property.
+   *
+   * None of these are hypothetical characters: element names, type names and
+   * property values come out of whichever tool exported the model.
+   */
+  it('escapes backslashes BEFORE pipes, and newlines at all', async () => {
+    const index = await model()
+    // A ROOM, because rooms are the elements the digest names individually.
+    let renamed = false
+    const hostile = index.elements.map((element) => {
+      if (renamed || element.ifcType !== 'IfcSpace') return element
+      renamed = true
+      return { ...element, name: 'Wohnen \\| 01\nOG' }
+    })
+    expect(renamed).toBe(true)
+
+    const digest = buildModelDigest(index, hostile, { filename: 'sample-building.ifc' })
+    const rows = digest.split('\n').filter((line) => line.startsWith('|'))
+    const hostileRow = rows.find((line) => line.includes('Wohnen '))
+
+    expect(hostileRow).toBeDefined()
+    // Escaping `|` first would have produced `\\|` — a literal backslash and
+    // then a live separator, which splits the cell in two.
+    expect(hostileRow).toContain('Wohnen \\\\\\| 01 OG')
+    // And every row still has the column count its header declared.
+    for (const line of rows) expect(line).not.toMatch(/\n/)
+  })
+})

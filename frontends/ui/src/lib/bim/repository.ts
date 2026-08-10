@@ -674,8 +674,8 @@ export async function listBimPropertyCatalog(input: {
 
   return withTenant({ organizationId: input.organizationId }, async () => {
     // How big the job is, before committing to it. An index-only scan of
-    // `bim_elements_model_type_idx` — it never touches the jsonb, which is the
-    // part that costs.
+    // `bim_elements_model_type_express_idx` — it never touches the jsonb,
+    // which is the part that costs.
     const typeRows = await db.execute<{ ifc_type: string; elements: string }>(sql`
       SELECT e.ifc_type, count(*)::text AS elements
       FROM bim_elements e
@@ -875,18 +875,46 @@ export async function loadBimRuleInputs(
   return rows[0]?.ruleInputs ?? null
 }
 
-/** Persist the projection so the next reader does not repeat the scan. */
+/**
+ * Persist the projection so the next reader does not repeat the scan.
+ *
+ * COMPARE-AND-SWAP on what the caller read, not a blind overwrite. The lazy
+ * path reads the column, spends a second or two loading elements, and writes
+ * back — and a re-extraction can land in that gap. `startBimModel` reuses the
+ * SAME row for a re-ingest, so `completeBimModel` would write the new
+ * revision's projection and this write would then replace it with one computed
+ * from the previous revision's elements. Every later reader would get verdicts
+ * for a building that had already been superseded, on the fast path, with
+ * nothing to show which revision they described.
+ *
+ * `IS NOT DISTINCT FROM` rather than `=` because the value read is almost
+ * always NULL — that is the case the lazy path exists for — and `NULL = NULL`
+ * is not true. Losing the race is a no-op: the projection that is already
+ * there was computed from newer elements than ours.
+ */
 export async function saveBimRuleInputs(
   modelId: string,
   organizationId: string,
-  ruleInputs: StoredRuleInputs
+  ruleInputs: StoredRuleInputs,
+  /** Exactly what {@link loadBimRuleInputs} returned before the work started. */
+  expected: unknown
 ): Promise<void> {
   const db = getDb()
   await withTenant({ organizationId }, () =>
     db
       .update(bimModels)
       .set({ ruleInputs })
-      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId)))
+      .where(
+        and(
+          eq(bimModels.id, modelId),
+          eq(bimModels.organizationId, organizationId),
+          sql`${bimModels.ruleInputs} IS NOT DISTINCT FROM ${
+            expected === null || expected === undefined
+              ? sql`NULL::jsonb`
+              : sql`${JSON.stringify(expected)}::jsonb`
+          }`
+        )
+      )
   )
 }
 

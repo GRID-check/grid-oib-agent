@@ -128,8 +128,11 @@ export const bimElements = pgTable(
     // `express_id` is the third column so the index satisfies the element
     // list's `ORDER BY ifc_type, express_id` outright and a page can stop at
     // the twenty-fifth match instead of sorting a whole type group — see
-    // `0039_bim_elements_type_order_idx.sql`.
-    modelTypeIdx: index('bim_elements_model_type_idx').on(
+    // `0039_bim_elements_type_order_idx.sql`. The `_express_` in the name is
+    // load-bearing: it replaces `bim_elements_model_type_idx`, and the new
+    // index has to exist alongside the old one long enough to be built before
+    // it, so it cannot reuse the name.
+    modelTypeIdx: index('bim_elements_model_type_express_idx').on(
       table.modelId,
       table.ifcType,
       table.expressId
@@ -137,8 +140,10 @@ export const bimElements = pgTable(
     // On `lower(storey_name)`, matching the predicate the query layer emits —
     // a btree over the raw column cannot serve a case-insensitive comparison,
     // which is why the previous form was never used by the only query written
-    // against it. See `0040_bim_elements_storey_expression_idx.sql`.
-    modelStoreyIdx: index('bim_elements_model_storey_idx').on(
+    // against it. See `0040_bim_elements_storey_expression_idx.sql`, which also
+    // explains why this is `_storey_lower_idx` and not the old
+    // `bim_elements_model_storey_idx` it replaces.
+    modelStoreyIdx: index('bim_elements_model_storey_lower_idx').on(
       table.modelId,
       sql`lower(${table.storeyName})`
     ),
