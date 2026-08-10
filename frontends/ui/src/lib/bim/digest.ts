@@ -41,9 +41,11 @@ function volumeLabel(summary: BimModelSummary): string {
   return summary.units.volume?.symbol ?? 'm³'
 }
 
-/** `| a | b |` row, escaping the one character that would break the table. */
+/** `| a | b |` row, escaping markdown table metacharacters in cell text. */
 function row(cells: Array<string | number>): string {
-  return `| ${cells.map((cell) => String(cell).replace(/\|/g, '\\|')).join(' | ')} |`
+  return `| ${cells
+    .map((cell) => String(cell).replace(/\\/g, '\\\\').replace(/\|/g, '\\|'))
+    .join(' | ')} |`
 }
 
 function table(headers: string[], rows: Array<Array<string | number>>): string[] {
