@@ -307,6 +307,12 @@ llms:
   #
   # request_timeout x (max_retries + 1) must stay UNDER rerank_chunks' own 30s
   # asyncio timeout, or the outer bound fires first and both knobs are dead letters.
+  # It must ALSO exceed the time the reply itself takes to decode. A 60-candidate
+  # pool is ~16k input tokens and ~720 output tokens; at a routine 50 tok/s that is
+  # ~14s of decoding alone, so the 12s this briefly carried would have timed out on
+  # every turn -- and because reranking fails open, the only symptom would have been
+  # one warning line and silently unranked results. 25s single-shot leaves headroom
+  # without letting a hung provider hold a turn open to the outer bound.
   #
   # NOTE: rerank_llm has NO agent group, so no platform default or org override
   # can re-point it — this literal is what every request uses, always. That also
@@ -321,8 +327,8 @@ llms:
     seed: 1
     top_p: 1.0
     max_tokens: 2048
-    max_retries: 1
-    request_timeout: 12
+    max_retries: 0
+    request_timeout: 25
     reasoning_effort: none
 
 functions:
