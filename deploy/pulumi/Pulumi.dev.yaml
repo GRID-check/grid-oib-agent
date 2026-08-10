@@ -177,6 +177,64 @@ config:
   grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
   grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV # pragma: allowlist secret (public OAuth client id)
   grid-oib:loadBalancerIp: 45.144.209.191
+  # ── Public DNS (Cloudflare) ──
+  # Replaces the manual "read the LoadBalancer IP, retype it per host" step that
+  # used to end every deploy. The records for dev./app.dev./s3.dev./otel.dev.
+  # are derived from the SAME config the Gateway listeners are, so they cannot
+  # drift from each other; `loadBalancerIp` above is now the one place the
+  # address is written.
+  #
+  # Cloudflare OPERATES the zone; piloti.at stays registered at GoDaddy with its
+  # NS records delegated. This is not a preference — GoDaddy's own DNS API is
+  # gated behind 10+ domains or a Discount Domain Club membership, so a small
+  # account cannot drive it from code at all.
+  #
+  # This program writes the zone BEFORE the delegation moves, not after —
+  # Cloudflare answers on a zone's assigned nameservers as soon as it holds
+  # records, so the new zone can be dug directly while GoDaddy is still
+  # authoritative. See docs/deployment/kubernetes.md § 3b "Cutover order".
+  #   1. `dig` every record type off the live zone (GoDaddy's UI truncates).
+  #   2. Add piloti.at to Cloudflare and DELETE every record its auto-scan
+  #      imported — Cloudflare round-robins duplicate A records rather than
+  #      rejecting them, so an imported record plus a created one is an
+  #      intermittently wrong answer, not an error.
+  #   3. Copy the zone id from the zone's Overview page into dnsZoneId below,
+  #      and set the token FIRST — `loadConfig` throws without it once
+  #      dnsEnabled is set, which on this CI-deployed stack turns a merge into
+  #      a failed deploy:
+  #      esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:cloudflareApiToken "<token>" --secret
+  #      (scoped to THIS zone: Zone:DNS:Edit, plus Zone:Dynamic URL Redirects:Edit
+  #      while dnsApexRedirectTo is set)
+  #   4. dnsEnabled: "true" here, then `pulumi up`. Nothing goes live yet.
+  #   5. Verify against Cloudflare directly: dig @<assigned-cf-ns> <host>.
+  #   6. Only then change the nameservers at GoDaddy.
+  #
+  # DEV STACK IS LIVE: the delegation already moved to Cloudflare before this
+  # feature merged, so dnsEnabled is "true" here with the real zone id and token.
+  grid-oib:dnsEnabled: "true"
+  grid-oib:dnsZoneName: piloti.at
+  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
+  grid-oib:cloudflareApiToken:
+    secure: AAABAD5L+SCK2AhyqX/QqKlpHgDWIgYWvBO8TlwzYzUsaLb8//GZe0dAcvp348Xg0Ikbje8EUWvTiouh2jp4H/sI2l4d3XueTw8WlLm+qV2dPbPDhA==
+  #
+  # This stack owns the zone-level records (www, _dmarc, the apex) because it is
+  # the only stack there is. When the PROD stack ships with baseDomain=piloti.at
+  # it serves the apex for real: drop BOTH keys below from this file and set
+  # dnsZoneBaseline there instead. `loadConfig` refuses to let two stacks claim
+  # the apex, because Cloudflare would not — the second `pulumi up` would just
+  # overwrite the first one's record and report success.
+  grid-oib:dnsZoneBaseline: "true"
+  # Carried over verbatim from GoDaddy. The domain has no MX records, so nothing
+  # receives mail on it; if that stays true, `v=DMARC1; p=reject;` plus a
+  # `v=spf1 -all` TXT on the apex is the stronger posture — but that is a
+  # decision about the domain's mail policy, not about this deployment, so the
+  # existing value moves across unchanged.
+  grid-oib:dnsDmarc: "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
+  # Scaffolding with an explicit end date: piloti.at currently serves a GoDaddy
+  # WebsiteBuilder placeholder that cannot survive the nameserver move, and the
+  # prod stack that will serve the apex for real does not exist yet. Until it
+  # does, the apex and www bounce here. Unset this the moment prod ships.
+  grid-oib:dnsApexRedirectTo: https://dev.piloti.at
   # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
   # A second consumer on the collector's logs signal. Requires the
   # observability tier above (it has no receiver of its own).
