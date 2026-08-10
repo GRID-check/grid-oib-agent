@@ -168,7 +168,7 @@ export interface GridConfig {
      * and to check that every managed host actually falls inside this zone.
      */
     zoneName: string;
-    /** Token with Zone:DNS:Edit (plus Zone:Dynamic Redirect:Edit when `apexRedirectTo` is set). */
+    /** Token with Zone:DNS:Edit (plus Zone:Dynamic URL Redirects:Edit when `apexRedirectTo` is set). */
     apiToken: pulumi.Output<string>;
     /** Address every host record points at — the Envoy LoadBalancer's external IP. */
     targetIp: string;
