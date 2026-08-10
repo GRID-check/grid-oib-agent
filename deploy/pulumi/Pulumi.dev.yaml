@@ -213,7 +213,7 @@ config:
   # feature merged, so dnsEnabled is "true" here with the real zone id and token.
   grid-oib:dnsEnabled: "true"
   grid-oib:dnsZoneName: piloti.at
-  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907
+  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
   grid-oib:cloudflareApiToken:
     secure: AAABAD5L+SCK2AhyqX/QqKlpHgDWIgYWvBO8TlwzYzUsaLb8//GZe0dAcvp348Xg0Ikbje8EUWvTiouh2jp4H/sI2l4d3XueTw8WlLm+qV2dPbPDhA==
   #
