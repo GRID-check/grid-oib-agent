@@ -128,7 +128,13 @@ one package, and we will gate tuning on measurement.
   `score * 100`; an orthogonal hit went from displaying 37% to 0%. Correct, and
   visible.
 - Chunks are roughly an eighth of their former size, so `top_k` and
-  `rerank_candidates` are now tuned for the wrong shape and must be re-derived.
+  `rerank_candidates` were carrying values derived for the old shape. Since
+  measured and found adequate rather than merely re-derived: over the 52-entry
+  golden set, recall of the answering chunk is **1.00 at k=60 in both languages**
+  (German saturates by k=8, English by k=60), so `rerank_candidates: 60` — 2.4% of
+  the 2,476-chunk corpus — always contains the answer, and the remaining work is
+  the reranker's ordering rather than retrieval's coverage. Measured with
+  `multilingual-e5-small`, so it is a shape result, not a production guarantee.
 - The retriever's caches become resident rather than per-run (~49 MiB per distinct
   configuration), and the retrieval path acquires a shared-cache round trip,
   memoised for 3s.

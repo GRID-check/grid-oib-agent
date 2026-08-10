@@ -837,7 +837,24 @@ that reads the question against the text — the reranker's 0–10 rubric is the
 natural place, and validating that needs a live LLM this environment does not
 have. Recorded as the next measurement, not as a fix.
 
-## 21. What this says about the programme
+## 21. The candidate pool is the right size
+
+Cutting chunks to an eighth of their former size left `top_k` and
+`rerank_candidates` holding values derived for the old shape, which the ADR
+recorded as a negative consequence to re-derive. Measured instead:
+
+| | R@8 | R@16 | R@30 | R@60 |
+|---|---|---|---|---|
+| DE (n=24) | 1.00 | 1.00 | 1.00 | 1.00 |
+| EN (n=22) | 0.86 | 0.95 | 0.95 | 1.00 |
+
+`rerank_candidates: 60` is 2.4% of the 2,476-chunk corpus and **always contains
+the answer**. So the pool needs no change, and everything still failing is the
+reranker's ordering rather than retrieval's coverage — which is also the honest
+statement of where the next real gain is, and it is the one thing here that cannot
+be measured without a live LLM.
+
+## 22. What this says about the programme
 
 Part III's lesson was that reasoning about *ranking mechanics* survived
 measurement and reasoning about *quality* did not. Part IV sharpens it: the
