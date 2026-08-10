@@ -1404,6 +1404,20 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # which is exactly how MIN_SURFACE_SCORE spent its whole life as a no-op.
             # Calibrate with the retrieval-eval harness against the deployed model, then
             # set knowledge.relevance_floor_pct.
+            #
+            # And calibrate expecting to find no usable value. Measured on this corpus
+            # with multilingual-e5-small over the 52-entry golden set, top-1 similarity
+            # does NOT separate the two populations: answerable questions run 0.799 to
+            # 0.933 and the six the corpus cannot answer run 0.795 to 0.865, overlapping
+            # by 0.066. Refusing all six costs 21 of the 46 real questions; keeping 44 of
+            # 46 still answers four of the six. The failures are Wiener Garagengesetz and
+            # Bauordnung questions, and the corpus is full of neighbouring text about
+            # Stellplätze and Grundgrenzen -- similarity measures that the corpus
+            # discusses parking spaces, not that it answers Vienna's parking rule.
+            # Whether that transfers to a stronger embedder is exactly what the harness
+            # is for, but the shape of the result says abstention wants a judge that
+            # reads the question against the text (the reranker's 0-10 rubric), not a
+            # threshold on a distance.
             floor_pct = get_retrieval_setting("knowledge.relevance_floor_pct", 0)
             if floor_pct > 0:
                 floor = floor_pct / 100.0

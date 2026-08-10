@@ -69,6 +69,29 @@ def test_the_longest_concept_wins_so_a_broader_one_cannot_shadow_it() -> None:
     assert "Gebäudeklasse" in terms
 
 
+def test_a_hyphenated_compound_matches_the_spaced_glossary_form() -> None:
+    """English writes these both ways, and a raw substring test matches only one.
+
+    Measured: "How far may the most remote necessary building entrance be from the
+    fire-brigade access road?" expanded to nothing at all and ranked its answer 119th.
+    """
+    assert "Feuerwehr" in expansion_terms("How far is the fire-brigade access road?")
+    assert "U-Wert" in expansion_terms("What u-value applies to an external wall?")
+    assert "barrierefrei" in expansion_terms("Is a step-free entrance required?")
+
+
+def test_hyphenated_and_spaced_spellings_are_the_same_lookup() -> None:
+    """So the glossary never has to enumerate both, and cannot drift between them."""
+    assert expansion_terms("fire-brigade access") == expansion_terms("fire brigade access")
+
+
+def test_the_terms_the_corpus_uses_for_sound_are_the_ones_offered() -> None:
+    """`Luftschalldämmung` is the natural guess and occurs zero times in the corpus."""
+    assert "Trittschall" in expansion_terms("What impact sound level is permitted?")
+    assert "Luftschall" in expansion_terms("What airborne sound insulation is required?")
+    assert "Luftschalldämmung" not in expansion_terms("What airborne sound insulation is required?")
+
+
 def test_the_austrian_spelling_is_the_one_offered() -> None:
     """`Geschoß` occurs 779 times in the corpus against 21 for `Geschoss`."""
     assert "Geschoß" in expansion_terms("How many storeys are permitted?")

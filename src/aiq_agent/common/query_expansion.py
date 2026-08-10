@@ -55,8 +55,24 @@ _GERMAN_CHARS = frozenset("äöüßÄÖÜ")
 
 _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 
+#: Everything that is not a letter or a digit, for matching. English compounds arrive
+#: hyphenated as often as spaced -- "fire-brigade access", "u-value", "step-free" -- and a
+#: raw substring test against a spaced glossary form silently matches none of them.
+#: Measured: "How far may the most remote necessary building entrance be from the
+#: fire-brigade access road?" expanded to nothing at all and ranked its answer 119th.
+_PUNCTUATION_RE = re.compile(r"[^\w]+", re.UNICODE)
+
 _lock = threading.Lock()
 _concepts: list[tuple[tuple[str, ...], tuple[str, ...]]] | None = None
+
+
+def _matchable(text: str) -> str:
+    """Lowercase ``text`` with punctuation flattened to single spaces.
+
+    Applied to both sides of every comparison, so ``fire-brigade`` and ``fire brigade``
+    are the same lookup and neither spelling has to be enumerated in the glossary.
+    """
+    return _PUNCTUATION_RE.sub(" ", text).strip().lower()
 
 
 def _load_concepts() -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
@@ -78,7 +94,7 @@ def _load_concepts() -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
 
             data = yaml.safe_load(VOCABULARY_PATH.read_text(encoding="utf-8")) or {}
             for concept in data.get("concepts") or []:
-                english = tuple(str(form).strip().lower() for form in concept.get("en") or [] if str(form).strip())
+                english = tuple(_matchable(str(form)) for form in concept.get("en") or [] if str(form).strip())
                 german = tuple(str(term).strip() for term in concept.get("de") or [] if str(term).strip())
                 if english and german:
                     pairs.append((english, german))
@@ -126,7 +142,7 @@ def expansion_terms(query: str | None) -> list[str]:
     """
     if not query:
         return []
-    haystack = query.lower()
+    haystack = _matchable(query)
     terms: list[str] = []
     consumed: list[str] = []
     for english_forms, german_terms in _load_concepts():

@@ -106,8 +106,11 @@ concepts:
     en: [parking space, parking spaces]
     de: [Stellplatz]                       # 53
   - id: thermal_protection
-    en: [thermal protection, thermal insulation, u-value]
+    en: [thermal protection, thermal insulation]
     de: [Wärmeschutz]                      # 57
+  - id: u_value
+    en: [u-value, u value, thermal transmittance, heat transfer coefficient]
+    de: [U-Wert, Wärmedurchgangskoeffizient]  # 52 / 96
   - id: heating_demand
     en: [heating demand, heat demand, energy demand]
     de: [Heizwärmebedarf]                  # 71
@@ -117,8 +120,25 @@ concepts:
   - id: sound_insulation
     en: [sound insulation, acoustic, noise protection]
     de: [Schallschutz]                     # 46
+  - id: airborne_sound
+    en: [airborne sound, airborne sound insulation, sound reduction]
+    de: [Luftschall, Schalldämmung]        # 12 / 23 (NOT Luftschalldämmung — 0)
+  - id: impact_sound
+    en: [impact sound, impact sound pressure level, footfall sound]
+    de: [Trittschall, Trittschallpegel]    # 21 / 12
+  - id: corridor
+    en: [corridor, corridors, hallway, passage]
+    de: [Gang, Gänge]                      # 67 / 169 (word-initial; "Zugang" excluded)
+  - id: fire_brigade_access
+    en: [fire brigade access, access road, hardstanding, setup area]
+    de: [Aufstellfläche, Feuerwehrzufahrt] # 10 / 6
 
 # Counted and found ABSENT from data/oib/*.pdf — do not add without re-counting:
 #   Anleiterbarkeit (0), Bruttogeschossfläche (0), Luftschalldämmung (0),
+#   Anleiterstelle (0), Hauptzugang (0), Bemessungswert (0),
+#   Standardschallpegeldifferenz (0), Hauptgang (2, and "Gang" already covers it),
 #   Abstellfläche (2, too rare to be useful), Notausgang (3, the corpus says
 #   Fluchtweg/Rettungsweg instead).
+#
+# The `en` forms are matched with punctuation flattened to spaces, so "fire-brigade
+# access" and "fire brigade access" are one entry. Do not enumerate both spellings.

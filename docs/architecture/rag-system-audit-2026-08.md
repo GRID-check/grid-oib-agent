@@ -755,7 +755,89 @@ German improved again over the greedy chunker (R@5 0.88 → 0.96, MRR 0.593 →
 0.605); English is flat. The remaining German/English MRR gap is **0.088**,
 against 0.235 for the same corpus page-cut.
 
-## 19. What this says about the programme
+## 19. English parity, question by question
+
+"English should perform just as well as German" is a product requirement, so the
+gap was traced per question rather than in aggregate. Five of the 22 English
+golden entries missed at R@5, and the causes were specific rather than diffuse:
+
+| question | rank | cause |
+|---|---|---|
+| fire-**brigade** access road distance | 119 | matched **no** glossary entry at all |
+| impact sound pressure level | 42 | no concept for `Trittschall` |
+| clear width of a main corridor | 25 | no concept for `Gang` |
+| airborne sound insulation `DnT,w` | 11 | no concept for `Luftschall` |
+| U-value of an external wall | 8 | `u-value` mapped to `Wärmeschutz`, not `U-Wert` |
+
+The first is a bug, not a gap. English writes compounds hyphenated at least as
+often as spaced — `fire-brigade`, `u-value`, `step-free` — and the matcher was a
+raw substring test against a spaced glossary form, so it matched none of them.
+Both sides now flatten punctuation to spaces, which also means the glossary never
+has to enumerate two spellings of one term and cannot drift between them.
+
+The other four are four new concepts, each counted in the corpus before being
+written down, as the file requires. `Luftschalldämmung` — the natural guess for
+"airborne sound insulation" — still occurs **zero** times and is still on the
+rejected list; the corpus says `Luftschall` and `Schalldämmung`.
+
+| English arm (n=22) | R@1 | R@5 | R@16 | MRR |
+|---|---|---|---|---|
+| raw, no expansion | 0.09 | 0.41 | 0.73 | 0.276 |
+| expansion, before this fix | 0.32 | 0.77 | 0.86 | 0.517 |
+| expansion, after | 0.27 | 0.77 | **0.95** | 0.503 |
+
+This is a **trade, not a pure win**, and worth stating plainly: the deep failures
+are rescued (R@16 +0.09) at a small cost in rank-1 precision (MRR −0.014), because
+prepending more German broadens a query that was already working. For this
+pipeline R@16 is the right side of that trade — the reranker sees 60 candidates
+and can reorder them, but it can never recover a chunk that retrieval did not
+return.
+
+A cap on the number of prepended terms was swept (1/2/3/4/uncapped) to see if the
+rank-1 cost was avoidable. Cap 3 scored best on R@1 and uncapped best on R@16, and
+both differences are **one question out of 22**. That is not evidence, so no cap
+was added: a parameter tuned on a single question's worth of signal is exactly what
+`MIN_SURFACE_SCORE` is the standing warning about.
+
+German is unaffected throughout — the expansion is a no-op for it by construction.
+The remaining DE/EN MRR gap is 0.10, against 0.235 for the same corpus page-cut and
+unexpanded.
+
+## 20. Abstention cannot be built from a similarity threshold
+
+The golden set carries six questions the OIB corpus genuinely cannot answer —
+Wiener Garagengesetz parking counts, the Bauordnung's side setback, property
+transfer tax. Measured fill@16 is **1.000**: retrieval hands the answer model
+sixteen chunks for every one of them. `knowledge.relevance_floor_pct` was added as
+the mechanism to fix that. It cannot:
+
+| | n | min | median | max |
+|---|---|---|---|---|
+| answerable | 46 | 0.799 | 0.881 | 0.933 |
+| should-refuse | 6 | 0.795 | 0.845 | **0.865** |
+
+The distributions **overlap by 0.066**. Every threshold is a bad trade:
+
+| floor | answerable kept | unanswerable still answered |
+|---|---|---|
+| 0.82 | 44/46 | 4/6 |
+| 0.86 | 28/46 | 1/6 |
+| 0.88 | 25/46 | 0/6 |
+
+Refusing all six costs 21 of 46 real questions. The reason is visible in the
+questions themselves: they are about Austrian building law *adjacent to* OIB, and
+the corpus is full of semantically neighbouring text about Stellplätze and
+Grundgrenzen. Dense similarity measures "the corpus discusses parking spaces",
+which is true, not "the corpus states Vienna's parking requirement", which is what
+was asked.
+
+So the floor stays at **0 by default**, now for a measured reason rather than an
+unexamined one, and abstention is not a retrieval-layer problem. It needs a judge
+that reads the question against the text — the reranker's 0–10 rubric is the
+natural place, and validating that needs a live LLM this environment does not
+have. Recorded as the next measurement, not as a fix.
+
+## 21. What this says about the programme
 
 Part III's lesson was that reasoning about *ranking mechanics* survived
 measurement and reasoning about *quality* did not. Part IV sharpens it: the
