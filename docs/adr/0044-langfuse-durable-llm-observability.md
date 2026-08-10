@@ -95,8 +95,8 @@ already exist here:
   is the product decision; the capability is derived from the credentials the
   tier cannot boot without *plus* `observabilityEnabled` — Langfuse has no
   receiver of its own in this design, so without the collector it is four
-  workloads that can only sit idle. Default **off**: this tier costs four
-  workloads and a PVC that grows.
+  workloads that can only sit idle. The flag defaults **on** (Amendment 1); the
+  credentials are what a stack actually has to set.
 
 - **Two independent access gates, and both are wanted.** The Envoy
   `SecurityPolicy` on the route admits only WorkOS identities holding
@@ -162,6 +162,29 @@ already exist here:
   unsecured dashboard is real — but they have no legitimate in-namespace caller
   besides each other and the collector, and ClickHouse answers a password over
   plaintext HTTP for a store holding every tenant's prompts.
+
+## Amendment 1 (2026-08-10): the flag defaults on
+
+`langfuseEnabled` now defaults to **`true`**, matching `observabilityEnabled`.
+
+The original default-off was written while the tier was unproven, and it made
+adoption a two-step: set ten credentials, then remember an eleventh setting that
+does nothing on its own. Durable traces are the expected shape of a stack now,
+so the flag stops being the thing an operator has to discover.
+
+**Nothing about what gets provisioned changed.** Availability is still flag AND
+capability, and the capability half is untouched: every credential the tier
+cannot boot without, plus `observabilityEnabled`. A stack that has not set them
+gets the same `pulumi preview` warning naming what is missing, and the same
+empty result — no workloads, no `https-langfuse` listener, no collector
+exporter, no identity attributes. What flipped is which way the two-part gate
+reads: setting the credentials is now sufficient, and `langfuseEnabled=false` is
+how a stack declines the four workloads and the unbounded PVC.
+
+The Docker Compose profile is unchanged and stays opt-in
+(`--profile langfuse`) — nothing feeds it traces locally, as Open Questions
+records, so starting ClickHouse and three more containers by default on a laptop
+would buy an empty UI.
 
 ## Consequences
 

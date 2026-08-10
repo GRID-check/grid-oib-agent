@@ -1660,11 +1660,15 @@ export function loadConfig(): GridConfig {
   }
 
   // ── Langfuse (ADR-0044): same availability = flag AND capability rule ──────
-  // Opt-in (default false) because turning it on provisions four new workloads
-  // and a PVC that grows without a retention policy — a standing cost, not a
-  // toggle. The dependency on `observabilityEnabled` is structural for the same
-  // reason err2issue's is: Langfuse has no receiver of its own in this design,
-  // the collector fans traces into it, so without the collector it is idle.
+  // Default ON, like `observabilityEnabled`: durable traces are the expected
+  // shape of a stack now, not an extra. Nothing is provisioned by the flag
+  // alone — the capability half of the rule still requires every credential the
+  // tier cannot boot without, so a stack that has not set them gets the warning
+  // below and no workloads, never a half-deployed tier. Set the flag to false
+  // to opt out of the four workloads and the PVC that grows without a
+  // retention policy. The dependency on `observabilityEnabled` is structural
+  // for the same reason err2issue's is: Langfuse has no receiver of its own in
+  // this design, the collector fans traces into it, so without it it is idle.
   //
   // It also inherits the collector's WorkOS Connect application rather than
   // asking for a fourth OIDC triple. One application can carry several redirect
@@ -1672,7 +1676,7 @@ export function loadConfig(): GridConfig {
   // confidential clients that gate on the same permission — two places to get
   // the scope assignment wrong, for no separation that anyone would use.
   const langfuseDomain = cfg.get("langfuseDomain") ?? `langfuse.${baseDomain}`;
-  const langfuseFlag = bool(cfg, "langfuseEnabled", false);
+  const langfuseFlag = bool(cfg, "langfuseEnabled", true);
   const langfuseEncryptionKey = cfg.getSecret("langfuseEncryptionKey");
   const langfusePublicKey = cfg.getSecret("langfusePublicKey");
   const langfuseSecretKey = cfg.getSecret("langfuseSecretKey");
