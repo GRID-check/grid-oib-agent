@@ -311,7 +311,11 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     // migration's own backfill over them puts the fixture in the state a real
     // deployment is in after 0038, rather than a state only a test produces.
     await runSearchKeyBackfill()
-  })
+    // Vitest's default hook timeout is 10 s and this setup does not fit in it
+    // on a CI runner: it parses an IFC, seeds four models, inserts 10 100 rows
+    // and runs the migration's own backfill over them. `testTimeout` in
+    // `vitest.config` does not cover hooks, so the number is repeated here.
+  }, 120_000)
 
   afterAll(async () => {
     await closeDb?.()
