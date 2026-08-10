@@ -58,7 +58,7 @@ export interface ProjectSectionFlags {
    * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
    */
   canAccessInbox?: boolean
-  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0044). */
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
 }
 
@@ -130,7 +130,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'f',
   },
   {
-    // The IFC/BIM model page (ADR-0044). Sits next to Files because that is
+    // The IFC/BIM model page (ADR-0045). Sits next to Files because that is
     // where the model was uploaded and how a user thinks of it: the same
     // material, seen as a building rather than as a list of documents.
     key: 'model',

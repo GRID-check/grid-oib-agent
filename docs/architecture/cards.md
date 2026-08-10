@@ -22,7 +22,7 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
 | `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
-| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0044) | `title`, `model_file`, `highlights[]` (`global_ids`, `label`, `status`), `storey`, `note` |
+| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids`, `label`, `status`), `storey`, `note` |
 | `IfcScheduleCard` | The Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
 | `IfcElementCard` | One element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
 | `IfcDiffCard` | What changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |

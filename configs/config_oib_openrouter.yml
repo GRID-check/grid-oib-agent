@@ -461,7 +461,7 @@ functions:
     _type: surface_documents
 
   # BIM/IFC: deterministic structured queries over the project's uploaded IFC
-  # model (ADR-0044). Distinct from knowledge_search in kind, not degree — that
+  # model (ADR-0045). Distinct from knowledge_search in kind, not degree — that
   # tool retrieves text about REGULATIONS, this one runs SQL against THIS
   # building's elements, so "how many external walls on the ground floor" comes
   # back as a count rather than as a summary an LLM had to add up.

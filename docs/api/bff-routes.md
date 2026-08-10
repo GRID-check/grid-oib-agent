@@ -319,7 +319,7 @@ Source: `frontends/ui/src/app/api/user/preferences/route.ts`
 
 Source: `docs/technical-reference/websocket-gateway.md`
 
-## BIM / IFC models (ADR-0044)
+## BIM / IFC models (ADR-0045)
 
 Every route is gated by the `ifc-models` WorkOS flag AND the document's own
 access rule: a project model goes through `requireProjectAccess(project:view)`,

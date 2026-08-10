@@ -194,3 +194,96 @@ class TestPipelineWiring:
                 span = await processor.process(span)
 
         assert span.attributes[USER_ID_ATTRIBUTE] == "[REDACTED]"
+
+
+class TestToolContributions:
+    """Facts a TOOL recorded about what it did (ADR-0045).
+
+    The gap is specific to the IFC tools: their work happens in the BFF, which
+    exports OTel logs and no traces, so the span Langfuse receives is a
+    duration and a rendered string. Everything that would explain a slow or a
+    wrong answer — which model, which operation, whether the answer covered the
+    whole building — is otherwise unrecoverable from the trace.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+
+        reset_contributions()
+        yield
+        reset_contributions()
+
+    def test_recorded_facts_are_namespaced_like_the_identity_metadata(self):
+        from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+
+        record_trace_metadata(ifc_op="compliance", ifc_model="haus.ifc", ifc_truncated=True)
+
+        assert langfuse_attributes_for(
+            user_id=None,
+            organization_id=None,
+            project_id=None,
+            conversation_id=None,
+            contributed=_CONTRIBUTED.get(),
+        ) == {
+            "langfuse.trace.metadata.ifc_op": "compliance",
+            "langfuse.trace.metadata.ifc_model": "haus.ifc",
+            "langfuse.trace.metadata.ifc_truncated": True,
+        }
+
+    def test_a_tool_tag_joins_the_organization_tag_rather_than_replacing_it(self):
+        # "Show me this organization's traces" and "show me the turns that read
+        # a building model" are both trace-list filters, and losing the first to
+        # gain the second would be a bad trade in a multi-tenant store.
+        from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
+        from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+
+        add_trace_tag("feature:ifc")
+        add_trace_tag("feature:ifc")
+
+        attributes = langfuse_attributes_for(
+            user_id=None,
+            organization_id="org_456",
+            project_id=None,
+            conversation_id=None,
+            contributed=_CONTRIBUTED.get(),
+        )
+
+        assert attributes[TAGS_ATTRIBUTE] == ["org:org_456", "feature:ifc"]
+
+    def test_absent_values_are_dropped_here_too(self):
+        # Same rule as the identity fields: Langfuse renders what it is given,
+        # and `ifc_model=None` reads as a model actually called "None".
+        from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+
+        record_trace_metadata(ifc_op="overview", ifc_model=None, ifc_truncated=None)
+
+        assert langfuse_attributes_for(
+            user_id=None,
+            organization_id=None,
+            project_id=None,
+            conversation_id=None,
+            contributed=_CONTRIBUTED.get(),
+        ) == {"langfuse.trace.metadata.ifc_op": "overview"}
+
+    def test_recording_never_raises_into_the_turn(self):
+        # Telemetry enrichment must not be able to fail the answer it describes.
+        from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+
+        class Unhashable:
+            __hash__ = None  # type: ignore[assignment]
+
+        record_trace_metadata(ifc_op=Unhashable())
+        add_trace_tag("feature:ifc")
+
+    def test_nothing_is_attached_when_no_tool_contributed(self):
+        assert langfuse_attributes_for(
+            user_id="user_123",
+            organization_id=None,
+            project_id=None,
+            conversation_id=None,
+            contributed=None,
+        ) == {USER_ID_ATTRIBUTE: "user_123"}

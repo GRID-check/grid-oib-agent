@@ -1,7 +1,7 @@
 # Spec (phase 3): IFC/BIM Viewer Card — **SUPERSEDED, BUILT DIFFERENTLY**
 
 > **Status (2026-08-08): superseded by
-> [ADR-0044](../adr/0044-ifc-models-as-a-queryable-building-not-a-document.md),
+> [ADR-0045](../adr/0045-ifc-models-as-a-queryable-building-not-a-document.md),
 > which is the record of what was actually built. This file is kept as the
 > design that was considered and where it turned out to be wrong.**
 >

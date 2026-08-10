@@ -1,6 +1,6 @@
 # The Prüfbuch — from "a model you can ask" to "a building that is checked"
 
-Status: **proposed**. Supersedes nothing; extends ADR-0044.
+Status: **proposed**. Supersedes nothing; extends ADR-0045.
 
 ## The gap
 

@@ -594,3 +594,135 @@ class TestGebaeudeklasseValidation:
 
         assert "checks/export?model=haus.ifc&hauptnutzung=wohnen" in rendered
         assert "gebaeudeklasse" not in rendered
+
+
+class TestWhatTheTraceRecords:
+    """What `ifc_query` tells Langfuse about the call it just made (ADR-0045).
+
+    Everything expensive in a research turn is traced span by span in the agent
+    process. This tool is the exception: the parse, the SQL and the rule
+    catalogue all run in the BFF, which exports OTel logs and no traces. Without
+    these facts the span is a duration and a rendered German string, and an
+    operator asked why an answer was slow — or why it said a building has no
+    fire-rated walls — can recover none of what would explain it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+
+        reset_contributions()
+        yield
+        reset_contributions()
+
+    @staticmethod
+    def _recorded() -> dict:
+        from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
+
+        return _CONTRIBUTED.get() or {"metadata": {}, "tags": []}
+
+    def test_a_resolved_answer_records_the_shape_of_the_query(self):
+        from aiq_agent.agents.bim.register import _trace
+
+        _trace(
+            {"op": "compliance"},
+            {
+                "resolved": True,
+                "model": {"filename": "haus.ifc", "elementCount": 40000},
+                "summary": "…",
+            },
+        )
+
+        assert self._recorded()["metadata"] == {
+            "ifc_op": "compliance",
+            "ifc_outcome": "resolved",
+            "ifc_model": "haus.ifc",
+            "ifc_elements": 40000,
+        }
+        # One tag, because "which turns read a building model" is the filter an
+        # operator reaches for before any metadata scan.
+        assert self._recorded()["tags"] == ["feature:ifc"]
+
+    def test_a_partial_answer_says_so_on_the_trace(self):
+        # The one that matters for correctness rather than speed: a truncated
+        # run is a subset presented as a total, and a trace that does not record
+        # it cannot be used to audit the answer afterwards.
+        from aiq_agent.agents.bim.register import _trace
+
+        _trace(
+            {"op": "elements"},
+            {
+                "resolved": True,
+                "model": {"filename": "haus.ifc", "elementCount": 400000},
+                "truncated": True,
+                "totalIsLowerBound": True,
+                "summary": "…",
+            },
+        )
+
+        recorded = self._recorded()["metadata"]
+        assert recorded["ifc_truncated"] is True
+        assert recorded["ifc_total_is_lower_bound"] is True
+
+    def test_a_sampled_property_catalogue_is_distinguishable_from_a_complete_one(self):
+        from aiq_agent.agents.bim.register import _trace
+
+        for scan, expected in (
+            ({"scanned": 600, "total": 10100, "complete": False}, True),
+            ({"scanned": 19, "total": 19, "complete": True}, False),
+        ):
+            from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+
+            reset_contributions()
+            _trace(
+                {"op": "properties"},
+                {"resolved": True, "model": {"filename": "haus.ifc"}, "propertyScan": scan},
+            )
+            assert self._recorded()["metadata"]["ifc_catalog_sampled"] is expected
+
+    def test_an_unresolved_model_is_recorded_with_its_reason(self):
+        # "There is no model", "there are several" and "it is still extracting"
+        # are different answers, and a trace that flattens them to a duration
+        # cannot tell an operator which one the user actually got.
+        from aiq_agent.agents.bim.register import _trace
+
+        _trace({"op": "overview"}, {"resolved": False, "reason": "ambiguous"})
+
+        assert self._recorded()["metadata"] == {
+            "ifc_op": "overview",
+            "ifc_outcome": "unresolved:ambiguous",
+        }
+
+    def test_a_transport_failure_is_not_recorded_as_an_empty_building(self):
+        # The distinction the whole tool is built around, carried into telemetry:
+        # "could not look" must never read as "looked and found nothing".
+        from aiq_agent.agents.bim.register import _trace
+
+        _trace({"op": "schedule"}, None, unavailable=True)
+
+        assert self._recorded()["metadata"] == {
+            "ifc_op": "schedule",
+            "ifc_outcome": "service_unavailable",
+        }
+
+    def test_no_element_names_or_property_values_reach_the_trace(self):
+        # The SHAPE of the query, not its contents. The contents are already in
+        # `output.value`, under the redaction policy that governs it; copying
+        # them into trace metadata would put the same tenant data in a second
+        # place with a second policy.
+        from aiq_agent.agents.bim.register import _trace
+
+        _trace(
+            {"op": "elements", "filter": {"nameContains": "Fluchttuer"}},
+            {
+                "resolved": True,
+                "model": {"filename": "haus.ifc"},
+                "elements": [{"globalId": "0GridFixture00Wall0001", "name": "Aussenwand Nord"}],
+                "summary": "…",
+            },
+        )
+
+        rendered = repr(self._recorded())
+        assert "Aussenwand" not in rendered
+        assert "Fluchttuer" not in rendered
+        assert "0GridFixture00Wall0001" not in rendered

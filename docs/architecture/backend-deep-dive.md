@@ -915,7 +915,7 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   Projektwissen / Büroarchiv / Web via collection origin) for the research
   fan-out UI. Deterministic tagging only — no chunk-metadata dependency.
 
-## 6c. IFC/BIM models — the building as queryable data (ADR-0044, 2026-08-08)
+## 6c. IFC/BIM models — the building as queryable data (ADR-0045, 2026-08-08)
 
 An uploaded `.ifc` does **not** go down the ingest path. A STEP physical file is
 tens of megabytes of `#412=IFCCARTESIANPOINT((1.2,0.,3.));`; embedding it
@@ -1024,6 +1024,17 @@ the code is:
   top precisely because property vocabulary is a function of type: a flat
   `LIMIT` returns rows in index order and would report the first types'
   vocabulary as though it were the building's.
+
+### The BFF is not a trace producer, so the tool speaks for it
+
+`ifc_query` is the one expensive thing in a turn that Langfuse (ADR-0044)
+cannot see into: the work happens in the BFF, which exports OTel logs and no
+traces, so the span is a duration and a rendered string. The tool therefore
+records the shape of the call — operation, outcome, model, size, and whether
+the answer covered the whole building — through
+`observability/langfuse_trace_attributes.py`'s contribution channel, and tags
+the trace `feature:ifc`. Contents stay out: they are already in `output.value`
+under its own redaction policy. See ADR-0045 § Observability.
 
 ### Validation qualifies the answer
 

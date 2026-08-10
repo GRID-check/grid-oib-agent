@@ -640,7 +640,7 @@ the write volume.
 
 Primary key: `conversation_reads_pk (conversation_id, user_id)`.
 
-## `bim_models` / `bim_elements` (migrations 0034, 0036–0038, ADR-0044)
+## `bim_models` / `bim_elements` (migrations 0034, 0036–0038, ADR-0045)
 
 What an uploaded `.ifc` document turned out to contain.
 

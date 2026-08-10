@@ -51,7 +51,7 @@ export interface CommandPaletteProps {
   showKnowledge?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
   showWorkflows?: boolean
-  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0044). */
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
   canAccessArchiv?: boolean

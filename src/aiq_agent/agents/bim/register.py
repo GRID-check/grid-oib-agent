@@ -450,6 +450,61 @@ def _render(
     return "\n".join(line for line in lines if line)
 
 
+def _trace(query: dict[str, Any], result: dict[str, Any] | None, *, unavailable: bool = False) -> None:
+    """Tell Langfuse what this call did, since the BFF cannot (ADR-0045).
+
+    Everything expensive in a research turn is traced span by span in the agent
+    process. This tool is the exception: the parse, the SQL and the rule
+    catalogue all run in the BFF, which exports OTel logs and no traces, so the
+    span Langfuse receives is opaque — a duration and a rendered German string.
+    An operator asked why an answer was slow, or why it said a building has no
+    fire-rated walls, can recover none of the four things that would explain it.
+
+    So the four things go on the trace: which operation, which model, whether
+    the model could be resolved at all, and whether the answer covered the
+    WHOLE building. The last is the one that matters for correctness rather
+    than for speed — a truncated or sampled result is a subset presented as a
+    total, and a trace that does not record it cannot be used to audit an
+    answer after the fact.
+
+    No element names, no property values: this is the shape of the query, not
+    its contents, which are already in `output.value` under the redaction
+    policy that governs it.
+    """
+    from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+    from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+
+    # One tag for "this turn read a building model", which is the filter an
+    # operator reaches for first; the per-call detail goes in metadata.
+    add_trace_tag("feature:ifc")
+
+    operation = str(query.get("op", "unknown"))
+    if unavailable:
+        record_trace_metadata(ifc_op=operation, ifc_outcome="service_unavailable")
+        return
+    if not (result or {}).get("resolved"):
+        record_trace_metadata(
+            ifc_op=operation,
+            ifc_outcome=f"unresolved:{(result or {}).get('reason', 'unknown')}",
+        )
+        return
+
+    model = (result or {}).get("model") or {}
+    scan = (result or {}).get("propertyScan") or {}
+    record_trace_metadata(
+        ifc_op=operation,
+        ifc_outcome="resolved",
+        ifc_model=model.get("filename"),
+        ifc_elements=model.get("elementCount"),
+        # The honesty flags, verbatim from the payload. `truncated` means the
+        # answer covers part of the building; `propertyScan.complete=false`
+        # means the property catalogue was built from a sample.
+        ifc_truncated=bool((result or {}).get("truncated")) or None,
+        ifc_total_is_lower_bound=bool((result or {}).get("totalIsLowerBound")) or None,
+        ifc_catalog_sampled=(False if scan.get("complete") else True) if scan else None,
+    )
+
+
 class IfcQueryConfig(FunctionBaseConfig, name="ifc_query"):
     """Configuration for the ``ifc_query`` BIM tool."""
 
@@ -511,12 +566,14 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
             # "Could not look" is not "looked and found nothing" — say so, or the
             # user reads a transport failure as a fact about their building.
             logger.warning("ifc_query could not reach the BIM endpoint")
+            _trace(query, None, unavailable=True)
             return (
                 "Error: the BIM model could not be queried right now (the model service is "
                 "unavailable). Do NOT state anything about the building's contents; tell the user "
                 "the model could not be read."
             )
 
+        _trace(query, result)
         return _render(result, project_id, gebaeudeklasse or 0, (hauptnutzung or "").strip().lower())
 
     yield FunctionInfo.from_fn(_ifc_query, description=_TOOL_DESCRIPTION)

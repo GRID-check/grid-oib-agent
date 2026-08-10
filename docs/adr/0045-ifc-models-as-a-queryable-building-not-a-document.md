@@ -1,4 +1,4 @@
-# ADR-0044 — IFC models are a queryable building, not another document
+# ADR-0045 — IFC models are a queryable building, not another document
 
 **Status:** Accepted
 **Date:** 2026-08-08
@@ -133,6 +133,43 @@ route. The gate is applied on the user-facing routes through
 `assertIfcModelsEnabled`, and on the session-less `/api/internal/bim/query`
 route — the agent's path — by evaluating the flag per-organization, so
 revoking it stops the agent answering as well as hiding the pages.
+
+## Observability (ADR-0044)
+
+Everything else expensive in a research turn happens in the agent process,
+where NAT traces it span by span and Langfuse renders the result. This feature
+is the exception: the parse, the SQL and the rule catalogue all run in the BFF,
+which exports OTel **logs** and is not a trace producer. `ifc_query` therefore
+reaches Langfuse as one opaque span — a duration and a rendered German string.
+
+Rather than make the BFF a second trace producer (a platform decision, not this
+feature's to take), the tool states on the trace what it did. It uses the seam
+ADR-0044 already established for app-side attribution — the same NAT processor,
+ahead of the same redaction pass, under the same `langfuse.trace.metadata.`
+prefix:
+
+| | |
+|---|---|
+| `ifc_op` | which operation ran |
+| `ifc_outcome` | `resolved`, `unresolved:<reason>`, or `service_unavailable` |
+| `ifc_model` / `ifc_elements` | which model, and how big |
+| `ifc_truncated`, `ifc_total_is_lower_bound`, `ifc_catalog_sampled` | whether the answer covered the WHOLE building |
+
+The tag `feature:ifc` goes alongside `org:<id>`, because "which turns read a
+building model" is a trace-list filter and metadata is the slower path.
+
+The last row is the one that is not about performance. A truncated run, a
+count that stopped early and a sampled property catalogue are all subsets
+presented as totals unless something says otherwise; the UI and the agent are
+told, and the trace is the third place — the one that lets an answer be
+audited after the fact rather than only while it is on screen.
+
+Deliberately absent: element names, property values and filter contents. Those
+are already in `output.value` under the redaction policy that governs it, and
+copying them into trace metadata would put the same tenant data in a second
+place under a second policy. `ifc_outcome` distinguishes "could not look" from
+"looked and found nothing" for the same reason the tool's own return value
+does.
 
 ## Amendments
 

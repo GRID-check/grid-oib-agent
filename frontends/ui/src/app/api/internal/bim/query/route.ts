@@ -69,7 +69,7 @@ export const POST = internalApiRoute(
     // per-organization because this route carries a service token and no
     // session. Without it the flag gated the upload and the pages while the
     // agent kept answering questions about the building indefinitely — the
-    // registry comment and ADR-0044 both say it is gated, and it was not.
+    // registry comment and ADR-0045 both say it is gated, and it was not.
     //
     // Only when enforcement is on, matching `isFeatureEnabled`'s back-compat
     // rule for deployments that have no WorkOS flag product; `isOrgFeatureEnabled`

@@ -88,7 +88,7 @@ export const FEATURE_FLAGS = {
    */
   collaboration: 'collaboration',
   /**
-   * IFC/BIM models (ADR-0044): `.ifc` upload, in-browser model viewer, and the
+   * IFC/BIM models (ADR-0045): `.ifc` upload, in-browser model viewer, and the
    * agent's deterministic `ifc_query` tool.
    *
    * Gates the `.ifc` entry in the upload accept-list (client and the BFF
