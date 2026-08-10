@@ -163,10 +163,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/lib/audit/schemas.mjs ./src/l
 # `next.config.compiled.js`, which then requires the files from disk — missing
 # from the image, `server.js` dies with MODULE_NOT_FOUND before ever listening
 # (avatar-hosts: update 67 CrashLoopBackOff; optimizable: update 83).
-# Both modules must stay import-free (see their file headers) — anything they
-# import needs a copy here too.
+# All three modules must stay import-free (see their file headers) — anything
+# they import needs a copy here too.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/avatar-hosts.ts ./src/lib/images/avatar-hosts.ts
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/images/optimizable.ts ./src/lib/images/optimizable.ts
+# The request-body ceiling, which becomes `proxyClientMaxBodySize` and the
+# server-action body limit. It has to clear the largest file any route admits —
+# an `.ifc` at BIM_MAX_IFC_BYTES, not the 100 MB document limit — or a model is
+# cut off in front of the handler and `request.formData()` throws (issue #369).
+COPY --from=builder --chown=nextjs:nodejs /app/src/shared/config/request-body-limit.ts ./src/shared/config/request-body-limit.ts
 # `server.js` requires these three at startup for WebSocket rate limiting
 # (ADR-0040 L2b). They are CommonJS precisely so the proxy can load them — the
 # same shared catalog the TypeScript side imports — which means they must be on

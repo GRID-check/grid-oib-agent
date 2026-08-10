@@ -6,7 +6,7 @@
  * flag (ADR-0024).
  */
 
-import { apiRoute } from '@/lib/api/handler'
+import { apiRoute, parseFormData } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { uploadArchivDocument } from '@/lib/archiv/service'
@@ -16,7 +16,7 @@ export const POST = apiRoute(
     const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
     if (gated) return gated
 
-    const formData = await request.formData()
+    const formData = await parseFormData(request)
     const file = formData.get('file')
     if (!(file instanceof File)) {
       throw new BadRequestError('file is required')

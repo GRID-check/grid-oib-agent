@@ -2,8 +2,22 @@ import path from 'node:path'
 import type { NextConfig } from 'next'
 import { AVATAR_IMAGE_PATTERNS } from './src/lib/images/avatar-hosts'
 import { LOCAL_IMAGE_PATTERNS } from './src/lib/images/optimizable'
+import { requestBodyLimitBytes } from './src/shared/config/request-body-limit'
 
-const fileUploadMaxSizeMB = parseInt(process.env.FILE_UPLOAD_MAX_SIZE_MB || '100', 10)
+/**
+ * The TRANSPORT ceiling, which has to clear the largest body any route may
+ * legitimately accept — not the largest DOCUMENT.
+ *
+ * `.ifc` is measured against `BIM_MAX_IFC_BYTES` (250 MB), deliberately
+ * separate from the 100 MB document limit because a building model is an order
+ * of magnitude bigger than a PDF. Leaving the body limit at the document
+ * figure made that unreachable in the worst possible way: the request was cut
+ * off in front of the handler, so `request.formData()` threw
+ * `TypeError: Failed to parse body as FormData` — an unhandled 500 naming
+ * neither the file nor a size, rather than the readable refusal both
+ * validators are careful to produce.
+ */
+const requestBodyLimitMB = Math.ceil(requestBodyLimitBytes(process.env) / (1024 * 1024))
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -34,9 +48,9 @@ const nextConfig: NextConfig = {
 
   experimental: {
     serverActions: {
-      bodySizeLimit: `${fileUploadMaxSizeMB}mb`,
+      bodySizeLimit: `${requestBodyLimitMB}mb`,
     },
-    proxyClientMaxBodySize: `${fileUploadMaxSizeMB}mb`,
+    proxyClientMaxBodySize: `${requestBodyLimitMB}mb`,
   },
 
   // `@ifc-lite/renderer` re-exports a point-cloud renderer that reaches

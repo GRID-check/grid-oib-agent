@@ -62,7 +62,14 @@ import { DEFAULT_MUTATION_LIMIT } from '@/lib/limits/catalog'
 import { enforceLimit, rateLimitHeaders } from '@/lib/limits/enforce'
 import { memberSubject } from '@/lib/limits/subject'
 import type { LimitRule } from '@/lib/limits/types'
-import { ApiError, BadRequestError, ForbiddenError, TooManyRequestsError } from './errors'
+import {
+  ApiError,
+  BadRequestError,
+  ForbiddenError,
+  PayloadTooLargeError,
+  TooManyRequestsError,
+} from './errors'
+import { requestBodyLimitBytes } from '@/shared/config/request-body-limit'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -375,6 +382,33 @@ export async function parseJsonBody<TSchema extends ZodType>(
   } catch (error) {
     if (error instanceof ZodError) {
       throw new BadRequestError('Invalid request body', error.issues)
+    }
+    throw error
+  }
+}
+
+/**
+ * Parse a multipart upload body, turning the one failure mode that is not the
+ * caller's fault into an answer instead of a crash.
+ *
+ * When a body exceeds the server's transport limit it is cut off in FRONT of
+ * the handler, so `request.formData()` gets a truncated multipart stream and
+ * throws `TypeError: Failed to parse body as FormData`. Unhandled, that is a
+ * 500 and an error-tracker issue that names neither the file nor a size — the
+ * user is told nothing, and the operator is told something that reads like a
+ * bug in the parser (it happened: issue #369, a 149 MB IFC against a 100 MB
+ * transport ceiling).
+ *
+ * 413 is the honest code, and the message names the limit so the remedy is
+ * visible. It cannot name the FILE — the body it would have come from is the
+ * thing that failed to parse.
+ */
+export async function parseFormData(request: Request): Promise<FormData> {
+  try {
+    return await request.formData()
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new PayloadTooLargeError(requestBodyLimitBytes())
     }
     throw error
   }
