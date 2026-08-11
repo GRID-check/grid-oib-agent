@@ -13,7 +13,7 @@ import { buildModelHref, buildModelQuery, parseModelView, withModelView } from '
 describe('buildModelQuery', () => {
   it('is empty for an empty view, so a bare link stays bare', () => {
     expect(buildModelQuery({})).toBe('')
-    expect(buildModelHref('p1')).toBe('/app/projects/p1/model')
+    expect(buildModelHref('p1')).toBe('/app/projects/p1/files')
   })
 
   it('encodes the view a card or an answer points at', () => {

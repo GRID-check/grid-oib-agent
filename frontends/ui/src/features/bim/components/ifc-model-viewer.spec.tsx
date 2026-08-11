@@ -58,9 +58,9 @@ describe('IfcModelViewer without WebGPU', () => {
     render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
 
     expect(screen.getByText('3D view not available in this browser')).toBeInTheDocument()
-    // The message names the alternative rather than apologising: the whole
-    // model is still readable beside it.
-    expect(screen.getByText(/structure, elements, properties and quantities/)).toBeInTheDocument()
+    // The message says what is unaffected rather than apologising: the model
+    // itself is fine and the assistant can still answer questions about it.
+    expect(screen.getByText(/The model itself is fine/)).toBeInTheDocument()
   })
 
   it('never mounts the viewport, so the WASM chunk is never fetched', () => {
@@ -193,16 +193,42 @@ describe('IfcModelViewer with WebGPU', () => {
     expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
   })
 
-  it('hides the page chrome in the card variant', () => {
+  it('draws no controls at all — this is the viewport, not the stage', async () => {
+    // The controls used to live in here behind a `variant` prop, which is how
+    // one component ended up rendering a toolbar, a legend, a status chip and
+    // a hint line each behind its own condition. They belong to `ModelStage`
+    // now, and a file preview must not sprout a section slider.
     setWebGpu(true)
-    const { rerender } = render(
-      <IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} variant="page" />
-    )
-    expect(screen.getByRole('button', { name: /Fit to view/ })).toBeInTheDocument()
+    render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
+    await screen.findByTestId('ifc-canvas')
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+  })
 
-    rerender(
-      <IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} variant="card" />
-    )
-    expect(screen.queryByRole('button', { name: /Fit to view/ })).not.toBeInTheDocument()
+  it('shows a real percentage while the file downloads', async () => {
+    setWebGpu(true)
+    canvas.status = { phase: 'downloading', percent: 42, meshCount: 0 }
+    render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
+    expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '42')
+  })
+
+  it('claims no position while the geometry is being built', async () => {
+    // Parsing has no known end, and the old version filled the gap with a mesh
+    // count — a number that measures the exporter's tessellation settings and
+    // tells an architect nothing about how long they are waiting.
+    setWebGpu(true)
+    canvas.status = { phase: 'parsing', percent: null, meshCount: 12847 }
+    render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
+    const bar = await screen.findByRole('progressbar')
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+    expect(screen.queryByText(/12847|12.847/)).not.toBeInTheDocument()
+  })
+
+  it('clears the veil once the building is on screen', async () => {
+    setWebGpu(true)
+    canvas.status = { phase: 'ready', percent: 100, meshCount: 19 }
+    render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
+    await screen.findByTestId('ifc-canvas')
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 })

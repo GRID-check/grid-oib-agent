@@ -193,6 +193,53 @@ export function wheelZoomDelta(
 }
 
 /**
+ * One keypress, as a camera move.
+ *
+ * The viewport is a `<canvas>`: to a keyboard it is a picture with no controls
+ * at all, so every gesture the mouse has needs a key that does the same thing.
+ * The bindings are the ones this audience already has in their fingers from
+ * Revit, Navisworks and every game engine — arrows turn, `+`/`-` close in.
+ *
+ * Direction is in SCREEN terms, matching the drag it stands in for: `ArrowUp`
+ * is the same as dragging the pointer up. Whether that tips the camera or the
+ * model is the renderer's convention, and it must stay the same for both
+ * input methods or the two disagree on the same screen.
+ *
+ * Pure so the mapping is pinned without a GPU: the component that consumes it
+ * cannot run in CI, and this is the half that carries the decisions.
+ */
+export type CameraKeyStep =
+  | { kind: 'move'; x: number; y: number }
+  | { kind: 'zoom'; amount: number }
+
+/** Zoom units per keypress. Roughly one wheel notch — a press should be a step, not a leap. */
+const KEY_ZOOM_STEP = 0.6
+
+export function keyboardCameraStep(key: string): CameraKeyStep | null {
+  switch (key) {
+    case 'ArrowLeft':
+      return { kind: 'move', x: -1, y: 0 }
+    case 'ArrowRight':
+      return { kind: 'move', x: 1, y: 0 }
+    case 'ArrowUp':
+      return { kind: 'move', x: 0, y: -1 }
+    case 'ArrowDown':
+      return { kind: 'move', x: 0, y: 1 }
+    // Both faces of the same physical key, so a reader does not have to hold
+    // shift to zoom in on a keyboard where `+` is shifted.
+    case '+':
+    case '=':
+      // Negative delta is toward the model — the renderer's sign convention.
+      return { kind: 'zoom', amount: -KEY_ZOOM_STEP }
+    case '-':
+    case '_':
+      return { kind: 'zoom', amount: KEY_ZOOM_STEP }
+    default:
+      return null
+  }
+}
+
+/**
  * The centre of an element's bounding box — the point orbit should rotate
  * about when that element is selected.
  *

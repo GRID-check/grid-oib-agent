@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { BIM_CAMERA_VIEWS, boundsCentre, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, parseCameraState, rendererPreset, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
+import { BIM_CAMERA_VIEWS, boundsCentre, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, keyboardCameraStep, parseCameraState, rendererPreset, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
 
 const roundTrip = (state: BimViewerCameraState): BimViewerCameraState => {
   const params = new URLSearchParams()
@@ -312,5 +312,44 @@ describe('downloadWithProgress over a gzipped response', () => {
       seen.push(p)
     )
     expect(seen).toEqual([50, 100])
+  })
+})
+
+describe('keyboardCameraStep', () => {
+  it('maps the arrows to screen-space moves, matching the drag they stand in for', () => {
+    expect(keyboardCameraStep('ArrowLeft')).toEqual({ kind: 'move', x: -1, y: 0 })
+    expect(keyboardCameraStep('ArrowRight')).toEqual({ kind: 'move', x: 1, y: 0 })
+    // Up is NEGATIVE y, because that is what a pointer dragged upward reports.
+    // Flipping it here would make the keyboard and the mouse disagree about
+    // which way "up" turns the building.
+    expect(keyboardCameraStep('ArrowUp')).toEqual({ kind: 'move', x: 0, y: -1 })
+    expect(keyboardCameraStep('ArrowDown')).toEqual({ kind: 'move', x: 0, y: 1 })
+  })
+
+  it('zooms IN on plus and OUT on minus', () => {
+    // Negative delta is toward the model in the renderer's convention; getting
+    // this backwards is the kind of bug nobody reports, they just stop using
+    // the keys.
+    const zoomIn = keyboardCameraStep('+')
+    const zoomOut = keyboardCameraStep('-')
+    expect(zoomIn).toMatchObject({ kind: 'zoom' })
+    expect(zoomOut).toMatchObject({ kind: 'zoom' })
+    expect((zoomIn as { amount: number }).amount).toBeLessThan(0)
+    expect((zoomOut as { amount: number }).amount).toBeGreaterThan(0)
+  })
+
+  it('accepts both faces of the same physical key', () => {
+    // On a keyboard where `+` needs shift, requiring the shifted face means
+    // half the audience cannot zoom in.
+    expect(keyboardCameraStep('=')).toEqual(keyboardCameraStep('+'))
+    expect(keyboardCameraStep('_')).toEqual(keyboardCameraStep('-'))
+  })
+
+  it('is null for everything else, so unrelated keys keep their default behaviour', () => {
+    // Notably Tab and Escape: swallowing either would trap a keyboard user
+    // inside the viewport.
+    for (const key of ['Tab', 'Escape', 'a', 'Enter', ' ', 'F5']) {
+      expect(keyboardCameraStep(key)).toBeNull()
+    }
   })
 })

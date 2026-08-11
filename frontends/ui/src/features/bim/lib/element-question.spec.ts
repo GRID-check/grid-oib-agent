@@ -100,6 +100,6 @@ describe('elementLinkHref', () => {
   it('rebuilds the href from the parsed view, dropping junk parameters', () => {
     const link = parseElementLink('/app/projects/p1/model?element=abc&utm_source=mail&hl=bogus')
     expect(link).not.toBeNull()
-    expect(elementLinkHref(link!)).toBe('/app/projects/p1/model?element=abc')
+    expect(elementLinkHref(link!)).toBe('/app/projects/p1/files?element=abc')
   })
 })

@@ -124,7 +124,6 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
       <IfcModelViewer
         sourceUrl={sourceUrl}
         elements={elements.data ?? []}
-        variant="card"
         className="min-h-[220px] flex-1"
       />
       <OpenInWorkspace href={href} label={t('preview.open')} />

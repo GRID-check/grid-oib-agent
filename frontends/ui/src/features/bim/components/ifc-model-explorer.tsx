@@ -195,7 +195,7 @@ export function IfcModelHealthPanel({
                     onClick={() => onShowElements(issue.sampleGlobalIds)}
                     className="shrink-0 rounded-md px-2 py-0.5 text-xs underline-offset-2 hover:underline"
                   >
-                    {t('viewer.isolate')}
+                    {t('compliance.showInModel')}
                   </button>
                 )}
               </li>

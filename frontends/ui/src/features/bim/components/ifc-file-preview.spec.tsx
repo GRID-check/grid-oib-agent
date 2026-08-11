@@ -151,7 +151,7 @@ describe('IfcFilePreview', () => {
     renderPreview()
 
     const link = screen.getByRole('link', { name: /Open in model workspace/ })
-    expect(link.getAttribute('href')).toBe('/app/projects/proj-1/model?model=Haus-A.ifc')
+    expect(link.getAttribute('href')).toBe('/app/projects/proj-1/files?model=Haus-A.ifc')
   })
 
   it('offers no way in when nothing was ever read from the file', () => {

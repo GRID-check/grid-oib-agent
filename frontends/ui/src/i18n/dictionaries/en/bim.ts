@@ -284,17 +284,42 @@ export const bim = {
     copy: 'Copy view link',
     copied: 'Copied',
   },
+  /**
+   * The full-screen viewer inside Dateien.
+   *
+   * Six controls and two lists. Every string here is written for someone who
+   * has never opened a BIM tool: "See through", not "X-ray context"; "Levels",
+   * not "IfcBuildingStorey"; "Show everything", not "Zoom extents".
+   */
+  stage: {
+    dialogLabel: 'Model {name}',
+    close: 'Close',
+    home: 'Show everything',
+    views: 'View',
+    advanced: 'Details & checks',
+    models: 'Models',
+    levels: 'Levels',
+    allLevels: 'All levels',
+    elevation: '{value} m',
+    notReady: 'The model is still being read. This usually takes a few moments.',
+    loading: 'Loading model…',
+    building: 'Putting the building together…',
+    rail: {
+      show: 'Show panel',
+      hide: 'Hide panel',
+    },
+    selection: {
+      close: 'Close',
+      loading: 'Loading…',
+      about: 'Component',
+      technical: 'Technical details',
+      ask: 'Ask Piloti about this',
+    },
+  },
   viewer: {
     canvasLabel: '3D view of the IFC model',
     title: '3D view',
-    downloading: 'Loading model…',
-    parsing: 'Building geometry… {count} parts',
-    ready: '{count} parts',
-    xray: 'X-ray',
-    fit: 'Fit to view',
-    isolate: 'Isolate storey',
-    showAll: 'Show all',
-    hint: 'Drag to orbit · Shift-drag to pan · Scroll to zoom · Click to select',
+    xray: 'See through',
     view: {
       iso: 'Free',
       top: 'Plan',
@@ -317,13 +342,13 @@ export const bim = {
     unavailable: {
       title: 'The 3D view could not be loaded',
       description:
-        'Only the picture is missing — the model is unaffected, and its structure, elements, properties and quantities are read from it as usual. A browser whose GPU is blocked, a remote desktop session, or an interrupted download all end here.',
+        'Only the picture is missing — the model is unaffected, and everything read from it is unchanged. A browser whose GPU is blocked, a remote desktop session, or an interrupted download all end here.',
       reason: 'Reason: {message}',
     },
     unsupported: {
       title: '3D view not available in this browser',
       description:
-        'The viewer needs WebGPU, which this browser does not provide. Everything about the model is still available on the left — structure, elements, properties and quantities — and the assistant can answer questions about it.',
+        'The viewer needs WebGPU, which this browser does not provide. The model itself is fine — the assistant can still answer questions about it, and Chrome, Edge or a current Safari will show it.',
     },
   },
   /** The model's own facts, in the file preview's metadata rail. */

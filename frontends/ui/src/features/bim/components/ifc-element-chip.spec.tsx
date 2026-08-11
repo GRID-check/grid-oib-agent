@@ -20,12 +20,20 @@ function chip(href: string, label = 'AW 38'): void {
 
 describe('IfcElementChip', () => {
   it('links to the view the answer pointed at', () => {
-    chip('/app/projects/p1/model?model=haus-a.ifc&element=1kTvXnbbzCWw8lcMd1dR4o&xray=1')
+    chip('/app/projects/p1/files?model=haus-a.ifc&element=1kTvXnbbzCWw8lcMd1dR4o&xray=1')
     const link = screen.getByRole('link')
     expect(link).toHaveAttribute(
       'href',
-      '/app/projects/p1/model?model=haus-a.ifc&element=1kTvXnbbzCWw8lcMd1dR4o&xray=1'
+      '/app/projects/p1/files?model=haus-a.ifc&element=1kTvXnbbzCWw8lcMd1dR4o&xray=1'
     )
+  })
+
+  it('rewrites a link written against the old /model route', () => {
+    // Every answer in every existing conversation names `/model`. The route
+    // redirects, but the chip rebuilds the href from the parsed view, so a
+    // legacy link arrives at the viewer without the extra hop.
+    chip('/app/projects/p1/model?element=abc')
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?element=abc')
   })
 
   it('keeps the answer’s own wording as the chip label', () => {
@@ -46,7 +54,7 @@ describe('IfcElementChip', () => {
   it('drops parameters the view does not define', () => {
     // An answer composed from a pasted URL can carry tracking junk; the chip
     // rebuilds the href from the parsed view rather than trusting the string.
-    chip('/app/projects/p1/model?element=abc&utm_campaign=x')
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/model?element=abc')
+    chip('/app/projects/p1/files?element=abc&utm_campaign=x')
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?element=abc')
   })
 })

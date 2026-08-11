@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import dynamic from 'next/dynamic'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
@@ -30,7 +32,30 @@ interface ProjectFileWorkspaceProps {
    * to true so the feature stays visible with flag enforcement off (fail-open).
    */
   showMetadataPanel?: boolean
+  /**
+   * Whether an `.ifc` opens as a building (WorkOS `ifc-models`, ADR-0046).
+   *
+   * The model viewer used to be a page of its own behind this flag. It is a
+   * file preview now — there is no route left to hide — so the flag decides
+   * what a click on a model card DOES: open the viewer, or fall through to the
+   * ordinary file preview. Off by default here, because a viewer whose
+   * endpoints answer 403 is worse than no viewer.
+   */
+  showModels?: boolean
 }
+
+/**
+ * The building, full screen.
+ *
+ * `dynamic` with `ssr: false` because everything under it reaches for
+ * `navigator.gpu` and, one boundary further down, a multi-megabyte WASM
+ * geometry kernel. None of that belongs in the bundle of a page that is
+ * usually opened to look at PDFs.
+ */
+const ModelStage = dynamic(
+  () => import('@/features/bim/components/model-stage').then((module) => module.ModelStage),
+  { ssr: false }
+)
 
 export interface FolderItem {
   id: string
@@ -103,8 +128,49 @@ const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'process
 const SETTLING_POLL_MS = 4_000
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  /**
+   * `?model=` is what turns this page into the viewer.
+   *
+   * In the URL rather than in state, and that is the whole integration: the
+   * stage is a view of this page, so it is linkable, the back button closes
+   * it, and every `/model?…` link ever written into a chat answer redirects
+   * here and opens the same thing. Dateien itself learns exactly one fact —
+   * whether that parameter is present.
+   */
+  const stageModel = showModels ? (searchParams?.get('model')?.trim() ?? null) : null
+
+  const openModel = useCallback(
+    (filename: string) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.set('model', filename)
+      router.replace(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
+
+  /**
+   * Close the viewer, and take its whole view with it.
+   *
+   * Dropping only `model` would leave `element`, `hl`, `storey` and the camera
+   * behind as dead parameters on the file browser — and re-opening any model
+   * afterwards would inherit a selection from a different building.
+   */
+  const closeModel = useCallback(() => {
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    for (const key of ['model', 'element', 'storey', 'xray', 'tab', 'view', 'cut', 'cutup', 'proj']) {
+      params.delete(key)
+    }
+    params.delete('hl')
+    const query = params.toString()
+    const path = pathname ?? ''
+    router.replace(query ? `${path}?${query}` : path, { scroll: false })
+  }, [pathname, router, searchParams])
   // Default to the card grid (the click-dummy). The folder-tree workspace stays
   // one click away and the choice persists per browser (sidebar-collapse pattern).
   const [view, setView] = useState<FileView>('cards')
@@ -311,6 +377,41 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
 
+  /**
+   * Opening a file — and the one file type that opens differently.
+   *
+   * An `.ifc` is a building, so it opens as one: full screen, viewer first.
+   * Every other file opens in the preview dialog exactly as before. The
+   * branch lives HERE rather than in the card, because the card is shared with
+   * the org-wide Archiv, which has no project to resolve a model against.
+   *
+   * `inferDocumentKind` is already the app's answer to "what kind of file is
+   * this" — it classifies by extension before it looks at tags, so a model
+   * called `Grundriss EG.ifc` is still a model.
+   */
+  const handleSelectFile = useCallback(
+    (id: string | null) => {
+      if (id === null) {
+        setSelectedFileId(null)
+        return
+      }
+      const file = files.find((candidate) => candidate.id === id)
+      const isModel =
+        file !== undefined &&
+        inferDocumentKind({
+          filename: file.filename,
+          contentType: file.contentType,
+          tags: file.tags,
+        }) === 'model'
+      if (showModels && isModel) {
+        openModel(file.filename)
+        return
+      }
+      setSelectedFileId(id)
+    },
+    [files, showModels, openModel]
+  )
+
   // The preview is a centered modal on every breakpoint. Dialog semantics,
   // Escape, backdrop click, focus trapping and focus return to the card that
   // opened it are all Radix's now (FilePreviewDialog) — this file used to hand
@@ -499,7 +600,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             <FileBrowserPane
               files={filteredFiles}
               selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
+              onSelectFile={handleSelectFile}
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
               projectId={projectId}
@@ -536,6 +637,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         </div>
 
       </div>
+
+      {/*
+        The model, when the URL names one. Full screen inside a popup — the
+        page it opened from is still visible at the edges, which is what makes
+        closing it feel like closing a preview rather than navigating back.
+      */}
+      {stageModel && <ModelStage projectId={projectId} onClose={closeModel} />}
 
       {/* Preview — the shared centered-modal dialog (identical in Files + Archiv). */}
       <FilePreviewDialog

@@ -1,0 +1,311 @@
+/**
+ * The stage, tested for the decisions the redesign is actually made of.
+ *
+ * Not "does it render" — whether the reduced surface is the surface: that the
+ * building is the default state, that metadata appears only on selection, that
+ * the analytical panels stay shut until asked for, and that every control
+ * still writes its state into the URL so a view remains a thing you can send.
+ *
+ * The canvas is mocked. It needs a WebGPU adapter, which no test runner has;
+ * what can be pinned here is everything around it, which is where this change
+ * lives.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useEffect } from 'react'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { BimModelHeaderView } from '../hooks/use-bim-model'
+import { ModelStage } from './model-stage'
+
+const routerReplace = vi.fn()
+let searchParams = new URLSearchParams()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: (...args: unknown[]) => routerReplace(...args),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => '/app/projects/p1/files',
+  useSearchParams: () => searchParams,
+}))
+
+vi.mock('./ifc-viewer-canvas', () => ({
+  IfcViewerCanvas: (props: { onStatus?: (status: unknown) => void }) => {
+    const { onStatus } = props
+    // Reported from an EFFECT, not from render. The status sets state in the
+    // stage, which re-renders the canvas — so reporting during render is an
+    // infinite loop rather than a test.
+    useEffect(() => {
+      // Every control in the dock is disabled until the model has loaded, so
+      // a canvas that never settles would make this whole spec assert on a
+      // disabled dock.
+      onStatus?.({ phase: 'ready', percent: 100, meshCount: 12 })
+    }, [onStatus])
+    return <div data-testid="ifc-canvas" />
+  },
+}))
+
+/** The analytical drawer pulls six more hooks; it is exercised by its own specs. */
+vi.mock('./model-advanced-sheet', () => ({
+  ModelAdvancedSheet: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="advanced-sheet" /> : null,
+}))
+
+const state = {
+  models: [] as BimModelHeaderView[],
+  elements: [] as unknown[],
+  detail: null as unknown,
+}
+
+vi.mock('../hooks/use-bim-model', () => ({
+  useProjectBimModels: () => ({ data: state.models, isLoading: false, error: null, reload: vi.fn() }),
+  useBimElements: () => ({ data: state.elements, isLoading: false, error: null }),
+  useBimElementDetail: () => ({ data: state.detail, isLoading: false, error: null }),
+  useBimModelSource: () => 'https://example.test/haus-a.ifc',
+}))
+
+function model(overrides: Partial<BimModelHeaderView> = {}): BimModelHeaderView {
+  return {
+    id: 'm-1',
+    documentId: 'doc-1',
+    projectId: 'p1',
+    filename: 'Haus-A.ifc',
+    status: 'ready',
+    schemaVersion: 'IFC4',
+    elementCount: 120,
+    errorMessage: null,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    summary: {
+      storeys: [
+        { globalId: null, expressId: 1, name: 'Erdgeschoss', elevation: 0, elementCount: 80 },
+        { globalId: null, expressId: 2, name: 'Obergeschoss', elevation: 3.2, elementCount: 40 },
+      ],
+    } as BimModelHeaderView['summary'],
+    ...overrides,
+  }
+}
+
+/** The query the stage wrote on its last `router.replace`. */
+function lastQuery(): URLSearchParams {
+  const href = routerReplace.mock.calls.at(-1)?.[0] as string | undefined
+  return new URLSearchParams(href?.split('?')[1] ?? '')
+}
+
+function setWebGpu(available: boolean): void {
+  if (available) Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true })
+  else if ('gpu' in navigator) Reflect.deleteProperty(navigator as unknown as Record<string, unknown>, 'gpu')
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  searchParams = new URLSearchParams('model=Haus-A.ifc')
+  state.models = [model()]
+  state.elements = []
+  state.detail = null
+  setWebGpu(true)
+})
+
+afterEach(() => setWebGpu(false))
+
+describe('ModelStage — what is on screen', () => {
+  it('opens on the building, with no metadata anywhere', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(await screen.findByTestId('ifc-canvas')).toBeInTheDocument()
+    // The whole complaint about the page this replaces: it led with data.
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('advanced-sheet')).not.toBeInTheDocument()
+  })
+
+  it('carries six controls, not a toolbar of nine', () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    for (const name of ['Show everything', 'View', 'Section', 'See through']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    }
+    // The six view directions used to be six buttons in the bar, which is what
+    // pushed the controls anyone uses off the end of the row.
+    expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
+  })
+
+  it('lists the project’s models and the building’s levels, top floor first', () => {
+    state.models = [model(), model({ id: 'm-2', filename: 'Nebengebäude.ifc' })]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    const models = screen.getByRole('region', { name: 'Models' })
+    expect(within(models).getByRole('button', { name: 'Haus-A' })).toBeInTheDocument()
+    expect(within(models).getByRole('button', { name: 'Nebengebäude' })).toBeInTheDocument()
+
+    const levels = screen.getByRole('region', { name: 'Levels' })
+    const rows = within(levels).getAllByRole('button')
+    expect(rows.map((row) => row.getAttribute('title'))).toEqual([
+      'All levels',
+      'Obergeschoss',
+      'Erdgeschoss',
+    ])
+  })
+
+  it('drops the model list entirely when there is only one', () => {
+    // A "Modelle" heading over a single row is a section that exists to be
+    // looked past, and it doubles the rail's height. The model's name is
+    // already the dialog's title, so nothing is lost.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByRole('region', { name: 'Models' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Levels' })).toBeInTheDocument()
+  })
+
+  it('will not switch to a model that is still being read', () => {
+    state.models = [model(), model({ id: 'm-2', filename: 'B.ifc', status: 'extracting' })]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    // The row still SAYS it is being read — the status is part of its spoken
+    // name, which is why the query is a prefix rather than an exact match.
+    expect(screen.getByRole('button', { name: /^B\b/ })).toBeDisabled()
+  })
+})
+
+describe('ModelStage — every control is a link', () => {
+  it('puts the level filter in the URL', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Obergeschoss' }))
+    expect(lastQuery().get('storey')).toBe('Obergeschoss')
+  })
+
+  it('puts see-through in the URL', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'See through' }))
+    expect(lastQuery().get('xray')).toBe('1')
+  })
+
+  it('puts the cut in the URL, at a metre above the level in view', async () => {
+    searchParams = new URLSearchParams('model=Haus-A.ifc&storey=Obergeschoss')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Section' }))
+    // +3.20 m floor, cut a metre above it — where an Austrian Grundriss is cut,
+    // not at the slab, where the plane would show an empty view.
+    expect(lastQuery().get('cut')).toBe('4.2')
+  })
+
+  it('switches model without carrying the previous building’s selection', async () => {
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w1&storey=Erdgeschoss')
+    state.models = [model(), model({ id: 'm-2', filename: 'B.ifc' })]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /^B\b/ }))
+
+    const query = lastQuery()
+    expect(query.get('model')).toBe('B.ifc')
+    // A GlobalId from one building means nothing in another.
+    expect(query.has('element')).toBe(false)
+    expect(query.has('storey')).toBe(false)
+  })
+})
+
+describe('ModelStage — selection', () => {
+  beforeEach(() => {
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w1')
+    state.detail = {
+      globalId: 'g-w1',
+      expressId: 21,
+      ifcType: 'IfcWallStandardCase',
+      name: 'AW 38',
+      description: null,
+      predefinedType: null,
+      objectType: null,
+      tag: null,
+      typeName: null,
+      storeyName: 'Erdgeschoss',
+      materials: ['Stahlbeton'],
+      classifications: [],
+      properties: {},
+      quantities: {},
+    }
+  })
+
+  it('shows the card only once something is selected, and leads with the noun', () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const panel = screen.getByRole('complementary', { name: 'AW 38' })
+    // "Wall", not "IfcWallStandardCase" — the schema is what the old page led
+    // with and it is why the page read as a console.
+    expect(within(panel).getByText('Wall · Erdgeschoss')).toBeInTheDocument()
+  })
+
+  it('keeps the GlobalId, but folded away', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const panel = screen.getByRole('complementary', { name: 'AW 38' })
+    const details = panel.querySelector('details')
+
+    // Shut by default IS the redesign, in one attribute: a 22-character
+    // GlobalId at the top of the card is how the old page read as a console.
+    expect(details).not.toHaveAttribute('open')
+    expect(within(panel).getByText('g-w1')).toBeInTheDocument()
+
+    await userEvent.click(within(panel).getByText('Technical details'))
+    expect(details).toHaveAttribute('open')
+  })
+
+  it('turns the selection into a question that names the element', () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const ask = screen.getByRole('link', { name: /Ask Piloti about this/ })
+    expect(ask.getAttribute('href')).toContain('/app/projects/p1/chat?ask=')
+    // `+` is a space in a query string; decodeURIComponent does not undo it.
+    const question = decodeURIComponent(ask.getAttribute('href') ?? '').replace(/\+/g, ' ')
+    expect(question).toContain('GlobalId g-w1')
+  })
+
+  it('drops the element from the URL when the card is closed', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const panel = screen.getByRole('complementary', { name: 'AW 38' })
+    await userEvent.click(within(panel).getByRole('button', { name: 'Close' }))
+    expect(lastQuery().has('element')).toBe(false)
+  })
+})
+
+describe('ModelStage — the advanced surfaces', () => {
+  it('stays shut until it is asked for', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByTestId('advanced-sheet')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Details & checks' }))
+    expect(screen.getByTestId('advanced-sheet')).toBeInTheDocument()
+  })
+
+  it('opens straight into the panel a link named', () => {
+    // `?tab=compliance` is how a chat compliance card links into the Prüfbuch.
+    // Landing on the model with the drawer shut would lose the point of it.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&tab=compliance')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.getByTestId('advanced-sheet')).toBeInTheDocument()
+  })
+})
+
+describe('ModelStage — nothing to show', () => {
+  it('says the project has no model rather than rendering an empty canvas', () => {
+    state.models = []
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
+    expect(screen.getByText('No IFC model yet')).toBeInTheDocument()
+  })
+
+  it('distinguishes "still being read" from "there is no model"', () => {
+    state.models = [model({ status: 'extracting' })]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.getByText(/still being read/)).toBeInTheDocument()
+  })
+
+  it('explains a browser without WebGPU instead of showing a blank frame', () => {
+    setWebGpu(false)
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
+    expect(screen.getByText('3D view not available in this browser')).toBeInTheDocument()
+  })
+})
+
+describe('ModelStage — getting out', () => {
+  it('closes from its own control', async () => {
+    const onClose = vi.fn()
+    render(<ModelStage projectId="p1" onClose={onClose} />)
+    await userEvent.click(screen.getByTestId('stage-close'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})

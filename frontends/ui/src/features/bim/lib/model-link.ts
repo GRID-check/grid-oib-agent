@@ -98,9 +98,20 @@ export function buildModelQuery(view: BimModelView): string {
   return query ? `?${query}` : ''
 }
 
+/**
+ * The route a model view opens on.
+ *
+ * Dateien, not a page of its own. A model is a file: it is uploaded here, it
+ * is listed here, and `?model=` is what turns this page into the viewer for
+ * one of them. The dedicated `/model` route is gone — it redirects here,
+ * keeping its query string, so every link already written into a chat answer,
+ * a card or a colleague's message still lands on the same view.
+ */
+export const MODEL_VIEW_SEGMENT = 'files'
+
 /** Absolute in-app href for a model view. */
 export function buildModelHref(projectId: string, view: BimModelView = {}): string {
-  return `/app/projects/${projectId}/model${buildModelQuery(view)}`
+  return `/app/projects/${projectId}/${MODEL_VIEW_SEGMENT}${buildModelQuery(view)}`
 }
 
 /**
