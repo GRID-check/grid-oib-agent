@@ -324,9 +324,14 @@ export function IfcModelViewer({
 
       {resolved.length > 0 && (
         <ul className="pointer-events-none absolute bottom-2 left-2 flex max-w-[70%] flex-wrap gap-1.5">
-          {resolved.map((highlight) => (
+          {resolved.map((highlight, position) => (
             <li
-              key={highlight.label}
+              // Position, not label. The URL form groups by STATUS, so
+              // `?hl=fail:A&hl=fail:B` produces two groups sharing the
+              // translated label "nicht erfüllt" — React then treats them as
+              // one row and drops the second group's count from the legend
+              // while its elements stay coloured on the model.
+              key={`${highlight.status}-${position}`}
               className="flex items-center gap-1.5 rounded-md bg-background/85 px-2 py-1 text-xs backdrop-blur"
             >
               <span

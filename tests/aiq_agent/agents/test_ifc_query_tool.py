@@ -270,6 +270,20 @@ class TestElementLinks:
     def test_a_model_without_a_file_name_still_links_the_element(self):
         assert _element_link("p1", None, "g1") == "/app/projects/p1/model?element=g1&hl=info%3Ag1"
 
+    def test_a_failing_element_opens_red_rather_than_neutral(self):
+        # Every link this tool emitted was `info` (blue) whatever the row said,
+        # so a wall that FAILS a requirement opened in the same colour as one
+        # the user merely asked to look at. The viewer supports four verdict
+        # colours and the whole set was collapsed to one.
+        assert _element_link("p1", None, "g1", "fail") == "/app/projects/p1/model?element=g1&hl=fail%3Ag1"
+        assert _element_link("p1", None, "g1", "warning").endswith("hl=warning%3Ag1")
+
+    def test_an_unknown_status_falls_back_instead_of_reaching_the_url(self):
+        # The frontend parser DROPS a highlight whose status it cannot read
+        # (`STATUSES.has` in `model-link.ts`), so an invalid tone would not
+        # mis-colour the element — it would leave it unhighlighted entirely.
+        assert _element_link("p1", None, "g1", "rot").endswith("hl=info%3Ag1")
+
     def test_an_element_list_carries_a_link_per_row(self):
         rendered = _render(
             {
@@ -400,9 +414,10 @@ class TestComplianceOperation:
             "p1",
         )
         # The reading is what makes the row checkable, and the link is what
-        # makes it fixable.
+        # makes it fixable — and it opens RED, because this row is a breach.
         assert "Breite 0.7 m — Schwellwert ≥ 0,80 m" in rendered
         assert "element=0GridFixtureDoor00001" in rendered
+        assert "hl=fail%3A0GridFixtureDoor00001" in rendered
 
     def test_a_rule_that_left_work_behind_prints_the_id_the_card_asks_for(self):
         # `ifc_compliance.rule_ids` is documented as "rule ids from ifc_query

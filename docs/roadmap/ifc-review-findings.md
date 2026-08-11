@@ -29,6 +29,8 @@ regression tests named beside them.
 | BCF zip carried no directory entries — the spec's own *Incorrect* example | `lib/bim/zip.ts`, `bcf.ts` | `bcf.spec.ts` › the folder entry is asserted in the archive layout test |
 | The model download was never aborted; leaving mid-download still transferred the whole file | `features/bim/components/ifc-viewer-canvas.tsx` | `viewer-camera` specs + the `AbortController` at `ifc-viewer-canvas.tsx:335` |
 | `ifc_viewer` could only highlight ids that fit in the answer's context, so a card about 420 external walls coloured a handful under a legend claiming all of them | `IfcHighlight.match` (`cards/models.py`), `useBimHighlightGroups`, `features/bim/lib/card-highlights.ts` | `use-bim-highlight-groups.spec.tsx` › *pages past the API cap* / `card-highlights.spec.ts` |
+| Every agent deep link was `hl=info:`, so a wall that FAILS a requirement opened the same neutral blue as one the user asked to look at | `agents/bim/register.py` `_element_link(status=…)` | `test_ifc_query_tool.py` › *a failing element opens red rather than neutral* |
+| Two highlight groups sharing a translated label collided on `key={highlight.label}` — the URL form groups by status, so `?hl=fail:A&hl=fail:B` produced two rows React treated as one | `features/bim/components/ifc-model-viewer.tsx` | `ifc-model-viewer.spec.tsx` › *keeps two groups that share a label apart* |
 
 The acoustic fix is worth a note, because the cause was subtler than the
 symptom: `numericProperty` anchors its number at the START of the string, so it
@@ -72,8 +74,6 @@ the adopted Ausgabe before an Einreichung leans on it.
 
 - **No live region for viewer load status**, while every toolbar control is
   `disabled` until `ready` — focus drops to `<body>` if a re-parse starts.
-- **Duplicate React keys in the highlight legend** — `key={highlight.label}`
-  over three translated labels, so `?hl=fail:A&hl=fail:B` collides.
 - **`bg-background/85 backdrop-blur` overlays fall below AA** over a dark scene
   in light theme (measured 3.27–3.93 against `text-muted-foreground`).
   `backdrop-blur` does not change mean luminance.
@@ -110,9 +110,6 @@ still green.
   (`model-link.ts:67`), and `ifc-viewer-card-spec.md:54` specifies it, but the
   card model has no field and the renderer never sets one. The user lands on a
   whole-building view with the highlights somewhere inside it.
-- **Agent deep links are always `hl=info:`** (`register.py:178`), so a failing
-  element and a neutral selection highlight the same colour even though
-  `pass|fail|warning|info` are all wired.
 
 ## Open — product
 

@@ -186,7 +186,12 @@ def _valid_gebaeudeklasse(value: int | None) -> int:
     return value if value and 1 <= value <= 5 else 0
 
 
-def _element_link(project_id: str | None, filename: str | None, global_id: str | None) -> str:
+def _element_link(
+    project_id: str | None,
+    filename: str | None,
+    global_id: str | None,
+    status: str = "info",
+) -> str:
     """The in-app path that opens the model on one element.
 
     Mirrors `buildModelHref` in the frontend (`features/bim/lib/model-link.ts`);
@@ -197,10 +202,19 @@ def _element_link(project_id: str | None, filename: str | None, global_id: str |
     Emitted per row rather than described as a template: a model asked to
     compose a URL from a pattern will eventually compose a wrong one, and a
     link to the wrong wall is worse than no link.
+
+    `status` colours the highlight. Every link this tool emitted was `info`
+    (blue) regardless of what the row said, so a wall that FAILS a requirement
+    opened in the same neutral colour as one the user merely asked to look at —
+    the viewer supports `pass|fail|warning|info` and the whole set was
+    collapsed to one. An unknown status falls back to `info` rather than
+    reaching the URL: the frontend parser drops a highlight it cannot read, and
+    a dropped highlight means the element does not light up at all.
     """
     if not project_id or not global_id:
         return ""
-    query = f"element={quote(global_id, safe='')}&hl=info%3A{quote(global_id, safe='')}"
+    tone = status if status in {"pass", "fail", "warning", "info"} else "info"
+    query = f"element={quote(global_id, safe='')}&hl={tone}%3A{quote(global_id, safe='')}"
     if filename:
         query = f"model={quote(filename, safe='')}&{query}"
     return f"/app/projects/{quote(project_id, safe='')}/model?{query}"
@@ -449,7 +463,9 @@ def _render(
                     f"{undecidable} nicht entscheidbar"
                 )
             for verdict in (rule.get("failures") or [])[:10]:
-                link = _element_link(project_id, filename, verdict.get("globalId"))
+                # A breach opens RED. This is the one place the tool knows the
+                # verdict at link time, and it used to throw it away.
+                link = _element_link(project_id, filename, verdict.get("globalId"), "fail")
                 suffix = f" · Link: {link}" if link else ""
                 lines.append(
                     f"  ✗ {rule.get('richtlinie')} {verdict.get('name') or verdict.get('globalId')}: "

@@ -109,6 +109,49 @@ describe('IfcModelViewer with WebGPU', () => {
     expect(screen.getByText('(1)')).toBeInTheDocument()
   })
 
+  it('keeps two groups that share a label apart', () => {
+    // The URL form groups by STATUS (`?hl=fail:A&hl=fail:B`) and the workspace
+    // labels each group from its status, so two `fail` groups arrive with the
+    // identical translated label. Keyed on that label, React treated them as
+    // one row: the second group's count vanished from the legend while its
+    // elements stayed coloured on the model — a legend that undercounts what
+    // the viewport is showing.
+    setWebGpu(true)
+    // React does not throw on a duplicate key, it warns and then reconciles
+    // wrongly on the NEXT update — which no single render can observe. The
+    // warning is therefore the assertion: it is React telling us the identity
+    // of these rows is undefined from here on.
+    const warnings: unknown[][] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      warnings.push(args)
+    })
+
+    try {
+      render(
+        <IfcModelViewer
+          sourceUrl="https://example.test/model.ifc"
+          elements={[
+            ...ELEMENTS,
+            { globalId: 'g-w2', expressId: 22, ifcType: 'IfcWall', name: 'Innenwand', storeyName: 'Erdgeschoss' },
+            { globalId: 'g-w3', expressId: 23, ifcType: 'IfcWall', name: 'Trennwand', storeyName: 'Erdgeschoss' },
+          ]}
+          highlights={[
+            { globalIds: ['g-w1'], label: 'nicht erfüllt', status: 'fail' },
+            { globalIds: ['g-w2', 'g-w3'], label: 'nicht erfüllt', status: 'fail' },
+          ]}
+        />
+      )
+
+      expect(warnings.flat().join(' ')).not.toContain('same key')
+      // Both rows are there, each with its own count.
+      expect(screen.getAllByText('nicht erfüllt')).toHaveLength(2)
+      expect(screen.getByText('(1)')).toBeInTheDocument()
+      expect(screen.getByText('(2)')).toBeInTheDocument()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('replaces a failed viewport with an explanation, not an empty canvas', async () => {
     setWebGpu(true)
     canvas.status = {
