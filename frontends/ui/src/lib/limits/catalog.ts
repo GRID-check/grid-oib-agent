@@ -22,6 +22,7 @@ export const WS_UPGRADE_LIMIT: LimitRule = rules.WS_UPGRADE_LIMIT
 export const CHAT_TURN_LIMIT: LimitRule = rules.CHAT_TURN_LIMIT
 export const WS_CONTROL_LIMIT: LimitRule = rules.WS_CONTROL_LIMIT
 export const DEFAULT_MUTATION_LIMIT: LimitRule = rules.DEFAULT_MUTATION_LIMIT
+export const BIM_QUERY_LIMIT: LimitRule = rules.BIM_QUERY_LIMIT
 
 /**
  * Every rule, for the coverage spec and for anything that wants to enumerate
@@ -37,6 +38,7 @@ export const LIMIT_CATALOG = {
   [CHAT_TURN_LIMIT.name]: CHAT_TURN_LIMIT,
   [WS_CONTROL_LIMIT.name]: WS_CONTROL_LIMIT,
   [DEFAULT_MUTATION_LIMIT.name]: DEFAULT_MUTATION_LIMIT,
+  [BIM_QUERY_LIMIT.name]: BIM_QUERY_LIMIT,
 } as const satisfies Record<string, LimitRule>
 
 /**

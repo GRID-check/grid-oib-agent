@@ -19,7 +19,7 @@ import {
   type BimRuleResultWithConfirmation,
 } from '@/lib/bim/rules'
 import type { BimQuantityRow, BimRoomSchedule } from '@/lib/bim/schedule'
-import type { BimModelSummary } from '@/lib/bim/types'
+import { BIM_ELEMENTS_PAGE_LIMIT, type BimModelSummary } from '@/lib/bim/types'
 import type { BimViewerElement } from '../lib/model-index'
 
 export interface BimModelHeaderView {
@@ -126,11 +126,14 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
 
     const load = async () => {
       const collected: BimViewerElement[] = []
-      const PAGE = 200
+      // The API's own maximum, shared as one constant. At 200 rows this walk
+      // was 1 000 requests for a model at the extraction cap — enough to drain
+      // a rate-limit budget by opening a viewer; at 1 000 it is 200.
+      const PAGE = BIM_ELEMENTS_PAGE_LIMIT
       let offset = 0
-      // Bounded so a pathological model cannot spin forever: 200 pages × 200
-      // rows is the extraction cap, past which there is nothing more to fetch.
-      for (let page = 0; page < 1000; page += 1) {
+      // Bounded so a pathological model cannot spin forever: `pages × PAGE`
+      // clears the extraction cap, past which there is nothing more to fetch.
+      for (let page = 0; page < 400; page += 1) {
         const body = await getJson<{ elements: BimViewerElement[] }>(
           `/api/bim/models/${modelId}/query`,
           {

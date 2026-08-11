@@ -8,6 +8,7 @@
  */
 
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { BIM_QUERY_LIMIT } from '@/lib/limits'
 import { bimQuerySchema } from '@/lib/bim/query'
 import { queryAccessibleModel } from '@/lib/bim/model-service'
 
@@ -19,6 +20,12 @@ export const POST = apiRoute<Params>(
     return queryAccessibleModel(session, params.modelId, query)
   },
   {
+    // A READ that has to travel as POST (see the header). The factory's default
+    // charges every POST against `api-mutation`, which put a viewer's paging
+    // walk in the same bucket as document UPLOADS — reading a model then made
+    // uploading one fail with "Too many requests". Its own rule, sized for a
+    // full-model walk.
+    limits: { rule: BIM_QUERY_LIMIT },
     authz: {
       enforcedBy:
         'queryAccessibleModel -> getAccessibleModel (ifc-models flag + requireProjectAccess project:view, or org membership for Archiv models)',

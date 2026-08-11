@@ -66,6 +66,7 @@ import {
   type BimRoomSchedule,
 } from './schedule'
 import { healthCaveat, type BimHealth } from './validate'
+import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
 import type { BimModelSummary } from './types'
 
 /** Comparison operators a property filter may use. */
@@ -216,7 +217,10 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('elements'),
     filter: bimFilterSchema.default({}),
-    limit: z.number().int().min(1).max(200).default(25),
+    // Max = the viewer's walk page (one shared constant); default = the agent's
+    // conversational page, which stays small on purpose — 25 rows is an answer,
+    // 1 000 is a data dump no one asked the model to narrate.
+    limit: z.number().int().min(1).max(BIM_ELEMENTS_PAGE_LIMIT).default(25),
     offset: z.number().int().min(0).max(100_000).default(0),
   }),
   z.object({ op: z.literal('element'), globalId: z.string().trim().min(1).max(64) }),

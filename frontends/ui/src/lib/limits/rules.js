@@ -130,6 +130,33 @@ const WS_CONTROL_LIMIT = {
 }
 
 /**
+ * Structured BIM queries (`POST /api/bim/models/[modelId]/query`).
+ *
+ * A READ that travels as POST — the request is a nested filter object that
+ * would be unreadable and over-long as a query string — so without its own
+ * rule the factory's default charged it as a mutation. That shared bucket is
+ * how reading a model broke uploading a document: the viewer pages a whole
+ * model's elements sequentially, a real model is hundreds of pages, and the
+ * pager first tripped `api-mutation`'s burst clause and then (each refusal
+ * still spending a sustained point) drained the budget the UPLOAD route needed.
+ * "Too many requests" on an upload, caused by looking at a viewer.
+ *
+ * Sized against the legitimate worst case, which the catalog spec pins: a full
+ * element walk of a model at the extraction cap must fit inside the sustained
+ * clause with room for the workspace's card queries beside it. Still a real
+ * abuse bound — the pager is single-flight, so the burst clause only exists to
+ * stop PARALLEL hammering, and every query underneath is further bounded by
+ * the statement timeout.
+ * @type {LimitRule}
+ */
+const BIM_QUERY_LIMIT = {
+  name: 'bim-query',
+  limit: 900,
+  windowMs: 60 * 1000,
+  burst: { limit: 100, windowMs: 2 * 1000 },
+}
+
+/**
  * The default budget for a mutating API route that has not declared one.
  *
  * `apiRoute` applies this to every POST/PUT/PATCH/DELETE unless the route says
@@ -151,6 +178,7 @@ const DEFAULT_MUTATION_LIMIT = {
 }
 
 module.exports = {
+  BIM_QUERY_LIMIT,
   SHARE_LIMIT,
   TYPING_LIMIT,
   MENTION_LIMIT,

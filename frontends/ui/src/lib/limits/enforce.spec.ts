@@ -180,3 +180,39 @@ describe('a refusal is never self-contradictory', () => {
     expect(outcome.retryAfterMs).toBe(4200)
   })
 })
+
+describe('reading a model must not spend the budget uploading one needs', () => {
+  // Staging: PDFs uploaded fine, IFC uploads returned
+  // `{"code":"RATE_LIMITED","policy":"api-mutation"}`. The BIM query route is a
+  // READ that travels as POST (its request is a nested filter object), so the
+  // factory's default charged it as a mutation — the same bucket the upload
+  // route spends. Opening the viewer walks every element of the model, and that
+  // walk drained the budget the upload then needed. Only IFC hit it because
+  // only IFC has a viewer that pages a whole building.
+  it('gives BIM queries their own bucket, not the shared mutation one', async () => {
+    const { BIM_QUERY_LIMIT, DEFAULT_MUTATION_LIMIT } = await import('./catalog')
+
+    expect(BIM_QUERY_LIMIT.name).toBe('bim-query')
+    expect(BIM_QUERY_LIMIT.name).not.toBe(DEFAULT_MUTATION_LIMIT.name)
+  })
+
+  it('sizes that bucket for a full-model walk at the extraction cap', async () => {
+    const { BIM_QUERY_LIMIT } = await import('./catalog')
+    const { BIM_ELEMENTS_PAGE_LIMIT } = await import('@/lib/bim/types')
+    const { BIM_ELEMENT_LIMIT } = await import('@/lib/bim/service')
+
+    // The walk the viewer actually performs, plus the workspace's own card
+    // queries (overview, health, schedule, takeoff, profile, spatial tree).
+    const walkRequests = Math.ceil(BIM_ELEMENT_LIMIT / BIM_ELEMENTS_PAGE_LIMIT)
+    expect(walkRequests + 12).toBeLessThanOrEqual(BIM_QUERY_LIMIT.limit)
+  })
+
+  it('keeps every rule in the catalog on its own key', async () => {
+    // Two rules sharing a name silently share a bucket — the failure this whole
+    // describe is about, one level up.
+    const { LIMIT_CATALOG } = await import('./catalog')
+    const names = Object.values(LIMIT_CATALOG).map((rule) => rule.name)
+
+    expect(new Set(names).size).toBe(names.length)
+  })
+})

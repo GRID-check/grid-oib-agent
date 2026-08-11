@@ -388,6 +388,27 @@ whole size at once, so a larger cap would document a batch size the limiter
 refuses every time. Its spec asserts that relationship rather than trusting the
 two numbers to stay compatible.
 
+**A read that travels as POST needs its own rule.** The default keys off the
+HTTP METHOD, which is a good proxy for "does work" and a bad one for "is a
+mutation". `POST /api/bim/models/[modelId]/query` is a read — its request is a
+nested filter object that would be unreadable and over-long as a query string —
+so the default put it in `api-mutation`, the bucket document UPLOADS spend.
+Opening a model in the viewer walks every element of the building, and that walk
+drained the budget the next upload needed: PDFs uploaded fine while IFC uploads
+returned `{"code":"RATE_LIMITED","policy":"api-mutation"}`, because only IFC has
+a viewer that pages a whole model. It now declares `BIM_QUERY_LIMIT`, sized so a
+full walk at the extraction cap fits with the workspace's card queries beside
+it, and its spec spends the mutation budget to exhaustion and then asserts the
+route still answers. **When you add a POST that reads, give it its own rule** —
+the shared bucket is a backstop against runaway clients, not a per-endpoint
+policy.
+
+The page size is the other half of that fix. The viewer's walk asks for the
+largest page the API serves (`BIM_ELEMENTS_PAGE_LIMIT`, one constant shared by
+the client and the zod schema, so the client cannot request a size the schema
+refuses). At the old 200-row page a model at the extraction cap took 1 000
+requests; it now takes 200.
+
 `@/lib/sharing/rate-limit` is **deleted**; its three rules moved to the catalog
 with their budgets unchanged, so that migration was an algorithm change and not a
 silent retune.
