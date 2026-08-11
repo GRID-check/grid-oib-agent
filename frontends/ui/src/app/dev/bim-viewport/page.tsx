@@ -1,34 +1,38 @@
 'use client'
 
 /**
- * Dev preview for the viewport's controls.
+ * Dev preview for the viewer's chrome.
  *
  * The canvas needs WebGPU and headless Chromium has none, so the 3D picture
  * itself cannot be captured here — `/dev/bim-model` pins the no-WebGPU
- * fallback for that reason. What CAN be captured, now that the controls are a
- * component that owns no canvas, is every control an architect actually
- * presses. That is most of the surface area and all of the copy.
+ * fallback for that reason. What CAN be captured, now that every control is an
+ * atom that owns no canvas, is the whole of the chrome: the dock, the rail,
+ * the selection card, the loading veil. That is all of the copy and all of the
+ * layout decisions.
  *
- * Three states, because the toolbar has three shapes and only one of them is
- * the one people picture:
- *
- * - **Free view** — what you land on. Perspective, no cut, nothing pressed.
- * - **Grundriss** — plan, parallel projection, a cut at +1,00 m with the
- *   slider open. This is the state the whole feature exists for: a plan you
- *   can measure off, cut where an Austrian plan is cut.
- * - **Loading** — every control disabled. A toolbar that looks live while the
- *   model is still parsing invites clicks that do nothing.
- *
- * Rendered over the muted panel the viewport uses, so contrast is judged
- * against the real backdrop rather than against white.
+ * Rendered over the muted panel the stage uses, so contrast is judged against
+ * the real backdrop rather than against white.
  *
  * Not linked from anywhere and 404s outside development.
  */
 
 import { useState } from 'react'
 import { notFound } from 'next/navigation'
-import { IfcViewerToolbar } from '@/features/bim/components/ifc-viewer-toolbar'
-import type { BimCameraView, BimSection } from '@/features/bim/lib/viewer-camera'
+import { Eye, Home, PanelLeft, Scissors, SlidersHorizontal, Video } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+  ViewerDock,
+  ViewerDockSeparator,
+  ViewerField,
+  ViewerFieldGroup,
+  ViewerIconButton,
+  ViewerPanel,
+  ViewerProgress,
+  ViewerRail,
+  ViewerRailItem,
+  ViewerRailSection,
+  ViewerSlider,
+} from '@/features/bim/components/viewer'
 
 /** The model's vertical extent, as the loaded fixture reports it. */
 const CUT_RANGE = { minMetres: -0.25, maxMetres: 6.25 }
@@ -46,24 +50,18 @@ function Stage({
     <section className="space-y-2">
       <div>
         <h2 className="text-sm font-semibold">{title}</h2>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <p className="text-muted-foreground text-xs">{description}</p>
       </div>
-      <div className="relative h-56 overflow-hidden rounded-xl border bg-muted/30">
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
-          <div className="flex items-center gap-2 rounded-lg bg-background/85 px-2 py-1 text-xs text-muted-foreground backdrop-blur">
-            <span>19 parts</span>
-          </div>
-          {children}
-        </div>
-      </div>
+      <div className="bg-muted/30 relative h-72 overflow-hidden rounded-2xl border">{children}</div>
     </section>
   )
 }
 
 export default function BimViewportDevPage(): JSX.Element {
-  const [view, setView] = useState<BimCameraView>('top')
-  const [orthographic, setOrthographic] = useState(true)
-  const [section, setSection] = useState<BimSection | null>({ atMetres: 1, flipped: false })
+  const [cut, setCut] = useState<number | null>(1)
+  const [xray, setXray] = useState(false)
+  const [railOpen, setRailOpen] = useState(true)
+  const [storey, setStorey] = useState<string | null>('Erdgeschoss')
 
   if (process.env.NODE_ENV !== 'development') {
     notFound()
@@ -72,70 +70,144 @@ export default function BimViewportDevPage(): JSX.Element {
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-6 p-8" data-testid="bim-viewport-preview">
       <div>
-        <h1 className="text-lg font-semibold">Model — viewport controls</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Orbit was never the hard part. These are the controls that turn a model into drawings:
-          stand it square, draw it parallel so it measures, cut it where a plan is cut. All three
-          live in the URL, so a section at +2,60 m looking north is a link.
+        <h1 className="text-lg font-semibold">Model — viewer chrome</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Six controls and two lists, floating over the building. Everything analytical is one
+          button away rather than in front of the model, and the selection card does not exist
+          until something is selected.
         </p>
       </div>
 
       <Stage
-        title="Free view"
-        description="What you land on: perspective, no cut, nothing pressed."
+        title="The stage"
+        description="Rail on the left, dock at the bottom, nothing in the middle. Interactive."
       >
-        <IfcViewerToolbar
-          view="iso"
-          onViewChange={() => {}}
-          orthographic={false}
-          onOrthographicChange={() => {}}
-          section={null}
-          onSectionChange={() => {}}
-          cutRange={CUT_RANGE}
-          defaultCutMetres={1}
-          xray={false}
-          onXrayChange={() => {}}
-          onFit={() => {}}
-        />
+        {railOpen && (
+          <div className="absolute top-4 left-4 z-20 flex max-h-[calc(100%-2rem)]">
+            <ViewerRail>
+              <ViewerRailSection label="Modelle">
+                <ViewerRailItem label="Haus-A_v3" selected />
+                <ViewerRailItem label="Haus-A_v2" />
+                <ViewerRailItem label="Nebengebäude" meta="wird gelesen" disabled />
+              </ViewerRailSection>
+              <ViewerRailSection label="Geschoße">
+                <ViewerRailItem
+                  label="Alle Geschoße"
+                  selected={storey === null}
+                  onClick={() => setStorey(null)}
+                />
+                <ViewerRailItem
+                  label="Dachgeschoss"
+                  meta="+6.25 m"
+                  ariaLabel="Dachgeschoss"
+                  selected={storey === 'Dachgeschoss'}
+                  onClick={() => setStorey('Dachgeschoss')}
+                />
+                <ViewerRailItem
+                  label="Erdgeschoss"
+                  meta="±0.00 m"
+                  ariaLabel="Erdgeschoss"
+                  selected={storey === 'Erdgeschoss'}
+                  onClick={() => setStorey('Erdgeschoss')}
+                />
+                <ViewerRailItem
+                  label="Keller"
+                  meta="−2.80 m"
+                  ariaLabel="Keller"
+                  selected={storey === 'Keller'}
+                  onClick={() => setStorey('Keller')}
+                />
+              </ViewerRailSection>
+            </ViewerRail>
+          </div>
+        )}
+
+        <ViewerDock
+          lead={<ViewerIconButton label="Alles anzeigen" icon={Home} />}
+          above={
+            cut !== null && (
+              <ViewerSlider
+                label="Schnitthöhe"
+                min={CUT_RANGE.minMetres}
+                max={CUT_RANGE.maxMetres}
+                value={cut}
+                display={`${cut.toFixed(2)} m`}
+                onChange={setCut}
+                action={
+                  <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs">
+                    Blick nach unten
+                  </Button>
+                }
+              />
+            )
+          }
+          trail={
+            <>
+              <ViewerIconButton
+                label="Leiste ausblenden"
+                icon={PanelLeft}
+                active={railOpen}
+                onClick={() => setRailOpen((open) => !open)}
+              />
+              <ViewerIconButton label="Details & Prüfung" icon={SlidersHorizontal} />
+            </>
+          }
+        >
+          <ViewerIconButton label="Ansicht" icon={Video} />
+          <ViewerDockSeparator />
+          <ViewerIconButton
+            label="Schnitt"
+            icon={Scissors}
+            active={cut !== null}
+            onClick={() => setCut((current) => (current === null ? 1 : null))}
+          />
+          <ViewerIconButton
+            label="Durchsichtig"
+            icon={Eye}
+            active={xray}
+            onClick={() => setXray((on) => !on)}
+          />
+        </ViewerDock>
       </Stage>
 
       <Stage
-        title="Grundriss — plan, parallel, cut at +1,00 m"
-        description="Interactive: the slider moves the cut and the button flips which way it looks."
+        title="Something is selected"
+        description="The only time metadata is on screen at all — and it leads with the noun, not the schema."
       >
-        <IfcViewerToolbar
-          view={view}
-          onViewChange={setView}
-          orthographic={orthographic}
-          onOrthographicChange={setOrthographic}
-          section={section}
-          onSectionChange={setSection}
-          cutRange={CUT_RANGE}
-          defaultCutMetres={1}
-          xray
-          onXrayChange={() => {}}
-          onFit={() => {}}
-        />
+        <div className="absolute top-4 right-4 z-20 flex max-h-[calc(100%-2rem)]">
+          <ViewerPanel
+            title="AW 38"
+            subtitle="Wall · Erdgeschoss"
+            closeLabel="Schließen"
+            onClose={() => {}}
+            footer={
+              <Button variant="ghost" size="sm" className="w-full justify-start">
+                Piloti dazu fragen
+              </Button>
+            }
+          >
+            <ViewerFieldGroup label="Bauteil">
+              <ViewerField label="Typ">Wall</ViewerField>
+              <ViewerField label="Geschoss">Erdgeschoss</ViewerField>
+              <ViewerField label="Materialien">Stahlbeton, Mineralwolle</ViewerField>
+            </ViewerFieldGroup>
+            <ViewerFieldGroup label="Qto_WallBaseQuantities">
+              <ViewerField label="NetSideArea">18,44</ViewerField>
+              <ViewerField label="Width">0,38</ViewerField>
+            </ViewerFieldGroup>
+          </ViewerPanel>
+        </div>
       </Stage>
 
       <Stage
-        title="Still loading"
-        description="Every control disabled — a live-looking toolbar invites clicks that do nothing."
+        title="Loading"
+        description="A real percentage while the file downloads; no claimed position while it is parsed."
       >
-        <IfcViewerToolbar
-          view="iso"
-          onViewChange={() => {}}
-          orthographic={false}
-          onOrthographicChange={() => {}}
-          section={{ atMetres: 2.6, flipped: false }}
-          onSectionChange={() => {}}
-          cutRange={CUT_RANGE}
-          defaultCutMetres={1}
-          xray={false}
-          onXrayChange={() => {}}
-          onFit={() => {}}
-          disabled
-        />
+        <ViewerProgress label="Modell wird geladen…" percent={62} />
+      </Stage>
+
+      <Stage title="Building geometry" description="No number, because there is no honest one.">
+        <ViewerProgress label="Gebäude wird aufgebaut…" percent={null} />
       </Stage>
     </main>
   )

@@ -77,15 +77,32 @@ export interface BimElementLink {
   view: BimModelView
 }
 
-const MODEL_PATH = /^\/app\/projects\/([^/?#]+)\/model(?:\?([^#]*))?$/
+/**
+ * Both routes, on purpose.
+ *
+ * `files` is where a model view lives now. `model` is where it lived when
+ * every answer in every existing conversation was written, and those links are
+ * in the database — an agent answer from last month naming a wall has to keep
+ * opening that wall. The old route redirects, so a chip built from a legacy
+ * link lands in the same place; recognising it HERE is what lets it render as
+ * a chip at all rather than as a bare URL the reader has to trust.
+ *
+ * A model link is one that carries model-view parameters. `/files` on its own
+ * is the file browser and must keep rendering as an ordinary link, or every
+ * mention of the Dateien page in an answer turns into an element chip.
+ */
+const MODEL_PATH = /^\/app\/projects\/([^/?#]+)\/(files|model)(?:\?([^#]*))?$/
+
+/** Parameters that make a `/files` link a MODEL link rather than a page link. */
+const VIEW_PARAMS = ['model', 'element', 'storey', 'hl', 'xray', 'tab', 'view', 'cut']
 
 /**
- * Recognise `/app/projects/:id/model?element=…` in an answer's markdown.
+ * Recognise `/app/projects/:id/files?element=…` in an answer's markdown.
  *
- * Returns `null` for anything else — an absolute URL to another host, a link to
- * the files page, a fragment — so the caller falls through to its normal link
- * rendering. Absolute same-origin URLs are accepted too, because an agent that
- * composes a link from a base URL produces those.
+ * Returns `null` for anything else — an absolute URL to another host, a link
+ * to a different page, a fragment — so the caller falls through to its normal
+ * link rendering. Absolute same-origin URLs are accepted too, because an agent
+ * that composes a link from a base URL produces those.
  */
 export function parseElementLink(href: string | undefined): BimElementLink | null {
   if (!href) return null
@@ -102,7 +119,15 @@ export function parseElementLink(href: string | undefined): BimElementLink | nul
   if (!match) return null
   const projectId = decodeURIComponent(match[1])
   if (!projectId) return null
-  return { projectId, view: parseModelView(match[2] ?? '') }
+
+  const search = match[3] ?? ''
+  // The legacy route was ONLY ever the model, so a bare `/model` link still
+  // means "open the model". `/files` has to say so.
+  if (match[2] === 'files') {
+    const params = new URLSearchParams(search)
+    if (!VIEW_PARAMS.some((name) => params.has(name))) return null
+  }
+  return { projectId, view: parseModelView(search) }
 }
 
 /**

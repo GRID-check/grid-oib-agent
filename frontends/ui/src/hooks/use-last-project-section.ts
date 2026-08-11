@@ -24,9 +24,10 @@ export const LAST_SECTION_STORAGE_KEY = 'grid.project.last-section'
  * Sections we are willing to remember. `overview` is the project root; the
  * rest are real path segments. Anything outside this set (unknown/renamed
  * routes) is ignored so we never store — or resume into — a garbage segment.
- * Legacy entries (`overview`/`research`/`members`) stay in the set: their
- * routes now redirect (root → chat, research → history, members → settings),
- * so an old memory still resumes somewhere sensible instead of being dropped.
+ * Legacy entries (`overview`/`research`/`members`/`model`) stay in the set:
+ * their routes now redirect (root → chat, research → history, members →
+ * settings, model → files, where the viewer lives), so an old memory still
+ * resumes somewhere sensible instead of being dropped.
  */
 export const KNOWN_PROJECT_SECTIONS = [
   'overview',

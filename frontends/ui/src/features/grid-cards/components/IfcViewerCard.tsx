@@ -135,7 +135,6 @@ export function IfcViewerCard({
           elements={elements ?? []}
           highlights={resolved}
           isolatedStorey={storey}
-          variant="card"
           className="h-72"
         />
       )}

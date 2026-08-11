@@ -2,7 +2,6 @@ import type { ComponentType } from 'react'
 import {
   Archive,
   BookOpenCheck,
-  Boxes,
   ClipboardList,
   Clock,
   Folder,
@@ -26,8 +25,10 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Skills* · Files · History · Archiv* ·
- * Inbox*. The palette additionally surfaces the palette-only destinations
+ * separately): Ask Piloti · Skills* · Jobs* · Files · History · Archiv* ·
+ * Inbox*. There is deliberately no Model entry: an IFC is a file, it opens
+ * from the Files grid, and a second rail item for one file type was a
+ * destination nobody navigated to. The palette additionally surfaces the palette-only destinations
  * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
  *
  * deployment never sees both sections.
@@ -38,7 +39,6 @@ export type ProjectSectionKey =
   | 'skills'
   | 'jobs'
   | 'files'
-  | 'model'
   | 'knowledge'
   | 'history'
   | 'archiv'
@@ -62,7 +62,14 @@ export interface ProjectSectionFlags {
    * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
    */
   canAccessInbox?: boolean
-  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0046). */
+  /**
+   * Whether IFC models are enabled for this org (`ifc-models`, ADR-0046).
+   *
+   * No longer gates a rail entry: the model viewer is a file preview inside
+   * Dateien, so there is no destination to hide. Kept because the flag still
+   * decides whether the BIM endpoints answer at all, and the Files page reads
+   * it to know whether opening an `.ifc` should open a viewer.
+   */
   showModels?: boolean
 }
 
@@ -146,19 +153,6 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'f',
-  },
-  {
-    // The IFC/BIM model page (ADR-0046). Sits next to Files because that is
-    // where the model was uploaded and how a user thinks of it: the same
-    // material, seen as a building rather than as a list of documents.
-    key: 'model',
-    segment: 'model',
-    icon: Boxes,
-    i18nKey: 'model',
-    gate: 'showModels',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'm',
   },
   {
     key: 'knowledge',

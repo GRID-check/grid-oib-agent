@@ -670,7 +670,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/bim-viewport',
     description:
-      'The 3D viewport\'s controls, over the muted panel the viewport itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but the controls now live in a component that owns no canvas, so the part an architect actually presses is capturable. Three states: the free view you land on (perspective, no cut), a Grundriss (plan, parallel projection, cut at +1,00 m with the slider open — the state the whole feature exists for, because a plan in perspective is a picture and not a drawing), and the loading state with every control disabled so a live-looking toolbar cannot invite clicks that do nothing.',
+      'The model viewer\'s chrome, over the muted panel the stage itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but every control is now an atom that owns no canvas, so the whole of what an architect touches is capturable. Four states: the stage (rail of models and levels on the left, a floating dock of six controls at the bottom, nothing at all in the middle — the building is the surface), the selection card that does not exist until something is selected and leads with "Wall" rather than with IfcWallStandardCase, and the two loading states, which differ on purpose: a download reports its real percentage, and geometry-building reports none, because it has no honest one and the mesh count it used to show measured the exporter\'s tessellation settings rather than the wait.',
     waitFor: '[data-testid="bim-viewport-preview"]',
   },
 ]

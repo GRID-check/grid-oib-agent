@@ -318,7 +318,7 @@ describe('IfcModelHealthPanel', () => {
   it('offers to show the affected elements when it has ids for them', async () => {
     const onShowElements = vi.fn()
     render(<IfcModelHealthPanel health={HEALTH} onShowElements={onShowElements} />)
-    await userEvent.click(screen.getAllByRole('button', { name: 'Isolate storey' })[0])
+    await userEvent.click(screen.getAllByRole('button', { name: 'show in model' })[0])
     expect(onShowElements).toHaveBeenCalledWith(['g-w4'])
   })
 

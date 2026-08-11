@@ -8,6 +8,26 @@ import { ProjectFileWorkspace } from './project-file-workspace'
 const mockUploadFiles = vi.fn()
 
 /**
+ * The workspace reads the URL now: `?model=` is what turns Dateien into the
+ * model viewer, so the page needs a router the way every other URL-backed
+ * surface in the app does.
+ */
+const routerReplace = vi.fn()
+let searchParams = new URLSearchParams()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: (...args: unknown[]) => routerReplace(...args),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => '/app/projects/p1/files',
+  useSearchParams: () => searchParams,
+}))
+
+/**
  * Toasts are assertions here, not decoration: the confirmation a user gets when
  * an upload finally lands is the only place the app says what the file became.
  */
@@ -62,6 +82,7 @@ function makeDataTransfer(files: File[]) {
 describe('ProjectFileWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    searchParams = new URLSearchParams()
   })
 
   it('renders the file workspace with its project name and corpus context', () => {
@@ -117,6 +138,7 @@ describe('ProjectFileWorkspace', () => {
 describe('ProjectFileWorkspace — mobile preview overlay', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    searchParams = new URLSearchParams()
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () =>
@@ -164,6 +186,7 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
 describe('ProjectFileWorkspace — saved tags survive reselect', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    searchParams = new URLSearchParams()
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () =>
@@ -260,6 +283,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
 
   beforeEach(() => {
     vi.clearAllMocks()
+    searchParams = new URLSearchParams()
     documentCalls = 0
   })
 
@@ -367,5 +391,94 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
         expect.anything()
       )
     )
+  })
+})
+
+/**
+ * A model is a file, and the file grid is where it opens.
+ *
+ * The `/model` page is gone. What replaced it is this: an `.ifc` in the grid
+ * opens the building full screen, and every other file opens the preview
+ * dialog exactly as before. The branch is the whole integration.
+ */
+describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-model',
+              filename: 'Haus-A.ifc',
+              fileSize: 149_000_000,
+              contentType: 'application/octet-stream',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              errorMessage: null,
+            },
+            {
+              id: 'doc-pdf',
+              filename: 'Einreichplan.pdf',
+              fileSize: 2048,
+              contentType: 'application/pdf',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-02T00:00:00Z',
+              errorMessage: null,
+            },
+          ],
+        })
+      )
+    )
+  })
+
+  it('puts the model in the URL rather than opening the file preview', async () => {
+    render(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        showModels
+      />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /Haus-A\.ifc/i }))
+
+    // The name, not the id: `?model=` is resolved by file name so the link
+    // survives a re-ingestion and stays readable in a chat message.
+    const href = routerReplace.mock.calls.at(-1)?.[0] as string
+    expect(new URLSearchParams(href.split('?')[1]).get('model')).toBe('Haus-A.ifc')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('leaves every other file opening the preview dialog', async () => {
+    render(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        showModels
+      />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /Einreichplan\.pdf/i }))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(routerReplace).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the ordinary preview when the org has no IFC feature', async () => {
+    // A viewer whose endpoints would answer 403 is worse than no viewer: the
+    // reader gets a full-screen surface that cannot load, instead of the file
+    // dialog that works.
+    render(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /Haus-A\.ifc/i }))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(routerReplace).not.toHaveBeenCalled()
   })
 })

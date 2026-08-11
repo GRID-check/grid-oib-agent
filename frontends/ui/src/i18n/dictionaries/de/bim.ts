@@ -286,17 +286,35 @@ export const bim: typeof en.bim = {
     copy: 'Ansicht verlinken',
     copied: 'Kopiert',
   },
+  stage: {
+    dialogLabel: 'Modell {name}',
+    close: 'Schließen',
+    home: 'Alles anzeigen',
+    views: 'Ansicht',
+    advanced: 'Details & Prüfung',
+    models: 'Modelle',
+    levels: 'Geschoße',
+    allLevels: 'Alle Geschoße',
+    elevation: '{value} m',
+    notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',
+    loading: 'Modell wird geladen…',
+    building: 'Gebäude wird aufgebaut…',
+    rail: {
+      show: 'Leiste einblenden',
+      hide: 'Leiste ausblenden',
+    },
+    selection: {
+      close: 'Schließen',
+      loading: 'Wird geladen…',
+      about: 'Bauteil',
+      technical: 'Technische Details',
+      ask: 'Piloti dazu fragen',
+    },
+  },
   viewer: {
     canvasLabel: '3D-Ansicht des IFC-Modells',
     title: '3D-Ansicht',
-    downloading: 'Modell wird geladen…',
-    parsing: 'Geometrie wird aufgebaut… {count} Teile',
-    ready: '{count} Teile',
-    xray: 'Röntgen',
-    fit: 'Ansicht einpassen',
-    isolate: 'Geschoß isolieren',
-    showAll: 'Alles anzeigen',
-    hint: 'Ziehen zum Drehen · Umschalt+Ziehen zum Verschieben · Scrollen zum Zoomen · Klick zum Auswählen',
+    xray: 'Durchsichtig',
     view: {
       iso: 'Frei',
       top: 'Grundriss',
@@ -319,13 +337,13 @@ export const bim: typeof en.bim = {
     unavailable: {
       title: 'Die 3D-Ansicht konnte nicht geladen werden',
       description:
-        'Es fehlt nur das Bild — das Modell selbst ist davon nicht betroffen: Struktur, Bauteile, Eigenschaften und Mengen werden wie gewohnt daraus gelesen. Ein Browser mit gesperrter GPU, eine Remote-Desktop-Sitzung oder ein abgebrochener Download führen hierher.',
+        'Es fehlt nur das Bild — das Modell selbst ist davon nicht betroffen, alles daraus Gelesene bleibt unverändert. Ein Browser mit gesperrter GPU, eine Remote-Desktop-Sitzung oder ein abgebrochener Download führen hierher.',
       reason: 'Ursache: {message}',
     },
     unsupported: {
       title: '3D-Ansicht in diesem Browser nicht verfügbar',
       description:
-        'Der Viewer benötigt WebGPU, das dieser Browser nicht bereitstellt. Alle Modelldaten stehen links trotzdem zur Verfügung — Struktur, Bauteile, Eigenschaften und Mengen — und der Assistent kann Fragen dazu beantworten.',
+        'Der Viewer benötigt WebGPU, das dieser Browser nicht bereitstellt. Am Modell selbst liegt es nicht — der Assistent beantwortet weiterhin Fragen dazu, und in Chrome, Edge oder einem aktuellen Safari wird es angezeigt.',
     },
   },
   facts: {

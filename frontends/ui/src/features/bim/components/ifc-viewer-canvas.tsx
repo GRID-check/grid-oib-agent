@@ -40,19 +40,36 @@
  * navigations exhaust VRAM. Every path out of this component disposes, and the
  * async init is guarded by a `cancelled` flag so a viewport unmounted during
  * parsing does not resurrect itself into a detached canvas.
+ *
+ * ## Input
+ *
+ * Navigation matches what an architect already has in their hands: left-drag
+ * orbits, right- or middle-drag pans, the wheel zooms toward the cursor, two
+ * fingers pinch and pan, double-click frames what was hit. Keyboard does all
+ * of it too, because a canvas that can only be driven by a mouse is a canvas
+ * half the audience cannot use.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from '@/i18n'
+import { cn } from '@/lib/utils'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
 import {
   boundsCentre,
   downloadWithProgress,
+  keyboardCameraStep,
   rendererPreset,
   wheelZoomDelta,
   type BimCameraView,
   type BimSection,
 } from '../lib/viewer-camera'
+import {
+  readViewerTheme,
+  VIEWER_CLEAR_COLOR,
+  viewerEnhancement,
+  viewerEnhancementCompact,
+  viewerEnvironment,
+} from '../lib/viewer-scene'
 
 export interface IfcViewerCanvasProps {
   /** Presigned URL of the raw `.ifc`. */
@@ -66,11 +83,11 @@ export interface IfcViewerCanvasProps {
   /** Currently selected element, highlighted and used as the orbit pivot. */
   selectedExpressId?: number | null
   /**
-   * Ghost everything that is neither selected nor in this set, so a highlighted
-   * subset reads against a translucent building instead of being buried inside
-   * an opaque one. `null` disables ghosting entirely.
+   * Keep these solid and ghost everything else, so a highlighted subset reads
+   * against a translucent building instead of being buried inside an opaque
+   * one. `null` disables ghosting entirely.
    */
-  xrayContextIds?: Set<number> | null
+  xrayKeepIds?: Set<number> | null
   onSelect?: (element: BimViewerElement | null) => void
   onStatus?: (status: IfcViewerStatus) => void
   /** Named camera direction; `iso` leaves whatever the user orbited to. */
@@ -103,12 +120,20 @@ export interface IfcViewerCanvasProps {
    * five-thousand-element building is the entire task.
    */
   zoomToSelection?: boolean
+  /**
+   * Card-sized viewport: cheaper shading, and no hover testing.
+   *
+   * A preview a few hundred pixels wide cannot resolve separation lines, and
+   * several of them on one page would each pay for an ambient-occlusion pass
+   * nobody can see.
+   */
+  compact?: boolean
   className?: string
 }
 
 export interface IfcViewerStatus {
   phase: 'idle' | 'downloading' | 'parsing' | 'ready' | 'error'
-  /** 0..100 while parsing; null when the phase has no meaningful progress. */
+  /** 0..100 while downloading; null when the phase has no meaningful progress. */
   percent: number | null
   meshCount: number
   message?: string
@@ -120,90 +145,134 @@ interface Vec3Like {
   z: number
 }
 
+interface BoxLike {
+  min: Vec3Like
+  max: Vec3Like
+}
+
 /** Minimal structural types for the dynamically-imported ifc-lite classes. */
 interface RendererLike {
   init(): Promise<void>
-  loadGeometry(meshes: unknown[]): void
   addMeshes(meshes: unknown[], streaming?: boolean): void
   fitToView(): void
   render(options?: Record<string, unknown>): void
   resize(width: number, height: number): void
   destroy(): void
-  pick(x: number, y: number): Promise<{ expressId?: number } | null>
-  getCamera(): {
-    /**
-     * `addVelocity` feeds the renderer's own inertia system. Omitting it — which
-     * this interface used to force, by not declaring the parameter — makes every
-     * drag a raw per-event jump with no momentum and no damping.
-     */
-    orbit(dx: number, dy: number, addVelocity?: boolean): void
-    pan(dx: number, dy: number, addVelocity?: boolean): void
-    /**
-     * The cursor arguments are the difference between "zoom toward what I am
-     * pointing at" and "zoom toward the middle of the screen, and watch the
-     * detail I wanted slide off the edge". They were absent from this
-     * declaration, so the call site could not pass them and nobody could see
-     * that the renderer had supported it all along.
-     */
-    zoom(
-      delta: number,
-      addVelocity?: boolean,
-      mouseX?: number,
-      mouseY?: number,
-      canvasWidth?: number,
-      canvasHeight?: number,
-      fastZoom?: boolean
-    ): void
-    /**
-     * Advance inertia and any running tween; true while still moving.
-     *
-     * Nothing called this, which is why momentum never existed AND why
-     * `zoomExtent` and the preset views did not animate: both are tweens that
-     * only advance when something drives them, and the on-demand renderer drew
-     * exactly one frame and stopped.
-     */
-    update(deltaTime: number): boolean
-    /** Rotate about this point instead of the scene centre. `null` restores it. */
-    setOrbitCenter(center: Vec3Like | null): void
-    setAspect(aspect: number): void
-    zoomExtent(
-      min: { x: number; y: number; z: number },
-      max: { x: number; y: number; z: number }
-    ): Promise<void>
-    setPresetView(
-      view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
-      bounds?: { min: Vec3Like; max: Vec3Like }
-    ): void
-    setProjectionMode(mode: 'perspective' | 'orthographic'): void
-  }
-  getModelBounds(): { min: Vec3Like; max: Vec3Like } | null
+  pick(
+    x: number,
+    y: number,
+    options?: { isolatedIds?: Set<number> | null; isStreaming?: boolean }
+  ): Promise<{ expressId?: number } | null>
+  /**
+   * A CPU-side BVH raycast. Unlike {@link pick} it is SYNCHRONOUS — no GPU
+   * readback, no frame of latency — which is the only reason hover is
+   * affordable at all.
+   */
+  raycastScene?(
+    x: number,
+    y: number,
+    options?: { isolatedIds?: Set<number> | null }
+  ): { intersection?: { expressId?: number } } | null
+  onDeviceLost?(listener: (info: { message: string }) => void): () => void
+  getCamera(): CameraLike
+  getModelBounds(): BoxLike | null
   getScene(): {
     setColorOverrides(overrides: Map<number, Rgba>, device: unknown, pipeline: unknown): void
     clearColorOverrides(): void
     /** World-space AABB of one element, or null before its geometry lands. */
-    getEntityBoundingBox(expressId: number): { min: Vec3Like; max: Vec3Like } | null
+    getEntityBoundingBox(expressId: number): BoxLike | null
   }
   getGPUDevice(): unknown
   getPipeline(): unknown
 }
 
+interface CameraLike {
+  /**
+   * `addVelocity` feeds the renderer's own inertia system. Omitting it — which
+   * this interface used to force, by not declaring the parameter — makes every
+   * drag a raw per-event jump with no momentum and no damping.
+   */
+  orbit(dx: number, dy: number, addVelocity?: boolean): void
+  pan(dx: number, dy: number, addVelocity?: boolean): void
+  /**
+   * The cursor arguments are the difference between "zoom toward what I am
+   * pointing at" and "zoom toward the middle of the screen, and watch the
+   * detail I wanted slide off the edge". They were absent from this
+   * declaration, so the call site could not pass them and nobody could see
+   * that the renderer had supported it all along.
+   */
+  zoom(
+    delta: number,
+    addVelocity?: boolean,
+    mouseX?: number,
+    mouseY?: number,
+    canvasWidth?: number,
+    canvasHeight?: number,
+    fastZoom?: boolean
+  ): void
+  /**
+   * Advance inertia and any running tween; true while still moving.
+   *
+   * Nothing called this, which is why momentum never existed AND why
+   * `zoomExtent` and the preset views did not animate: both are tweens that
+   * only advance when something drives them, and the on-demand renderer drew
+   * exactly one frame and stopped.
+   */
+  update(deltaTime: number): boolean
+  /** Rotate about this point instead of the scene centre. `null` restores it. */
+  setOrbitCenter(center: Vec3Like | null): void
+  setAspect(aspect: number): void
+  /** Zoom to fit a box while KEEPING the current view direction. */
+  frameBounds?(min: Vec3Like, max: Vec3Like, duration?: number): Promise<void>
+  zoomExtent(min: Vec3Like, max: Vec3Like, duration?: number): Promise<void>
+  setPresetView(
+    view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
+    bounds?: BoxLike
+  ): void
+  setProjectionMode(mode: 'perspective' | 'orthographic'): void
+  /** Adaptive home pose — isometric for a building, along-axis for a corridor. */
+  fitBoundsAdaptive?(
+    bounds: BoxLike,
+    options?: { animate?: boolean; duration?: number; viewportShortPx?: number }
+  ): unknown
+  stopInertia?(): void
+  setSceneBounds?(bounds: BoxLike | null): void
+}
+
+/**
+ * How long one synchronous hover raycast may take before hover is abandoned.
+ *
+ * The first `raycastScene` on a model builds a BVH over every triangle, and on
+ * a large building that is not a frame's worth of work. Rather than guess a
+ * size threshold, the first call is TIMED: if it blew the budget, hover turns
+ * itself off for this model and the viewport keeps its cursor as a grab hand.
+ * Losing a cursor affordance is a much smaller failure than a viewport that
+ * stutters whenever the mouse moves.
+ */
+const HOVER_BUDGET_MS = 24
+
+/** Pixels of orbit per arrow-key press. One press should be visible, not violent. */
+const KEY_ORBIT_PX = 24
+const KEY_PAN_PX = 32
+
 export function IfcViewerCanvas({
-    sourceUrl,
-    elements,
-    colorOverrides,
-    isolatedExpressIds = null,
-    selectedExpressId = null,
-    xrayContextIds = null,
-    onSelect,
-    onStatus,
-    view = 'iso',
-    orthographic = false,
-    section = null,
-    onBounds,
-    viewNonce = 0,
-    fitNonce = 0,
-    zoomToSelection = false,
-    className,
+  sourceUrl,
+  elements,
+  colorOverrides,
+  isolatedExpressIds = null,
+  selectedExpressId = null,
+  xrayKeepIds = null,
+  onSelect,
+  onStatus,
+  view = 'iso',
+  orthographic = false,
+  section = null,
+  onBounds,
+  viewNonce = 0,
+  fitNonce = 0,
+  zoomToSelection = false,
+  compact = false,
+  className,
 }: IfcViewerCanvasProps): JSX.Element {
   const t = useTranslations('bim')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -213,6 +282,9 @@ export function IfcViewerCanvas({
   // the renderer used to be disposed, so every viewport mount leaked a kernel.
   const geometryRef = useRef<{ dispose(): void } | null>(null)
   const [ready, setReady] = useState(false)
+  /** Over pickable geometry — drives the cursor, and nothing else. */
+  const [hovering, setHovering] = useState(false)
+  const [dragging, setDragging] = useState(false)
 
   // Render inputs live in refs as well as props: the draw call reads them from
   // the animation frame, which is outside React's render, and re-creating the
@@ -220,13 +292,15 @@ export function IfcViewerCanvas({
   const overridesRef = useRef(colorOverrides)
   const isolatedRef = useRef(isolatedExpressIds)
   const selectedRef = useRef(selectedExpressId)
-  const xrayRef = useRef(xrayContextIds)
+  const xrayRef = useRef(xrayKeepIds)
   const sectionRef = useRef(section)
+  const compactRef = useRef(compact)
   sectionRef.current = section
   overridesRef.current = colorOverrides
   isolatedRef.current = isolatedExpressIds
   selectedRef.current = selectedExpressId
-  xrayRef.current = xrayContextIds
+  xrayRef.current = xrayKeepIds
+  compactRef.current = compact
 
   const elementsRef = useRef(elements)
   elementsRef.current = elements
@@ -239,6 +313,20 @@ export function IfcViewerCanvas({
   onBoundsRef.current = onBounds
 
   /**
+   * The theme the model is lit for, captured once per mount.
+   *
+   * Re-lighting on a theme switch would mean re-resolving the environment
+   * uniform mid-session, and the viewport lives inside a modal nobody switches
+   * themes underneath. Read at mount, honest at mount.
+   */
+  const themeRef = useRef<'light' | 'dark'>('light')
+
+  /** True while a gesture is in progress, so the renderer can trade detail for latency. */
+  const interactingRef = useRef(false)
+  /** Still receiving geometry — the renderer skips work that a partial scene invalidates. */
+  const streamingRef = useRef(true)
+
+  /**
    * Draw one frame, now. Split out of {@link requestFrame} so the camera loop
    * below can render synchronously inside its own animation frame rather than
    * scheduling a second one behind it.
@@ -247,32 +335,44 @@ export function IfcViewerCanvas({
     const renderer = rendererRef.current
     if (!renderer) return
     try {
-      {
-        renderer.render({
-          isolatedIds: isolatedRef.current,
-          selectedId: selectedRef.current,
-          // The renderer treats an ABSENT set as "no ghosting" and an empty one
-          // as "ghost everything", so passing an empty set through would fade
-          // the whole building the moment a highlight resolved to nothing.
-          xrayContextIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
-          ghostAlpha: 0.12,
-          // `down` is the renderer's horizontal plane. Absent rather than
-          // `enabled: false` when there is no cut: the option is snapshotted
-          // per frame and a disabled plane still costs the cap/outline setup.
-          sectionPlane: sectionRef.current
-            ? {
-                axis: 'down' as const,
-                position: sectionRef.current.atMetres,
-                enabled: true,
-                flipped: sectionRef.current.flipped,
-                // The hatched cap is what makes a section read as a drawing
-                // rather than as a model with its front wall deleted.
-                showCap: true,
-                showOutlines: true,
-              }
-            : undefined,
-        })
-      }
+      const theme = themeRef.current
+      renderer.render({
+        isolatedIds: isolatedRef.current,
+        selectedId: selectedRef.current,
+        // The renderer treats an ABSENT set as "no ghosting" and an empty one
+        // as "ghost everything", so passing an empty set through would fade
+        // the whole building the moment a highlight resolved to nothing.
+        //
+        // The option is `ghostExceptIds`. It used to be spelled
+        // `xrayContextIds` here, which is not a key the renderer has ever
+        // read — so the x-ray control was inert from the day it shipped, and
+        // looked like it worked because the button's pressed state is local.
+        ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
+        ghostAlpha: 0.1,
+        clearColor: VIEWER_CLEAR_COLOR[theme],
+        environment: viewerEnvironment(theme),
+        visualEnhancement: compactRef.current ? viewerEnhancementCompact() : viewerEnhancement(),
+        // Both are hints the renderer uses to shed work it cannot use: a scene
+        // that is still loading, and a camera that is still moving, are frames
+        // nobody is inspecting closely.
+        isStreaming: streamingRef.current,
+        isInteracting: interactingRef.current,
+        // `down` is the renderer's horizontal plane. Absent rather than
+        // `enabled: false` when there is no cut: the option is snapshotted
+        // per frame and a disabled plane still costs the cap/outline setup.
+        sectionPlane: sectionRef.current
+          ? {
+              axis: 'down' as const,
+              position: sectionRef.current.atMetres,
+              enabled: true,
+              flipped: sectionRef.current.flipped,
+              // The hatched cap is what makes a section read as a drawing
+              // rather than as a model with its front wall deleted.
+              showCap: true,
+              showOutlines: true,
+            }
+          : undefined,
+      })
     } catch {
       // A lost device makes render() a no-op upstream; anything else here is
       // a frame we skip rather than an error we surface mid-orbit.
@@ -296,8 +396,8 @@ export function IfcViewerCanvas({
    * frame per input event, the other needs frames AFTER the input stops. So
    * anything that gives the camera velocity — a drag, a wheel, a pinch — starts
    * this loop, and `Camera.update` decides when it is over. Tweens
-   * (`zoomExtent`, preset views) ride the same loop; they never animated before
-   * because nothing was advancing them.
+   * (`frameBounds`, preset views) ride the same loop; they never animated
+   * before because nothing was advancing them.
    *
    * Idle cost is unchanged: `update` returns false on the first frame after the
    * motion decays, the loop cancels itself, and a static model spins nothing.
@@ -336,6 +436,9 @@ export function IfcViewerCanvas({
     const canvas = canvasRef.current
     if (!canvas) return
 
+    themeRef.current = readViewerTheme()
+    streamingRef.current = true
+
     const report = (status: IfcViewerStatus) => {
       if (!cancelled) onStatusRef.current?.(status)
     }
@@ -358,7 +461,7 @@ export function IfcViewerCanvas({
         })
         if (cancelled) return
 
-        report({ phase: 'parsing', percent: 0, meshCount: 0 })
+        report({ phase: 'parsing', percent: null, meshCount: 0 })
         const [{ GeometryProcessor }, { Renderer }] = await Promise.all([
           import('@ifc-lite/geometry'),
           import('@ifc-lite/renderer'),
@@ -375,6 +478,15 @@ export function IfcViewerCanvas({
         }
         rendererRef.current = renderer
 
+        // A WebGPU device can be taken away — a driver reset, a laptop waking
+        // from sleep, a tab backgrounded too long on a machine under memory
+        // pressure. Unhandled, every subsequent frame throws into the empty
+        // catch in `drawFrame` and the reader is left orbiting a frozen image
+        // with no indication anything is wrong.
+        renderer.onDeviceLost?.((info) => {
+          report({ phase: 'error', percent: null, meshCount: 0, message: info.message })
+        })
+
         // Streaming rather than one blocking parse: the first triangles land in
         // a second or two on a large model instead of after the whole file, and
         // the progress the user sees is real work rather than a spinner.
@@ -389,11 +501,21 @@ export function IfcViewerCanvas({
         }
         if (cancelled) return
 
+        streamingRef.current = false
+        // Tight near/far planes in parallel projection need the scene's extent.
+        // Without it an orthographic plan z-fights against itself, which reads
+        // as a model with holes punched through the slabs.
+        const bounds = renderer.getModelBounds()
+        if (bounds) renderer.getCamera().setSceneBounds?.(bounds)
         renderer.fitToView()
         setReady(true)
         report({ phase: 'ready', percent: 100, meshCount })
         requestFrame()
       } catch (error) {
+        // An aborted fetch is this component being unmounted, not a failure the
+        // reader needs to hear about — and reporting it would replace the next
+        // model's viewport with the previous one's error panel.
+        if (controller.signal.aborted) return
         report({
           phase: 'error',
           percent: null,
@@ -420,6 +542,7 @@ export function IfcViewerCanvas({
       geometryRef.current?.dispose()
       geometryRef.current = null
       setReady(false)
+      setHovering(false)
     }
   }, [sourceUrl, requestFrame])
 
@@ -442,7 +565,7 @@ export function IfcViewerCanvas({
 
   useEffect(() => {
     if (ready) requestFrame()
-  }, [isolatedExpressIds, selectedExpressId, xrayContextIds, ready, requestFrame])
+  }, [isolatedExpressIds, selectedExpressId, xrayKeepIds, ready, requestFrame])
 
   // Keep the drawing buffer in step with the element's CSS box, in device
   // pixels — a canvas sized only by CSS renders blurry on every retina display.
@@ -499,11 +622,20 @@ export function IfcViewerCanvas({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
+    if (pointersRef.current.size === 0) {
+      interactingRef.current = false
+      setDragging(false)
+    }
   }
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    // Focus the canvas on any press, so the keyboard controls below are one
+    // click away rather than a tab-order hunt.
+    event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    interactingRef.current = true
+    setDragging(true)
     if (pointersRef.current.size >= 2) {
       // A gesture that became a pinch is no longer a click or an orbit.
       pinchRef.current = pinchState()
@@ -525,12 +657,26 @@ export function IfcViewerCanvas({
   }
 
   /**
-   * Fit, without remounting.
+   * Frame the model, from wherever the camera is.
    *
-   * `fitToView` is on the renderer already; the page only ever lacked a way to
-   * reach it. Guarded on `ready` because a fit before the first batch lands
-   * frames an empty scene and leaves the camera there.
+   * `fitBoundsAdaptive` rather than `fitToView`: the adaptive policy picks a
+   * pose that suits the bounding box's SHAPE — the isometric a building wants,
+   * or the along-the-axis view a 400 m corridor wants, where the isometric
+   * shows a diagonal hairline. It also animates, so Home reads as the camera
+   * travelling rather than as the model teleporting.
    */
+  const fitModel = useCallback(() => {
+    const renderer = rendererRef.current
+    if (!renderer) return
+    const bounds = renderer.getModelBounds()
+    if (bounds && renderer.getCamera().fitBoundsAdaptive) {
+      renderer.getCamera().fitBoundsAdaptive?.(bounds, { animate: true })
+    } else {
+      renderer.fitToView()
+    }
+    runCameraLoop()
+  }, [runCameraLoop])
+
   // This used to be a `useImperativeHandle`, which never worked. The parent
   // reaches this component through `next/dynamic`, whose `LoadableComponent`
   // is a plain function component, so on React 18 the JSX runtime strips `ref`
@@ -545,13 +691,17 @@ export function IfcViewerCanvas({
   useEffect(() => {
     if (!ready || fitNonce === fittedRef.current) return
     fittedRef.current = fitNonce
-    rendererRef.current?.fitToView()
-    requestFrame()
-  }, [fitNonce, ready, requestFrame])
+    fitModel()
+  }, [fitNonce, ready, fitModel])
 
   // Frame the selected element, when the selection came from somewhere other
-  // than a click in this canvas. `zoomExtent` is on the camera and
-  // `getEntityBoundingBox` on the scene; nothing was missing but the wiring.
+  // than a click in this canvas.
+  //
+  // `frameBounds`, not `zoomExtent`: framing keeps the view DIRECTION and only
+  // changes the distance, which is what "Frame Selection" means in every CAD
+  // tool. `zoomExtent` re-poses the camera as well, so picking a row in a list
+  // spun the building — the reader lost their orientation as the price of
+  // seeing the thing they asked for.
   //
   // Skipped when the element has no geometry yet (streaming has not reached
   // it) and when it has none at all — an IfcSpace in a model exported without
@@ -564,16 +714,16 @@ export function IfcViewerCanvas({
     if (!renderer) return
     const box = renderer.getScene().getEntityBoundingBox(selectedExpressId)
     if (!box) return
+    const camera = renderer.getCamera()
     runCameraLoop()
-    void renderer
-      .getCamera()
-      .zoomExtent(box.min, box.max)
-      .then(() => requestFrame())
-      .catch(() => {
-        // A camera that refuses the move leaves the view where it was, which
-        // is a worse answer than moving but a much better one than a crash
-        // mid-selection.
-      })
+    const framed = camera.frameBounds
+      ? camera.frameBounds(box.min, box.max)
+      : camera.zoomExtent(box.min, box.max)
+    void framed.then(() => requestFrame()).catch(() => {
+      // A camera that refuses the move leaves the view where it was, which
+      // is a worse answer than moving but a much better one than a crash
+      // mid-selection.
+    })
   }, [selectedExpressId, zoomToSelection, ready, requestFrame, runCameraLoop])
 
   /**
@@ -632,15 +782,17 @@ export function IfcViewerCanvas({
     const renderer = rendererRef.current
     if (!renderer) return
     const preset = rendererPreset(view)
-    if (preset === null) renderer.fitToView()
-    else renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
-    // A preset view is a TWEEN, and a tween needs `Camera.update()` stepped
-    // every frame — which is what `runCameraLoop` does. `requestFrame()` drew
-    // exactly one, so pressing a view snapped a fraction of the way there and
-    // stopped. Same bug as the one that made `zoomExtent` never animate,
-    // surviving in the one place that had not been converted.
-    runCameraLoop()
-  }, [view, viewNonce, ready, runCameraLoop])
+    if (preset === null) fitModel()
+    else {
+      renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
+      // A preset view is a TWEEN, and a tween needs `Camera.update()` stepped
+      // every frame — which is what `runCameraLoop` does. `requestFrame()` drew
+      // exactly one, so pressing a view snapped a fraction of the way there and
+      // stopped. Same bug as the one that made `zoomExtent` never animate,
+      // surviving in the one place that had not been converted.
+      runCameraLoop()
+    }
+  }, [view, viewNonce, ready, runCameraLoop, fitModel])
 
   useEffect(() => {
     if (!ready) return
@@ -651,6 +803,52 @@ export function IfcViewerCanvas({
   useEffect(() => {
     if (ready) requestFrame()
   }, [section, ready, requestFrame])
+
+  /**
+   * Hover testing, and the budget that can switch it off.
+   *
+   * `raycastScene` is synchronous, so unlike `pick` it can run on pointermove
+   * without a GPU round trip. Its FIRST call still builds a BVH over the whole
+   * model, which on a large building is not free — so it is timed once, and a
+   * model that cannot afford it simply does not get a hover cursor.
+   */
+  const hoverAffordableRef = useRef(true)
+  const hoverFrameRef = useRef<number | null>(null)
+
+  const testHover = useCallback((clientX: number, clientY: number) => {
+    const renderer = rendererRef.current
+    const canvas = canvasRef.current
+    if (!renderer?.raycastScene || !canvas || !hoverAffordableRef.current) return
+    if (hoverFrameRef.current !== null) return
+    hoverFrameRef.current = requestAnimationFrame(() => {
+      hoverFrameRef.current = null
+      const active = rendererRef.current
+      if (!active?.raycastScene) return
+      const rect = canvas.getBoundingClientRect()
+      const started = performance.now()
+      try {
+        const hit = active.raycastScene(clientX - rect.left, clientY - rect.top, {
+          isolatedIds: isolatedRef.current,
+        })
+        setHovering(hit?.intersection?.expressId !== undefined)
+      } catch {
+        hoverAffordableRef.current = false
+        setHovering(false)
+      }
+      if (performance.now() - started > HOVER_BUDGET_MS) {
+        hoverAffordableRef.current = false
+        setHovering(false)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    hoverAffordableRef.current = !compact
+    return () => {
+      if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current)
+      hoverFrameRef.current = null
+    }
+  }, [compact, sourceUrl])
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const renderer = rendererRef.current
@@ -694,18 +892,50 @@ export function IfcViewerCanvas({
     }
 
     const drag = dragRef.current
-    if (!drag) return
+    if (!drag) {
+      if (ready) testHover(event.clientX, event.clientY)
+      return
+    }
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
     if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true
     drag.x = event.clientX
     drag.y = event.clientY
-    // Middle button or shift-drag pans; anything else orbits. Same convention
-    // as every BIM viewer an architect already uses.
-    if (drag.button === 1 || event.shiftKey) renderer.getCamera().pan(dx, dy, true)
-    else renderer.getCamera().orbit(dx, dy, true)
+    // Right or middle button pans, and so does shift-drag; anything else
+    // orbits. Right-drag was missing, which is the pan every architect reaches
+    // for first — and without a `contextmenu` handler it opened the browser
+    // menu over the building instead.
+    if (drag.button === 1 || drag.button === 2 || event.shiftKey) {
+      renderer.getCamera().pan(dx, dy, true)
+    } else {
+      renderer.getCamera().orbit(dx, dy, true)
+    }
     runCameraLoop()
   }
+
+  /**
+   * Resolve a canvas-relative point to the element drawn there.
+   *
+   * `isolatedIds` travels with the query. Without it the pick pass considers
+   * hidden geometry, so isolating a storey and clicking on empty space
+   * selected a wall on a level that is not on screen — the selection was
+   * real, the element was invisible, and the reader had no way to tell why.
+   */
+  const pickAt = useCallback(async (clientX: number, clientY: number): Promise<BimViewerElement | null> => {
+    const renderer = rendererRef.current
+    const canvas = canvasRef.current
+    if (!renderer || !canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const ratio = Math.min(window.devicePixelRatio || 1, 2)
+    const hit = await renderer.pick(
+      Math.round((clientX - rect.left) * ratio),
+      Math.round((clientY - rect.top) * ratio),
+      { isolatedIds: isolatedRef.current }
+    )
+    const expressId = hit?.expressId
+    if (expressId === undefined) return null
+    return elementsRef.current.find((candidate) => candidate.expressId === expressId) ?? null
+  }, [])
 
   const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
     const wasPinching = pinchRef.current !== null
@@ -714,63 +944,148 @@ export function IfcViewerCanvas({
     endPointer(event)
     // Lifting one finger of a pinch is not a click on whatever was under it.
     if (wasPinching) return
-    const renderer = rendererRef.current
     // A click is a pointer-up that did not drag: orbiting past an element must
     // not select it.
-    if (!renderer || !drag || drag.moved || drag.button !== 0) return
+    if (!rendererRef.current || !drag || drag.moved || drag.button !== 0) return
 
-    const rect = event.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(window.devicePixelRatio || 1, 2)
     try {
-      const hit = await renderer.pick(
-        Math.round((event.clientX - rect.left) * ratio),
-        Math.round((event.clientY - rect.top) * ratio)
-      )
-      const expressId = hit?.expressId
-      const element =
-        expressId === undefined
-          ? null
-          : (elementsRef.current.find((candidate) => candidate.expressId === expressId) ?? null)
-      onSelectRef.current?.(element)
+      onSelectRef.current?.(await pickAt(event.clientX, event.clientY))
     } catch {
       onSelectRef.current?.(null)
     }
   }
 
-  const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
+  /**
+   * Double-click frames what is under the cursor.
+   *
+   * The one navigation gesture every 3D tool shares, and the fastest way out
+   * of "I zoomed into the middle of a slab and cannot find my way back".
+   */
+  const handleDoubleClick = async (event: React.MouseEvent<HTMLCanvasElement>) => {
     const renderer = rendererRef.current
-    if (!renderer) return
-    const rect = event.currentTarget.getBoundingClientRect()
-    // Zoom toward the CURSOR, not the middle of the canvas. Without these
-    // arguments the detail you point at slides off-screen as you approach it,
-    // and the only way back is to orbit and try again — the single thing that
-    // makes a viewer feel broken to someone used to Revit or Navisworks.
-    //
-    // Deltas are normalised per `deltaMode`: a mouse wheel reports pixels, but
-    // a trackpad or a Firefox line-mode wheel reports lines or pages, and
-    // treating 3 lines as 3 pixels is why a trackpad barely moved.
-    renderer
-      .getCamera()
-      .zoom(
-        wheelZoomDelta(event.deltaY, event.deltaMode, rect.height),
-        true,
-        event.clientX - rect.left,
-        event.clientY - rect.top,
-        rect.width,
-        rect.height
+    if (!renderer || !ready) return
+    try {
+      const element = await pickAt(event.clientX, event.clientY)
+      if (!element) {
+        fitModel()
+        return
+      }
+      const box = renderer.getScene().getEntityBoundingBox(element.expressId)
+      if (!box) return
+      onSelectRef.current?.(element)
+      const camera = renderer.getCamera()
+      runCameraLoop()
+      void (camera.frameBounds
+        ? camera.frameBounds(box.min, box.max)
+        : camera.zoomExtent(box.min, box.max)
       )
+        .then(() => requestFrame())
+        .catch(() => {})
+    } catch {
+      // A pick that failed is a double-click that did nothing, which is a
+      // better outcome than a camera that moved somewhere unexplained.
+    }
+  }
+
+  /**
+   * The wheel, as a NATIVE listener rather than a React prop.
+   *
+   * React attaches `onWheel` at the root as a passive listener, so
+   * `preventDefault` inside it is ignored — the browser scrolls the page as
+   * well as zooming the model. `touch-action: none` covers touch and does
+   * nothing for a wheel. In a scrollable page that meant every zoom also
+   * scrolled the viewport out from under the cursor, which is the single most
+   * damning thing a 3D view can do.
+   */
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const onWheel = (event: WheelEvent) => {
+      const renderer = rendererRef.current
+      if (!renderer) return
+      event.preventDefault()
+      const rect = canvas.getBoundingClientRect()
+      // Zoom toward the CURSOR, not the middle of the canvas. Without these
+      // arguments the detail you point at slides off-screen as you approach it,
+      // and the only way back is to orbit and try again — the single thing that
+      // makes a viewer feel broken to someone used to Revit or Navisworks.
+      //
+      // Deltas are normalised per `deltaMode`: a mouse wheel reports pixels, but
+      // a trackpad or a Firefox line-mode wheel reports lines or pages, and
+      // treating 3 lines as 3 pixels is why a trackpad barely moved.
+      renderer
+        .getCamera()
+        .zoom(
+          wheelZoomDelta(event.deltaY, event.deltaMode, rect.height),
+          true,
+          event.clientX - rect.left,
+          event.clientY - rect.top,
+          rect.width,
+          rect.height,
+          // Ctrl+wheel is a trackpad pinch on every platform; the browser
+          // reports it as a wheel with `ctrlKey`. Treating it as an ordinary
+          // notch makes a pinch on a laptop crawl.
+          event.ctrlKey
+        )
+      runCameraLoop()
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [runCameraLoop])
+
+  /**
+   * Keyboard navigation.
+   *
+   * Not an accessibility box to tick — it is the difference between a viewport
+   * a keyboard user can look around and one they can only stare at. Arrow keys
+   * orbit, shift-arrows pan, `+`/`-` zoom, `F` and `Home` frame the model,
+   * matching what the same keys do in the tools this audience already uses.
+   */
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    const renderer = rendererRef.current
+    if (!renderer || !ready) return
+    const step = keyboardCameraStep(event.key)
+    if (step === null) {
+      if (event.key === 'f' || event.key === 'F' || event.key === 'Home') {
+        event.preventDefault()
+        fitModel()
+      }
+      return
+    }
+    event.preventDefault()
+    const camera = renderer.getCamera()
+    if (step.kind === 'zoom') {
+      const rect = event.currentTarget.getBoundingClientRect()
+      camera.zoom(step.amount, true, rect.width / 2, rect.height / 2, rect.width, rect.height)
+    } else if (event.shiftKey) {
+      camera.pan(step.x * KEY_PAN_PX, step.y * KEY_PAN_PX, true)
+    } else {
+      camera.orbit(step.x * KEY_ORBIT_PX, step.y * KEY_ORBIT_PX, true)
+    }
     runCameraLoop()
   }
 
   return (
     <canvas
       ref={canvasRef}
-      className={className}
+      className={cn(
+        'touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+        // The cursor IS the affordance. A canvas with a text caret over it
+        // reads as a picture; a grab hand reads as something you can turn.
+        dragging ? 'cursor-grabbing' : hovering ? 'cursor-pointer' : 'cursor-grab',
+        className
+      )}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onWheel={handleWheel}
+      onPointerLeave={() => setHovering(false)}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
+      // Right-drag pans, so the browser's menu must not appear on top of it.
+      onContextMenu={(event) => event.preventDefault()}
+      // Focusable so the keyboard controls above can be reached at all.
+      tabIndex={0}
       // The canvas is a graphical view of data that is also available as text in
       // the element table beside it, so it is labelled rather than described.
       // Through the dictionary like every other string a reader sees: a
