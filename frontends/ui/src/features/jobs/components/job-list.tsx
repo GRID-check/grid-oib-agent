@@ -62,6 +62,19 @@ interface JobListProps {
 
 type Translate = ReturnType<typeof useTranslations>
 
+/**
+ * The card grid, and why it breaks where it does.
+ *
+ * A job card's floor is its action row — run / edit / delete side by side is
+ * ~376px of buttons, and it must not wrap. Two columns therefore start at `lg`
+ * (1024px → ~440px of card interior) rather than `md`, where 2-up would leave
+ * ~320px and split the actions over two lines; three columns start at `2xl`
+ * (1536px → ~450px) rather than `xl`, where 3-up would leave ~365px and do the
+ * same. So the widths are chosen by what has to fit, not by the breakpoint
+ * names.
+ */
+const GRID_CLASS = 'grid gap-4 lg:grid-cols-2 2xl:grid-cols-3'
+
 /** Humanized schedule summary for a card, including the timezone. */
 function scheduleSummary(t: Translate, cron: string | null, timezone: string): string {
   if (!cron) return t('list.manualOnly')
@@ -183,8 +196,13 @@ function JobCard({
     : t('list.neverRun')
 
   return (
-    <Card className={cn(!job.enabled && 'opacity-75')}>
-      <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
+    // `h-full` so every card in a grid row is the height of the tallest one —
+    // a ragged row of cards reads as a broken layout, not as varying content.
+    // `py-0` drops Card's own vertical padding: with CardContent's it stacked
+    // to 44px of nothing above and below the content, which a tile in a grid
+    // cannot afford.
+    <Card className={cn('h-full py-0', !job.enabled && 'opacity-75')}>
+      <CardContent className="flex h-full flex-col gap-4 p-4 sm:p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -192,8 +210,10 @@ function JobCard({
               <Badge variant="secondary">{t(`list.output.${job.output}`)}</Badge>
               {!job.enabled && <Badge variant="outline">{t('list.disabled')}</Badge>}
             </div>
-            {/* The prompt, verbatim and clamped. It is what the job sends. */}
-            <p className="line-clamp-2 text-sm text-muted-foreground">{job.prompt}</p>
+            {/* The prompt, verbatim and clamped to a fixed three lines: in a
+                grid the card is a third of the page wide, and an unclamped
+                prompt would set the height of every card in its row. */}
+            <p className="line-clamp-3 text-sm text-muted-foreground">{job.prompt}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {toggling && <Spinner size="sm" />}
@@ -213,15 +233,21 @@ function JobCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <CalendarClock className="size-3.5" aria-hidden />
-            {scheduleSummary(t, job.scheduleCron, job.scheduleTimezone)}
+          <span className="flex min-w-0 max-w-full items-center gap-1.5">
+            <CalendarClock className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">
+              {scheduleSummary(t, job.scheduleCron, job.scheduleTimezone)}
+            </span>
           </span>
           {/* No skill is the common case, and it is stated rather than left
-              blank: a missing line reads as missing information. */}
-          <span className="flex items-center gap-1.5">
-            <Sparkles className="size-3.5" aria-hidden />
-            {job.skillName ? t('list.withSkill', { name: job.skillName }) : t('list.noSkill')}
+              blank: a missing line reads as missing information. A skill name
+              is user-chosen and can be long, so it truncates rather than
+              pushing the rest of the row onto another line. */}
+          <span className="flex min-w-0 max-w-full items-center gap-1.5">
+            <Sparkles className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">
+              {job.skillName ? t('list.withSkill', { name: job.skillName }) : t('list.noSkill')}
+            </span>
           </span>
           {nextRun && <span>{nextRun}</span>}
           <span title={job.lastRunAt ? formatAbsoluteTime(job.lastRunAt, locale) : undefined}>
@@ -229,13 +255,18 @@ function JobCard({
           </span>
         </div>
 
+        {/* Actions and the history live at the FOOT of the card: `mt-auto`
+            pins them to the bottom edge, so in a grid row of unequal content
+            the buttons line up across cards instead of floating at whatever
+            height the prompt above them happened to end. */}
+        <div className="mt-auto flex flex-col gap-2">
         {canManage && (
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => void runNow()} disabled={running || !job.enabled}>
               {running ? <Spinner size="sm" /> : <Play className="size-3.5" aria-hidden />}
               {running ? t('actions.running') : t('actions.runNow')}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onEdit(job)}>
+            <Button size="sm" variant="outline" data-testid="job-edit" onClick={() => onEdit(job)}>
               <Pencil className="size-3.5" aria-hidden />
               {t('actions.edit')}
             </Button>
@@ -273,6 +304,7 @@ function JobCard({
             )}
           </CollapsibleContent>
         </Collapsible>
+        </div>
       </CardContent>
 
       <ConfirmDeleteDialog
@@ -321,28 +353,21 @@ export function JobList({
   }, [])
 
   return (
-    <section className="space-y-4" aria-labelledby="jobs-heading">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="jobs-heading" className="text-sm font-semibold text-foreground">
-          {t('list.heading')}
-        </h2>
-        {canManage && (
-          <Button size="sm" onClick={onCreate}>
-            <Plus className="size-4" aria-hidden />
-            {t('list.empty.action')}
-          </Button>
-        )}
-      </div>
-
+    // The panel's bar owns the heading and the New-job action, so the list is
+    // the cards and nothing else. `max-w` is a readability cap, not a column:
+    // past ~1800px a third card would only make each one wider than a prompt
+    // is worth reading.
+    <section className="mx-auto w-full max-w-[1800px]" aria-label={t('list.heading')}>
       {jobs === null && !error && (
-        <div className="space-y-3" data-testid="jobs-loading">
-          <Skeleton className="h-36 w-full rounded-xl" />
-          <Skeleton className="h-36 w-full rounded-xl" />
+        <div className={GRID_CLASS} data-testid="jobs-loading">
+          <Skeleton className="h-52 w-full rounded-2xl" />
+          <Skeleton className="h-52 w-full rounded-2xl" />
+          <Skeleton className="h-52 w-full rounded-2xl" />
         </div>
       )}
 
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="mt-0">
           <AlertCircle className="size-4" aria-hidden />
           <AlertTitle>{t('loadError')}</AlertTitle>
           <AlertDescription>
@@ -370,7 +395,7 @@ export function JobList({
       )}
 
       {jobs !== null && !error && jobs.length > 0 && (
-        <div className="space-y-4">
+        <div className={GRID_CLASS}>
           {jobs.map((job) => (
             <JobCard
               key={job.id}

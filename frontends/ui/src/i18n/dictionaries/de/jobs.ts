@@ -10,7 +10,7 @@ import type { en } from '../en'
 export const jobs: typeof en.jobs = {
   title: 'Jobs',
   subtitle:
-    'Prompts, die dieses Projekt nach Zeitplan ausführt. Ein Job schickt seinen Prompt genau so ab, als hätten Sie ihn in einen neuen Chat getippt — auf Wunsch mit angehängtem Skill — und Sie legen fest, was dabei herauskommt: ein Chat oder ein Bericht.',
+    'Prompts, die dieses Projekt nach Zeitplan ausführt — als Chat oder Bericht, auf Wunsch mit Skill.',
   backToList: 'Zurück zu den Jobs',
   loadError: 'Die Jobs konnten nicht geladen werden.',
   tryAgain: 'Erneut versuchen',
@@ -174,6 +174,7 @@ export const jobs: typeof en.jobs = {
     loadError: 'Der Ausführungsverlauf konnte nicht geladen werden.',
     empty: 'Dieser Job wurde noch nie ausgeführt.',
     viewReport: 'Bericht ansehen',
+    openChat: 'Chat öffnen',
     viewProgress: 'Fortschritt ansehen',
     viewThinking: 'Denkprozess ansehen',
     scheduler: 'Zeitplaner',

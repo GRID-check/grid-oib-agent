@@ -228,8 +228,29 @@ export const SCREENSHOT_TARGETS = [
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      'Agent Skills tab (ADR-0045) — the merged skill toolbox (builtin, org, cloned) with badges and instruction bodies, plus the schedule list with run history joined to live job status.',
+      'Agent Skills tab (ADR-0045) — the merged skill toolbox (builtin, org, cloned) with badges and instruction bodies, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab, so this shot is the proof that the page is the toolbox alone. The fixture covers all three origins plus a disabled clone, because origin is what decides whether a row can be edited or only cloned.',
     waitFor: '[data-testid="skills-panel-preview"]',
+  },
+  {
+    id: 'jobs-panel',
+    path: '/dev/jobs-panel',
+    description:
+      'Jobs tab, list mode — the Files shape: a compact bordered bar (title, one-line subtitle, the single New-job action) over a card GRID that fills the pane, not a narrow centred column. A card leads with the PROMPT, not the skill, because the prompt is what the job is and the skill is the optional extra; the fixture carries two jobs with no skill and two with one, so "Ohne Skill" is visibly a stated fact rather than a blank. Both output kinds (Chat / Bericht) are on screen, plus a disabled job (dimmed, badge, run-now unavailable) and one with no cron, which reads "Nur manuell". Captured at 1200px, which is the 2-up band; 3-up starts at 2xl, chosen so the run/edit/delete row still fits on one line.',
+    waitFor: '[data-testid="jobs-panel-preview"] [role="switch"]',
+  },
+  {
+    id: 'job-builder',
+    path: '/dev/job-builder',
+    description:
+      'The job builder editing a fully populated job, reached the way a user reaches it — the preview presses Bearbeiten on a real card, so the shot carries the panel shell the builder now shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the job fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
+    waitFor: '[data-testid="job-prompt-preview"]',
+  },
+  {
+    id: 'job-run-history',
+    path: '/dev/job-run-history',
+    description:
+      'A job\'s run history with one row per outcome, which is the only place the product answers "where did this run end up?". Each row joins the recorded submission against the live backend job state, and that state picks BOTH the badge and the link: a finished chat run offers the conversation it minted, a finished deep-research run its report, a live one its progress, a failed one its thinking — and the skipped run, which never became a job, offers nothing rather than a dead link.',
+    waitFor: '[data-testid="job-run-history-preview"] li',
   },
   {
     id: 'skill-composer',

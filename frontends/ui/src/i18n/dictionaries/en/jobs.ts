@@ -9,8 +9,9 @@
  */
 export const jobs = {
   title: 'Jobs',
-  subtitle:
-    'Prompts this project runs on a timer. A job sends its prompt exactly as if you had typed it into a new chat — optionally with a skill attached — and you choose what comes back: a chat, or a report.',
+  // One line: it sits in the tab's header BAR, next to the title. The long
+  // version of this explanation is the empty state, which has room for it.
+  subtitle: 'Prompts this project runs on a timer — as a chat or a report, optionally with a skill.',
   backToList: 'Back to jobs',
   loadError: 'The jobs could not be loaded.',
   tryAgain: 'Try again',
@@ -173,6 +174,8 @@ export const jobs = {
     loadError: 'The run history could not be loaded.',
     empty: 'This job has not run yet.',
     viewReport: 'View report',
+    /** A `chat` run landed in a conversation — the run's output IS that chat. */
+    openChat: 'Open chat',
     viewProgress: 'View progress',
     viewThinking: 'View thinking',
     scheduler: 'Scheduler',

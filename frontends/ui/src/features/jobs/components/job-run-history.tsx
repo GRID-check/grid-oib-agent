@@ -9,9 +9,10 @@
  * fate lives in the backend job store. So rows that produced a job are joined
  * against the project's research runs (`GET /v1/jobs/async/jobs`, the same
  * list the History page uses) to show the live job status, and that status
- * picks the row's action: follow a run that is still going, open the report
- * of one that finished, or inspect the thinking of one that failed. The join
- * is best-effort — without it a row falls back to its submission badge.
+ * picks the row's action: follow a run that is still going, open the CHAT a
+ * finished `chat` run landed in, open the report of a finished report run, or
+ * inspect the thinking of one that failed. The join is best-effort — without
+ * it a row falls back to its submission badge.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -58,6 +59,20 @@ const JOB_STATUS_POLL_MS = 10000
 /** Newest jobs to join against; runs older than this fall back to their badge. */
 const JOB_STATUS_LOOKUP_LIMIT = 200
 
+/**
+ * The conversation a run landed in, or null when it produced no chat.
+ *
+ * Two sources, because the run row and the job are written at different times:
+ * `job_runs.conversation_id` is recorded when the submission already knows the
+ * conversation, and the joined job carries it when the conversation was minted
+ * during the run. Either one means the same thing — this run's output is a
+ * chat, not a report.
+ */
+function conversationFor(run: JobRun, byJobId: Record<string, string>): string | null {
+  if (run.conversationId) return run.conversationId
+  return (run.jobId && byJobId[run.jobId]) || null
+}
+
 export function JobRunHistory({
   projectId,
   jobId,
@@ -68,6 +83,8 @@ export function JobRunHistory({
   const [runs, setRuns] = useState<JobRun[] | null>(null)
   const [error, setError] = useState(false)
   const [jobStatuses, setJobStatuses] = useState<Record<string, string>>({})
+  /** Conversation minted by a run, by backend job id — see `conversationFor`. */
+  const [conversationIds, setConversationIds] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
     setRuns(null)
@@ -102,10 +119,16 @@ export function JobRunHistory({
         if (cancelled) return
 
         const next: Record<string, string> = {}
+        const conversations: Record<string, string> = {}
         for (const job of jobs) {
-          if (backendJobIds.has(job.job_id)) next[job.job_id] = job.status
+          if (!backendJobIds.has(job.job_id)) continue
+          next[job.job_id] = job.status
+          // The run row is written at submission time, so a conversation minted
+          // later is only knowable from the job itself.
+          if (job.conversation_id) conversations[job.job_id] = job.conversation_id
         }
         setJobStatuses(next)
+        setConversationIds(conversations)
 
         if (Object.values(next).some((status) => ACTIVE_JOB_STATUSES.has(status))) {
           timer = setTimeout(() => void poll(), JOB_STATUS_POLL_MS)
@@ -159,18 +182,29 @@ export function JobRunHistory({
         const hasJob = run.status === 'submitted' && Boolean(run.jobId)
         const isActive = jobStatus !== undefined && ACTIVE_JOB_STATUSES.has(jobStatus)
         const hasReport = jobStatus === 'completed'
+        // A finished `chat` run IS its conversation, and that is a different
+        // destination from a report: `?session=` opens the thread so it can be
+        // continued (the parameter the chat surface reads — see
+        // `lib/sharing/registry.ts`), where `?job=` opens the research panel.
+        // Only once the run is no longer active, because a conversation that
+        // is still being written is followed as progress.
+        const conversationId = !isActive ? conversationFor(run, conversationIds) : null
         // Unknown live status (join unavailable, or a run older than the
         // lookup window) keeps the previous behavior: offer the report.
         const link = isActive
           ? `/app/projects/${projectId}/chat?job=${run.jobId}&tab=tasks`
-          : jobStatus === 'failed' || jobStatus === 'cancelled'
-            ? `/app/projects/${projectId}/chat?job=${run.jobId}&tab=thinking`
-            : `/app/projects/${projectId}/chat?job=${run.jobId}`
+          : conversationId
+            ? `/app/projects/${projectId}/chat?session=${encodeURIComponent(conversationId)}`
+            : jobStatus === 'failed' || jobStatus === 'cancelled'
+              ? `/app/projects/${projectId}/chat?job=${run.jobId}&tab=thinking`
+              : `/app/projects/${projectId}/chat?job=${run.jobId}`
         const linkLabel = isActive
           ? t('history.viewProgress')
-          : hasReport || jobStatus === undefined
-            ? t('history.viewReport')
-            : t('history.viewThinking')
+          : conversationId
+            ? t('history.openChat')
+            : hasReport || jobStatus === undefined
+              ? t('history.viewReport')
+              : t('history.viewThinking')
 
         return (
           <li key={run.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">

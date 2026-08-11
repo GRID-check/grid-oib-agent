@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, FileText, Lock } from 'lucide-react'
+import { Check, FileText, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
@@ -113,7 +113,6 @@ function toSnapshot(item: AttachableSkill): SkillSnapshot {
 
 export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProps): JSX.Element {
   const t = useTranslations('jobs')
-  const isEdit = job !== null
 
   // --- The output kind, and everything that follows from it ---------------
   const [output, setOutput] = useState<JobOutput>(job?.output ?? 'chat')
@@ -304,20 +303,12 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 md:px-8 md:py-8">
-      <div className="space-y-1.5">
-        <Button variant="ghost" size="sm" className="-ml-2 text-muted-foreground" onClick={onCancel}>
-          <ArrowLeft className="size-4" aria-hidden />
-          {t('backToList')}
-        </Button>
-        <h1 className="text-xl font-semibold text-foreground">
-          {isEdit ? t('builder.editTitle') : t('builder.createTitle')}
-        </h1>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          {isEdit ? t('builder.editSubtitle') : t('builder.createSubtitle')}
-        </p>
-      </div>
-
+    // Shares the panel's shell: no padding and no centred column of its own —
+    // the panel's scroll body already provides both, so the form starts at the
+    // same left edge the cards do and switching list ⇄ builder does not jump.
+    // The readability cap is wider than the list's card because this is one
+    // two-column form, not a grid of cards.
+    <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -707,7 +698,12 @@ function FirePromptPreview({
         {compiled ? (
           <pre
             data-testid="job-prompt-preview"
-            className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-4 font-mono text-xs leading-relaxed text-foreground"
+            // Bounded by the VIEWPORT, not by a fixed 32rem: the card is
+            // sticky, so the viewport is the only height it may not exceed,
+            // and a fixed cap clipped an ordinary prompt-plus-skill mid-line
+            // while thousands of pixels of the column beside it sat empty.
+            // Longer prompts still scroll — inside the pane, as intended.
+            className="max-h-[calc(100vh-15rem)] overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-4 font-mono text-xs leading-relaxed text-foreground"
           >
             {compiled}
           </pre>
