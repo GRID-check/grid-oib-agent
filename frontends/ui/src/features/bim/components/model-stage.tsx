@@ -695,4 +695,3 @@ function StageViewMenu({
     </Popover>
   )
 }
-
