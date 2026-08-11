@@ -194,14 +194,40 @@ export function rendererSectionPlane(
 // ---------------------------------------------------------------------------
 
 /**
- * `view=north`, `cut=2.6`, `cut=-2.6` for an upward cut, `persp=1` to keep
- * perspective on a cardinal view.
+ * `view=north`, `cut=2.6&cutup=0`, `persp=1` to keep perspective on a cardinal
+ * view.
  *
- * The sign carries `flipped` rather than a second parameter: a cut is a height
- * and a direction, the direction has two values, and a URL that reads
- * `cut=2.6&cutUp=1` invites the two to disagree. A cut at exactly 0 is encoded
- * as `0` and read as looking down, which is the only reading a bare zero can
- * have.
+ * ## Why the sign no longer carries the direction
+ *
+ * It used to: `cut=-2.6` meant "2.6 m, looking up", on the reasoning that a
+ * height and a direction in two parameters invites the two to disagree. The
+ * reasoning was fine and the encoding was lossy, because it quietly assumed a
+ * cut height is never negative.
+ *
+ * It often is. The renderer's world is metres from the MODEL's origin, and
+ * plenty of buildings put that origin at the ground floor with a basement
+ * below it — the viewport reports bounds like -3.00 m to +9.00 m and ranges
+ * the slider over them. Under the old encoding every one of those heights came
+ * back through `Math.abs` as its positive mirror, so the bottom quarter of the
+ * building could not be cut at all: drag below zero and the plane jumped to
+ * the other side of the ground floor.
+ *
+ * So `cut` is now the signed height and `cutup` is the direction. The pair
+ * cannot disagree because neither is derivable from the other.
+ *
+ * ## Reading links written by the old encoding
+ *
+ * `cutup` doubles as the marker for which encoding wrote the link, because the
+ * old one emitted it in exactly one case (a flipped cut at exactly zero, where
+ * a sign cannot be written) and the new one always emits it. So:
+ *
+ * - `cutup` present → the signed reading. `cut` is the height.
+ * - `cutup` absent → the old reading. `|cut|` is the height and the sign is
+ *   the direction.
+ *
+ * Every link the old encoding could produce still resolves to the view it was
+ * copied from, including `cut=0&cutup=1`, which both readings agree on. "A
+ * view is a link" is only true if a link keeps working.
  */
 export interface BimViewerCameraState {
   view: BimCameraView
@@ -217,10 +243,14 @@ export function defaultCameraState(): BimViewerCameraState {
 export function encodeCameraState(state: BimViewerCameraState, params: URLSearchParams): void {
   if (state.view !== 'iso') params.set('view', state.view)
   if (state.section) {
-    const magnitude = round(Math.abs(state.section.atMetres))
-    params.set('cut', String(state.section.flipped ? -magnitude || 0 : magnitude))
-    // A flipped cut at exactly zero cannot be signed, so it needs the flag.
-    if (state.section.flipped && magnitude === 0) params.set('cutup', '1')
+    // `-0` would serialise as "-0" and read back as a negative zero, which is
+    // a height nobody typed and a needless difference between two links to the
+    // same view.
+    params.set('cut', String(round(state.section.atMetres) || 0))
+    // Always, not only when flipped: its presence is what tells the parser
+    // this link was written by the signed encoding rather than the one that
+    // put the direction in the sign.
+    params.set('cutup', state.section.flipped ? '1' : '0')
   }
   if (state.orthographic !== impliesOrthographic(state.view)) {
     params.set('proj', state.orthographic ? 'ortho' : 'persp')
@@ -236,8 +266,13 @@ export function parseCameraState(params: URLSearchParams): BimViewerCameraState 
   if (rawCut !== null && rawCut.trim() !== '') {
     const cut = Number(rawCut)
     if (Number.isFinite(cut)) {
-      const flipped = cut < 0 || (Object.is(cut, 0) && params.get('cutup') === '1')
-      section = { atMetres: round(Math.abs(cut)), flipped }
+      const direction = params.get('cutup')
+      section =
+        direction === null
+          ? // No direction parameter: a link from the encoding that put the
+            // direction in the sign. Read it the way it was written.
+            { atMetres: round(Math.abs(cut)), flipped: cut < 0 }
+          : { atMetres: round(cut), flipped: direction === '1' }
     }
   }
 

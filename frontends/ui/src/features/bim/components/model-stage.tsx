@@ -528,7 +528,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   max={viewport.bounds.maxMetres}
                   value={section.atMetres}
                   display={t('viewer.section.metres', { value: section.atMetres.toFixed(2) })}
-                  onChange={(atMetres) => viewport.setSection({ ...section, atMetres })}
+                  // Per step: move the plane, now. Per gesture: write the
+                  // link. Both were the second one, which is why the slider
+                  // could not be dragged at all — see `viewer-slider.tsx`.
+                  onChange={viewport.previewCut}
+                  onCommit={(atMetres) => viewport.setSection({ ...section, atMetres })}
                   action={
                     <Button
                       type="button"

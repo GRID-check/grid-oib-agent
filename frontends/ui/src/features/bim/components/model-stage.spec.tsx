@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect } from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { BimModelHeaderView } from '../hooks/use-bim-model'
 import { ModelStage } from './model-stage'
@@ -35,8 +35,17 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('./ifc-viewer-canvas', () => ({
-  IfcViewerCanvas: (props: { onStatus?: (status: unknown) => void }) => {
-    const { onStatus } = props
+  IfcViewerCanvas: (props: {
+    onStatus?: (status: unknown) => void
+    onBounds?: (bounds: { minMetres: number; maxMetres: number } | null) => void
+  }) => {
+    const { onStatus, onBounds } = props
+    // A building with a basement: the cut slider is ranged over the model's
+    // own extent, and a model whose extent starts below zero is the case the
+    // link encoding used to be unable to carry.
+    useEffect(() => {
+      onBounds?.({ minMetres: -3, maxMetres: 9 })
+    }, [onBounds])
     // Reported from an EFFECT, not from render. The status sets state in the
     // stage, which re-renders the canvas — so reporting during render is an
     // infinite loop rather than a test.
@@ -186,6 +195,109 @@ describe('ModelStage — every control is a link', () => {
     // +3.20 m floor, cut a metre above it — where an Austrian Grundriss is cut,
     // not at the slab, where the plane would show an empty view.
     expect(lastQuery().get('cut')).toBe('4.2')
+  })
+
+  /**
+   * The cut slider, against a router that behaves like the real one.
+   *
+   * Every other test in this file leaves `searchParams` frozen and asserts on
+   * the URL the stage ASKED for. That is the right shape for a discrete
+   * control — one click, one link — and it is exactly why a defect that only a
+   * continuous control can have went unseen for a release: the slider was
+   * written to the URL on every step of the drag and read its value back from
+   * it, so on a real router (`replace` re-runs the server tree; the value
+   * returns a round trip later) React reset the thumb to a stale number faster
+   * than it could be dragged. The reported symptom was a slider that would not
+   * move off the height the Schnitt button had set.
+   *
+   * So this block gives the mock the one property that matters: `replace` is
+   * ASYNCHRONOUS. Nothing here can pass by accident.
+   */
+  describe('dragging the cut, against an asynchronous router', () => {
+    /** Apply the pending URL, the way a router eventually would. */
+    let applyNavigation: () => void
+
+    beforeEach(() => {
+      searchParams = new URLSearchParams('model=Haus-A.ifc&cut=4&cutup=0')
+      applyNavigation = () => {
+        const href = routerReplace.mock.calls.at(-1)?.[0] as string | undefined
+        if (href) searchParams = new URLSearchParams(href.split('?')[1] ?? '')
+      }
+    })
+
+    const slider = () => screen.getByRole('slider', { name: 'Cut at' })
+    const cutValue = () => (slider() as HTMLInputElement).value
+
+    it('follows the drag while the router has not caught up', async () => {
+      render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+      // Three steps of one drag, with no navigation applied in between —
+      // which is the whole of the round trip the old code waited for.
+      fireEvent.change(slider(), { target: { value: '3.5' } })
+      fireEvent.change(slider(), { target: { value: '2.4' } })
+      fireEvent.change(slider(), { target: { value: '1.2' } })
+
+      expect(cutValue()).toBe('1.2')
+      expect(screen.getByText('1.20 m')).toBeInTheDocument()
+    })
+
+    it('does not write the link on every step of the drag', async () => {
+      // One `router.replace` per pixel is a server round trip per pixel, and
+      // a history entry per pixel for anything that pushes.
+      render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+      routerReplace.mockClear()
+      fireEvent.change(slider(), { target: { value: '3.5' } })
+      fireEvent.change(slider(), { target: { value: '2.4' } })
+
+      expect(routerReplace).not.toHaveBeenCalled()
+    })
+
+    it('writes the link once, when the reader lets go', async () => {
+      render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+      routerReplace.mockClear()
+      fireEvent.change(slider(), { target: { value: '2.4' } })
+      fireEvent.pointerUp(slider())
+
+      expect(routerReplace).toHaveBeenCalledTimes(1)
+      expect(lastQuery().get('cut')).toBe('2.4')
+    })
+
+    it('does not snap back while the link catches up', async () => {
+      // The handover is the moment the local value is dropped. Dropping it on
+      // commit rather than on agreement would show the previous height for a
+      // whole round trip: the plane visibly jumps back, then forward again.
+      render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+      fireEvent.change(slider(), { target: { value: '2.4' } })
+      fireEvent.pointerUp(slider())
+      expect(cutValue()).toBe('2.4')
+
+      applyNavigation()
+      await waitFor(() => expect(cutValue()).toBe('2.4'))
+    })
+
+    it('reaches a cut below the origin, where a basement is', async () => {
+      // The slider is ranged over the model's own extent, which starts below
+      // zero here. The link has to be able to carry that: the old encoding
+      // ran the height through `Math.abs`, so this cut came back as +1.4 and
+      // the plane jumped to the other side of the ground floor.
+      render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+      fireEvent.change(slider(), { target: { value: '-1.4' } })
+      fireEvent.pointerUp(slider())
+
+      expect(cutValue()).toBe('-1.4')
+      expect(lastQuery().get('cut')).toBe('-1.4')
+
+      applyNavigation()
+      await waitFor(() => expect(cutValue()).toBe('-1.4'))
+    })
+
+    it('keeps the height when the direction is flipped mid-cut', async () => {
+      render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+      fireEvent.change(slider(), { target: { value: '2.4' } })
+      await userEvent.click(screen.getByRole('button', { name: 'Looking down' }))
+
+      expect(lastQuery().get('cut')).toBe('2.4')
+      expect(lastQuery().get('cutup')).toBe('1')
+    })
   })
 
   it('switches model without carrying the previous building’s selection', async () => {

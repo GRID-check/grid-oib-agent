@@ -168,8 +168,6 @@ describe('the camera state in a link', () => {
   })
 
   it('round-trips a section seen from below', () => {
-    // The sign carries the direction; a second `cutUp` parameter could
-    // disagree with the height and there would be no way to say which won.
     const state: BimViewerCameraState = {
       view: 'north',
       section: { atMetres: 2.6, flipped: true },
@@ -178,17 +176,82 @@ describe('the camera state in a link', () => {
     const params = new URLSearchParams()
     encodeCameraState(state, params)
 
-    expect(params.get('cut')).toBe('-2.6')
+    // The height keeps its own sign and the direction its own parameter.
+    expect(params.get('cut')).toBe('2.6')
+    expect(params.get('cutup')).toBe('1')
     expect(roundTrip(state)).toEqual(state)
   })
 
-  it('round-trips an upward cut at exactly zero, which no sign can carry', () => {
+  it('round-trips a cut BELOW the origin, which a basement has', () => {
+    // The old encoding put the direction in the sign, so it ran every height
+    // through `Math.abs` — and a model with a basement reports bounds like
+    // -3.00 m to +9.00 m. Every cut in the bottom quarter of that building
+    // came back as its positive mirror, and the plane jumped to the other
+    // side of the ground floor.
+    const state: BimViewerCameraState = {
+      view: 'north',
+      section: { atMetres: -1.4, flipped: false },
+      orthographic: true,
+    }
+    const params = new URLSearchParams()
+    encodeCameraState(state, params)
+
+    expect(params.get('cut')).toBe('-1.4')
+    expect(roundTrip(state)).toEqual(state)
+  })
+
+  it('round-trips a cut below the origin seen from below', () => {
+    // The one combination the old encoding could not even approximate: a
+    // negative height AND a flipped direction both wanted the same sign.
+    const state: BimViewerCameraState = {
+      view: 'iso',
+      section: { atMetres: -2.75, flipped: true },
+      orthographic: false,
+    }
+    expect(roundTrip(state)).toEqual(state)
+  })
+
+  it('round-trips an upward cut at exactly zero', () => {
     const state: BimViewerCameraState = {
       view: 'iso',
       section: { atMetres: 0, flipped: true },
       orthographic: false,
     }
     expect(roundTrip(state)).toEqual(state)
+  })
+
+  it('never writes a negative zero, so one view has one link', () => {
+    const params = new URLSearchParams()
+    encodeCameraState(
+      { view: 'iso', section: { atMetres: -0.002, flipped: false }, orthographic: false },
+      params
+    )
+    expect(params.get('cut')).toBe('0')
+  })
+})
+
+/**
+ * Links written before the direction got its own parameter.
+ *
+ * "A view is a link" is only true if a link keeps working. These are the exact
+ * strings the previous encoding produced, and each must still resolve to the
+ * view it was copied from.
+ */
+describe('a link written by the old encoding', () => {
+  const read = (query: string) => parseCameraState(new URLSearchParams(query))
+
+  it('reads a downward cut the same way', () => {
+    expect(read('cut=2.6')).toMatchObject({ section: { atMetres: 2.6, flipped: false } })
+  })
+
+  it('still reads a negative cut as the upward cut it meant', () => {
+    // Under the new encoding this string would mean "cut at -2.6 m looking
+    // down". The absent `cutup` is what says it came from the old one.
+    expect(read('cut=-2.6')).toMatchObject({ section: { atMetres: 2.6, flipped: true } })
+  })
+
+  it('reads the flipped-at-zero case both encodings agree on', () => {
+    expect(read('cut=0&cutup=1')).toMatchObject({ section: { atMetres: 0, flipped: true } })
   })
 
   it('keeps perspective out of the URL when it is what the view implies', () => {

@@ -132,6 +132,13 @@ export interface ModelViewport {
   /** Snap to a named direction — and again, if it is already the active one. */
   setView: (view: BimCameraView) => void
   setSection: (section: BimSection | null) => void
+  /**
+   * Move the cut for THIS frame, leaving the link alone.
+   *
+   * Pair with {@link setSection} on the gesture's end — see the note on
+   * `liveCut` for why a continuous control cannot write to the URL per step.
+   */
+  previewCut: (atMetres: number) => void
   setOrthographic: (orthographic: boolean) => void
   /** Frame the whole model. */
   fit: () => void
@@ -217,21 +224,52 @@ export function useModelViewport({
     [cameraState, onCameraChange]
   )
 
+  /**
+   * A cut height the reader is still dragging.
+   *
+   * The camera lives in the URL, which is right — a view is a link. But a
+   * continuous control cannot be driven through a router: the cut slider is a
+   * controlled input, every step of a drag was a `router.replace`, and in the
+   * App Router that re-runs the server component tree. The value the thumb is
+   * pinned to therefore lagged the pointer by a round trip, React reset the
+   * thumb to it on every render, and the slider did not move at all. It read
+   * as a hard floor at whatever height the cut had been switched on at.
+   *
+   * So the drag has a local value that WINS over the URL until the URL agrees
+   * with it. `previewCut` is per step and costs a React render; `setSection`
+   * is per gesture and costs the link. Both end at the same number.
+   */
+  const [liveCut, setLiveCut] = useState<number | null>(null)
+
   // A cut arriving from a link may name a height this model does not have —
   // the link was copied from a different revision, or typed. Clamping keeps
   // the plane inside the building instead of slicing empty space, which the
   // reader would read as a model that failed to load.
   const section = useMemo(() => {
     if (!cameraState.section) return null
-    if (!bounds) return cameraState.section
+    const atMetres = liveCut ?? cameraState.section.atMetres
+    if (!bounds) return { ...cameraState.section, atMetres }
     return {
       ...cameraState.section,
-      atMetres: clampCut(cameraState.section.atMetres, {
-        minY: bounds.minMetres,
-        maxY: bounds.maxMetres,
-      }),
+      atMetres: clampCut(atMetres, { minY: bounds.minMetres, maxY: bounds.maxMetres }),
     }
-  }, [cameraState.section, bounds])
+  }, [cameraState.section, liveCut, bounds])
+
+  /**
+   * Let go of the local value once the link carries it.
+   *
+   * Not on commit: the router is asynchronous, so dropping it there shows the
+   * PREVIOUS height for however long the round trip takes — the plane would
+   * visibly snap back and then forward again on every release. Dropping it
+   * when the two agree makes the handover invisible.
+   *
+   * A cut that is switched off, or a model that is replaced, drops it too:
+   * neither has a height for the local value to be a preview OF.
+   */
+  useEffect(() => {
+    if (liveCut === null) return
+    if (!cameraState.section || cameraState.section.atMetres === liveCut) setLiveCut(null)
+  }, [cameraState.section, liveCut])
 
   const setView = useCallback(
     (view: BimCameraView) => {
@@ -248,6 +286,23 @@ export function useModelViewport({
   )
 
   const setSection = useCallback((next: BimSection | null) => setCamera({ section: next }), [setCamera])
+
+  /**
+   * Move the cut now, without writing the link.
+   *
+   * The plane follows the drag at the frame rate; the URL learns about it once
+   * the reader lets go. Clamped here as well as in {@link section} so a
+   * preview cannot escape the building even for one frame.
+   */
+  const previewCut = useCallback(
+    (atMetres: number) =>
+      setLiveCut(
+        bounds
+          ? clampCut(atMetres, { minY: bounds.minMetres, maxY: bounds.maxMetres })
+          : atMetres
+      ),
+    [bounds]
+  )
   const setOrthographic = useCallback(
     (orthographic: boolean) => setCamera({ orthographic }),
     [setCamera]
@@ -475,6 +530,7 @@ export function useModelViewport({
     canvasProps,
     setView,
     setSection,
+    previewCut,
     setOrthographic,
     fit,
     defaultCut,
