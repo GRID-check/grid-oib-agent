@@ -22,9 +22,10 @@
  *
  * - a rail on the left with the project's models and this building's levels —
  *   the only two questions a reader has before they have clicked anything;
- * - a dock at the bottom with six controls, because that is what is left after
- *   removing everything that was there to describe the model rather than to
- *   look at it;
+ * - a dock at the bottom holding only what someone LOOKS at a building with —
+ *   where the camera stands, where it cuts, what to measure, what to take out
+ *   of the way, and how to keep the result. Everything that was there to
+ *   describe the model rather than to look at it is gone;
  * - a card on the right, only once something is selected;
  * - one button to the analytical surfaces, which are real and occasionally
  *   decisive and belong behind a door rather than in front of one.

@@ -48,6 +48,17 @@
  * fingers pinch and pan, double-click frames what was hit. Keyboard does all
  * of it too, because a canvas that can only be driven by a mouse is a canvas
  * half the audience cannot use.
+ *
+ * Measuring takes over the primary click while it is on, because a click
+ * cannot both place a dimension point and select the wall under it — see the
+ * `measuring` prop.
+ *
+ * ## What this component renders
+ *
+ * A wrapper, the canvas, and two overlay layers that draw measurements in the
+ * PAGE rather than in the scene (`measure-overlay.ts` says why). Both overlays
+ * are `pointer-events-none`, so every gesture still reaches the canvas and the
+ * viewport behaves exactly as it did when it was a single element.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'

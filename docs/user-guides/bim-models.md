@@ -178,9 +178,38 @@ Orbit is the least of it. The toolbar stands the model square and cuts it:
 - **Schnitt** cuts the building horizontally. It lands a metre above the floor
   of the storey you have selected — where a Grundriss is cut, high enough to
   pass through doors and windows, low enough to stay under the lintel — and the
-  slider moves it. **Blick nach unten / oben** flips which half you keep. The
-  cut face is hatched, so it reads as a section rather than as a model with a
-  wall deleted.
+  slider moves it. The number beside the slider is the height the plane is
+  actually at, in metres in the model's own coordinates. **Blick nach unten /
+  oben** flips which half you keep.
+
+  The cut face is currently **open**, not hatched: you are looking into the
+  rooms rather than at a poché section. A filled cut face needs the exact
+  cut polygons, and computing those is on the list below rather than in the
+  build.
+- **Messen** measures between two points. Click the first, click the second;
+  Esc drops a half-placed measurement, and the tool stays on so you can take
+  the next one. The cursor snaps to corners, edges and faces, and the marker
+  shape says which — a square is a corner, a diamond an edge, a circle a point
+  on a face. A measurement between two corners is a stronger claim than one
+  between two faces, and you can see which you took.
+
+  A skew measurement reads out three numbers: the straight line, the
+  horizontal run and the vertical rise. That is deliberate — a diagonal's
+  length answers neither "how wide" nor "how high", and those are the two
+  questions anyone measures a building to answer. Measurements stay on screen
+  while you orbit and clear when you say so or when you open another model.
+  They do **not** travel in the link: they are working notes, not a view.
+- **Bild speichern** saves what is on screen as a PNG, named for the model and
+  stamped to the second. The captured frame is drawn at full detail — the
+  shortcuts the viewport takes to stay smooth while you orbit are switched off
+  for it — so the image is complete enough to attach to a Befund.
+- **Ausblenden / Isolieren**, on the card of a selected component, take that
+  component out of the way or keep only it. They are different moves:
+  *Ausblenden* removes the slab in front of the stair, *Isolieren* removes
+  everything that is not the stair. Both combine with a level filter rather
+  than replacing it, so isolating a stair while filtered to the first floor
+  shows you the part of the stair on that floor. **Wieder alles anzeigen**
+  appears in the toolbar as soon as anything is out of the way, and only then.
 - **Einpassen** re-frames the whole building without reloading it. The viewer needs **WebGPU** (Chrome and
 Edge today, Safari and Firefox depending on version). Without it you get a short
 note in place of the picture and *everything else on the page still works* — the
@@ -196,8 +225,11 @@ a support message can quote it.
 ### Every view is a link
 
 Which model, which tab, which storey, which element, what is highlighted,
-whether x-ray is on — and now the camera direction, the projection and the cut
-height — all live in the address bar. *"Schnitt bei +2,60 m, Blick nach Norden,
+whether x-ray is on — and the camera direction, the projection and the cut
+height — all live in the address bar. Measurements and anything you have
+hidden do not: those are working notes taken while reading, and a link that
+arrives with three components silently missing is a link whose recipient is
+looking at a different building from the one they think they are. *"Schnitt bei +2,60 m, Blick nach Norden,
 diese drei Wände markiert"* is something you send, not something you talk
 someone through. **Ansicht kopieren** copies the
 current one. That is what makes "the third wall on the left in the ground floor"
