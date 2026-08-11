@@ -101,16 +101,19 @@ describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
   })
 })
 
-describe('AppSidebar - Workflows nav item', () => {
-
-  test('hides the Workflows nav item by default (feature-flagged, default off)', () => {
+describe('AppSidebar - Skills nav item', () => {
+  test('hides the Skills nav item by default (feature-flagged, default off)', () => {
     render(<AppSidebar {...baseProps} />)
-    expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+    expect(screen.queryByText('Skills')).not.toBeInTheDocument()
     // Sibling items remain.
     expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
     expect(screen.getAllByText('History').length).toBeGreaterThan(0)
   })
 
+  test('shows the Skills nav item when showSkills is true', () => {
+    render(<AppSidebar {...baseProps} showSkills />)
+    expect(screen.getAllByText('Skills').length).toBeGreaterThan(0)
+  })
 })
 
 describe('AppSidebar - Archiv nav item (ADR-0024)', () => {

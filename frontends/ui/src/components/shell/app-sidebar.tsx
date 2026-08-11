@@ -67,14 +67,9 @@ export interface AppSidebarProps {
    * nav item.
    */
   canAccessArchiv?: boolean
-  /** Whether the Workflows page is enabled (feature-flagged, default off). */
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
-  /**
-   * Whether the Agent Skills page is enabled (feature-flagged, default off —
-   * ADR-0045). The layouts pass the flags mutually exclusive, so a deployment
-   * shows either Workflows or Skills, never both.
-   */
+  /** Whether the Agent Skills page is enabled (feature-flagged, default off — ADR-0046). */
   showSkills?: boolean
   /**
    * Whether the inbox is reachable for this reader. Gates the Inbox nav entry —
@@ -250,10 +245,9 @@ export function AppSidebar({
 
   // The rail's section list comes from the shared PROJECT_SECTIONS config
   // (consumed identically by the ⌘K palette, so the two can never drift).
-  // Workflows and its successor Skills are feature-flagged (default off) and
-  // mutually exclusive (the layouts pass them as such); Archiv shows for any
-  // member of an org with the `organization-archiv` flag — the same gate the
-  // user menu's Archiv entry uses (the layout passes both from getNavFlags).
+  // Skills is feature-flagged (default off); Archiv shows for any member of an
+  // org with the `organization-archiv` flag — the same gate the user menu's
+  // Archiv entry uses (the layout passes both from getNavFlags).
   const navItems = railSections({ showSkills, showModels, canAccessArchiv, canAccessInbox })
 
   const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)

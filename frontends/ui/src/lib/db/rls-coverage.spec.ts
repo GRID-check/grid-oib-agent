@@ -32,6 +32,10 @@ const BOUNDARY_MIGRATIONS = [
   '0034_bim_models.sql',
   '0035_bim_check_confirmations.sql',
   '0041_agent_skills.sql',
+  // Removes tables FROM the boundary. A migration that drops a secured table
+  // belongs in this list as much as one that adds it — without it the orphan
+  // check below reads the drop as a schema/migration disagreement.
+  '0042_drop_workflows.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
@@ -66,6 +70,26 @@ function securedTables(): { tenant: string[]; platform: string[] } {
   return { tenant: collect('grid_secure_table'), platform: collect('grid_secure_platform_table') }
 }
 
+/**
+ * Tables a later migration DROPPED.
+ *
+ * A secured table that is no longer in the schema is normally a stale migration
+ * entry — someone removed a table's declaration and left its `grid_secure_table`
+ * line behind. But it is also what a legitimate removal looks like, and the
+ * difference is whether a migration actually drops it. Without this the orphan
+ * check could only be satisfied by editing an already-applied migration, which
+ * is the one thing a migration history must never do.
+ */
+function droppedTables(): Set<string> {
+  const dropped = new Set<string>()
+  for (const source of MIGRATION_SOURCES) {
+    for (const match of source.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?([a-z_]+)"?/gi)) {
+      dropped.add(match[1])
+    }
+  }
+  return dropped
+}
+
 /** Tables secured more than once WITHIN one migration — a genuine duplicate. */
 function duplicatedWithinAMigration(): string[] {
   const duplicates: string[] = []
@@ -93,12 +117,18 @@ describe('row-level security coverage', () => {
 
   it('secures no table that no longer exists', () => {
     const declared = new Set(declaredTables())
+    const dropped = droppedTables()
     const { tenant, platform } = securedTables()
-    const orphaned = [...tenant, ...platform].filter((table) => !declared.has(table))
-
-    expect(orphaned, 'Secured tables that are not in the schema — stale migration entry.').toEqual(
-      []
+    const orphaned = [...tenant, ...platform].filter(
+      (table) => !declared.has(table) && !dropped.has(table)
     )
+
+    expect(
+      orphaned,
+      'Secured tables that are neither in the schema nor dropped by a migration — ' +
+        'either the declaration was removed without a DROP, or a grid_secure_table() ' +
+        'line was left behind.'
+    ).toEqual([])
   })
 
   it('secures each table exactly once per migration', () => {

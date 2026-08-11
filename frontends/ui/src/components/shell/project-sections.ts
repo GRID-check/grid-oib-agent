@@ -10,7 +10,6 @@ import {
   MessageSquare,
   Settings,
   Sparkles,
-  Zap,
 } from 'lucide-react'
 
 /**

@@ -24,7 +24,6 @@ import {
   Scale,
   ShieldCheck,
   SlidersHorizontal,
-  Workflow,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'

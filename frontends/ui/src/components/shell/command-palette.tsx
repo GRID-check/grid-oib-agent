@@ -49,7 +49,6 @@ export interface CommandPaletteProps {
   canViewOrganization: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
-  /** Whether the Workflows page is enabled (feature-flagged, default off). */
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
   /**
