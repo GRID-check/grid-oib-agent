@@ -309,6 +309,15 @@ export function IfcSpatialTree({
 }
 
 export interface IfcElementTableProps {
+  /**
+   * The extraction cap, when the stored rows are not the whole file.
+   *
+   * The count line reads "{shown} von {total}", and `total` is a count over
+   * the stored rows — so on a capped model it was a fraction of a fraction.
+   * The type dropdown is built from the same set, so a type that exists only
+   * past the cap is missing from the filter entirely.
+   */
+  truncatedAt?: number | null
   elements: readonly BimViewerElement[]
   storeyFilter: string | null
   selectedGlobalId: string | null
@@ -320,6 +329,7 @@ export function IfcElementTable({
   storeyFilter,
   selectedGlobalId,
   onSelect,
+  truncatedAt = null,
 }: IfcElementTableProps): JSX.Element {
   const t = useTranslations('bim')
   const [search, setSearch] = useState('')
@@ -377,6 +387,14 @@ export function IfcElementTable({
       </div>
       <p className="text-xs text-muted-foreground tabular-nums">
         {t('elements.count', { shown: shown.length, total: filtered.length })}
+        {/*
+          `total` is a count over the STORED rows, which stop at the
+          extraction cap — so "300 von 10.000" was a fraction of a fraction,
+          and the type filter beside it is built from the same set, so a type
+          that exists only past the cap is missing from the filter entirely.
+          The Überblick tab says this; the Struktur tab did not.
+        */}
+        {truncatedAt !== null && ` · ${t('overview.truncated', { limit: truncatedAt })}`}
       </p>
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
         <table className="w-full text-sm">

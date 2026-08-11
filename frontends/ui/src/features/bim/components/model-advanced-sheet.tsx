@@ -307,6 +307,7 @@ export function ModelAdvancedSheet({
           )}
           <IfcElementTable
             elements={elements}
+            truncatedAt={model.summary?.truncatedAt ?? null}
             storeyFilter={storey}
             selectedGlobalId={selectedGlobalId}
             onSelect={onSelectElement}

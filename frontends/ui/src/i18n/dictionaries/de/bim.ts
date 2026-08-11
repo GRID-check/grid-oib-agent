@@ -167,6 +167,7 @@ export const bim: typeof en.bim = {
       failing: 'Nicht erfüllt',
       undecidable: 'Nicht entscheidbar',
       notApplicable: 'Nicht einschlägig',
+      noElements: 'Keine Bauteile',
     },
     confirmed: {
       by: 'Bestätigt von {who} am {when}',
@@ -273,7 +274,7 @@ export const bim: typeof en.bim = {
   timeline: {
     title: 'Revisionen',
     description: '{count} Revisionen von {name}, neueste zuerst.',
-    revision: 'Rev. {index}',
+    revision: '{index}. Stand',
     latest: 'Aktuell',
     compare: 'Mit {previous} vergleichen',
     noDelta: 'Für diese Revision liegen keine vergleichbaren Kennzahlen vor.',

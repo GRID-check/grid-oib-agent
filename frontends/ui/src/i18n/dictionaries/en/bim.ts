@@ -165,6 +165,7 @@ export const bim = {
       failing: 'Not met',
       undecidable: 'Not decidable',
       notApplicable: 'Not applicable',
+      noElements: 'No elements',
     },
     confirmed: {
       by: 'Confirmed by {who} on {when}',
@@ -271,7 +272,7 @@ export const bim = {
   timeline: {
     title: 'Revisions',
     description: '{count} revisions of {name}, newest first.',
-    revision: 'Rev. {index}',
+    revision: 'Upload {index}',
     latest: 'Current',
     compare: 'Compare with {previous}',
     noDelta: 'No comparable figures for this revision.',

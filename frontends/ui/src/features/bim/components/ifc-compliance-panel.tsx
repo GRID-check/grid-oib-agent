@@ -169,6 +169,17 @@ export function IfcCompliancePanel({
           <Badge variant="secondary">
             {t('compliance.badge.notApplicable')} {summary.rulesNotApplicable}
           </Badge>
+          {/*
+            The fifth bucket. `summarizeBimRules` produces it and nothing
+            rendered it, so on a model with no doors and no stairs a
+            seven-rule catalogue showed badges summing to five — and the rows
+            that explain why are below the fold.
+          */}
+          {summary.rulesEmpty > 0 && (
+            <Badge variant="secondary">
+              {t('compliance.badge.noElements')} {summary.rulesEmpty}
+            </Badge>
+          )}
         </div>
       )}
 
