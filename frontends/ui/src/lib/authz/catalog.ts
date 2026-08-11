@@ -25,7 +25,6 @@
  * | `org`      | Organization | AuthKit JWT `permissions` claim (no I/O)     |
  * | `platform` | Organization | platform-org membership (`./platform`)       |
  * | `project`  | Project      | WorkOS FGA `authorization.check` per project |
- * | `workflow` | Workflow     | WorkOS FGA `authorization.check` per workflow|
  *
  * `platform` shares the Organization resource type because WorkOS has no tier
  * above it — verified against the live API, which rejects a parentless resource
@@ -35,7 +34,7 @@
  */
 
 /** WorkOS resource type a permission or role attaches to. */
-export type PermissionTier = 'org' | 'platform' | 'project' | 'workflow' | 'skill'
+export type PermissionTier = 'org' | 'platform' | 'project' | 'skill'
 
 /** Where a role may be assigned. */
 export type RoleScope =
@@ -86,7 +85,7 @@ export interface ResourceTypeSpec {
 }
 
 /**
- * The resource topology: Organization → Project → Workflow.
+ * The resource topology: Organization → Project → Skill schedule.
  *
  * `document` was deliberately REMOVED (it existed with zero roles and zero
  * permissions, so nothing ever checked it). Document access is pure inheritance
@@ -110,13 +109,6 @@ export const RESOURCE_TYPES: readonly ResourceTypeSpec[] = [
     description:
       'A tenant workspace: shared documents, memory and conversations for the research agent.',
     parent: 'organization',
-  },
-  {
-    slug: 'workflow',
-    name: 'Workflow',
-    description:
-      'A scheduled deep-research workflow inside a project (ADR-0023). Separate type so an operator can run one without editing the project.',
-    parent: 'project',
   },
 ]
 
@@ -274,12 +266,6 @@ export const PROJECT_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'project',
   },
   {
-    slug: 'project:workflows:manage',
-    name: 'Manage project workflows',
-    description: 'Create, edit and delete scheduled workflows in a project (ADR-0023).',
-    tier: 'project',
-  },
-  {
     slug: 'project:skills:manage',
     name: 'Manage project skill schedules',
     description:
@@ -290,7 +276,7 @@ export const PROJECT_PERMISSION_SPECS: readonly PermissionSpec[] = [
 
 /**
  * Skill-tier permissions — checked per skill schedule via WorkOS FGA. Mirrors
- * the workflow tier 1:1: CREATING a schedule is `project:skills:manage` (no
+ * CREATING a schedule is `project:skills:manage` (no
  * schedule exists yet to check against); operating an existing one is checked
  * here, with the project-tier fallback in `./decide` keeping project admins
  * working without provisioning per-skill roles.
@@ -313,34 +299,6 @@ export const SKILL_PERMISSION_SPECS: readonly PermissionSpec[] = [
     name: 'Manage skill schedule',
     description: "Edit a skill schedule's definition and schedule, or delete it.",
     tier: 'skill',
-  },
-]
-
-/**
- * Workflow-tier permissions — checked per workflow via WorkOS FGA.
- *
- * CREATING a workflow is `project:workflows:manage` (there is no workflow yet to
- * check against); operating an existing one is checked here. Same split as
- * service-level create vs. resource-level operate in AWS IAM.
- */
-export const WORKFLOW_PERMISSION_SPECS: readonly PermissionSpec[] = [
-  {
-    slug: 'workflow:view',
-    name: 'View workflow',
-    description: "See a scheduled workflow's definition, schedule and run history.",
-    tier: 'workflow',
-  },
-  {
-    slug: 'workflow:run',
-    name: 'Run workflow',
-    description: 'Trigger a scheduled workflow manually, outside its schedule. Spends LLM budget.',
-    tier: 'workflow',
-  },
-  {
-    slug: 'workflow:manage',
-    name: 'Manage workflow',
-    description: "Edit a scheduled workflow's definition and schedule, or delete it.",
-    tier: 'workflow',
   },
 ]
 
@@ -399,7 +357,6 @@ export const ALL_PERMISSION_SPECS: readonly PermissionSpec[] = [
   ...ORG_PERMISSION_SPECS,
   ...PLATFORM_PERMISSION_SPECS,
   ...PROJECT_PERMISSION_SPECS,
-  ...WORKFLOW_PERMISSION_SPECS,
   ...SKILL_PERMISSION_SPECS,
   ...WIDGET_PERMISSION_SPECS,
 ]
@@ -560,38 +517,10 @@ export const ROLES: readonly RoleSpec[] = [
       'project:memory:write',
       'project:manage',
       'project:members:manage',
-      'project:workflows:manage',
       'project:skills:manage',
     ],
   },
 
-  // ---- Workflow tier -----------------------------------------------------
-  {
-    slug: 'workflow-viewer',
-    name: 'Workflow Viewer',
-    description: 'Read-only on one scheduled workflow: its definition, schedule and run history.',
-    tier: 'workflow',
-    scope: 'environment',
-    permissions: ['workflow:view'],
-  },
-  {
-    slug: 'workflow-operator',
-    name: 'Workflow Operator',
-    description:
-      'May trigger one scheduled workflow manually and read its run history, without being able to edit its definition or schedule.',
-    tier: 'workflow',
-    scope: 'environment',
-    permissions: ['workflow:view', 'workflow:run'],
-  },
-  {
-    slug: 'workflow-admin',
-    name: 'Workflow Admin',
-    description:
-      'Full control of one scheduled workflow: edit its definition and schedule, run it, delete it.',
-    tier: 'workflow',
-    scope: 'environment',
-    permissions: ['workflow:view', 'workflow:run', 'workflow:manage'],
-  },
 ]
 
 /** Look up a permission spec by slug. */

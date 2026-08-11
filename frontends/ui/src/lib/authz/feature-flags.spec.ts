@@ -7,9 +7,9 @@ import {
   ifcModelsEnvEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
-  isWorkflowsEnabled,
+  isSkillsEnabled,
   requireFeature,
-  requireWorkflowsEnabled,
+  requireSkillsEnabled,
 } from './feature-flags'
 
 const FLAG = FEATURE_FLAGS.modelConfiguration
@@ -56,46 +56,6 @@ describe('feature flags (WorkOS-native, JWT claim)', () => {
     expect(res).not.toBeNull()
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: FLAG })
-  })
-})
-
-describe('isWorkflowsEnabled (dark-launch gate)', () => {
-  afterEach(() => {
-    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
-    delete process.env.GRID_WORKFLOWS_ENABLED
-  })
-
-  it('registry carries the workflows slug', () => {
-    expect(FEATURE_FLAGS.workflows).toBe('workflows')
-  })
-
-  it('unenforced: default OFF, ignoring the JWT claim', () => {
-    expect(isWorkflowsEnabled({ featureFlags: [FEATURE_FLAGS.workflows] })).toBe(false)
-    expect(isWorkflowsEnabled({ featureFlags: null })).toBe(false)
-  })
-
-  it('unenforced: the GRID_WORKFLOWS_ENABLED env opt-in turns it on', () => {
-    process.env.GRID_WORKFLOWS_ENABLED = 'true'
-    expect(isWorkflowsEnabled({ featureFlags: [] })).toBe(true)
-    expect(isWorkflowsEnabled({ featureFlags: null })).toBe(true)
-  })
-
-  it('enforced: follows the per-org WorkOS flag, not the env var', () => {
-    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
-    process.env.GRID_WORKFLOWS_ENABLED = 'true' // ignored while enforcement is on
-    expect(isWorkflowsEnabled({ featureFlags: [FEATURE_FLAGS.workflows] })).toBe(true)
-    expect(isWorkflowsEnabled({ featureFlags: [] })).toBe(false)
-    expect(isWorkflowsEnabled({ featureFlags: null })).toBe(false)
-  })
-
-  it('requireWorkflowsEnabled: null when allowed, stable-coded 403 when off', async () => {
-    process.env.GRID_WORKFLOWS_ENABLED = 'true'
-    expect(requireWorkflowsEnabled({ featureFlags: [] })).toBeNull()
-
-    delete process.env.GRID_WORKFLOWS_ENABLED
-    const res = requireWorkflowsEnabled({ featureFlags: [] })
-    expect(res?.status).toBe(403)
-    expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: 'workflows' })
   })
 })
 
@@ -174,5 +134,47 @@ describe('ifc-models — default ON, with its own off switch', () => {
     expect(isIfcModelsEnabled({ featureFlags: [] })).toBe(false)
     // A token minted before the flag existed must not inherit the env default.
     expect(isIfcModelsEnabled({ featureFlags: null })).toBe(false)
+  })
+})
+
+describe('isSkillsEnabled (dark-launch gate, ADR-0046)', () => {
+  afterEach(() => {
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_SKILLS_ENABLED
+  })
+
+  it('registry carries the skills slug', () => {
+    expect(FEATURE_FLAGS.skills).toBe('skills')
+  })
+
+  it('unenforced and without the env opt-in: OFF, unlike an ordinary flag', () => {
+    // The point of a dark-launch gate: every other flag fails OPEN while
+    // enforcement is off, so only an explicit env opt-in can reveal this one.
+    expect(isSkillsEnabled({ featureFlags: [FEATURE_FLAGS.skills] })).toBe(false)
+    expect(isSkillsEnabled({ featureFlags: null })).toBe(false)
+  })
+
+  it('unenforced with GRID_SKILLS_ENABLED=true: on for everyone', () => {
+    process.env.GRID_SKILLS_ENABLED = 'true'
+    expect(isSkillsEnabled({ featureFlags: [] })).toBe(true)
+    expect(isSkillsEnabled({ featureFlags: null })).toBe(true)
+  })
+
+  it('enforced: the per-org WorkOS flag decides, and the env var stops counting', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    process.env.GRID_SKILLS_ENABLED = 'true'
+    expect(isSkillsEnabled({ featureFlags: [FEATURE_FLAGS.skills] })).toBe(true)
+    expect(isSkillsEnabled({ featureFlags: [] })).toBe(false)
+    expect(isSkillsEnabled({ featureFlags: null })).toBe(false)
+  })
+
+  it('requireSkillsEnabled: null when allowed, stable-coded 403 when off', async () => {
+    process.env.GRID_SKILLS_ENABLED = 'true'
+    expect(requireSkillsEnabled({ featureFlags: [] })).toBeNull()
+
+    delete process.env.GRID_SKILLS_ENABLED
+    const res = requireSkillsEnabled({ featureFlags: [] })
+    expect(res?.status).toBe(403)
+    expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: 'skills' })
   })
 })

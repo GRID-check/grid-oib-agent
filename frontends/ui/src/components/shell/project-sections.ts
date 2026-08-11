@@ -19,25 +19,22 @@ import {
  *
  * Historically the desktop rail (`app-sidebar`) and the ⌘K command palette
  * (`command-palette`) each hand-maintained their own parallel list of
- * destinations. They drifted: the palette could not reach Workflows (a real
+ * destinations. They drifted: the palette could not reach a whole section (a real
  * rail item), and the same destinations used different icons (Compass vs
  * MessageSquare, Clock vs History, Folder vs FolderOpen). This module makes the
  * key, segment, icon, label, and flag gating for every project section live in
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Workflows* · Skills* · Files · History · Archiv* ·
+ * separately): Ask Piloti · Skills* · Files · History · Archiv* ·
  * Inbox*. The palette additionally surfaces the palette-only destinations
  * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
  *
- * Skills supersedes Workflows (ADR-0046): the layouts pass the flags mutually
- * exclusive — `showWorkflows = workflowsEnabled && !skillsEnabled` — so a
  * deployment never sees both sections.
  */
 
 export type ProjectSectionKey =
   | 'chat'
-  | 'workflows'
   | 'skills'
   | 'files'
   | 'model'
@@ -50,8 +47,6 @@ export type ProjectSectionKey =
 
 /** The feature flags that gate individual project sections. */
 export interface ProjectSectionFlags {
-  /** Workflows page — feature-flagged, default off. */
-  showWorkflows?: boolean
   /** Agent Skills page — feature-flagged, default off (ADR-0046). */
   showSkills?: boolean
   /** Org-wide Archiv — `organization-archiv` flag (ADR-0024). */
@@ -119,19 +114,6 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'c',
   },
   {
-    key: 'workflows',
-    segment: 'workflows',
-    icon: Zap,
-    i18nKey: 'workflows',
-    gate: 'showWorkflows',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'w',
-  },
-  {
-    // Skills (ADR-0046): the layouts keep `showWorkflows` and `showSkills`
-    // mutually exclusive, so this is the workflows entry's successor — it
-    // inherits the same slot and the same `w` muscle memory.
     key: 'skills',
     segment: 'skills',
     icon: Sparkles,

@@ -21,18 +21,10 @@ export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 export const BYOK_LLM_FLAG = 'byok-llm'
 
 /**
- * Slug of the flag gating the Workflows feature (ADR-0023). Session paths use
- * `isWorkflowsEnabled` (authz/feature-flags); the session-less scheduled-fire
- * path evaluates this slug per-org so revoking an org's flag also pauses its
- * schedules (fail-closed, like memory-reflection).
- */
-export const WORKFLOWS_FLAG = 'workflows'
-
-/**
  * Slug of the flag gating the Agent Skills feature (Phase A). Session paths
  * use `isSkillsEnabled` (authz/feature-flags); the session-less scheduled-fire
  * path evaluates this slug per-org so revoking an org's flag also pauses its
- * skill schedules (fail-closed, like workflows).
+ * skill schedules (fail-closed).
  */
 export const SKILLS_FLAG = 'skills'
 

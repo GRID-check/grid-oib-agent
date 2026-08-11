@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
-import { isIfcModelsEnabled, isWorkflowsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
+import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjects } from '@/lib/projects/service'
 import { AppSidebar } from '@/components/shell'
@@ -100,7 +100,6 @@ export default async function ProjectLayout({
           canAccessArchiv={navFlags.canAccessArchiv}
           canAccessInbox={navFlags.canAccessInbox}
           showSkills={showSkills}
-          showWorkflows={isWorkflowsEnabled(session) && !showSkills}
           showModels={isIfcModelsEnabled(session)}
         />
         {/* tabIndex={-1} makes the landmark programmatically focusable so

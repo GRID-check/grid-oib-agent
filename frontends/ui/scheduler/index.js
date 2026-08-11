@@ -8,8 +8,7 @@
  *   2. AFTER that transaction commits, POSTs each claimed schedule to the BFF
  *      internal fire endpoint (which records the run row + submits the job);
  *   3. prunes skill_runs older than the retention window.
- * See ADR-0023 (the predecessor workflow scheduler this was adapted from) and
- * docs/architecture/workflows.md ("Scheduler worker").
+ * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
  *   GRID_APP_DATABASE_URL              - grid_app Postgres DSN (required)
@@ -18,8 +17,6 @@
  *   GRID_SKILL_SCHEDULER_POLL_MS       - tick interval (default 30000)
  *   GRID_SKILL_SCHEDULER_BATCH         - max claims per tick (default 20)
  *   GRID_SKILL_RUNS_RETENTION_DAYS     - run-history retention (default 90)
- *   (Deprecated fallbacks read for one release: GRID_WORKFLOW_SCHEDULER_POLL_MS,
- *   GRID_WORKFLOW_SCHEDULER_BATCH, GRID_WORKFLOW_RUNS_RETENTION_DAYS.)
  * Start gate (deployment-level): refuses to run unless GRID_SKILLS_ENABLED=true
  * or GRID_ENFORCE_FEATURE_FLAGS=true — a clean no-op container otherwise.
  */
@@ -57,27 +54,13 @@ function toPositiveInt(raw, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
-/**
- * Read a numeric knob, preferring the new GRID_SKILL_* name and falling back
- * to the deprecated GRID_WORKFLOW_SCHEDULER_* name for one release so a
- * deployment config that has not been renamed yet keeps working. A fallback
- * read is logged, loudly, so operators know the var has been renamed.
- */
-function readKnob(env, newName, oldName, fallback) {
-  const raw = env[newName] ?? env[oldName]
-  if (raw !== undefined && env[oldName] !== undefined && env[newName] === undefined) {
-    console.warn(`${LOG} ${oldName} is deprecated`)
-  }
-  return toPositiveInt(raw, fallback)
-}
-
 function readConfig(env) {
   return {
     frontendUrl: (env.FRONTEND_INTERNAL_URL || 'http://frontend:3000').replace(/\/$/, ''),
     internalToken: env.GRID_INTERNAL_API_TOKEN || '',
-    pollMs: readKnob(env, 'GRID_SKILL_SCHEDULER_POLL_MS', 'GRID_WORKFLOW_SCHEDULER_POLL_MS', 30000),
-    batch: readKnob(env, 'GRID_SKILL_SCHEDULER_BATCH', 'GRID_WORKFLOW_SCHEDULER_BATCH', 20),
-    retentionDays: readKnob(env, 'GRID_SKILL_RUNS_RETENTION_DAYS', 'GRID_WORKFLOW_RUNS_RETENTION_DAYS', 90),
+    pollMs: toPositiveInt(env.GRID_SKILL_SCHEDULER_POLL_MS, 30000),
+    batch: toPositiveInt(env.GRID_SKILL_SCHEDULER_BATCH, 20),
+    retentionDays: toPositiveInt(env.GRID_SKILL_RUNS_RETENTION_DAYS, 90),
   }
 }
 
@@ -215,7 +198,6 @@ module.exports = {
   shouldStart,
   readConfig,
   toPositiveInt,
-  readKnob,
   fireOne,
   tick,
   INTERNAL_TOKEN_HEADER,

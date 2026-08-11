@@ -51,12 +51,6 @@ export const FEATURE_FLAGS = {
    *  revises. Server-computed in the intake page, prop-drilled to the wizard;
    *  off → the wizard saves exactly as before (no check). */
   wizardConflictCheck: 'wizard-conflict-check',
-  /** Scheduled deep-research workflows (ADR-0023): saved research briefs per
-   *  project, run manually or on a cron schedule. Dark-launched — gated by the
-   *  WorkOS flag when enforcement is on, else the GRID_WORKFLOWS_ENABLED env
-   *  opt-in (default off). Gates the nav item, the page (404 when off), and
-   *  every BFF workflow route. */
-  workflows: 'workflows',
   /** Org-wide document Archiv (ADR-0024): a top-level, cross-project document
    *  store shared by every project in the org. A standard WorkOS feature flag —
    *  gated per-org by the `organization-archiv` flag when enforcement is on, and
@@ -74,7 +68,7 @@ export const FEATURE_FLAGS = {
    * Collaboration (ADR-0032/0033/0034/0035): shared chats, @-mentions with the
    * agent hand-off, and the inbox. Dark-launched — gated by the per-org
    * `collaboration` WorkOS flag when enforcement is on, else the
-   * `GRID_COLLABORATION_ENABLED` env opt-in (default off), mirroring workflows.
+   * `GRID_COLLABORATION_ENABLED` env opt-in (default off), mirroring skills.
    *
    * Gates the inbox nav entry + page, the share surfaces, the mention picker, and
    * every `/api/inbox/*`, `/api/sharing/*` and `/api/stream` route. With the flag
@@ -103,7 +97,7 @@ export const FEATURE_FLAGS = {
    */
   ifcModels: 'ifc-models',
   /** Agent Skills (Phase A): the org toolbox of agentskills.io-format skills
-   *  plus project skill schedules, replacing scheduled workflows. Dark-launched —
+   *  plus project skill schedules. Dark-launched —
    *  gated by the WorkOS flag when enforcement is on, else the
    *  GRID_SKILLS_ENABLED env opt-in (default off). Gates every /api/skills and
    *  /api/projects/[id]/skill-schedules route. */
@@ -114,7 +108,7 @@ export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS
 
 /**
  * Whether WorkOS flag enforcement is on for this deployment. Exported so
- * session-less gates (e.g. the workflows scheduled-fire path) share this one
+ * session-less gates (e.g. the skill scheduled-fire path) share this one
  * definition instead of re-parsing GRID_ENFORCE_FEATURE_FLAGS themselves.
  */
 export function enforcementOn(): boolean {
@@ -143,20 +137,6 @@ export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featur
     return isFeatureEnabled(session, FEATURE_FLAGS.projectKnowledgePage)
   }
   return (process.env.GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED ?? '').toLowerCase() === 'true'
-}
-
-/**
- * Default-OFF gate for scheduled workflows (ADR-0023). Like
- * isProjectKnowledgePageEnabled, this feature launches dark: with WorkOS flag
- * enforcement it follows the per-org `workflows` flag; without enforcement it
- * is only available when a deployment explicitly opts in via
- * GRID_WORKFLOWS_ENABLED=true (mirrors the project-knowledge-page fallback).
- */
-export function isWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
-  if (enforcementOn()) {
-    return isFeatureEnabled(session, FEATURE_FLAGS.workflows)
-  }
-  return (process.env.GRID_WORKFLOWS_ENABLED ?? '').toLowerCase() === 'true'
 }
 
 /**
@@ -219,22 +199,6 @@ export function requireCollaborationEnabled(
   if (isCollaborationEnabled(session)) return null
   return NextResponse.json(
     { error: 'feature-disabled', feature: FEATURE_FLAGS.collaboration },
-    { status: 403 }
-  )
-}
-
-/**
- * Route guard for the workflows feature: stable-coded 403 when off (matching
- * requireFeature's envelope), null when allowed. Distinct from requireFeature
- * because the gate is the dark-launch isWorkflowsEnabled(), not a plain flag
- * check. Usage: `const gated = requireWorkflowsEnabled(session); if (gated) return gated`
- */
-export function requireWorkflowsEnabled(
-  session: Pick<GridSession, 'featureFlags'>
-): Response | null {
-  if (isWorkflowsEnabled(session)) return null
-  return NextResponse.json(
-    { error: 'feature-disabled', feature: FEATURE_FLAGS.workflows },
     { status: 403 }
   )
 }

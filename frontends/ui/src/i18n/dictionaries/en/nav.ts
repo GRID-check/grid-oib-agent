@@ -13,7 +13,6 @@ export const nav = {
     model: 'Model',
     knowledge: 'Knowledge',
     research: 'Research',
-    workflows: 'Workflows',
     skills: 'Skills',
     archiv: 'Archiv',
     history: 'History',

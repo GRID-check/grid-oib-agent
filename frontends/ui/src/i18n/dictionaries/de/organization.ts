@@ -90,7 +90,7 @@ export const organization: typeof en.organization = {
     tiers: {
       org: 'Organisation',
       project: 'Projekt',
-      workflow: 'Workflow',
+      skill: 'Skill-Zeitplan',
       platform: 'Plattform',
     },
     notAllowed: {

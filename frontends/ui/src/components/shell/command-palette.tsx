@@ -50,12 +50,11 @@ export interface CommandPaletteProps {
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
-  showWorkflows?: boolean
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
   /**
    * Whether the Agent Skills page is enabled (feature-flagged, default off —
-   * ADR-0045). Mutually exclusive with `showWorkflows`, enforced at the layout.
+   * ADR-0046).
    */
   showSkills?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
@@ -68,7 +67,6 @@ export function CommandPalette({
   authRequired,
   canViewOrganization,
   showKnowledge = false,
-  showWorkflows = false,
   showModels = false,
   showSkills = false,
   canAccessArchiv = false,
@@ -150,7 +148,7 @@ export function CommandPalette({
           <>
             <CommandSeparator />
             <CommandGroup heading={t('groups.currentProject')}>
-              {paletteSections({ showKnowledge, showWorkflows, showSkills, showModels, canAccessArchiv }).map((item) => {
+              {paletteSections({ showKnowledge, showSkills, showModels, canAccessArchiv }).map((item) => {
                 const Icon = item.icon
                 const label = tNav(`sections.${item.i18nKey}`)
                 const href =

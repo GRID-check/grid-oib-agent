@@ -15,7 +15,6 @@ export const nav: typeof en.nav = {
     model: 'Modell',
     knowledge: 'Wissen',
     research: 'Recherche',
-    workflows: 'Workflows',
     skills: 'Skills',
     archiv: 'Archiv',
     history: 'Historie',

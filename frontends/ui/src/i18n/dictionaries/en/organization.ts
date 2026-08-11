@@ -90,7 +90,7 @@ export const organization = {
     tiers: {
       org: 'Organization',
       project: 'Project',
-      workflow: 'Workflow',
+      skill: 'Skill schedule',
       platform: 'Platform',
     },
     // The gate here is `org:members:manage`, NOT org admin — borrowing the

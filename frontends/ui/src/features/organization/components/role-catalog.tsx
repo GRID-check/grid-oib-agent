@@ -19,7 +19,7 @@
  *
  * Three decisions worth naming:
  *
- * - **Grouped by tier, in reading order** (organization → project → workflow →
+ * - **Grouped by tier, in reading order** (organization → project → skill →
  *   platform). Tier is not cosmetic: it decides where a role can be held at all,
  *   so an org admin scanning for "who can I make somebody" needs the org group
  *   first, and needs to see that the project/workflow groups are per-resource.
@@ -52,7 +52,11 @@ import { useTranslations } from '@/i18n'
 export const ACCESS_TIER_ORDER: readonly PermissionTier[] = [
   'org',
   'project',
-  'workflow',
+  // Skill schedules are per-resource, like the workflows they replaced. Their
+  // tier was added to the catalog without being added here, so every skill role
+  // and skill permission was silently dropped from this reference — the one
+  // screen whose whole job is to show an administrator what exists.
+  'skill',
   'platform',
 ]
 

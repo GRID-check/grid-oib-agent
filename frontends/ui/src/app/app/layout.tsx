@@ -20,7 +20,6 @@ import {
   isFeatureEnabled,
   isProjectKnowledgePageEnabled,
   isSkillsEnabled,
-  isWorkflowsEnabled,
 } from '@/lib/authz/feature-flags'
 import { getNavFlags } from '@/lib/authz/nav'
 import { KeyboardShortcuts } from '@/components/shell'
@@ -50,9 +49,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
             // (it serves capability subsets, see getNavFlags / UX-16).
             canViewOrganization
             showKnowledge={isProjectKnowledgePageEnabled(session)}
-            // Skills supersedes Workflows (ADR-0046) — mutually exclusive flags.
             showSkills={isSkillsEnabled(session)}
-            showWorkflows={isWorkflowsEnabled(session) && !isSkillsEnabled(session)}
             canAccessArchiv={navFlags.canAccessArchiv}
             canCollaborate={navFlags.canCollaborate}
             canAccessInbox={navFlags.canAccessInbox}

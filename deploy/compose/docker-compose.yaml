@@ -384,9 +384,9 @@ services:
       # the WS-upgrade rate limiter. Unset = per-process in-memory fallback.
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
-      # ── Workflows (ADR-0023): dark-launch gate + save-time cron validation ──
-      - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
-      - GRID_WORKFLOW_MIN_INTERVAL_MINUTES=${GRID_WORKFLOW_MIN_INTERVAL_MINUTES:-15}
+      # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
+      - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
       # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
       # Dark-launch gate, default-deny: with it off the inbox nav entry, the
       # share surfaces and the mention picker do not exist and the
@@ -474,17 +474,17 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  workflow-scheduler:
-    # Workflows cron scheduler (ADR-0023). Dedicated worker off the frontend
-    # image (like the purger): DB-claimed ticks advance each due workflow's
+  skill-scheduler:
+    # Agent Skills cron scheduler (ADR-0046). Dedicated worker off the frontend
+    # image (like the purger): DB-claimed ticks advance each due schedule's
     # next_run_at (FOR UPDATE SKIP LOCKED — replica- and crash-safe), then POST
-    # the BFF internal fire endpoint. No-ops and exits 0 unless the workflows
-    # feature gate is on (GRID_WORKFLOWS_ENABLED / GRID_ENFORCE_FEATURE_FLAGS).
+    # the BFF internal fire endpoint. No-ops and exits 0 unless the skills
+    # feature gate is on (GRID_SKILLS_ENABLED / GRID_ENFORCE_FEATURE_FLAGS).
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
       context: ../../frontends/ui
       dockerfile: deploy/Dockerfile
-    container_name: grid-workflow-scheduler
+    container_name: grid-skill-scheduler
     command: ["node", "scheduler/index.js"]
     environment:
       # Least-privilege runtime role (ADR-0041). This worker sweeps every
@@ -505,12 +505,14 @@ services:
       - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # Deployment start gate: the scheduler refuses to run (clean exit 0) unless
-      # workflows are enabled here or feature-flag enforcement is on.
-      - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
+      # skills are enabled here or feature-flag enforcement is on. This service
+      # previously passed GRID_WORKFLOWS_ENABLED, which the worker no longer
+      # reads — so the container started, found no gate, and exited 0 forever.
+      - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
       - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
-      - GRID_WORKFLOW_SCHEDULER_POLL_MS=${GRID_WORKFLOW_SCHEDULER_POLL_MS:-30000}
-      - GRID_WORKFLOW_SCHEDULER_BATCH=${GRID_WORKFLOW_SCHEDULER_BATCH:-20}
-      - GRID_WORKFLOW_RUNS_RETENTION_DAYS=${GRID_WORKFLOW_RUNS_RETENTION_DAYS:-90}
+      - GRID_SKILL_SCHEDULER_POLL_MS=${GRID_SKILL_SCHEDULER_POLL_MS:-30000}
+      - GRID_SKILL_SCHEDULER_BATCH=${GRID_SKILL_SCHEDULER_BATCH:-20}
+      - GRID_SKILL_RUNS_RETENTION_DAYS=${GRID_SKILL_RUNS_RETENTION_DAYS:-90}
     networks:
       - aiq-network
     depends_on:

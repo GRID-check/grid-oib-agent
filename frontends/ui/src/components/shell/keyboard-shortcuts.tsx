@@ -53,12 +53,11 @@ export interface KeyboardShortcutsProps {
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
-  showWorkflows?: boolean
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
   /**
    * Whether the Agent Skills page is enabled (feature-flagged, default off —
-   * ADR-0045). Mutually exclusive with `showWorkflows`, enforced at the layout.
+   * ADR-0046).
    */
   showSkills?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
@@ -73,7 +72,6 @@ export function KeyboardShortcuts({
   authRequired,
   canViewOrganization,
   showKnowledge = false,
-  showWorkflows = false,
   showModels = false,
   showSkills = false,
   canAccessArchiv = false,
@@ -91,7 +89,6 @@ export function KeyboardShortcuts({
     () => ({
       canViewOrganization,
       showKnowledge,
-      showWorkflows,
       showSkills,
       showModels,
       canAccessArchiv,
@@ -101,7 +98,6 @@ export function KeyboardShortcuts({
     [
       canViewOrganization,
       showKnowledge,
-      showWorkflows,
       showSkills,
       showModels,
       canAccessArchiv,
@@ -188,7 +184,6 @@ export function KeyboardShortcuts({
         showKnowledge={showKnowledge}
         showModels={showModels}
         showSkills={showSkills}
-        showWorkflows={showWorkflows}
         canAccessArchiv={canAccessArchiv}
       />
       <ShortcutsCheatsheet
@@ -198,7 +193,6 @@ export function KeyboardShortcuts({
         showKnowledge={showKnowledge}
         showModels={showModels}
         showSkills={showSkills}
-        showWorkflows={showWorkflows}
         canAccessArchiv={canAccessArchiv}
         canCollaborate={canCollaborate}
         canAccessInbox={canAccessInbox}

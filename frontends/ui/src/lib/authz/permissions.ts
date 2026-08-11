@@ -11,7 +11,7 @@
  *
  * Org- and platform-tier permissions arrive in the AuthKit JWT `permissions`
  * claim for the active organization and are checked with zero I/O. Project- and
- * workflow-tier permissions are per-resource and go through WorkOS FGA — see
+ * skill-tier permissions are per-resource and go through WorkOS FGA — see
  * `./decide` for the single entry point across all four tiers.
  */
 
@@ -22,7 +22,6 @@ import {
   PROJECT_PERMISSION_SPECS,
   ROLES,
   SKILL_PERMISSION_SPECS,
-  WORKFLOW_PERMISSION_SPECS,
 } from './catalog'
 
 /** Organization-tier permissions (attached to org roles, e.g. Admin). */
@@ -70,15 +69,7 @@ export const PROJECT_PERMISSIONS = {
   memoryWrite: 'project:memory:write',
   manage: 'project:manage',
   membersManage: 'project:members:manage',
-  workflowsManage: 'project:workflows:manage',
   skillsManage: 'project:skills:manage',
-} as const
-
-/** Workflow-tier permissions, checked per workflow via WorkOS FGA. */
-export const WORKFLOW_PERMISSIONS = {
-  view: 'workflow:view',
-  run: 'workflow:run',
-  manage: 'workflow:manage',
 } as const
 
 /** Skill-tier permissions, checked per skill schedule via WorkOS FGA. */
@@ -91,7 +82,6 @@ export const SKILL_PERMISSIONS = {
 export type OrgPermission = (typeof ORG_PERMISSIONS)[keyof typeof ORG_PERMISSIONS]
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[keyof typeof PLATFORM_PERMISSIONS]
 export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[keyof typeof PROJECT_PERMISSIONS]
-export type WorkflowPermission = (typeof WORKFLOW_PERMISSIONS)[keyof typeof WORKFLOW_PERMISSIONS]
 export type SkillPermission = (typeof SKILL_PERMISSIONS)[keyof typeof SKILL_PERMISSIONS]
 
 /**
@@ -105,7 +95,6 @@ export type KnownPermission = OrgPermission | PlatformPermission
 export type AnyPermission =
   | KnownPermission
   | ProjectPermission
-  | WorkflowPermission
   | SkillPermission
 
 /**
@@ -160,9 +149,6 @@ export const ALL_PLATFORM_PERMISSION_SLUGS: readonly string[] = PLATFORM_PERMISS
   (permission) => permission.slug
 )
 export const ALL_PROJECT_PERMISSION_SLUGS: readonly string[] = PROJECT_PERMISSION_SPECS.map(
-  (permission) => permission.slug
-)
-export const ALL_WORKFLOW_PERMISSION_SLUGS: readonly string[] = WORKFLOW_PERMISSION_SPECS.map(
   (permission) => permission.slug
 )
 export const ALL_SKILL_PERMISSION_SLUGS: readonly string[] = SKILL_PERMISSION_SPECS.map(

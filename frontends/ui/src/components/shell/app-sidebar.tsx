@@ -68,7 +68,6 @@ export interface AppSidebarProps {
    */
   canAccessArchiv?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
-  showWorkflows?: boolean
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
   /**
@@ -104,7 +103,6 @@ export function AppSidebar({
   canViewOrganization = false,
   canManagePlatform = false,
   canAccessArchiv = false,
-  showWorkflows = false,
   showModels = false,
   showSkills = false,
   canAccessInbox,
@@ -256,7 +254,7 @@ export function AppSidebar({
   // mutually exclusive (the layouts pass them as such); Archiv shows for any
   // member of an org with the `organization-archiv` flag — the same gate the
   // user menu's Archiv entry uses (the layout passes both from getNavFlags).
-  const navItems = railSections({ showWorkflows, showSkills, showModels, canAccessArchiv, canAccessInbox })
+  const navItems = railSections({ showSkills, showModels, canAccessArchiv, canAccessInbox })
 
   const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)
 

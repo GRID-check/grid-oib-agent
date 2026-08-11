@@ -1,7 +1,7 @@
 /**
  * The one WorkOS FGA round-trip, shared by every resource tier (ADR-0038).
  *
- * Project and workflow checks were about to grow two copies of the same
+ * Project and skill checks were about to grow two copies of the same
  * instrumentation + optional-cache logic. They get one instead, so a change to
  * the caching posture (or to how a stalled check names itself in the logs)
  * cannot apply to one tier and silently miss the other.
@@ -20,7 +20,7 @@ export interface ResourceCheckInput {
   readonly organizationMembershipId: string
   readonly permissionSlug: string
   readonly resourceExternalId: string
-  readonly resourceTypeSlug: 'project' | 'workflow' | 'skill'
+  readonly resourceTypeSlug: 'project' | 'skill'
 }
 
 /**

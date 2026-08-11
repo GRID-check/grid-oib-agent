@@ -302,138 +302,6 @@ export const platform = {
       notInRis: 'Not in RIS — maintain the source as a plain link.',
     },
   },
-  /**
-   * Platform → workflows, rebuilt on the shared admin primitives (SectionCard +
-   * DataToolbar + Table + Sheet). Scoped as `platform.workflowsSection` so the
-   * component can bind the namespace once and call short keys.
-   */
-  workflowsSection: {
-    title: 'Workflow templates',
-    explainer:
-      'Curated research briefs published into every organization’s Workflows gallery. A published template appears for every org; selecting it there only pre-fills the workflow builder — it never runs automatically.',
-    new: 'New template',
-    import: 'Import JSON',
-    // Import is a deliberate action now: the dropzone lives behind this dialog
-    // instead of sitting above the list on every visit.
-    importTitle: 'Import a template',
-    importDescription:
-      'Load a template JSON export. It opens the editor pre-filled as an unpublished draft — nothing is saved until you save it.',
-    dropTitle: 'Drop a JSON file here',
-    dropActive: 'Release to import',
-    dropHint: 'Or click to choose a file.',
-    importCancel: 'Cancel',
-    importLoaded: 'Template file loaded — review and save.',
-    importInvalid: 'That file is not a valid template export.',
-    // Toolbar.
-    search: 'Filter templates…',
-    searchLabel: 'Filter templates',
-    searchClear: 'Clear filter',
-    filterLabel: 'Publish state',
-    filterAll: 'All states',
-    filterPublished: 'Published only',
-    filterDraft: 'Drafts only',
-    // Table.
-    columns: {
-      name: 'Template',
-      category: 'Category',
-      provenance: 'Tint',
-      dataSources: 'Data sources',
-      cadence: 'Cadence',
-      published: 'Published',
-      actions: 'Actions',
-    },
-    rowActions: 'Actions for “{name}”',
-    editAria: 'Edit “{name}”',
-    manualCadence: 'On demand',
-    noCategory: '—',
-    baseKnowledgeOnly: 'Base knowledge only',
-    moreSources: '+{count}',
-    // Section states.
-    loadError: 'The templates could not be loaded.',
-    emptyTitle: 'No templates yet',
-    emptyDescription:
-      'Author a research brief here and publish it to put it in front of every organization.',
-    noMatchTitle: 'No template matches',
-    noMatchDescription: 'Nothing matches this search and publish-state filter.',
-    clearFilters: 'Clear filters',
-    range: '{from}–{to} of {total}',
-    previous: 'Previous',
-    next: 'Next',
-    // Publish toggle.
-    published: 'Published',
-    draft: 'Draft',
-    publishAria: 'Publish “{name}” to every organization',
-    unpublishAria: 'Unpublish “{name}”',
-    publishSuccess: 'Template published to every organization.',
-    unpublishSuccess: 'Template unpublished.',
-    publishFailed: 'The publish state could not be changed.',
-    // Row menu.
-    edit: 'Edit',
-    export: 'Export as JSON',
-    delete: 'Delete',
-    // Toasts.
-    createSuccess: 'Template created.',
-    updateSuccess: 'Template updated.',
-    saveFailed: 'The template could not be saved.',
-    deleteSuccess: 'Template deleted.',
-    deleteFailed: 'The template could not be deleted.',
-    // Delete confirmation.
-    deleteTitle: 'Delete “{name}”?',
-    deleteDescription:
-      'This removes the template from every organization’s gallery. Workflows already created from it are unaffected. This cannot be undone.',
-    deleteConfirm: 'Delete template',
-    deleteCancel: 'Cancel',
-    // Provenance tint labels (shared by the table and the editor).
-    provenance: {
-      law: 'Regulation',
-      project: 'Project',
-      office: 'Office',
-      auto: 'General',
-    },
-    form: {
-      createTitle: 'New workflow template',
-      editTitle: 'Edit workflow template',
-      subtitle: 'Author the brief in German and English — the gallery shows the viewer’s language.',
-      close: 'Close editor',
-      provenanceLabel: 'Category tint',
-      sortOrderLabel: 'Sort order',
-      sortOrderHint: 'Lower numbers appear first in the gallery.',
-      dataSourcesLabel: 'Additional data sources',
-      dataSourcesHint:
-        'The base knowledge layer is always included. Pick any extra sources a run should draw on.',
-      sourcesLoading: 'Loading sources…',
-      sourcesAll: 'No additional sources available.',
-      scheduleLabel: 'Suggested schedule',
-      scheduleHint: 'A default cadence the adopting user can keep or change.',
-      presetLabel: 'Cadence',
-      timezoneLabel: 'Timezone',
-      cronLabel: 'Custom cron (5 fields)',
-      cronHint: 'Minute Hour Day-of-month Month Day-of-week.',
-      locale: {
-        de: 'German',
-        en: 'English',
-      },
-      nameLabel: 'Name',
-      descriptionLabel: 'Short description',
-      categoryLabel: 'Category label',
-      categoryHint: 'Short pill shown on the gallery card, e.g. “Compliance”.',
-      objectiveLabel: 'Objective',
-      contextLabel: 'Background & context',
-      questionsLabel: 'Research questions',
-      questionsHint: 'One question per line.',
-      outputFormatLabel: 'Output requirements',
-      previewLabel: 'Compiled brief (what the agent receives)',
-      previewEmpty: 'Fill in the objective to see the compiled brief.',
-      publishLabel: 'Published',
-      publishHint: 'When on, this template is visible in every organization’s gallery.',
-      // Names the language that is incomplete — the form also switches to that
-      // tab, so the message and the view agree.
-      requiredError: '{locale}: name, short description, category label and objective are all required.',
-      cancel: 'Cancel',
-      save: 'Save template',
-      saving: 'Saving…',
-    },
-  },
   overview: {
     search: 'Search organizations…',
     searchLabel: 'Search organizations',
@@ -506,7 +374,6 @@ export const platform = {
     quality: 'Answer quality',
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
-    workflows: 'Workflow templates',
     storage: 'Storage',
     maintenance: 'Maintenance',
   },
@@ -614,10 +481,6 @@ export const platform = {
     norms: {
       title: 'Norm catalog',
       subtitle: 'Which legal sources bind, how they are ranked, and where they live in RIS.',
-    },
-    workflows: {
-      title: 'Workflow templates',
-      subtitle: 'Templates published into every organization’s gallery.',
     },
     storage: {
       title: 'Storage',

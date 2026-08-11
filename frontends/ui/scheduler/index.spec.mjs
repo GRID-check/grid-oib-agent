@@ -60,22 +60,6 @@ describe('readConfig', () => {
     expect(c.retentionDays).toBe(30)
   })
 
-  it('falls back to the deprecated GRID_WORKFLOW_SCHEDULER_* names with a deprecation warning', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const c = readConfig({
-      GRID_WORKFLOW_SCHEDULER_POLL_MS: '9000',
-      GRID_WORKFLOW_SCHEDULER_BATCH: '3',
-      GRID_WORKFLOW_RUNS_RETENTION_DAYS: '14',
-    })
-    expect(c.pollMs).toBe(9000)
-    expect(c.batch).toBe(3)
-    expect(c.retentionDays).toBe(14)
-    expect(warn).toHaveBeenCalledTimes(3)
-    for (const name of Object.values(OLD_NAMES)) {
-      expect(warn.mock.calls.join(' ')).toContain(name)
-    }
-    expect(warn.mock.calls.join(' ')).not.toContain(Object.values(NEW_NAMES)[0]) // deprecation names the old var only
-  })
 
   it('prefers the new GRID_SKILL_* name when both new and old are set (no warning)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

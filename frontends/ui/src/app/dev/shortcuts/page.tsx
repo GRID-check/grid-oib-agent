@@ -59,7 +59,6 @@ export default function ShortcutsPreviewPage() {
           canViewOrganization={everything}
           showKnowledge={everything}
           showSkills={everything}
-          showWorkflows={everything}
           canAccessArchiv={everything}
           canCollaborate={everything}
           // Its own flag since ADR-0042, so the preview has to pass it too — the
