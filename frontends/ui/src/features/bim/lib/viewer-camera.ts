@@ -108,6 +108,93 @@ export function clampCut(atMetres: number, bounds: { minY: number; maxY: number 
   return round(Math.min(Math.max(atMetres, bounds.minY), bounds.maxY))
 }
 
+/**
+ * ifc-lite's `sectionPlane` render option, built from a cut in metres.
+ *
+ * ## Why this is not just `{ position: atMetres }`
+ *
+ * `SectionPlane.position` is NOT a height. The renderer resolves it as a
+ * PERCENTAGE of the model's extent along the cut normal:
+ *
+ * ```
+ * distance = min + (position / 100) * (max - min)
+ * ```
+ *
+ * Handing it metres is what made the cut inert. On a 12 m building "cut at
+ * 3 m" resolved to 3% of 12 m — 0.36 m — so the whole slider travelled the
+ * bottom eighth of the ground floor, the readout said one thing and the plane
+ * did another, and every height above knee level looked identical.
+ *
+ * ## What is passed instead
+ *
+ * The plane goes over the way the renderer's own face-pick path sends one: an
+ * explicit world-space `normal` + `distance`, which the clip shader uses
+ * verbatim (`dot(worldPos, normal) - distance`), ignoring `axis`, `position`,
+ * `min` and `max`. `distance` is then literally the metre the slider displays,
+ * with no bounds arithmetic in between that could disagree with it — and the
+ * cut survives the renderer's own bounds being a slightly different box from
+ * the one the slider was ranged over.
+ *
+ * The cardinal fields are filled in consistently anyway: the cut CAP still
+ * reads `axis`/`position`/`min`/`max`, and a percentage that agrees with the
+ * explicit plane is the difference between a cap on the cut and a cap floating
+ * somewhere else in the building.
+ *
+ * `normal` is `[0, 1, 0]` because the geometry kernel emits Y-up meshes — see
+ * the axes note in `ifc-viewer-canvas.tsx`. A horizontal cut in an IFC file is
+ * a Z plane; by the time it reaches the renderer it is a Y plane.
+ */
+export interface RendererSectionPlane {
+  axis: 'down'
+  position: number
+  enabled: true
+  flipped: boolean
+  normal: [number, number, number]
+  distance: number
+  min?: number
+  max?: number
+  showCap: boolean
+  showOutlines: boolean
+}
+
+/** Percent of `[minY, maxY]` that `atMetres` sits at, clamped to 0..100. */
+export function cutPercent(
+  atMetres: number,
+  bounds: { minMetres: number; maxMetres: number } | null
+): number {
+  if (!bounds) return 50
+  const range = bounds.maxMetres - bounds.minMetres
+  // A degenerate range makes every percentage the same plane, so the value is
+  // arbitrary — but it must not be NaN, which would reach the GPU uniform.
+  if (!Number.isFinite(range) || range <= 0) return 50
+  const percent = ((atMetres - bounds.minMetres) / range) * 100
+  if (!Number.isFinite(percent)) return 50
+  return Math.min(100, Math.max(0, percent))
+}
+
+export function rendererSectionPlane(
+  section: BimSection,
+  bounds: { minMetres: number; maxMetres: number } | null
+): RendererSectionPlane {
+  // A non-finite height would be written straight into the clip uniform as
+  // NaN, and every fragment test against NaN is false — the cut would silently
+  // stop cutting rather than fail loudly.
+  const atMetres = Number.isFinite(section.atMetres) ? section.atMetres : (bounds?.minMetres ?? 0)
+  return {
+    axis: 'down',
+    position: cutPercent(atMetres, bounds),
+    enabled: true,
+    flipped: section.flipped,
+    normal: [0, 1, 0],
+    distance: atMetres,
+    ...(bounds ? { min: bounds.minMetres, max: bounds.maxMetres } : {}),
+    // The hatched cap is what makes a section read as a drawing rather than as
+    // a model with its front wall deleted.
+    showCap: true,
+    showOutlines: true,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // URL encoding
 // ---------------------------------------------------------------------------

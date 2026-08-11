@@ -59,6 +59,7 @@ import {
   downloadWithProgress,
   keyboardCameraStep,
   rendererPreset,
+  rendererSectionPlane,
   wheelZoomDelta,
   type BimCameraView,
   type BimSection,
@@ -255,6 +256,22 @@ const HOVER_BUDGET_MS = 24
 const KEY_ORBIT_PX = 24
 const KEY_PAN_PX = 32
 
+/**
+ * The model's vertical extent, in the renderer's own Y-up world metres.
+ *
+ * One reader for two consumers that MUST agree: the cut slider's range, and
+ * the plane the cut resolves to. When those two disagree the readout lies —
+ * which is the whole class of bug the section plane kept landing in.
+ */
+function modelBoundsMetres(
+  renderer: RendererLike | null
+): { minMetres: number; maxMetres: number } | null {
+  const bounds = renderer?.getModelBounds()
+  if (!bounds) return null
+  if (!Number.isFinite(bounds.min.y) || !Number.isFinite(bounds.max.y)) return null
+  return { minMetres: bounds.min.y, maxMetres: bounds.max.y }
+}
+
 export function IfcViewerCanvas({
   sourceUrl,
   elements,
@@ -357,20 +374,17 @@ export function IfcViewerCanvas({
         // nobody is inspecting closely.
         isStreaming: streamingRef.current,
         isInteracting: interactingRef.current,
-        // `down` is the renderer's horizontal plane. Absent rather than
-        // `enabled: false` when there is no cut: the option is snapshotted
-        // per frame and a disabled plane still costs the cap/outline setup.
+        // Absent rather than `enabled: false` when there is no cut: the option
+        // is snapshotted per frame and a disabled plane still costs the
+        // cap/outline setup.
+        //
+        // The bounds are read from the renderer HERE rather than taken from
+        // the `onBounds` prop round-trip, so the plane is expressed against the
+        // box the renderer holds this frame — during streaming that box is
+        // still growing, and a percentage computed against a stale one would
+        // slide the cut as the building arrived.
         sectionPlane: sectionRef.current
-          ? {
-              axis: 'down' as const,
-              position: sectionRef.current.atMetres,
-              enabled: true,
-              flipped: sectionRef.current.flipped,
-              // The hatched cap is what makes a section read as a drawing
-              // rather than as a model with its front wall deleted.
-              showCap: true,
-              showOutlines: true,
-            }
+          ? rendererSectionPlane(sectionRef.current, modelBoundsMetres(renderer))
           : undefined,
       })
     } catch {
@@ -768,10 +782,7 @@ export function IfcViewerCanvas({
       onBoundsRef.current?.(null)
       return
     }
-    const bounds = rendererRef.current?.getModelBounds() ?? null
-    onBoundsRef.current?.(
-      bounds ? { minMetres: bounds.min.y, maxMetres: bounds.max.y } : null
-    )
+    onBoundsRef.current?.(modelBoundsMetres(rendererRef.current))
   }, [ready])
 
   // A named view is declarative state, not a one-shot action: arriving on a

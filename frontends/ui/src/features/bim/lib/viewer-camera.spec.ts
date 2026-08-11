@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { BIM_CAMERA_VIEWS, boundsCentre, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, keyboardCameraStep, parseCameraState, rendererPreset, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
+import { BIM_CAMERA_VIEWS, boundsCentre, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, keyboardCameraStep, parseCameraState, rendererPreset, rendererSectionPlane, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
 
 const roundTrip = (state: BimViewerCameraState): BimViewerCameraState => {
   const params = new URLSearchParams()
@@ -72,6 +72,80 @@ describe('the Grundriss cut', () => {
 
   it('rounds to the centimetre', () => {
     expect(clampCut(2.60449, { minY: 0, maxY: 10 })).toBe(2.6)
+  })
+})
+
+/**
+ * The one conversion between the height a reader chooses and the plane the GPU
+ * clips against.
+ *
+ * These assertions exist because the two disagreed silently for a whole
+ * release: `position` was fed metres, the renderer reads it as a percentage of
+ * the model's extent, and the only symptom was a slider whose travel all
+ * happened inside the ground floor. A wrong number here cannot be seen in a
+ * screenshot — it has to be pinned.
+ */
+describe('the section plane the renderer is given', () => {
+  const bounds = { minMetres: 0, maxMetres: 12 }
+
+  it('cuts at the metre the slider says, in world units', () => {
+    // `distance` is what the clip shader compares `dot(worldPos, normal)`
+    // against, so it IS the height — no percentage in between.
+    const plane = rendererSectionPlane({ atMetres: 3, flipped: false }, bounds)
+    expect(plane.normal).toEqual([0, 1, 0])
+    expect(plane.distance).toBe(3)
+  })
+
+  it('states the position as a PERCENTAGE of the model, not as metres', () => {
+    // The bug this replaces: `position: 3` on a 12 m building resolved to
+    // 3% = 0.36 m, so "cut at 3 m" sliced the floor slab.
+    expect(rendererSectionPlane({ atMetres: 3, flipped: false }, bounds).position).toBe(25)
+    expect(rendererSectionPlane({ atMetres: 0, flipped: false }, bounds).position).toBe(0)
+    expect(rendererSectionPlane({ atMetres: 12, flipped: false }, bounds).position).toBe(100)
+  })
+
+  it('agrees with itself: the percentage resolves back to the same plane', () => {
+    // This is the renderer's own formula. If the two ever drift apart the cap
+    // floats off the cut, which is exactly how the last defect presented.
+    const plane = rendererSectionPlane({ atMetres: 7.5, flipped: false }, bounds)
+    const resolved =
+      (plane.min ?? 0) + (plane.position / 100) * ((plane.max ?? 0) - (plane.min ?? 0))
+    expect(resolved).toBeCloseTo(plane.distance, 10)
+  })
+
+  it('handles a building that does not start at zero', () => {
+    // A basement puts minY below the origin; a georeferenced model can put the
+    // whole building somewhere else entirely.
+    const withBasement = { minMetres: -3.5, maxMetres: 6.5 }
+    const plane = rendererSectionPlane({ atMetres: 1.5, flipped: false }, withBasement)
+    expect(plane.distance).toBe(1.5)
+    expect(plane.position).toBe(50)
+  })
+
+  it('carries the direction of view through untouched', () => {
+    expect(rendererSectionPlane({ atMetres: 2, flipped: true }, bounds).flipped).toBe(true)
+    expect(rendererSectionPlane({ atMetres: 2, flipped: false }, bounds).flipped).toBe(false)
+  })
+
+  it('never emits NaN, whatever it is handed', () => {
+    // NaN in the clip uniform makes every fragment test false — the cut stops
+    // cutting and looks like a feature that was never switched on.
+    const degenerate = rendererSectionPlane({ atMetres: 2, flipped: false }, { minMetres: 4, maxMetres: 4 })
+    expect(Number.isFinite(degenerate.position)).toBe(true)
+    expect(Number.isFinite(degenerate.distance)).toBe(true)
+
+    const noBounds = rendererSectionPlane({ atMetres: Number.NaN, flipped: false }, null)
+    expect(Number.isFinite(noBounds.position)).toBe(true)
+    expect(Number.isFinite(noBounds.distance)).toBe(true)
+    expect(noBounds.min).toBeUndefined()
+  })
+
+  it('clamps a cut outside the model into the slider range', () => {
+    // The height itself is still honoured — a cut above the roof shows the
+    // whole building, which is the truthful answer — but the percentage the
+    // cap reads cannot leave 0..100.
+    expect(rendererSectionPlane({ atMetres: 99, flipped: false }, bounds).position).toBe(100)
+    expect(rendererSectionPlane({ atMetres: -99, flipped: false }, bounds).position).toBe(0)
   })
 })
 
