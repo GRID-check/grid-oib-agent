@@ -13,7 +13,7 @@ import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
-import { ActiveUploads } from './active-uploads'
+import { UploadTray } from './upload-tray'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
@@ -42,7 +42,7 @@ interface ArchivListResponse {
  * {@link import('./project-file-workspace').ProjectFileWorkspace}. The listing
  * is the curated {@link ArchivLibraryPane} (card grid + category chips over the
  * real ingestion tags, WS-6); preview ({@link FilePreviewPane}), upload progress
- * ({@link ActiveUploads}) and the upload engine (via {@link useArchivDocuments})
+ * ({@link UploadTray}) and the upload engine (via {@link useArchivDocuments})
  * are shared with the project Files workspace. Only the data source
  * (`/api/archiv/documents`), the flat (folder-less) layout, and the org-level
  * authorization differ. Members without manage rights get a read-only view
@@ -97,10 +97,11 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   // Only managers drive the upload engine; passing an undefined collection to a
   // read-only viewer keeps useFileUpload's orchestrator effects inert (no
   // background collection-proxy calls that would 403 for them anyway).
-  const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile } = useArchivDocuments({
-    collectionName: canManage ? collectionName : undefined,
-    onComplete: loadDocuments,
-  })
+  const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
+    useArchivDocuments({
+      collectionName: canManage ? collectionName : undefined,
+      onComplete: loadDocuments,
+    })
 
   // Surface hook errors as a transient toast (plus the persistent inline Alert).
   const lastToastedError = useRef<string | null>(null)
@@ -149,14 +150,10 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     setSelectedFileId((current) => (current === fileId ? null : current))
   }, [])
 
+  // This session's own uploads, in every phase — see the same selector in
+  // ProjectFileWorkspace for why settled rows stay until dismissed.
   const activeUploads = useMemo(
-    () =>
-      trackedFiles.filter(
-        (f) =>
-          f.collectionName === collectionName &&
-          f.file != null &&
-          (f.status === 'uploading' || f.status === 'ingesting' || f.status === 'failed'),
-      ),
+    () => trackedFiles.filter((f) => f.collectionName === collectionName && f.file != null),
     [trackedFiles, collectionName],
   )
 
@@ -222,7 +219,13 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       )}
 
       {/* Live upload progress */}
-      <ActiveUploads files={activeUploads} onRetry={retryFile} />
+      <UploadTray
+        files={activeUploads}
+        onRetry={retryFile}
+        onCancel={cancelFile}
+        onCancelAll={cancelUpload}
+        onDismiss={dismissFiles}
+      />
 
       {/* Library grid; the preview opens in the shared centered-modal dialog. */}
       <div className="flex flex-1 flex-col overflow-hidden md:flex-row">

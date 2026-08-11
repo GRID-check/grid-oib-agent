@@ -199,6 +199,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'upload-tray',
+    mobile: true,
+    path: '/dev/upload-tray',
+    description:
+      'The upload surface in all four stages plus the explorer detail view. The point of the shot is that the stages look DIFFERENT: a determinate track with a percentage only while bytes are in flight, an indeterminate sweep with an elapsed time while the backend indexes, a settled mark with no track at all, and a failed row carrying the server\u2019s own reason next to a retry. The old surface drew one bar across all four and sat at a hard-coded 15%.',
+    waitFor: '[data-testid="upload-tray"]',
+  },
+  {
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',

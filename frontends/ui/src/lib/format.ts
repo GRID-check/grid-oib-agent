@@ -118,3 +118,44 @@ export const formatAbsoluteTime = (isoDate: string, locale?: string): string => 
 
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
+
+/**
+ * A short, localized span of time ("45 sec", "3 min", "1.2 hr" / "45 Sek.",
+ * "3 Min.", "1,2 Std."), for elapsed timers and transfer estimates.
+ *
+ * Quantized, not exact: an estimate that reads 47, then 44, then 45 seconds
+ * spends its precision on jitter and reads as unreliable even when it is
+ * right. Under a minute it steps in fives, above it in whole minutes — the
+ * resolution a person actually acts on.
+ *
+ * Built on `Intl.NumberFormat`'s `unit` style so the unit word, the separator
+ * and the spacing come from the locale rather than from a dictionary entry
+ * that would have to be kept in step with it.
+ */
+export const formatDurationShort = (seconds: number, locale?: string): string => {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0
+  const unit: Intl.NumberFormatOptions['unit'] =
+    safe < 60 ? 'second' : safe < 3600 ? 'minute' : 'hour'
+
+  const value =
+    unit === 'second'
+      ? Math.max(5, Math.ceil(safe / 5) * 5)
+      : unit === 'minute'
+        ? Math.ceil(safe / 60)
+        : safe / 3600
+
+  return new Intl.NumberFormat(locale, {
+    style: 'unit',
+    unit,
+    unitDisplay: 'short',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: unit === 'hour' ? 1 : 0,
+  }).format(value)
+}
+
+/**
+ * A transfer rate ("4.2 MB/s" / "4,2 MB/s"), built from the shared byte
+ * formatter so a speed and a size are punctuated identically on the same row.
+ */
+export const formatTransferRate = (bytesPerSecond: number, locale?: string): string =>
+  `${formatBytes(bytesPerSecond, locale)}/s`

@@ -27,7 +27,6 @@ interface UploadedFile {
   file: File
   status: 'uploading' | 'success' | 'error'
   errorMessage?: string
-  uploadedBytes?: number
 }
 
 interface FileUploadZoneProps {
@@ -91,7 +90,6 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
               ? ('success' as const)
               : ('uploading' as const),
         errorMessage: tf.errorMessage ?? undefined,
-        uploadedBytes: tf.progress ? Math.floor((tf.progress / 100) * tf.fileSize) : undefined,
       }))
     setUploadValue(mapped)
   }, [collectionFiles])
