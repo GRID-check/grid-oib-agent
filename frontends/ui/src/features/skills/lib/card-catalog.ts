@@ -69,6 +69,29 @@ export function isSelectableCardType(type: string): boolean {
 }
 
 /**
+ * Read a stored `grid-cards` value: trimmed, deduplicated, author order kept,
+ * and filtered to cards the catalogue still offers.
+ *
+ * Lives here rather than beside the metadata key so the editor (a client
+ * component) and the write boundary parse the value the same way without the
+ * editor having to import the server-side skills module.
+ */
+export function parsePreferredCardTypes(raw: string | undefined): string[] {
+  if (!raw) return []
+  const seen = new Set<string>()
+  for (const part of raw.split(',')) {
+    const type = part.trim()
+    if (type && isSelectableCardType(type)) seen.add(type)
+  }
+  return [...seen]
+}
+
+/** The stored form of a selection — the inverse of `parsePreferredCardTypes`. */
+export function formatPreferredCardTypes(types: readonly string[]): string {
+  return types.join(',')
+}
+
+/**
  * Catalogue entries matching a free-text query, in catalogue order.
  *
  * Matches the card type AND its description, because an author looking for the

@@ -32,6 +32,7 @@
 import { useEffect, useRef } from 'react'
 
 import { I18nProvider } from '@/i18n'
+import { SkillEditorDialog } from '@/features/skills/components/skill-editor-dialog'
 import { SkillDocumentPreview } from '@/features/skills/components/SkillDocumentPreview'
 import { SkillReviewPanel } from '@/features/skills/components/SkillReviewPanel'
 
@@ -106,6 +107,31 @@ export default function SkillEditorPreviewPage(): JSX.Element {
         // document and the findings are read at the width they ship at.
         className="text-foreground mx-auto flex w-full max-w-[680px] flex-col gap-8 p-6"
       >
+        {/* The REAL editor dialog, open. The panes below render standalone so
+            each is legible on its own, but the dialog is the surface an author
+            actually meets — and the only place the card-preference control and
+            the two metadata switches appear. */}
+        <SkillEditorDialog
+          open
+          onOpenChange={() => {}}
+          skill={{
+            ...SKILL,
+            // A SHORT instruction on purpose. The dialog scrolls, and with the
+            // full five-step body the card-preference control and the two
+            // metadata switches sit below the fold — invisible to a screenshot,
+            // which is the one reader this route exists for. The long body is
+            // still exercised by the standalone SKILL.md pane below.
+            body: 'Handle als Brandschutzprüfer. Nenne jede Abweichung mit Klausel und Korrekturvorschlag.',
+            id: 'skill-preview',
+            origin: 'org',
+            enabled: true,
+            clonedFrom: null,
+            createdAt: null,
+            updatedAt: null,
+          }}
+          onSaved={() => {}}
+        />
+
         <SkillDocumentPreview
           name={SKILL.name}
           description={SKILL.description}

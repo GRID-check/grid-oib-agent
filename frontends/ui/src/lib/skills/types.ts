@@ -17,7 +17,10 @@
  */
 
 import { z } from 'zod'
-import { isSelectableCardType } from '@/features/skills/lib/card-catalog'
+import {
+  isSelectableCardType,
+  parsePreferredCardTypes,
+} from '@/features/skills/lib/card-catalog'
 import { BadRequestError } from '@/lib/api/errors'
 import { SKILL_EXECUTIONS, type SkillExecution, type SkillOrigin } from '@/lib/db/schema'
 import { isValidCronExpression, isValidTimezone } from './schedule'
@@ -109,16 +112,6 @@ export function isSchedulable(metadata: Record<string, string>): boolean {
   return metadata[METADATA_SCHEDULABLE] !== 'false'
 }
 
-/** Split a reserved comma-list value: trimmed, empties dropped, deduplicated. */
-function splitMetadataList(raw: string): string[] {
-  const seen = new Set<string>()
-  for (const part of raw.split(',')) {
-    const name = part.trim()
-    if (name) seen.add(name)
-  }
-  return [...seen]
-}
-
 /**
  * The card types a skill prefers, in author order; `[]` when unset.
  *
@@ -129,9 +122,7 @@ function splitMetadataList(raw: string): string[] {
  * degrades to the remaining cards, which is exactly what the author meant.
  */
 export function preferredCardsOf(metadata: Record<string, string>): string[] {
-  const raw = metadata[METADATA_CARDS]
-  if (!raw) return []
-  return splitMetadataList(raw).filter(isSelectableCardType)
+  return parsePreferredCardTypes(metadata[METADATA_CARDS])
 }
 
 /**
@@ -233,7 +224,10 @@ const metadataSchema = z
   .superRefine((metadata, ctx) => {
     const raw = metadata[METADATA_CARDS]
     if (raw === undefined) return
-    const unknown = splitMetadataList(raw).filter((type) => !isSelectableCardType(type))
+    const unknown = raw
+      .split(',')
+      .map((part) => part.trim())
+      .filter((type) => type !== '' && !isSelectableCardType(type))
     if (unknown.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

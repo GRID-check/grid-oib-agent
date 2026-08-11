@@ -3,7 +3,9 @@ import { gridCardSchema } from '@/shared/cards/schemas'
 import {
   CARD_CATALOG,
   SYSTEM_CARD_TYPES,
+  formatPreferredCardTypes,
   isSelectableCardType,
+  parsePreferredCardTypes,
   searchCardCatalog,
 } from './card-catalog'
 
@@ -48,5 +50,24 @@ describe('card catalogue extraction', () => {
 
   test('a system card is never surfaced by a search that names it', () => {
     expect(searchCardCatalog('memory_proposal')).toEqual([])
+  })
+})
+
+describe('grid-cards value round-trip', () => {
+  test('parses a stored value, trimming and deduplicating', () => {
+    expect(parsePreferredCardTypes(undefined)).toEqual([])
+    expect(parsePreferredCardTypes('')).toEqual([])
+    expect(parsePreferredCardTypes(' summary , legal_basis ')).toEqual(['summary', 'legal_basis'])
+    expect(parsePreferredCardTypes('summary,summary')).toEqual(['summary'])
+  })
+
+  test('drops names the catalogue no longer offers', () => {
+    expect(parsePreferredCardTypes('summary,memory_proposal,gibt_es_nicht')).toEqual(['summary'])
+  })
+
+  test('format is the inverse of parse', () => {
+    const stored = formatPreferredCardTypes(['summary', 'comparison_table'])
+    expect(stored).toBe('summary,comparison_table')
+    expect(parsePreferredCardTypes(stored)).toEqual(['summary', 'comparison_table'])
   })
 })

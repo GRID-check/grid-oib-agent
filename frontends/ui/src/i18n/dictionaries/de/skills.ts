@@ -213,6 +213,14 @@ export const skills: typeof en.skills = {
     schedulableLabel: 'Planbar',
     schedulableHint:
       'Aus bedeutet: Zeitpläne können diesen Skill nicht per Cron ausführen (manuelle Ausführung bleibt möglich).',
+    cards: {
+      heading: 'Bevorzugte Ergebnis-Cards',
+      hint: 'Der Agent gibt das Ergebnis bevorzugt als eine dieser Cards aus, sofern der Inhalt dazu passt – eine Präferenz, keine Vorgabe.',
+      searchPlaceholder: 'Cards durchsuchen, z. B. Vergleich oder Fluchtweg',
+      empty: 'Keine Präferenz – der Agent wählt die Card, die zur Antwort passt.',
+      noMatches: 'Keine Card passt zu dieser Suche.',
+      removeAria: 'Card-Typ „{type}“ aus der Präferenz entfernen',
+    },
     cloneFrom: 'Geklont von „{name}“',
     enabledLabel: 'Aktiviert',
     enabledHint: 'Ein deaktivierter Skill kann nicht zu neuen Zeitplänen hinzugefügt werden.',

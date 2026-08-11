@@ -215,6 +215,14 @@ export const skills = {
     schedulableLabel: 'Schedulable',
     schedulableHint:
       'Off means schedules cannot run this skill on a cron (manual runs stay possible).',
+    cards: {
+      heading: 'Preferred output cards',
+      hint: 'The agent will prefer these when the content suits — a preference, not a rule.',
+      searchPlaceholder: 'Search cards, e.g. comparison or escape route',
+      empty: 'No preference — the agent picks the card that fits the answer.',
+      noMatches: 'No card matches that search.',
+      removeAria: 'Remove card type “{type}” from the preference',
+    },
     cloneFrom: 'Cloned from “{name}”',
     enabledLabel: 'Enabled',
     enabledHint: 'A disabled skill cannot be added to new schedules.',

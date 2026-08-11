@@ -136,6 +136,54 @@ describe('SkillEditorDialog — create', () => {
     })
   })
 
+  test('picked output cards land in grid-cards and in the SKILL.md preview', async () => {
+    createSkillMock.mockResolvedValue(orgSkill)
+    render(<SkillEditorDialog {...dialogProps} skill={null} />)
+
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'oib-fire-check' } })
+    fireEvent.change(screen.getByLabelText(/^Description/), {
+      target: { value: 'Checks fire-safety guidelines.' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Instruction/), {
+      target: { value: 'Act as a fire-safety reviewer.' },
+    })
+
+    // No preference until the author expresses one.
+    expect(
+      screen.getByText('No preference — the agent picks the card that fits the answer.'),
+    ).toBeInTheDocument()
+
+    const search = screen.getByLabelText('Search cards, e.g. comparison or escape route')
+    fireEvent.change(search, { target: { value: 'comparison' } })
+    fireEvent.click(screen.getByRole('button', { name: /^comparison_table/ }))
+
+    // The preview is the author's proof that the choice is stored.
+    await waitFor(() =>
+      expect(screen.getByText(/grid-cards: comparison_table/)).toBeInTheDocument(),
+    )
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
+    expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
+      'grid-execution': 'chat',
+      'grid-cards': 'comparison_table',
+    })
+  })
+
+  test('the picker never offers a system card type', () => {
+    render(<SkillEditorDialog {...dialogProps} skill={null} />)
+
+    const search = screen.getByLabelText('Search cards, e.g. comparison or escape route')
+    // Both are real union members the renderer knows; neither may be requested.
+    for (const systemCard of ['memory_proposal', 'document_grid']) {
+      fireEvent.change(search, { target: { value: systemCard } })
+      expect(screen.getByText('No card matches that search.')).toBeInTheDocument()
+    }
+  })
+
   test('cloning flags the payload with clonedFrom and shows the source', async () => {
     createSkillMock.mockResolvedValue(orgSkill)
     render(<SkillEditorDialog {...dialogProps} skill={null} cloneFrom="oib-fire-check" />)
@@ -211,6 +259,33 @@ describe('SkillEditorDialog — edit', () => {
       'grid-agents': 'voice-ana',
     })
     expect(toast.success).toHaveBeenCalledWith('Skill saved.')
+  })
+
+  test('prefills the card chips and drops the key when the last one is removed', async () => {
+    updateSkillMock.mockResolvedValue(orgSkill)
+    render(
+      <SkillEditorDialog
+        {...dialogProps}
+        skill={{ ...orgSkill, metadata: { ...orgSkill.metadata, 'grid-cards': 'summary' } }}
+      />,
+    )
+
+    expect(screen.getByText('A concise overview of the answer for the user.')).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove card type “summary” from the preference' }),
+    )
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
+    // No preference is the ABSENCE of the key, not an empty value.
+    expect(updateSkillMock.mock.calls[0][1].metadata).toEqual({
+      'grid-execution': 'deep-research',
+      'grid-agents': 'voice-ana',
+    })
   })
 
   test('the delete flow removes the skill after confirmation', async () => {
