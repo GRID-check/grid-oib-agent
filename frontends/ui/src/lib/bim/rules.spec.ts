@@ -973,6 +973,59 @@ describe('oib5-schalldaemmung-deklariert', () => {
     expect(rule.undecidable).toBe(1)
     expect(rule.failed).toBe(0)
   })
+
+  const wall = (rating: string | number) =>
+    element({
+      ifcType: 'IfcWall',
+      name: 'IW1',
+      properties: { Pset_WallCommon: { AcousticRating: rating } },
+    })
+  const verdict = (rating: string | number) =>
+    ruleOf(runBimRules([wall(rating)], { hauptnutzung: 'wohnen' }), 'oib5-schalldaemmung-deklariert')
+
+  it('refuses prose as a declaration', () => {
+    // The bug, and the worst kind this catalogue can have: `numericProperty` is
+    // anchored at the START of the string, so it parsed neither `Rw 30 dB` nor
+    // `siehe Beilage` — and everything it failed to parse fell through to
+    // `pass`. A wall whose rating read "siehe Beilage" was reported ERFÜLLT
+    // under an OIB 5 caption.
+    for (const prose of ['siehe Beilage', 'keine Anforderung', 'tbd', 'n/a', 'gemäß ÖNORM']) {
+      const rule = verdict(prose)
+      expect(rule.passed, prose).toBe(0)
+      expect(rule.undecidable, prose).toBe(1)
+    }
+  })
+
+  it('accepts a rated value however the exporter labelled it', () => {
+    // The other half of the same anchoring bug: these are real declarations and
+    // all of them failed to parse.
+    for (const rating of ['Rw 53 dB', "R'w = 55 dB", 'DnT,w 52', '52 dB', 52]) {
+      const rule = verdict(rating)
+      expect(rule.passed, String(rating)).toBe(1)
+    }
+  })
+
+  it('quotes the string it refused, so the author can find it in the exporter', () => {
+    // A verdict of "not decidable" that does not say WHAT it read sends the
+    // architect back to the model to guess. Only failures and unknowns carry
+    // rows (`VISIBLE_VERDICTS` caps those two), so this is the reading a reader
+    // ever actually sees for this rule.
+    const rule = verdict('siehe Beilage')
+    expect(rule.unknowns[0]?.reading).toContain('siehe Beilage')
+    // And the shopping list must ask for a RATED value, not merely the
+    // property — the property was already there, holding prose.
+    expect(rule.missing.map((entry) => entry.path)).toEqual([
+      'Pset_WallCommon.AcousticRating (bewertetes Maß in dB, z. B. „Rw 53 dB“)',
+    ])
+  })
+
+  it('still refuses the zero an exporter writes for "nothing declared"', () => {
+    for (const zero of ['0', 0, '0 dB']) {
+      const rule = verdict(zero)
+      expect(rule.undecidable, String(zero)).toBe(1)
+      expect(rule.unknowns[0]?.reading, String(zero)).toContain('vermutlich nicht gesetzt')
+    }
+  })
 })
 
 describe('missingPropertyShoppingList', () => {

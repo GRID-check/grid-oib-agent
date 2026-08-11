@@ -24,16 +24,17 @@ regression tests named beside them.
 | `NOTDEFINED` / `SPACE` silently out of scope — the majority of every real model's rooms | `lib/bim/rules.ts` `UNINFORMATIVE_SPACE_TYPES` | `rules.spec.ts` › *checks a room whose PredefinedType says nothing* |
 | Door judged on nominal width against a *lichte Durchgangsbreite* threshold | `lib/bim/rules.ts` `oib4-tuer-durchgangsbreite` | `rules.spec.ts` › *reads the CLEAR width* |
 | BCF emitted `<File IfcProject="">` and `IfcGuid="express:1421"` — both schema-invalid | `lib/bim/bcf.ts` | `bcf.spec.ts` |
+| `AcousticRating` passed on any non-empty string — a wall reading *siehe Beilage* was reported **erfüllt** under an `OIB 5` caption | `lib/bim/rules.ts` `ratedSoundReduction()` | `rules.spec.ts` › *refuses prose as a declaration* / *accepts a rated value however the exporter labelled it* |
+
+The acoustic fix is worth a note, because the cause was subtler than the
+symptom: `numericProperty` anchors its number at the START of the string, so it
+parsed neither `Rw 30 dB` nor `siehe Beilage` — and everything it failed to
+parse fell through to `pass`. Only a literal `0` avoided passing. The rule now
+requires a rated figure in decibels (found anywhere in the string, comma
+decimals included); prose and `≤ 0` are `undecidable` and name what to author,
+so the declaration is counted only when it was actually made.
 
 ## Open — correctness
-
-**`AcousticRating` passes on any non-empty string.** `lib/bim/rules.ts`,
-`oib5-schalldaemmung-deklariert`. `0` and empty are now `undecidable`, but
-`'siehe Beilage'` and `'keine Anforderung'` still return `pass` and land in the
-same *Erfüllt* counter as the numeric threshold rules, under a row captioned
-`OIB 5`. The rule is honestly titled (*deklariert*), which is not the same as
-being honestly counted. Either parse `Rw ≥ n dB` and judge it, or give
-declaration-only rules their own counter that is not called *erfüllt*.
 
 **The U-value rules imply a Nachweis that OIB 6 does not perform.**
 `U ≤ 0,35 W/m²K` is the höchstzulässiger Bauteilwert. Meeting it on every wall

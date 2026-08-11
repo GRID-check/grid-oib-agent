@@ -574,6 +574,30 @@ const isOccupiedSpace = (element: BimElement): boolean => {
   )
 }
 
+/**
+ * The rated sound reduction a value declares, in decibels, or `null`.
+ *
+ * Austrian and German models write this half a dozen ways — `Rw 53 dB`,
+ * `R'w = 55 dB`, `DnT,w 52`, `53`, `53 dB` — so the number is found ANYWHERE in
+ * the string rather than at its start. That matters more than it looks:
+ * `numericProperty` is anchored with `^`, so it parsed none of the labelled
+ * forms, and the rule treated "did not parse" as "fine".
+ *
+ * A bare number is accepted because a decibel figure is the only quantity this
+ * property carries. Text with no number at all — `siehe Beilage`,
+ * `keine Anforderung`, `tbd`, `n/a` — is not a declaration and must not read as
+ * one.
+ */
+function ratedSoundReduction(raw: string | number | boolean | null): number | null {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+  if (typeof raw !== 'string') return null
+  // Comma decimals are ordinary here: `Rw 52,5 dB`.
+  const match = /(-?\d+(?:[.,]\d+)?)/.exec(raw)
+  if (!match) return null
+  const value = Number(match[1].replace(',', '.'))
+  return Number.isFinite(value) ? value : null
+}
+
 export const BIM_RULES: RuleDefinition[] = [
   {
     id: 'oib4-treppe-steigungsverhaeltnis',
@@ -902,18 +926,33 @@ export const BIM_RULES: RuleDefinition[] = [
           missing: 'Pset_WallCommon.AcousticRating',
         }
       }
-      // `0` reaches here as the string "0": present, non-empty, and meaningless.
-      // A rule whose whole claim is "a value was declared" must not accept the
-      // value an exporter writes when nobody declared one.
-      const numeric = numericProperty(element, ['AcousticRating'])
-      if (numeric !== null && numeric <= 0) {
+      // A DECLARATION is a rated value in decibels, not merely a non-empty
+      // field. `numericProperty` is anchored at the start of the string, so it
+      // parsed neither `Rw 30 dB` NOR `siehe Beilage` — and everything it failed
+      // to parse fell through to `pass`. A wall whose AcousticRating read
+      // "siehe Beilage", "keine Anforderung" or "tbd" was reported **erfüllt**
+      // under an OIB 5 caption, which is the precise failure this catalogue
+      // exists to prevent: stating something the model never said.
+      const decibels = ratedSoundReduction(rating)
+      if (decibels === null) {
+        return {
+          status: 'undecidable',
+          reading: `„${String(rating)}“ ist kein bewertetes Schalldämm-Maß`,
+          missing: 'Pset_WallCommon.AcousticRating (bewertetes Maß in dB, z. B. „Rw 53 dB“)',
+        }
+      }
+      // `0` is what an exporter writes when nobody declared anything.
+      if (decibels <= 0) {
         return {
           status: 'undecidable',
           reading: `Schalldämm-Maß ${String(rating)} ist kein bewertetes Maß — vermutlich nicht gesetzt`,
           missing: 'Pset_WallCommon.AcousticRating (echter Wert, nicht 0)',
         }
       }
-      return { status: 'pass', reading: `Schalldämm-Maß ${String(rating)} hinterlegt` }
+      return {
+        status: 'pass',
+        reading: `Schalldämm-Maß ${decimal(decibels, 0)} dB hinterlegt (${String(rating)})`,
+      }
     },
   },
 ]
