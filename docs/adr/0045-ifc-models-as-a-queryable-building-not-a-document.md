@@ -206,3 +206,36 @@ matching few elements, one for a filter matching many — and `listBimElements`
 chooses between them from measured counts, because jsonb containment has no
 statistics and Postgres cannot. `docs/architecture/backend-deep-dive.md`
 carries the measurements.
+
+### The viewer's compressed source
+
+The 3D viewport is the one surface that does not read the structured index: it
+needs triangles, so it downloads the raw `.ifc` and triangulates it in the
+browser with ifc-lite's WASM kernel. That download is the page's slowest phase
+by a wide margin, and it is paid **in full on every visit** — a presigned URL is
+unique per request, so the object is never cached.
+
+Extraction therefore writes a third derived artefact beside the index and the
+digest: `_bim/source.ifc.gz`, the same bytes with `Content-Encoding: gzip`.
+STEP is repetitive ASCII and compresses roughly 5–10×, so a 149 MB model
+crosses the wire as around 20 MB. The encoding header is what makes it
+invisible: the browser inflates the body itself, and the geometry kernel
+receives exactly what the architect uploaded.
+
+Three things follow from that shape and are worth stating, because each was a
+choice:
+
+- **`getModelSource` probes rather than records.** A `HeadObject` against the
+  derived key decides whether to presign the gzip or the original. Models
+  extracted before this existed have no gzip and keep working, which a column
+  would have required a migration and a backfill to achieve.
+- **The write is best-effort.** A failed gzip must not cost an extraction; the
+  viewer falls back to the original object, which is slower and correct.
+- **The uncompressed length rides as user metadata.** On a gzipped response
+  `Content-Length` describes the compressed body while a streaming reader counts
+  decoded bytes, so a progress bar that divides one by the other reaches 100% at
+  a seventh of the file. With no metadata to divide by, progress reports
+  indeterminate rather than wrong.
+
+It costs one extra object per model, swept by the same prefix delete as the
+other two — a model cannot leave a compressed copy of itself behind.

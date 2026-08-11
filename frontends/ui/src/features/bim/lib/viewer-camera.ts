@@ -241,7 +241,18 @@ export async function downloadWithProgress(
     return buffered
   }
 
-  const declared = Number(response.headers.get('Content-Length') ?? '')
+  // The source is served gzipped (see `writeCompressedSource`), and on a
+  // gzipped response `Content-Length` is the COMPRESSED size while a streaming
+  // reader counts DECODED bytes. Dividing one by the other sends the bar to
+  // 100% at a seventh of the file and leaves it there. The uncompressed length
+  // travels as user metadata for exactly this; without it — an older model with
+  // no gzip sibling, or a header CORS will not expose — an encoded response
+  // reports indeterminate rather than wrong.
+  const encoded = (response.headers.get('Content-Encoding') ?? '').trim() !== ''
+  const declaredRaw =
+    response.headers.get('x-amz-meta-uncompressed-length') ??
+    (encoded ? null : response.headers.get('Content-Length'))
+  const declared = Number(declaredRaw ?? '')
   const total = Number.isFinite(declared) && declared > 0 ? declared : 0
   const chunks: Uint8Array[] = []
   let received = 0

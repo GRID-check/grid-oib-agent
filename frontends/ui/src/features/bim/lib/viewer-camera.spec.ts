@@ -264,3 +264,53 @@ describe('downloadWithProgress', () => {
     expect(seen).toEqual([null])
   })
 })
+
+describe('downloadWithProgress over a gzipped response', () => {
+  const respond = (headers: Record<string, string>, chunks: number[][]) => ({
+    headers: { get: (name: string) => headers[name] ?? null },
+    body: {
+      getReader: () => {
+        let index = 0
+        return {
+          read: async () =>
+            index < chunks.length
+              ? { done: false, value: new Uint8Array(chunks[index++]) }
+              : { done: true, value: undefined },
+        }
+      },
+    },
+    arrayBuffer: async () => new ArrayBuffer(0),
+  })
+
+  it('measures against the UNCOMPRESSED length, not the wire length', async () => {
+    // The bug this guards: the reader sees inflated bytes, so dividing by the
+    // compressed Content-Length pins the bar at 100% almost immediately.
+    const seen: Array<number | null> = []
+    await downloadWithProgress(
+      respond(
+        { 'Content-Encoding': 'gzip', 'Content-Length': '2', 'x-amz-meta-uncompressed-length': '10' },
+        [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]]
+      ),
+      (p) => seen.push(p)
+    )
+    expect(seen).toEqual([50, 100])
+  })
+
+  it('is indeterminate when gzipped with no uncompressed length to divide by', async () => {
+    const seen: Array<number | null> = []
+    await downloadWithProgress(
+      respond({ 'Content-Encoding': 'gzip', 'Content-Length': '2' }, [[1, 2, 3, 4]]),
+      (p) => seen.push(p)
+    )
+    // Null, not a number computed from the wrong denominator.
+    expect(seen).toEqual([null])
+  })
+
+  it('still uses Content-Length for an uncompressed response', async () => {
+    const seen: Array<number | null> = []
+    await downloadWithProgress(respond({ 'Content-Length': '4' }, [[1, 2], [3, 4]]), (p) =>
+      seen.push(p)
+    )
+    expect(seen).toEqual([50, 100])
+  })
+})
