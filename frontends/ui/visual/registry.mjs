@@ -214,6 +214,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-card"]',
   },
   {
+    id: 'file-browser-uploading',
+    mobile: true,
+    path: '/dev/file-browser?variant=uploading',
+    description:
+      'The grid a second after a batch lands — the one row where the cards are not all the same shape. A document still being read has no AI summary yet, and the leftmost one already shows its page preview because a PDF thumbnail is produced at upload time while the rest of ingestion runs after it. Two things are pinned here: skeleton lines HOLD the description slot on the unsettled cards rather than leaving a blank gap that reads as a card which failed to render, and every tile reaches the bottom of its cell so the size · time footers line up across the row. Before, the short tile kept its natural height inside the stretched cell and its footer floated mid-card over a band of dead space.',
+    waitFor: '[data-testid="file-card"]',
+  },
+  {
     id: 'archiv-library',
     mobile: true,
     path: '/dev/archiv-library',

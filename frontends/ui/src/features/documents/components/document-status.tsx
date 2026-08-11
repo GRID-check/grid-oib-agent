@@ -69,6 +69,20 @@ export function documentStatusVariant(status: string | null | undefined): Status
   return STATUS_VARIANT[(status ?? '').toLowerCase()] ?? 'secondary'
 }
 
+/**
+ * Statuses that are going to change on their own — the `info` family above.
+ * Anything else (citable, failed) is terminal and needs no watching.
+ *
+ * Callers use this to decide what to re-ask for: the workspace polls the
+ * document list while one is unsettled, and a card treats a "no thumbnail yet"
+ * answer for one as provisional rather than as the final word.
+ */
+const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'processing'])
+
+export function isSettlingStatus(status: string | null | undefined): boolean {
+  return SETTLING_STATUSES.has((status ?? '').toLowerCase())
+}
+
 export function documentStatusLabel(status: string | null | undefined, t: Translator): string {
   const key = (status ?? '').toLowerCase()
   const labelKey = STATUS_LABEL_KEY[key]

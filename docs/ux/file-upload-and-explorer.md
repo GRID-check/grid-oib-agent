@@ -158,6 +158,55 @@ Same lens, applied to the surface that opens when a document is clicked:
   glancing at it sees "a document" and moves on. Skeleton bars now appear only
   while a preview is genuinely loading.
 
+## The card of a document that is still being read
+
+**Screenshot evidence:** `frontends/ui/visual/screenshots/file-browser-uploading.*.png`
+(`/dev/file-browser?variant=uploading`)
+
+> "Whilst uploading, but the preview is already available, it looks weird."
+
+The preview being there was never the problem — a PDF thumbnail is produced at
+upload time while the rest of ingestion runs after it, so a card can legitimately
+show its page render under a *Processing* badge. What looked wrong was the tile
+around it.
+
+An unsettled document has **no AI summary yet**. Its settled neighbours do, so
+they are taller, and a CSS grid row is as tall as its tallest cell — every other
+cell stretches to match. `FileCard` filled that stretched cell with a
+fixed-height content block, so the leftover height collected at the *bottom*:
+the `size · time` footer floated in the middle of the tile with a band of dead
+surface underneath it, and the footers in a row did not line up. The card looked
+half-drawn at exactly the moment the user was watching it most closely.
+
+Two things changed, and the order matters:
+
+- **The description slot is held, not left blank.** Two skeleton bars occupy the
+  two lines the summary will land on, exactly as the thumbnail well shows a
+  skeleton while its request is in flight. An empty gap reads as a card that
+  failed to render; a skeleton says the sentence is coming. It is `aria-hidden`
+  — the badge beside the thumbnail already says *Processing* in words, and a
+  screen reader should hear that once rather than twice. It is shown only for a
+  settling status: a `failed` document shows its reason, and a settled document
+  with genuinely no summary shows nothing rather than a bar that will never fill.
+- **The raised white block is `flex-1`**, so it absorbs whatever height the
+  stretched cell has left and the footer tab sits on the bottom edge of every
+  card. A skeleton is close to the height of the sentence it stands in for but
+  never exactly it, and a two-line summary next to a one-line one has the same
+  problem — so the row still needs the block to grow. The same block in
+  `DocumentGridCard`'s unresolved tile got the same treatment, for the same
+  reason. This is a property of the shared card, so the Büroarchiv library (a
+  thin wrapper over `FileCard`) is fixed by the same change.
+
+**The second half of the same moment:** the thumbnail cache treated "no
+thumbnail" as permanent. If the page rendered a second before the backend
+produced the preview, the card cached that miss for the whole page lifetime and
+kept the sketch placeholder until a reload — the settling poll refreshed the row
+but never re-asked the route. A miss for a document whose status is still
+settling (`isSettlingStatus`, now shared with the poll in
+`document-status.tsx`) is now provisional: it is evicted, and the status
+transition to `ready` re-asks. Terminal statuses keep the cached miss, so a
+document that genuinely has no thumbnail still costs one request.
+
 ## One byte formatter, one byte convention
 
 There were two functions computing the same quantity differently:
@@ -199,6 +248,8 @@ being relied on.
 | Explorer ordering (numeric collator, status rank) | `src/features/documents/lib/file-sort.ts` |
 | Upload surface | `src/features/documents/components/upload-tray.tsx` |
 | Explorer detail view | `src/features/documents/components/file-list-view.tsx` |
+| The shared document card (grid anatomy, thumbnail loading) | `src/features/documents/components/file-card.tsx` |
+| Status semantics + the settling predicate both the poll and the card read | `src/features/documents/components/document-status.tsx` |
 | Orchestration (validation, fan-out, cancel, polling hand-off) | `src/features/documents/hooks/use-file-upload.ts` |
 
 The logic is in plain modules with their own fast specs rather than inside the
