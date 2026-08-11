@@ -105,26 +105,26 @@ export function installWorkers(
     { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
   );
 
-  // The scheduler container exits 0 immediately when the Workflows feature is
-  // off (its own runtime gate) — under a Deployment that means a permanent
+  // The scheduler container exits 0 immediately when Agent Skills are off (its
+  // own runtime gate) — under a Deployment that means a permanent
   // CrashLoopBackOff. So only create it when the feature is actually enabled;
-  // flipping workflowsEnabled + re-running `pulumi up` adds it later.
-  const scheduler = cfg.workflows.enabled
+  // flipping skillsEnabled + re-running `pulumi up` adds it later.
+  const scheduler = cfg.skills.enabled
     ? new k8s.apps.v1.Deployment(
-        "workflow-scheduler",
+        "skill-scheduler",
         {
           metadata: {
-            name: "workflow-scheduler",
+            name: "skill-scheduler",
             namespace: w.namespace,
-            labels: commonLabels("workflow-scheduler"),
+            labels: commonLabels("skill-scheduler"),
           },
           spec: {
             replicas: 1,
             ...recreateRollout(ROLLOUT.lightWorker),
-            selector: { matchLabels: commonLabels("workflow-scheduler") },
+            selector: { matchLabels: commonLabels("skill-scheduler") },
             template: {
               metadata: {
-                labels: commonLabels("workflow-scheduler"),
+                labels: commonLabels("skill-scheduler"),
                 annotations: secretChecksumAnnotations(secrets.checksum),
               },
               spec: {
@@ -135,7 +135,7 @@ export function installWorkers(
                 terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
                 containers: [
                   {
-                    name: "workflow-scheduler",
+                    name: "skill-scheduler",
                     image: frontendImage(cfg),
                     imagePullPolicy: appPullPolicy(cfg, frontendImage(cfg)),
                     securityContext: hardenedContainerSecurityContext(),

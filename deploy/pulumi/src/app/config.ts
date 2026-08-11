@@ -352,9 +352,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // drop every streaming answer in flight on each deploy. Must stay inside the
     // pod's terminationGracePeriodSeconds (see ROLLOUT.frontend in rollout.ts).
     { name: "GRID_SHUTDOWN_DRAIN_MS", value: String(FRONTEND_DRAIN_SECONDS * 1000) },
-    // Workflows.
-    { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
-    { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },
+    // Agent Skills + Jobs (ADR-0046). Frontend AND scheduler: the tabs, every
+    // /api/skills and /api/projects/[id]/jobs route, and the worker's start
+    // gate all read GRID_SKILLS_ENABLED.
+    { name: "GRID_SKILLS_ENABLED", value: String(cfg.skills.enabled) },
+    { name: "GRID_SKILL_MIN_INTERVAL_MINUTES", value: String(cfg.skills.minIntervalMinutes) },
     // Collaboration (ADR-0032…0035). Frontend-only: the inbox, the share
     // surfaces and the mention picker are BFF/UI concerns, so no worker or the
     // backend needs this. Without it the feature is invisible even on a
@@ -423,23 +425,30 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
   ];
 }
 
-/** Workflow-scheduler worker environment. */
+/**
+ * Skill-scheduler worker environment.
+ *
+ * Every name here must match what `frontends/ui/scheduler/index.js` reads. It
+ * did not: the worker moved to the `GRID_SKILL_*` names with Agent Skills and
+ * this block kept emitting the `GRID_WORKFLOW_*` ones, so the container saw an
+ * unset start gate and exited 0 as a no-op on every deployment.
+ */
 export function schedulerEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
     sref("GRID_APP_DATABASE_URL"),
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
-    { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
+    { name: "GRID_SKILLS_ENABLED", value: String(cfg.skills.enabled) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
-    { name: "GRID_WORKFLOW_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
-    { name: "GRID_WORKFLOW_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
-    { name: "GRID_WORKFLOW_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.workflowRunsRetentionDays) },
+    { name: "GRID_SKILL_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
+    { name: "GRID_SKILL_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
+    { name: "GRID_SKILL_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.skillRunsRetentionDays) },
     // OTLP logs via the cluster collector (see frontendEnv for the gating
     // rationale). Base URL - the JS exporter derives /v1/logs.
     ...(cfg.observability.enabled
       ? [
-          { name: "OTEL_SERVICE_NAME", value: "grid-workflow-scheduler" },
+          { name: "OTEL_SERVICE_NAME", value: "grid-skill-scheduler" },
           { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
         ]
       : []),
