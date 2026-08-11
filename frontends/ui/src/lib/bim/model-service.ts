@@ -33,7 +33,7 @@ import {
   type BimModelHeader,
   type BimStoredConfirmation,
 } from './repository'
-import { runBimQuery, type BimQuery, type BimQueryResult } from './query'
+import { runBimQuery, type BimHauptnutzung, type BimQuery, type BimQueryResult } from './query'
 
 const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
 
@@ -295,7 +295,9 @@ export async function exportAccessibleComplianceBcf(
     /** File name, for the callers that address models the way people do. */
     modelName?: string | null
     gebaeudeklasse: number | null
-    hauptnutzung: string | null
+    // The vocabulary, not free text: the catalogue stands rules down for a
+    // value it does not recognise, and a stand-down reads as a verdict.
+    hauptnutzung: BimHauptnutzung | null
   }
 ): Promise<BcfExport> {
   assertIfcModelsEnabled(session)

@@ -127,6 +127,33 @@ const propertyFilterSchema = z
 
 export type BimPropertyFilter = z.infer<typeof propertyFilterSchema>
 
+/**
+ * The Hauptnutzung vocabulary the rest of the system uses.
+ *
+ * Free text before, and the rule catalogue silently stands rules down for
+ * anything it does not recognise — so `hauptnutzung: "wohnbau"` or
+ * `"Wohngebäude"` produced "OIB 5 nicht einschlägig — für diese Nutzung nicht
+ * lärmempfindlich" on a residential building. A plausible-sounding
+ * stand-down reads as a verdict and is not one.
+ *
+ * Mirrors `projectProfilePatchOperation`'s published list; an unknown value is
+ * now a rejection the agent is told to correct, not a quiet non-answer.
+ */
+export const BIM_HAUPTNUTZUNG = [
+  'wohnen',
+  'buero',
+  'beherbergung',
+  'versammlung',
+  'gesundheit',
+  'landwirtschaft',
+  'produzierend',
+  'lager',
+  'sonstiges',
+] as const
+
+/** The Hauptnutzung values the rule catalogue understands. */
+export type BimHauptnutzung = (typeof BIM_HAUPTNUTZUNG)[number]
+
 export const bimFilterSchema = z.object({
   /** Canonical IFC type names (`IfcWall`). Matched case-insensitively. */
   ifcTypes: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
@@ -202,7 +229,7 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
      * a pass, which is the exact failure this subsystem exists to prevent.
      */
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
-    hauptnutzung: z.string().trim().max(64).nullish(),
+    hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish(),
   }),
   z.object({
     /** The same catalog over two revisions, reporting only what MOVED. */
@@ -210,7 +237,7 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     /** The OLDER revision; this model is the newer one. */
     baseModelId: z.string().uuid().optional(),
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
-    hauptnutzung: z.string().trim().max(64).nullish(),
+    hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish(),
   }),
   z.object({ op: z.literal('profile') }),
   z.object({
@@ -593,6 +620,21 @@ export function buildBimPredicate(
  */
 const IFC_GLOBAL_ID = /^[0-9A-Za-z_$]{22}$/
 
+/**
+ * A user string as a literal `ILIKE` substring pattern.
+ *
+ * `%` and `_` are wildcards to Postgres and ordinary characters to the person
+ * who typed them. Unescaped, `nameContains: "WC_1"` also matches `WC-1`,
+ * `WC 1` and `WCx1` — and room and component names in an IFC export are full
+ * of underscores, so this is the common case rather than the adversarial one.
+ * The agent then reports a count over rooms the reader did not ask about.
+ *
+ * The backslash must be escaped first, or it would escape the escapes.
+ */
+function likeContains(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+}
+
 /** Conditions that are the same however the query is planned. */
 function sharedConditions(filter: BimFilter): SQL[] {
   const conditions: Array<SQL | undefined> = []
@@ -633,15 +675,15 @@ function sharedConditions(filter: BimFilter): SQL[] {
     conditions.push(inArray(bimElements.globalId, filter.globalIds))
   }
   if (filter.nameContains) {
-    conditions.push(ilike(bimElements.name, `%${filter.nameContains}%`))
+    conditions.push(ilike(bimElements.name, likeContains(filter.nameContains)))
   }
   if (filter.material) {
     conditions.push(
-      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${bimElements.materials}) AS m(name) WHERE m.name ILIKE ${`%${filter.material}%`})`
+      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${bimElements.materials}) AS m(name) WHERE m.name ILIKE ${likeContains(filter.material)})`
     )
   }
   if (filter.classification) {
-    const pattern = `%${filter.classification}%`
+    const pattern = likeContains(filter.classification)
     conditions.push(
       sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${bimElements.classifications}) AS c(entry) WHERE (c.entry ->> 'identification') ILIKE ${pattern} OR (c.entry ->> 'name') ILIKE ${pattern} OR (c.entry ->> 'system') ILIKE ${pattern})`
     )
@@ -1193,7 +1235,15 @@ export async function runBimQuery(
       // The model's units travel with the answer so the summary can name
       // them — the aggregate is the one quantity operation that reported bare
       // numbers.
-      return finish({ ...modelBase, groups, units: model.summary?.units })
+      return finish({
+        ...modelBase,
+        groups,
+        units: model.summary?.units,
+        // The generic "Weitere Treffer vorhanden" line the tool appends is
+        // exactly right here: there ARE more groups, and narrowing or raising
+        // the limit is what to do about it.
+        truncated: groups.some((group) => group.truncated),
+      })
     }
   }
 }

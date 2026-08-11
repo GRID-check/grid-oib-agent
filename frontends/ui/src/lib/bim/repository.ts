@@ -563,6 +563,8 @@ export interface BimGroupedCount {
    * Räumen; 90 führen keine Fläche".
    */
   measured: number
+  /** More groups matched than the limit allowed. Identical on every row. */
+  truncated: boolean
 }
 
 /**
@@ -610,7 +612,11 @@ export async function aggregateBimElements(input: {
       .from(bimElements)
       .where(predicate)
       .orderBy(desc(count()))
-      .limit(limit)
+      // One more than asked for, so the caller can tell a full page from a
+      // complete answer. A thirty-storey building grouped by storey returned
+      // the top 25 and read as the whole Flächenaufstellung; five storeys were
+      // simply absent, and the agent's own sum of the list came up short.
+      .limit(limit + 1)
     return input.groupExpression ? query.groupBy(sql`1`) : query
   })
 
@@ -618,11 +624,14 @@ export async function aggregateBimElements(input: {
   // a STRING from node-postgres (numeric has no lossless JS representation).
   // Coercing at the repository boundary is the documented rule for raw SQL
   // results; skipping it would put "42.5" into a field typed `number`.
-  return rows.map((row) => ({
+  return rows.slice(0, limit).map((row) => ({
     key: row.key ?? null,
     elements: Number(row.elements),
     metric: row.metric === null || row.metric === undefined ? null : Number(row.metric),
     measured: Number(row.measured ?? row.elements),
+    // Only ever true on the last row returned; the caller reads it off the
+    // set, not off a group.
+    truncated: rows.length > limit,
   }))
 }
 
