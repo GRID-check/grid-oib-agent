@@ -64,7 +64,7 @@ export default async function ProjectLayout({
 }: ProjectLayoutProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
     const navFlags = await getNavFlags(session)
-    // Skills supersedes Workflows (ADR-0045): the two sections are mutually
+    // Skills supersedes Workflows (ADR-0046): the two sections are mutually
     // exclusive in the rail — a deployment sees either the workflows entry or
     // its skills successor, never both.
     const showSkills = isSkillsEnabled(session)

@@ -2725,12 +2725,15 @@ describe('useWebSocketChat -- token rotation', () => {
 describe('useWebSocketChat — mentions and the addressee ruling', () => {
   const mockFetch = vi.fn()
   const mockSetState = vi.fn()
-  const realFetch = globalThis.fetch
-
   // The mention path is the only send that talks HTTP; put the global back so a
   // later suite in this file cannot inherit the stub.
+  //
+  // `vi.stubGlobal`, not `globalThis.fetch = …`: happy-dom defines `fetch` on
+  // the Window prototype as a non-writable property, so the plain assignment
+  // throws `Cannot assign to read only property 'fetch'` under ESM strict mode
+  // and took every test in these three suites down with it.
   afterEach(() => {
-    globalThis.fetch = realFetch
+    vi.unstubAllGlobals()
   })
 
   beforeEach(() => {
@@ -2756,7 +2759,7 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
     // what proves the message reached the thread.
     ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
     mockWsClient.isConnected.mockReturnValue(true)
-    globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch
+    vi.stubGlobal('fetch', mockFetch)
   })
 
   /** The body the hook POSTed, parsed. */
@@ -2961,10 +2964,9 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
 describe('useWebSocketChat — context-only delivery (the agent sees the whole thread)', () => {
   const mockFetch = vi.fn()
   const mockSetState = vi.fn()
-  const realFetch = globalThis.fetch
 
   afterEach(() => {
-    globalThis.fetch = realFetch
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
@@ -2988,7 +2990,7 @@ describe('useWebSocketChat — context-only delivery (the agent sees the whole t
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
     mockWsClient.isConnected.mockReturnValue(true)
-    globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch
+    vi.stubGlobal('fetch', mockFetch)
   })
 
   const respondWith = (addressees: unknown) => {
@@ -3335,13 +3337,12 @@ describe('useWebSocketChat — the agent socket follows intent to send, not moun
 describe('useWebSocketChat — a context-only send with no socket yet', () => {
   const mockFetch = vi.fn()
   const mockSetState = vi.fn()
-  const realFetch = globalThis.fetch
 
   // NOTE: sharedness is reset in `beforeEach`, not here. Resetting it in an
   // afterEach notifies subscribers while the hook is still mounted (RTL's cleanup
   // runs after ours), which is a state update outside `act`.
   afterEach(() => {
-    globalThis.fetch = realFetch
+    vi.unstubAllGlobals()
   })
 
   beforeEach(() => {
@@ -3366,7 +3367,7 @@ describe('useWebSocketChat — a context-only send with no socket yet', () => {
     ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
     // The socket is NOT up: this is the window intent-driven connection widens.
     mockWsClient.isConnected.mockReturnValue(false)
-    globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch
+    vi.stubGlobal('fetch', mockFetch)
     mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body)
       return {

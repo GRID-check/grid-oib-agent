@@ -88,6 +88,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0043](0043-seaweedfs-split-topology-and-per-tenant-buckets.md) | SeaweedFS split topology, a Postgres filer store, and a bucket per tenant | Proposed |
 | [0044](0044-langfuse-durable-llm-observability.md) | Langfuse as the durable LLM-observability backend | Proposed |
 | [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Proposed |
+| [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
 
 > Note: two ADRs were independently numbered 0027, and two more were
 > independently numbered 0039. All are Accepted and in effect; each collision is

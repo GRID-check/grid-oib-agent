@@ -15,7 +15,7 @@
  * from what the editor showed.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
@@ -47,6 +47,7 @@ import {
   type SkillListItem,
 } from '@/adapters/api/skills-client'
 import { ConfirmDeleteDialog } from './confirm-delete-dialog'
+import { SkillDocumentPreview } from './SkillDocumentPreview'
 
 /** Rule names must satisfy server-side: lowercase a-z/0-9, single hyphens. */
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -86,6 +87,32 @@ export function SkillEditorDialog({
   const [schedulable, setSchedulable] = useState(
     !isEdit || skill.metadata[METADATA_SCHEDULABLE] !== 'false',
   )
+
+  /**
+   * The frontmatter `metadata` this dialog will write.
+   *
+   * ONE function, used both by the submit and by the SKILL.md preview — the
+   * preview's claim to be "exactly what gets stored" only holds if the two
+   * cannot disagree, and two copies of this assembly is precisely how they
+   * would start to.
+   */
+  const buildMetadata = useCallback((): Record<string, string> => {
+    const metadata: Record<string, string> = {
+      // Deterministic at write time, mirroring the server's executionOf.
+      [METADATA_EXECUTION]: execution,
+    }
+    if (!schedulable) metadata[METADATA_SCHEDULABLE] = 'false'
+    // Preserve opaque keys (grid-agents etc.) when editing; the two reserved
+    // keys above are the only ones this UI ever writes.
+    if (isEdit) {
+      for (const key of Object.keys(skill.metadata)) {
+        if (key !== METADATA_EXECUTION && key !== METADATA_SCHEDULABLE) {
+          metadata[key] = skill.metadata[key]
+        }
+      }
+    }
+    return metadata
+  }, [execution, isEdit, schedulable, skill])
   const [enabled, setEnabled] = useState(isEdit ? skill.enabled : true)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -123,20 +150,7 @@ export function SkillEditorDialog({
     validators: { onChange: schema },
     onSubmit: async ({ value }) => {
       setFormError(null)
-      const metadata: Record<string, string> = {
-        // Deterministic at write time, mirroring the server's executionOf.
-        [METADATA_EXECUTION]: execution,
-      }
-      if (!schedulable) metadata[METADATA_SCHEDULABLE] = 'false'
-      // Preserve opaque keys (grid-agents etc.) when editing; the two reserved
-      // keys above are the only ones this UI ever writes.
-      if (isEdit) {
-        for (const key of Object.keys(skill.metadata)) {
-          if (key !== METADATA_EXECUTION && key !== METADATA_SCHEDULABLE) {
-            metadata[key] = skill.metadata[key]
-          }
-        }
-      }
+      const metadata = buildMetadata()
 
       const payload: CreateSkillInput = {
         name: value.name.trim(),
@@ -261,6 +275,20 @@ export function SkillEditorDialog({
               </div>
               <Switch checked={enabled} onCheckedChange={setEnabled} />
             </div>
+
+            {/* The document these fields produce. Placed after the controls
+                that feed it — including the two switches, whose only visible
+                effect otherwise is a line of frontmatter nobody ever sees. */}
+            <form.Subscribe selector={(state) => state.values}>
+              {(values) => (
+                <SkillDocumentPreview
+                  name={values.name}
+                  description={values.description}
+                  body={values.body}
+                  metadata={buildMetadata()}
+                />
+              )}
+            </form.Subscribe>
 
             {formError && (
               <Alert variant="destructive">

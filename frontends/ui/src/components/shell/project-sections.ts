@@ -30,7 +30,7 @@ import {
  * Inbox*. The palette additionally surfaces the palette-only destinations
  * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
  *
- * Skills supersedes Workflows (ADR-0045): the layouts pass the flags mutually
+ * Skills supersedes Workflows (ADR-0046): the layouts pass the flags mutually
  * exclusive — `showWorkflows = workflowsEnabled && !skillsEnabled` — so a
  * deployment never sees both sections.
  */
@@ -52,7 +52,7 @@ export type ProjectSectionKey =
 export interface ProjectSectionFlags {
   /** Workflows page — feature-flagged, default off. */
   showWorkflows?: boolean
-  /** Agent Skills page — feature-flagged, default off (ADR-0045). */
+  /** Agent Skills page — feature-flagged, default off (ADR-0046). */
   showSkills?: boolean
   /** Org-wide Archiv — `organization-archiv` flag (ADR-0024). */
   canAccessArchiv?: boolean
@@ -66,7 +66,7 @@ export interface ProjectSectionFlags {
    * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
    */
   canAccessInbox?: boolean
-  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0046). */
   showModels?: boolean
 }
 
@@ -129,7 +129,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'w',
   },
   {
-    // Skills (ADR-0045): the layouts keep `showWorkflows` and `showSkills`
+    // Skills (ADR-0046): the layouts keep `showWorkflows` and `showSkills`
     // mutually exclusive, so this is the workflows entry's successor — it
     // inherits the same slot and the same `w` muscle memory.
     key: 'skills',
@@ -151,7 +151,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'f',
   },
   {
-    // The IFC/BIM model page (ADR-0045). Sits next to Files because that is
+    // The IFC/BIM model page (ADR-0046). Sits next to Files because that is
     // where the model was uploaded and how a user thinks of it: the same
     // material, seen as a building rather than as a list of documents.
     key: 'model',

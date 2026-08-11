@@ -68,7 +68,7 @@ function makeJsonResponse(body: unknown, status = 200): Response {
 
 function mockFetch(response = makeJsonResponse({ ok: true })): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn().mockResolvedValue(response)
-  global.fetch = fetchMock
+  vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
 

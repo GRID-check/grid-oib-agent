@@ -162,6 +162,18 @@ export const skills: typeof en.skills = {
   },
 
   editor: {
+    preview: {
+      heading: 'SKILL.md',
+      subtitle: 'Genau das wird gespeichert – und genau das liest ein Agent.',
+      level1: 'Immer geladen',
+      level1Hint:
+        'So viel steuert jeder Skill bei jeder Anfrage zum Kontext des Agenten bei – deshalb muss die Beschreibung sagen, wann der Skill greift.',
+      level2: 'Bei Aktivierung geladen',
+      level2Hint:
+        'Diese Anweisungen erreichen den Agenten nur, wenn er den Skill einsetzt – ihre Länge kostet bis dahin nichts.',
+      descriptionPlaceholder: 'Was dieser Skill tut und wann er einzusetzen ist.',
+      emptyBody: 'Noch keine Anweisungen.',
+    },
     createTitle: 'Neuer Skill',
     editTitle: 'Skill bearbeiten',
     createSubtitle:

@@ -1,4 +1,4 @@
-# ADR-0045: Agent skills — user-selected, progressive-disclosure instruction packages
+# ADR-0046: Agent skills — user-selected, progressive-disclosure instruction packages
 
 - **Status:** Proposed
 - **Date:** 2026-08-10

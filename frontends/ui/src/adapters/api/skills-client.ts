@@ -8,7 +8,7 @@
  * envelope the BFF service layer produces.
  *
  * Contract mirrors docs/architecture/agent-skills.md ("BFF API" section) and
- * ADR-0045. The server owns validation (cron / min-interval, reserved
+ * ADR-0046. The server owns validation (cron / min-interval, reserved
  * metadata, name rules) and snapshot semantics; this client only transports
  * the documented shapes and surfaces the BFF error envelope (`{ error, code }`).
  *

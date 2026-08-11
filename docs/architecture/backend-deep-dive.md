@@ -1338,7 +1338,7 @@ the full stage design, budget math, and its own still-open known limitation
 (`AgentGroup` has no dedicated member for this pipeline's model overrides
 yet).
 
-## 8d. Agent skills (ADR-0045)
+## 8d. Agent skills (ADR-0046)
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
 extend a research turn's procedure. Selection is **user-driven** — a

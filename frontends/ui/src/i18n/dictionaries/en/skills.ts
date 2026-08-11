@@ -1,6 +1,6 @@
 /**
  * Agent Skills (Phase A): the org skill toolbox plus project skill schedules.
- * Replaces the Workflows surface (ADR-0045): instead of editing a free-text
+ * Replaces the Workflows surface (ADR-0046): instead of editing a free-text
  * brief, a schedule pins ONE skill from the merged toolbox (builtin platform
  * skills + org-authored/cloned rows) and fires it manually or on a cron.
  */
@@ -163,6 +163,18 @@ export const skills = {
   },
 
   editor: {
+    preview: {
+      heading: 'SKILL.md',
+      subtitle: 'Exactly what gets stored, and exactly what an agent reads.',
+      level1: 'Always loaded',
+      level1Hint:
+        'Every skill contributes this much to the agent’s context on every turn — which is why the description has to say when the skill applies.',
+      level2: 'Loaded on activation',
+      level2Hint:
+        'These instructions reach the agent only if it decides to use this skill, so length costs nothing until then.',
+      descriptionPlaceholder: 'What this skill does, and when to use it.',
+      emptyBody: 'No instructions yet.',
+    },
     createTitle: 'New skill',
     editTitle: 'Edit skill',
     createSubtitle:

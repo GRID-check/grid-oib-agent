@@ -1,4 +1,4 @@
-# Agent Skills (ADR-0045)
+# Agent Skills (ADR-0046)
 
 Skills are reusable, versioned instruction packages (the agentskills.io
 format) that extend what the model can be told how to do on:
