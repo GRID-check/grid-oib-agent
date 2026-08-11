@@ -133,7 +133,7 @@ function parseFrontmatter(raw, file) {
 }
 
 const rows = skills
-  .map(function ({ collection, name, file }) {
+  .map(function ({ collection, file }) {
     const parsed = parseFrontmatter(readFileSync(file, 'utf8'), file)
     return {
       name: parsed.name,

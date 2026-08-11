@@ -491,7 +491,7 @@ export const ROLES: readonly RoleSpec[] = [
     slug: 'project-editor',
     name: 'Project Editor',
     description:
-      'Full working access to one project: chat, documents and memory. Cannot rename or delete the project, manage its members, or create workflows.',
+      'Full working access to one project: chat, documents and memory. Cannot rename or delete the project, manage its members, or create skill schedules.',
     tier: 'project',
     scope: 'environment',
     permissions: [
@@ -506,7 +506,7 @@ export const ROLES: readonly RoleSpec[] = [
     slug: 'project-admin',
     name: 'Project Admin',
     description:
-      'Administers one project: everything an editor can do, plus renaming/deleting it, managing its members, and creating workflows.',
+      'Administers one project: everything an editor can do, plus renaming/deleting it, managing its members, and creating skill schedules.',
     tier: 'project',
     scope: 'environment',
     permissions: [
