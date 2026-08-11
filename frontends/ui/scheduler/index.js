@@ -1,23 +1,23 @@
 /**
- * GRID workflow scheduler service.
+ * GRID job scheduler service.
  *
  * Dedicated container (frontend image, `node scheduler/index.js`) — the exact
  * deployment shape of the purger. Each tick (default 30s) it:
- *   1. claims due workflows and advances their next_run_at, atomically, via
+ *   1. claims due `jobs` and advances their next_run_at, atomically, via
  *      FOR UPDATE SKIP LOCKED (db.claimDue) — replica- and crash-safe;
- *   2. AFTER that transaction commits, POSTs each claimed workflow to the BFF
+ *   2. AFTER that transaction commits, POSTs each claimed job to the BFF
  *      internal fire endpoint (which records the run row + submits the job);
- *   3. prunes workflow_runs older than the retention window.
- * See ADR-0023 and docs/architecture/workflows.md ("Scheduler worker").
+ *   3. prunes job_runs older than the retention window.
+ * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
  *   GRID_APP_DATABASE_URL              - grid_app Postgres DSN (required)
  *   FRONTEND_INTERNAL_URL              - BFF base URL (default http://frontend:3000)
  *   GRID_INTERNAL_API_TOKEN            - shared token for the internal fire endpoint
- *   GRID_WORKFLOW_SCHEDULER_POLL_MS    - tick interval (default 30000)
- *   GRID_WORKFLOW_SCHEDULER_BATCH      - max claims per tick (default 20)
- *   GRID_WORKFLOW_RUNS_RETENTION_DAYS  - run-history retention (default 90)
- * Start gate (deployment-level): refuses to run unless GRID_WORKFLOWS_ENABLED=true
+ *   GRID_SKILL_SCHEDULER_POLL_MS       - tick interval (default 30000)
+ *   GRID_SKILL_SCHEDULER_BATCH         - max claims per tick (default 20)
+ *   GRID_SKILL_RUNS_RETENTION_DAYS     - run-history retention (default 90)
+ * Start gate (deployment-level): refuses to run unless GRID_SKILLS_ENABLED=true
  * or GRID_ENFORCE_FEATURE_FLAGS=true — a clean no-op container otherwise.
  */
 
@@ -28,25 +28,25 @@ const { initOtelLogs } = require('../observability/otel-logs')
 // No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
 initOtelLogs()
 
-const LOG = '[workflow-scheduler]'
+const LOG = '[job-scheduler]'
 
 // Must match src/lib/internal-auth.ts INTERNAL_TOKEN_HEADER — the header the
-// `internalApiRoute` factory guarding /api/internal/workflows/fire expects.
+// `internalApiRoute` factory guarding /api/internal/skills/fire expects.
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 const FIRE_TIMEOUT_MS = 30000
 const FIRE_BODY_SNIPPET = 500
 
 /**
- * Deployment start gate. The scheduler is a clean no-op unless the workflows
+ * Deployment start gate. The scheduler is a clean no-op unless the skills
  * feature is turned on for this deployment — either the dark-launch env opt-in
- * (GRID_WORKFLOWS_ENABLED) or enforced WorkOS flags (GRID_ENFORCE_FEATURE_FLAGS).
+ * (GRID_SKILLS_ENABLED) or enforced WorkOS flags (GRID_ENFORCE_FEATURE_FLAGS).
  */
 function shouldStart(env) {
   // Case-insensitive, matching how the BFF reads these vars
   // (feature-flags.ts lowercases before comparing) — 'TRUE' must not enable
   // the UI while silently no-op'ing this container.
   const on = (v) => (v || '').toLowerCase() === 'true'
-  return on(env.GRID_WORKFLOWS_ENABLED) || on(env.GRID_ENFORCE_FEATURE_FLAGS)
+  return on(env.GRID_SKILLS_ENABLED) || on(env.GRID_ENFORCE_FEATURE_FLAGS)
 }
 
 function toPositiveInt(raw, fallback) {
@@ -58,22 +58,23 @@ function readConfig(env) {
   return {
     frontendUrl: (env.FRONTEND_INTERNAL_URL || 'http://frontend:3000').replace(/\/$/, ''),
     internalToken: env.GRID_INTERNAL_API_TOKEN || '',
-    pollMs: toPositiveInt(env.GRID_WORKFLOW_SCHEDULER_POLL_MS, 30000),
-    batch: toPositiveInt(env.GRID_WORKFLOW_SCHEDULER_BATCH, 20),
-    retentionDays: toPositiveInt(env.GRID_WORKFLOW_RUNS_RETENTION_DAYS, 90),
+    pollMs: toPositiveInt(env.GRID_SKILL_SCHEDULER_POLL_MS, 30000),
+    batch: toPositiveInt(env.GRID_SKILL_SCHEDULER_BATCH, 20),
+    retentionDays: toPositiveInt(env.GRID_SKILL_RUNS_RETENTION_DAYS, 90),
   }
 }
 
 /**
- * Fire one claimed workflow: POST {frontendUrl}/api/internal/workflows/fire with
- * the shared internal token and body {workflowId}. Non-2xx and transport errors
+ * Fire one claimed job: POST {frontendUrl}/api/internal/skills/fire with the
+ * shared internal token and body {scheduleId} (the pre-jobs wire spelling, kept
+ * because this container and the BFF deploy separately — see the route). Non-2xx and transport errors
  * are logged loudly and swallowed (returns false) — a fire failure must never
  * throw out of the tick loop. The BFF records run rows; if the BFF itself was
  * unreachable the occurrence is missed-once and the next occurrence heals it
  * (ADR-0023 risks). A ~30s AbortController timeout bounds each request.
  */
-async function fireOne(config, workflowId, fetchImpl = fetch) {
-  const url = `${config.frontendUrl}/api/internal/workflows/fire`
+async function fireOne(config, scheduleId, fetchImpl = fetch) {
+  const url = `${config.frontendUrl}/api/internal/skills/fire`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FIRE_TIMEOUT_MS)
   try {
@@ -83,7 +84,7 @@ async function fireOne(config, workflowId, fetchImpl = fetch) {
         'content-type': 'application/json',
         [INTERNAL_TOKEN_HEADER]: config.internalToken,
       },
-      body: JSON.stringify({ workflowId }),
+      body: JSON.stringify({ scheduleId }),
       signal: controller.signal,
     })
     if (!res.ok) {
@@ -93,7 +94,7 @@ async function fireOne(config, workflowId, fetchImpl = fetch) {
       } catch {
         /* body unreadable — status is enough to act on */
       }
-      console.error(`${LOG} fire failed for workflow ${workflowId}: HTTP ${res.status} ${body}`)
+      console.error(`${LOG} fire failed for job ${scheduleId}: HTTP ${res.status} ${body}`)
       return false
     }
     // A 200 is not always a fire: the BFF returns {fired:false, reason} for
@@ -105,14 +106,14 @@ async function fireOne(config, workflowId, fetchImpl = fetch) {
       /* non-JSON 200 — treat as fired, the BFF contract says it is */
     }
     if (outcome && outcome.fired === false) {
-      console.warn(`${LOG} workflow ${workflowId} not fired: ${outcome.reason || 'unknown reason'}`)
+      console.warn(`${LOG} job ${scheduleId} not fired: ${outcome.reason || 'unknown reason'}`)
       return false
     }
-    console.log(`${LOG} fired workflow ${workflowId}`)
+    console.log(`${LOG} fired job ${scheduleId}`)
     return true
   } catch (error) {
     console.error(
-      `${LOG} fire request errored for workflow ${workflowId}:`,
+      `${LOG} fire request errored for job ${scheduleId}:`,
       error && error.message ? error.message : error,
     )
     return false
@@ -136,7 +137,7 @@ async function tick(sql, config) {
     return 0
   }
 
-  // Fire the batch concurrently: workflows cluster on popular cron slots
+  // Fire the batch concurrently: schedules cluster on popular cron slots
   // (daily-at-9 etc.), and sequential 30s-timeout fires would let one slow
   // BFF hop stall the whole tick (batch × timeout ≫ poll interval). fireOne
   // never rejects, so allSettled is belt-and-braces.
@@ -146,7 +147,7 @@ async function tick(sql, config) {
   try {
     const pruned = await pruneOldRuns(sql, config.retentionDays)
     if (pruned > 0) {
-      console.log(`${LOG} pruned ${pruned} workflow_runs older than ${config.retentionDays} days`)
+      console.log(`${LOG} pruned ${pruned} job_runs older than ${config.retentionDays} days`)
     }
   } catch (error) {
     console.error(`${LOG} run-history prune failed:`, error)
@@ -185,8 +186,8 @@ function main() {
 if (require.main === module) {
   if (!shouldStart(process.env)) {
     console.log(
-      `${LOG} workflows feature is off for this deployment ` +
-        `(set GRID_WORKFLOWS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to enable) — ` +
+      `${LOG} skills feature is off for this deployment ` +
+        `(set GRID_SKILLS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to enable) — ` +
         `nothing to do, exiting cleanly.`,
     )
     process.exit(0)

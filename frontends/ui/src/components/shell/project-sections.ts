@@ -8,8 +8,9 @@ import {
   Folder,
   Inbox,
   MessageSquare,
+  Repeat,
   Settings,
-  Zap,
+  Sparkles,
 } from 'lucide-react'
 
 /**
@@ -18,21 +19,24 @@ import {
  *
  * Historically the desktop rail (`app-sidebar`) and the ⌘K command palette
  * (`command-palette`) each hand-maintained their own parallel list of
- * destinations. They drifted: the palette could not reach Workflows (a real
+ * destinations. They drifted: the palette could not reach a whole section (a real
  * rail item), and the same destinations used different icons (Compass vs
  * MessageSquare, Clock vs History, Folder vs FolderOpen). This module makes the
  * key, segment, icon, label, and flag gating for every project section live in
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Workflows* · Files · History · Archiv* · Inbox*.
- * The palette additionally surfaces the palette-only destinations Knowledge* and
- * Setup (intake). A `*` marks a flag-gated section.
+ * separately): Ask Piloti · Skills* · Files · History · Archiv* ·
+ * Inbox*. The palette additionally surfaces the palette-only destinations
+ * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
+ *
+ * deployment never sees both sections.
  */
 
 export type ProjectSectionKey =
   | 'chat'
-  | 'workflows'
+  | 'skills'
+  | 'jobs'
   | 'files'
   | 'model'
   | 'knowledge'
@@ -44,8 +48,8 @@ export type ProjectSectionKey =
 
 /** The feature flags that gate individual project sections. */
 export interface ProjectSectionFlags {
-  /** Workflows page — feature-flagged, default off. */
-  showWorkflows?: boolean
+  /** Agent Skills page — feature-flagged, default off (ADR-0046). */
+  showSkills?: boolean
   /** Org-wide Archiv — `organization-archiv` flag (ADR-0024). */
   canAccessArchiv?: boolean
   /** Project knowledge page — feature-flagged, default off. */
@@ -58,7 +62,7 @@ export interface ProjectSectionFlags {
    * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
    */
   canAccessInbox?: boolean
-  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
+  /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0046). */
   showModels?: boolean
 }
 
@@ -111,14 +115,28 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'c',
   },
   {
-    key: 'workflows',
-    segment: 'workflows',
-    icon: Zap,
-    i18nKey: 'workflows',
-    gate: 'showWorkflows',
+    key: 'skills',
+    segment: 'skills',
+    icon: Sparkles,
+    i18nKey: 'skills',
+    gate: 'showSkills',
     inRail: true,
     inPalette: true,
     shortcutKey: 'w',
+  },
+  {
+    // Jobs sit next to Skills because that is the relationship: a job is a
+    // prompt on a timer that MAY attach a skill. Same `showSkills` gate —
+    // the two ship together, and a job builder whose skill picker resolves
+    // nothing is not worth having on its own.
+    key: 'jobs',
+    segment: 'jobs',
+    icon: Repeat,
+    i18nKey: 'jobs',
+    gate: 'showSkills',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'j',
   },
   {
     key: 'files',
@@ -130,7 +148,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'f',
   },
   {
-    // The IFC/BIM model page (ADR-0045). Sits next to Files because that is
+    // The IFC/BIM model page (ADR-0046). Sits next to Files because that is
     // where the model was uploaded and how a user thinks of it: the same
     // material, seen as a building rather than as a list of documents.
     key: 'model',

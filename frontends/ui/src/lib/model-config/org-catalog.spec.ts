@@ -29,6 +29,27 @@ import { fetchModelCatalog, fetchZdrModelIds } from './openrouter'
 
 const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
+/**
+ * The URL and Authorization header of the first `fetch`, under either calling
+ * convention.
+ *
+ * The code under test calls `fetch(url, init)`, but MSW's interceptor — started
+ * by the shared vitest setup — sits OUTSIDE this spy and normalises its
+ * arguments into a single `Request` before passing them through. Asserting on
+ * the raw first argument therefore read `[object Request]` and the init was
+ * `undefined`. Reading the request either way keeps the assertion about what it
+ * is actually about (which endpoint, with whose key) instead of about how many
+ * arguments an interceptor happened to forward.
+ */
+function firstFetchCall(): { url: string; authorization: string | null } {
+  const [first, init] = fetchSpy.mock.calls[0] as [RequestInfo | URL, RequestInit | undefined]
+  if (first instanceof Request) {
+    return { url: first.url, authorization: first.headers.get('Authorization') }
+  }
+  const headers = new Headers(init?.headers)
+  return { url: String(first), authorization: headers.get('Authorization') }
+}
+
 describe('getCatalogForOrg', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -75,9 +96,9 @@ describe('getCatalogForOrg', () => {
     const catalog = await getCatalogForOrg('org_1')
     expect(catalog).toMatchObject({ source: 'byok', provider: 'openai', validation: 'listed' })
     expect(catalog.models.map((m) => m.id)).toEqual(['gpt-4o', 'o4-mini'])
-    const [url, init] = fetchSpy.mock.calls[0]
-    expect(String(url)).toBe('https://api.openai.com/v1/models')
-    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer sk-org')
+    const { url, authorization } = firstFetchCall()
+    expect(url).toBe('https://api.openai.com/v1/models')
+    expect(authorization).toBe('Bearer sk-org')
   })
 
   it('narrows the platform catalog to ZDR models when zdrOnly is requested', async () => {

@@ -30,6 +30,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
+| `jobs.ts` | `skills`, `jobs`, `job_runs` |
 
 ---
 
@@ -89,11 +90,12 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
+| `job_id` | `uuid` | FK → `jobs.id` ON DELETE SET NULL (migration `0044`) | **Provenance, not ownership**: the job whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours are meant to hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. The column and the fire path that writes it exist; those two consumers are follow-up. `SET NULL`, because deleting a job must never delete its output. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`).
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -402,27 +404,75 @@ LLM budgets and the usage ledger (ADR-0015).
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
 
-## workflows / workflow_runs (migration 0017)
+## skills / jobs / job_runs (migrations 0041, 0043, 0044)
 
-Saved research briefs with cron scheduling (ADR-0023,
-`docs/architecture/workflows.md`).
+Jobs and Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the
+successor to the removed Workflows tables. Schema:
+`frontends/ui/src/lib/db/schema/jobs.ts`.
 
-- `workflows`: one row per saved brief — `project_id` (cascade FK) +
-  denormalized `organization_id`, `name`/`description`, versioned `definition`
-  jsonb (block-based builder state), denormalized `compiled_prompt` (compiled
-  once at save time; what the scheduler submits), `agent_type`
-  (`deep_researcher`), `data_sources` jsonb (NULL = all), `enabled`,
+**A job is a prompt on a timer**; a skill may be attached on top, exactly as
+typing `/name` before a message would attach it. 0041 created these as
+`skill_schedules`/`skill_runs`, where the skill was the subject and the prompt
+was derived from it; 0043 renamed them and inverted that relationship (see
+"migration 0043" below).
+
+- `skills`: the org toolbox — denormalized `organization_id`, the SKILL.md
+  contract (`name`, `description`, `body`, `metadata` jsonb with the reserved
+  `grid-agents` / `grid-cards` keys), `origin`
+  (`org` | `platform-clone`) + `cloned_from`, `enabled`,
+  `created_by`/`created_by_email`. Unique index `idx_skills_org_name` on
+  `(organization_id, name)`: one skill per name per org, and the point query
+  the fire/resolve paths make. Platform-authored skills are **not** rows — they
+  ship as files under `src/aiq_agent/skills/builtin/<collection>/`.
+- `jobs`: a project-scoped prompt on a timer — `project_id` (cascade FK) +
+  denormalized `organization_id`, `name`, `prompt` (**NOT NULL** — the message
+  the job fires; the attached skill's body is appended to it), the optional
+  skill pair `skill_name` + `skill_snapshot` jsonb (`{name, description, body,
+  metadata, origin}` copied at save time, so a run is a deterministic copy that
+  cannot drift when the skill is edited), `output` (`chat` | `deep-research` —
+  the user's choice on the job; it picks the agent and decides whether the
+  finished run becomes a conversation or a report), `data_sources` jsonb
+  (NULL = all; `knowledge_layer` always included otherwise), `enabled`,
   `schedule_cron` (5-field, NULL = manual-only) + `schedule_timezone` (IANA),
-  `next_run_at`/`last_run_at`, `created_by`/`created_by_email`. Partial index
-  `idx_workflows_due` on `next_run_at` (WHERE scheduled AND enabled) serves
-  the scheduler's FOR UPDATE SKIP LOCKED due-scan.
-- `workflow_runs`: append-only submission history — `workflow_id` (cascade
-  FK), denormalized `project_id`/`organization_id`, `job_id` (backend async
-  job; NULL when skipped/error), `trigger` (`manual`/`schedule`), `status`
-  (`submitted`/`skipped`/`error`), `detail`, `prompt_snapshot`,
-  `triggered_by`. Live job progress/results stay in the backend job store.
-  `idx_workflow_runs_created_at` serves the scheduler's retention prune.
-  Schema: `frontends/ui/src/lib/db/schema/workflows.ts`.
+  `next_run_at`/`last_run_at`, author columns. CHECK `jobs_skill_pair_check`
+  enforces `(skill_name IS NULL) = (skill_snapshot IS NULL)`: the skill is
+  optional as a pair, never half-present. Partial index `idx_jobs_due` on
+  `next_run_at` (WHERE scheduled AND enabled) serves the scheduler's
+  FOR UPDATE SKIP LOCKED due-scan.
+- `job_runs`: append-only submission history — `schedule_id` (cascade FK to
+  `jobs`; **not** renamed to `job_id`, because `job_id` on this table already
+  means the backend async job id), denormalized `project_id`/`organization_id`,
+  `job_id` (backend async job; NULL when skipped/error), `trigger`
+  (`manual`/`schedule`), `status` (`submitted`/`skipped`/`error`), `detail`,
+  `conversation_id` (the conversation an `output='chat'` run was materialised
+  into; NULL otherwise — composite FK to `conversations (id, organization_id)`
+  per the 0032 pattern, `ON DELETE SET NULL (conversation_id)` so a deleted
+  conversation does not take run history with it), its own `skill_snapshot`
+  copy so history stays self-describing, `triggered_by`. Live job
+  progress/results stay in the backend job store. `idx_job_runs_created_at`
+  serves the scheduler's retention prune, `idx_job_runs_job_created` on
+  `(schedule_id, created_at DESC)` the newest-first history.
+
+**Migration 0043** renames rather than recreates, so every scheduled row keeps
+its id, its cron and its attached skill. It renames the tables, their indexes
+and their PK/FK constraints (a table rename renames none of those), renames
+`execution` -> `output`, backfills `prompt` from each row's pinned
+`skill_snapshot->>'body'` (through a COALESCE chain — nothing guaranteed that
+key was present, and one malformed row would have failed the subsequent
+`SET NOT NULL` and aborted the migration), drops the NOT NULL from the skill
+pair, and re-secures both tables under the new names. The re-securing is not
+belt-and-braces: `job_runs`' RLS predicate names its parent table in an EXISTS
+subquery, and the stored form of that policy was written against
+`skill_schedules`; re-emitting it is what makes the catalog and the migration
+history provably say the same thing, and `rls-coverage.spec.ts` reads
+`grid_secure_table` calls as the definition of "inside the tenant boundary".
+
+**Migration 0044** adds `conversations.job_id` (see the `conversations` section
+above) — the other direction of the link, answering "who is this thread" rather
+than "where did this run land". Deliberately makes no `grid_secure_table` call
+and is deliberately absent from `rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`:
+`conversations` was secured by 0031, and adding a column does not move a table
+in or out of the boundary.
 
 ---
 

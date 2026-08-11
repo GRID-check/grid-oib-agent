@@ -10,7 +10,8 @@ from .ingest import add_ingest_routes
 from .jobs import register_job_routes
 from .maintenance import add_maintenance_routes
 from .oib import add_oib_routes
-from .workflows import add_workflow_routes
+from .skill_review import add_skill_review_routes
+from .skills import add_skill_routes
 
 __all__ = [
     "add_collection_routes",
@@ -23,5 +24,6 @@ __all__ = [
     "register_job_routes",
     "add_maintenance_routes",
     "add_oib_routes",
-    "add_workflow_routes",
+    "add_skill_review_routes",
+    "add_skill_routes",
 ]

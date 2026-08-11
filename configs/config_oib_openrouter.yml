@@ -526,6 +526,10 @@ functions:
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5
+    # Agent skills (progressive-disclosure `use_skill` tool) active on research
+    # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
+    skills_enabled: true
+    skill_allowlist: []
 
   deep_research_agent:
     _type: deep_research_agent

@@ -305,6 +305,11 @@ export const NATSystemResponseMessageSchema = z.object({
     })
     .optional()
     .catch(undefined),
+  // The skills the agent ACTIVATED this turn — i.e. the ones whose full
+  // instructions it pulled into context with `use_skill`, in activation order.
+  // Absent when the turn loaded none, which is the common case: a skill being
+  // *available* costs a line of catalogue and is not reported.
+  skills_activated: z.array(z.string()).optional().catch(undefined),
   // Marks the answer text as a queue-rejection notice (NOT a research answer).
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.

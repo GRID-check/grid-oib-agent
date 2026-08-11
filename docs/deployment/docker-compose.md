@@ -149,7 +149,7 @@ It is the only long-running-image container that holds
 out of the container that serves requests is the point: row-level security does
 not apply to a table's owner, so a bug that reached it would have a full bypass
 inside the very process the boundary is meant to constrain. `frontend`,
-`purger` and `workflow-scheduler` all wait on it via
+`purger` and `skill-scheduler` all wait on it via
 `depends_on: { condition: service_completed_successfully }`.
 
 Runbook: [row-level security](../database/row-level-security.md), ADR-0041.

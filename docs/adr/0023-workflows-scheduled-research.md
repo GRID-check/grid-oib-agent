@@ -1,9 +1,23 @@
 # ADR-0023: Workflows — saved research briefs with cron scheduling
 
-- **Status:** Proposed
+- **Status:** Superseded by [ADR-0046](0046-agent-skills.md)
 - **Date:** 2026-07-16
 - **Deciders:** Grid engineering
-- **Related:** ADR-0003 (BFF + stateless agent), ADR-0004 (tenancy), ADR-0008 (single-writer grid_app), ADR-0011 (deletion pipeline / purger worker), ADR-0015 (spend limits), ADR-0016 (permission registry), ADR-0020 (Dragonfly cache-only), ADR-0021 (DB-claimed workers, no-broker verdict)
+- **Related:** ADR-0003 (BFF + stateless agent), ADR-0004 (tenancy), ADR-0008 (single-writer grid_app), ADR-0011 (deletion pipeline / purger worker), ADR-0015 (spend limits), ADR-0016 (permission registry), ADR-0020 (Dragonfly cache-only), ADR-0021 (DB-claimed workers, no-broker verdict), ADR-0046 (Agent Skills — supersedes this ADR)
+
+> **Superseded by ADR-0046 (Agent Skills).** The Workflows feature described
+> below — the `workflows` / `workflow_runs` tables, the BFF routes and pages,
+> the `workflow` authorization tier, `POST /v1/internal/workflows/submit` and
+> the `workflow-scheduler` service — was removed from the tree. Agent Skills
+> replaces it: a **job** — a prompt on a timer, with a skill optionally
+> attached — is what a saved brief was, the `skill-scheduler`
+> is this scheduler (same claim-then-fire design, same at-most-once property,
+> same misfire coalescing), and the subsystem doc is
+> [`../architecture/agent-skills.md`](../architecture/agent-skills.md). What
+> stands unchanged is the *reasoning* — why scheduling lives in `grid_app`
+> behind the BFF, why a DB-claimed worker rather than a broker, and why a
+> submission-history row is not a job record — which is why this ADR is kept.
+> Nothing below describes code that exists today.
 
 ## Context
 
@@ -196,7 +210,8 @@ service refuses to start when the deployment-level gate is off.
 
 ## References
 
-- `docs/architecture/workflows.md` (subsystem design + contracts)
+- `docs/architecture/agent-skills.md` (the successor subsystem; the workflows
+  subsystem doc was removed with the feature)
 - `docs/architecture/scaling-review-2026-07.md` §4
 - `frontends/ui/purger/index.js` (worker precedent)
 - `frontends/aiq_api/src/aiq_api/jobs/submit.py` (admission control)

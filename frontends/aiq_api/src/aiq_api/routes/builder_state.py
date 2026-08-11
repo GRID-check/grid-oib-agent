@@ -1,7 +1,7 @@
 """Process-wide handle to the active WorkflowBuilder.
 
 Captured once at job-route registration so internal routes registered without a
-builder (e.g. the workflows submit route, wired next to the maintenance routes)
+builder (e.g. the skills submit route, wired next to the maintenance routes)
 can reuse builder-dependent helpers such as
 ``routes.jobs._validate_data_sources_for_agent``.
 

@@ -19,7 +19,6 @@ import {
 const ALL: ShortcutFlags = {
   canViewOrganization: true,
   showKnowledge: true,
-  showWorkflows: true,
   canAccessArchiv: true,
   canCollaborate: true,
   // Separate from `canCollaborate` since ADR-0042: the inbox carries operational
@@ -57,13 +56,12 @@ describe('jumpTargets', () => {
     const minimal = jumpTargets(MINIMAL).map((target) => target.key)
     expect(minimal).toContain('p') // the projects list is always reachable
     expect(minimal).not.toContain('o') // organization
-    expect(minimal).not.toContain('w') // workflows
     expect(minimal).not.toContain('a') // archiv
     expect(minimal).not.toContain('i') // inbox
     expect(minimal).not.toContain('k') // knowledge
 
     const all = jumpTargets(ALL).map((target) => target.key)
-    for (const key of ['o', 'w', 'a', 'i', 'k']) expect(all).toContain(key)
+    for (const key of ['o', 'a', 'i', 'k']) expect(all).toContain(key)
   })
 
   test('the inbox jump follows canAccessInbox, not canCollaborate (ADR-0042)', () => {

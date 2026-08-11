@@ -23,7 +23,7 @@
  *     caller's active organization. Checked FIRST and bypassed by nobody —
  *     not platform owners, not org admins.
  *  3. **Tier dispatch.** `org`/`platform` are answered from claims and
- *     membership; `project`/`workflow` go to WorkOS FGA.
+ *     membership; `project`/`skill` go to WorkOS FGA.
  *  4. **Named bypasses.** Org admins reach every project in their own
  *     organization, and platform owners reach the platform tier. Both are
  *     deliberate product decisions, and both now surface as a NAMED rule on the
@@ -34,21 +34,21 @@
  * `authorize()` throws the error each tier already threw, so migrating a call
  * site changes no response:
  *   - claims tiers (`org`, `platform`) → **403 Forbidden**
- *   - resource tiers (`project`, `workflow`) → **404 Not found**, so a response
+ *   - resource tiers (`project`, `skill`) → **404 Not found**, so a response
  *     never confirms the existence of something the caller may not see.
  */
 
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { GridSession } from '@/lib/auth/types'
-import { findWorkflow } from '@/lib/workflows/repository'
+import { findJob } from '@/lib/jobs/repository'
 import { findPermissionSpec, type PermissionTier } from './catalog'
 import {
   hasPermission,
   type AnyPermission,
   type KnownPermission,
   type ProjectPermission,
-  type WorkflowPermission,
+  type SkillPermission,
 } from './permissions'
 import { isPlatformOwner } from './platform'
 import { requireProjectAccess } from './projects'
@@ -58,7 +58,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 /** A resource a decision can be scoped to. Claims tiers need none. */
 export type AuthzResource =
   | { readonly type: 'project'; readonly id: string }
-  | { readonly type: 'workflow'; readonly id: string }
+  | { readonly type: 'skill'; readonly id: string }
 
 /**
  * The named rule that produced a decision. Every allow and every deny carries
@@ -80,7 +80,6 @@ export type AuthzRule =
   | 'org-admin-bypass'
   /** A per-resource FGA role grants it. */
   | 'resource-role'
-  /** A project-tier permission covers the workflow action (parent fallback). */
   | 'project-inherited'
   /** The resource is not in the caller's organization, or does not exist. */
   | 'tenancy-mismatch'
@@ -97,18 +96,17 @@ export interface AuthzDecision {
 }
 
 /**
- * Project-tier permission that also covers a workflow action.
- *
- * The Workflow resource type is a CHILD of Project in WorkOS, but rather than
- * rely on FGA inheritance semantics we have not verified against the live API,
- * the fallback is explicit here: a project admin administers the workflows in
- * their project because they hold `project:workflows:manage`, and anyone who can
- * see the project can see that its workflows exist.
+ * Project-tier permission that also covers a job action. Same reasoning as
+ * WORKFLOW_FALLBACK: the Skill resource (a JOB row since 0043) is a child of
+ * Project in the topology, and rather than rely on unverified FGA inheritance
+ * semantics, a project admin administers the jobs in their project because they
+ * hold `project:skills:manage`, and anyone who can see the project can see that
+ * its jobs exist.
  */
-const WORKFLOW_FALLBACK: Record<WorkflowPermission, ProjectPermission> = {
-  'workflow:view': 'project:view',
-  'workflow:run': 'project:workflows:manage',
-  'workflow:manage': 'project:workflows:manage',
+const SKILL_FALLBACK: Record<SkillPermission, ProjectPermission> = {
+  'skill:view': 'project:view',
+  'skill:run': 'project:skills:manage',
+  'skill:manage': 'project:skills:manage',
 }
 
 /**
@@ -206,38 +204,40 @@ async function decideProjectTier(
 }
 
 /**
- * Workflow tier — tenancy from the workflow row, then the workflow's own FGA
- * role, then the project-tier fallback above.
+ * Skill tier — tenancy from the `jobs` row, then the job's own FGA role, then
+ * the project-tier fallback above. Identical shape to the workflow tier; the
+ * job is the resource, and its project carries the fallback permissions. The
+ * tier keeps the name `skill` because that is the FGA resource type slug.
  */
-async function decideWorkflowTier(
+async function decideSkillTier(
   session: GridSession,
-  permission: WorkflowPermission,
+  permission: SkillPermission,
   resource: AuthzResource
 ): Promise<AuthzDecision> {
   const authorized = asAuthorized(session)
-  if (!authorized) return deny(permission, 'workflow', 'no-organization', resource)
+  if (!authorized) return deny(permission, 'skill', 'no-organization', resource)
 
   // Tenancy first, and never bypassed: the row is looked up scoped to the
-  // caller's organization, so a workflow id from another tenant is simply absent.
-  const workflow = await findWorkflow(resource.id, authorized.organizationId)
-  if (!workflow) return deny(permission, 'workflow', 'tenancy-mismatch', resource)
+  // caller's organization, so a job id from another tenant is absent.
+  const job = await findJob(resource.id, authorized.organizationId)
+  if (!job) return deny(permission, 'skill', 'tenancy-mismatch', resource)
 
   const granted = await checkResourcePermission({
     organizationMembershipId: authorized.organizationMembershipId,
     permissionSlug: permission,
     resourceExternalId: resource.id,
-    resourceTypeSlug: 'workflow',
+    resourceTypeSlug: 'skill',
   })
-  if (granted) return allow(permission, 'workflow', 'resource-role', resource)
+  if (granted) return allow(permission, 'skill', 'resource-role', resource)
 
-  // Parent fallback: the project role that covers this workflow action.
-  const viaProject = await decideProjectTier(session, WORKFLOW_FALLBACK[permission], {
+  // Parent fallback: the project role that covers this job action.
+  const viaProject = await decideProjectTier(session, SKILL_FALLBACK[permission], {
     type: 'project',
-    id: workflow.projectId,
+    id: job.projectId,
   })
   return viaProject.allowed
-    ? allow(permission, 'workflow', 'project-inherited', resource)
-    : deny(permission, 'workflow', 'no-grant', resource)
+    ? allow(permission, 'skill', 'project-inherited', resource)
+    : deny(permission, 'skill', 'no-grant', resource)
 }
 
 /**
@@ -270,7 +270,7 @@ export async function decide(
 
   return tier === 'project'
     ? decideProjectTier(session, permission as ProjectPermission, resource)
-    : decideWorkflowTier(session, permission as WorkflowPermission, resource)
+    : decideSkillTier(session, permission as SkillPermission, resource)
 }
 
 /** True when the session holds the permission. Sugar over {@link decide}. */

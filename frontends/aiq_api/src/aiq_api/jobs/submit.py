@@ -52,6 +52,7 @@ def _build_run_agent_payload(
     clarifier_result,
     memory_reflection_enabled,
     memory_reflection_llm,
+    force_skills,
 ) -> dict:
     """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
 
@@ -96,6 +97,7 @@ def _build_run_agent_payload(
         "clarifier_result": clarifier_result,
         "memory_reflection_enabled": memory_reflection_enabled,
         "memory_reflection_llm": memory_reflection_llm,
+        "force_skills": force_skills,
     }
 
 
@@ -320,6 +322,8 @@ async def submit_agent_job(
     clarifier_result: str | None = None,
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
+    force_skills: list[str] | None = None,
+    conversation_id: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -357,6 +361,12 @@ async def submit_agent_job(
         memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
             (e.g. ``card_llm``). When set and enabled, the worker records durable
             project findings from the completed report.
+        force_skills: Optional list of skill names the agent run must
+            force-activate. Travels the same path ``data_sources`` does (job
+            payload for the DB path, job_args positionally for Dask) and is
+            injected onto the worker's agent state as ``force_skills`` where
+            the agent's state model declares the field (Agent Skills feature;
+            the consumer lives in ``src/aiq_agent``).
 
     Returns:
         The job ID.
@@ -506,7 +516,18 @@ async def submit_agent_job(
             )
 
     parent_trace_context = _get_parent_trace_context()
-    parent_conversation_id = parent_trace_context[5]
+    # An EXPLICIT conversation wins over the ambient one.
+    #
+    # Interactive submits inherit the caller's conversation from NAT request
+    # context, which is right: the job belongs to the turn that started it. A
+    # scheduled job has no request context at all — it is fired by the
+    # scheduler over the internal route — so its conversation can only arrive
+    # as an argument, and it must not be overwritten by whatever (usually
+    # nothing) the ambient context holds. Passing it here is enough to reach
+    # both places it is needed: `create_job_access` below, which is what makes
+    # `GET /v1/jobs/async/jobs?conversation_id=` able to find the run, and the
+    # worker payload, which is how the runner knows where to write the answer.
+    parent_conversation_id = conversation_id or parent_trace_context[5]
     project_collection = _derive_project_collection(collection_scope)
 
     try:
@@ -538,6 +559,7 @@ async def submit_agent_job(
                 clarifier_result=clarifier_result,
                 memory_reflection_enabled=memory_reflection_enabled,
                 memory_reflection_llm=memory_reflection_llm,
+                force_skills=force_skills,
             )
             await job_store._create_job(
                 config_file=config_path or None,
@@ -571,6 +593,7 @@ async def submit_agent_job(
                     clarifier_result,
                     memory_reflection_enabled,
                     memory_reflection_llm,
+                    force_skills,
                 ],
             )
         await loop.run_in_executor(

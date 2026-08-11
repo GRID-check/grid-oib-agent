@@ -139,30 +139,55 @@ def _extract_text_from_message(message: Any) -> str | None:
     return None
 
 
-def _extract_query_from_text(text: str) -> tuple[str, list[str] | None]:
+def parse_skills(raw: Any) -> list[str] | None:
+    """Parse the forced-skills array from a request payload.
+
+    Mirrors ``parse_data_sources`` semantics: None when not specified
+    (nothing forced), [] when explicitly empty, otherwise the sanitized
+    name list. Comma-separated strings are accepted as a defensive
+    fallback exactly like data sources are.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        if len(raw) == 0:
+            return []
+        parsed = [str(value).strip() for value in raw]
+        return [value for value in parsed if value] or []
+    if isinstance(raw, str):
+        if not raw.strip():
+            return []
+        parsed = [value.strip() for value in raw.split(",")]
+        return [value for value in parsed if value] or []
+    return None
+
+
+def _extract_query_from_text(text: str) -> tuple[str, list[str] | None, list[str] | None]:
     if not text:
-        return ("", None)
+        return ("", None, None)
     trimmed = text.strip()
     if trimmed.startswith("{") and trimmed.endswith("}"):
         try:
             payload = json.loads(trimmed)
         except json.JSONDecodeError:
-            return (text, None)
+            return (text, None, None)
         if isinstance(payload, dict):
             data_sources = parse_data_sources(payload.get("data_sources"))
+            skills = parse_skills(payload.get("skills"))
             query_text = payload.get("query") or payload.get("text")
             if isinstance(query_text, str) and query_text.strip():
-                return (query_text.strip(), data_sources)
-    return (text, None)
+                return (query_text.strip(), data_sources, skills)
+    return (text, None, None)
 
 
-def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
-    """Extract query text and data sources from various payload formats.
+def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None, list[str] | None]:
+    """Extract query text, data sources and forced skills from various payload formats.
 
     Returns:
-        Tuple of (query_text, data_sources).
+        Tuple of (query_text, data_sources, skills).
         - data_sources is None if not specified, meaning use all configured tools
         - data_sources is a list if explicitly specified (use only those)
+        - skills is None/[] if none were forced (semantics mirror data_sources)
     """
     if isinstance(payload, dict):
         content = payload.get("content", {}) if isinstance(payload.get("content"), dict) else {}
@@ -172,6 +197,10 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
         data_sources = parse_data_sources(payload.get("data_sources"))
         if data_sources is None:
             data_sources = parse_data_sources(content.get("data_sources"))
+        # Same None-chaining for the forced-skills array (explicit [] = none).
+        skills = parse_skills(payload.get("skills"))
+        if skills is None:
+            skills = parse_skills(content.get("skills"))
         messages = content.get("messages", [])
         query_text = None
         if isinstance(messages, list) and messages:
@@ -187,15 +216,18 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
                 payload.get("text")
             )
         if query_text:
-            inline_query, inline_sources = _extract_query_from_text(query_text)
+            inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
             query_text = inline_query
             if data_sources is None:
                 data_sources = inline_sources
-        return (query_text or "", data_sources)
+            if skills is None:
+                skills = inline_skills
+        return (query_text or "", data_sources, skills)
 
     messages = getattr(payload, "messages", None)
     if isinstance(messages, list):
         data_sources = parse_data_sources(getattr(payload, "data_sources", None))
+        skills = parse_skills(getattr(payload, "skills", None))
         query_text = None
         for msg in reversed(messages):
             if _is_user_role(getattr(msg, "role", None)):
@@ -205,12 +237,14 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
         if not query_text and messages:
             query_text = _extract_text_from_message(messages[-1])
         if query_text:
-            inline_query, inline_sources = _extract_query_from_text(query_text)
+            inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
             query_text = inline_query
             if data_sources is None:
                 data_sources = inline_sources
-        return (query_text or "", data_sources)
+            if skills is None:
+                skills = inline_skills
+        return (query_text or "", data_sources, skills)
 
     query_text = str(payload)
-    inline_query, inline_sources = _extract_query_from_text(query_text)
-    return (inline_query, inline_sources)
+    inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
+    return (inline_query, inline_sources, inline_skills)

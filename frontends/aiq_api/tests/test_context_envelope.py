@@ -147,11 +147,11 @@ class TestExemptions:
     async def test_internal_caller_exempt(self, capture_asgi):
         app, calls = capture_asgi
         mw = GridContextEnvelopeMiddleware(app, require_auth=True)
-        scope = _http_scope("/v1/internal/workflows/submit", user={"type": "internal"})
+        scope = _http_scope("/v1/internal/skills/submit", user={"type": "internal"})
 
         await mw(scope, AsyncMock(), AsyncMock())
 
-        assert calls == ["/v1/internal/workflows/submit"]
+        assert calls == ["/v1/internal/skills/submit"]
 
     @pytest.mark.asyncio
     async def test_unverified_jwt_caller_exempt(self, capture_asgi):

@@ -98,7 +98,7 @@ describe('RoleCatalog', () => {
     render(
       <RoleCatalog
         roles={[
-          role({ slug: 'workflow-viewer', name: 'Workflow Viewer', tier: 'workflow' }),
+          role({ slug: 'skill-viewer', name: 'Skill Viewer', tier: 'skill' }),
           role({ slug: 'member', name: 'Member', tier: 'org' }),
         ]}
       />
@@ -107,7 +107,7 @@ describe('RoleCatalog', () => {
     const rendered = screen
       .getAllByTestId(/^role-tier-/)
       .map((section) => section.getAttribute('data-testid'))
-    expect(rendered).toEqual(['role-tier-org', 'role-tier-workflow'])
+    expect(rendered).toEqual(['role-tier-org', 'role-tier-skill'])
   })
 
   test('renders every shipped role by default', () => {

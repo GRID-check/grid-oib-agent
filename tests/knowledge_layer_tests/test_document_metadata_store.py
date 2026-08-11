@@ -179,6 +179,7 @@ class TestDocumentMetadataStore:
             db_path = Path(tmpdir) / "test_summaries.db"
             db_url = f"sqlite:///{db_path}"
             yield db_url
+            DocumentMetadataStore.dispose_engine(db_url)
 
     @pytest.fixture
     def store(self, temp_db):
@@ -256,6 +257,7 @@ class TestDocumentMetadataStore:
         engine = create_engine(temp_db)
         columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
         assert "tags" in columns
+        engine.dispose()
 
     def test_existing_table_without_tags_is_migrated(self):
         """A pre-existing summaries table (no tags column) is renamed + migrated in place."""
@@ -301,6 +303,9 @@ class TestDocumentMetadataStore:
             new = {d.file_name: d for d in store.get_all("c")}
             assert new["new.pdf"].tags == ["Grundriss"]
 
+            engine.dispose()
+            DocumentMetadataStore.dispose_engine(db_url)
+
     def test_set_and_get_doc_class_roundtrip(self, store):
         """set_doc_class updates an existing row; get_doc_class reads it back."""
         store.register("coll", "doc.pdf", "A summary.")
@@ -332,6 +337,7 @@ class TestDocumentMetadataStore:
         engine = create_engine(temp_db)
         columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
         assert "doc_class" in columns
+        engine.dispose()
 
     def test_existing_table_without_doc_class_is_migrated(self):
         """A pre-existing summaries table (no doc_class column) is migrated in place."""
@@ -372,6 +378,9 @@ class TestDocumentMetadataStore:
             assert store.get_doc_class("c", "old.pdf") is None
             store.set_doc_class("c", "old.pdf", "oib_leitfaden")
             assert store.get_doc_class("c", "old.pdf") == "oib_leitfaden"
+
+            engine.dispose()
+            DocumentMetadataStore.dispose_engine(db_url)
 
     def test_set_and_get_display_title_roundtrip(self, store):
         """set_display_title updates an existing row; get_display_title reads it back."""
@@ -414,6 +423,7 @@ class TestDocumentMetadataStore:
         engine = create_engine(temp_db)
         columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
         assert "display_title" in columns
+        engine.dispose()
 
     def test_legacy_summaries_table_renamed_preserving_rows(self):
         """A legacy ``summaries`` table is renamed to ``document_metadata`` in place,
@@ -466,7 +476,11 @@ class TestDocumentMetadataStore:
             assert len(docs) == 1
             assert docs[0].file_name == "oib-rl_2_ausgabe_mai_2023.pdf"
             assert docs[0].summary == "Brandschutz."
+            assert docs[0].doc_class is None
             assert docs[0].display_title is None
+
+            engine.dispose()
+            DocumentMetadataStore.dispose_engine(db_url)
 
     def test_get_all_empty_collection(self, store):
         """Test getting documents from empty collection returns empty list."""
@@ -615,6 +629,7 @@ class TestFactoryFunctions:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "factory_test.db"
             yield f"sqlite:///{db_path}"
+            DocumentMetadataStore.dispose_engine(f"sqlite:///{db_path}")
 
     def test_configure_summary_db(self, temp_db_url):
         """Test configuring the summary database."""
@@ -784,6 +799,7 @@ class TestReconcileCollectionSummaries:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "reconcile_test.db"
             yield f"sqlite:///{db_path}"
+            DocumentMetadataStore.dispose_engine(f"sqlite:///{db_path}")
 
     @staticmethod
     def _file_info(file_name, status=None):
@@ -937,6 +953,7 @@ class TestSummaryIntegration:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "integration_test.db"
             yield f"sqlite:///{db_path}"
+            DocumentMetadataStore.dispose_engine(f"sqlite:///{db_path}")
 
     @pytest.fixture(autouse=True)
     def reset_store(self):
@@ -1096,6 +1113,8 @@ class TestMigrationFailureNotCached:
                 assert db_url in DocumentMetadataStore._tables_initialized
                 assert "tags" in self._columns(engine)
             finally:
+                engine.dispose()
+                DocumentMetadataStore.dispose_engine(db_url)
                 DocumentMetadataStore._tables_initialized.discard(db_url)
 
     @pytest.mark.asyncio
@@ -1117,6 +1136,8 @@ class TestMigrationFailureNotCached:
                 assert db_url in DocumentMetadataStore._tables_initialized
                 assert "tags" in self._columns(engine)
             finally:
+                engine.dispose()
+                await DocumentMetadataStore.dispose_engine_async(db_url)
                 DocumentMetadataStore._tables_initialized.discard(db_url)
 
 

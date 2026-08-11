@@ -27,7 +27,9 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
-BUILTIN_SKILLS_DIR = Path(__file__).with_name("skills")
+# Builtin skills moved to the shared substrate layout (src/aiq_agent/skills/builtin):
+# collection = mid-level dir name (research|synthesis), skill = leaf dir name.
+BUILTIN_SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills" / "builtin"
 BUILTIN_SKILL_SOURCE = "/skills/"
 SHARED_ROUTE = "/shared/"
 SKILL_AGENT_NAMES = frozenset({"researcher-agent", "writer-agent"})

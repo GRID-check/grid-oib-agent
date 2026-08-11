@@ -11,7 +11,7 @@ export type ProjectPermission =
   | 'project:documents:write'
   | 'project:memory:write'
   | 'project:members:manage'
-  | 'project:workflows:manage'
+  | 'project:skills:manage'
 
 export type ProjectRole =
   | 'project-viewer'
@@ -23,7 +23,7 @@ export type ProjectRole =
  * Authorize a session against a project and derive its effective role.
  *
  * The FGA round-trip (with its optional short-TTL cache and its timing
- * instrumentation) lives in `./resource-check`, shared with the workflow tier so
+ * instrumentation) lives in `./resource-check`, shared with the skill tier so
  * the two can never drift apart. See that module for the caching tradeoff.
  *
  * Denials throw {@link NotFoundError} (message "Not found") so responses

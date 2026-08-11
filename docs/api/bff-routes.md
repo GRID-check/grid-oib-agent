@@ -212,7 +212,7 @@ Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
 | `GET` | `/api/jobs/async/agents` | Varies | List registered agent types. Proxies to `GET /v1/jobs/async/agents`. | — | `{ agents: [{ agent_type, description }] }` |
-| `POST` | `/api/jobs/async/submit` | Varies | Submit a new async job. Proxies to `POST /v1/jobs/async/submit`. **Fixed 2026-07-16**: resolves the caller's active model overrides (`getActiveModelOverrides`) and forwards them, plus the signed `X-Grid-Request-Context` envelope, alongside `X-Grid-Collection-Scope` — jobs submitted here now apply the org's active model-config version (ADR-0014) exactly like the WS chat path and `/api/internal/workflows/fire`; see `docs/architecture/org-model-configuration.md`. | `{ agent_type, input, job_id?, expiry_seconds?, data_sources? }` | `{ job_id, status, agent_type }` |
+| `POST` | `/api/jobs/async/submit` | Varies | Submit a new async job. Proxies to `POST /v1/jobs/async/submit`. **Fixed 2026-07-16**: resolves the caller's active model overrides (`getActiveModelOverrides`) and forwards them, plus the signed `X-Grid-Request-Context` envelope, alongside `X-Grid-Collection-Scope` — jobs submitted here now apply the org's active model-config version (ADR-0014) exactly like the WS chat path and the skill fire path (`/api/internal/skills/fire`); see `docs/architecture/org-model-configuration.md`. | `{ agent_type, input, job_id?, expiry_seconds?, data_sources? }` | `{ job_id, status, agent_type }` |
 | `GET` | `/api/jobs/async/job/{job_id}` | Varies | Get job status. Proxies to `GET /v1/jobs/async/job/{id}`. | — | `{ job_id, status, error?, created_at }` |
 | `GET` | `/api/jobs/async/job/{job_id}/stream` | Varies | SSE stream from beginning. Proxies to `GET /v1/jobs/async/job/{id}/stream`. Supports `?token=` for EventSource auth fallback. | — | SSE stream (`text/event-stream`) |
 | `GET` | `/api/jobs/async/job/{job_id}/stream/{last_event_id}` | Varies | SSE stream reconnection from event ID. | — | SSE stream |
@@ -225,23 +225,36 @@ SSE streams pass through the response body unmodified. The `?token=` query param
 
 Source: `frontends/ui/src/app/api/jobs/async/[...path]/route.ts`
 
-## Workflows (ADR-0023, feature-gated)
+## Agent Skills (ADR-0046, feature-gated)
 
-All routes 403 (`feature-disabled`) unless the Workflows feature is on (`workflows` WorkOS flag under enforcement, else `GRID_WORKFLOWS_ENABLED=true`). Read = `project:view`, mutate/run = `project:edit` via `requireProjectAccess`; every query is additionally org-filtered.
+All routes 403 (`feature-disabled`) unless the skills feature is on (`skills` WorkOS flag under enforcement, else `GRID_SKILLS_ENABLED=true`). Authorization is enforced in `lib/skills/service.ts`, not in the routes (ADR-0017); every query is additionally org-filtered.
+
+The org toolbox:
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
-| `GET` | `/api/projects/{id}/workflows` | project:view | List the project's workflows. | — | `{ workflows }` |
-| `POST` | `/api/projects/{id}/workflows` | project:edit | Create a workflow. Compiles the prompt server-side, validates cron (+ min interval, IANA timezone), computes `next_run_at`. | `{ name, description?, definition, dataSources?, enabled?, scheduleCron?, scheduleTimezone? }` | `Workflow` (201) |
-| `GET` | `/api/projects/{id}/workflows/{workflowId}` | project:view | Get one workflow (incl. definition + compiled prompt). | — | `Workflow` |
-| `PATCH` | `/api/projects/{id}/workflows/{workflowId}` | project:edit | Update; recompiles/revalidates and recomputes `next_run_at`. | partial create body | `Workflow` |
-| `DELETE` | `/api/projects/{id}/workflows/{workflowId}` | project:edit | Delete the workflow (runs cascade). | — | `{ deleted: true }` |
-| `POST` | `/api/projects/{id}/workflows/{workflowId}/run` | project:edit | Manual "Run now" through the shared fire path. 409 when disabled; a backend 429 (job caps) comes back as a `skipped` run, not an error. | — | `{ run }` |
-| `GET` | `/api/projects/{id}/workflows/{workflowId}/runs` | project:view | Run history, newest first. | `?limit&offset` | `{ runs }` |
+| `GET` | `/api/skills` | org member | The merged toolbox: platform builtins plus the org's own rows, org rows shadowing a builtin of the same name. | — | `{ skills }` |
+| `POST` | `/api/skills` | org:skills:manage | Author a skill. Validates the SKILL.md name/description rules and the reserved `grid-cards` value; `clonedFrom` records a platform clone. | `{ name, description, body, metadata?, clonedFrom?, enabled? }` | `{ skill }` (201) |
+| `PATCH` | `/api/skills/{skillId}` | org:skills:manage | Update an org skill. | partial create body | `{ skill }` |
+| `DELETE` | `/api/skills/{skillId}` | org:skills:manage | Delete an org skill. | — | `{ deleted: true }` |
+| `GET` | `/api/skills/invocable` | org member | The `/name` composer picker's list: enabled skills a chat turn can actually run, **name + description only** — the same progressive-disclosure level 1 the agent is given. Invoking is use, not administration, so any member may read it. | — | `{ skills }` |
+| `GET` | `/api/skills/attachable` | org member | The job builder's skill picker: the skills the chosen output kind can run (`chat` → `shallow_researcher`, `deep-research` → `deep_researcher`, both via `grid-agents`). Carries bodies, because the builder previews the composed prompt. | `?output=chat\|deep-research` | `{ skills }` |
+
+Project jobs — a prompt on a timer, with an optional skill attached (read = `project:view`, mutate/run = `project:skills:manage` via `requireProjectAccess`):
+
+| Method | Path | Auth | Description | Request Body / Params | Response |
+|--------|------|------|-------------|-----------------------|----------|
+| `GET` | `/api/projects/{id}/jobs` | project:view | List the project's jobs (each carrying its skill snapshot, when it has one). | — | `{ jobs }` |
+| `POST` | `/api/projects/{id}/jobs` | project:skills:manage | Create. `prompt` is required (1–8000 chars); `skillName` is optional — when given it is resolved (org row first, builtin fallback; unknown → 404) and snapshotted, and `skill_name`/`skill_snapshot` are always written as a pair. Validates cron (+ min interval, IANA timezone) and computes `next_run_at`. | `{ name, prompt, output, skillName?, dataSources?, enabled?, scheduleCron?, scheduleTimezone? }` | `{ job }` (201) |
+| `GET` | `/api/projects/{id}/jobs/{jobId}` | project:view | Get one job. | — | `{ job }` |
+| `PATCH` | `/api/projects/{id}/jobs/{jobId}` | project:skills:manage | Update; re-resolves the snapshot and recomputes `next_run_at`. `skillName: null` detaches the skill, omitting it leaves the attachment alone. | partial create body | `{ job }` |
+| `DELETE` | `/api/projects/{id}/jobs/{jobId}` | project:skills:manage | Delete the job (runs cascade). | — | `{ deleted: true }` |
+| `POST` | `/api/projects/{id}/jobs/{jobId}/run` | project:skills:manage | Manual "Run now" through the shared fire path. 409 when disabled; a backend 429 (job caps) comes back as a `skipped` run, not an error. | — | `{ run }` |
+| `GET` | `/api/projects/{id}/jobs/{jobId}/runs` | project:view | Run history, newest first. | `?limit&offset` | `{ runs }` |
 
 `dataSources` on create/PATCH is the list of **additional** sources; the `knowledge_layer` source (project documents + OIB base corpus) is always included — the service prepends it on save and again at fire time — so a stored non-null array always contains it. `null` still means all sources.
 
-Source: `frontends/ui/src/app/api/projects/[id]/workflows/…`, service in `frontends/ui/src/lib/workflows/`. See `docs/architecture/workflows.md`.
+Source: `frontends/ui/src/app/api/skills/…` and `…/api/projects/[id]/jobs/…`; the toolbox service is `frontends/ui/src/lib/skills/`, the jobs service `frontends/ui/src/lib/jobs/`. See `docs/architecture/agent-skills.md`.
 
 ## Organizations
 
@@ -297,7 +310,7 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 | `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired. |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
 | `POST` | `/api/internal/citation-events` | `x-grid-internal-token` | Backend citation-health emitter's per-turn batches into the `citation_events` ledger (`src/aiq_agent/common/citation_events.py`). One row per `(turnId, kind)`; conflicts are ignored so a retried flush cannot double-count. |
-| `POST` | `/api/internal/workflows/fire` | `x-grid-internal-token` | Scheduler-fired workflow run (`{ workflowId }`). Re-checks `enabled` + the org's workflows gate, then submits through the shared fire path (ADR-0023). |
+| `POST` | `/api/internal/skills/fire` | `x-grid-internal-token` | Scheduler-fired job run (`{ scheduleId }` — the pre-jobs spelling of a `jobs.id`, kept because the scheduler container and the BFF deploy separately). Re-checks `enabled` + the org's skills gate, then submits through the shared fire path (ADR-0046). |
 | `GET` | `/api/internal/model-overrides?organizationId=` | `x-grid-internal-token` | **New 2026-07-16.** Just-in-time org model-override resolution (ADR-0014) for backend call sites whose request carries no `x-grid-model-overrides`/`X-Grid-Request-Context` header — `common/model_overrides.py`'s `resolve_org_model_overrides()` calls this, cached in-process. Returns `{ overrides: {group: modelId} \| null }`; reuses the write-invalidated cache inside `getActiveModelOverrides`, so a config save is visible on the next backend fetch. |
 | `GET` | `/api/internal/document-file?collection=&filename=` | `x-grid-internal-token` | **New 2026-08-03.** Just-in-time storage-key resolution for the backend's `view_knowledge_image` tool (ADR-0039): maps the `(collection, filename)` pair the backend carries to the SeaweedFS `storage_key` in the `documents` table. Returns `{ storageKey, contentType }` (404 when unknown); the backend fetches the bytes itself via boto3. Collection name is the tenancy boundary (`proj_<uuid>`/`archiv_<orgId>`), so no per-org FGA — read-only metadata. Declares `tenancy: { fromPayload }`; when the backend supplies no `organizationId` (every `proj_` collection) the lookup runs under an explicit platform scope, so row-level security does **not** constrain it — the unguessable collection name is still the only boundary on that path (ADR-0041). |
 | `GET` | `/api/internal/retrieval-settings` | `x-grid-internal-token` | **New 2026-07-31.** Just-in-time fleet retrieval-count resolution for backend tools (knowledge retrieval, surface documents, web/RIS search): `common/retrieval_settings.py`'s `get_retrieval_setting()` calls this, TTL-cached in-process (60s positive / 30s negative) and fail-open to the build-time YAML values. Returns `{ settings: {key: value} }` — only the pinned (non-default) keys. |

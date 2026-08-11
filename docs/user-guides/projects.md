@@ -30,7 +30,8 @@ Opening a project (`/app/projects/{id}`) lands you in **Chat** — the project r
 |-----|-------|---------|
 | **Chat** | `/app/projects/{id}/chat` | Project-scoped conversations (the landing surface) |
 | **Files** | `/app/projects/{id}/files` | List, upload, and manage files |
-| **Workflows** | `/app/projects/{id}/workflows` | Scheduled deep research (feature-flagged) |
+| **Skills** | `/app/projects/{id}/skills` | The organization's skill toolbox (feature-flagged) |
+| **Jobs** | `/app/projects/{id}/jobs` | This project's scheduled prompts, and their run history (feature-flagged) |
 | **Archiv** | `/app/archiv` | The org-wide office archive (feature-flagged) |
 | **History** | `/app/projects/{id}/history` | All conversations and deep-research runs; rows reopen in chat |
 | **Settings** | `/app/projects/{id}/settings` | Project parameters, members, memory, insights, danger zone (pinned at the bottom of the sidebar) |
@@ -71,22 +72,85 @@ Documents are listed with their filename, content type, file size, status, and c
 
 Source: `frontends/ui/src/app/api/documents/upload/route.ts:20`, `frontends/ui/src/app/projects/[id]/page.tsx:24`
 
-## Workflows (feature-flagged)
+## Skills (feature-flagged)
 
-The **Workflows** tab (`/app/projects/{id}/workflows`) manages saved research briefs that run through the same deep-research pipeline as a chat request — on demand or on a cron schedule (ADR-0023). The page only exists when the workflows flag is enabled for your org; otherwise the route 404s.
+The **Skills** tab (`/app/projects/{id}/skills`) is the organization's **skill
+toolbox** (ADR-0046). A skill is a written procedure — a `SKILL.md` with a
+name, a description and instructions — that the agent can be told to follow.
+The page only exists when the skills feature is enabled for your organization;
+otherwise the route 404s. It replaces the former Workflows tab.
 
-The page has two parts:
+The toolbox is organization-wide, even though you reach it from a project: it
+lists every skill available to your organization — the ones Piloti ships plus
+the ones your organization wrote. Each card shows where the skill came from,
+which agents may use it, its description, and a preview of its verbatim
+instructions. A shipped skill can be **cloned** into your organization and then
+edited; a skill your organization authored can be edited or deleted. Without
+`org:skills:manage` the page is read-only — everyone can see what exists,
+because that is also what the agent sees.
 
-1. **Template gallery** (always at the top): curated Piloti templates — currently **Vorprüfung Einreichung** (a manual pre-submission research run: which requirements the permit submission must satisfy under the state building code and the OIB Richtlinien, and which points remain open), **Richtlinien-Monitoring** (a weekly scan of RIS and the web for regulation changes relevant to the project), and an **OIB compliance gap check** (project documentation cross-checked against the applicable OIB Richtlinien). Each card shows a provenance-tinted icon, an honest description of what the research run produces, and a cadence hint derived from the template's real schedule. **Set up** opens the builder pre-filled with the template's brief, sources and schedule — a template never creates or runs anything by itself; you review and save. A dashed "More coming" card marks the end of the gallery.
-2. **Your workflows**: the configured workflows with enable switch, humanized schedule (incl. timezone), next/last run, run-now/edit/delete actions, and an expandable per-workflow run history.
+A skill says nothing about *when* it runs or *what comes out*. It declares who
+may use it, and that is all. Running one on a timer is what the **Jobs** tab is
+for; running one in a conversation is what typing `/` at the start of a chat
+message is for — see [Chat](chat.md).
 
-**Following a run.** Starting a run — with **Run now** or on its schedule — produces a real research job, and the run history shows what that job is doing: *Queued*, *Running*, *Completed*, *Failed* or *Cancelled*, refreshed while the run is active. Each row links to the matching view: **View progress** opens the research panel and follows the run live (its tasks tick off as it works, and the panel's **Stop researching** button cancels it), **View report** opens a finished run's report, and **View thinking** opens a failed run's trace. **Run now** opens the history straight away and its confirmation offers *View progress*, so a started run is never invisible. The same links appear on the **History** page, which lists every research run in the project.
+Source: `frontends/ui/src/features/skills/`, service in
+`frontends/ui/src/lib/skills/`
 
-A workflow run has no chat thread of its own, so its outcome is reported in the research panel rather than as a message in whichever chat you happen to have open.
+## Jobs (feature-flagged)
 
-Schedules are validated server-side: 5-field cron, per-workflow IANA timezone, and a minimum cadence of `GRID_WORKFLOW_MIN_INTERVAL_MINUTES` (default 15 minutes). Every run — scheduled or manual — is subject to the async-job admission caps; rejected occurrences appear as *skipped* runs in the history.
+The **Jobs** tab (`/app/projects/{id}/jobs`) is where a prompt is put on a
+timer. **A job is a prompt** — the question you would have typed into a new
+chat — that runs on demand or on a schedule. A skill may be **attached** on
+top, exactly as typing `/name` before that message would attach it, but a job
+does not need one: "check the current OIB-RL 6 requirements for this project
+every Monday" is a complete job with no skill involved.
 
-Source: `frontends/ui/src/features/workflows/`, `frontends/ui/src/features/workflows/lib/templates.ts`
+Managing jobs needs `project:skills:manage`; anyone with `project:view` can
+read them and their history. Each job has:
+
+- a **prompt** (required),
+- an optional **skill**, chosen from the toolbox. Choosing one copies it into
+  the job at save time, so editing the skill afterwards never silently changes
+  what an already-scheduled job sends,
+- an **output**: a **chat** (a conversation you can open and keep typing into)
+  or a **deep-research report**. This is your choice on the job, not something
+  the skill decides. It also decides which skills can be attached, since the
+  two agents can run different procedures,
+- an optional **schedule**: 5-field cron in a timezone you pick.
+
+The builder shows the form on the left and a live *what the agent receives*
+preview on the right, so what you approve is exactly what gets submitted —
+prompt first, then the attached skill's instructions when there is one.
+
+**Where a chat job's answer lands.** A job with **chat** output writes its
+question and answer into a real conversation in this project, titled with the
+job's name and visible to everyone with project access — it appears alongside
+the project's other conversations, and you can open it and keep talking. If a
+run fails or is cancelled, the thread says so in one line instead of sitting
+empty; the real status and error are in the job's run history. A
+**deep-research** job produces a report instead, with no thread.
+
+**Following a run.** Starting a run — with **Run now** or on its schedule —
+produces a real research job, and the run history shows what that job is doing:
+*Queued*, *Running*, *Completed*, *Failed* or *Cancelled*, refreshed while the
+run is active. Each row links to the matching view: **View progress** opens the
+research panel and follows the run live (its tasks tick off as it works, and the
+panel's **Stop researching** button cancels it), **View report** opens a
+finished run's report, and **View thinking** opens a failed run's trace. **Run
+now** opens the history straight away and its confirmation offers *View
+progress*, so a started run is never invisible. The same links appear on the
+**History** page, which lists every research run in the project.
+
+Schedules are validated server-side: 5-field cron, per-job IANA timezone, and a
+minimum cadence of `GRID_SKILL_MIN_INTERVAL_MINUTES` (default 15 minutes). Any
+job may be scheduled — an attached skill can no longer veto it, because whether
+something should run on a timer is a property of the job. Every run — scheduled
+or manual — is subject to the async-job admission caps; rejected occurrences
+appear as *skipped* runs in the history.
+
+Source: `frontends/ui/src/features/jobs/`, service in
+`frontends/ui/src/lib/jobs/`
 
 ## Members and permissions
 
@@ -106,6 +170,6 @@ Source: `frontends/ui/src/lib/authz/projects.ts:7`, `frontends/ui/src/app/api/pr
 
 Go to `/app/projects` (the wordmark in the sidebar links there). The projects home shows all projects in your organization as a card grid; clicking a card opens the project in the section you last used, and each card's gear icon opens that project's settings directly.
 
-On desktop, project sections (Chat, Files, Workflows, Archiv, History, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
+On desktop, project sections (Chat, Skills, Jobs, Files, Archiv, History, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
 
 The user's active project ID is stored in user preferences (upserted via `POST /api/user/preferences`).

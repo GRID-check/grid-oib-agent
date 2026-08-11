@@ -19,7 +19,7 @@
  *
  * ## What this script does NOT do
  *
- * Resource types (Organization → Project → Workflow) are not exposed by the
+ * Resource types (Organization → Project → Skill) are not exposed by the
  * Node SDK, so they are a dashboard step — documented in
  * `docs/deployment/workos-provisioning.md`. The script still VERIFIES them
  * indirectly: a permission cannot be created against a resource type that does
@@ -101,11 +101,16 @@ async function reconcilePermissions(): Promise<void> {
 
   // Permissions in WorkOS that the catalog does not know about. Not an error —
   // WorkOS ships its own, and an operator may be mid-rollout — but worth saying,
-  // because an unknown org:*/platform:* slug is usually a half-removed feature.
+  // because an unknown slug in one of OUR namespaces is usually a half-removed
+  // feature. `workflow:` stays in this list precisely BECAUSE the catalog no
+  // longer defines it: Agent Skills replaced Workflows, and the three
+  // `workflow:*` permissions plus their roles are still provisioned in every
+  // environment the old feature reached. Dropping the prefix here would make
+  // that leftover invisible to the very check meant to find it.
   const ours = new Set(ALL_PERMISSION_SPECS.map((permission) => permission.slug))
   for (const permission of existing) {
     if (ours.has(permission.slug)) continue
-    if (/^(org|platform|project|workflow):/.test(permission.slug)) {
+    if (/^(org|platform|project|skill|workflow):/.test(permission.slug)) {
       note(`UNKNOWN  ${permission.slug} — in WorkOS, absent from the catalog`)
       drift.push(`permission in WorkOS but not in the catalog: ${permission.slug}`)
     }

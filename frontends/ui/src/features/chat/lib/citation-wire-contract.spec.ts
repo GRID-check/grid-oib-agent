@@ -34,7 +34,8 @@ import type { WireCitationSource } from '../types'
 // frontends/ui/src/features/chat/lib → repo root is six levels up.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURE_DIR = resolve(HERE, '../../../../../../tests/fixtures/citation_pipeline')
-const fixture = (name: string): string => readFileSync(resolve(FIXTURE_DIR, name), 'utf-8')
+const fixture = (name: string): string =>
+  readFileSync(resolve(FIXTURE_DIR, name), 'utf-8').replace(/\r\n/g, '\n')
 
 const KB_TOOL_OUTPUT = fixture('kb_tool_output.txt')
 const VERIFIED_REPORT = fixture('verified_report.md')

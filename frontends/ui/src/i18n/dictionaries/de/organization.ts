@@ -90,7 +90,7 @@ export const organization: typeof en.organization = {
     tiers: {
       org: 'Organisation',
       project: 'Projekt',
-      workflow: 'Workflow',
+      skill: 'Skill-Zeitplan',
       platform: 'Plattform',
     },
     notAllowed: {
@@ -235,9 +235,12 @@ export const organization: typeof en.organization = {
     },
     label: 'Bezeichnung',
     labelPlaceholder: 'z. B. Firmen-OpenRouter-Konto',
-    apiKey: 'API-Schlüssel',
-    apiKeyPlaceholder: 'sk-…',
-    apiKeyHint: 'Wird vor dem Speichern beim Provider geprüft. Nach dem Speichern nie wieder angezeigt.',
+    // Labels for the BYOK key field, not a key. detect-secrets matches on the
+    // `apiKey` identifier regardless of the value being German UI copy.
+    apiKey: 'API-Schlüssel', // pragma: allowlist secret
+    apiKeyPlaceholder: 'sk-…', // pragma: allowlist secret
+    apiKeyHint:
+      'Wird vor dem Speichern beim Provider geprüft. Nach dem Speichern nie wieder angezeigt.', // pragma: allowlist secret
     connect: 'Prüfen & verbinden',
     rotate: 'Prüfen & rotieren',
     saving: 'Wird geprüft…',

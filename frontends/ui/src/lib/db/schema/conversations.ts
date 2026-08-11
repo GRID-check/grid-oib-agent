@@ -1,4 +1,5 @@
 import { index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { jobs } from './jobs'
 import { projects } from './projects'
 import { type ResourceVisibility } from './resource-shares'
 
@@ -53,6 +54,32 @@ export const conversations = pgTable('conversations', {
   // conversation; empty by default so legacy rows stay valid.
   tags: text('tags').array().notNull().default([]),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  /**
+   * The job that produced this conversation, or NULL when a person started it
+   * — which is every conversation that existed before migration 0044 and the
+   * great majority of every one that ever will (ADR-0032 §provenance is silent
+   * on this; the reasoning is written out in `0044_conversation_job_provenance`).
+   *
+   * Provenance, not ownership. `created_by` on a job conversation is the JOB'S
+   * OWNER, a real user id, because four mechanisms read that column as a
+   * person: the sharing roster, the last-owner invariant, `attributeLegacyAuthor`
+   * and audit. So this column is the only thing that says "nobody typed this",
+   * and two behaviours hang off it:
+   *
+   *   - the thread renders with the job's name and a job glyph rather than its
+   *     owner's face;
+   *   - it is kept OUT of the personal sessions list, where a weekly job would
+   *     otherwise deposit 52 threads a year on top of its owner's real chats.
+   *     It stays fully openable by URL and from the job's run history.
+   *
+   * `ON DELETE SET NULL`: deleting a job must never delete its output.
+   *
+   * NOTE: the database also has `conversations_job_id_idx`, PARTIAL
+   * (`WHERE job_id IS NOT NULL`) so it does not carry an entry for every human
+   * chat. Drizzle's index builder cannot express a partial index, so it lives
+   * only in migration 0044 — the same arrangement as `idx_jobs_due`.
+   */
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -411,6 +411,10 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "retry_after_seconds",
 )
 
+# Agent Skills extra (the chat agent records which skills it force-activated
+# this turn; surfaced only when present — same lift as the transparency extras).
+_SKILLS_EXTRA_FIELDS = ("skills_activated",)
+
 
 def latest_user_text(message: WebSocketUserMessage) -> str | None:
     """The last non-empty text part of a ``user_message`` frame, or ``None``.
@@ -495,6 +499,95 @@ def _internal_persist_headers() -> dict[str, str] | None:
     return {"Content-Type": "application/json", INTERNAL_TOKEN_HEADER: token}
 
 
+async def post_internal_conversation_message(
+    *,
+    conversation_id: str,
+    organization_id: str | None,
+    message_id: str,
+    role: str,
+    text: str,
+    message_type: str,
+    metadata: dict[str, Any] | None = None,
+    created_at: str | None = None,
+) -> bool:
+    """POST ONE message row to the BFF's internal messages route. Fail-soft.
+
+    The single producer for ``POST /api/internal/conversations/{id}/messages``
+    from this service: it owns the base-URL/service-token/organization
+    preconditions, the wire shape, and the "never raise" contract. Two callers
+    sit on top of it — ``persist_assistant_message`` (a finished socket turn
+    whose client is gone) and the jobs runner's conversation materialisation
+    (``jobs/conversation_output.py``) — so there is exactly one place that
+    knows how the backend writes a message, and Python still never touches the
+    database.
+
+    ``message_id`` is the caller's business: the route upserts with
+    ``onConflictDoNothing`` on ``messages.id``, so a deterministic id makes a
+    repeated write a no-op instead of a duplicate. ``created_at`` (ISO-8601)
+    is optional and lets a caller that writes SEVERAL rows pin their order —
+    the reader sorts by ``createdAt`` (then id), not by insertion order.
+
+    Returns ``True`` only when the BFF accepted the write.
+    """
+    base_url = _internal_base_url()
+    if not base_url:
+        logger.warning(
+            "Cannot persist message for %s: FRONTEND_INTERNAL_URL/FRONTEND_URL not configured",
+            conversation_id,
+        )
+        return False
+
+    headers = _internal_persist_headers()
+    if headers is None:
+        logger.warning(
+            "Cannot persist message for %s: GRID_INTERNAL_API_TOKEN not configured",
+            conversation_id,
+        )
+        return False
+
+    if not organization_id:
+        # The internal route scopes the conversation lookup by org; without it
+        # the write would 404. Skip rather than issue a doomed POST.
+        logger.warning(
+            "Cannot persist message for %s: organization id unavailable",
+            conversation_id,
+        )
+        return False
+
+    payload: dict[str, Any] = {
+        "organizationId": organization_id,
+        "id": message_id,
+        "role": role,
+        "content": text,
+        "messageType": message_type,
+        "metadata": metadata or {},
+    }
+    if created_at:
+        payload["createdAt"] = created_at
+    url = f"{base_url.rstrip('/')}/api/internal/conversations/{conversation_id}/messages"
+
+    try:
+        async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=payload, headers=headers)
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "Server-side persist for conversation %s returned HTTP %s",
+                conversation_id,
+                response.status_code,
+            )
+            return False
+        logger.info("Persisted %s message server-side for conversation %s", role, conversation_id)
+        return True
+    except Exception:  # noqa: BLE001 — fail-soft by contract; callers must not break
+        logger.warning(
+            "Failed to persist %s message server-side for conversation %s",
+            role,
+            conversation_id,
+            exc_info=True,
+        )
+        return False
+
+
 async def persist_assistant_message(
     *,
     conversation_id: str,
@@ -507,6 +600,7 @@ async def persist_assistant_message(
     answer_confidence_reason: Any = None,
     answer_confidence_capped_reason: Any = None,
     sources: Any = None,
+    skills_activated: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
 
@@ -523,33 +617,10 @@ async def persist_assistant_message(
 
     Returns ``True`` only when the message was accepted by the BFF.
     """
-    base_url = _internal_base_url()
-    if not base_url:
-        logger.warning(
-            "Cannot persist assistant message for %s: FRONTEND_INTERNAL_URL/FRONTEND_URL not configured",
-            conversation_id,
-        )
-        return False
-
-    headers = _internal_persist_headers()
-    if headers is None:
-        logger.warning(
-            "Cannot persist assistant message for %s: GRID_INTERNAL_API_TOKEN not configured",
-            conversation_id,
-        )
-        return False
-
-    if not organization_id:
-        # The internal route scopes the conversation lookup by org; without it
-        # the write would 404. Skip rather than issue a doomed POST.
-        logger.warning(
-            "Cannot persist assistant message for %s: organization id unavailable on the handshake scope",
-            conversation_id,
-        )
-        return False
-
     # Dual-write guard: a client may have (re)connected between the failed send
     # and now. If a live socket exists, the client owns the write — skip.
+    # SOCKET-PATH ONLY: a jobs run has no socket to defer to, which is why the
+    # runner calls the shared producer below directly instead of this wrapper.
     if await _registry.has_socket(conversation_id):
         logger.debug(
             "Live socket present for conversation %s; skipping server-side persist",
@@ -570,36 +641,27 @@ async def persist_assistant_message(
         metadata["answer_confidence_capped_reason"] = answer_confidence_capped_reason
     if sources:
         metadata["sources"] = sources
+    if skills_activated:
+        metadata["skills_activated"] = skills_activated
 
-    payload = {
-        "organizationId": organization_id,
-        "id": deterministic_assistant_message_id(conversation_id, parent_id),
-        "role": "assistant",
-        "content": text,
-        "messageType": "agent_response",
-        "metadata": metadata,
-    }
-    url = f"{base_url.rstrip('/')}/api/internal/conversations/{conversation_id}/messages"
-
-    try:
-        async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
-            response = await client.post(url, json=payload, headers=headers)
-        if response.status_code not in (200, 201):
-            logger.warning(
-                "Server-side persist for conversation %s returned HTTP %s",
-                conversation_id,
-                response.status_code,
-            )
-            return False
+    # The write itself belongs to the shared producer: base URL, service token,
+    # organization precondition, wire shape and the never-raise contract all
+    # live there, so this path and the jobs runner cannot drift apart in how
+    # they write a message. What stays here is what is specific to a socket
+    # turn — the dual-write guard above, the terminal-frame metadata, and the
+    # deterministic id that makes a repeated persist a no-op.
+    persisted = await post_internal_conversation_message(
+        conversation_id=conversation_id,
+        organization_id=organization_id,
+        message_id=deterministic_assistant_message_id(conversation_id, parent_id),
+        role="assistant",
+        text=text,
+        message_type="agent_response",
+        metadata=metadata,
+    )
+    if persisted:
         logger.info("Persisted assistant message server-side for disconnected conversation %s", conversation_id)
-        return True
-    except Exception:  # noqa: BLE001 — fail-soft; checkpoint still holds the turn
-        logger.warning(
-            "Failed to persist assistant message server-side for conversation %s",
-            conversation_id,
-            exc_info=True,
-        )
-        return False
+    return persisted
 
 
 class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
@@ -965,6 +1027,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 if (value := _pull_response_extra(data_model, name)) is not None
             }
 
+            # Agent Skills: the run's force-activated skill names ride the same
+            # lift so the frontend can render "skill X ran" on the answer.
+            skills_extras = {
+                name: value
+                for name in _SKILLS_EXTRA_FIELDS
+                if (value := _pull_response_extra(data_model, name)) is not None
+            }
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 # ``message_type`` MUST be forwarded. Both `system_response_message`
                 # and `error_message` map to this one schema class, but the schema
@@ -1010,6 +1080,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 # only when applicable — same lift as cards/sources/confidence.
                 if message_type == WebSocketMessageType.RESPONSE_MESSAGE and transparency_extras:
                     for _name, _value in transparency_extras.items():
+                        try:
+                            setattr(message, _name, _value)
+                        except Exception:
+                            logger.warning("Could not attach %s to websocket message", _name, exc_info=True)
+                # Attach the Agent Skills extras (e.g. skills_activated) the same way.
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and skills_extras:
+                    for _name, _value in skills_extras.items():
                         try:
                             setattr(message, _name, _value)
                         except Exception:
@@ -1132,6 +1209,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             answer_confidence_reason = dump.get("answer_confidence_reason")
             answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
             sources = dump.get("sources")
+            skills_activated = dump.get("skills_activated")
 
             if not (text and text.strip()) and not cards:
                 return
@@ -1147,6 +1225,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 answer_confidence_reason=answer_confidence_reason,
                 answer_confidence_capped_reason=answer_confidence_capped_reason,
                 sources=sources,
+                skills_activated=skills_activated,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
             logger.warning("Unexpected error while persisting terminal message", exc_info=True)

@@ -77,6 +77,22 @@ class ShallowResearchAgentState(BaseModel):
     # ``source_entry_to_wire``). Surfaced on the final ChatResponse so the FE
     # can open document previews without inventing filenames.
     verified_sources: list[dict[str, Any]] | None = None
+    # Skill names FORCED for this turn by the incoming request (parsed from the
+    # WS content JSON's `skills` array by the chat researcher). Research turns
+    # resolve them against the run's skill set and build the forced-activation
+    # list; meta turns ignore them. None = no skills were forced.
+    force_skills: list[str] | None = None
+    # Pre-rendered skills section for the system prompt (guarded in the
+    # template): the progressive-disclosure catalog plus the forced-skills
+    # block. Set by the register layer before ``run()`` on research turns when
+    # skills are enabled; None otherwise.
+    skills_block: str | None = None
+    # Ordered names of the skills activated THIS turn (forced first, then
+    # model-invoked via ``use_skill``, deduped). Set by the register layer
+    # after ``run()`` whenever skills are enabled on a research turn; None on
+    # meta turns / disabled config — the chat node lifts it onto the terminal
+    # ChatResponse only when present.
+    skills_activated: list[str] | None = None
     # Transparency summary of citations dropped by ``verify_citations`` this turn
     # (``{"count": int, "reasons": [str, ...]}``). Populated by ``run()`` ONLY
     # when ≥1 citation was removed; None otherwise. The chat orchestrator lifts

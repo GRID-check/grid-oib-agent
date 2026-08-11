@@ -62,7 +62,7 @@ describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
   })
 
   test('Overview, Members, Research and Knowledge no longer appear in the nav', () => {
-    render(<AppSidebar {...baseProps} showWorkflows canAccessArchiv />)
+    render(<AppSidebar {...baseProps} canAccessArchiv />)
     expect(screen.queryByText('Overview')).not.toBeInTheDocument()
     expect(screen.queryByText('Members')).not.toBeInTheDocument()
     expect(screen.queryByText('Research')).not.toBeInTheDocument()
@@ -101,23 +101,18 @@ describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
   })
 })
 
-describe('AppSidebar - Workflows nav item', () => {
-  test('shows the Workflows nav item when showWorkflows is true', () => {
-    render(<AppSidebar {...baseProps} showWorkflows />)
-    expect(screen.getAllByText('Workflows').length).toBeGreaterThan(0)
-  })
-
-  test('hides the Workflows nav item by default (feature-flagged, default off)', () => {
+describe('AppSidebar - Skills nav item', () => {
+  test('hides the Skills nav item by default (feature-flagged, default off)', () => {
     render(<AppSidebar {...baseProps} />)
-    expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+    expect(screen.queryByText('Skills')).not.toBeInTheDocument()
     // Sibling items remain.
     expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
     expect(screen.getAllByText('History').length).toBeGreaterThan(0)
   })
 
-  test('hides the Workflows nav item when showWorkflows is false', () => {
-    render(<AppSidebar {...baseProps} showWorkflows={false} />)
-    expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+  test('shows the Skills nav item when showSkills is true', () => {
+    render(<AppSidebar {...baseProps} showSkills />)
+    expect(screen.getAllByText('Skills').length).toBeGreaterThan(0)
   })
 })
 
@@ -137,23 +132,16 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
   })
 
   test('orders Archiv last in the section nav (after History, above Settings)', () => {
-    const { container } = render(<AppSidebar {...baseProps} showWorkflows canAccessArchiv />)
+    const { container } = render(<AppSidebar {...baseProps} canAccessArchiv />)
     // Scope to the desktop rail's section nav to avoid the mobile drawer copy.
     const nav = container.querySelector('aside nav')
     expect(nav).not.toBeNull()
     const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
     // Inbox last, per the documented rail order in `project-sections.ts`
-    // ("Ask Piloti · Workflows* · Files · History · Archiv* · Inbox*"). This
+    // ("Ask Piloti · Skills* · Files · History · Archiv* · Inbox*"). This
     // expectation omitted it because the fixture omitted `canAccessInbox` and the
     // prop defaulted to `false` — the test was pinning the hidden state.
-    expect(labels).toEqual([
-      'Ask Piloti',
-      'Workflows',
-      'Files',
-      'History',
-      'Archiv',
-      'Inbox',
-    ])
+    expect(labels).toEqual(['Ask Piloti', 'Files', 'History', 'Archiv', 'Inbox'])
   })
 })
 

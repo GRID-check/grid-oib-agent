@@ -65,7 +65,8 @@ function appFiles(dir = APP_DIR, found: string[] = []): string[] {
   return found
 }
 
-const relative = (file: string) => file.slice(join(process.cwd(), 'src').length + 1)
+const relative = (file: string) =>
+  file.slice(join(process.cwd(), 'src').length + 1).replaceAll('\\', '/')
 
 /**
  * Every module specifier a file imports VALUES from.

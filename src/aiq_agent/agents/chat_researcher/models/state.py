@@ -107,3 +107,17 @@ class ChatResearcherState(BaseModel):
     job_admission_rejected: bool | None = None
     # Retry hint in seconds, only alongside ``job_admission_rejected``.
     retry_after_seconds: int | None = None
+    # Skill names the user's request FORCED for this turn (parsed from the WS
+    # content JSON's `skills` array). Threaded into the shallow researcher's
+    # per-run SkillRuntime — research turns resolve them against the run's
+    # skill set; meta turns and deep-research jobs ignore them.
+    # NOTE: plain types only (list[str] | None) — a new pydantic TYPE would
+    # also need registering in the checkpointer serde allowlist
+    # (aiq_agent/common/__init__.py).
+    force_skills: list[str] | None = None
+    # Ordered names of the skills activated THIS turn (forced first, then
+    # model-invoked via ``use_skill``, deduped). Set on the success path of
+    # ``_finalize_shallow_answer`` and lifted onto the terminal ChatResponse
+    # ONLY when present (escaped escalations and generation failures leave it
+    # None), the ``skills_activated`` transparency extra.
+    skills_activated: list[str] | None = None

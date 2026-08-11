@@ -97,7 +97,7 @@ logger = logging.getLogger(__name__)
 # AuthMiddleware._path_allowed's semantics for the "/" -suffixed entries.
 ENFORCED_HTTP_PATH_PREFIXES: tuple[str, ...] = (
     "/v1/jobs/async/submit",
-    "/v1/internal/workflows/submit",
+    "/v1/internal/skills/submit",
     "/generate",
 )
 ENFORCED_WEBSOCKET_PATH_PREFIXES: tuple[str, ...] = ("/websocket",)

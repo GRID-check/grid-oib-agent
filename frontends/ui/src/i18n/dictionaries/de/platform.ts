@@ -310,139 +310,6 @@ export const platform: typeof en.platform = {
       notInRis: 'Nicht im RIS — Quelle als Link pflegen.',
     },
   },
-  /**
-   * Plattform → Workflows, neu aufgebaut auf den gemeinsamen Admin-Primitiven
-   * (SectionCard + DataToolbar + Table + Sheet). Als `platform.workflowsSection`
-   * gebündelt, damit die Komponente den Namensraum einmal bindet.
-   */
-  workflowsSection: {
-    title: 'Workflow-Vorlagen',
-    explainer:
-      'Kuratierte Rechercheaufträge, die in der Workflow-Galerie jeder Organisation veröffentlicht werden. Eine veröffentlichte Vorlage erscheint bei allen Organisationen; das Auswählen füllt dort nur den Workflow-Builder vor – es startet nie automatisch.',
-    new: 'Neue Vorlage',
-    import: 'JSON importieren',
-    // Der Import ist jetzt eine bewusste Aktion: die Ablagefläche liegt hinter
-    // diesem Dialog, statt bei jedem Besuch über der Liste zu stehen.
-    importTitle: 'Vorlage importieren',
-    importDescription:
-      'Laden Sie einen JSON-Export einer Vorlage. Der Editor öffnet sich vorausgefüllt als unveröffentlichter Entwurf – gespeichert wird erst beim Speichern.',
-    dropTitle: 'JSON-Datei hier ablegen',
-    dropActive: 'Zum Importieren loslassen',
-    dropHint: 'Oder klicken, um eine Datei zu wählen.',
-    importCancel: 'Abbrechen',
-    importLoaded: 'Vorlagendatei geladen – prüfen und speichern.',
-    importInvalid: 'Diese Datei ist kein gültiger Vorlagen-Export.',
-    // Werkzeugleiste.
-    search: 'Vorlagen filtern…',
-    searchLabel: 'Vorlagen filtern',
-    searchClear: 'Filter zurücksetzen',
-    filterLabel: 'Veröffentlichungsstatus',
-    filterAll: 'Alle Status',
-    filterPublished: 'Nur veröffentlichte',
-    filterDraft: 'Nur Entwürfe',
-    // Tabelle.
-    columns: {
-      name: 'Vorlage',
-      category: 'Kategorie',
-      provenance: 'Färbung',
-      dataSources: 'Datenquellen',
-      cadence: 'Rhythmus',
-      published: 'Veröffentlicht',
-      actions: 'Aktionen',
-    },
-    rowActions: 'Aktionen für „{name}“',
-    editAria: '„{name}“ bearbeiten',
-    manualCadence: 'Auf Abruf',
-    noCategory: '—',
-    baseKnowledgeOnly: 'Nur Basiswissen',
-    moreSources: '+{count}',
-    // Zustände des Bereichs.
-    loadError: 'Die Vorlagen konnten nicht geladen werden.',
-    emptyTitle: 'Noch keine Vorlagen',
-    emptyDescription:
-      'Verfassen Sie hier einen Rechercheauftrag und veröffentlichen Sie ihn, um ihn allen Organisationen bereitzustellen.',
-    noMatchTitle: 'Keine Vorlage gefunden',
-    noMatchDescription: 'Zu dieser Suche und diesem Veröffentlichungsstatus passt nichts.',
-    clearFilters: 'Filter zurücksetzen',
-    range: '{from}–{to} von {total}',
-    previous: 'Zurück',
-    next: 'Weiter',
-    // Veröffentlichungsschalter.
-    published: 'Veröffentlicht',
-    draft: 'Entwurf',
-    publishAria: '„{name}“ für alle Organisationen veröffentlichen',
-    unpublishAria: 'Veröffentlichung von „{name}“ zurückziehen',
-    publishSuccess: 'Vorlage für alle Organisationen veröffentlicht.',
-    unpublishSuccess: 'Veröffentlichung zurückgezogen.',
-    publishFailed: 'Der Veröffentlichungsstatus konnte nicht geändert werden.',
-    // Zeilenmenü.
-    edit: 'Bearbeiten',
-    export: 'Als JSON exportieren',
-    delete: 'Löschen',
-    // Meldungen.
-    createSuccess: 'Vorlage erstellt.',
-    updateSuccess: 'Vorlage aktualisiert.',
-    saveFailed: 'Die Vorlage konnte nicht gespeichert werden.',
-    deleteSuccess: 'Vorlage gelöscht.',
-    deleteFailed: 'Die Vorlage konnte nicht gelöscht werden.',
-    // Löschbestätigung.
-    deleteTitle: '„{name}“ löschen?',
-    deleteDescription:
-      'Dies entfernt die Vorlage aus der Galerie jeder Organisation. Bereits daraus erstellte Workflows bleiben unberührt. Dies kann nicht rückgängig gemacht werden.',
-    deleteConfirm: 'Vorlage löschen',
-    deleteCancel: 'Abbrechen',
-    // Provenienz-Bezeichnungen (Tabelle + Editor).
-    provenance: {
-      law: 'Vorschrift',
-      project: 'Projekt',
-      office: 'Büro',
-      auto: 'Allgemein',
-    },
-    form: {
-      createTitle: 'Neue Workflow-Vorlage',
-      editTitle: 'Workflow-Vorlage bearbeiten',
-      subtitle:
-        'Verfassen Sie den Auftrag auf Deutsch und Englisch – die Galerie zeigt die Sprache des Betrachters.',
-      close: 'Editor schließen',
-      provenanceLabel: 'Kategorie-Färbung',
-      sortOrderLabel: 'Sortierreihenfolge',
-      sortOrderHint: 'Kleinere Zahlen erscheinen in der Galerie zuerst.',
-      dataSourcesLabel: 'Zusätzliche Datenquellen',
-      dataSourcesHint:
-        'Die Basiswissensebene ist immer enthalten. Wählen Sie weitere Quellen, die ein Lauf nutzen soll.',
-      sourcesLoading: 'Quellen werden geladen…',
-      sourcesAll: 'Keine zusätzlichen Quellen verfügbar.',
-      scheduleLabel: 'Vorgeschlagener Zeitplan',
-      scheduleHint: 'Ein Standardrhythmus, den die übernehmende Person beibehalten oder ändern kann.',
-      presetLabel: 'Rhythmus',
-      timezoneLabel: 'Zeitzone',
-      cronLabel: 'Eigener Cron (5 Felder)',
-      cronHint: 'Minute Stunde Tag-des-Monats Monat Wochentag.',
-      locale: {
-        de: 'Deutsch',
-        en: 'Englisch',
-      },
-      nameLabel: 'Name',
-      descriptionLabel: 'Kurzbeschreibung',
-      categoryLabel: 'Kategorie-Bezeichnung',
-      categoryHint: 'Kurzes Label auf der Galerie-Karte, z. B. „Compliance“.',
-      objectiveLabel: 'Ziel',
-      contextLabel: 'Hintergrund & Kontext',
-      questionsLabel: 'Forschungsfragen',
-      questionsHint: 'Eine Frage pro Zeile.',
-      outputFormatLabel: 'Ausgabeanforderungen',
-      previewLabel: 'Kompilierter Auftrag (was der Agent erhält)',
-      previewEmpty: 'Geben Sie das Ziel ein, um den kompilierten Auftrag zu sehen.',
-      publishLabel: 'Veröffentlicht',
-      publishHint: 'Wenn aktiv, ist diese Vorlage in der Galerie jeder Organisation sichtbar.',
-      // Benennt die unvollständige Sprache – das Formular wechselt zusätzlich auf
-      // diesen Reiter, damit Meldung und Ansicht übereinstimmen.
-      requiredError: '{locale}: Name, Kurzbeschreibung, Kategorie-Bezeichnung und Ziel sind erforderlich.',
-      cancel: 'Abbrechen',
-      save: 'Vorlage speichern',
-      saving: 'Wird gespeichert…',
-    },
-  },
   overview: {
     search: 'Organisationen suchen…',
     searchLabel: 'Organisationen suchen',
@@ -517,7 +384,6 @@ export const platform: typeof en.platform = {
     cards: 'Karten',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
-    workflows: 'Workflow-Vorlagen',
     storage: 'Speicher',
     maintenance: 'Wartung',
   },
@@ -629,10 +495,6 @@ export const platform: typeof en.platform = {
     norms: {
       title: 'Normenkatalog',
       subtitle: 'Welche Rechtsquellen binden, wie sie eingestuft sind und wo sie im RIS liegen.',
-    },
-    workflows: {
-      title: 'Workflow-Vorlagen',
-      subtitle: 'Vorlagen, die in der Galerie jeder Organisation erscheinen.',
     },
     storage: {
       title: 'Speicher',

@@ -28,6 +28,7 @@ import { useConversationMemory } from '../hooks/use-conversation-memory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
+import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -76,6 +77,12 @@ export interface AgentResponseProps {
    * "Belegt durch" sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Skills whose full instructions the agent loaded while writing this answer
+   * (`use_skill`), in activation order. Absent on a turn that activated none,
+   * which is the common case — availability is not activation.
+   */
+  skillsActivated?: string[]
   /**
    * Whether the self-assessment ConfidenceChip renders (WorkOS
    * `chat-confidence-chip` flag, FB-6). Defaults to true so the feature stays
@@ -192,6 +199,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   answerConfidenceCappedReason,
   answerConfidenceReason,
   citationsRemoved,
+  skillsActivated,
   showConfidenceChip = true,
   messageId,
   showAnswerFeedback = true,
@@ -379,6 +387,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           isStreaming={isStreaming}
         />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
+        <SkillsUsedDisclosure skillsActivated={skillsActivated} />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
         <div className="flex flex-wrap items-center gap-2">
@@ -513,6 +522,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             withDivider={false}
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
+          <SkillsUsedDisclosure skillsActivated={skillsActivated} />
           {hasMetaRow && (
             <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
               {hasConfidence && (

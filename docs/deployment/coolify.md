@@ -27,7 +27,7 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma` an
 | `postgres` | Three logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app` | No (internal) |
 | `dragonfly` | Redis-protocol shared cache + conversation bus (ADR-0020/0028) | No (internal) |
 | `purger` | Grace-period hard-delete worker | No |
-| `workflow-scheduler` | Workflows cron scheduler (ADR-0023) | No |
+| `skill-scheduler` | Agent Skills cron scheduler (ADR-0046) | No |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 | `aiq-data-permissions` | One-shot: chowns the shared data volume | No |
 

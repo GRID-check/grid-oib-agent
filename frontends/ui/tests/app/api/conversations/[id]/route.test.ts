@@ -86,6 +86,7 @@ const conversation = {
   engagement: null,
   projectId: PROJECT_ID,
   deletedAt: null,
+  jobId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

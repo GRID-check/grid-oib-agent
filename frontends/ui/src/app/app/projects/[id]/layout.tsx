@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
-import { isIfcModelsEnabled, isWorkflowsEnabled } from '@/lib/authz/feature-flags'
+import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjects } from '@/lib/projects/service'
 import { AppSidebar } from '@/components/shell'
@@ -64,6 +64,7 @@ export default async function ProjectLayout({
 }: ProjectLayoutProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
     const navFlags = await getNavFlags(session)
+    const showSkills = isSkillsEnabled(session)
     const { id } = await params
     // View access is enough to enter the project shell; per-section controls
     // (danger zone, member management) are gated inside their own pages.
@@ -95,7 +96,7 @@ export default async function ProjectLayout({
           canManagePlatform={navFlags.canManagePlatform}
           canAccessArchiv={navFlags.canAccessArchiv}
           canAccessInbox={navFlags.canAccessInbox}
-          showWorkflows={isWorkflowsEnabled(session)}
+          showSkills={showSkills}
           showModels={isIfcModelsEnabled(session)}
         />
         {/* tabIndex={-1} makes the landmark programmatically focusable so

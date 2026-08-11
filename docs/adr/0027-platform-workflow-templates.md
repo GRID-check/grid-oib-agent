@@ -1,9 +1,20 @@
 # ADR-0027: Platform-managed workflow templates
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0046](0046-agent-skills.md)
 - **Date:** 2026-07-23
 - **Deciders:** Grid engineering (platform owner request)
-- **Related:** ADR-0016 (platform tier), ADR-0023 (workflows), ADR-0017 (BFF repository/service), ADR-0007 (no cross-tenant FKs)
+- **Related:** ADR-0016 (platform tier), ADR-0023 (workflows — also superseded), ADR-0017 (BFF repository/service), ADR-0007 (no cross-tenant FKs), ADR-0046 (Agent Skills — supersedes this ADR)
+
+> **Superseded by ADR-0046 (Agent Skills).** This ADR's subject — the
+> Workflows gallery — was removed together with Workflows itself, and the
+> `platform_workflow_templates` table, its platform CRUD routes and its
+> manager UI went with it. Agent Skills carries the same idea differently:
+> platform-authored skills ship as SKILL.md **files** under
+> `src/aiq_agent/skills/builtin/`, appear in every organization's toolbox, and
+> an org adopts one by cloning it into an org row (`origin =
+> 'platform-clone'`). The decision kept here is the shape of the answer —
+> publish a catalog, let orgs opt in, never auto-provision running work into a
+> tenant — not the table it was built on.
 
 ## Context
 

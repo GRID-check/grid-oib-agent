@@ -118,7 +118,7 @@ describe('KeyboardShortcuts', () => {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
     // Flag-gated sections stay out until their flag is on.
-    expect(screen.queryByText('Workflows')).toBeNull()
+    expect(screen.queryByText('Skills')).toBeNull()
     expect(screen.queryByText('Knowledge')).toBeNull()
     // The keycaps show the leader sequence, not a bare letter. Asserted
     // against the <kbd> elements rather than the row text — the label "Files"

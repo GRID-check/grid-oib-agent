@@ -3,7 +3,6 @@ import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useDownloadPdfRoute } from './use-download-pdf'
 
 describe('useDownloadPdfRoute', () => {
-  const originalFetch = global.fetch
   const originalCreateObjectURL = URL.createObjectURL
   const originalRevokeObjectURL = URL.revokeObjectURL
 
@@ -16,7 +15,7 @@ describe('useDownloadPdfRoute', () => {
   })
 
   afterEach(() => {
-    global.fetch = originalFetch
+    vi.unstubAllGlobals()
     global.URL.createObjectURL = originalCreateObjectURL
     global.URL.revokeObjectURL = originalRevokeObjectURL
     vi.restoreAllMocks()
@@ -38,7 +37,7 @@ describe('useDownloadPdfRoute', () => {
       resolvePromise = resolve
     })
 
-    global.fetch = vi.fn(() => pendingPromise) as typeof fetch
+    vi.stubGlobal('fetch', vi.fn(() => pendingPromise))
 
     // Start download (don't await)
     act(() => {
@@ -66,10 +65,10 @@ describe('useDownloadPdfRoute', () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
     const mockBlob = new Blob(['pdf content'], { type: 'application/pdf' })
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       blob: () => Promise.resolve(mockBlob),
-    })
+    }))
 
     // Mock anchor element click - set up AFTER renderHook
     const mockClick = vi.fn()
@@ -107,10 +106,10 @@ describe('useDownloadPdfRoute', () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
     const mockBlob = new Blob(['pdf content'], { type: 'application/pdf' })
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       blob: () => Promise.resolve(mockBlob),
-    })
+    }))
 
     const mockAnchor = { href: '', download: '', click: vi.fn() }
     vi.spyOn(document, 'createElement').mockReturnValue(mockAnchor as unknown as HTMLElement)
@@ -129,10 +128,10 @@ describe('useDownloadPdfRoute', () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
     const mockBlob = new Blob(['pdf content'], { type: 'application/pdf' })
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       blob: () => Promise.resolve(mockBlob),
-    })
+    }))
 
     const mockAnchor = { href: '', download: '', click: vi.fn() }
     vi.spyOn(document, 'createElement').mockReturnValue(mockAnchor as unknown as HTMLElement)
@@ -149,10 +148,10 @@ describe('useDownloadPdfRoute', () => {
   test('handles fetch error', async () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       statusText: 'Internal Server Error',
-    })
+    }))
 
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -168,7 +167,7 @@ describe('useDownloadPdfRoute', () => {
   test('handles network error', async () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
-    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')))
 
     await act(async () => {
       await result.current.downloadPdf('# Test')
@@ -181,7 +180,7 @@ describe('useDownloadPdfRoute', () => {
   test('handles non-Error exception', async () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
-    global.fetch = vi.fn().mockRejectedValue('Unknown error')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue('Unknown error'))
 
     await act(async () => {
       await result.current.downloadPdf('# Test')
@@ -195,10 +194,10 @@ describe('useDownloadPdfRoute', () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
     // First call fails
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       statusText: 'Error',
-    })
+    }))
 
     await act(async () => {
       await result.current.downloadPdf('# Test')
@@ -208,10 +207,10 @@ describe('useDownloadPdfRoute', () => {
 
     // Second call succeeds - need to mock document methods
     const mockBlob = new Blob(['pdf content'], { type: 'application/pdf' })
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       blob: () => Promise.resolve(mockBlob),
-    })
+    }))
 
     const mockAnchor = { href: '', download: '', click: vi.fn() }
     vi.spyOn(document, 'createElement').mockReturnValue(mockAnchor as unknown as HTMLElement)

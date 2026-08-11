@@ -180,7 +180,7 @@ Migrations and runtime use **different credentials**:
 
 | Variable | Role | Set on |
 |---|---|---|
-| `GRID_APP_DATABASE_URL` | `grid_app_rw` | frontend, purger, workflow-scheduler |
+| `GRID_APP_DATABASE_URL` | `grid_app_rw` | frontend, purger, skill-scheduler |
 | `GRID_APP_MIGRATION_DATABASE_URL` | the table owner (`aiq`) | the `grid-migrate` service (compose) / the migration Job (Kubernetes) |
 
 `drizzle.config.ts` prefers the migration URL and falls back to the runtime one,
@@ -193,7 +193,7 @@ variable.
   `grid_app_rw`'s password from `GRID_APP_DATABASE_URL` — one source of truth,
   no manual step. It runs in the one-shot `grid-migrate` service **before**
   `drizzle-kit migrate`, because migration 0030 asserts the roles and aborts
-  without them. `frontend`, `purger` and `workflow-scheduler` all wait on that
+  without them. `frontend`, `purger` and `skill-scheduler` all wait on that
   service via `depends_on: service_completed_successfully`.
   `GRID_APP_RUNTIME_PASSWORD` only substitutes into the compose DSNs; the role's
   password follows the DSN, not the variable.

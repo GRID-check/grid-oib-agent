@@ -25,7 +25,6 @@ import {
   Scale,
   ShieldCheck,
   SlidersHorizontal,
-  Workflow,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -40,7 +39,6 @@ export const PLATFORM_SECTIONS = [
   { key: 'cards', href: '/app/platform/cards', icon: LayoutGrid },
   { key: 'knowledge', href: '/app/platform/knowledge', icon: BookOpenCheck },
   { key: 'norms', href: '/app/platform/norms', icon: Scale },
-  { key: 'workflows', href: '/app/platform/workflows', icon: Workflow },
   { key: 'storage', href: '/app/platform/storage', icon: HardDrive },
   { key: 'maintenance', href: '/app/platform/maintenance', icon: DatabaseZap },
 ] as const satisfies readonly { key: string; href: string; icon: LucideIcon }[]

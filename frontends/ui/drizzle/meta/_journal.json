@@ -288,6 +288,34 @@
       "when": 1785974400005,
       "tag": "0040_bim_elements_storey_expression_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786060800005,
+      "tag": "0041_agent_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786147200005,
+      "tag": "0042_drop_workflows",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786233600005,
+      "tag": "0043_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786320000005,
+      "tag": "0044_conversation_job_provenance",
+      "breakpoints": true
     }
   ]
 }

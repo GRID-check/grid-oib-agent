@@ -21,7 +21,7 @@ their own namespaces.
 | `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4 |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
-| `workflow-scheduler` | Deployment (only when `workflowsEnabled`) | 1 | — | n/a (DB-claimed ticks) |
+| `skill-scheduler` | Deployment (only when `skillsEnabled`) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
@@ -1165,7 +1165,7 @@ budget (`EDGE_RETRY`, 3 attempts, 100ms→1s backoff). The trigger list is
 narrowed on purpose to `connect-failure`, `refused-stream` and
 `reset-before-request` — the cases where Envoy knows the request never reached
 the upstream. Envoy's *default* set includes `unavailable` and 503, which would
-replay non-idempotent BFF POSTs (chat sends, ingest, workflow mutations); plain
+replay non-idempotent BFF POSTs (chat sends, ingest, skill mutations); plain
 `reset` would replay a half-streamed answer.
 
 ### What "zero downtime" does and does not mean here
@@ -1216,7 +1216,7 @@ find, because a from-scratch plan cannot show them:
   not be specified when strategy type is 'Recreate'`. Use `surgeRollout`
   instead, or clear the defaulted field first with
   `kubectl -n grid patch deploy <name> --type=json -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'`.
-  Only purger and workflow-scheduler use `Recreate`, and both were already on it.
+  Only purger and skill-scheduler use `Recreate`, and both were already on it.
 
 **Verifying a rollout**
 
@@ -1456,7 +1456,7 @@ grid-ui (`@vercel/otel`), grid-aiq-agent and grid-agent-worker (NAT tracing
 exporter); logs from all five tiers - the Python tiers via the
 `otelcollector_logs` NAT logging method
 (`src/aiq_agent/observability/otlp_logging_method.py`, attaches to the root
-logger) and the Node tiers (grid-ui, workflow-scheduler, purger) via the
+logger) and the Node tiers (grid-ui, skill-scheduler, purger) via the
 `frontends/ui/observability/otel-logs.js` console bridge. Metrics: nothing
 emits them yet; that requires explicit meters.
 - **`aspire-dashboard`** (`deploy/pulumi/src/platform/observability.ts`) — a
@@ -1464,7 +1464,7 @@ emits them yet; that requires explicit meters.
   trace/span viewer for platform owners.
 
 ```text
-grid-ui / grid-aiq-agent / grid-agent-worker / grid-workflow-scheduler / grid-purger
+grid-ui / grid-aiq-agent / grid-agent-worker / grid-skill-scheduler / grid-purger
         │  plain OTLP (in-cluster, no key)
         ▼
   otel-collector ── OTLP/HTTP + x-otlp-api-key ──▶ aspire-dashboard
@@ -1536,7 +1536,7 @@ client id is wrong; `invalid_redirect_uri` means step 3 was missed.
 chat/web, `agent-worker` deep-research jobs) share the NAT config; the
 Next.js BFF registers `@vercel/otel` from `src/instrumentation.ts`. They
 appear as separate resources via `OTEL_SERVICE_NAME` (`grid-ui` /
-`grid-aiq-agent` / `grid-agent-worker`). Workflow-scheduler and purger emit
+`grid-aiq-agent` / `grid-agent-worker`). Skill-scheduler and purger emit
 no telemetry, and the `server.js` WS proxy is not auto-instrumented
 (follow-ups).
 

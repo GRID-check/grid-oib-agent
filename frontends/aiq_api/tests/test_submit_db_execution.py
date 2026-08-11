@@ -45,6 +45,7 @@ def _sample_payload():
         clarifier_result="clar",
         memory_reflection_enabled=True,
         memory_reflection_llm="card_llm",
+        force_skills=["oib-thermal-check"],
     )
 
 

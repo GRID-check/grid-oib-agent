@@ -68,7 +68,17 @@ repos:
     hooks:
       - id: markdown-link-check
         args: ["-q", "--config", "ci/markdown-link-check-config.json"]
-        exclude: ^skills/[^/]+/skill-card\.md$
+        # The vendored SkillCheck rulebook is excluded because it is vendored
+        # VERBATIM (see src/aiq_agent/skills/review/README.md): its relative
+        # links resolve upstream, where the whole `references/` directory
+        # exists, and we deliberately took only the one file. Rewriting its
+        # links to make a link checker happy would break the byte-for-byte
+        # guarantee that keeps its MIT licence and attribution intact.
+        exclude: |
+          (?x)^(
+            skills/[^/]+/skill-card\.md|
+            src/aiq_agent/skills/review/skill-check/SKILL\.md
+          )$
 
 default_language_version:
   python: python3

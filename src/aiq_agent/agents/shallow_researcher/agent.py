@@ -353,13 +353,14 @@ class ShallowResearcherAgent:
             # Render the system prompt once per run and cache it on the state.
             # Every input below (system_prompt, tools_info, user_info,
             # current_datetime at DATE precision, available_documents,
-            # project_context, the three norm blocks, requires_sources) is fixed
-            # for the life of a single run(), so the rendered string is
-            # byte-identical across tool-loop iterations. When the cache is
-            # populated we skip both the Jinja render AND the norm-block
-            # computation (registry reads / applicability compute) entirely. The
-            # inline path below stays as the fallback for the first iteration and
-            # the graph-direct path (where the field is None).
+            # project_context, the three norm blocks, requires_sources,
+            # skills_block) is fixed for the life of a single run(), so the
+            # rendered string is byte-identical across tool-loop iterations.
+            # When the cache is populated we skip both the Jinja render AND the
+            # norm-block computation (registry reads / applicability compute)
+            # entirely. The inline path below stays as the fallback for the
+            # first iteration and the graph-direct path (where the field is
+            # None).
             rendered_system_prompt = state.cached_system_prompt
             if rendered_system_prompt is None:
                 # Render system prompt with the current DATE (not time): a
@@ -388,6 +389,9 @@ class ShallowResearcherAgent:
                     # Deterministically suppress the control-marker mandate on
                     # conversational/meta turns instead of relying on model judgment.
                     requires_sources=state.requires_sources,
+                    # Skills catalog + forced-skills block (already collated by
+                    # the register layer; None renders no section).
+                    skills_block=state.skills_block,
                 )
                 if os.environ.get("DEBUG_PROMPTS"):
                     logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)

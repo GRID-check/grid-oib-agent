@@ -48,6 +48,11 @@ export interface ResponseTransparency {
   answerConfidenceReason?: string
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Skills whose instructions the agent LOADED this turn, in activation order.
+   * Absent when none were — availability is not activation.
+   */
+  skillsActivated?: string[]
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -77,6 +82,15 @@ export interface SendMessageWireOptions {
   contextOnly?: boolean
   /** Display name of the human who wrote it, so the agent can attribute the turn. */
   authorName?: string | null
+  /**
+   * Skill names the user invoked with `/name` in the composer.
+   *
+   * Structured, never re-derived from the message text: the backend lifts this
+   * onto the agent state as `force_skills`, which names the skills that MUST be
+   * applied to this turn. Omitted entirely when nothing was invoked, so an
+   * ordinary message stays byte-for-byte the envelope it always was.
+   */
+  skills?: string[]
 }
 
 /** Context passed with connection status changes */
@@ -394,6 +408,10 @@ export class NATWebSocketClient {
     const textContent = JSON.stringify({
       query: content,
       data_sources: enabledDataSources ?? [],
+      // Only when non-empty: the backend distinguishes "said nothing about
+      // skills" (undefined) from "explicitly no skills" ([]), exactly as it
+      // does for data_sources.
+      ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
       ...(options?.contextOnly ? { context_only: true } : {}),
       ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })
@@ -598,6 +616,7 @@ export class NATWebSocketClient {
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
             answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
+            skillsActivated: message.skills_activated,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
           }

@@ -332,7 +332,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     from .builder_state import set_active_builder
 
-    # Publish the builder so the internal workflows submit route (registered
+    # Publish the builder so the internal skills submit route (registered
     # without one) can reuse _validate_data_sources_for_agent.
     set_active_builder(builder)
 

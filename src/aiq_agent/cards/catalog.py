@@ -12,6 +12,7 @@ Deliberately free of NAT/tooling imports so it can be imported from either
 surface without triggering tool registration side effects.
 """
 
+import functools
 import json
 import types
 import typing
@@ -272,6 +273,29 @@ CARD_EXAMPLES: dict[str, dict] = {
 }
 
 
+def _card_type_of(card_cls: type) -> str:
+    """The ``type`` literal of a card class (``"summary"``, …)."""
+    return getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
+
+
+@functools.lru_cache(maxsize=1)
+def model_facing_card_types() -> frozenset[str]:
+    """Every card ``type`` the model may be ASKED to produce.
+
+    The union minus :data:`SYSTEM_CARD_TYPES` — i.e. exactly the set
+    :func:`render_card_catalog` advertises. It is exposed separately because
+    other surfaces need to answer "may a skill/author name this card?" without
+    parsing the rendered catalog text: the skills substrate validates
+    ``grid-cards`` against it (see :mod:`aiq_agent.skills.models`), and the
+    editor's picker derives the same set from the generated Zod schemas. One
+    definition of "advertisable", so a new card type appears everywhere at once
+    and a system card can never be requested by name.
+    """
+    from aiq_agent.cards.models import GridCard
+
+    return frozenset(_card_type_of(c) for c in GridCard.__args__) - SYSTEM_CARD_TYPES
+
+
 def _annotation_str(annotation: object, nested: list[type]) -> str:
     """Render a field annotation as a compact JSON-ish type string.
 
@@ -413,8 +437,7 @@ def shape_hint_for(card_type: str) -> str | None:
     from aiq_agent.cards.models import GridCard
 
     for card_cls in GridCard.__args__:
-        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
-        if type_value != card_type:
+        if _card_type_of(card_cls) != card_type:
             continue
         nested: list[type] = []
         body = _card_shape(card_cls, nested)
@@ -459,7 +482,7 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
     nested: list[type] = []
     card_lines: list[str] = []
     for card_cls in GridCard.__args__:
-        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
+        type_value = _card_type_of(card_cls)
         # System cards are emitted by tools on sanctioned paths, never by the
         # model — omit them so the model can't fabricate them. Model-backed
         # cards are omitted on the path that cannot supply their ids.

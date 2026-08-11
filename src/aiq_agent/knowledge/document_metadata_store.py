@@ -593,6 +593,65 @@ class DocumentMetadataStore:
             logger.warning("Failed to clear all document metadata: %s", e)
 
     @classmethod
+    async def dispose_engine_async(cls, db_url: str):
+        """Awaitable variant of :meth:`dispose_engine` for callers inside a
+        running event loop.
+
+        The synchronous variant can only *schedule* the close of an async
+        engine (``loop.create_task``); when the caller's loop is about to shut
+        down — e.g. an async test's teardown — that task never runs, the
+        aiosqlite connection stays open and a Windows SQLite temp file remains
+        locked. Awaiting the dispose directly closes it before the caller
+        proceeds.
+        """
+        with cls._cache_lock:
+            engine = cls._sync_engine_cache.pop(db_url, (None,))[0]
+            if engine:
+                try:
+                    engine.dispose()
+                except (RuntimeError, OSError):
+                    pass
+
+            engine = cls._async_engine_cache.pop(db_url, (None,))[0]
+            if engine:
+                try:
+                    await engine.dispose()
+                except (RuntimeError, OSError):
+                    pass
+
+    @classmethod
+    def dispose_engine(cls, db_url: str):
+        """Dispose the cached engines for one db_url (e.g. temp-file teardown).
+
+        Unlike ``dispose_all_engines`` this leaves every other cached store
+        intact — engine caches are shared process-globally, so tests that point
+        the store at a fresh temp SQLite file must release exactly that file's
+        handle before removing the directory (Windows: unlink of an open SQLite
+        file fails with PermissionError).
+        """
+        import asyncio
+
+        with cls._cache_lock:
+            engine = cls._sync_engine_cache.pop(db_url, (None,))[0]
+            if engine:
+                try:
+                    engine.dispose()
+                except (RuntimeError, OSError):
+                    pass
+
+            engine = cls._async_engine_cache.pop(db_url, (None,))[0]
+            if engine:
+                try:
+                    coro = engine.dispose()
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(coro)
+                    except RuntimeError:
+                        asyncio.run(coro)
+                except (RuntimeError, OSError):
+                    pass
+
+    @classmethod
     def dispose_all_engines(cls):
         """Dispose all cached engines (for shutdown)."""
         import asyncio

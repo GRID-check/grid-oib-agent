@@ -97,6 +97,9 @@ import {
   type MentionQuery,
 } from '@/features/collaboration/lib/mention-text'
 import { MENTION_ERROR_REASONS, type MentionCandidate } from '@/lib/mentions/types'
+import { InvokedSkillChip } from '@/features/skills/components/InvokedSkillChip'
+import { SlashCommandPicker } from '@/features/skills/components/SlashCommandPicker'
+import { useSlashCommand } from '@/features/skills/hooks/use-slash-command'
 import type { SendMessageOutcome } from '@/features/chat/hooks/use-websocket-chat'
 
 /** Preset chip order + their provenance signals (spec §4 --source-* family). */
@@ -901,6 +904,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // survives navigating away/back and a reload.
       if (sessionId) setComposerDraft(sessionId, value)
       syncMentionQuery(value, caret)
+      syncSlashQueryRef.current?.(value, caret ?? value.length)
       // Tell the thread. Throttled inside the hook, so this is a comparison on
       // most keystrokes; emptying the box withdraws the claim rather than letting
       // it expire, because "cleared the draft" is exactly when a colleague should
@@ -952,9 +956,40 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const syncMentionQueryFromElement = useCallback(
     (element: HTMLTextAreaElement) => {
       syncMentionQuery(element.value, element.selectionStart)
+      syncSlashQueryRef.current?.(element.value, element.selectionStart)
     },
     [syncMentionQuery],
   )
+
+  /*
+    `/skill` invocation. All of its behaviour lives in `useSlashCommand`; the
+    composer supplies the text, a way to replace it, and the picker.
+
+    The ref indirection exists because `handleValueChange` (defined above, and a
+    dependency of half this component) has to feed the hook, while the hook needs
+    `handleValueChange` to write text back. Rather than reorder a 2000-line
+    component around a new feature, the sync function is published into a ref the
+    earlier callbacks read — the one edge where this feature touches existing
+    code paths, and it is inert until the user types a slash.
+  */
+  const syncSlashQueryRef = useRef<((text: string, caret: number) => void) | null>(null)
+  const replaceComposerText = useCallback(
+    (text: string, caret: number) => {
+      pendingCaretRef.current = caret
+      handleValueChange(text, caret)
+    },
+    [handleValueChange],
+  )
+  const slash = useSlashCommand({
+    text: message,
+    // A message the agent is not being asked to answer cannot invoke a skill:
+    // `contextOnly` sends are remarks to the thread (ADR-0034 addendum), and a
+    // skill that force-activates on a turn nobody asked for would be a silent
+    // cost. `cannotContribute` covers the read-only cases.
+    enabled: !cannotContribute && !isResponseMode,
+    onReplaceText: replaceComposerText,
+  })
+  syncSlashQueryRef.current = slash.syncQuery
 
   // Restore the caret after a mention insertion rewrote the text.
   useEffect(() => {
@@ -1091,7 +1126,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // One ternary, not a re-derivation: `sendMessageOptions` already chose
           // the case. Omitting the argument entirely is what keeps the fast path
           // the literal single-argument call it has always been.
-          const options = sendMessageOptions(sent.routing)
+          const routed = sendMessageOptions(sent.routing)
+          // Resolved from the TEXT BEING SENT, not from state: the `/name` token
+          // can be edited away after it was picked, and what reaches the agent
+          // has to be what the message still says — the same discipline the
+          // mentions above follow.
+          const invoked = slash.skillsForSend(currentMessage)
+          const options = invoked ? { ...(routed ?? {}), skills: invoked } : routed
           return options
             ? sendMessage(currentMessage, options)
             : sendMessage(currentMessage)
@@ -1148,6 +1189,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     currentConversation,
     clearComposerDraft,
     onStoppedTyping,
+    slash,
     t,
     tCollab,
   ])
@@ -1162,6 +1204,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // The `/` picker gets first refusal on the navigation keys. It and the
+      // mention picker are mutually exclusive by caret position (a slash query
+      // only exists while the caret is inside the message's opening token), so
+      // the order here is a formality rather than a precedence rule.
+      if (slash.handleKeyDown(e, handleSubmit)) return
+
       // While the picker is open it owns the navigation keys. The single most
       // important detail: Enter must INSERT, never submit — a message sent because
       // the user confirmed a name is the worst possible outcome here.
@@ -1204,7 +1252,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       e.preventDefault()
       handleSubmit()
     },
-    [handleSubmit, mentionPickerOpen]
+    [handleSubmit, mentionPickerOpen, slash]
   )
 
   /**
@@ -1305,9 +1353,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           spanning its full width — the Slack/Linear placement. Caret-pixel tracking
           inside a textarea is fragile and buys nothing here. */}
       <Popover
-        open={mentionPickerOpen}
+        open={mentionPickerOpen || slash.open}
         onOpenChange={(open) => {
-          if (!open) setMentionDismissed(true)
+          if (open) return
+          // Dismiss whichever panel was showing. Both can be told to close: only
+          // one of them is open, and the other's flag is already false.
+          setMentionDismissed(true)
+          slash.dismiss()
         }}
       >
       <PopoverAnchor asChild>
@@ -1439,15 +1491,46 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // `aria-controls` points at exists only then, and a chat composer that
           // announces itself as a combobox at all times is worse for a screen
           // reader than one that announces the popup when it appears.
-          role={mentionPickerOpen ? 'combobox' : undefined}
-          aria-expanded={mentionPickerOpen ? true : undefined}
-          aria-haspopup={mentionPickerOpen ? 'listbox' : undefined}
-          aria-autocomplete={mentionPickerOpen ? 'list' : undefined}
-          aria-controls={mentionPickerOpen ? (mentionAria.listboxId ?? undefined) : undefined}
+          role={mentionPickerOpen || slash.open ? 'combobox' : undefined}
+          aria-expanded={mentionPickerOpen || slash.open ? true : undefined}
+          aria-haspopup={mentionPickerOpen || slash.open ? 'listbox' : undefined}
+          aria-autocomplete={mentionPickerOpen || slash.open ? 'list' : undefined}
+          aria-controls={
+            slash.open
+              ? (slash.aria.listboxId ?? undefined)
+              : mentionPickerOpen
+                ? (mentionAria.listboxId ?? undefined)
+                : undefined
+          }
           aria-activedescendant={
-            mentionPickerOpen ? (mentionAria.activeOptionId ?? undefined) : undefined
+            slash.open
+              ? (slash.aria.activeOptionId ?? undefined)
+              : mentionPickerOpen
+                ? (mentionAria.activeOptionId ?? undefined)
+                : undefined
           }
         />
+
+        {/* The skill this message invokes, if any. Under the textarea and above
+            the control row, where the file chips sit: both answer "what is
+            attached to what I am about to send?". */}
+        <AnimatePresence initial={false}>
+          {slash.invokedSkill && (
+            <motion.div
+              key={`invoked-skill-${slash.invokedSkill.name}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 2 }}
+              transition={easeQuiet}
+            >
+              <InvokedSkillChip
+                name={slash.invokedSkill.name}
+                description={slash.invokedSkill.description}
+                onRemove={cannotContribute ? undefined : slash.clearInvocation}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Upload Error Display */}
         <AnimatePresence initial={false}>
@@ -1910,15 +1993,26 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             if (target && composerRef.current?.contains(target)) event.preventDefault()
           }}
         >
-          <MentionPicker
-            ref={mentionPickerRef}
-            query={mentionQuery?.query ?? ''}
-            candidates={mentionData?.candidates ?? []}
-            canInvite={mentionData?.canInvite ?? false}
-            loading={mentionsLoading}
-            onSelect={handleMentionSelect}
-            onAriaChange={setMentionAria}
-          />
+          {slash.open ? (
+            <SlashCommandPicker
+              ref={slash.pickerRef}
+              query={slash.query}
+              skills={slash.skills}
+              loading={slash.loading}
+              onSelect={slash.select}
+              onAriaChange={slash.onAriaChange}
+            />
+          ) : (
+            <MentionPicker
+              ref={mentionPickerRef}
+              query={mentionQuery?.query ?? ''}
+              candidates={mentionData?.candidates ?? []}
+              canInvite={mentionData?.canInvite ?? false}
+              loading={mentionsLoading}
+              onSelect={handleMentionSelect}
+              onAriaChange={setMentionAria}
+            />
+          )}
         </PopoverContent>
       </Popover>
 

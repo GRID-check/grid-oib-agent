@@ -52,10 +52,13 @@ export interface KeyboardShortcutsProps {
   canViewOrganization: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
-  /** Whether the Workflows page is enabled (feature-flagged, default off). */
-  showWorkflows?: boolean
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
+  /**
+   * Whether the Agent Skills page is enabled (feature-flagged, default off —
+   * ADR-0046).
+   */
+  showSkills?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
   canAccessArchiv?: boolean
   /** Whether the collaboration surfaces are reachable (`collaboration`, ADR-0032…0035). */
@@ -68,8 +71,8 @@ export function KeyboardShortcuts({
   authRequired,
   canViewOrganization,
   showKnowledge = false,
-  showWorkflows = false,
   showModels = false,
+  showSkills = false,
   canAccessArchiv = false,
   canCollaborate = false,
   canAccessInbox = false,
@@ -85,7 +88,7 @@ export function KeyboardShortcuts({
     () => ({
       canViewOrganization,
       showKnowledge,
-      showWorkflows,
+      showSkills,
       showModels,
       canAccessArchiv,
       canCollaborate,
@@ -94,7 +97,7 @@ export function KeyboardShortcuts({
     [
       canViewOrganization,
       showKnowledge,
-      showWorkflows,
+      showSkills,
       showModels,
       canAccessArchiv,
       canCollaborate,
@@ -179,7 +182,7 @@ export function KeyboardShortcuts({
         canViewOrganization={canViewOrganization}
         showKnowledge={showKnowledge}
         showModels={showModels}
-        showWorkflows={showWorkflows}
+        showSkills={showSkills}
         canAccessArchiv={canAccessArchiv}
       />
       <ShortcutsCheatsheet
@@ -188,7 +191,7 @@ export function KeyboardShortcuts({
         canViewOrganization={canViewOrganization}
         showKnowledge={showKnowledge}
         showModels={showModels}
-        showWorkflows={showWorkflows}
+        showSkills={showSkills}
         canAccessArchiv={canAccessArchiv}
         canCollaborate={canCollaborate}
         canAccessInbox={canAccessInbox}

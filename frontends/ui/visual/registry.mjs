@@ -241,25 +241,69 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
-    id: 'platform-workflow-templates',
-    path: '/dev/platform-workflow-templates',
+    id: 'skills-panel',
+    path: '/dev/skills-panel',
     description:
-      'Platform workflow-templates manager (ADR-0027) — published + draft rows, provenance chips, cadence hints, and the JSON-import dropzone.',
-    waitFor: '[data-testid="platform-template-list"]',
+      'Agent Skills tab (ADR-0045) — the merged skill toolbox (builtin, org, cloned) with badges and instruction bodies, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab, so this shot is the proof that the page is the toolbox alone. The fixture covers all three origins plus a disabled clone, because origin is what decides whether a row can be edited or only cloned.',
+    waitFor: '[data-testid="skills-panel-preview"]',
   },
   {
-    id: 'workflow-template-gallery',
-    path: '/dev/workflow-template-gallery',
+    id: 'jobs-panel',
+    path: '/dev/jobs-panel',
     description:
-      'Org Workflows template gallery (ADR-0027) — GRID built-in templates followed by the platform-published ones.',
-    waitFor: '[data-testid="workflow-templates"]',
+      'Jobs tab, list mode — the Files shape: a compact bordered bar (title, one-line subtitle, the single New-job action) over a card GRID that fills the pane, not a narrow centred column. A card leads with the PROMPT, not the skill, because the prompt is what the job is and the skill is the optional extra; the fixture carries two jobs with no skill and two with one, so "Ohne Skill" is visibly a stated fact rather than a blank. Both output kinds (Chat / Bericht) are on screen, plus a disabled job (dimmed, badge, run-now unavailable) and one with no cron, which reads "Nur manuell". Captured at 1200px, which is the 2-up band; 3-up starts at 2xl, chosen so the run/edit/delete row still fits on one line.',
+    waitFor: '[data-testid="jobs-panel-preview"] [role="switch"]',
   },
   {
-    id: 'workflow-run-history',
-    path: '/dev/workflow-run-history',
+    id: 'job-builder',
+    path: '/dev/job-builder',
     description:
-      'A workflow’s run history joined with live job status — a run in flight (View progress), a finished one (View report), a failed one (View thinking) and a skipped one with no job.',
-    waitFor: '[data-testid="run-history-preview"] a',
+      'The job builder editing a fully populated job, reached the way a user reaches it — the preview presses Bearbeiten on a real card, so the shot carries the panel shell the builder now shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the job fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
+    waitFor: '[data-testid="job-prompt-preview"]',
+  },
+  {
+    id: 'job-run-history',
+    path: '/dev/job-run-history',
+    description:
+      'A job\'s run history with one row per outcome, which is the only place the product answers "where did this run end up?". Each row joins the recorded submission against the live backend job state, and that state picks BOTH the badge and the link: a finished chat run offers the conversation it minted, a finished deep-research run its report, a live one its progress, a failed one its thinking — and the skipped run, which never became a job, offers nothing rather than a dead link.',
+    waitFor: '[data-testid="job-run-history-preview"] li',
+  },
+  {
+    id: 'skill-composer',
+    mobile: true,
+    path: '/dev/skill-composer',
+    description:
+      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath states the CONSEQUENCE — these instructions will be loaded — because a `/token` in a sentence says nothing about what it does.',
+    waitFor: '[data-testid="slash-command-picker"]',
+  },
+  {
+    id: 'skill-composer-empty',
+    path: '/dev/skill-composer?variant=empty',
+    description:
+      'The `/` menu for an organization that has authored no skills. Registered separately because this panel is the only place in the product that explains what a skill IS — the state a first-time user meets is the state that has to teach.',
+    waitFor: '[data-testid="slash-command-picker"]',
+  },
+  {
+    id: 'skill-editor',
+    path: '/dev/skill-editor',
+    description:
+      'The two panes beside the skill editor form: the SKILL.md the form is writing, split at the seam that decides everything about how a skill behaves (frontmatter in the agent’s context on every turn, instructions loaded only on activation), and the reviewer’s verdict on the draft beneath it. The draft is deliberately mediocre — a description that never says when to use the skill — so the findings show all three severities across all three fields rather than a clean bill of health that would prove nothing. The preview presses the check itself, because findings do not exist until somebody asks for them.',
+    waitFor: '[data-testid="skill-review-findings"]',
+  },
+  {
+    id: 'skill-editor-advanced',
+    path: '/dev/skill-editor-advanced',
+    description:
+      'The skill editor’s advanced section — the whole SKILL.md, editable, folded away under the form. Both of its open states are on one page because the section’s only output while open is which of them it is in: a document that parses and differs from the form, where applying is live, and one whose frontmatter was never closed, where the reason is named and applying is refused. It has a route of its own because it sits at the bottom of a tall dialog and never appears in the editor shot.',
+    waitFor: '[data-testid="skill-raw-document"] textarea',
+  },
+  {
+    id: 'skill-activation',
+    mobile: true,
+    path: '/dev/skill-activation',
+    description:
+      'What the agent actually LOADED while writing an answer, in both of its states on one page: the quiet one-line summary under the answer, and the same disclosure opened, where each activated skill is named with the description that was fetched only on expand. One activated skill has since been renamed and so has no description — its row keeps the name rather than disappearing, because the answer really was written with it.',
+    waitFor: '[data-testid="skills-used-panel"]',
   },
   {
     id: 'platform-knowledge',
@@ -276,14 +320,6 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Platform norms section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
     waitFor: '[data-testid="platform-norms-preview"]',
-  },
-  {
-    id: 'platform-workflows',
-    mobile: true,
-    path: '/dev/platform-workflows',
-    description:
-      'Platform workflows section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
-    waitFor: '[data-testid="platform-workflows-preview"]',
   },
   {
     id: 'platform-overview',

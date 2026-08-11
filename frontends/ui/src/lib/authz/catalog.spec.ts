@@ -10,7 +10,6 @@ import {
   PROJECT_PERMISSION_SPECS,
   RESOURCE_TYPES,
   ROLES,
-  WORKFLOW_PERMISSION_SPECS,
   findPermissionSpec,
   findRoleSpec,
 } from './catalog'
@@ -116,17 +115,6 @@ describe('authorization catalog', () => {
     expect(unexposed).toEqual([])
   })
 
-  it('exposes the workflow tier the Workflow resource type was created for', () => {
-    expect(WORKFLOW_PERMISSION_SPECS.map((permission) => permission.slug)).toEqual([
-      'workflow:view',
-      'workflow:run',
-      'workflow:manage',
-    ])
-    expect(findRoleSpec('workflow-operator')?.permissions).toEqual([
-      'workflow:view',
-      'workflow:run',
-    ])
-  })
 
   it('the fine-grained org personas each hold a strict subset of Admin', () => {
     // This is the extensibility contract made testable: if a persona could hold

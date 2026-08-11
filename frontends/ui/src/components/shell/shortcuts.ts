@@ -217,7 +217,6 @@ if (process.env.NODE_ENV !== 'production') {
   const keys = jumpTargets({
     canViewOrganization: true,
     showKnowledge: true,
-    showWorkflows: true,
     canAccessArchiv: true,
     canCollaborate: true,
     canAccessInbox: true,
