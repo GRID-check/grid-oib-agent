@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-const { buildBimPredicate } = await import('./query')
+const { buildBimPredicate, bimFilterSchema, bimQuerySchema } = await import('./query')
 
 const dialect = new PgDialect()
 
@@ -116,5 +116,70 @@ describe('the property-filter pre-filter', () => {
     })
 
     expect(sql).not.toContain('search_keys')
+  })
+})
+
+/**
+ * What the schema refuses, and why refusing beats stripping.
+ *
+ * Zod's default is to drop unknown keys, which for a FILTER is the worst
+ * possible failure: the query still runs, over a wider set than the caller
+ * asked for, and nothing downstream can tell that a criterion was discarded.
+ * The agent then reports a filtered count that was never filtered.
+ */
+describe('the query schema', () => {
+  const filter = (value: unknown) => bimFilterSchema.safeParse(value)
+
+  it('rejects a filter key it does not know instead of dropping it', () => {
+    // Singular `storey` is a very natural slip; the real key is `storeys`.
+    // Stripped, this became "every wall in the building" and came back as
+    // "412 Bauteile erfüllen die Abfrage".
+    const result = filter({ ifcTypes: ['IfcWall'], storey: 'Erdgeschoss' })
+    expect(result.success).toBe(false)
+  })
+
+  it('names the key it did not recognise, so the caller can correct it', () => {
+    const result = filter({ ifcType: 'IfcWall' })
+    expect(JSON.stringify(result.error?.issues)).toContain('ifcType')
+  })
+
+  it('still accepts every key it does know', () => {
+    expect(
+      filter({
+        ifcTypes: ['IfcWall'],
+        storeys: ['Erdgeschoss'],
+        nameContains: 'Aussen',
+        material: 'Beton',
+        classification: 'Ifc',
+        globalIds: ['abc'],
+        properties: [{ set: 'Pset_WallCommon', name: 'FireRating', operator: 'exists' }],
+      }).success
+    ).toBe(true)
+  })
+
+  it('rejects a property filter with an invented field', () => {
+    expect(filter({ properties: [{ property: 'FireRating', operator: 'exists' }] }).success).toBe(
+      false
+    )
+  })
+
+  it('refuses to group by a property without saying which', () => {
+    // It used to run UNGROUPED and then render the grand total as one group
+    // called "(ohne Angabe)" — so "wie verteilen sich die
+    // Feuerwiderstandsklassen?" answered that 412 walls have none.
+    const result = bimQuerySchema.safeParse({ op: 'aggregate', metric: 'count', groupBy: 'property' })
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('groupProperty')
+  })
+
+  it('accepts the same grouping once the property is named', () => {
+    expect(
+      bimQuerySchema.safeParse({
+        op: 'aggregate',
+        metric: 'count',
+        groupBy: 'property',
+        groupProperty: { set: 'Pset_WallCommon', name: 'FireRating' },
+      }).success
+    ).toBe(true)
   })
 })

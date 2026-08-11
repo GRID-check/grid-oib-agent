@@ -570,6 +570,7 @@ class IfcQueryConfig(FunctionBaseConfig, name="ifc_query"):
 
 @register_function(config_type=IfcQueryConfig)
 async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
+    from aiq_agent.knowledge.bim_query import BimQueryRejectedError
     from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
     from aiq_agent.knowledge.bim_query import run_bim_query
     from aiq_agent.project_context import get_organization_id_from_context
@@ -618,6 +619,20 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
                 query=query,
                 model_name=(model_name or "").strip() or None,
                 compare_with_name=(compare_with or "").strip() or None,
+            )
+        except BimQueryRejectedError as exc:
+            # The endpoint understood the request and refused it: an invented
+            # filter key, a `group_by` that is not in the vocabulary, a
+            # comparison operator given a non-numeric value. All correctable,
+            # and all of them used to arrive as "the model service is
+            # unavailable" — which ends the turn on a typo, with the model
+            # instructed to say nothing about the building.
+            logger.info("ifc_query was rejected: %s", exc)
+            _trace(query, None, unavailable=True)
+            return (
+                f"Error: the query was rejected — {exc}. This is a problem with the arguments, "
+                "not with the model. Correct them and call the tool again. Do NOT state anything "
+                "about the building's contents on the strength of this."
             )
         except BimQueryUnavailableError:
             # "Could not look" is not "looked and found nothing" — say so, or the

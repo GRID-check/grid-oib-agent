@@ -56,6 +56,37 @@ class BimQueryUnavailableError(RuntimeError):
     """
 
 
+class BimQueryRejectedError(ValueError):
+    """The endpoint understood the request and refused it as malformed.
+
+    Distinct from :class:`BimQueryUnavailableError`, and the distinction is the
+    whole point: an unavailable service is nothing the agent can do anything
+    about, while a rejected query is a mistake it can correct and retry. Every
+    4xx used to be reported as "the model service is unavailable", so a
+    `group_by` typo, an invented filter key, or the deliberate "gt/gte/lt/lte
+    need a numeric value" message dead-ended the turn — with the agent
+    instructed to state nothing about the building, on a correctable slip.
+    """
+
+
+def _rejection_message(exc: urllib.error.HTTPError) -> str:
+    """The endpoint's own explanation of why it refused, or a bare status.
+
+    Only the `message` field, and only when it is a short string: the rest of
+    an error body is not written for the agent, and a validation issue list can
+    carry a value the caller sent — which for a property filter is a value from
+    the tenant's model.
+    """
+    try:
+        body = json.loads(exc.read().decode("utf-8", errors="replace"))
+    except Exception:  # noqa: BLE001 — an unreadable body is just no message
+        return f"the query was refused ({exc.code})"
+    message = body.get("message") if isinstance(body, dict) else None
+    if isinstance(message, str) and 0 < len(message) <= 300:
+        return message
+    return f"the query was refused ({exc.code})"
+
+
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Refuse redirects — a 3xx means an auth middleware intercepted the call.
 
@@ -129,6 +160,12 @@ def run_bim_query(
         # Never log the body: it can carry element names and property values
         # from a tenant's model. The status is what a reader needs.
         logger.warning("BIM query rejected by the frontend (status=%s)", exc.code)
+        if 400 <= exc.code < 500 and exc.code not in (401, 403, 429):
+            # The endpoint understood the request and refused it. Its message
+            # was written for a caller who can fix the arguments, so it is the
+            # one part of the body worth reading — and it describes the
+            # REQUEST, never the tenant's model.
+            raise BimQueryRejectedError(_rejection_message(exc)) from exc
         raise BimQueryUnavailableError(f"internal BIM endpoint returned {exc.code}") from exc
     except Exception as exc:  # noqa: BLE001 — urllib raises a wide family here
         logger.warning("BIM query could not reach the frontend: %s", type(exc).__name__)

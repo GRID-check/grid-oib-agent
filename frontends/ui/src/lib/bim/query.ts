@@ -109,6 +109,10 @@ const propertyFilterSchema = z
     /** Search quantity sets instead of property sets. */
     source: z.enum(['property', 'quantity']).default('property'),
   })
+  // Strict for the same reason as the filter above: this is the shape the
+  // agent hand-writes most often, and `{"property": "FireRating"}` for `name`
+  // silently became "no name constraint".
+  .strict()
   .refine(
     (filter) =>
       filter.operator === 'exists' || filter.operator === 'missing' || filter.value !== undefined,
@@ -138,6 +142,21 @@ export const bimFilterSchema = z.object({
   globalIds: z.array(z.string().trim().min(1).max(64)).max(500).optional(),
   properties: z.array(propertyFilterSchema).max(10).optional(),
 })
+  /**
+   * Strict, because a dropped criterion cannot be detected downstream.
+   *
+   * Zod's default is to STRIP unknown keys. So `{"ifcTypes":["IfcWall"],
+   * "storey":"Erdgeschoss"}` — singular, a very natural slip, and the real key
+   * is `storeys` — became "every wall in the building", came back as
+   * "412 Bauteile erfüllen die Abfrage", and the agent reported 412 external
+   * walls on the ground floor. Nothing anywhere signalled that a criterion had
+   * been discarded. Same for `ifcType`, `nameContain`, and a property filter's
+   * `property`.
+   *
+   * Rejected is recoverable: the caller is told which key it invented and can
+   * correct it. Stripped is not.
+   */
+  .strict()
 
 export type BimFilter = z.infer<typeof bimFilterSchema>
 
@@ -232,7 +251,29 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     maxValues: z.number().int().min(1).max(50).default(10),
   }),
   aggregateSchema,
-])
+]).superRefine((request, ctx) => {
+  /**
+   * A grouping the caller asked for and did not describe is unanswerable.
+   *
+   * It used to run UNGROUPED: `groupExpression` returns null, the repository
+   * skips the `GROUP BY` — and then `renderSummary` branches on
+   * `request.groupBy` being truthy and takes the grouped path anyway. "Wie
+   * verteilen sich die Feuerwiderstandsklassen?" answered `(ohne Angabe):
+   * 412.`, and the agent reported that 412 walls have no fire rating. The
+   * question was never put to the database.
+   *
+   * On the union rather than on `aggregateSchema`, because a discriminated
+   * union's members must be plain objects — a refined member is a `ZodEffects`
+   * and the discriminator can no longer be read off it.
+   */
+  if (request.op === 'aggregate' && request.groupBy === 'property' && !request.groupProperty) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['groupProperty'],
+      message: 'groupBy "property" needs groupProperty {set, name}',
+    })
+  }
+})
 
 export type BimQuery = z.infer<typeof bimQuerySchema>
 
