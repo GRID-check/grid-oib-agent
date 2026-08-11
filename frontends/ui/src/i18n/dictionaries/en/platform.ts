@@ -504,6 +504,7 @@ export const platform = {
     models: 'Models',
     retrieval: 'Retrieval',
     quality: 'Answer quality',
+    cards: 'Cards',
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
     workflows: 'Workflow templates',
@@ -603,6 +604,10 @@ export const platform = {
       title: 'Retrieval',
       subtitle: 'How many hits each search fetches and merges — fleet-wide, effective on the next request.',
     },
+    cards: {
+      title: 'Cards',
+      subtitle: 'What the agent can put on screen — every card type, rendered, with the values it carries.',
+    },
     quality: {
       title: 'Answer quality',
       subtitle: 'How well answers are grounded, what users thought of them, and the execution timeline behind any turn that was not.',
@@ -628,6 +633,21 @@ export const platform = {
       title: 'Maintenance',
       subtitle: 'Vector-store upkeep. Only needed when retrieval and the corpus have drifted apart.',
     },
+  },
+  /** Platform → cards: the agent's presentation vocabulary, rendered. */
+  cards: {
+    title: 'Card catalog',
+    description:
+      'Every card the agent can render, shown as it appears in an answer. The list is derived from the card schema itself, so it is always what this deployment can actually produce.',
+    count: '{count} card types.',
+    loadError: 'Could not load the card catalog.',
+    interactiveBadge: 'Asks the user',
+    systemBadge: 'System-emitted',
+    showValues: 'Show values ({count})',
+    hideValues: 'Hide values',
+    noPreviewModel: 'Shown only with a loaded IFC model — this card carries element identifiers, not figures.',
+    noPreviewDocuments: 'Shown only with real project documents — this card surfaces files, not sample data.',
+    requestCta: 'Request a card',
   },
   /** Platform → models: the fleet-wide default model per agent group. */
   models: {
